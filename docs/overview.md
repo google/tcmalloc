@@ -11,7 +11,7 @@ Specifically, TCMalloc provides the following benefits:
 * Performance scales with highly parallel applications.
 * Optimizations brought about with recent C++14 and C++17 standard enhancements,
   and by diverging slightly from the standard where performance benefits
-  warrant. (These are noted within the [TCMalloc Reference](reference).)
+  warrant. (These are noted within the [TCMalloc Reference](reference.md).)
 * Extensions to allow performance improvements under certain architectures, and
   additional behavior such as metric gathering.
 
@@ -55,7 +55,7 @@ The cache size can also affect performance. The larger the cache, the less any
 given cache will overflow or get exhausted, and therefore require a lock to get
 more memory. TCMalloc extensions allow you to modify this cache size, though the
 default behavior should be preferred in most cases. For more information,
-consult the [TCMalloc Tuning Guide](tuning).
+consult the [TCMalloc Tuning Guide](tuning.md).
 
 Additionally, TCMalloc exposes telemetry about the state of the application's
 heap via `MallocExtension`.  This can be used for gathering profiles of the live
@@ -95,4 +95,4 @@ Based on the progress of
 [N2293](http://www.open-std.org/jtc1/sc22/wg14/www/docs/n2293.htm), we may relax
 this alignment in the future.
 
-For more complete information, consult the [TCMalloc Reference](reference).
+For more complete information, consult the [TCMalloc Reference](reference.md).
