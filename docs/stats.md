@@ -42,9 +42,9 @@ MALLOC: =  18083571849 (17245.8 MiB) Virtual address space used
     and could be returned to the OS. [See TCMalloc tuning](tuning.md)
 *   **Bytes in central cache freelist:** This is the amount of memory currently
     held in the central freelist. This is a structure that holds partially used
-    "[spans](/third_party/tcmalloc/g3doc/stats.md#more-detail-on-metadata)" of
-    memory. The spans are partially used because some memory has been allocated
-    from them, but not entirely used - since they have some free memory on them.
+    "[spans](#more-detail-on-metadata)" of memory. The spans are partially used
+    because some memory has been allocated from them, but not entirely used -
+    since they have some free memory on them.
 *   **Bytes in per-CPU cache freelist:** In per-cpu mode (which is the default)
     each CPU holds some memory ready to quickly hand to the application. The
     maximum size of this per-cpu cache is tunable.
@@ -100,8 +100,7 @@ MALLOC:       11665416 (   11.1 MiB) Pagemap bytes used
 MALLOC:        4067336 (    3.9 MiB) Pagemap root resident bytes
 ```
 
-*   **Spans:** structures that hold multiple
-    [pages](/third_party/tcmalloc/g3doc/stats.md#page-sizes) of allocatable
+*   **Spans:** structures that hold multiple [pages](#page-sizes) of allocatable
     objects.
 *   **Thread heaps:** These are the per-thread structures used in per-thread
     mode.
