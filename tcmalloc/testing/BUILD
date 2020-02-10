@@ -593,3 +593,16 @@ cc_test(
     malloc = "//tcmalloc:tcmalloc_256k_pages",
     deps = DEFAULT_PARAMETERS_TEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
+
+cc_binary(
+    name = "hello_main",
+    testonly = 1,
+    srcs = ["hello_main.cc"],
+    malloc = "//tcmalloc",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
