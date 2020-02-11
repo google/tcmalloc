@@ -61,6 +61,14 @@
 
 /* ---------------- start helper macros ----------------  */
 
+// This macro defines a relocation associated with the provided label to keep
+// section GC from discarding it independently of label.
+#if !defined(__clang_major__) || __clang_major__ >= 9
+#define PINSECTION(label) .reloc 0, R_X86_64_NONE, label
+#else
+#define PINSECTION(label)
+#endif
+
 // This macro defines:
 // * the rseq_cs instance that we'll use for label's critical section.
 // * a trampoline to return to when we abort.  This label_trampoline is
@@ -80,7 +88,7 @@
   .quad .L##label##_start;                          \
   .quad .L##label##_commit - .L##label##_start;     \
   .quad label##_trampoline;                         \
-  .reloc 0, R_X86_64_NONE, .L##label##array;        \
+  PINSECTION(.L##label##array);                     \
   .popsection;                                      \
   .pushsection __rseq_cs_ptr_array, "aw";           \
   .L##label##array:                                 \

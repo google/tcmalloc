@@ -128,6 +128,14 @@
 // sequence state. We return to METHOD_abort (rather than METHOD_start), as we
 // need to reinitialize this value.
 
+// This macro defines a relocation associated with the provided label to keep
+// section GC from discarding it independently of label.
+#if !defined(__clang_major__) || __clang_major__ >= 9
+#define PINSECTION(label) .reloc 0, R_PPC64_NONE, label
+#else
+#define PINSECTION(label)
+#endif
+
 // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
 // relocations, but could be read-only for non-PIE builds.
 #define DEFINE_UPSTREAM_CS(label)                                \
@@ -141,7 +149,7 @@
   .quad .L##label##_critical_start;                              \
   .quad .L##label##_critical_limit - .L##label##_critical_start; \
   .quad label##_trampoline;                                      \
-  .reloc 0, R_PPC64_NONE, .L##label##array;                      \
+  PINSECTION(.L##label##array);                                  \
   .popsection;                                                   \
   .pushsection __rseq_cs_ptr_array, "aw";                        \
   .L##label##array:                                              \
