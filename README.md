@@ -17,6 +17,8 @@ platform support for TCMalloc.
 
 All users of TCMalloc should consult the following documentation resources:
 
+* The [TCMalloc Quickstart](docs/quickstart.md) covers downloading, installing,
+  building, and testing TCMalloc, including incorporating within your codebase.
 * The [TCMalloc Overview](docs/overview.md) covers the basic architecture of
   TCMalloc, and how that may affect configuration choices.
 * The [TCMalloc Reference](docs/reference.md) covers the C and C++ TCMalloc API
