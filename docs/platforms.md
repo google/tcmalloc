@@ -21,7 +21,7 @@ list if circumstances change.)
 ## Supported Platforms
 
 The document below lists each platform, broken down by Operating System,
-Archiecture, Specific Compiler, and Standard Library implementation.
+Architecture, Specific Compiler, and Standard Library implementation.
 
 ### Linux
 
