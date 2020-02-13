@@ -1,13 +1,5 @@
 # TCMalloc : Thread-Caching Malloc
 
-<style>
-.center {
-  display: block;
-  margin-left: auto;
-  margin-right: auto;
-}
-</style>
-
 ## Motivation
 
 TCMalloc is a memory allocator designed as an alternative to the system default
@@ -106,9 +98,9 @@ are handled by the front-end.
 
 Objects of size greater than the limit defined by
 [`kMaxSize`](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h)
-are allocated directly from the [backend](#pageheap). As such they are not
-cached in either the front or middle ends. Allocation requests for large object
-sizes are rounded up to the [TCMalloc page size](#pagesizes).
+are allocated directly from the [backend](#tcmalloc-backend). As such they are
+not cached in either the front or middle ends. Allocation requests for large
+object sizes are rounded up to the [TCMalloc page size](#tcmalloc-page-sizes).
 
 ## Deallocation
 
@@ -290,8 +282,8 @@ list.
 ### Central Free List
 
 The central free list manages memory in "[spans](#spans)", a span is a
-collection of one or more "[TCMalloc pages](#pagesizes)" of memory. These terms
-will be explained in the next couple of sections.
+collection of one or more "[TCMalloc pages](#tcmalloc-page-sizes)" of memory.
+These terms will be explained in the next couple of sections.
 
 A request for one or more objects is satisfied by the central free list by
 [extracting](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
@@ -354,7 +346,7 @@ for a class-size we need to fetch a new span from the pageheap and
 [populate](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
 it.
 
-## TCMalloc Page Sizes {#pagesizes}
+## TCMalloc Page Sizes
 
 TCMalloc can be built with various
 ["page sizes"](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h)
@@ -389,7 +381,7 @@ that are sensitive to memory footprint size to use smaller TCMalloc page sizes.
 Applications with large memory footprints are likely to benefit from larger
 TCMalloc page sizes.
 
-## TCMalloc Back-end {#pageheap}
+## TCMalloc Backend
 
 The back-end of TCMalloc has three jobs:
 
@@ -450,7 +442,7 @@ different caches:
     enabled when it is determined (at runtime) that the allocation pattern would
     benefit from it.
 
-## Caveats {#caveats}
+## Caveats
 
 TCMalloc will reserve some memory for metadata at start up. The amount of
 metadata will grow as the heap grows. In particular the pagemap will grow with
