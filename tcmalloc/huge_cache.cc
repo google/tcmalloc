@@ -25,62 +25,28 @@
 
 namespace tcmalloc {
 
-// Erases values from the window that are out of date; sets i to the
-// current location in the ringbuffer.
-template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::UpdateClock() {
-  const size_t epoch = clock_() / ToInt64Nanoseconds(kEpochLength);
-  // How many time steps did we take?  (Since we only record kEpochs
-  // time steps, we can pretend it was at most that.)
-  size_t delta = epoch - last_epoch_;
-  delta = std::min(delta, kEpochs);
-  last_epoch_ = epoch;
-
-  // At each tick, we move our current location by one, to a new location
-  // that contains too-old data (which must be zeroed.)
-  for (size_t offset = 0; offset < delta; ++offset) {
-    i_++;
-    if (i_ == kEpochs) i_ = 0;
-    window_[i_] = Extrema::Nil();
-  }
-}
-
 template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::Report(HugeLength val) {
-  UpdateClock();
-  window_[i_].Report(val);
+  timeseries_.Report(val);
 }
 
 template <size_t kEpochs>
 HugeLength MinMaxTracker<kEpochs>::MaxOverTime(absl::Duration t) const {
-  size_t j = i_;
-  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  ASSERT(num_epochs <= kEpochs);
   HugeLength m = NHugePages(0);
-  for (size_t offset = 0; offset < num_epochs; ++offset) {
-    m = std::max(m, window_[j].max);
-    if (j == 0) j = kEpochs;
-    --j;
-  }
-
+  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
+  timeseries_.IterBackwards([&](size_t offset, int64_t ts,
+                                const Extrema &e) { m = std::max(m, e.max); },
+                            num_epochs);
   return m;
 }
 
 template <size_t kEpochs>
 HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
-  size_t j = i_;
-  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  ASSERT(num_epochs <= kEpochs);
   HugeLength m = kMaxVal;
-  for (size_t offset = 0; offset < num_epochs; ++offset) {
-    m = std::min(m, window_[j].min);
-    if (j == 0) j = kEpochs;
-    --j;
-  }
-
-  // We only move epochs when we report values, which shouldn't be at
-  // the boundary value, so we should see something normal here.
-  ASSERT(m < kMaxVal);
+  size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
+  timeseries_.IterBackwards([&](size_t offset, int64_t ts,
+                                const Extrema &e) { m = std::min(m, e.min); },
+                            num_epochs);
   return m;
 }
 
@@ -91,18 +57,13 @@ void MinMaxTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   const long long millis = absl::ToInt64Milliseconds(kEpochLength);
   out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
   int written = 0;
-  size_t j = i_ + 1;
-  if (j == kEpochs) j = 0;
-  for (int offset = 0; offset < kEpochs; offset++) {
-    if (window_[j] != Extrema::Nil()) {
-      if (written % 100 == 0) out->printf("\nHugeCache: Usage timeseries ");
-      out->printf("%d:%zu:%zd,", offset, window_[j].min.raw_num(),
-                  window_[j].max.raw_num());
-      written++;
-    }
-    j++;
-    if (j == kEpochs) j = 0;
-  }
+  timeseries_.Iter(
+      [&](size_t offset, int64_t ts, const Extrema &e) {
+        if ((written++) % 100 == 0)
+          out->printf("\nHugeCache: Usage timeseries ");
+        out->printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
+      },
+      timeseries_.kSkipEmptyEntries);
   out->printf("\n");
 }
 
@@ -115,20 +76,14 @@ void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
                               absl::ToInt64Milliseconds(kEpochLength));
   huge_cache_history.PrintI64("epochs", kEpochs);
 
-  int written = 0;
-  size_t j = i_ + 1;
-  if (j == kEpochs) j = 0;
-  for (int offset = 0; offset < kEpochs; offset++) {
-    if (window_[j] != Extrema::Nil()) {
-      auto m = huge_cache_history.CreateSubRegion("measurements");
-      m.PrintI64("epoch", offset);
-      m.PrintI64("min_bytes", window_[j].min.in_bytes());
-      m.PrintI64("max_bytes", window_[j].max.in_bytes());
-      written++;
-    }
-    j++;
-    if (j == kEpochs) j = 0;
-  }
+  timeseries_.Iter(
+      [&](size_t offset, int64_t ts, const Extrema &e) {
+        auto m = huge_cache_history.CreateSubRegion("measurements");
+        m.PrintI64("epoch", offset);
+        m.PrintI64("min_bytes", e.min.in_bytes());
+        m.PrintI64("max_bytes", e.max.in_bytes());
+      },
+      timeseries_.kDoNotSkipEmptyEntries);
 }
 
 template <size_t kEpochs>

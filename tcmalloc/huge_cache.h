@@ -29,14 +29,12 @@
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
 
 typedef void (*MemoryModifyFunction)(void *start, size_t len);
-
-// Assumed to tick in nanoseconds.
-typedef int64_t (*ClockFunc)();
 
 // Track the extreme values of a HugeLength value over the past
 // kWindow (time ranges approximate.)
@@ -44,7 +42,7 @@ template <size_t kEpochs = 16>
 class MinMaxTracker {
  public:
   explicit constexpr MinMaxTracker(ClockFunc clock, absl::Duration w)
-      : kWindow(w), kEpochLength(kWindow / kEpochs), clock_(clock) {}
+      : kEpochLength(w / kEpochs), timeseries_(clock, w) {}
 
   void Report(HugeLength val);
   void Print(TCMalloc_Printer *out) const;
@@ -56,10 +54,7 @@ class MinMaxTracker {
   HugeLength MinOverTime(absl::Duration t) const;
 
  private:
-  const absl::Duration kWindow;
   const absl::Duration kEpochLength;
-
-  void UpdateClock();
 
   static constexpr HugeLength kMaxVal =
       NHugePages(std::numeric_limits<size_t>::max());
@@ -77,14 +72,14 @@ class MinMaxTracker {
       max = std::max(max, n);
       min = std::min(min, n);
     }
+
+    bool empty() const { return (*this == Nil()); }
+
     bool operator==(const Extrema &other) const;
     bool operator!=(const Extrema &other) const;
   };
 
-  Extrema window_[kEpochs]{};
-  size_t last_epoch_{0};
-  size_t i_{0};
-  ClockFunc clock_;
+  TimeSeriesTracker<Extrema, HugeLength, kEpochs> timeseries_;
 };
 
 // Explicit instantiations are defined in huge_cache.cc.

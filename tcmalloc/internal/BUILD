@@ -297,6 +297,32 @@ cc_library(
 )
 
 cc_library(
+    name = "timeseries_tracker",
+    hdrs = ["timeseries_tracker.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":logging",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "timeseries_tracker_test",
+    srcs = ["timeseries_tracker_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":timeseries_tracker",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "util",
     srcs = ["util.cc"],
     hdrs = ["util.h"],

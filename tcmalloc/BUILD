@@ -286,6 +286,7 @@ common_deps = [
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",
     "//tcmalloc/internal:range_tracker",
+    "//tcmalloc/internal:timeseries_tracker",
     "//tcmalloc/internal:util",
 ]
 
