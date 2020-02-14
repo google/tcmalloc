@@ -254,12 +254,12 @@ Congratulations! You've created your first binary using TCMalloc.
 
 ## What's Next
 
-* Read our [overview](overview), if you haven't already. The overview covers
+* Read our [overview](overview.md), if you haven't already. The overview covers
   memory allocation concepts and best practices for using TCMalloc.
-* Read through the TCMalloc [reference](reference) for information on the
+* Read through the TCMalloc [reference](reference.md) for information on the
   behavior of `malloc()`, `::operator new`, and other allocation/deallocation
   routines in TCMalloc.
 * Consult the TCMalloc C++ `malloc_extensions.h` header file, which contains
   information on TCMalloc's supported extensions.
-* Read our [contribution guidelines](/third_party/tcmalloc/CONTRIBUTING), if you
+* Read our [contribution guidelines](https://github.com/google/tcmalloc/blob/master/CONTRIBUTING.md), if you
   intend to submit code to our repository.
