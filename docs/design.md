@@ -7,8 +7,8 @@ allocator that has the following characteristics:
 
 *   Fast, uncontended allocation and deallocation for most objects. Objects are
     cached, depending on mode, either per-thread, or per-logical-CPU. Most
-    allocatations do not need to take locks, so there is low contention and good
-    scaling for mult-threaded applications.
+    allocations do not need to take locks, so there is low contention and good
+    scaling for multi-threaded applications.
 *   Flexible use of memory, so freed memory can be reused for different object
     sizes, or returned to the OS.
 *   Low per object memory overhead by allocating "pages" of objects of the same
@@ -63,7 +63,7 @@ There are two implementations of the TCMalloc front-end:
     Caching Malloc). However, this resulted in memory footprints that scaled
     with the number of threads. Modern applications can have large thread
     counts, which result in either large amounts of aggregate per-thread memory,
-    or many threads having miniscule per-thread caches.
+    or many threads having minuscule per-thread caches.
 *   More recently TCMalloc has supported per-CPU mode. In this mode each logical
     CPU in the system has its own cache from which to allocate memory. Note: On
     x86 a logical CPU is equivalent to a hyperthread.
@@ -178,7 +178,7 @@ single write of the updated state. The idea of restartable sequences is that if
 a thread is removed from a CPU (e.g. context switched) while it is executing a
 restartable sequence, the sequence will be restarted from the top. Hence the
 sequence will either complete without interruption, or be repeatedly restarted
-until it completes without interruption. This is acheived without using any
+until it completes without interruption. This is achieved without using any
 locking or atomic instructions, thereby avoiding any contention in the sequence
 itself.
 
@@ -331,9 +331,9 @@ by a two-byte index.
 
 This means that we can use an
 [unrolled linked list](https://en.wikipedia.org/wiki/Unrolled_linked_list) to
-holded the objects. For example, if we have eight byte objects we can store the
+hold the objects. For example, if we have eight byte objects we can store the
 indexes of three ready-to-use objects, and use the forth slot to store the index
-of the next object in the chain. This datastructure reduces cache misses over a
+of the next object in the chain. This data structure reduces cache misses over a
 fully linked list.
 
 The other advantage of using two byte indexes is that we're able to use spare
@@ -387,7 +387,7 @@ The back-end of TCMalloc has three jobs:
 
 *   It manages large chunks of unused memory.
 *   It is responsible for fetching memory from the OS when there is no suitably
-    sized memory available to fulfill an allocation requestion.
+    sized memory available to fulfill an allocation request.
 *   It is responsible for returning unneeded memory back to the OS.
 
 There are two backends for TCMalloc:
