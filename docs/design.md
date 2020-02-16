@@ -7,7 +7,7 @@ allocator that has the following characteristics:
 
 *   Fast, uncontended allocation and deallocation for most objects. Objects are
     cached, depending on mode, either per-thread, or per-logical-CPU. Most
-    allocatations do not need to take locks, so there is low contention and good
+    allocations do not need to take locks, so there is low contention and good
     scaling for mult-threaded applications.
 *   Flexible use of memory, so freed memory can be reused for different object
     sizes, or returned to the OS.
