@@ -109,6 +109,25 @@ cc_library(
     alwayslink = 1,
 )
 
+# This library provides standard tcmalloc as a shared (loadable) library.
+cc_binary(
+    name = "libtcmalloc.so",
+    srcs = [
+        "libc_override.h",
+        "libc_override_gcc_and_weak.h",
+        "libc_override_glibc.h",
+        "sampler.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = overlay_deps + tcmalloc_deps + [
+        ":common",
+    ],
+    linkshared = True,
+)
+
 # Provides tcmalloc always; use per-thread mode.
 #
 cc_library(
