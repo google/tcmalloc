@@ -119,6 +119,16 @@ class TcmallocSlab {
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
+  // We use a single continuous region of memory for all slabs on all CPUs.
+  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
+  // First NumClasses words of each CPU region are occupied by slab
+  // headers (Header struct). The remaining memory contain slab arrays.
+  struct Slabs {
+    std::atomic<int64_t> header[NumClasses];
+    void* mem[((1ul << Shift) - sizeof(header)) / sizeof(void*)];
+  };
+  static_assert(sizeof(Slabs) == (1ul << Shift), "Slabs has unexpected size");
+
  private:
   // Slab header (packed, atomically updated 64-bit).
   struct Header {
@@ -141,16 +151,6 @@ class TcmallocSlab {
   // We cast Header to std::atomic<int64_t>.
   static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
                 "bad Header size");
-
-  // We use a single continuous region of memory for all slabs on all CPUs.
-  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
-  // First NumClasses words of each CPU region are occupied by slab
-  // headers (Header struct). The remaining memory contain slab arrays.
-  struct Slabs {
-    std::atomic<int64_t> header[NumClasses];
-    void* mem[((1ul << Shift) - sizeof(header)) / sizeof(void*)];
-  };
-  static_assert(sizeof(Slabs) == (1ul << Shift), "Slabs has unexpected size");
 
   Slabs* slabs_;
 
@@ -221,15 +221,105 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
   }
 }
 
+#if defined(__x86_64__)
+template <size_t Shift, size_t NumClasses>
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
+    typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
+    void* item, OverflowHandler f) {
+#define PERCPU_XSTRINGIFY(s) #s
+#define PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
+  // TODO(b/149467541):  Move this to asm goto.
+  uint64_t scratch, current;
+  bool overflow;
+  asm volatile(
+      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
+      // relocations, but could be read-only for non-PIE builds.
+      ".pushsection __rseq_cs, \"aw?\"\n"
+      ".balign 32\n"
+      ".local __rseq_cs_TcmallocSlab_Push_%=\n"
+      ".type __rseq_cs_TcmallocSlab_Push_%=,@object\n"
+      ".size __rseq_cs_TcmallocSlab_Push_%=,32\n"
+      "__rseq_cs_TcmallocSlab_Push_%=:\n"
+      ".long 0x0\n"
+      ".long 0x0\n"
+      ".quad 4f\n"
+      ".quad 5f - 4f\n"
+      ".quad 2f\n"
+      ".popsection\n"
+#if !defined(__clang_major__) || __clang_major__ >= 9
+      ".reloc 0, R_X86_64_NONE, 1f\n"
+#endif
+      ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
+      "1:\n"
+      ".balign 8;"
+      ".quad __rseq_cs_TcmallocSlab_Push_%=\n"
+      // Force this section to be retained.  It is for debugging, but is
+      // otherwise not referenced.
+      ".popsection\n"
+      ".pushsection .text.unlikely, \"ax?\"\n"
+      ".byte 0x0f, 0x1f, 0x05\n"
+      ".long %c[rseq_sig]\n"
+      ".local TcmallocSlab_Push_trampoline_%=\n"
+      ".type TcmallocSlab_Push_trampoline_%=,@function\n"
+      "TcmallocSlab_Push_trampoline_%=:\n"
+      "2:\n"
+      "jmp 3f\n"
+      ".popsection\n"
+      // Prepare
+      "3:\n"
+      "lea __rseq_cs_TcmallocSlab_Push_%=(%%rip), %[scratch]\n"
+      "mov %[scratch], (%[rseq_cs])\n"
+      // Start
+      "4:\n"
+      // scratch = __rseq_abi.cpu_id;
+      "mov (%[rseq_cpu]), %k[scratch]\n"
+      // scratch = slabs + scratch
+      "shl %[shift], %[scratch]\n"
+      "add %[slabs], %[scratch]\n"
+      // r11 = slabs->current;
+      "movzwq (%[scratch], %[cl], 8), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
+      "cmp 6(%[scratch], %[cl], 8), %w[current]\n"
+      "setae %b[overflow]\n"
+      "jae 5f\n"
+      "mov %[item], (%[scratch], %[current], 8)\n"
+      "inc %[current]\n"
+      "mov %w[current], (%[scratch], %[cl], 8)\n"
+      // Commit
+      "5:\n"
+      : [ current ] "=&r"(current), [ scratch ] "=&r"(scratch),
+        [ overflow ] "=&r"(overflow)
+      : [ rseq_cs ] "r"(&__rseq_abi.rseq_cs),
+        [ rseq_cpu ] "r"(&__rseq_abi.cpu_id),
+        [ rseq_sig ] "in"(PERCPU_RSEQ_SIGNATURE), [ shift ] "in"(Shift),
+        [ slabs ] "r"(slabs), [ cl ] "r"(cl), [ item ] "r"(item)
+      : "cc", "memory");
+  // Undo transformation of cpu_id to the value of scratch.
+  int cpu = reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
+                scratch) -
+            slabs;
+  if (ABSL_PREDICT_FALSE(overflow)) {
+    return f(cpu, cl, item);
+  }
+  return cpu;
+#undef PERCPU_STRINGIFY
+#undef PERCPU_XSTRINGIFY
+}
+#endif  // defined(__x86_64__)
+
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
     size_t cl, void* item, OverflowHandler f) {
   ASSERT(item != nullptr);
+#if defined(__x86_64__)
+  return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f) >= 0;
+#else
   if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Push_FixedShift(slabs_, cl, item, f) >= 0;
   } else {
     return TcmallocSlab_Push(slabs_, cl, item, Shift, f) >= 0;
   }
+#endif
 }
 
 template <size_t Shift, size_t NumClasses>
