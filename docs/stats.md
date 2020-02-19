@@ -75,8 +75,8 @@ There's a couple of summary lines:
     [tcmalloc tuning](tuning.md)), and this is the upper bound on the amount of
     released memory. However, it is up to the OS as to whether the act of
     releasing the memory actually reduces the RSS of the application. The code
-    uses MADV_DONTNEED which tells the OS that the memory is no longer needed,
-    but does not actually cause it to be physically removed.
+    uses `MADV_DONTNEED`/`MADV_REMOVE` which tells the OS that the memory is no
+    longer needed.
 *   **Virtual address space used:** This is the amount of virtual address space
     that TCMalloc believes it is using. This should match the later section on
     requested memory. There are other ways that an application can increase its
