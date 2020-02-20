@@ -249,6 +249,8 @@ static void SlowFence(const cpu_set_t *cpus) {
 static void FenceInterruptCPUs(const cpu_set_t *cpus) {
   CHECK_CONDITION(IsFast());
 
+  // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
+  // interrupt ongoing restartable sequences.
   SlowFence(cpus);
 }
 
