@@ -196,7 +196,7 @@ class HugePageFiller {
   template <size_t N>
   class HintedTrackerLists {
    public:
-    HintedTrackerLists() : nonempty_{} {
+    HintedTrackerLists() : nonempty_{}, size_(NHugePages(0)) {
       for (int i = 0; i < N; ++i) {
         lists_[i].Init();
       }
@@ -215,6 +215,7 @@ class HugePageFiller {
       if (lists_[i].remove(pt)) {
         nonempty_.ClearBit(i);
       }
+      --size_;
       return pt;
     }
     void Add(TrackerType *pt, const size_t i) {
@@ -222,6 +223,7 @@ class HugePageFiller {
       ASSERT(pt != nullptr);
       lists_[i].prepend(pt);
       nonempty_.SetBit(i);
+      ++size_;
     }
     void Remove(TrackerType *pt, const size_t i) {
       ASSERT(i < N);
@@ -229,6 +231,7 @@ class HugePageFiller {
       if (lists_[i].remove(pt)) {
         nonempty_.ClearBit(i);
       }
+      --size_;
     }
     TrackerList &operator[](const size_t n) {
       ASSERT(n < N);
@@ -237,6 +240,22 @@ class HugePageFiller {
     const TrackerList &operator[](const size_t n) const {
       ASSERT(n < N);
       return lists_[n];
+    }
+    HugeLength size() const {
+#ifndef NDEBUG
+      HugeLength ret;
+      size_t i = nonempty_.FindSet(0);
+      while (i < N) {
+        auto &list = lists_[i];
+        ASSERT(!list.empty());
+        ret += NHugePages(list.length());
+
+        i++;
+        if (i < N) i = nonempty_.FindSet(i);
+      }
+      ASSERT(ret == size_);
+#endif
+      return size_;
     }
     // Runs a functor on all HugePages in the TrackerLists.
     // This method is const but the Functor gets passed a non-const pointer.
@@ -258,6 +277,7 @@ class HugePageFiller {
    private:
     TrackerList lists_[N];
     Bitmap<N> nonempty_;
+    HugeLength size_;
   };
 
   // We group hugepages first by longest-free (as a measure of fragmentation),
@@ -274,7 +294,6 @@ class HugePageFiller {
   HintedTrackerLists<kNumLists> regular_alloc_;
   HintedTrackerLists<kPagesPerHugePage> donated_alloc_;
   // Partially released ones that we are trying to release.
-  HugeLength n_released_;
   HintedTrackerLists<kNumLists> regular_alloc_released_;
 
   // Remove pt from the appropriate HintedTrackerList.
@@ -386,10 +405,7 @@ inline Length PageTracker<Unback>::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller()
-    : n_released_(NHugePages(0)),
-      size_(NHugePages(0)),
-      allocated_(0),
-      unmapped_(0) {}
+    : size_(NHugePages(0)), allocated_(0), unmapped_(0) {}
 
 template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,
@@ -476,7 +492,6 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
     if (pt) {
       ASSERT(!pt->donated());
       was_released = true;
-      --n_released_;
       break;
     }
 
@@ -509,13 +524,10 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
   //   unbacking, we release the pageheap_lock.  Another thread could see the
   //   "free" memory and begin using it before we retake the lock.
   // * To maintain maintain the invariant that
-  //     pt->released() => n_released_ > 0
-  //   which is used for keeping our released hugepage stats in-sync with the
-  //   cached n_released_ value:
-  //     n_released_ = regular_alloc_released_.size()
-  //   size() doesn't exist (it'd be O(n) while holding the pageheap_lock).
+  //     pt->released() => regular_alloc_released_.size() > 0
   //   We do this before removing pt from our lists, since another thread may
-  //   encounter our post-Remove() update to n_released_ while encountering pt.
+  //   encounter our post-Remove() update to regular_alloc_released_.size()
+  //   while encountering pt.
   pt->MaybeRelease(p, n);
 
   Remove(pt);
@@ -746,7 +758,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
                                                bool everything) const {
   out->printf("HugePageFiller: densely pack small requests into hugepages\n");
 
-  HugeLength nrel = n_released_;
+  HugeLength nrel = regular_alloc_released_.size();
   HugeLength nfull = NHugePages(0);
 
   // note kChunks, not kNumLists here--we're iterating *full* lists.
@@ -796,7 +808,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     PbtxtRegion *hpaa, uint64_t filler_usage_used) const {
-  HugeLength nrel = n_released_;
+  HugeLength nrel = regular_alloc_released_.size();
   HugeLength nfull = NHugePages(0);
 
   // note kChunks, not kNumLists here--we're iterating *full* lists.
@@ -867,10 +879,6 @@ inline void HugePageFiller<TrackerType>::Remove(TrackerType *pt) {
   size_t longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
-  if (pt->released()) {
-    --n_released_;
-  }
-
   if (pt->donated()) {
     donated_alloc_.Remove(pt, longest);
   } else {
@@ -887,9 +895,6 @@ inline void HugePageFiller<TrackerType>::Place(TrackerType *pt) {
   size_t longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
-  if (pt->released()) {
-    ++n_released_;
-  }
   // Once a donated alloc is used in any way, it degenerates into being a
   // regular alloc. This allows the algorithm to keep using it (we had to be
   // desperate to use it in the first place), and thus preserves the other
@@ -918,7 +923,7 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   // How many of our used pages are on non-huge pages? Since
   // everything on a released hugepage is either used or released,
   // just the difference:
-  const Length nrel = n_released_.in_pages();
+  const Length nrel = regular_alloc_released_.size().in_pages();
   const Length used = used_pages();
   const Length unmapped = unmapped_pages();
   const Length used_on_rel = nrel >= unmapped ? nrel - unmapped : 0;
