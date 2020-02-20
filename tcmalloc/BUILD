@@ -973,6 +973,7 @@ cc_library(
         "//visibility:public",
     ],
     deps = [
+        "//tcmalloc/internal:parameter_accessors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/base:malloc_internal",
