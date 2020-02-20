@@ -450,19 +450,49 @@ void TcmallocSlab<Shift, NumClasses>::Init(void*(alloc)(size_t size),
   size_t bytes_used = 0;
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
     bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
+    void** elems = slabs_[cpu].mem;
 
     for (size_t cl = 0; cl < NumClasses; ++cl) {
       size_t cap = capacity(cl);
-      if (!cap) {
+      CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
+
+      if (cap == 0) {
         continue;
       }
 
-      // One extra element for prefetch
-      bytes_used += (cap + 1) * sizeof(void*);
-    }
+      if (cap) {
+        if (!lazy) {
+          // In Pop() we prefetch the item a subsequent Pop() would return; this
+          // is slow if it's not a valid pointer. To avoid this problem when
+          // popping the last item, keep one fake item before the actual ones
+          // (that points, safely, to itself.)
+          *elems = elems;
+          elems++;
+        }
 
-    if (!lazy) {
-      InitCPU(cpu, capacity);
+        // One extra element for prefetch
+        bytes_used += (cap + 1) * sizeof(void*);
+      }
+
+      if (!lazy) {
+        // TODO(ckennelly): Consolidate this initialization logic with that in
+        // InitCPU.
+        size_t offset = elems - reinterpret_cast<void**>(CpuMemoryStart(cpu));
+        CHECK_CONDITION(static_cast<uint16_t>(offset) == offset);
+
+        Header hdr;
+        hdr.current = offset;
+        hdr.begin = offset;
+        hdr.end = offset;
+        hdr.end_copy = offset;
+
+        StoreHeader(GetHeader(cpu, cl), hdr);
+      }
+
+      elems += cap;
+      CHECK_CONDITION(reinterpret_cast<char*>(elems) -
+                          reinterpret_cast<char*>(CpuMemoryStart(cpu)) <=
+                      (1 << Shift));
     }
   }
   // Check for less than 90% usage of the reserved memory
@@ -475,31 +505,79 @@ void TcmallocSlab<Shift, NumClasses>::Init(void*(alloc)(size_t size),
 template <size_t Shift, size_t NumClasses>
 void TcmallocSlab<Shift, NumClasses>::InitCPU(int cpu,
                                               size_t (*capacity)(size_t cl)) {
+  // TODO(ckennelly): Consolidate this logic with Drain.
+  // Phase 1: verify no header is locked
+  for (size_t cl = 0; cl < NumClasses; ++cl) {
+    Header hdr = LoadHeader(GetHeader(cpu, cl));
+    CHECK_CONDITION(!hdr.IsLocked());
+  }
+
+  // Phase 2: Stop concurrent mutations.  Locking ensures that there exists no
+  // value of current such that begin < current.
+  for (bool done = false; !done;) {
+    for (size_t cl = 0; cl < NumClasses; ++cl) {
+      // Note: this reinterpret_cast and write in Lock lead to undefined
+      // behavior, because the actual object type is std::atomic<int64_t>. But
+      // C++ does not allow to legally express what we need here: atomic writes
+      // of different sizes.
+      reinterpret_cast<Header*>(GetHeader(cpu, cl))->Lock();
+    }
+    FenceCpu(cpu);
+    done = true;
+    for (size_t cl = 0; cl < NumClasses; ++cl) {
+      Header hdr = LoadHeader(GetHeader(cpu, cl));
+      if (!hdr.IsLocked()) {
+        // Header was overwritten by Grow/Shrink. Retry.
+        done = false;
+        break;
+      }
+    }
+  }
+
+  // Phase 3: Initialize prefetch target and compute the offsets for the
+  // boundaries of each size class' cache.
   void** elems = slabs_[cpu].mem;
+  uint16_t begin[NumClasses];
   for (size_t cl = 0; cl < NumClasses; ++cl) {
     size_t cap = capacity(cl);
-    if (!cap) {
-      continue;
-    }
     CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
-    Header hdr = {};
-    // In Pop() we prefetch the item a subsequent Pop() would return;
-    // this is slow if it's not a valid pointer. To avoid this problem
-    // when popping the last item, keep one fake item before the actual
-    // ones (that points, safely, to itself.)
-    *elems = elems;
-    elems++;
-    size_t begin = elems - reinterpret_cast<void**>(CpuMemoryStart(cpu));
-    hdr.current = begin;
-    hdr.begin = begin;
-    hdr.end = begin;
-    hdr.end_copy = begin;
+    if (cap) {
+      // In Pop() we prefetch the item a subsequent Pop() would return; this is
+      // slow if it's not a valid pointer. To avoid this problem when popping
+      // the last item, keep one fake item before the actual ones (that points,
+      // safely, to itself.)
+      *elems = elems;
+      elems++;
+    }
+
+    size_t offset = elems - reinterpret_cast<void**>(CpuMemoryStart(cpu));
+    CHECK_CONDITION(static_cast<uint16_t>(offset) == offset);
+    begin[cl] = offset;
+
     elems += cap;
     CHECK_CONDITION(reinterpret_cast<char*>(elems) -
                         reinterpret_cast<char*>(CpuMemoryStart(cpu)) <=
                     (1 << Shift));
+  }
 
+  // Phase 4: Store current.  No restartable sequence will proceed
+  // (successfully) as !(begin < current) for all size classes.
+  for (size_t cl = 0; cl < NumClasses; ++cl) {
+    std::atomic<int64_t>* hdrp = GetHeader(cpu, cl);
+    Header hdr = LoadHeader(hdrp);
+    hdr.current = begin[cl];
+    StoreHeader(hdrp, hdr);
+  }
+  FenceCpu(cpu);
+
+  // Phase 5: Allow access to this cache.
+  for (size_t cl = 0; cl < NumClasses; ++cl) {
+    Header hdr;
+    hdr.current = begin[cl];
+    hdr.begin = begin[cl];
+    hdr.end = begin[cl];
+    hdr.end_copy = begin[cl];
     StoreHeader(GetHeader(cpu, cl), hdr);
   }
 }
