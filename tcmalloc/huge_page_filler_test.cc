@@ -545,7 +545,7 @@ class BlockingUnback {
 thread_local absl::Mutex *BlockingUnback::mu_ = nullptr;
 absl::BlockingCounter *BlockingUnback::counter = nullptr;
 
-class FillerTest : public testing::Test {
+class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
   // Our templating approach lets us directly override certain functions
   // and have mocks without virtualization.  It's a bit funky but works.
@@ -578,7 +578,7 @@ class FillerTest : public testing::Test {
 
   HugePageFiller<FakeTracker> filler_;
 
-  FillerTest() { new (&filler_) HugePageFiller<FakeTracker>; }
+  FillerTest() : filler_(GetParam()) {}
 
   ~FillerTest() override {
     EXPECT_EQ(NHugePages(0), filler_.size());
@@ -681,7 +681,7 @@ class FillerTest : public testing::Test {
   std::vector<PAlloc> GenerateInterestingAllocs();
 };
 
-TEST_F(FillerTest, Density) {
+TEST_P(FillerTest, Density) {
   absl::BitGen rng;
   // Start with a really annoying setup: some hugepages half
   // empty (randomly)
@@ -723,7 +723,7 @@ TEST_F(FillerTest, Density) {
   }
 }
 
-TEST_F(FillerTest, Release) {
+TEST_P(FillerTest, Release) {
   static const size_t kAlloc = kPagesPerHugePage / 2;
   PAlloc p1 = Allocate(kAlloc - 1);
   PAlloc p2 = Allocate(kAlloc + 1);
@@ -748,7 +748,7 @@ TEST_F(FillerTest, Release) {
   Delete(p5);
 }
 
-TEST_F(FillerTest, Fragmentation) {
+TEST_P(FillerTest, Fragmentation) {
   absl::BitGen rng;
   auto dist = EmpiricalDistribution(absl::GetFlag(FLAGS_frag_req_limit));
 
@@ -796,7 +796,7 @@ static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
 using testing::AnyOf;
 using testing::Eq;
 
-TEST_F(FillerTest, HugePageFrac) {
+TEST_P(FillerTest, HugePageFrac) {
   // I don't actually care which we get, both are
   // reasonable choices, but don't report a NaN/complain
   // about divide by 0s/ give some bogus number for empty.
@@ -847,7 +847,7 @@ TEST_F(FillerTest, HugePageFrac) {
 //
 // This test is a tool for analyzing parameters -- not intended as an actual
 // unit test.
-TEST_F(FillerTest, DISABLED_ReleaseFrac) {
+TEST_P(FillerTest, DISABLED_ReleaseFrac) {
   absl::BitGen rng;
   const Length baseline = absl::GetFlag(FLAGS_bytes) / kPageSize;
   const Length peak = baseline * absl::GetFlag(FLAGS_growth_factor);
@@ -884,7 +884,7 @@ TEST_F(FillerTest, DISABLED_ReleaseFrac) {
   }
 }
 
-TEST_F(FillerTest, ReleaseAccounting) {
+TEST_P(FillerTest, ReleaseAccounting) {
   const Length N = kPagesPerHugePage;
   auto big = Allocate(N - 2);
   auto tiny1 = Allocate(1);
@@ -924,7 +924,7 @@ TEST_F(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(0, filler_.unmapped_pages());
 }
 
-TEST_F(FillerTest, ReleaseWithReuse) {
+TEST_P(FillerTest, ReleaseWithReuse) {
   const Length N = kPagesPerHugePage;
   auto half = Allocate(N / 2);
   auto tiny1 = Allocate(N / 4);
@@ -963,7 +963,7 @@ TEST_F(FillerTest, ReleaseWithReuse) {
   EXPECT_EQ(0, filler_.unmapped_pages());
 }
 
-TEST_F(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
+TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   const Length N = kPagesPerHugePage;
   // Guarantee we have a ton of released pages go empty.
   for (int i = 0; i < 10 * 1000; ++i) {
@@ -978,7 +978,7 @@ TEST_F(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   EXPECT_GE(1024 * 1024 * 1024, s.system_bytes);
 }
 
-TEST_F(FillerTest, StronglyPreferNonDonated) {
+TEST_P(FillerTest, StronglyPreferNonDonated) {
   // We donate several huge pages of varying fullnesses. Then we make several
   // allocations that would be perfect fits for the donated hugepages, *after*
   // making one allocation that won't fit, to ensure that a huge page is
@@ -1036,7 +1036,7 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
 
 // Test the output of Print(). This is something of a change-detector test,
 // but that's not all bad in this case.
-TEST_F(FillerTest, Print) {
+TEST_P(FillerTest, Print) {
   if (kPagesPerHugePage != 256) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -1111,7 +1111,7 @@ HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0
 
 // Test the output of PrintInPbtxt(). This is something of a change-detector
 // test, but that's not all bad in this case.
-TEST_F(FillerTest, PrintInPbtxt) {
+TEST_P(FillerTest, PrintInPbtxt) {
   if (kPagesPerHugePage != 256) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -2231,6 +2231,10 @@ TEST_F(FillerTest, PrintInPbtxt) {
     Delete(alloc);
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(All, FillerTest,
+                         testing::Values(FillerPartialRerelease::Return,
+                                         FillerPartialRerelease::Retain));
 
 }  // namespace
 }  // namespace tcmalloc

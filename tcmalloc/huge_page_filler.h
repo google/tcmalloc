@@ -131,13 +131,27 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   }
 };
 
+enum class FillerPartialRerelease : bool {
+  // Once we break a hugepage by returning a fraction of it, we return
+  // *anything* unused.  This simplifies tracking.
+  //
+  // As of 2/2020, this is the default behavior.
+  Return,
+  // When releasing a page onto an already-released huge page, retain the page
+  // rather than releasing it back to the OS.  This can reduce minor page
+  // faults for hot pages.
+  //
+  // TODO(b/141550014, b/122551676):  Complete this feature.
+  Retain,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
 template <class TrackerType>
 class HugePageFiller {
  public:
-  HugePageFiller();
+  HugePageFiller(FillerPartialRerelease partial_rerelease);
 
   typedef TrackerType Tracker;
 
@@ -312,6 +326,8 @@ class HugePageFiller {
   // How much have we eagerly unmapped (in already released hugepages), but
   // not reported to ReleasePages calls?
   Length unmapping_unaccounted_{0};
+
+  FillerPartialRerelease partial_rerelease_;
 };
 
 template <MemoryModifyFunction Unback>
@@ -404,8 +420,12 @@ inline Length PageTracker<Unback>::free_pages() const {
 }
 
 template <class TrackerType>
-inline HugePageFiller<TrackerType>::HugePageFiller()
-    : size_(NHugePages(0)), allocated_(0), unmapped_(0) {}
+inline HugePageFiller<TrackerType>::HugePageFiller(
+    FillerPartialRerelease partial_rerelease)
+    : size_(NHugePages(0)),
+      allocated_(0),
+      unmapped_(0),
+      partial_rerelease_(partial_rerelease) {}
 
 template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,

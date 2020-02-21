@@ -81,8 +81,11 @@ namespace tcmalloc {
 // - pick the right one for a given allocation
 // - provide enough data to figure out what we picked last time!
 
+// TODO(b/141550014, b/122551676):  Select the parameter of the HugePageFiller
+// constructor from an experiment.
 HugePageAwareAllocator::HugePageAwareAllocator(bool tagged)
     : PageAllocatorInterface("HugePageAware", tagged),
+      filler_(FillerPartialRerelease::Return),
       alloc_(tagged ? AllocAndReport<true> : AllocAndReport<false>,
              MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}) {
