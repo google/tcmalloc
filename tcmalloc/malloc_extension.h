@@ -69,7 +69,7 @@ enum class ProfileType {
   kDoNotUse,
 };
 
-class Profile {
+class Profile final {
  public:
   Profile() = default;
   Profile(Profile&&) = default;
@@ -168,7 +168,8 @@ class AddressRegionFactory {
   static void* MallocInternal(size_t size);
 };
 
-class MallocExtension {
+class MallocExtension final
+{
  public:
 
   // Gets a human readable description of the current state of the malloc data
