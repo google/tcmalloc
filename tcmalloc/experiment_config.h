@@ -19,7 +19,6 @@ namespace tcmalloc {
 
 enum class Experiment : int {
   TCMALLOC_TEMERAIRE,
-  TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE,
   TCMALLOC_SANS_56_SIZECLASS,
   TCMALLOC_ARBITRARY_TRANSFER,
   TCMALLOC_LARGE_NUM_TO_MOVE,
@@ -34,8 +33,6 @@ struct ExperimentConfig {
 // TODO(b/134687226): Consider making this programmatically generated
 constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_TEMERAIRE, "TCMALLOC_TEMERAIRE"},
-    {Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE,
-     "TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE"},
     {Experiment::TCMALLOC_SANS_56_SIZECLASS, "TCMALLOC_SANS_56_SIZECLASS"},
     {Experiment::TCMALLOC_ARBITRARY_TRANSFER,
      "TCMALLOC_ARBITRARY_TRANSFER_CACHE"},

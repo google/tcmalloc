@@ -124,29 +124,13 @@ class HugeCache {
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback)
       : HugeCache(allocator, meta_allocate, unback, GetCurrentTimeNanos,
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE)
-                      ? absl::Seconds(30)
-                      : absl::Seconds(1),
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE),
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE),
-                  false, absl::Seconds(1)) {}
+                  absl::Seconds(1), false, false, false, absl::Seconds(1)) {}
 
   // For testing with mock clock
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback, ClockFunc clock)
-      : HugeCache(allocator, meta_allocate, unback, clock,
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE)
-                      ? absl::Seconds(30)
-                      : absl::Seconds(1),
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE),
-                  IsExperimentActive(
-                      Experiment::TCMALLOC_HUGEPAGE_MOVING_AVERAGE_RELEASE),
-                  false, absl::Seconds(1)) {}
+      : HugeCache(allocator, meta_allocate, unback, clock, absl::Seconds(1),
+                  false, false, false, absl::Seconds(1)) {}
 
   // For extensive testing
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
