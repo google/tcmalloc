@@ -123,35 +123,20 @@ class HugeCache {
   // For use in production
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback)
-      : HugeCache(allocator, meta_allocate, unback, GetCurrentTimeNanos,
-                  absl::Seconds(1), false, false, false, absl::Seconds(1)) {}
+      : HugeCache(allocator, meta_allocate, unback, GetCurrentTimeNanos) {}
 
   // For testing with mock clock
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback, ClockFunc clock)
-      : HugeCache(allocator, meta_allocate, unback, clock, absl::Seconds(1),
-                  false, false, false, absl::Seconds(1)) {}
-
-  // For extensive testing
-  HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
-            MemoryModifyFunction unback, ClockFunc clock,
-            absl::Duration time_constant, bool use_moving_average,
-            bool respect_mincache_limit, bool ignore_oncepersec_release,
-            absl::Duration ema_resolution)
       : allocator_(allocator),
         cache_(meta_allocate),
-        kCacheTime(time_constant),
         clock_(clock),
         last_limit_change_(clock()),
         last_regret_update_(clock()),
         detailed_tracker_(clock, absl::Minutes(10)),
-        moving_limit_tracker_(clock, kCacheTime, ema_resolution),
         usage_tracker_(clock, kCacheTime * 2),
         off_peak_tracker_(clock, kCacheTime * 2),
         size_tracker_(clock, kCacheTime * 2),
-        use_moving_average_(use_moving_average),
-        respect_mincache_limit_(respect_mincache_limit),
-        ignore_oncepersec_release_(ignore_oncepersec_release),
         unback_(unback) {}
   // Allocate a usable set of <n> contiguous hugepages.  Try to give out
   // memory that's currently backed from the kernel if we have it available.
@@ -222,7 +207,7 @@ class HugeCache {
   HugeLength size_{NHugePages(0)};
 
   HugeLength limit_{NHugePages(10)};
-  const absl::Duration kCacheTime;
+  const absl::Duration kCacheTime = absl::Seconds(1);
 
   size_t hits_{0};
   size_t misses_{0};
@@ -244,21 +229,13 @@ class HugeCache {
   // 10 hugepages is a good baseline for our cache--easily wiped away
   // by periodic release, and not that much memory on any real server.
   // However, we can go below it if we haven't used that much for 30 seconds.
-  HugeLength MinCacheLimit() const {
-    return respect_mincache_limit_
-               ? std::min(
-                     detailed_tracker_.MaxOverTime(absl::Seconds(30)) - usage_,
-                     NHugePages(10))
-               : NHugePages(10);
-  }
+  HugeLength MinCacheLimit() const { return NHugePages(10); }
 
   uint64_t regret_{0};  // overflows if we cache 585 hugepages for 1 year
   int64_t last_regret_update_;
   void UpdateSize(HugeLength size);
 
   MinMaxTracker<600> detailed_tracker_;
-
-  MovingAverageTracker moving_limit_tracker_;
 
   MinMaxTracker<> usage_tracker_;
   MinMaxTracker<> off_peak_tracker_;
@@ -268,10 +245,6 @@ class HugeCache {
 
   HugeLength total_fast_unbacked_{NHugePages(0)};
   HugeLength total_periodic_unbacked_{NHugePages(0)};
-
-  const bool use_moving_average_;
-  const bool respect_mincache_limit_;
-  const bool ignore_oncepersec_release_;
 
   MemoryModifyFunction unback_;
 };

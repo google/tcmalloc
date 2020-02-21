@@ -211,23 +211,19 @@ void HugeCache::MaybeGrowCacheLimit(HugeLength missed) {
 void HugeCache::IncUsage(HugeLength n) {
   usage_ += n;
   usage_tracker_.Report(usage_);
-  moving_limit_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   off_peak_tracker_.Report(NHugePages(0));
-  if (use_moving_average_) limit_ = moving_limit_tracker_.RollingMaxAverage();
   if (size() + usage() > max_rss_) max_rss_ = size() + usage();
 }
 
 void HugeCache::DecUsage(HugeLength n) {
   usage_ -= n;
   usage_tracker_.Report(usage_);
-  moving_limit_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   const HugeLength max = usage_tracker_.MaxOverTime(kCacheTime);
   ASSERT(max >= usage_);
   const HugeLength off_peak = max - usage_;
   off_peak_tracker_.Report(off_peak);
-  if (use_moving_average_) limit_ = moving_limit_tracker_.RollingMaxAverage();
   if (size() + usage() > max_rss_) max_rss_ = size() + usage();
 }
 
@@ -252,10 +248,8 @@ HugeRange HugeCache::Get(HugeLength n, bool *from_released) {
   // this case for cache size accounting.
   IncUsage(r.len());
 
-  if (!use_moving_average_) {
-    const bool miss = r.valid() && *from_released;
-    if (miss) MaybeGrowCacheLimit(n);
-  }
+  const bool miss = r.valid() && *from_released;
+  if (miss) MaybeGrowCacheLimit(n);
   return r;
 }
 
@@ -264,7 +258,7 @@ void HugeCache::Release(HugeRange r) {
 
   cache_.Insert(r);
   size_ += r.len();
-  if (use_moving_average_ ? size_ + usage_ <= limit() : size_ <= limit()) {
+  if (size_ <= limit()) {
     fills_++;
   } else {
     overflows_++;
@@ -273,16 +267,10 @@ void HugeCache::Release(HugeRange r) {
   // Shrink the limit, if we're going to do it, before we shrink to
   // the max size.  (This could reduce the number of regions we break
   // in half to avoid overshrinking.)
-  if (use_moving_average_) {
-    if (limit() > usage()) {
-      total_fast_unbacked_ += ShrinkCache(limit() - usage());
-    }
-  } else {
-    if (absl::Nanoseconds(clock_() - last_limit_change_) > (kCacheTime * 2)) {
-      total_fast_unbacked_ += MaybeShrinkCacheLimit();
-    }
-    total_fast_unbacked_ += ShrinkCache(limit());
+  if (absl::Nanoseconds(clock_() - last_limit_change_) > (kCacheTime * 2)) {
+    total_fast_unbacked_ += MaybeShrinkCacheLimit();
   }
+  total_fast_unbacked_ += ShrinkCache(limit());
 
   UpdateSize(size());
 }
@@ -312,7 +300,6 @@ HugeLength HugeCache::MaybeShrinkCacheLimit() {
 HugeLength HugeCache::ShrinkCache(HugeLength target) {
   HugeLength removed = NHugePages(0);
   while (size_ > target) {
-    if (respect_mincache_limit_ && size_ <= MinCacheLimit()) break;
     // Remove smallest-ish nodes, to avoid fragmentation where possible.
     auto *node = Find(NHugePages(1));
     CHECK_CONDITION(node);
@@ -345,18 +332,9 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
 
 HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   // This is a good time to check: is our cache going persistently unused?
-  HugeLength released = NHugePages(0);
-  if (use_moving_average_) {
-    usage_tracker_.Report(usage_);
-    moving_limit_tracker_.Report(usage_);
-    detailed_tracker_.Report(usage_);
-    limit_ = moving_limit_tracker_.RollingMaxAverage();
-    if (limit() >= usage_) released = ShrinkCache(limit() - usage_);
-  } else {
-    released = MaybeShrinkCacheLimit();
-  }
+  HugeLength released = MaybeShrinkCacheLimit();
 
-  if (!ignore_oncepersec_release_ && released < n) {
+  if (released < n) {
     n -= released;
     const HugeLength target = n > size() ? NHugePages(0) : size() - n;
     released += ShrinkCache(target);
