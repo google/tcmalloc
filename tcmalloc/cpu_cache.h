@@ -186,7 +186,7 @@ inline void *ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
 
   tracking::Report(kMallocHit, cl, 1);
   struct Helper {
-    static void *Underflow(int cpu, size_t cl) {
+    static void *ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl) {
       // we've optimistically reported hit in Allocate, lets undo it and
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
@@ -208,7 +208,7 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void *ptr,
   tracking::Report(kFreeHit, cl, 1);  // Be optimistic; correct later if needed.
 
   struct Helper {
-    static int Overflow(int cpu, size_t cl, void *ptr) {
+    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void *ptr) {
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
