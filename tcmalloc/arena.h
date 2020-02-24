@@ -27,17 +27,8 @@ namespace tcmalloc {
 // spans, profiles, etc.  Always expands.
 class Arena {
  public:
-  Arena() {
-  }
-
-  // We use an explicit Init function because these variables are statically
-  // allocated and their constructors might not have run by the time some other
-  // static variable tries to allocate memory.
-  void Init() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    free_area_ = nullptr;
-    free_avail_ = 0;
-    bytes_allocated_ = 0;
-  }
+  constexpr Arena()
+      : free_area_(nullptr), free_avail_(0), bytes_allocated_(0) {}
 
   // Return a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.

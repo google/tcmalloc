@@ -40,7 +40,7 @@ namespace tcmalloc {
 // IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
 absl::base_internal::SpinLock pageheap_lock(
     absl::base_internal::kLinkerInitialized);
-Arena Static::arena_;
+ABSL_CONST_INIT Arena Static::arena_;
 SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 TransferCache Static::transfer_cache_[kNumClasses];
 CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
@@ -90,7 +90,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {
     tracking::Init();
-    arena_.Init();
     sizemap_.Init();
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
