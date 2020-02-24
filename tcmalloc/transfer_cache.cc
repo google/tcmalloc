@@ -37,7 +37,7 @@ void TransferCache::Init(size_t cl) {
 
   // Cache this value, for performance.
   arbitrary_transfer_ =
-      IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER);
+      IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER_CACHE);
 
   slots_ = nullptr;
   max_cache_slots_ = 0;
