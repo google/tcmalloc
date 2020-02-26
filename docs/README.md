@@ -31,6 +31,8 @@ More advanced usages of TCMalloc may find the following documentation useful:
 * The [TCMalloc Design Doc](design.md) covers how TCMalloc works underneath the
   hood, and why certain design choices were made. Most developers
   will not need this level of implementation detail.
+* The [TCMalloc Compatibility Guide](compatibility.md) which documents our
+  expectations for how our APIs are used.
 
 ## License
 
