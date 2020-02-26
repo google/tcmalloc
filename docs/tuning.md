@@ -1,5 +1,7 @@
 # Performance Tuning TCMalloc
 
+## User-Accessible Controls
+
 There are three user accessible controls that we can use to performance tune
 TCMalloc:
 
@@ -10,7 +12,7 @@ TCMalloc:
 None of these tuning parameters are clear wins, otherwise they would be the
 default. We'll discuss the advantages and disadvantages of changing them.
 
-## The Logical Page Size for TCMalloc:
+### The Logical Page Size for TCMalloc:
 
 This is determined at compile time by linking in the appropriate version of
 TCMalloc. The page size indicates the unit in which TCMalloc manages memory. The
@@ -72,7 +74,7 @@ to be memory-efficient for the applications using that page size. If an
 application changes page size, there may be a performance or memory impact from
 the different selection of class sizes.
 
-## Per-thread/per-cpu Cache Sizes
+### Per-thread/per-cpu Cache Sizes
 
 The default is for TCMalloc to run in per-cpu mode as this is faster; however,
 there are few applications which have not yet transitioned. The plan is to move
@@ -98,7 +100,7 @@ TCMalloc code, and depending on the overall size of the application (a larger
 application can afford to cache more memory without noticeably increasing its
 overall size).
 
-## Memory Releasing
+### Memory Releasing
 
 `tcmalloc::MallocExtension::ReleaseMemoryToSystem` makes a request to release
 `n` bytes of memory to TCMalloc. This can keep the memory footprint of the
@@ -129,3 +131,19 @@ the `CentralFreeList`.
 applications. In situations where it is tempting to set a faster rate it is
 worth considering why there are memory spikes, since those spikes are likely to
 cause an OOM at some point.
+
+## System-Level Optimizations
+
+*   TCMalloc heavily relies on Transparent Huge Pages (THP).  As of February
+    2020, we build and test with
+
+```
+/sys/kernel/mm/transparent_hugepage/enabled:
+    [always] madvise never
+
+/sys/kernel/mm/transparent_hugepage/defrag:
+    always defer [defer+madvise] madvise never`
+
+/sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none:
+    0
+```

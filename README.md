@@ -27,7 +27,9 @@ All users of TCMalloc should consult the following documentation resources:
 More advanced usages of TCMalloc may find the following documentation useful:
 
 * The [TCMalloc Tuning Guide](docs/tuning.md) covers the configuration choices
-  in more depth, and also illustrates other ways to customize TCMalloc.
+  in more depth, and also illustrates other ways to customize TCMalloc.  This
+  also covers important operating system-level properties for improving TCMalloc
+  performance.
 * The [TCMalloc Design Doc](docs/design.md) covers how TCMalloc works
   underneath the hood, and why certain design choices were made. Most developers
   will not need this level of implementation detail.
