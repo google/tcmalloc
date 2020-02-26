@@ -878,7 +878,7 @@ cc_test(
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
-        ":headers_for_tests",
+        ":common",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
@@ -894,7 +894,7 @@ cc_test(
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_small_but_slow",
     deps = [
-        ":headers_for_tests",
+        ":common_small_but_slow",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
@@ -910,7 +910,7 @@ cc_test(
     copts = ["-DTCMALLOC_LARGE_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_large_pages",
     deps = [
-        ":headers_for_tests",
+        ":common_large_pages",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
@@ -926,7 +926,7 @@ cc_test(
     copts = ["-DTCMALLOC_256K_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_256k_pages",
     deps = [
-        ":headers_for_tests",
+        ":common_256k_pages",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
