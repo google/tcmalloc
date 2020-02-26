@@ -49,7 +49,7 @@ PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
 PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
 SpanList Static::sampled_objects_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
-PeakHeapTracker Static::peak_heap_tracker_;
+ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
 PageHeapAllocator<StackTraceTable::Bucket> Static::bucket_allocator_;
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 bool Static::cpu_cache_active_;
@@ -96,7 +96,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     span_allocator_.New();  // Reduce cache conflicts
     stacktrace_allocator_.Init(&arena_);
     bucket_allocator_.Init(&arena_);
-    peak_heap_tracker_.Init();
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     CHECK_CONDITION((sizeof(transfer_cache_[0]) % 64) == 0);
     for (int i = 0; i < kNumClasses; ++i) {

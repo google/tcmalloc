@@ -25,16 +25,7 @@ namespace tcmalloc {
 
 class PeakHeapTracker {
  public:
-  // Constructor should do nothing since we rely on explicit Init()
-  // call, which may or may not be called before the constructor runs.
-  PeakHeapTracker() {}
-
-  // Explicit Init is required because constructor for our single static
-  // instance may not have run by the time it is used
-  void Init() {
-    peak_sampled_span_stacks_ = nullptr;
-    peak_sampled_heap_size_.Clear();
-  }
+  constexpr PeakHeapTracker() : peak_sampled_span_stacks_(nullptr) {}
 
   // Possibly save high-water-mark allocation stack traces for peak-heap
   // profile. Should be called immediately after sampling an allocation. If
