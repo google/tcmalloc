@@ -175,7 +175,8 @@ class MallocExtension final
   // Gets a human readable description of the current state of the malloc data
   // structures.
   //
-  // See /tcmalloc/docs/stats.md for how to interpret these statistics.
+  // See https://github.com/google/tcmalloc/tree/master/docs/stats.md for how to interpret these
+  // statistics.
   static std::string GetStats();
 
   // -------------------------------------------------------------------

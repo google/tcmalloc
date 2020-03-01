@@ -14,7 +14,9 @@
 #
 # Description:
 #
-# tcmalloc is a fast malloc implementation.
+# tcmalloc is a fast malloc implementation.  See
+# https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
+# how this malloc works.
 
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 

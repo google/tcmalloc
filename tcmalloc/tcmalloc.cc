@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+// tcmalloc is a fast malloc implementation.  See
+// https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
+// how this malloc works.
+//
 // SYNCHRONIZATION
 //  1. The thread-/cpu-specific lists are accessed without acquiring any locks.
 //     This is safe because each such list is only accessed by one thread/cpu at
