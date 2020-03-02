@@ -56,7 +56,7 @@ bool decide_want_hpaa() {
     }
   }
 
-#if !defined(__x86_64__) || defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(__PPC64__) || defined(TCMALLOC_SMALL_BUT_SLOW)
   // Our testing of HPAA has focused on x86, and it's neither small nor slow :)
   return false;
 #else
