@@ -24,9 +24,7 @@ cc_library(
     name = "atomic_danger",
     hdrs = ["atomic_danger.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//visibility:private"],
 )
 
 cc_library(
@@ -70,9 +68,7 @@ cc_library(
     name = "config",
     hdrs = ["config.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//visibility:private"],
 )
 
 cc_library(
@@ -116,7 +112,6 @@ cc_library(
     hdrs = ["linux_syscall_support.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
-        "//tcmalloc:__subpackages__",
     ],
 )
 
