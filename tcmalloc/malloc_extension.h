@@ -262,7 +262,11 @@ class MallocExtension final
   // any necessary locking.
   static void SetRegionFactory(AddressRegionFactory* a);
 
-  // Tries to release num_bytes of free memory back to the OS for reuse.
+  // Tries to release at least num_bytes of free memory back to the OS for
+  // reuse.
+  //
+  // Depending on the state of the malloc implementation, more than num_bytes of
+  // memory may be released to the OS.
   //
   // This request may not be completely honored if:
   // * The underlying malloc implementation does not support releasing memory to
