@@ -68,7 +68,7 @@ cc_library(
     name = "config",
     hdrs = ["config.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:private"],
+    visibility = ["//tcmalloc:__subpackages__"],
 )
 
 cc_library(

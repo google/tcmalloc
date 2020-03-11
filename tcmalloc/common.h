@@ -25,6 +25,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/bits.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
 
@@ -210,19 +211,6 @@ static const int kAddressBits = 8 * sizeof(void*);
 #endif
 
 namespace tcmalloc {
-#if defined(__x86_64__)
-// x86 has 2 MiB huge pages
-static const size_t kHugePageShift = 21;
-#elif defined(__PPC64__)
-static const size_t kHugePageShift = 24;
-#elif defined __aarch64__ && defined __linux__
-static const size_t kHugePageShift = 21;
-#else
-// ...whatever, guess something big-ish
-static const size_t kHugePageShift = 21;
-#endif
-
-static const size_t kHugePageSize = static_cast<size_t>(1) << kHugePageShift;
 static const size_t kPagesPerHugePage = static_cast<size_t>(1)
                                         << (kHugePageShift - kPageShift);
 static constexpr uintptr_t kTagMask = uintptr_t{1}

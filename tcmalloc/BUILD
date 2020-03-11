@@ -281,6 +281,7 @@ common_deps = [
     "@com_google_absl//absl/types:span",
     "//tcmalloc/internal:atomic_stats_counter",
     "//tcmalloc/internal:bits",
+    "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",

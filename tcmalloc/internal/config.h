@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_INTERNAL_CONFIG_H_
 #define TCMALLOC_INTERNAL_CONFIG_H_
 
+#include <stddef.h>
+
 // TCMALLOC_HAVE_SCHED_GETCPU is defined when the system implements
 // sched_getcpu(3) as by glibc and it's imitators.
 #if defined(__linux__) || defined(__ros__)
@@ -22,5 +24,24 @@
 #else
 #undef TCMALLOC_HAVE_SCHED_GETCPU
 #endif
+
+namespace tcmalloc {
+
+#if defined(__x86_64__)
+// x86 has 2 MiB huge pages
+static constexpr size_t kHugePageShift = 21;
+#elif defined(__PPC64__)
+static constexpr size_t kHugePageShift = 24;
+#elif defined __aarch64__ && defined __linux__
+static constexpr size_t kHugePageShift = 21;
+#else
+// ...whatever, guess something big-ish
+static constexpr size_t kHugePageShift = 21;
+#endif
+
+static constexpr size_t kHugePageSize = static_cast<size_t>(1)
+                                        << kHugePageShift;
+
+}  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_CONFIG_H_
