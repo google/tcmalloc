@@ -1074,6 +1074,12 @@ HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     1
 
+HugePageFiller: # of partial released hps with a<= # of free pages <b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
+HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
+HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
+
 HugePageFiller: # of released hps with a<= # of free pages <b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
@@ -1086,6 +1092,12 @@ HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
+HugePageFiller: # of partial released hps with a<= longest free range <b
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
+HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
+HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
+
 HugePageFiller: # of released hps with a<= longest free range <b
 HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
@@ -1094,6 +1106,12 @@ HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0
 
 HugePageFiller: # of regular hps with a<= # of allocations <b
 HugePageFiller: <  1<=     1 <  2<=     1 <  3<=     1 <  4<=     2 <  5<=     0 < 17<=     0
+HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
+HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
+HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
+
+HugePageFiller: # of partial released hps with a<= # of allocations <b
+HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
@@ -1746,6 +1764,369 @@ TEST_P(FillerTest, PrintInPbtxt) {
       lower_bound: 1
       upper_bound: 1
       value: 1
+    }
+    allocations_histogram {
+      lower_bound: 2
+      upper_bound: 2
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 3
+      upper_bound: 3
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 4
+      upper_bound: 4
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 5
+      upper_bound: 16
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 17
+      upper_bound: 32
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 33
+      upper_bound: 48
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 49
+      upper_bound: 64
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 65
+      upper_bound: 80
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 81
+      upper_bound: 96
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 97
+      upper_bound: 112
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 113
+      upper_bound: 128
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 129
+      upper_bound: 144
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 145
+      upper_bound: 160
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 161
+      upper_bound: 176
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 177
+      upper_bound: 192
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 193
+      upper_bound: 208
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 209
+      upper_bound: 224
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 225
+      upper_bound: 240
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 241
+      upper_bound: 252
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 253
+      upper_bound: 253
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 254
+      upper_bound: 254
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 255
+      upper_bound: 255
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 256
+      upper_bound: 256
+      value: 0
+    }
+  }
+  filler_tracker {
+    type: PARTIAL
+    free_pages_histogram {
+      lower_bound: 0
+      upper_bound: 0
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 1
+      upper_bound: 1
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 2
+      upper_bound: 2
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 3
+      upper_bound: 3
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 4
+      upper_bound: 15
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 16
+      upper_bound: 31
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 32
+      upper_bound: 47
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 48
+      upper_bound: 63
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 64
+      upper_bound: 79
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 80
+      upper_bound: 95
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 96
+      upper_bound: 111
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 112
+      upper_bound: 127
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 128
+      upper_bound: 143
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 144
+      upper_bound: 159
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 160
+      upper_bound: 175
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 176
+      upper_bound: 191
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 192
+      upper_bound: 207
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 208
+      upper_bound: 223
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 224
+      upper_bound: 239
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 240
+      upper_bound: 251
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 252
+      upper_bound: 252
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 253
+      upper_bound: 253
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 254
+      upper_bound: 254
+      value: 0
+    }
+    free_pages_histogram {
+      lower_bound: 255
+      upper_bound: 255
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 0
+      upper_bound: 0
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 1
+      upper_bound: 1
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 2
+      upper_bound: 2
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 3
+      upper_bound: 3
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 4
+      upper_bound: 15
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 16
+      upper_bound: 31
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 32
+      upper_bound: 47
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 48
+      upper_bound: 63
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 64
+      upper_bound: 79
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 80
+      upper_bound: 95
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 96
+      upper_bound: 111
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 112
+      upper_bound: 127
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 128
+      upper_bound: 143
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 144
+      upper_bound: 159
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 160
+      upper_bound: 175
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 176
+      upper_bound: 191
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 192
+      upper_bound: 207
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 208
+      upper_bound: 223
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 224
+      upper_bound: 239
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 240
+      upper_bound: 251
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 252
+      upper_bound: 252
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 253
+      upper_bound: 253
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 254
+      upper_bound: 254
+      value: 0
+    }
+    longest_free_range_histogram {
+      lower_bound: 255
+      upper_bound: 255
+      value: 0
+    }
+    allocations_histogram {
+      lower_bound: 1
+      upper_bound: 1
+      value: 0
     }
     allocations_histogram {
       lower_bound: 2

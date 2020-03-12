@@ -271,6 +271,7 @@ class HugePageFiller {
 #endif
       return size_;
     }
+    bool empty() const { return size().raw_num() == 0; }
     // Runs a functor on all HugePages in the TrackerLists.
     // This method is const but the Functor gets passed a non-const pointer.
     // This quirk is inherited from TrackerList.
@@ -308,6 +309,19 @@ class HugePageFiller {
   HintedTrackerLists<kNumLists> regular_alloc_;
   HintedTrackerLists<kPagesPerHugePage> donated_alloc_;
   // Partially released ones that we are trying to release.
+  //
+  // regular_alloc_partial_released_ is empty and n_used_partial_released_ is 0.
+  //   TODO(b/141550014):  Wire this up to the value of partial_rerelease_.
+  //   When that work is complete, this list will contain huge pages that are
+  //   partially allocated and partially returned to the OS.
+  //   n_used_partial_released_ is the number of pages which have been allocated
+  //   of the set.
+  //
+  // regular_alloc_released_:  This list contains huge pages whose pages are
+  // either allocated or returned to the OS.  There are no pages that are free,
+  // but not returned to the OS.
+  Length n_used_partial_released_;
+  HintedTrackerLists<kNumLists> regular_alloc_partial_released_;
   HintedTrackerLists<kNumLists> regular_alloc_released_;
 
   // Remove pt from the appropriate HintedTrackerList.
@@ -422,7 +436,8 @@ inline Length PageTracker<Unback>::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease)
-    : size_(NHugePages(0)),
+    : n_used_partial_released_(0),
+      size_(NHugePages(0)),
       allocated_(0),
       unmapped_(0),
       partial_rerelease_(partial_rerelease) {}
@@ -508,6 +523,9 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
     if (pt) {
       break;
     }
+    // TODO(b/141550014):  Wire this up to the value of partial_rerelease_.
+    ASSERT(regular_alloc_partial_released_.empty());
+    ASSERT(n_used_partial_released_ == 0);
     pt = regular_alloc_released_.GetLeast(ListFor(n, 0));
     if (pt) {
       ASSERT(!pt->donated());
@@ -633,6 +651,12 @@ inline void HugePageFiller<TrackerType>::AddSpanStats(
   regular_alloc_.Iter(loop, kChunks);
   donated_alloc_.Iter(loop, 0);
 
+  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+    regular_alloc_partial_released_.Iter(loop, 0);
+  } else {
+    ASSERT(regular_alloc_partial_released_.empty());
+    ASSERT(n_used_partial_released_ == 0);
+  }
   regular_alloc_released_.Iter(loop, 0);
 }
 
@@ -652,7 +676,7 @@ namespace internal {
 // (mostly) even buckets in the middle.
 class UsageInfo {
  public:
-  enum Type { kRegular, kDonated, kReleased };
+  enum Type { kRegular, kDonated, kPartialReleased, kReleased, kNumTypes };
 
   UsageInfo() {
     size_t i;
@@ -701,24 +725,30 @@ class UsageInfo {
                "# of regular hps with a<= # of free pages <b", 0);
     PrintHisto(out, free_page_histo_[kDonated],
                "# of donated hps with a<= # of free pages <b", 0);
+    PrintHisto(out, free_page_histo_[kPartialReleased],
+               "# of partial released hps with a<= # of free pages <b", 0);
     PrintHisto(out, free_page_histo_[kReleased],
                "# of released hps with a<= # of free pages <b", 0);
     // For donated huge pages, number of allocs=1 and longest free range =
     // number of free pages, so it isn't useful to show the next two.
     PrintHisto(out, longest_free_histo_[kRegular],
                "# of regular hps with a<= longest free range <b", 0);
+    PrintHisto(out, longest_free_histo_[kPartialReleased],
+               "# of partial released hps with a<= longest free range <b", 0);
     PrintHisto(out, longest_free_histo_[kReleased],
                "# of released hps with a<= longest free range <b", 0);
     PrintHisto(out, nalloc_histo_[kRegular],
                "# of regular hps with a<= # of allocations <b", 1);
+    PrintHisto(out, nalloc_histo_[kPartialReleased],
+               "# of partial released hps with a<= # of allocations <b", 1);
     PrintHisto(out, nalloc_histo_[kReleased],
                "# of released hps with a<= # of allocations <b", 1);
   }
 
   void Print(PbtxtRegion *hpaa) {
-    static constexpr absl::string_view kTrackerTypes[3] = {"REGULAR", "DONATED",
-                                                           "RELEASED"};
-    for (int i = 0; i < 3; ++i) {
+    static constexpr absl::string_view kTrackerTypes[kNumTypes] = {
+        "REGULAR", "DONATED", "PARTIAL", "RELEASED"};
+    for (int i = 0; i < kNumTypes; ++i) {
       PbtxtRegion scoped = hpaa->CreateSubRegion("filler_tracker");
       scoped.PrintRaw("type", kTrackerTypes[i]);
       PrintHisto(&scoped, free_page_histo_[i], "free_pages_histogram", 0);
@@ -765,9 +795,9 @@ class UsageInfo {
   }
 
   // Arrays, because they are split per alloc type.
-  Histo free_page_histo_[3]{};
-  Histo longest_free_histo_[3]{};
-  Histo nalloc_histo_[3]{};
+  Histo free_page_histo_[kNumTypes]{};
+  Histo longest_free_histo_[kNumTypes]{};
+  Histo nalloc_histo_[kNumTypes]{};
   size_t bucket_bounds_[kBucketCapacity];
   int buckets_size_ = 0;
 };
@@ -778,7 +808,8 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
                                                bool everything) const {
   out->printf("HugePageFiller: densely pack small requests into hugepages\n");
 
-  HugeLength nrel = regular_alloc_released_.size();
+  HugeLength nrel =
+      regular_alloc_released_.size() + regular_alloc_partial_released_.size();
   HugeLength nfull = NHugePages(0);
 
   // note kChunks, not kNumLists here--we're iterating *full* lists.
@@ -816,6 +847,16 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+    regular_alloc_partial_released_.Iter(
+        [&](const TrackerType *pt) {
+          usage.Record(pt, UsageInfo::kPartialReleased);
+        },
+        0);
+  } else {
+    ASSERT(regular_alloc_partial_released_.empty());
+    ASSERT(n_used_partial_released_ == 0);
+  }
   regular_alloc_released_.Iter(
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
@@ -828,7 +869,8 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintInPbtxt(
     PbtxtRegion *hpaa, uint64_t filler_usage_used) const {
-  HugeLength nrel = regular_alloc_released_.size();
+  HugeLength nrel =
+      regular_alloc_released_.size() + regular_alloc_partial_released_.size();
   HugeLength nfull = NHugePages(0);
 
   // note kChunks, not kNumLists here--we're iterating *full* lists.
@@ -860,6 +902,16 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+    regular_alloc_partial_released_.Iter(
+        [&](const TrackerType *pt) {
+          usage.Record(pt, UsageInfo::kPartialReleased);
+        },
+        0);
+  } else {
+    ASSERT(regular_alloc_partial_released_.empty());
+    ASSERT(n_used_partial_released_ == 0);
+  }
   regular_alloc_released_.Iter(
       [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
@@ -946,7 +998,11 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   const Length nrel = regular_alloc_released_.size().in_pages();
   const Length used = used_pages();
   const Length unmapped = unmapped_pages();
-  const Length used_on_rel = nrel >= unmapped ? nrel - unmapped : 0;
+  ASSERT(n_used_partial_released_ >= 0);
+  ASSERT(n_used_partial_released_ <=
+         regular_alloc_partial_released_.size().in_pages());
+  const Length used_on_rel =
+      (nrel >= unmapped ? nrel - unmapped : 0) + n_used_partial_released_;
   ASSERT(used >= used_on_rel);
   const Length used_on_huge = used - used_on_rel;
 
