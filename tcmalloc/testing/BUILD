@@ -65,6 +65,7 @@ cc_library(
 
 cc_test(
     name = "tcmalloc_regtest",
+    timeout = "long",
     srcs = ["tcmalloc_regtest.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
@@ -88,6 +89,7 @@ cc_test(
 
 cc_test(
     name = "tcmalloc_regtest_large_page",
+    timeout = "long",
     srcs = ["tcmalloc_regtest.cc"],
     copts = [
         "-DTCMALLOC_LARGE_PAGES",
@@ -99,6 +101,7 @@ cc_test(
 
 cc_test(
     name = "tcmalloc_regtest_256k_pages",
+    timeout = "long",
     srcs = ["tcmalloc_regtest.cc"],
     copts = [
         "-DTCMALLOC_256K_PAGES",
@@ -134,6 +137,7 @@ cc_test(
 
 cc_test(
     name = "tcmalloc_regtest_deprecated_perthread",
+    timeout = "long",
     srcs = ["tcmalloc_regtest.cc"],
     copts = REGTEST_OPTS + ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
     linkstatic = 1,  # get the most realistic performance
