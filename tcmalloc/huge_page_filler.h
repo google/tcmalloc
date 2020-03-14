@@ -580,6 +580,7 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
   if (pt->longest_free_range() == kPagesPerHugePage) {
     --size_;
     if (pt->released()) {
+      ASSERT(unmapped_ >= kPagesPerHugePage);
       unmapped_ -= kPagesPerHugePage;
     }
     return pt;
