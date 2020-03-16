@@ -112,7 +112,7 @@ PageID HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
   FillerType::Tracker *pt = tracker_allocator_.New();
   new (pt) FillerType::Tracker(p, absl::base_internal::CycleClock::Now());
   ASSERT(pt->longest_free_range() >= n);
-  PageID page = pt->Get(n);
+  PageID page = pt->Get(n).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated);

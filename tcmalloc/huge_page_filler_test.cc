@@ -233,7 +233,7 @@ class PageTrackerTest : public testing::Test {
 
   PAlloc Get(Length n) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    PageID p = tracker_.Get(n);
+    PageID p = tracker_.Get(n).page;
     return {p, n};
   }
 
@@ -625,7 +625,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
           new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
-        ret.p = ret.pt->Get(n);
+        ret.p = ret.pt->Get(n).page;
       }
       filler_.Contribute(ret.pt, donated);
       ++hp_contained_;

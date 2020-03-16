@@ -48,8 +48,16 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
         donated_(false),
         releasing_(0) {}
 
+  struct PageAllocation {
+    PageID page;
+    Length previously_unbacked;
+  };
+
   // REQUIRES: there's a free range of at least n pages
-  PageID Get(Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  //
+  // Returns a PageID i and a count of previously unbacked pages in the range
+  // [i, i+n) in previously_unbacked.
+  PageAllocation Get(Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: p was the result of a previous call to Get(n)
   void Put(PageID p, Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -345,15 +353,20 @@ class HugePageFiller {
 };
 
 template <MemoryModifyFunction Unback>
-inline PageID PageTracker<Unback>::Get(Length n) {
+inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
+    Length n) {
   size_t index = free_.FindAndMark(n);
+  // TODO(b/141550014): As a simplification, when a huge page is released, all
+  // of its free pages are released.  The calculation of unbacked will change
+  // when this behavior changes.
+  Length unbacked = released_ ? n : 0;
   // If we are now using the entire capacity of the huge page and do not have a
   // partial release in-flight (releasing_ > 0), then it is no longer partially
   // released to the OS.
   if (releasing_ == 0) {
     released_ = released_ && !full();
   }
-  return location_.first_page() + index;
+  return PageAllocation{location_.first_page() + index, unbacked};
 }
 
 template <MemoryModifyFunction Unback>
@@ -537,13 +550,15 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   } while (false);
   ASSERT(pt->longest_free_range() >= n);
   *hugepage = pt;
-  *p = pt->Get(n);
+  auto page_allocation = pt->Get(n);
+  *p = page_allocation.page;
   Place(pt);
   allocated_ += n;
-  if (was_released) {
-    ASSERT(unmapped_ >= n);
-    unmapped_ -= n;
-  }
+
+  ASSERT(was_released || page_allocation.previously_unbacked == 0);
+  (void)was_released;
+  ASSERT(unmapped_ >= page_allocation.previously_unbacked);
+  unmapped_ -= page_allocation.previously_unbacked;
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   ASSERT(!pt->donated());
