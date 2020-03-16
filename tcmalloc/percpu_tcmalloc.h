@@ -221,13 +221,14 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
   }
 }
 
+#define PERCPU_XSTRINGIFY(s) #s
+#define PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
+
 #if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f) {
-#define PERCPU_XSTRINGIFY(s) #s
-#define PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
   // TODO(b/149467541):  Move this to asm goto.
   uint64_t scratch, current;
   bool overflow;
@@ -302,8 +303,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     return f(cpu, cl, item);
   }
   return cpu;
-#undef PERCPU_STRINGIFY
-#undef PERCPU_XSTRINGIFY
 }
 #endif  // defined(__x86_64__)
 
@@ -322,14 +321,115 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
 #endif
 }
 
+#if defined(__x86_64__)
+template <size_t Shift, size_t NumClasses>
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
+    typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
+    UnderflowHandler f) {
+  // TODO(b/149467541):  GCC and LLVM asm goto currently do not support output
+  // constraints.  When https://reviews.llvm.org/D69876 and
+  // https://reviews.llvm.org/D69868 are merged to allow asm goto with output
+  // constraints, switch this implementation to use it.
+  void* result;
+  void* scratch;
+  uintptr_t current;
+  bool underflow;
+  asm(
+      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
+      // relocations, but could be read-only for non-PIE builds.
+      ".pushsection __rseq_cs, \"aw?\"\n"
+      ".balign 32\n"
+      ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
+      ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
+      ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
+      "__rseq_cs_TcmallocSlab_Pop_%=:\n"
+      ".long 0x0\n"
+      ".long 0x0\n"
+      ".quad 4f\n"
+      ".quad 5f - 4f\n"
+      ".quad 2f\n"
+      ".popsection\n"
+#if !defined(__clang_major__) || __clang_major__ >= 9
+      ".reloc 0, R_X86_64_NONE, 1f\n"
+#endif
+      ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
+      "1:\n"
+      ".balign 8;"
+      ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
+      // Force this section to be retained.  It is for debugging, but is
+      // otherwise not referenced.
+      ".popsection\n"
+      ".pushsection .text.unlikely, \"ax?\"\n"
+      ".byte 0x0f, 0x1f, 0x05\n"
+      ".long %c[rseq_sig]\n"
+      ".local TcmallocSlab_Pop_trampoline_%=\n"
+      ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
+      "TcmallocSlab_Pop_trampoline_%=:\n"
+      "2:\n"
+      "jmp 3f\n"
+      ".popsection\n"
+      // Prepare
+      "3:\n"
+      "lea __rseq_cs_TcmallocSlab_Pop_%=(%%rip), %[scratch];\n"
+      "mov %[scratch], (%[rseq_cs])\n"
+      // Start
+      "4:\n"
+      // scratch = __rseq_abi.cpu_id;
+      "mov (%[rseq_cpu]), %k[scratch]\n"
+      // scratch = slabs + scratch
+      "shl %[shift], %[scratch]\n"
+      "add %[slabs], %[scratch]\n"
+      // current = scratch->header[cl].current;
+      "movzwq (%[scratch], %[cl], 8), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
+      "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
+      "setbe %[underflow]\n"
+      "jbe 5f\n"
+      "mov -16(%[scratch], %[current], 8), %[result]\n"
+      // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
+      // trace analysis shows the target is frequently used (b/70294962).
+      // Stalling on a TLB miss at the prefetch site (which has no deps) and
+      // prefetching the line async is better than stalling at the use (which
+      // may have deps) to fill the TLB and the cache miss.
+      "prefetcht0 (%[result])\n"
+      "movq -8(%[scratch], %[current], 8), %[result]\n"
+      "decl (%[scratch], %[cl], 8)\n"
+      // Commit
+      "5:\n"
+      : [result] "=&r"(result), [underflow] "=&r"(underflow),
+        [scratch] "=&r"(scratch), [current] "=&r"(current)
+      : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
+        [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
+        [slabs] "r"(slabs), [cl] "r"(cl)
+      : "cc", "memory");
+  if (ABSL_PREDICT_FALSE(underflow)) {
+    // Undo transformation of cpu_id to the value of scratch.
+    int cpu =
+        reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
+            scratch) -
+        slabs;
+    return f(cpu, cl);
+  }
+
+  return result;
+}
+#endif  // defined(__x86_64__)
+
+#undef PERCPU_STRINGIFY
+#undef PERCPU_XSTRINGIFY
+
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
     size_t cl, UnderflowHandler f) {
+#if defined(__x86_64__)
+  return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f);
+#else
   if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Pop_FixedShift(slabs_, cl, f);
   } else {
     return TcmallocSlab_Pop(slabs_, cl, f, Shift);
   }
+#endif
 }
 
 static inline void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }

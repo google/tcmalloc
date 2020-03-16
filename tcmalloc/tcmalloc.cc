@@ -1845,7 +1845,9 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   ret = cache->Allocate<Policy::handle_oom>(cl);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
   if (!Policy::can_return_nullptr()) {
-    ASSUME(ret != nullptr);
+    // TODO(b/146227926):  Using __builtin_assume here can cause us to fail to
+    // tailcall.  Restore it when upstream is fixed.
+    ASSERT(ret != nullptr);
   }
   SetClassCapacity(ret, cl, capacity);
   return ret;
