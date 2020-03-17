@@ -44,9 +44,8 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
       : location_(p),
         free_{},
         when_(when),
-        released_(false),
-        donated_(false),
-        releasing_(0) {}
+        released_count_(0),
+        donated_(false) {}
 
   struct PageAllocation {
     PageID page;
@@ -63,7 +62,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   void Put(PageID p, Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Are unused pages returned-to-system?
-  bool released() const { return released_; }
+  bool released() const { return released_count_ > 0; }
   // Was this tracker donated from the tail of a multi-hugepage allocation?
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
   // otherwise the value is meaningless.
@@ -90,17 +89,27 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
   // Return this allocation to the system, if policy warrants it.
   //
-  // Our policy is:  Once we break a hugepage by returning a fraction of it, we
-  // return *anything* unused.  This simplifies tracking.
+  // As of 3/2020 our policy is to rerelease:  Once we break a hugepage by
+  // returning a fraction of it, we return *anything* unused.  This simplifies
+  // tracking.
+  //
+  // TODO(b/141550014):  Make retaining the default/sole policy.
   void MaybeRelease(PageID p, Length n)
       EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    if (!released_) {
+    if (released_count_ == 0) {
       return;
     }
 
-    releasing_ += n;
+    // Mark pages as released.
+    size_t index = p - location_.first_page();
+    ASSERT(released_by_page_.CountBits(index, n) == 0);
+    released_by_page_.SetRange(index, n);
+    released_count_ += n;
+    ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) ==
+           released_count_);
+
+    // TODO(b/122551676):  If release fails, we should not SetRange above.
     ReleasePagesWithoutLock(p, n);
-    releasing_ -= n;
   }
 
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
@@ -109,17 +118,27 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
  private:
   HugePage location_;
   RangeTracker<kPagesPerHugePage> free_;
+  // Bitmap of pages based on them being released to the OS.
+  // * Not yet released pages are unset (considered "free")
+  // * Released pages are set.
+  //
+  // Before releasing any locks to release memory to the OS, we mark the bitmap.
+  //
+  // Once released, a huge page is considered released *until* free_ is
+  // exhausted and no pages released_by_page_ are set.  We may have up to
+  // kPagesPerHugePage-1 parallel subreleases in-flight.
+  Bitmap<kPagesPerHugePage> released_by_page_ GUARDED_BY(pageheap_lock);
+
   // TODO(b/134691947): optimize computing this; it's on the fast path.
   int64_t when_;
-  static_assert(kPagesPerHugePage <= std::numeric_limits<uint16_t>::max(),
+  static_assert(kPagesPerHugePage < std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
-  bool released_;
+
+  // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
+  //
+  // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
+  uint16_t released_count_;
   bool donated_;
-  // releasing_ needs to be a Length, since we may have up to
-  // kPagesPerHugePage-1 parallel subreleases in-flight.  When they complete, we
-  // need to have enough information to determine whether or not any remain
-  // in-flight.  This is stored as a length, rather than a bitmap of pages.
-  Length releasing_ GUARDED_BY(pageheap_lock);
 
   void ReleasePages(PageID p, Length n) {
     void *ptr = reinterpret_cast<void *>(p << kPageShift);
@@ -356,16 +375,16 @@ template <MemoryModifyFunction Unback>
 inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
     Length n) {
   size_t index = free_.FindAndMark(n);
-  // TODO(b/141550014): As a simplification, when a huge page is released, all
-  // of its free pages are released.  The calculation of unbacked will change
-  // when this behavior changes.
-  Length unbacked = released_ ? n : 0;
-  // If we are now using the entire capacity of the huge page and do not have a
-  // partial release in-flight (releasing_ > 0), then it is no longer partially
-  // released to the OS.
-  if (releasing_ == 0) {
-    released_ = released_ && !full();
-  }
+
+  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) == released_count_);
+
+  size_t unbacked = released_by_page_.CountBits(index, n);
+  released_by_page_.ClearRange(index, n);
+  ASSERT(released_count_ >= unbacked);
+  released_count_ -= unbacked;
+
+  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) == released_count_);
+
   return PageAllocation{location_.first_page() + index, unbacked};
 }
 
@@ -383,16 +402,20 @@ inline void PageTracker<Unback>::Put(PageID p, Length n) {
 
 template <MemoryModifyFunction Unback>
 inline size_t PageTracker<Unback>::ReleaseFree() {
-  released_ = true;
   size_t count = 0;
   size_t index = 0;
   size_t n;
   while (free_.NextFreeRange(index, &index, &n)) {
     PageID p = location_.first_page() + index;
     ReleasePages(p, n);
+    // Mark pages as released.  Amortize the update to release_count_.
+    ASSERT(released_by_page_.CountBits(index, n) == 0);
+    released_by_page_.SetRange(index, n);
     count += n;
     index += n;
   }
+  released_count_ += count;
+  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) == released_count_);
   when_ = absl::base_internal::CycleClock::Now();
   return count;
 }
