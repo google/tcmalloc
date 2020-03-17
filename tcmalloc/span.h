@@ -57,8 +57,8 @@ class Span : public SpanList::Elem {
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
   static Span* New(PageID p, Length len)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  static void Delete(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Remove this from the linked list in which it resides.
   // REQUIRES: this span is on some list.
@@ -79,13 +79,13 @@ class Span : public SpanList::Elem {
   // ---------------------------------------------------------------------------
 
   // Mark this span as sampling allocation at the stack. Sets state to SAMPLED.
-  void Sample(StackTrace* stack) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Sample(StackTrace* stack) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Unmark this span as sampling an allocation.
   // Returns stack trace previously passed to Sample,
   // or nullptr if this is a non-sampling span.
   // REQUIRES: this is a SAMPLED span.
-  StackTrace* Unsample() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  StackTrace* Unsample() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns stack for the sampled allocation.
   // pageheap_lock is not required, but caller either needs to hold the lock or

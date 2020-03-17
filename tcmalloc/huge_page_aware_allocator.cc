@@ -135,7 +135,7 @@ PageID HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
 }
 
 Span *HugePageAwareAllocator::Finalize(Length n, PageID page)
-    EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   if (page == 0) return nullptr;
   Span *ret = Span::New(page, n);
   Static::pagemap()->Set(page, ret);
@@ -597,7 +597,7 @@ void *HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t *actual,
 }
 
 void *HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
-    EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   return Static::arena()->Alloc(bytes);
 }
 

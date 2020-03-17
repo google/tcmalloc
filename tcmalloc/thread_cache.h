@@ -40,7 +40,7 @@ namespace tcmalloc {
 
 class ThreadCache {
  public:
-  void Init(pthread_t tid) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Init(pthread_t tid) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   void Cleanup();
 
   // Accessors (mostly just for printing stats)
@@ -74,22 +74,22 @@ class ThreadCache {
 
   // returns stats on total thread caches created/used
   static inline AllocatorStats HeapStats()
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Adds to *total_bytes the total number of bytes used by all thread heaps.
   // Also, if class_count is not NULL, it must be an array of size kNumClasses,
   // and this function will increment each element of class_count by the number
   // of items in all thread-local freelists of the corresponding size class.
   static void GetThreadStats(uint64_t* total_bytes, uint64_t* class_count)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Sets the total thread cache size to new_size, recomputing the
   // individual thread cache sizes as necessary.
   static void set_overall_thread_cache_size(size_t new_size)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   static size_t overall_thread_cache_size()
-      SHARED_LOCKS_REQUIRED(pageheap_lock) {
+      ABSL_SHARED_LOCKS_REQUIRED(pageheap_lock) {
     return overall_thread_cache_size_;
   }
 
@@ -194,7 +194,7 @@ class ThreadCache {
   void IncreaseCacheLimit();
 
   // Same as above but called with pageheap_lock held.
-  void IncreaseCacheLimitLocked() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void IncreaseCacheLimitLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // If TLS is available, we also store a copy of the per-thread object
   // in a __thread variable since __thread variables are faster to read
@@ -222,25 +222,25 @@ class ThreadCache {
   static pthread_key_t heap_key_;
 
   // Linked list of heap objects.
-  static ThreadCache* thread_heaps_ GUARDED_BY(pageheap_lock);
-  static int thread_heap_count_ GUARDED_BY(pageheap_lock);
+  static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(pageheap_lock);
+  static int thread_heap_count_ ABSL_GUARDED_BY(pageheap_lock);
 
   // A pointer to one of the objects in thread_heaps_.  Represents
   // the next ThreadCache from which a thread over its max_size_ should
   // steal memory limit.  Round-robin through all of the objects in
   // thread_heaps_.
-  static ThreadCache* next_memory_steal_ GUARDED_BY(pageheap_lock);
+  static ThreadCache* next_memory_steal_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Overall thread cache size.
-  static size_t overall_thread_cache_size_ GUARDED_BY(pageheap_lock);
+  static size_t overall_thread_cache_size_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Global per-thread cache size.
-  static size_t per_thread_cache_size_ GUARDED_BY(pageheap_lock);
+  static size_t per_thread_cache_size_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Represents overall_thread_cache_size_ minus the sum of max_size_
   // across all ThreadCaches. We use int64_t even in 32-bit builds because
   // with enough ThreadCaches, this number can get smaller than -2^31.
-  static int64_t unclaimed_cache_space_ GUARDED_BY(pageheap_lock);
+  static int64_t unclaimed_cache_space_ ABSL_GUARDED_BY(pageheap_lock);
 
   // This class is laid out with the most frequently used fields
   // first so that hot elements are placed on the same cache line.
@@ -261,14 +261,14 @@ class ThreadCache {
 
   // Allocate a new heap.
   static ThreadCache* NewHeap(pthread_t tid)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Use only as pthread thread-specific destructor function.
   static void DestroyThreadCache(void* ptr);
 
   static void DeleteCache(ThreadCache* heap);
   static void RecomputePerThreadCacheSize()
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  public:
   // All ThreadCache objects are kept in a linked list (for stats collection)

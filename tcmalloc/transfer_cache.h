@@ -40,17 +40,17 @@ class TransferCache {
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
-  void Init(size_t cl) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Init(size_t cl) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // These methods all do internal locking.
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(absl::Span<void *> batch, int N) LOCKS_EXCLUDED(lock_);
+  void InsertRange(absl::Span<void *> batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  int RemoveRange(void **batch, int N) LOCKS_EXCLUDED(lock_);
+  int RemoveRange(void **batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in the central cache.
   size_t central_length() { return freelist_.length(); }
@@ -71,7 +71,7 @@ class TransferCache {
   // Tries to make room for a batch.  If the cache is full it will try to expand
   // it at the cost of some other cache size.  Return false if there is no
   // space.
-  bool MakeCacheSpace(int N) EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  bool MakeCacheSpace(int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // REQUIRES: lock_ for locked_size_class is held.
   // Picks a "random" size class to steal slots from.  In reality it just
@@ -87,10 +87,11 @@ class TransferCache {
   // May temporarily take lock_.  If it takes lock_, the locked_size_class
   // lock is released to keep the thread from holding two size class locks
   // concurrently which could lead to a deadlock.
-  bool ShrinkCache(int locked_size_class, bool force) LOCKS_EXCLUDED(lock_);
+  bool ShrinkCache(int locked_size_class, bool force)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns first object of the i-th slot.
-  void **GetSlot(size_t i) EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+  void **GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slots_ + i;
   }
 
@@ -104,7 +105,7 @@ class TransferCache {
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
-  void **slots_ GUARDED_BY(lock_);
+  void **slots_ ABSL_GUARDED_BY(lock_);
 
   // The current number of slots for this size class.  This is an adaptive value
   // that is increased if there is lots of traffic on a given size class.  This

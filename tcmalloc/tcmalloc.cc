@@ -663,19 +663,20 @@ class AllocationSample
 
  private:
   std::unique_ptr<StackTraceTable> mallocs_;
-  AllocationSample* next GUARDED_BY(pageheap_lock);
+  AllocationSample* next ABSL_GUARDED_BY(pageheap_lock);
   friend class AllocationSampleList;
 };
 
 class AllocationSampleList {
  public:
-  void Add(AllocationSample* as) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Add(AllocationSample* as) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     as->next = first_;
     first_ = as;
   }
 
   // This list is very short and we're nowhere near a hot path, just walk
-  void Remove(AllocationSample* as) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Remove(AllocationSample* as)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     AllocationSample** link = &first_;
     AllocationSample* cur = first_;
     while (cur != as) {
@@ -687,7 +688,7 @@ class AllocationSampleList {
   }
 
   void ReportMalloc(const struct StackTrace& sample)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     AllocationSample* cur = first_;
     while (cur != nullptr) {
       cur->mallocs_->AddTrace(1.0, sample);
@@ -697,7 +698,7 @@ class AllocationSampleList {
 
  private:
   AllocationSample* first_;
-} allocation_samples_ GUARDED_BY(pageheap_lock);
+} allocation_samples_ ABSL_GUARDED_BY(pageheap_lock);
 
 AllocationSample::AllocationSample() {
   mallocs_ = absl::make_unique<StackTraceTable>(
@@ -720,7 +721,7 @@ AllocationSample::~AllocationSample() {
 }
 
 std::unique_ptr<const tcmalloc::tcmalloc_internal::ProfileBase>
-    AllocationSample::StopInternal() && LOCKS_EXCLUDED(pageheap_lock) {
+    AllocationSample::StopInternal() && ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   // We need to remove ourselves from the allocation_samples_ list before we
   // mutate mallocs_;
   if (mallocs_) {
@@ -730,7 +731,8 @@ std::unique_ptr<const tcmalloc::tcmalloc_internal::ProfileBase>
   return std::move(mallocs_);
 }
 
-tcmalloc::Profile AllocationSample::Stop() && LOCKS_EXCLUDED(pageheap_lock) {
+tcmalloc::Profile AllocationSample::Stop() &&
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   // We need to remove ourselves from the allocation_samples_ list before we
   // mutate mallocs_;
   if (mallocs_) {

@@ -56,10 +56,10 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   //
   // Returns a PageID i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  PageAllocation Get(Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: p was the result of a previous call to Get(n)
-  void Put(PageID p, Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Put(PageID p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Are unused pages returned-to-system?
   bool released() const { return released_count_ > 0; }
@@ -85,7 +85,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
   // Return all unused pages to the system, mark future frees to do same.
   // Returns the count of pages unbacked.
-  size_t ReleaseFree() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  size_t ReleaseFree() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Return this allocation to the system, if policy warrants it.
   //
@@ -95,7 +95,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   //
   // TODO(b/141550014):  Make retaining the default/sole policy.
   void MaybeRelease(PageID p, Length n)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (released_count_ == 0) {
       return;
     }
@@ -147,7 +147,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   }
 
   void ReleasePagesWithoutLock(PageID p, Length n)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
 
     void *ptr = reinterpret_cast<void *>(p << kPageShift);
@@ -188,14 +188,14 @@ class HugePageFiller {
   // few different contexts (and improves the testing story - no
   // dependencies.)
   bool TryGet(Length n, TrackerType **hugepage, PageID *p)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, p, n} was the result of a previous TryGet.
   TrackerType *Put(TrackerType *pt, PageID p, Length n)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
   // marked as having come from the tail of a multi-hugepage allocation, which
@@ -220,7 +220,7 @@ class HugePageFiller {
   // Find the emptiest possible hugepage and release its free memory
   // to the system.  Return the number of pages released.
   // Currently our implementation doesn't really use this (no need!)
-  Length ReleasePages() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  Length ReleasePages() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                     PageAgeHistograms *ages) const;

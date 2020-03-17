@@ -39,26 +39,27 @@ class PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  virtual Span* New(Length n) LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
   virtual Span* NewAligned(Length n, Length align)
-      LOCKS_EXCLUDED(pageheap_lock) = 0;
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  virtual void Delete(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+  virtual void Delete(Span* span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual BackingStats stats() const
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual void GetSmallSpanStats(SmallSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual void GetLargeSpanStats(LargeSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Try to release at least num_pages for reuse by the OS.  Returns
   // the actual number of pages released, which may be less than
@@ -67,21 +68,22 @@ class PageAllocatorInterface {
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
   virtual Length ReleaseAtLeastNPages(Length num_pages)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
-  virtual void Print(TCMalloc_Printer* out) LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void Print(TCMalloc_Printer* out)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap in pbtxt format.
   //
   // TODO(b/130249686): Remove this one and make `Print` print in pbtxt.
   virtual void PrintInPbtxt(PbtxtRegion* region)
-      LOCKS_EXCLUDED(pageheap_lock) = 0;
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   const PageAllocInfo& info() const { return info_; }
 
  protected:
-  PageAllocInfo info_ GUARDED_BY(pageheap_lock);
+  PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
   PageMap* pagemap_;
 
   bool tagged_;  // Whether this heap manages tagged or untagged memory.

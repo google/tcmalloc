@@ -40,25 +40,26 @@ class PageAllocator {
   // been rounded up already.
   // Any address in the returned Span is guaranteed to satisfy
   // IsTaggedMemory(addr) == "tagged".
-  Span* New(Length n, bool tagged) LOCKS_EXCLUDED(pageheap_lock);
+  Span* New(Length n, bool tagged) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
   Span* NewAligned(Length n, Length align, bool tagged)
-      LOCKS_EXCLUDED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tagged" and has not yet been deleted.
-  void Delete(Span* span, bool tagged) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Delete(Span* span, bool tagged)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  BackingStats stats() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  BackingStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void GetSmallSpanStats(SmallSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void GetLargeSpanStats(LargeSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Try to release at least num_pages for reuse by the OS.  Returns
   // the actual number of pages released, which may be less than
@@ -67,23 +68,24 @@ class PageAllocator {
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
   Length ReleaseAtLeastNPages(Length num_pages)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out, bool tagged) LOCKS_EXCLUDED(pageheap_lock);
+  void Print(TCMalloc_Printer* out, bool tagged)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
   void PrintInPbtxt(PbtxtRegion* region, bool tagged)
-      LOCKS_EXCLUDED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  void set_limit(size_t limit, bool is_hard) LOCKS_EXCLUDED(pageheap_lock);
-  std::pair<size_t, bool> limit() const LOCKS_EXCLUDED(pageheap_lock);
-  int64_t limit_hits() const LOCKS_EXCLUDED(pageheap_lock);
+  void set_limit(size_t limit, bool is_hard) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  std::pair<size_t, bool> limit() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  int64_t limit_hits() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
-  void ShrinkToUsageLimit() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void ShrinkToUsageLimit() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   const PageAllocInfo& info(bool tagged) const
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   enum Algorithm {
     PAGE_HEAP = 0,
@@ -93,7 +95,7 @@ class PageAllocator {
   Algorithm algorithm() const { return alg_; }
 
  private:
-  bool ShrinkHardBy(Length pages) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  bool ShrinkHardBy(Length pages) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   PageAllocatorInterface* impl(bool tagged) const;
 

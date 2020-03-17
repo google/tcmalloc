@@ -123,7 +123,7 @@ class GuardedPageAllocator {
   // in the constructor, thereby allowing the constructor to be constexpr and
   // avoiding static initialization order issues.
   void Init(size_t max_alloced_pages, size_t total_pages)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Unmaps memory allocated by this class.
   //
@@ -141,11 +141,11 @@ class GuardedPageAllocator {
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
   void *Allocate(size_t size, size_t alignment)
-      LOCKS_EXCLUDED(guarded_page_lock);
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
   // returned by a call to Allocate.
-  void Deallocate(void *ptr) LOCKS_EXCLUDED(guarded_page_lock);
+  void Deallocate(void *ptr) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Returns the size requested when ptr was allocated.  ptr must have been
   // previously returned by a call to Allocate.
@@ -169,9 +169,9 @@ class GuardedPageAllocator {
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
-  void Print(TCMalloc_Printer *out) LOCKS_EXCLUDED(guarded_page_lock);
+  void Print(TCMalloc_Printer *out) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
   void PrintInPbtxt(PbtxtRegion *gwp_asan) const
-      LOCKS_EXCLUDED(guarded_page_lock);
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Returns true if ptr points to memory managed by this class.
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
@@ -181,7 +181,7 @@ class GuardedPageAllocator {
   }
 
   // Allows Allocate() to start returning allocations.
-  void AllowAllocations() LOCKS_EXCLUDED(guarded_page_lock) {
+  void AllowAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock) {
     absl::base_internal::SpinLockHolder h(&guarded_page_lock);
     allow_allocations_ = true;
   }
@@ -199,20 +199,21 @@ class GuardedPageAllocator {
   static constexpr size_t kMagicSize = 32;
 
   // Maps pages into memory.
-  void MapPages() LOCKS_EXCLUDED(guarded_page_lock)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void MapPages() ABSL_LOCKS_EXCLUDED(guarded_page_lock)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Reserves and returns a slot randomly selected from the free slots in
   // free_pages_.  Returns -1 if no slots available, or if AllowAllocations()
   // hasn't been called yet.
-  ssize_t ReserveFreeSlot() LOCKS_EXCLUDED(guarded_page_lock);
+  ssize_t ReserveFreeSlot() ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Returns the i-th free slot of free_pages_.  i must be in the range [0,
   // total_pages_ - num_alloced_pages_).
-  size_t GetIthFreeSlot(size_t i) EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
+  size_t GetIthFreeSlot(size_t i)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
 
   // Marks the specified slot as unreserved.
-  void FreeSlot(size_t slot) EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
+  void FreeSlot(size_t slot) ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
 
   // Returns the address of the page that addr resides on.
   uintptr_t GetPageAddr(uintptr_t addr) const;
@@ -224,7 +225,8 @@ class GuardedPageAllocator {
   size_t GetNearestSlot(uintptr_t addr) const;
 
   // Returns true if the specified slot has already been freed.
-  bool IsFreed(size_t slot) const EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
+  bool IsFreed(size_t slot) const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock);
 
   // Returns true if magic bytes for slot were overwritten.
   bool WriteOverflowOccurred(size_t slot) const;
@@ -253,19 +255,19 @@ class GuardedPageAllocator {
 
   // Maps each bool to one page.
   // true: Free.  false: Reserved.
-  bool free_pages_[kGpaMaxPages] GUARDED_BY(guarded_page_lock);
+  bool free_pages_[kGpaMaxPages] ABSL_GUARDED_BY(guarded_page_lock);
 
   // Number of currently-allocated pages.
-  size_t num_alloced_pages_ GUARDED_BY(guarded_page_lock);
+  size_t num_alloced_pages_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // The high-water mark for num_alloced_pages_.
-  size_t num_alloced_pages_max_ GUARDED_BY(guarded_page_lock);
+  size_t num_alloced_pages_max_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // Number of calls to Allocate.
-  size_t num_allocation_requests_ GUARDED_BY(guarded_page_lock);
+  size_t num_allocation_requests_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // Number of times Allocate has failed.
-  size_t num_failed_allocations_ GUARDED_BY(guarded_page_lock);
+  size_t num_failed_allocations_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
@@ -281,10 +283,10 @@ class GuardedPageAllocator {
   uint64_t rand_;                // RNG seed.
 
   // True if this object has been fully initialized.
-  bool initialized_ GUARDED_BY(guarded_page_lock);
+  bool initialized_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // Flag to control whether we can return allocations or not.
-  bool allow_allocations_ GUARDED_BY(guarded_page_lock);
+  bool allow_allocations_ ABSL_GUARDED_BY(guarded_page_lock);
 
   // Set to true if a double free has occurred.
   bool double_free_detected_;

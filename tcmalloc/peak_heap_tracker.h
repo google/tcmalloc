@@ -31,11 +31,11 @@ class PeakHeapTracker {
   // profile. Should be called immediately after sampling an allocation. If
   // the heap has grown by a sufficient amount since the last high-water-mark,
   // it will save a copy of the sample profile.
-  void MaybeSaveSample() LOCKS_EXCLUDED(pageheap_lock);
+  void MaybeSaveSample() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Return the saved high-water-mark heap profile, if any.
   std::unique_ptr<tcmalloc_internal::ProfileBase> DumpSample() const
-      LOCKS_EXCLUDED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
  private:
   // Linked list of stack traces from sampled allocations saved (from

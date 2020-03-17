@@ -40,7 +40,7 @@ class PageHeapAllocator {
   // We use an explicit Init function because these variables are statically
   // allocated and their constructors might not have run by the time some
   // other static variable tries to allocate memory.
-  void Init(Arena* arena) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     arena_ = arena;
     stats_ = {0, 0};
     free_list_ = nullptr;
@@ -48,7 +48,7 @@ class PageHeapAllocator {
     Delete(New());
   }
 
-  T* New() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  T* New() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     // Consult free list
     T* result = free_list_;
     stats_.in_use++;
@@ -60,13 +60,13 @@ class PageHeapAllocator {
     return result;
   }
 
-  void Delete(T* p) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Delete(T* p) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     *(reinterpret_cast<void**>(p)) = free_list_;
     free_list_ = p;
     stats_.in_use--;
   }
 
-  AllocatorStats stats() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  AllocatorStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return stats_;
   }
 
@@ -75,9 +75,9 @@ class PageHeapAllocator {
   Arena* arena_;
 
   // Free list of already carved objects
-  T* free_list_ GUARDED_BY(pageheap_lock);
+  T* free_list_ ABSL_GUARDED_BY(pageheap_lock);
 
-  AllocatorStats stats_ GUARDED_BY(pageheap_lock);
+  AllocatorStats stats_ ABSL_GUARDED_BY(pageheap_lock);
 };
 
 }  // namespace tcmalloc

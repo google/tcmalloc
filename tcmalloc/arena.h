@@ -32,11 +32,12 @@ class Arena {
 
   // Return a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.
-  void* Alloc(size_t bytes) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void* Alloc(size_t bytes) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns the total number of bytes allocated from this arena.  Requires
   // pageheap_lock is held.
-  uint64_t bytes_allocated() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  uint64_t bytes_allocated() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return bytes_allocated_;
   }
 
@@ -45,11 +46,11 @@ class Arena {
   static const int kAllocIncrement = 128 << 10;
 
   // Free area from which to carve new objects
-  char* free_area_ GUARDED_BY(pageheap_lock);
-  size_t free_avail_ GUARDED_BY(pageheap_lock);
+  char* free_area_ ABSL_GUARDED_BY(pageheap_lock);
+  size_t free_avail_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Total number of bytes allocated from this arena
-  uint64_t bytes_allocated_ GUARDED_BY(pageheap_lock);
+  uint64_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock);
 
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;

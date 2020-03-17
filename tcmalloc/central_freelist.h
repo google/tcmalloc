@@ -35,17 +35,17 @@ class CentralFreeList {
         counter_(absl::base_internal::kLinkerInitialized),
         num_spans_(absl::base_internal::kLinkerInitialized) {}
 
-  void Init(size_t cl) LOCKS_EXCLUDED(lock_);
+  void Init(size_t cl) ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
 
   // Insert batch[0..N-1] into the central freelist.
   // REQUIRES: N > 0 && N <= kMaxObjectsToMove.
-  void InsertRange(void **batch, int N) LOCKS_EXCLUDED(lock_);
+  void InsertRange(void** batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.
-  int RemoveRange(void **batch, int N) LOCKS_EXCLUDED(lock_);
+  int RemoveRange(void** batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
   size_t length() { return static_cast<size_t>(counter_.value()); }
@@ -65,11 +65,11 @@ class CentralFreeList {
   // Release an object to spans.
   // Returns object's span if it become completely free.
   Span* ReleaseToSpans(void* object, Span* span)
-      EXCLUSIVE_LOCKS_REQUIRED(lock_);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
   // May temporarily release lock_.
-  void Populate() EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  void Populate() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // This lock protects all the mutable data members.
   absl::base_internal::SpinLock lock_;
@@ -87,7 +87,8 @@ class CentralFreeList {
   // Num spans in empty_ plus nonempty_
   tcmalloc_internal::StatsCounter num_spans_;
 
-  SpanList nonempty_ GUARDED_BY(lock_);  // Dummy header for non-empty spans
+  SpanList nonempty_
+      ABSL_GUARDED_BY(lock_);  // Dummy header for non-empty spans
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;

@@ -25,7 +25,7 @@
 namespace tcmalloc {
 
 // Like a constructor and hence we disable thread safety analysis.
-void CentralFreeList::Init(size_t cl) NO_THREAD_SAFETY_ANALYSIS {
+void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
   object_size_ = Static::sizemap()->class_to_size(cl);
   objects_per_span_ = Static::sizemap()->class_to_pages(cl) * kPageSize /
@@ -120,7 +120,7 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
 }
 
 // Fetch memory from the system and add to the central cache freelist.
-void CentralFreeList::Populate() NO_THREAD_SAFETY_ANALYSIS {
+void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
   const size_t npages = Static::sizemap()->class_to_pages(size_class_);

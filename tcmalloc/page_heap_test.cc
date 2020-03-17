@@ -36,7 +36,7 @@ static const size_t kMinSpanLength = kMinSystemAlloc >> kPageShift;
 
 static void CheckStats(const tcmalloc::PageHeap* ph, uint64_t system_pages,
                        uint64_t free_pages, uint64_t unmapped_pages)
-    LOCKS_EXCLUDED(tcmalloc::pageheap_lock) {
+    ABSL_LOCKS_EXCLUDED(tcmalloc::pageheap_lock) {
   tcmalloc::BackingStats stats;
   {
     absl::base_internal::SpinLockHolder h(&tcmalloc::pageheap_lock);
@@ -49,7 +49,7 @@ static void CheckStats(const tcmalloc::PageHeap* ph, uint64_t system_pages,
 }
 
 static void Delete(tcmalloc::PageHeap* ph, tcmalloc::Span* s)
-    LOCKS_EXCLUDED(tcmalloc::pageheap_lock) {
+    ABSL_LOCKS_EXCLUDED(tcmalloc::pageheap_lock) {
   {
     absl::base_internal::SpinLockHolder h(&tcmalloc::pageheap_lock);
     ph->Delete(s);

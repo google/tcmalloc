@@ -52,7 +52,7 @@ class StackTraceTable : public tcmalloc_internal::ProfileBase {
   // The count is a floating point value to reduce rounding
   // errors when accounting for sampling probabilities.
   void AddTrace(double count, const StackTrace& t)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Exposed for PageHeapAllocator
   struct Bucket {

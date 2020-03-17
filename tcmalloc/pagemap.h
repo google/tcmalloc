@@ -79,7 +79,7 @@ class PageMap2 {
   constexpr PageMap2() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  void* get(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  void* get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     if ((k >> BITS) > 0 || root_[i1] == nullptr) {
@@ -90,7 +90,7 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
-  void* get_existing(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  void* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     ASSERT((k >> BITS) == 0);
@@ -101,7 +101,7 @@ class PageMap2 {
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
   uint8_t ABSL_ATTRIBUTE_ALWAYS_INLINE
-  sizeclass(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     ASSERT((k >> BITS) == 0);
@@ -230,7 +230,7 @@ class PageMap3 {
   constexpr PageMap3() : root_{}, bytes_used_(0) {}
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  void* get(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  void* get(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -243,7 +243,7 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
-  void* get_existing(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  void* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -256,7 +256,7 @@ class PageMap3 {
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
   uint8_t ABSL_ATTRIBUTE_ALWAYS_INLINE
-  sizeclass(Number k) const NO_THREAD_SAFETY_ANALYSIS {
+  sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -357,13 +357,13 @@ class PageMap {
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  uint8_t sizeclass(PageID p) NO_THREAD_SAFETY_ANALYSIS {
+  uint8_t sizeclass(PageID p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.sizeclass(p);
   }
 
   void Set(PageID p, Span* span) { map_.set(p, span); }
 
-  bool Ensure(PageID p, size_t n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  bool Ensure(PageID p, size_t n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return map_.Ensure(p, n);
   }
 
@@ -383,7 +383,7 @@ class PageMap {
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageID was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  inline Span* GetDescriptor(PageID p) const NO_THREAD_SAFETY_ANALYSIS {
+  inline Span* GetDescriptor(PageID p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return reinterpret_cast<Span*>(map_.get(p));
   }
 
@@ -391,13 +391,13 @@ class PageMap {
   // PageID must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span* GetExistingDescriptor(
-      PageID p) const NO_THREAD_SAFETY_ANALYSIS {
+      PageID p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     Span* span = reinterpret_cast<Span*>(map_.get_existing(p));
     ASSERT(span != nullptr);
     return span;
   }
 
-  size_t bytes() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  size_t bytes() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return map_.bytes_used();
   }
 

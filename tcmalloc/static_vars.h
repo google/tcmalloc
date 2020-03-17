@@ -94,7 +94,7 @@ class Static {
   // State kept for sampled allocations (/heapz support). The StatsCounter is
   // only written while holding pageheap_lock, so writes can safely use
   // LossyAdd and reads do not require locking.
-  static SpanList sampled_objects_ GUARDED_BY(pageheap_lock);
+  static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
   static tcmalloc_internal::StatsCounter sampled_objects_size_;
   static PageHeapAllocator<StackTraceTable::Bucket>* bucket_allocator() {
     return &bucket_allocator_;
@@ -120,7 +120,7 @@ class Static {
 #endif
   }
 
-  static size_t metadata_bytes() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // The root of the pagemap is potentially a large poorly utilized
   // structure, so figure out how much of it is actually resident.

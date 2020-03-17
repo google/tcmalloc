@@ -43,28 +43,28 @@ class PageHeap : public PageAllocatorInterface {
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
   // The returned memory is backed.
-  Span* New(Length n) LOCKS_EXCLUDED(pageheap_lock) override;
+  Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
   Span* NewAligned(Length n, Length align)
-      LOCKS_EXCLUDED(pageheap_lock) override;
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  void Delete(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   inline BackingStats stats() const
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {
     return stats_;
   }
 
   void GetSmallSpanStats(SmallSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void GetLargeSpanStats(LargeSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Try to release at least num_pages for reuse by the OS.  Returns
   // the actual number of pages released, which may be less than
@@ -73,12 +73,13 @@ class PageHeap : public PageAllocatorInterface {
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
   Length ReleaseAtLeastNPages(Length num_pages)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out) LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(TCMalloc_Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
-  void PrintInPbtxt(PbtxtRegion* region) LOCKS_EXCLUDED(pageheap_lock) override;
+  void PrintInPbtxt(PbtxtRegion* region)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
  private:
   // Never delay scavenging for more than the following number of
@@ -99,18 +100,18 @@ class PageHeap : public PageAllocatorInterface {
   };
 
   // List of free spans of length >= kMaxPages
-  SpanListPair large_ GUARDED_BY(pageheap_lock);
+  SpanListPair large_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Array mapping from span length to a doubly linked list of free spans
-  SpanListPair free_[kMaxPages] GUARDED_BY(pageheap_lock);
+  SpanListPair free_[kMaxPages] ABSL_GUARDED_BY(pageheap_lock);
 
   // Statistics on system, free, and unmapped bytes
-  BackingStats stats_ GUARDED_BY(pageheap_lock);
+  BackingStats stats_ ABSL_GUARDED_BY(pageheap_lock);
 
   Span* SearchFreeAndLargeLists(Length n, bool* from_returned)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  bool GrowHeap(Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  bool GrowHeap(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: span->length >= n
   // REQUIRES: span->location != IN_USE
@@ -119,33 +120,38 @@ class PageHeap : public PageAllocatorInterface {
   // length exactly "n" and mark it as non-free so it can be returned
   // to the client.  After all that, decrease free_pages_ by n and
   // return span.
-  Span* Carve(Span* span, Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  Span* Carve(Span* span, Length n)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate a large span of length == n.  If successful, returns a
   // span of exactly the specified length.  Else, returns NULL.
   Span* AllocLarge(Length n, bool* from_returned)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Coalesce span with neighboring spans if possible, prepend to
   // appropriate free list, and adjust stats.
-  void MergeIntoFreeList(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void MergeIntoFreeList(Span* span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prepends span to appropriate free list, and adjusts stats.  You'll probably
   // want to adjust span->freelist_added_time before/after calling this
   // function.
-  void PrependToFreeList(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void PrependToFreeList(Span* span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Removes span from its free list, and adjust stats.
-  void RemoveFromFreeList(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void RemoveFromFreeList(Span* span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Incrementally release some memory to the system.
   // IncrementalScavenge(n) is called whenever n pages are freed.
-  void IncrementalScavenge(Length n) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void IncrementalScavenge(Length n)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Release the last span on the normal portion of this list.
   // Return the length of that span.
   Length ReleaseLastNormalSpan(SpanListPair* slist)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats for the given list of Spans.
   //  - span_type: a short, human-readable string describing the spans
@@ -164,18 +170,18 @@ class PageHeap : public PageAllocatorInterface {
                           double cycle_clock_freq, bool live_spans);
 
   // Do invariant testing.
-  bool Check() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  bool Check() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Number of pages to deallocate before doing more scavenging
-  int64_t scavenge_counter_ GUARDED_BY(pageheap_lock);
+  int64_t scavenge_counter_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Index of last free list where we released memory to the OS.
-  int release_index_ GUARDED_BY(pageheap_lock);
+  int release_index_ ABSL_GUARDED_BY(pageheap_lock);
 
   Span* AllocateSpan(Length n, bool* from_returned)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void RecordSpan(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void RecordSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 };
 
 }  // namespace tcmalloc

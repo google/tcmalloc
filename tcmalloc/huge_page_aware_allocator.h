@@ -46,25 +46,26 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  Span* New(Length n) LOCKS_EXCLUDED(pageheap_lock) override;
+  Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
   Span* NewAligned(Length n, Length align)
-      LOCKS_EXCLUDED(pageheap_lock) override;
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  void Delete(Span* span) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  BackingStats stats() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  BackingStats stats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void GetSmallSpanStats(SmallSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   void GetLargeSpanStats(LargeSpanStats* result)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Try to release at least num_pages for reuse by the OS.  Returns
   // the actual number of pages released, which may be less than
@@ -73,22 +74,24 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
   Length ReleaseAtLeastNPages(Length num_pages)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out) LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(TCMalloc_Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Print stats to *out, excluding long/likely uninteresting things
   // unless <everything> is true.
   void Print(TCMalloc_Printer* out, bool everything)
-      LOCKS_EXCLUDED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  void PrintInPbtxt(PbtxtRegion* region) LOCKS_EXCLUDED(pageheap_lock) override;
+  void PrintInPbtxt(PbtxtRegion* region)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
-  HugeLength DonatedHugePages() const EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  HugeLength DonatedHugePages() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return donated_huge_pages_;
   }
 
@@ -100,7 +103,7 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
 
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
   static void UnbackWithoutLock(void* start, size_t length)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   typedef HugeRegion<SystemRelease> Region;
   HugeRegionSet<Region> regions_;
@@ -114,7 +117,7 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
 
   template <bool tagged>
   static void* AllocAndReport(size_t bytes, size_t* actual, size_t align)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void* MetaDataAlloc(size_t bytes);
   HugeAllocator alloc_;
   HugeCache cache_;
@@ -124,40 +127,40 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
   // allocation is deallocated, we decrement this count *if* we were able to
   // fully reassemble the address range (that is, the partial hugepage did not
   // get stuck in the filler).
-  HugeLength donated_huge_pages_ GUARDED_BY(pageheap_lock);
+  HugeLength donated_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages);
 
   PageID RefillFiller(Length n, bool* from_released)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
   // "donated" is true, the contribution will be marked as coming from the
   // tail of a multi-hugepage alloc.  Returns the allocated section.
   PageID AllocAndContribute(HugePage p, Length n, bool donated)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
   Span* LockAndAlloc(Length n, bool* from_released);
 
   Span* AllocSmall(Length n, bool* from_released)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   Span* AllocLarge(Length n, bool* from_released)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   Span* AllocEnormous(Length n, bool* from_released)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   Span* AllocRawHugepages(Length n, bool* from_released)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  bool AddRegion() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void ReleaseHugepage(FillerType::Tracker* pt)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, PageID p, Length n)
-      EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
   Span* Finalize(Length n, PageID page);

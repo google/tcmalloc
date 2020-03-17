@@ -62,7 +62,7 @@ void PageMap::MapRootWithSmallPages() {
   }
 }
 
-void* MetaDataAlloc(size_t bytes) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+void* MetaDataAlloc(size_t bytes) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   return Static::arena()->Alloc(bytes);
 }
 

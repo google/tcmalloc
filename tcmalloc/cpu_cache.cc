@@ -85,7 +85,8 @@ static size_t MaxCapacity(size_t cl) {
   return kLargeObjectDepth;
 }
 
-static void *SlabAlloc(size_t size) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+static void *SlabAlloc(size_t size)
+    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   return Static::arena()->Alloc(size);
 }
 
