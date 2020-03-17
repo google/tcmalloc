@@ -90,7 +90,7 @@ static void *SlabAlloc(size_t size)
   return Static::arena()->Alloc(size);
 }
 
-void CPUCache::Activate() {
+void CPUCache::Activate(ActivationMode mode) {
   ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
 
@@ -111,7 +111,9 @@ void CPUCache::Activate() {
   }
 
   freelist_.Init(SlabAlloc, MaxCapacity, lazy_slabs_);
-  Static::ActivateCPUCache();
+  if (mode == ActivationMode::FastPathOn) {
+    Static::ActivateCPUCache();
+  }
 }
 
 // Fetch more items from the central cache, refill our local cache,
@@ -549,7 +551,7 @@ static void ActivatePerCPUCaches() {
   }
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
-    Static::cpu_cache()->Activate();
+    Static::cpu_cache()->Activate(CPUCache::ActivationMode::FastPathOn);
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:

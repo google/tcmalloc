@@ -37,10 +37,15 @@ namespace tcmalloc {
 
 class CPUCache {
  public:
+  enum class ActivationMode {
+    FastPathOn,
+    FastPathOffTestOnly,
+  };
+
   // tcmalloc explicitly initializes its global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
   // do all initialization here instead.
-  void Activate();
+  void Activate(ActivationMode mode);
 
   // Allocate an object of the given size class. When allocation fails
   // (from this cache and after running Refill), OOOHandler(size) is

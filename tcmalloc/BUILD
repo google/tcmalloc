@@ -999,3 +999,16 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "cpu_cache_test",
+    srcs = ["cpu_cache_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc_deprecated_perthread",
+    deps = [
+        ":common_deprecated_perthread",
+        "//tcmalloc/internal:util",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
