@@ -40,6 +40,8 @@ namespace tcmalloc {
 template <MemoryModifyFunction Unback>
 class PageTracker : public TList<PageTracker<Unback>>::Elem {
  public:
+  static void UnbackImpl(void *p, size_t size) { Unback(p, size); }
+
   constexpr PageTracker(HugePage p, int64_t when)
       : location_(p),
         free_{},
@@ -61,8 +63,9 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // REQUIRES: p was the result of a previous call to Get(n)
   void Put(PageID p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Are unused pages returned-to-system?
+  // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
+
   // Was this tracker donated from the tail of a multi-hugepage allocation?
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
   // otherwise the value is meaningless.
@@ -76,6 +79,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   Length longest_free_range() const { return free_.longest_free(); }
   size_t nallocs() const { return free_.allocs(); }
   Length used_pages() const { return free_.used(); }
+  Length released_pages() const { return released_count_; }
   Length free_pages() const;
   bool empty() const;
   bool full() const;
@@ -170,7 +174,7 @@ enum class FillerPartialRerelease : bool {
   // rather than releasing it back to the OS.  This can reduce minor page
   // faults for hot pages.
   //
-  // TODO(b/141550014, b/122551676):  Complete this feature.
+  // TODO(b/141550014, b/122551676):  Make this the default behavior.
   Retain,
 };
 
@@ -339,10 +343,13 @@ class HugePageFiller {
   HintedTrackerLists<kPagesPerHugePage> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
-  // regular_alloc_partial_released_ is empty and n_used_partial_released_ is 0.
-  //   TODO(b/141550014):  Wire this up to the value of partial_rerelease_.
-  //   When that work is complete, this list will contain huge pages that are
-  //   partially allocated and partially returned to the OS.
+  // When FillerPartialRerelease == Return:
+  //   regular_alloc_partial_released_ is empty and n_used_partial_released_ is
+  //   0.
+  //
+  // When FillerPartialRerelease == Retain:
+  //   regular_alloc_partial_released_ contains huge pages that are partially
+  //   allocated, partially free, and partially returned to the OS.
   //   n_used_partial_released_ is the number of pages which have been allocated
   //   of the set.
   //
@@ -565,6 +572,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   //
   // Overall our allocation preference is:
   //  - We prefer allocating from used freelists rather than freshly donated
+  //  - We prefer donated pages over previously released hugepages ones.
   //  - Among donated freelists we prefer smaller longest_free_range
   //  - Among used freelists we prefer smaller longest_free_range
   //    with ties broken by (quantized) alloc counts
@@ -599,9 +607,16 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
     if (pt) {
       break;
     }
-    // TODO(b/141550014):  Wire this up to the value of partial_rerelease_.
-    ASSERT(regular_alloc_partial_released_.empty());
-    ASSERT(n_used_partial_released_ == 0);
+    if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+      pt = regular_alloc_partial_released_.GetLeast(ListFor(n, 0));
+      if (pt) {
+        ASSERT(!pt->donated());
+        was_released = true;
+        ASSERT(n_used_partial_released_ >= pt->used_pages());
+        n_used_partial_released_ -= pt->used_pages();
+        break;
+      }
+    }
     pt = regular_alloc_released_.GetLeast(ListFor(n, 0));
     if (pt) {
       ASSERT(!pt->donated());
@@ -640,27 +655,52 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
   //   unbacking, we release the pageheap_lock.  Another thread could see the
   //   "free" memory and begin using it before we retake the lock.
   // * To maintain maintain the invariant that
-  //     pt->released() => regular_alloc_released_.size() > 0
+  //     pt->released() => regular_alloc_released_.size() > 0 ||
+  //                       regular_alloc_partial_released_.size() > 0
   //   We do this before removing pt from our lists, since another thread may
-  //   encounter our post-Remove() update to regular_alloc_released_.size()
-  //   while encountering pt.
-  pt->MaybeRelease(p, n);
+  //   encounter our post-Remove() update to regular_alloc_released_.size() and
+  //   regular_alloc_partial_released_.size() while encountering pt.
+  if (partial_rerelease_ == FillerPartialRerelease::Return) {
+    pt->MaybeRelease(p, n);
+  }
 
   Remove(pt);
 
   pt->Put(p, n);
 
   allocated_ -= n;
-  if (pt->released()) {
+  if (partial_rerelease_ == FillerPartialRerelease::Return && pt->released()) {
     unmapped_ += n;
     unmapping_unaccounted_ += n;
   }
+
   if (pt->longest_free_range() == kPagesPerHugePage) {
     --size_;
     if (pt->released()) {
-      ASSERT(unmapped_ >= kPagesPerHugePage);
-      unmapped_ -= kPagesPerHugePage;
+      const Length free_pages = pt->free_pages();
+      const Length released_pages = pt->released_pages();
+      ASSERT(free_pages >= released_pages);
+      ASSERT(unmapped_ >= released_pages);
+      unmapped_ -= released_pages;
+
+      if (free_pages > released_pages) {
+        // We should only see a difference between free pages and released pages
+        // when we retain returned pages.
+        ASSERT(partial_rerelease_ == FillerPartialRerelease::Retain);
+
+        // pt is partially released.  As the rest of the hugepage-aware
+        // allocator works in terms of whole hugepages, we need to release the
+        // rest of the hugepage.  This simplifies subsequent accounting by
+        // allowing us to work with hugepage-granularity, rather than needing to
+        // retain pt's state indefinitely.
+        pageheap_lock.Unlock();
+        TrackerType::UnbackImpl(pt->location().start_addr(), kHugePageSize);
+        pageheap_lock.Lock();
+
+        unmapping_unaccounted_ += free_pages - released_pages;
+      }
     }
+
     return pt;
   }
   Place(pt);
@@ -701,13 +741,20 @@ inline Length HugePageFiller<TrackerType>::ReleasePages() {
   // We can skip the first kChunks lists as they are known to be 100% full.
   // (Those lists are likely to be long.)
   //
-  // We do not examine the regular_alloc_released_ lists, as deallocating on
-  // an already released page causes it to fully return everything (see
-  // PageTracker::Put).
-  // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
-  // great candidate for partial release.
-  regular_alloc_.Iter(loop, kChunks);
-  donated_alloc_.Iter(loop, 0);
+  // We do not examine the regular_alloc_released_ lists, as only contain
+  // completely released pages.
+  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+    regular_alloc_partial_released_.Iter(loop, kChunks);
+  }
+
+  if (!best) {
+    // Only consider breaking up a hugepage if there are no partially released
+    // pages.
+    regular_alloc_.Iter(loop, kChunks);
+    // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
+    // great candidate for partial release.
+    donated_alloc_.Iter(loop, 0);
+  }
 
   if (best && !best->full()) {
     Remove(best);
@@ -1034,9 +1081,17 @@ inline void HugePageFiller<TrackerType>::Remove(TrackerType *pt) {
     donated_alloc_.Remove(pt, longest);
   } else {
     size_t chunk = IndexFor(pt);
-    auto &list = pt->released() ? regular_alloc_released_ : regular_alloc_;
     size_t i = ListFor(longest, chunk);
-    list.Remove(pt, i);
+    if (!pt->released()) {
+      regular_alloc_.Remove(pt, i);
+    } else if (partial_rerelease_ == FillerPartialRerelease::Return ||
+               pt->free_pages() <= pt->released_pages()) {
+      regular_alloc_released_.Remove(pt, i);
+    } else {
+      regular_alloc_partial_released_.Remove(pt, i);
+      ASSERT(n_used_partial_released_ >= pt->used_pages());
+      n_used_partial_released_ -= pt->used_pages();
+    }
   }
 }
 
@@ -1052,9 +1107,17 @@ inline void HugePageFiller<TrackerType>::Place(TrackerType *pt) {
   // donated allocs.
   pt->set_donated(false);
 
-  auto *list = pt->released() ? &regular_alloc_released_ : &regular_alloc_;
   size_t i = ListFor(longest, chunk);
-  list->Add(pt, i);
+  if (!pt->released()) {
+    regular_alloc_.Add(pt, i);
+  } else if (partial_rerelease_ == FillerPartialRerelease::Return ||
+             pt->free_pages() == pt->released_pages()) {
+    regular_alloc_released_.Add(pt, i);
+  } else {
+    ASSERT(partial_rerelease_ == FillerPartialRerelease::Retain);
+    regular_alloc_partial_released_.Add(pt, i);
+    n_used_partial_released_ += pt->used_pages();
+  }
 }
 
 template <class TrackerType>

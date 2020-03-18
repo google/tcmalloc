@@ -279,7 +279,7 @@ TEST_F(PageTrackerTest, AllocSane) {
   }
 }
 
-TEST_F(PageTrackerTest, Releasing) {
+TEST_F(PageTrackerTest, ReleasingReturn) {
   static const size_t kAllocSize = kPagesPerHugePage / 4;
   PAlloc a1 = Get(kAllocSize - 3);
   PAlloc a2 = Get(kAllocSize);
@@ -305,6 +305,36 @@ TEST_F(PageTrackerTest, Releasing) {
 
   MaybeRelease(a3);
   Put(a3);
+}
+
+TEST_F(PageTrackerTest, ReleasingRetain) {
+  static const size_t kAllocSize = kPagesPerHugePage / 4;
+  PAlloc a1 = Get(kAllocSize - 3);
+  PAlloc a2 = Get(kAllocSize);
+  PAlloc a3 = Get(kAllocSize + 1);
+  PAlloc a4 = Get(kAllocSize + 2);
+
+  Put(a2);
+  Put(a4);
+  // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
+  // The free parts should be released when we mark the hugepage as such,
+  // but not the allocated parts.
+  ExpectPages(a2);
+  ExpectPages(a4);
+  ReleaseFree();
+  mock_.VerifyAndClear();
+
+  // Now we return the other parts, and they shouldn't get released.
+  Put(a1);
+  Put(a3);
+
+  mock_.VerifyAndClear();
+
+  // But they will if we ReleaseFree.
+  ExpectPages(a1);
+  ExpectPages(a3);
+  ReleaseFree();
+  mock_.VerifyAndClear();
 }
 
 TEST_F(PageTrackerTest, Defrag) {
@@ -547,6 +577,8 @@ absl::BlockingCounter *BlockingUnback::counter = nullptr;
 
 class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
+  static void Unback(void *p, size_t len) {}
+
   // Our templating approach lets us directly override certain functions
   // and have mocks without virtualization.  It's a bit funky but works.
   typedef PageTracker<BlockingUnback::Unback> FakeTracker;
@@ -827,9 +859,15 @@ TEST_P(FillerTest, HugePageFrac) {
   // 2 kQs on the release and 3 on the hugepage
   Delete(a2);
   EXPECT_EQ(0.6, filler_.hugepage_frac());
+  // This releases the free page on the partially released hugepage.
+  ASSERT_EQ(kQ, ReleasePages());
+  EXPECT_EQ(0.6, filler_.hugepage_frac());
 
   // just-over-1 kQ on the release and 3 on the hugepage
   Delete(a3);
+  EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
+  // This releases the free page on the partially released hugepage.
+  ASSERT_EQ(kQ - 1, ReleasePages());
   EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
 
   // All huge!
@@ -900,8 +938,13 @@ TEST_P(FillerTest, ReleaseAccounting) {
   // We should pick the [empty big][full tiny] hugepage here.
   EXPECT_EQ(N - 2, ReleasePages());
   EXPECT_EQ(N - 2, filler_.unmapped_pages());
-  // This should trigger a release too:
+  // This shouldn't trigger a release
   Delete(tiny1);
+  if (GetParam() == FillerPartialRerelease::Retain) {
+    EXPECT_EQ(N - 2, filler_.unmapped_pages());
+    // Until we call ReleasePages()
+    EXPECT_EQ(1, ReleasePages());
+  }
   EXPECT_EQ(N - 1, filler_.unmapped_pages());
 
   // As should this, but this will drop the whole hugepage
@@ -910,8 +953,12 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(NHugePages(1), filler_.size());
 
   // This shouldn't trigger any release: we just claim credit for the
-  // releases we did automatically on tiny1 and tiny2.
-  EXPECT_EQ(2, ReleasePages());
+  // releases we did automatically on tiny2.
+  if (GetParam() == FillerPartialRerelease::Retain) {
+    EXPECT_EQ(1, ReleasePages());
+  } else {
+    EXPECT_EQ(2, ReleasePages());
+  }
   EXPECT_EQ(0, filler_.unmapped_pages());
   EXPECT_EQ(NHugePages(1), filler_.size());
 
