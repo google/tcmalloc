@@ -85,7 +85,9 @@ namespace tcmalloc {
 // constructor from an experiment.
 HugePageAwareAllocator::HugePageAwareAllocator(bool tagged)
     : PageAllocatorInterface("HugePageAware", tagged),
-      filler_(FillerPartialRerelease::Return),
+      filler_(IsExperimentActive(Experiment::TCMALLOC_PARTIAL_RELEASE)
+                  ? FillerPartialRerelease::Retain
+                  : FillerPartialRerelease::Return),
       alloc_(tagged ? AllocAndReport<true> : AllocAndReport<false>,
              MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}) {
