@@ -127,7 +127,9 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // Once released, a huge page is considered released *until* free_ is
   // exhausted and no pages released_by_page_ are set.  We may have up to
   // kPagesPerHugePage-1 parallel subreleases in-flight.
-  Bitmap<kPagesPerHugePage> released_by_page_ GUARDED_BY(pageheap_lock);
+  //
+  // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
+  Bitmap<kPagesPerHugePage> released_by_page_;
 
   // TODO(b/134691947): optimize computing this; it's on the fast path.
   int64_t when_;
@@ -405,16 +407,46 @@ inline size_t PageTracker<Unback>::ReleaseFree() {
   size_t count = 0;
   size_t index = 0;
   size_t n;
-  while (free_.NextFreeRange(index, &index, &n)) {
-    PageID p = location_.first_page() + index;
-    ReleasePages(p, n);
-    // Mark pages as released.  Amortize the update to release_count_.
-    ASSERT(released_by_page_.CountBits(index, n) == 0);
-    released_by_page_.SetRange(index, n);
-    count += n;
-    index += n;
+  // For purposes of tracking, pages which are not yet released are "free" in
+  // the released_by_page_ bitmap.  We subrelease these pages in an iterative
+  // process:
+  //
+  // 1.  Identify the next range of still backed pages.
+  // 2.  Iterate on the free_ tracker within this range.  For any free range
+  //     found, mark these as unbacked.
+  // 3.  Release the subrange to the OS.
+  while (released_by_page_.NextFreeRange(index, &index, &n)) {
+    size_t free_index;
+    size_t free_n;
+
+    // Check for freed pages in this unreleased region.
+    if (free_.NextFreeRange(index, &free_index, &free_n) &&
+        free_index < index + n) {
+      // If there is a free range which overlaps with [index, index+n), release
+      // it.
+      size_t end = std::min(free_index + free_n, index + n);
+
+      // In debug builds, verify [free_index, end) is backed.
+      size_t length = end - free_index;
+      ASSERT(released_by_page_.CountBits(free_index, length) == 0);
+      // Mark pages as released.  Amortize the update to release_count_.
+      released_by_page_.SetRange(free_index, length);
+
+      PageID p = location_.first_page() + free_index;
+      // TODO(b/122551676):  If release fails, we should not SetRange above.
+      ReleasePages(p, length);
+
+      index = end;
+      count += length;
+    } else {
+      // [index, index+n) did not have an overlapping range in free_, move to
+      // the next backed range of pages.
+      index += n;
+    }
   }
+
   released_count_ += count;
+  ASSERT(released_count_ <= kPagesPerHugePage);
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) == released_count_);
   when_ = absl::base_internal::CycleClock::Now();
   return count;
@@ -428,9 +460,17 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats *small,
 
   int64_t w = when_;
   while (free_.NextFreeRange(index, &index, &n)) {
+    bool is_released = released_by_page_.GetBit(index);
+    // Find the last bit in the run with the same state (set or cleared) as
+    // index.
+    size_t end = is_released ? released_by_page_.FindClear(index + 1)
+                             : released_by_page_.FindSet(index + 1);
+    n = std::min(end - index, n);
+    ASSERT(n > 0);
+
     if (n < kMaxPages) {
       if (small != nullptr) {
-        if (released()) {
+        if (is_released) {
           small->returned_length[n]++;
         } else {
           small->normal_length[n]++;
@@ -439,7 +479,7 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats *small,
     } else {
       if (large != nullptr) {
         large->spans++;
-        if (released()) {
+        if (is_released) {
           large->returned_pages += n;
         } else {
           large->normal_pages += n;
@@ -448,7 +488,7 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats *small,
     }
 
     if (ages) {
-      ages->RecordRange(n, released(), w);
+      ages->RecordRange(n, is_released, w);
     }
     index += n;
   }
