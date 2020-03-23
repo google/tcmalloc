@@ -33,7 +33,7 @@ NO_BUILTIN_MALLOC = [
 REGTEST_DEPS = [
     ":testutil",
     "//tcmalloc:headers_for_tests",
-    "@com_google_googletest//:gtest",
+    "//testing/base/public:gunit",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:core_headers",
     "//tcmalloc/internal:logging",
@@ -284,11 +284,11 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
+        "//testing/base/public:gunit",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -302,11 +302,11 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
+        "//testing/base/public:gunit",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -320,11 +320,11 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
+        "//testing/base/public:gunit",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -338,11 +338,11 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
+        "//testing/base/public:gunit",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -546,11 +546,11 @@ cc_test(
         "//tcmalloc:want_hpaa",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",
+        "//testing/base/public:gunit",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-        "@com_google_googletest//:gtest",
     ],
 )
 
