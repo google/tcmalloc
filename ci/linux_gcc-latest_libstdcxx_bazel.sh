@@ -36,7 +36,7 @@ if [ -z ${EXCEPTIONS_MODE:-} ]; then
   EXCEPTIONS_MODE="-fno-exceptions -fexceptions"
 fi
 
-readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_gcc-latest:20200106"
+readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_gcc-latest:20200319"
 
 for std in ${STD}; do
   for compilation_mode in ${COMPILATION_MODE}; do
