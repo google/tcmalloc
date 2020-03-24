@@ -990,12 +990,6 @@ extern "C" bool MallocExtension_Internal_GetNumericProperty(
   return GetNumericProperty(name_data, name_size, value);
 }
 
-// In free fast-path we handle delete hooks by delegating work to slower
-// function that both performs delete hooks calls and does free. This is done so
-// that free fast-path only does tail calls, which allow compiler to avoid
-// generating costly prologue/epilogue for fast-path.
-void free_fast_path_disabled(void* ptr);
-
 }  // namespace tcmalloc
 
 extern "C" void MallocExtension_Internal_GetMemoryLimit(
@@ -1190,6 +1184,8 @@ inline Sampler* GetThreadSampler() {
 
 #endif
 
+enum class Hooks { RUN, NO };
+
 static void FreeSmallSlow(void* ptr, size_t cl);
 
 namespace {
@@ -1232,28 +1228,32 @@ inline void SetPagesCapacity(const void* ptr, size_t size, size_t* psize) {
 
 }  // namespace
 
-// This is used to reflect our knowledge of whether fast path readiness is
-// checked and which value it was.
-enum class FreeFastPath {
-  ENABLED,   // This value is used when we checked fast-path readiness early and
-             // found it enabled.
-  DISABLED,  // This value is used when we explicitly want to save some code
-             // size and don't need inlining free fast path.
-  UNKNOWN    // This value is used when we have not checked fast-path yet or
-             // when we possibly changed it just now, and still want freeing
-             // code be reasonably fast in common case.
-};
+namespace tcmalloc {
+
+// In free fast-path we handle delete hooks by delegating work to slower
+// function that both performs delete hooks calls and does free. This is done so
+// that free fast-path only does tail calls, which allow compiler to avoid
+// generating costly prologue/epilogue for fast-path.
+template <void F(void*, size_t), Hooks hooks_state>
+static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
+    void* ptr, size_t t) {
+  // Refresh the fast path state.
+  GetThreadSampler()->UpdateFastPathState();
+  if (hooks_state == Hooks::RUN) {
+  }
+  return F(ptr, t);
+}
+
+}  // namespace tcmalloc
 
 // Helper for do_free_with_cl
-template <FreeFastPath fast_path>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr, size_t cl) {
-  if (fast_path == FreeFastPath::DISABLED) {
+template <Hooks hooks_state>
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
+                                                          size_t cl) {
+  if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
     // Take the slow path.
-    return FreeSmallSlow(ptr, cl);
-  } else if (fast_path != FreeFastPath::ENABLED &&
-             ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
-    // Take the slow path.
-    return FreeSmallSlow(ptr, cl);
+    tcmalloc::invoke_delete_hooks_and_free<FreeSmallSlow, hooks_state>(ptr, cl);
+    return;
   }
 
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
@@ -1288,8 +1288,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr, size_t cl) {
 // function prologue/epilogue.
 ABSL_ATTRIBUTE_NOINLINE
 static void FreeSmallSlow(void* ptr, size_t cl) {
-  // Refresh the fast path state.
-  GetThreadSampler()->UpdateFastPathState();
   if (ABSL_PREDICT_TRUE(tcmalloc::UsePerCpuCache())) {
     Static::cpu_cache()->Deallocate(ptr, cl);
   } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent()) {
@@ -1518,8 +1516,6 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy, size_t cl,
 // prologue/epiloge for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
 static void do_free_pages(void* ptr, const PageID p) {
-  GetThreadSampler()->UpdateFastPathState();
-
   void* proxy = nullptr;
   size_t size;
   bool notify_sampled_alloc = false;
@@ -1560,8 +1556,7 @@ static void do_free_pages(void* ptr, const PageID p) {
   }
 
   if (proxy) {
-    FreeSmall<FreeFastPath::DISABLED>(proxy,
-                                      Static::sizemap()->SizeClass(size));
+    FreeSmall<Hooks::NO>(proxy, Static::sizemap()->SizeClass(size));
   }
 }
 
@@ -1583,7 +1578,7 @@ static size_t GetSizeClass(void* ptr) {
 // would know that places that call this function with explicit 0 is
 // "have_cl-case" and others are "!have_cl-case". But we certainly
 // don't have such compiler. See also do_free_with_size below.
-template <bool have_cl, FreeFastPath fast_path>
+template <bool have_cl, Hooks hooks_state>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_cl(void* ptr, size_t cl) {
   // !have_cl -> cl == 0
   ASSERT(have_cl || cl == 0);
@@ -1611,22 +1606,18 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_cl(void* ptr, size_t cl) {
     ASSERT(cl == GetSizeClass(ptr));
     ASSERT(ptr != nullptr);
     ASSERT(!Static::pagemap()->GetExistingDescriptor(p)->sampled());
-    FreeSmall<fast_path>(ptr, cl);
+    FreeSmall<hooks_state>(ptr, cl);
   } else {
-    do_free_pages(ptr, p);
+    tcmalloc::invoke_delete_hooks_and_free<do_free_pages, hooks_state>(ptr, p);
   }
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
-  if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
-    // Take the slow path.
-    return tcmalloc::free_fast_path_disabled(ptr);
-  }
-  return do_free_with_cl<false, FreeFastPath::ENABLED>(ptr, 0);
+  return do_free_with_cl<false, Hooks::RUN>(ptr, 0);
 }
 
 void do_free_no_hooks(void* ptr) {
-  return do_free_with_cl<false, FreeFastPath::UNKNOWN>(ptr, 0);
+  return do_free_with_cl<false, Hooks::NO>(ptr, 0);
 }
 
 template <typename AlignPolicy>
@@ -1636,7 +1627,7 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreePages(void* ptr) {
   const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
-  do_free_pages(ptr, p);
+  tcmalloc::invoke_delete_hooks_and_free<do_free_pages, Hooks::RUN>(ptr, p);
 }
 
 template <typename AlignPolicy>
@@ -1645,11 +1636,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
                                                            AlignPolicy align) {
   ASSERT(CorrectSize(ptr, size, align));
   ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(align.align())));
-
-  if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
-    // Take the slow path.
-    return tcmalloc::free_fast_path_disabled(ptr);
-  }
 
   // This is an optimized path that may be taken if the binary is compiled
   // with -fsized-delete. We attempt to discover the size class cheaply
@@ -1680,7 +1666,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     return FreePages(ptr);
   }
 
-  return do_free_with_cl<true, FreeFastPath::ENABLED>(ptr, cl);
+  return do_free_with_cl<true, Hooks::RUN>(ptr, cl);
 }
 
 inline size_t GetSize(const void* ptr) {
@@ -1854,16 +1840,6 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   SetClassCapacity(ret, cl, capacity);
   return ret;
 }
-
-namespace tcmalloc {
-
-ABSL_ATTRIBUTE_SECTION(google_malloc) void free_fast_path_disabled(void* ptr) {
-  // Refresh the fast path state.
-  GetThreadSampler()->UpdateFastPathState();
-  do_free_no_hooks(ptr);
-}
-
-}  // namespace tcmalloc
 
 extern "C" size_t MallocExtension_GetAllocatedSize(const void* ptr) {
   ASSERT(!ptr || tcmalloc::GetOwnership(ptr) !=
