@@ -962,9 +962,35 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(0, filler_.unmapped_pages());
   EXPECT_EQ(NHugePages(1), filler_.size());
 
+  // Check subrelease stats
+  EXPECT_EQ(N / 2, filler_.used_pages());
+  EXPECT_EQ(0, filler_.used_pages_in_any_subreleased());
+  EXPECT_EQ(0, filler_.used_pages_in_partial_released());
+  EXPECT_EQ(0, filler_.used_pages_in_released());
+
   // Now we pick the half/half hugepage
   EXPECT_EQ(N / 2, ReleasePages());
   EXPECT_EQ(N / 2, filler_.unmapped_pages());
+
+  // Check subrelease stats
+  EXPECT_EQ(N / 2, filler_.used_pages());
+  EXPECT_EQ(N / 2, filler_.used_pages_in_any_subreleased());
+  EXPECT_EQ(0, filler_.used_pages_in_partial_released());
+  EXPECT_EQ(N / 2, filler_.used_pages_in_released());
+
+  // Check accounting for partially released hugepages with partial rerelease
+  if (GetParam() == FillerPartialRerelease::Retain) {
+    // Allocating and deallocating a small object causes the page to turn from
+    // a released hugepage into a partially released hugepage.
+    auto tiny3 = Allocate(1);
+    auto tiny4 = Allocate(1);
+    Delete(tiny4);
+    EXPECT_EQ(N / 2 + 1, filler_.used_pages());
+    EXPECT_EQ(N / 2 + 1, filler_.used_pages_in_any_subreleased());
+    EXPECT_EQ(N / 2 + 1, filler_.used_pages_in_partial_released());
+    EXPECT_EQ(0, filler_.used_pages_in_released());
+    Delete(tiny3);
+  }
 
   Delete(half2);
   EXPECT_EQ(NHugePages(0), filler_.size());
@@ -1101,9 +1127,10 @@ TEST_P(FillerTest, Print) {
 
   EXPECT_EQ(buffer,
             R"(HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 8 total, 3 full, 3 partial, 2 released, 0 quarantined
+HugePageFiller: 8 total, 3 full, 3 partial, 2 released (0 partially), 0 quarantined
 HugePageFiller: 261 pages free in 8 hugepages, 0.1274 free
 HugePageFiller: among non-fulls, 0.3398 free
+HugePageFiller: 499 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 2 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7187 of used pages hugepageable
 
@@ -1199,7 +1226,10 @@ TEST_P(FillerTest, PrintInPbtxt) {
   filler_full_huge_pages: 3
   filler_partial_huge_pages: 3
   filler_released_huge_pages: 2
+  filler_partially_released_huge_pages: 0
   filler_free_pages: 261
+  filler_used_pages_in_subreleased: 499
+  filler_used_pages_in_partial_released: 0
   filler_unmapped_bytes: 0
   filler_hugepageable_used_bytes: 10444800
   filler_tracker {

@@ -215,6 +215,13 @@ class HugePageFiller {
   Length used_pages() const { return allocated_; }
   Length unmapped_pages() const { return unmapped_; }
   Length free_pages() const;
+  Length used_pages_in_released() const { return n_used_released_; }
+  Length used_pages_in_partial_released() const {
+    return n_used_partial_released_;
+  }
+  Length used_pages_in_any_subreleased() const {
+    return n_used_released_ + n_used_partial_released_;
+  }
 
   // Fraction of used pages that are on non-released hugepages and
   // thus could be backed by kernel hugepages. (Of course, we can't
@@ -355,8 +362,10 @@ class HugePageFiller {
   //
   // regular_alloc_released_:  This list contains huge pages whose pages are
   // either allocated or returned to the OS.  There are no pages that are free,
-  // but not returned to the OS.
+  // but not returned to the OS.  n_used_released_ contains the number of
+  // pages in those huge pages that are not free (i.e., allocated).
   Length n_used_partial_released_;
+  Length n_used_released_;
   HintedTrackerLists<kNumLists> regular_alloc_partial_released_;
   HintedTrackerLists<kNumLists> regular_alloc_released_;
 
@@ -520,6 +529,7 @@ template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease)
     : n_used_partial_released_(0),
+      n_used_released_(0),
       size_(NHugePages(0)),
       allocated_(0),
       unmapped_(0),
@@ -621,6 +631,8 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
     if (pt) {
       ASSERT(!pt->donated());
       was_released = true;
+      ASSERT(n_used_released_ >= pt->used_pages());
+      n_used_released_ -= pt->used_pages();
       break;
     }
 
@@ -949,15 +961,21 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
   const auto safe_div = [](double a, double b) { return b == 0 ? 0 : a / b; };
   const HugeLength n_nonfull = size() - nrel - nfull;
   out->printf(
-      "HugePageFiller: %zu total, %zu full, %zu partial, %zu released, 0 "
-      "quarantined\n",
-      size().raw_num(), nfull.raw_num(), n_nonfull.raw_num(), nrel.raw_num());
+      "HugePageFiller: %zu total, %zu full, %zu partial, %zu released "
+      "(%zu partially), 0 quarantined\n",
+      size().raw_num(), nfull.raw_num(), n_nonfull.raw_num(), nrel.raw_num(),
+      regular_alloc_partial_released_.size().raw_num());
   out->printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
               free_pages(), size().raw_num(),
               safe_div(free_pages(), size().in_pages()));
 
   out->printf("HugePageFiller: among non-fulls, %.4f free\n",
               safe_div(free_pages(), n_nonfull.in_pages()));
+
+  out->printf(
+      "HugePageFiller: %zu used pages in subreleased hugepages (%zu of them in "
+      "partially released)\n",
+      used_pages_in_any_subreleased(), used_pages_in_partial_released());
 
   out->printf(
       "HugePageFiller: %zu hugepages partially released, %.4f released\n",
@@ -1012,7 +1030,13 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   hpaa->PrintI64("filler_full_huge_pages", nfull.raw_num());
   hpaa->PrintI64("filler_partial_huge_pages", n_nonfull.raw_num());
   hpaa->PrintI64("filler_released_huge_pages", nrel.raw_num());
+  hpaa->PrintI64("filler_partially_released_huge_pages",
+                 regular_alloc_partial_released_.size().raw_num());
   hpaa->PrintI64("filler_free_pages", free_pages());
+  hpaa->PrintI64("filler_used_pages_in_subreleased",
+                 used_pages_in_any_subreleased());
+  hpaa->PrintI64("filler_used_pages_in_partial_released",
+                 used_pages_in_partial_released());
   hpaa->PrintI64(
       "filler_unmapped_bytes",
       static_cast<uint64_t>(nrel.raw_num() *
@@ -1087,6 +1111,8 @@ inline void HugePageFiller<TrackerType>::Remove(TrackerType *pt) {
     } else if (partial_rerelease_ == FillerPartialRerelease::Return ||
                pt->free_pages() <= pt->released_pages()) {
       regular_alloc_released_.Remove(pt, i);
+      ASSERT(n_used_released_ >= pt->used_pages());
+      n_used_released_ -= pt->used_pages();
     } else {
       regular_alloc_partial_released_.Remove(pt, i);
       ASSERT(n_used_partial_released_ >= pt->used_pages());
@@ -1113,6 +1139,7 @@ inline void HugePageFiller<TrackerType>::Place(TrackerType *pt) {
   } else if (partial_rerelease_ == FillerPartialRerelease::Return ||
              pt->free_pages() == pt->released_pages()) {
     regular_alloc_released_.Add(pt, i);
+    n_used_released_ += pt->used_pages();
   } else {
     ASSERT(partial_rerelease_ == FillerPartialRerelease::Retain);
     regular_alloc_partial_released_.Add(pt, i);

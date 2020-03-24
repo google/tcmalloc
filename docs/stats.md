@@ -483,9 +483,10 @@ an indication of the number and state of the hugepages in the filler cache.
 
 ```
 HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 19882 total, 3870 full, 16012 partial, 0 released, 0 quarantined
+HugePageFiller: 19882 total, 3870 full, 16012 partial, 0 released (0 partially), 0 quarantined
 HugePageFiller: 120168 pages free in 19882 hugepages, 0.0236 free
 HugePageFiller: among non-fulls, 0.0293 free
+HugePageFiller: 499 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 0 hugepages partially released, nan released
 HugePageFiller: 1.0000 of used pages hugepageable
 ```
@@ -497,11 +498,13 @@ The summary stats are as follows:
 *   Partial is the remaining number of hugepages that have a single in-use
     allocation.
 *   Released is the number of hugepages that are released - ie partially
-    unmapped.
+    unmapped. If partially released hugepages are enabled, the number in
+    parentheses shows the number of hugepages in this category.
 *   Quarantined is a feature has been disabled, so the result is currently zero.
 
 The second section gives an indication of the number of pages in various states
-in the filler cache.
+in the filler cache. "Used pages" refers to the number of occupied pages in the
+different types of partially unmapped hugepages.
 
 ```
 HugePageFiller: fullness histograms
