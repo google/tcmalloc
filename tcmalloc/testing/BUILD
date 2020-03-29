@@ -276,6 +276,7 @@ cc_test(
 
 cc_test(
     name = "sampling_memusage_test",
+    timeout = "long",
     srcs = ["sampling_memusage_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
