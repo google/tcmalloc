@@ -477,6 +477,7 @@ template <bool Goal>
 inline size_t Bitmap<N>::FindValue(size_t index) const {
   size_t offset = index % kWordSize;
   size_t word = index / kWordSize;
+  ASSERT(word < kWords);
   size_t here = bits_[word];
   if (!Goal) here = ~here;
   size_t mask = ~static_cast<size_t>(0) << offset;

@@ -479,8 +479,13 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats *small,
     bool is_released = released_by_page_.GetBit(index);
     // Find the last bit in the run with the same state (set or cleared) as
     // index.
-    size_t end = is_released ? released_by_page_.FindClear(index + 1)
-                             : released_by_page_.FindSet(index + 1);
+    size_t end;
+    if (index >= kPagesPerHugePage - 1) {
+      end = kPagesPerHugePage;
+    } else {
+      end = is_released ? released_by_page_.FindClear(index + 1)
+                        : released_by_page_.FindSet(index + 1);
+    }
     n = std::min(end - index, n);
     ASSERT(n > 0);
 

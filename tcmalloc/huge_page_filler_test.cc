@@ -549,6 +549,48 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_LE(0.1, avg_age_unbacked);
 }
 
+TEST_F(PageTrackerTest, b151915873) {
+  // This test verifies, while generating statistics for the huge page, that we
+  // do not go out-of-bounds in our bitmaps (b/151915873).
+
+  // While the PageTracker relies on FindAndMark to decide which pages to hand
+  // out, we do not specify where in the huge page we get our allocations.
+  // Allocate single pages and then use their returned addresses to create the
+  // desired pattern in the bitmaps, namely:
+  //
+  // |      | kPagesPerHugePage - 2 | kPagesPerHugePages - 1 |
+  // | .... | not free              | free                   |
+  //
+  // This causes AddSpanStats to try index = kPagesPerHugePage - 1, n=1.  We
+  // need to not overflow FindClear/FindSet.
+
+  std::vector<PAlloc> allocs;
+  allocs.reserve(kPagesPerHugePage);
+  for (int i = 0; i < kPagesPerHugePage; i++) {
+    allocs.push_back(Get(1));
+  }
+
+  std::sort(allocs.begin(), allocs.end(),
+            [](const PAlloc &a, const PAlloc &b) { return a.p < b.p; });
+
+  Put(allocs.back());
+  allocs.erase(allocs.begin() + allocs.size() - 1);
+
+  ASSERT_EQ(tracker_.used_pages(), kPagesPerHugePage - 1);
+
+  SmallSpanStats small;
+  memset(&small, 0, sizeof(small));
+  LargeSpanStats large;
+  memset(&large, 0, sizeof(large));
+  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
+
+  tracker_.AddSpanStats(&small, &large, &ages);
+
+  EXPECT_EQ(small.normal_length[1], 1);
+  EXPECT_THAT(0, testing::AllOfArray(&small.normal_length[2],
+                                     &small.normal_length[kMaxPages]));
+}
+
 class BlockingUnback {
  public:
   static void Unback(void *p, size_t len) {
