@@ -603,6 +603,31 @@ cc_test(
 )
 
 cc_test(
+    name = "huge_page_aware_allocator_test",
+    srcs = ["huge_page_aware_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        ":malloc_extension",
+        ":page_allocator_test_util",
+        "//tcmalloc/internal:logging",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "huge_region_test",
     srcs = ["huge_region_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
