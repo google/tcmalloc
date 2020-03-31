@@ -72,22 +72,23 @@ ssize_t signal_safe_write(int fd, const char *buf, size_t count,
   return rc;
 }
 
-int signal_safe_poll(struct pollfd *fds, int nfds, int timeout_ms) {
+int signal_safe_poll(struct pollfd *fds, int nfds, absl::Duration timeout) {
   int rc = 0;
-  int elapsed_ms = 0;
+  absl::Duration elapsed = absl::ZeroDuration();
 
   // We can't use gettimeofday since it's not async signal safe.  We could use
   // clock_gettime but that would require linking //base against librt.
   // Fortunately, timeout is of sufficiently coarse granularity that we can just
   // approximate it.
-  while ((elapsed_ms <= timeout_ms || timeout_ms == -1) && (rc == 0)) {
-    if (elapsed_ms++ > 0) ::absl::SleepFor(::absl::Milliseconds(1));
+  while ((elapsed <= timeout || timeout < absl::ZeroDuration()) && (rc == 0)) {
+    if (elapsed > absl::ZeroDuration())
+      ::absl::SleepFor(::absl::Milliseconds(1));
+    elapsed += absl::Milliseconds(1);
     while ((rc = poll(fds, nfds, 0)) == -1 && errno == EINTR) {}
   }
 
   return rc;
 }
-
 
 ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read) {
   ssize_t rc;
@@ -112,7 +113,8 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read) {
     // try again if there's space to fill, no (non-interrupt) error,
     // and data is available.
   } while (total_bytes < count && (rc > 0 || errno == EINTR) &&
-           (signal_safe_poll(&pfd, 1, 0) == 1 || total_bytes == 0));
+           (signal_safe_poll(&pfd, 1, absl::ZeroDuration()) == 1 ||
+            total_bytes == 0));
 
   if (bytes_read)
     *bytes_read = total_bytes;

@@ -83,7 +83,7 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read);
 // poll for data.  Unlike ppoll/pselect, signal_safe_poll is *ignoring* signals
 // not attempting to re-enable them.  Protecting us from the traditional races
 // involved with the latter.
-int signal_safe_poll(struct ::pollfd *fds, int nfds, int timeout_ms);
+int signal_safe_poll(struct ::pollfd *fds, int nfds, absl::Duration timeout);
 
 // WARNING ********************************************************************
 // getenv(2) can only be safely used in the absence of calls which perturb the
