@@ -297,19 +297,6 @@ class HugePageFiller {
       return lists_[n];
     }
     HugeLength size() const {
-#ifndef NDEBUG
-      HugeLength ret;
-      size_t i = nonempty_.FindSet(0);
-      while (i < N) {
-        auto &list = lists_[i];
-        ASSERT(!list.empty());
-        ret += NHugePages(list.length());
-
-        i++;
-        if (i < N) i = nonempty_.FindSet(i);
-      }
-      ASSERT(ret == size_);
-#endif
       return size_;
     }
     bool empty() const { return size().raw_num() == 0; }
