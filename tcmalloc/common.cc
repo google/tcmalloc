@@ -140,6 +140,8 @@ void SizeMap::Init() {
 
   if (IsExperimentActive(Experiment::TCMALLOC_SANS_56_SIZECLASS)) {
     SetSizeClasses(kNumClasses, kExperimentalSizeClasses);
+  } else if (IsExperimentActive(Experiment::TCMALLOC_4K_SIZE_CLASS)) {
+    SetSizeClasses(kNumClasses, kExperimental4kSizeClasses);
   } else {
     SetSizeClasses(kNumClasses, kSizeClasses);
   }

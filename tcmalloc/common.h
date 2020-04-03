@@ -343,6 +343,9 @@ class SizeMap {
   // Definition of size class that is set in size_classes.cc
   static const SizeClassInfo kExperimentalSizeClasses[kNumClasses];
 
+  // Definition of size class that is set in size_classes.cc
+  static const SizeClassInfo kExperimental4kSizeClasses[kNumClasses];
+
  public:
   // Constructor should do nothing since we rely on explicit Init()
   // call, which may or may not be called before the constructor runs.
