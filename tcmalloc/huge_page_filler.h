@@ -230,10 +230,11 @@ class HugePageFiller {
   // *is* hugepage-backed!)
   double hugepage_frac() const;
 
-  // Find the emptiest possible hugepage and release its free memory
-  // to the system.  Return the number of pages released.
-  // Currently our implementation doesn't really use this (no need!)
-  Length ReleasePages() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  // Tries to release desired pages by iteratively releasing from the emptiest
+  // possible hugepage and releasing its free memory to the system.  Return the
+  // number of pages actually released.
+  Length ReleasePages(Length desired)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                     PageAgeHistograms *ages) const;
@@ -736,51 +737,67 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
   ++size_;
 }
 
-// Find the emptiest possible hugepage and release its free memory
-// to the system.  Return the number of pages released.
-// Currently our implementation doesn't really use this (no need!)
+// Tries to release desired pages by iteratively releasing from the emptiest
+// possible hugepage and releasing its free memory to the system.  Return the
+// number of pages actually released.
 template <class TrackerType>
-inline Length HugePageFiller<TrackerType>::ReleasePages() {
+inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
+  Length released = 0;
+
   // We also do eager release, once we've called this at least once:
   // claim credit for anything that gets done.
   if (unmapping_unaccounted_ > 0) {
+    // TODO(ckennelly):  This may overshoot in releasing more than desired
+    // pages.
     Length n = unmapping_unaccounted_;
     unmapping_unaccounted_ = 0;
-    return n;
-  }
-  TrackerType *best = nullptr;
-  auto loop = [&](TrackerType *pt) {
-    if (!best || best->used_pages() > pt->used_pages()) {
-      best = pt;
+
+    if (n >= desired) {
+      return n;
     }
-  };
 
-  // We can skip the first kChunks lists as they are known to be 100% full.
-  // (Those lists are likely to be long.)
-  //
-  // We do not examine the regular_alloc_released_ lists, as only contain
-  // completely released pages.
-  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
-    regular_alloc_partial_released_.Iter(loop, kChunks);
+    released += n;
   }
 
-  if (!best) {
-    // Only consider breaking up a hugepage if there are no partially released
-    // pages.
-    regular_alloc_.Iter(loop, kChunks);
-    // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
-    // great candidate for partial release.
-    donated_alloc_.Iter(loop, 0);
-  }
+  while (released < desired) {
+    TrackerType *best = nullptr;
+    auto loop = [&](TrackerType *pt) {
+      if (!best || best->used_pages() > pt->used_pages()) {
+        best = pt;
+      }
+    };
 
-  if (best && !best->full()) {
+    // We can skip the first kChunks lists as they are known to be 100% full.
+    // (Those lists are likely to be long.)
+    //
+    // We do not examine the regular_alloc_released_ lists, as only contain
+    // completely released pages.
+    if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+      regular_alloc_partial_released_.Iter(loop, kChunks);
+    }
+
+    if (!best) {
+      // Only consider breaking up a hugepage if there are no partially released
+      // pages.
+      regular_alloc_.Iter(loop, kChunks);
+      // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
+      // great candidate for partial release.
+      donated_alloc_.Iter(loop, 0);
+    }
+
+    if (best == nullptr || best->full()) {
+      // We got everything we could.
+      break;
+    }
+
     Remove(best);
     Length ret = best->ReleaseFree();
     unmapped_ += ret;
+    released += ret;
     Place(best);
-    return ret;
   }
-  return 0;
+
+  return released;
 }
 
 template <class TrackerType>

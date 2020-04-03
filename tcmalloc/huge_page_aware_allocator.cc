@@ -446,10 +446,8 @@ Length HugePageAwareAllocator::ReleaseAtLeastNPages(Length num_pages) {
   // for testing.
   // TODO(b/134690769): make this work, remove the flag guard.
   if (Parameters::hpaa_subrelease()) {
-    while (released < num_pages) {
-      Length got = filler_.ReleasePages();
-      if (got == 0) break;
-      released += got;
+    if (released < num_pages) {
+      released += filler_.ReleasePages(num_pages - released);
     }
   }
 
@@ -606,15 +604,7 @@ void *HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {
   // We desparately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the filler.
-  Length ret = 0;
-
-  while (ret < n) {
-    Length got = filler_.ReleasePages();
-    if (got == 0) break;
-    ret += got;
-  }
-
-  return ret;
+  return filler_.ReleasePages(n);
 }
 
 void HugePageAwareAllocator::UnbackWithoutLock(void *start, size_t length) {

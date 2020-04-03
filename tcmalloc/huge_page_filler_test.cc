@@ -745,9 +745,9 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     return r;
   }
 
-  Length ReleasePages() {
+  Length ReleasePages(Length desired) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages();
+    return filler_.ReleasePages(desired);
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -805,13 +805,14 @@ TEST_P(FillerTest, Release) {
   PAlloc p3 = Allocate(kAlloc - 2);
   PAlloc p4 = Allocate(kAlloc + 2);
   // We have two hugepages, both full: nothing to release.
-  ASSERT_EQ(0, ReleasePages());
+  ASSERT_EQ(0, ReleasePages(kMaxValidPages));
   Delete(p1);
   Delete(p3);
   // Now we should see the p1 hugepage - emptier - released.
-  ASSERT_EQ(kAlloc - 1, ReleasePages());
+  ASSERT_EQ(kAlloc - 1, ReleasePages(kAlloc - 1));
   EXPECT_EQ(kAlloc - 1, filler_.unmapped_pages());
   ASSERT_TRUE(p1.pt->released());
+  ASSERT_FALSE(p3.pt->released());
 
   // We expect to reuse p1.pt.
   PAlloc p5 = Allocate(kAlloc - 1);
@@ -893,7 +894,7 @@ TEST_P(FillerTest, HugePageFrac) {
   EXPECT_EQ(1, filler_.hugepage_frac());
 
   // Releasing the hugepage does.
-  ASSERT_EQ(kQ, ReleasePages());
+  ASSERT_EQ(kQ, ReleasePages(kQ));
   EXPECT_EQ(0.5, filler_.hugepage_frac());
 
   // Check our arithmetic in a couple scenarios.
@@ -902,14 +903,14 @@ TEST_P(FillerTest, HugePageFrac) {
   Delete(a2);
   EXPECT_EQ(0.6, filler_.hugepage_frac());
   // This releases the free page on the partially released hugepage.
-  ASSERT_EQ(kQ, ReleasePages());
+  ASSERT_EQ(kQ, ReleasePages(kQ));
   EXPECT_EQ(0.6, filler_.hugepage_frac());
 
   // just-over-1 kQ on the release and 3 on the hugepage
   Delete(a3);
   EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
   // This releases the free page on the partially released hugepage.
-  ASSERT_EQ(kQ - 1, ReleasePages());
+  ASSERT_EQ(kQ - 1, ReleasePages(kQ - 1));
   EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
 
   // All huge!
@@ -955,7 +956,7 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
     }
     allocs.resize(limit);
     while (filler_.free_pages() > free_target) {
-      ReleasePages();
+      ReleasePages(kMaxValidPages);
     }
     const double baseline_frac = filler_.hugepage_frac();
 
@@ -978,14 +979,14 @@ TEST_P(FillerTest, ReleaseAccounting) {
   ASSERT_EQ(NHugePages(2), filler_.size());
 
   // We should pick the [empty big][full tiny] hugepage here.
-  EXPECT_EQ(N - 2, ReleasePages());
+  EXPECT_EQ(N - 2, ReleasePages(N - 2));
   EXPECT_EQ(N - 2, filler_.unmapped_pages());
   // This shouldn't trigger a release
   Delete(tiny1);
   if (GetParam() == FillerPartialRerelease::Retain) {
     EXPECT_EQ(N - 2, filler_.unmapped_pages());
     // Until we call ReleasePages()
-    EXPECT_EQ(1, ReleasePages());
+    EXPECT_EQ(1, ReleasePages(1));
   }
   EXPECT_EQ(N - 1, filler_.unmapped_pages());
 
@@ -997,9 +998,9 @@ TEST_P(FillerTest, ReleaseAccounting) {
   // This shouldn't trigger any release: we just claim credit for the
   // releases we did automatically on tiny2.
   if (GetParam() == FillerPartialRerelease::Retain) {
-    EXPECT_EQ(1, ReleasePages());
+    EXPECT_EQ(1, ReleasePages(1));
   } else {
-    EXPECT_EQ(2, ReleasePages());
+    EXPECT_EQ(2, ReleasePages(2));
   }
   EXPECT_EQ(0, filler_.unmapped_pages());
   EXPECT_EQ(NHugePages(1), filler_.size());
@@ -1011,7 +1012,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(0, filler_.used_pages_in_released());
 
   // Now we pick the half/half hugepage
-  EXPECT_EQ(N / 2, ReleasePages());
+  EXPECT_EQ(N / 2, ReleasePages(kMaxValidPages));
   EXPECT_EQ(N / 2, filler_.unmapped_pages());
 
   // Check subrelease stats
@@ -1050,23 +1051,23 @@ TEST_P(FillerTest, ReleaseWithReuse) {
   ASSERT_EQ(NHugePages(1), filler_.size());
 
   // We should be able to release the pages from half1.
-  EXPECT_EQ(N / 2, ReleasePages());
+  EXPECT_EQ(N / 2, ReleasePages(kMaxValidPages));
   EXPECT_EQ(N / 2, filler_.unmapped_pages());
 
   // Release tiny1, release more.
   Delete(tiny1);
 
-  EXPECT_EQ(N / 4, ReleasePages());
+  EXPECT_EQ(N / 4, ReleasePages(kMaxValidPages));
   EXPECT_EQ(3 * N / 4, filler_.unmapped_pages());
 
   // Repopulate, confirm we can't release anything and unmapped pages goes to 0.
   tiny1 = Allocate(N / 4);
-  EXPECT_EQ(0, ReleasePages());
+  EXPECT_EQ(0, ReleasePages(kMaxValidPages));
   EXPECT_EQ(N / 2, filler_.unmapped_pages());
 
   // Continue repopulating.
   half = Allocate(N / 2);
-  EXPECT_EQ(0, ReleasePages());
+  EXPECT_EQ(0, ReleasePages(kMaxValidPages));
   EXPECT_EQ(0, filler_.unmapped_pages());
   EXPECT_EQ(NHugePages(1), filler_.size());
 
@@ -1085,7 +1086,7 @@ TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
     auto half1 = Allocate(N / 2);
     auto half2 = Allocate(N / 2);
     Delete(half1);
-    ASSERT_EQ(N / 2, ReleasePages());
+    ASSERT_EQ(N / 2, ReleasePages(N / 2));
     Delete(half2);
   }
 
@@ -1122,10 +1123,10 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
 
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
   PAlloc a = Allocate(1);
-  EXPECT_EQ(ReleasePages(), kPagesPerHugePage - 1);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), kPagesPerHugePage - 1);
   Delete(a);
   // Get the report on the released page
-  EXPECT_EQ(ReleasePages(), 1);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), 1);
 
   // Use a maximally-suboptimal pattern to get lots of hugepages into the
   // filler.
@@ -1136,8 +1137,8 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
   }
 
   // Get two released hugepages.
-  EXPECT_EQ(ReleasePages(), 7);
-  EXPECT_EQ(ReleasePages(), 6);
+  EXPECT_EQ(ReleasePages(7), 7);
+  EXPECT_EQ(ReleasePages(6), 6);
 
   // Fill some of the remaining pages with small allocations.
   for (int i = 0; i < 9; ++i) {
