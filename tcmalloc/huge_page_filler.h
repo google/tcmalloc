@@ -715,6 +715,9 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
                                                     bool donated) {
+  // A contributed huge page should not yet be subreleased.
+  ASSERT(pt->released_pages() == 0);
+
   allocated_ += pt->used_pages();
   if (donated) {
     Donate(pt);
