@@ -889,32 +889,33 @@ TEST_P(FillerTest, HugePageFrac) {
 
   EXPECT_EQ(1, filler_.hugepage_frac());
   // Free space doesn't affect it...
-  Delete(a1);
+  Delete(a4);
   Delete(a6);
+
   EXPECT_EQ(1, filler_.hugepage_frac());
 
   // Releasing the hugepage does.
-  ASSERT_EQ(kQ, ReleasePages(kQ));
-  EXPECT_EQ(0.5, filler_.hugepage_frac());
+  ASSERT_EQ(kQ + 1, ReleasePages(kQ + 1));
+  EXPECT_EQ((3.0 * kQ) / (6.0 * kQ - 1.0), filler_.hugepage_frac());
 
   // Check our arithmetic in a couple scenarios.
 
   // 2 kQs on the release and 3 on the hugepage
   Delete(a2);
-  EXPECT_EQ(0.6, filler_.hugepage_frac());
+  EXPECT_EQ((3.0 * kQ) / (5.0 * kQ - 1), filler_.hugepage_frac());
   // This releases the free page on the partially released hugepage.
   ASSERT_EQ(kQ, ReleasePages(kQ));
-  EXPECT_EQ(0.6, filler_.hugepage_frac());
+  EXPECT_EQ((3.0 * kQ) / (5.0 * kQ - 1), filler_.hugepage_frac());
 
   // just-over-1 kQ on the release and 3 on the hugepage
   Delete(a3);
-  EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
+  EXPECT_EQ((3 * kQ) / (4.0 * kQ), filler_.hugepage_frac());
   // This releases the free page on the partially released hugepage.
   ASSERT_EQ(kQ - 1, ReleasePages(kQ - 1));
-  EXPECT_EQ((3 * kQ) / (4.0 * kQ + 1), filler_.hugepage_frac());
+  EXPECT_EQ((3 * kQ) / (4.0 * kQ), filler_.hugepage_frac());
 
   // All huge!
-  Delete(a4);
+  Delete(a1);
   EXPECT_EQ(1, filler_.hugepage_frac());
 
   Delete(a5);
