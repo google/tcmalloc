@@ -28,6 +28,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_pages.h"
