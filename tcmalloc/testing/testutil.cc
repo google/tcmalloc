@@ -125,7 +125,8 @@ void SetTestResourceLimit() {
 namespace tcmalloc {
 
 std::string GetStatsInPbTxt() {
-  const int buffer_length = 1500 * 1000;
+  // When huge page telemetry is enabled, the output can become very large.
+  const int buffer_length = 3 << 20;
   std::string buf;
   buf.resize(buffer_length);
   int actual_size =

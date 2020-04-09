@@ -22,15 +22,243 @@
 #include <limits>
 
 #include "absl/base/internal/cycleclock.h"
+#include "absl/time/time.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+
+// Track filler statistics over a time window.
+template <size_t kEpochs = 16>
+class FillerStatsTracker {
+ public:
+  enum Type { kRegular, kDonated, kPartialReleased, kReleased, kNumTypes };
+
+  struct FillerStats {
+    size_t num_pages = 0;
+    size_t free_pages = 0;
+    size_t unmapped_pages = 0;
+    size_t used_pages_in_subreleased_huge_pages = 0;
+    size_t huge_pages[kNumTypes] = {0};
+
+    size_t total_huge_pages() const {
+      size_t total_huge_pages = 0;
+      for (int i = 0; i < kNumTypes; i++) {
+        total_huge_pages += huge_pages[i];
+      }
+      return total_huge_pages;
+    }
+  };
+
+  struct NumberOfFreePages {
+    size_t free;
+    size_t free_backed;
+  };
+
+  explicit constexpr FillerStatsTracker(ClockFunc clock, absl::Duration w,
+                                        absl::Duration summary_interval)
+      : summary_interval_(summary_interval),
+        window_(w),
+        epoch_length_(window_ / kEpochs),
+        tracker_(clock, w) {}
+
+  void Report(const FillerStats stats) { tracker_.Report(stats); }
+
+  void Print(TCMalloc_Printer *out) const;
+  void PrintInPbtxt(PbtxtRegion *hpaa) const;
+
+  // Returns the minimum number of free pages throughout the tracker period.
+  // The first value of the pair is the number of all free pages, the second
+  // value contains only the backed ones.
+  NumberOfFreePages min_free_pages(absl::Duration w) const {
+    NumberOfFreePages mins =
+        NumberOfFreePages({.free = std::numeric_limits<size_t>::max(),
+                           .free_backed = std::numeric_limits<size_t>::max()});
+
+    int64_t num_epochs = w / epoch_length_;
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+          if (!e.empty()) {
+            mins.free = std::min(mins.free, e.min_free_pages);
+            mins.free_backed =
+                std::min(mins.free_backed, e.min_free_backed_pages);
+          }
+        },
+        num_epochs);
+    mins.free =
+        (mins.free == std::numeric_limits<size_t>::max()) ? 0 : mins.free;
+    mins.free_backed = (mins.free_backed == std::numeric_limits<size_t>::max())
+                           ? 0
+                           : mins.free_backed;
+    return mins;
+  }
+
+ private:
+  // We collect filler statistics at four "interesting points" within each time
+  // step: at min/max demand of pages and at min/max use of hugepages. This
+  // allows us to approximate the envelope of the different metrics.
+  enum StatsType {
+    kStatsAtMinDemand,
+    KStatsAtMaxDemand,
+    kStatsAtMinHugePages,
+    kStatsAtMaxHugePages,
+    kNumStatsTypes
+  };
+
+  struct FillerStatsEntry {
+    // Collect filler stats at "interesting points" (minimum/maximum page demand
+    // and at minimum/maximum usage of huge pages).
+    FillerStats stats[kNumStatsTypes] = {};
+    static constexpr size_t kDefaultValue = std::numeric_limits<size_t>::max();
+    size_t min_free_pages = kDefaultValue;
+    size_t min_free_backed_pages = kDefaultValue;
+
+    static FillerStatsEntry Nil() { return FillerStatsEntry(); }
+
+    void Report(FillerStats e) {
+      if (empty()) {
+        for (int i = 0; i < kNumStatsTypes; i++) {
+          stats[i] = e;
+        }
+      }
+
+      if (e.num_pages < stats[kStatsAtMinDemand].num_pages) {
+        stats[kStatsAtMinDemand] = e;
+      }
+
+      if (e.num_pages > stats[KStatsAtMaxDemand].num_pages) {
+        stats[KStatsAtMaxDemand] = e;
+      }
+
+      if (e.total_huge_pages() <
+          stats[kStatsAtMinHugePages].total_huge_pages()) {
+        stats[kStatsAtMinHugePages] = e;
+      }
+
+      if (e.total_huge_pages() >
+          stats[kStatsAtMaxHugePages].total_huge_pages()) {
+        stats[kStatsAtMaxHugePages] = e;
+      }
+
+      min_free_pages =
+          std::min(min_free_pages, e.free_pages + e.unmapped_pages);
+      min_free_backed_pages = std::min(min_free_backed_pages, e.free_pages);
+    }
+
+    bool empty() const { return min_free_pages == kDefaultValue; }
+  };
+
+  // The tracker reports pages that have been free for at least this interval,
+  // as well as peaks within this interval.
+  const absl::Duration summary_interval_;
+
+  const absl::Duration window_;
+  const absl::Duration epoch_length_;
+
+  TimeSeriesTracker<FillerStatsEntry, FillerStats, kEpochs> tracker_;
+};
+
+template <size_t kEpochs>
+void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
+  NumberOfFreePages free_pages = min_free_pages(summary_interval_);
+  out->printf("HugePageFiller: time series over %lld min interval\n\n",
+              static_cast<long long>(absl::ToInt64Minutes(summary_interval_)));
+  out->printf("HugePageFiller: minimum free pages: %zu (%zu backed)\n",
+              free_pages.free, free_pages.free_backed);
+
+  FillerStatsEntry at_peak_demand;
+  FillerStatsEntry at_peak_hps;
+
+  tracker_.IterBackwards(
+      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+        if (!e.empty()) {
+          if (at_peak_demand.empty() ||
+              at_peak_demand.stats[KStatsAtMaxDemand].num_pages <
+                  e.stats[KStatsAtMaxDemand].num_pages) {
+            at_peak_demand = e;
+          }
+
+          if (at_peak_hps.empty() ||
+              at_peak_hps.stats[kStatsAtMaxHugePages].total_huge_pages() <
+                  e.stats[kStatsAtMaxHugePages].total_huge_pages()) {
+            at_peak_hps = e;
+          }
+        }
+      },
+      summary_interval_ / epoch_length_);
+
+  out->printf(
+      "HugePageFiller: at peak demand: %zu pages (and %zu free, %zu unmapped)\n"
+      "HugePageFiller: at peak demand: %zu hps (%zu regular, %zu donated, "
+      "%zu partial, %zu released)\n",
+      at_peak_demand.stats[KStatsAtMaxDemand].num_pages,
+      at_peak_demand.stats[KStatsAtMaxDemand].free_pages,
+      at_peak_demand.stats[KStatsAtMaxDemand].unmapped_pages,
+      at_peak_demand.stats[KStatsAtMaxDemand].total_huge_pages(),
+      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kRegular],
+      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kDonated],
+      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kPartialReleased],
+      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kReleased]);
+
+  out->printf(
+      "HugePageFiller: at peak hps: %zu pages (and %zu free, %zu unmapped)\n"
+      "HugePageFiller: at peak hps: %zu hps (%zu regular, %zu donated, "
+      "%zu partial, %zu released)",
+      at_peak_hps.stats[KStatsAtMaxDemand].num_pages,
+      at_peak_hps.stats[KStatsAtMaxDemand].free_pages,
+      at_peak_hps.stats[KStatsAtMaxDemand].unmapped_pages,
+      at_peak_hps.stats[KStatsAtMaxDemand].total_huge_pages(),
+      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kRegular],
+      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kDonated],
+      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kPartialReleased],
+      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kReleased]);
+}
+
+template <size_t kEpochs>
+void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+  auto filler_stats = hpaa->CreateSubRegion("filler_stats_timeseries");
+  filler_stats.PrintI64("window_ms", absl::ToInt64Milliseconds(epoch_length_));
+  filler_stats.PrintI64("epochs", kEpochs);
+
+  NumberOfFreePages free_pages = min_free_pages(summary_interval_);
+  filler_stats.PrintI64("min_free_pages_interval_ms",
+                        absl::ToInt64Milliseconds(summary_interval_));
+  filler_stats.PrintI64("min_free_pages", free_pages.free);
+  filler_stats.PrintI64("min_free_backed_pages", free_pages.free_backed);
+
+  static const char *labels[kNumStatsTypes] = {
+      "at_minimum_demand", "at_maximum_demand", "at_minimum_huge_pages",
+      "at_maximum_huge_pages"};
+
+  tracker_.Iter(
+      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+        auto region = filler_stats.CreateSubRegion("measurements");
+        region.PrintI64("epoch", offset);
+        region.PrintI64("timestamp_ms",
+                        absl::ToInt64Milliseconds(absl::Nanoseconds(ts)));
+        region.PrintI64("min_free_pages", e.min_free_pages);
+        region.PrintI64("min_free_backed_pages", e.min_free_backed_pages);
+        for (int i = 0; i < kNumStatsTypes; i++) {
+          auto m = region.CreateSubRegion(labels[i]);
+          FillerStats stats = e.stats[i];
+          m.PrintI64("num_pages", stats.num_pages);
+          m.PrintI64("regular_huge_pages", stats.huge_pages[kRegular]);
+          m.PrintI64("donated_huge_pages", stats.huge_pages[kDonated]);
+          m.PrintI64("partial_released_huge_pages",
+                     stats.huge_pages[kPartialReleased]);
+          m.PrintI64("released_huge_pages", stats.huge_pages[kReleased]);
+          m.PrintI64("used_pages_in_subreleased_huge_pages",
+                     stats.used_pages_in_subreleased_huge_pages);
+        }
+      },
+      tracker_.kSkipEmptyEntries);
+}
 
 // PageTracker keeps track of the allocation status of every page in a HugePage.
 // It allows allocation and deallocation of a contiguous run of pages.
@@ -185,6 +413,7 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   HugePageFiller(FillerPartialRerelease partial_rerelease);
+  HugePageFiller(FillerPartialRerelease partial_rerelease, ClockFunc clock);
 
   typedef TrackerType Tracker;
 
@@ -375,6 +604,10 @@ class HugePageFiller {
   Length unmapping_unaccounted_{0};
 
   FillerPartialRerelease partial_rerelease_;
+
+  // Functionality related to time series tracking.
+  void UpdateFillerStatsTracker();
+  FillerStatsTracker<600> fillerstats_tracker_;
 };
 
 template <MemoryModifyFunction Unback>
@@ -521,12 +754,19 @@ inline Length PageTracker<Unback>::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease)
+    : HugePageFiller(partial_rerelease, GetCurrentTimeNanos) {}
+
+// For testing with mock clock
+template <class TrackerType>
+inline HugePageFiller<TrackerType>::HugePageFiller(
+    FillerPartialRerelease partial_rerelease, ClockFunc clock)
     : n_used_partial_released_(0),
       n_used_released_(0),
       size_(NHugePages(0)),
       allocated_(0),
       unmapped_(0),
-      partial_rerelease_(partial_rerelease) {}
+      partial_rerelease_(partial_rerelease),
+      fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)) {}
 
 template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,
@@ -645,6 +885,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   ASSERT(!pt->donated());
+  UpdateFillerStatsTracker();
   return true;
 }
 
@@ -706,9 +947,11 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
       }
     }
 
+    UpdateFillerStatsTracker();
     return pt;
   }
   Place(pt);
+  UpdateFillerStatsTracker();
   return nullptr;
 }
 
@@ -725,6 +968,7 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
     Place(pt);
   }
   ++size_;
+  UpdateFillerStatsTracker();
 }
 
 // Tries to release desired pages by iteratively releasing from the emptiest
@@ -1020,6 +1264,10 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
   out->printf("\n");
   out->printf("HugePageFiller: fullness histograms\n");
   usage.Print(out);
+
+  out->printf("\n");
+  fillerstats_tracker_.Print(out);
+  out->printf("\n");
 }
 
 template <class TrackerType>
@@ -1079,6 +1327,22 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       0);
 
   usage.Print(hpaa);
+
+  fillerstats_tracker_.PrintInPbtxt(hpaa);
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
+  fillerstats_tracker_.Report(
+      {.num_pages = allocated_,
+       .free_pages = free_pages(),
+       .unmapped_pages = unmapped_pages(),
+       .used_pages_in_subreleased_huge_pages =
+           n_used_partial_released_ + n_used_released_,
+       .huge_pages = {regular_alloc_.size().raw_num(),
+                      donated_alloc_.size().raw_num(),
+                      regular_alloc_partial_released_.size().raw_num(),
+                      regular_alloc_released_.size().raw_num()}});
 }
 
 template <class TrackerType>

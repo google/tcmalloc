@@ -619,6 +619,11 @@ absl::BlockingCounter *BlockingUnback::counter = nullptr;
 
 class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
+  // Allow tests to modify the clock used by the cache.
+  static int64_t FakeClock() { return clock_; }
+  static void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+  static int64_t clock_;
+
   static void Unback(void *p, size_t len) {}
 
   // Our templating approach lets us directly override certain functions
@@ -652,7 +657,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   HugePageFiller<FakeTracker> filler_;
 
-  FillerTest() : filler_(GetParam()) {}
+  FillerTest() : filler_(GetParam(), FakeClock) {}
 
   ~FillerTest() override {
     EXPECT_EQ(NHugePages(0), filler_.size());
@@ -754,6 +759,8 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
 };
+
+int64_t FillerTest::clock_{1234};
 
 TEST_P(FillerTest, Density) {
   absl::BitGen rng;
@@ -1122,6 +1129,213 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   }
 }
 
+class FillerStatsTrackerTest : public testing::Test {
+ private:
+  static int64_t clock_;
+  static int64_t FakeClock() { return clock_; }
+
+ protected:
+  tcmalloc::FillerStatsTracker<16> tracker_{FakeClock, absl::Minutes(10),
+                                            absl::Minutes(5)};
+
+  void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+
+  // Generates four data points for the tracker that represent "interesting"
+  // points (i.e., min/max pages demand, min/max hugepages).
+  void GenerateInterestingPoints(size_t num_pages, size_t num_hugepages,
+                                 size_t num_free_pages);
+};
+
+int64_t FillerStatsTrackerTest::clock_{0};
+
+void FillerStatsTrackerTest::GenerateInterestingPoints(size_t num_pages,
+                                                       size_t num_hugepages,
+                                                       size_t num_free_pages) {
+  for (size_t i = 0; i <= 1; i++) {
+    for (size_t j = 0; j <= 1; j++) {
+      tracker_.Report({.num_pages = num_pages + ((i == 0) ? 4 : 8 * j),
+                       .free_pages = num_free_pages + 10 * i + j,
+                       .unmapped_pages = 10,
+                       .used_pages_in_subreleased_huge_pages = num_pages,
+                       .huge_pages = {num_hugepages + ((i == 1) ? 4 : 8 * j),
+                                      num_hugepages, i, j}});
+    }
+  }
+}
+
+// Tests that the tracker aggregates all data correctly. The output is tested by
+// comparing the text output of the tracker. While this is a bit verbose, it is
+// much cleaner than extracting and comparing all data manually.
+TEST_F(FillerStatsTrackerTest, Works) {
+  // Ensure that the beginning (when free pages are 0) is outside the 5-min
+  // window the instrumentation is recording.
+  GenerateInterestingPoints(1, 1, 1);
+  Advance(absl::Minutes(5));
+
+  GenerateInterestingPoints(100, 5, 200);
+
+  Advance(absl::Minutes(1));
+
+  GenerateInterestingPoints(200, 10, 100);
+
+  Advance(absl::Minutes(1));
+
+  // Test text output (time series summary).
+  {
+    std::string buffer(1024 * 1024, '\0');
+    {
+      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+      PbtxtRegion region(&printer, kTop, /*indent=*/0);
+      tracker_.Print(&printer);
+    }
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_EQ(buffer, R"(HugePageFiller: time series over 5 min interval
+
+HugePageFiller: minimum free pages: 110 (100 backed)
+HugePageFiller: at peak demand: 208 pages (and 111 free, 10 unmapped)
+HugePageFiller: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
+HugePageFiller: at peak hps: 208 pages (and 111 free, 10 unmapped)
+HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
+)");
+  }
+
+  // Test pbtxt output (full time series).
+  {
+    std::string buffer(1024 * 1024, '\0');
+    {
+      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+      PbtxtRegion region(&printer, kTop, /*indent=*/0);
+      tracker_.PrintInPbtxt(&region);
+    }
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_EQ(buffer, R"(
+  filler_stats_timeseries {
+    window_ms: 37500
+    epochs: 16
+    min_free_pages_interval_ms: 300000
+    min_free_pages: 110
+    min_free_backed_pages: 100
+    measurements {
+      epoch: 6
+      timestamp_ms: 0
+      min_free_pages: 11
+      min_free_backed_pages: 1
+      at_minimum_demand {
+        num_pages: 1
+        regular_huge_pages: 5
+        donated_huge_pages: 1
+        partial_released_huge_pages: 1
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 1
+      }
+      at_maximum_demand {
+        num_pages: 9
+        regular_huge_pages: 5
+        donated_huge_pages: 1
+        partial_released_huge_pages: 1
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 1
+      }
+      at_minimum_huge_pages {
+        num_pages: 5
+        regular_huge_pages: 1
+        donated_huge_pages: 1
+        partial_released_huge_pages: 0
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 1
+      }
+      at_maximum_huge_pages {
+        num_pages: 5
+        regular_huge_pages: 9
+        donated_huge_pages: 1
+        partial_released_huge_pages: 0
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 1
+      }
+    }
+    measurements {
+      epoch: 14
+      timestamp_ms: 300000
+      min_free_pages: 210
+      min_free_backed_pages: 200
+      at_minimum_demand {
+        num_pages: 100
+        regular_huge_pages: 9
+        donated_huge_pages: 5
+        partial_released_huge_pages: 1
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 100
+      }
+      at_maximum_demand {
+        num_pages: 108
+        regular_huge_pages: 9
+        donated_huge_pages: 5
+        partial_released_huge_pages: 1
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 100
+      }
+      at_minimum_huge_pages {
+        num_pages: 104
+        regular_huge_pages: 5
+        donated_huge_pages: 5
+        partial_released_huge_pages: 0
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 100
+      }
+      at_maximum_huge_pages {
+        num_pages: 104
+        regular_huge_pages: 13
+        donated_huge_pages: 5
+        partial_released_huge_pages: 0
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 100
+      }
+    }
+    measurements {
+      epoch: 15
+      timestamp_ms: 337500
+      min_free_pages: 110
+      min_free_backed_pages: 100
+      at_minimum_demand {
+        num_pages: 200
+        regular_huge_pages: 14
+        donated_huge_pages: 10
+        partial_released_huge_pages: 1
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 200
+      }
+      at_maximum_demand {
+        num_pages: 208
+        regular_huge_pages: 14
+        donated_huge_pages: 10
+        partial_released_huge_pages: 1
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 200
+      }
+      at_minimum_huge_pages {
+        num_pages: 204
+        regular_huge_pages: 10
+        donated_huge_pages: 10
+        partial_released_huge_pages: 0
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 200
+      }
+      at_maximum_huge_pages {
+        num_pages: 204
+        regular_huge_pages: 18
+        donated_huge_pages: 10
+        partial_released_huge_pages: 0
+        released_huge_pages: 1
+        used_pages_in_subreleased_huge_pages: 200
+      }
+    }
+  }
+)");
+  }
+}
+
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
   PAlloc a = Allocate(1);
   EXPECT_EQ(ReleasePages(kMaxValidPages), kPagesPerHugePage - 1);
@@ -1239,6 +1453,14 @@ HugePageFiller: <  1<=     2 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
+
+HugePageFiller: time series over 5 min interval
+
+HugePageFiller: minimum free pages: 0 (0 backed)
+HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
+HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
+HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
+HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 )");
   for (const auto &alloc : allocs) {
     Delete(alloc);
@@ -2728,10 +2950,86 @@ TEST_P(FillerTest, PrintInPbtxt) {
       value: 0
     }
   }
+  filler_stats_timeseries {
+    window_ms: 1000
+    epochs: 600
+    min_free_pages_interval_ms: 300000
+    min_free_pages: 0
+    min_free_backed_pages: 0
+    measurements {
+      epoch: 599
+      timestamp_ms: 0
+      min_free_pages: 0
+      min_free_backed_pages: 0
+      at_minimum_demand {
+        num_pages: 0
+        regular_huge_pages: 0
+        donated_huge_pages: 0
+        partial_released_huge_pages: 0
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 0
+      }
+      at_maximum_demand {
+        num_pages: 1774
+        regular_huge_pages: 5
+        donated_huge_pages: 1
+        partial_released_huge_pages: 0
+        released_huge_pages: 2
+        used_pages_in_subreleased_huge_pages: 499
+      }
+      at_minimum_huge_pages {
+        num_pages: 0
+        regular_huge_pages: 0
+        donated_huge_pages: 0
+        partial_released_huge_pages: 0
+        released_huge_pages: 0
+        used_pages_in_subreleased_huge_pages: 0
+      }
+      at_maximum_huge_pages {
+        num_pages: 1774
+        regular_huge_pages: 5
+        donated_huge_pages: 1
+        partial_released_huge_pages: 0
+        released_huge_pages: 2
+        used_pages_in_subreleased_huge_pages: 499
+      }
+    }
+  }
 )");
   for (const auto &alloc : allocs) {
     Delete(alloc);
   }
+}
+
+// Confirms that a timeseries that contains every epoch does not exceed the
+// expected buffer capacity of 1 MiB.
+TEST_P(FillerTest, CheckBufferSize) {
+  const int kEpochs = 600;
+  const absl::Duration kEpochLength = absl::Seconds(1);
+
+  PAlloc big = Allocate(kPagesPerHugePage - 4);
+
+  for (int i = 0; i < kEpochs; i += 2) {
+    auto tiny = Allocate(2);
+    Advance(kEpochLength);
+    Delete(tiny);
+    Advance(kEpochLength);
+  }
+
+  Delete(big);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    PbtxtRegion region(&printer, kTop, /*indent=*/0);
+    filler_.PrintInPbtxt(&region, filler_.used_pages() * 8192);
+  }
+
+  // We assume a maximum buffer size of 1 MiB. When increasing this size, ensure
+  // that all places processing mallocz protos get updated as well.
+  size_t buffer_size = strlen(buffer.c_str());
+  printf("HugePageFiller buffer size: %zu\n", buffer_size);
+  EXPECT_LE(buffer_size, 1024 * 1024);
 }
 
 INSTANTIATE_TEST_SUITE_P(All, FillerTest,

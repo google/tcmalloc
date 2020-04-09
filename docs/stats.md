@@ -478,8 +478,9 @@ The summary information tells us:
 The filler cache contains TCMalloc sized pages from within a single hugepage. So
 if we want a single TCMalloc page we will look for it in the filler.
 
-There are two sections of stats around the filler cache. The first section gives
-an indication of the number and state of the hugepages in the filler cache.
+There are three sections of stats around the filler cache. The first section
+gives an indication of the number and state of the hugepages in the filler
+cache.
 
 ```
 HugePageFiller: densely pack small requests into hugepages
@@ -579,6 +580,33 @@ is backed by real RAM, but in partially released hugepages most of it has been
 returned to the OS. Because this defeats the primary goal of the hugepage-aware
 allocator, this is done rarely, and we only reuse partially-released hugepages
 for new allocations as a last resort.
+
+The final section shows a summary of the filler's state over the past 5 minute
+time period:
+
+```
+HugePageFiller: time series over 5 min interval
+
+HugePageFiller: minimum free pages: 0 (0 backed)
+HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
+HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
+HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
+HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
+```
+
+The first line shows the minimum number of free pages over the time interval,
+which is an indication of how much memory could have been "usefully" reclaimed
+(i.e., free for long enough that the OS would likely be able to use the memory
+for another process). The line shows both the total number of free pages in the
+filler (whether or not released to the OS) as well as only those that were
+backed by physical memory for the full 5-min interval.
+
+The next two sections show the state of the filler at peak demand (i.e., when
+the maximum number of pages was in use) and at peak hps (i.e., when the maximum
+number of hugepages was in use). For each, we show the number of free (backed)
+pages as well as unmapped pages, and the number of the four different types of
+hugepages active at that time. If there are multiple peaks, we return the state
+at the latest one of them.
 
 ### Region Cache
 
