@@ -1455,9 +1455,7 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   const double ret = static_cast<double>(used_on_huge) / denom;
   ASSERT(ret >= 0);
   ASSERT(ret <= 1);
-  // TODO(b/117611602):  Replace this with absl::clamp when that is
-  // open-sourced.
-  return (ret < 0) ? 0 : (ret > 1) ? 1 : ret;
+  return std::clamp<double>(ret, 0, 1);
 }
 
 // Helper for stat functions.
