@@ -119,11 +119,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     size_t alignment;
     bool keep;
   };
-  std::vector<Requests> sizes = {{8, 0, false},
-                                 {16, 16, true},
-                                 {1024, 0, false},
-                                 {64 * 1024, 64, false},
-                                 {1024 * 1024, 128, true}};
+  std::vector<Requests> sizes = {
+      {8, 0, false},          {16, 16, true},        {1024, 0, false},
+      {64 * 1024, 64, false}, {512 * 1024, 0, true}, {1024 * 1024, 128, true}};
   std::set<size_t> sizes_expected;
   for (auto s : sizes) {
     sizes_expected.insert(s.size);
