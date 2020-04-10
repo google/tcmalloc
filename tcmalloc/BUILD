@@ -799,12 +799,12 @@ cc_test(
     malloc = "//tcmalloc",
     shard_count = 2,
     deps = [
-        ":common",
         ":malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/synchronization",
         "@com_google_googletest//:gtest_main",
     ],
 )

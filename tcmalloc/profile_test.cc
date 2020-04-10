@@ -20,12 +20,14 @@
 #include <memory>
 #include <new>
 #include <set>
+#include <thread>  // NOLINT(build/c++11)
 #include <utility>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/synchronization/blocking_counter.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
@@ -49,6 +51,55 @@ TEST(AllocationSampleTest, TokenAbuse) {
 
   // Delete (on the scope ending) without Claim should also be OK.
   { MallocExtension::StartAllocationProfiling(); }
+}
+
+// Verify that profiling sessions concurrent with allocations do not crash due
+// to mutating pointers accessed by the sampling code (b/143623146).
+TEST(AllocationSampleTest, RaceToClaim) {
+  MallocExtension::SetProfileSamplingRate(1 << 14);
+
+  absl::BlockingCounter counter(2);
+  std::atomic<bool> stop{false};
+
+  std::thread t1([&]() {
+    counter.DecrementCount();
+
+    while (!stop) {
+      auto token = MallocExtension::StartAllocationProfiling();
+      absl::SleepFor(absl::Microseconds(1));
+      auto profile = std::move(token).Stop();
+    }
+  });
+
+  std::thread t2([&]() {
+    counter.DecrementCount();
+
+    const int kNum = 1000000;
+    std::vector<void *> ptrs;
+    while (!stop) {
+      for (int i = 0; i < kNum; i++) {
+        ptrs.push_back(::operator new(1));
+      }
+      for (void *p : ptrs) {
+#ifdef __cpp_sized_deallocation
+        ::operator delete(p, 1);
+#else
+        ::operator delete(p);
+#endif
+      }
+      ptrs.clear();
+    }
+  });
+
+  // Verify the threads are up and running before we start the clock.
+  counter.Wait();
+
+  absl::SleepFor(absl::Seconds(1));
+
+  stop.store(true);
+
+  t1.join();
+  t2.join();
 }
 
 TEST(AllocationSampleTest, SampleAccuracy) {
