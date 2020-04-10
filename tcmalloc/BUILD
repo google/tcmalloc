@@ -266,6 +266,7 @@ common_deps = [
     ":noruntime_size_classes",
     ":percpu_tcmalloc",
     ":size_class_info",
+    "@com_google_absl//absl/algorithm:container",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",

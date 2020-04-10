@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <limits>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_allocator.h"
@@ -594,6 +595,31 @@ class HugePageFiller {
   // multi-hugepage allocation.
   void DonateToFillerList(TrackerType *pt);
 
+  // CompareForSubrelease identifies the worse candidate for subrelease, between
+  // the choice of huge pages a and b.
+  static bool CompareForSubrelease(TrackerType *a, TrackerType *b) {
+    ASSERT(a != nullptr);
+    ASSERT(b != nullptr);
+
+    return a->used_pages() > b->used_pages();
+  }
+
+  // SelectCandidates identifies the candidates.size() best candidates in the
+  // given tracker list.
+  //
+  // To support gathering candidates from multiple tracker lists,
+  // current_candidates is nonzero.
+  template <size_t N>
+  static int SelectCandidates(absl::Span<TrackerType *> candidates,
+                              int current_candidates,
+                              const HintedTrackerLists<N> &tracker_list,
+                              size_t tracker_start);
+
+  // Release desired pages from the page trackers in candidates.  Returns the
+  // number of pages released.
+  Length ReleaseCandidates(absl::Span<TrackerType *> candidates, Length desired)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
   HugeLength size_;
 
   Length allocated_;
@@ -972,12 +998,74 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
   UpdateFillerStatsTracker();
 }
 
+template <class TrackerType>
+template <size_t N>
+inline int HugePageFiller<TrackerType>::SelectCandidates(
+    absl::Span<TrackerType *> candidates, int current_candidates,
+    const HintedTrackerLists<N> &tracker_list, size_t tracker_start) {
+  auto PushCandidate = [&](TrackerType *pt) {
+    if (current_candidates < candidates.size()) {
+      candidates[current_candidates] = pt;
+      current_candidates++;
+    } else {
+      // Consider popping the worst candidate from our list.
+      if (!CompareForSubrelease(candidates[0], pt)) {
+        // pt is worse than the current worst.
+        return;
+      }
+
+      std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
+                    CompareForSubrelease);
+      candidates[current_candidates - 1] = pt;
+    }
+
+    std::push_heap(candidates.begin(), candidates.begin() + current_candidates,
+                   CompareForSubrelease);
+  };
+
+  tracker_list.Iter(PushCandidate, tracker_start);
+
+  return current_candidates;
+}
+
+template <class TrackerType>
+inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
+    absl::Span<TrackerType *> candidates, Length target) {
+  absl::c_sort(candidates, CompareForSubrelease);
+
+  Length total_released = 0;
+#ifndef NDEBUG
+  Length last = 0;
+#endif
+  // Since CompareForSubreleas selects for the worst candidate in the
+  // comparison, iterate through the candidates list in reverse.
+  for (int i = candidates.size() - 1; i >= 0 && total_released < target; i--) {
+    TrackerType *best = candidates[i];
+    ASSERT(best != nullptr);
+
+#ifndef NDEBUG
+    // Double check that our sorting criteria were applied correctly.
+    ASSERT(last <= best->used_pages());
+    last = best->used_pages();
+#endif
+
+    RemoveFromFillerList(best);
+    Length ret = best->ReleaseFree();
+    unmapped_ += ret;
+    ASSERT(unmapped_ >= best->released_pages());
+    total_released += ret;
+    AddToFillerList(best);
+  }
+
+  return total_released;
+}
+
 // Tries to release desired pages by iteratively releasing from the emptiest
 // possible hugepage and releasing its free memory to the system.  Return the
 // number of pages actually released.
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
-  Length released = 0;
+  Length total_released = 0;
 
   // We also do eager release, once we've called this at least once:
   // claim credit for anything that gets done.
@@ -991,48 +1079,58 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
       return n;
     }
 
-    released += n;
+    total_released += n;
   }
 
-  while (released < desired) {
-    TrackerType *best = nullptr;
-    auto loop = [&](TrackerType *pt) {
-      if (!best || best->used_pages() > pt->used_pages()) {
-        best = pt;
+  // Optimize for releasing up to a huge page worth of small pages (scattered
+  // over many parts of the filler).  Since we hold pageheap_lock, we cannot
+  // allocate here.
+  constexpr size_t kCandidates = kPagesPerHugePage;
+  using CandidateArray = std::array<TrackerType *, kCandidates>;
+
+  if (partial_rerelease_ == FillerPartialRerelease::Retain) {
+    while (total_released < desired) {
+      CandidateArray candidates;
+      // We can skip the first kChunks lists as they are known to be 100% full.
+      // (Those lists are likely to be long.)
+      //
+      // We do not examine the regular_alloc_released_ lists, as only contain
+      // completely released pages.
+      int n_candidates =
+          SelectCandidates(absl::MakeSpan(candidates), 0,
+                           regular_alloc_partial_released_, kChunks);
+
+      Length released =
+          ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
+                            desired - total_released);
+      if (released == 0) {
+        break;
       }
-    };
-
-    // We can skip the first kChunks lists as they are known to be 100% full.
-    // (Those lists are likely to be long.)
-    //
-    // We do not examine the regular_alloc_released_ lists, as only contain
-    // completely released pages.
-    if (partial_rerelease_ == FillerPartialRerelease::Retain) {
-      regular_alloc_partial_released_.Iter(loop, kChunks);
+      total_released += released;
     }
+  }
 
-    if (!best) {
-      // Only consider breaking up a hugepage if there are no partially released
-      // pages.
-      regular_alloc_.Iter(loop, kChunks);
-      // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
-      // great candidate for partial release.
-      donated_alloc_.Iter(loop, 0);
-    }
+  // Only consider breaking up a hugepage if there are no partially released
+  // pages.
+  while (total_released < desired) {
+    CandidateArray candidates;
+    int n_candidates = SelectCandidates(absl::MakeSpan(candidates), 0,
+                                        regular_alloc_, kChunks);
+    // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
+    // great candidate for partial release.
+    n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
+                                    donated_alloc_, 0);
 
-    if (best == nullptr || best->full()) {
-      // We got everything we could.
+    Length released =
+        ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
+                          desired - total_released);
+    if (released == 0) {
       break;
     }
-
-    RemoveFromFillerList(best);
-    Length ret = best->ReleaseFree();
-    unmapped_ += ret;
-    released += ret;
-    AddToFillerList(best);
+    total_released += released;
   }
 
-  return released;
+  return total_released;
 }
 
 template <class TrackerType>
