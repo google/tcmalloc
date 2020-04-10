@@ -42,7 +42,6 @@ PageHeap::PageHeap(bool tagged) : PageHeap(Static::pagemap(), tagged) {}
 
 PageHeap::PageHeap(PageMap* map, bool tagged)
     : PageAllocatorInterface("PageHeap", map, tagged),
-      scavenge_counter_(0),
       // Start scavenging at kMaxPages list
       release_index_(kMaxPages) {
   large_.normal.Init();
@@ -273,10 +272,8 @@ void PageHeap::Delete(Span* span) {
   ASSERT(span->num_pages() > 0);
   ASSERT(pagemap_->GetDescriptor(span->first_page()) == span);
   ASSERT(pagemap_->GetDescriptor(span->last_page()) == span);
-  const Length n = span->num_pages();
   span->set_location(Span::ON_NORMAL_FREELIST);
   MergeIntoFreeList(span);  // Coalesces if possible
-  IncrementalScavenge(n);
   ASSERT(Check());
 }
 
@@ -341,9 +338,6 @@ void PageHeap::RemoveFromFreeList(Span* span) {
     stats_.unmapped_bytes -= span->bytes_in_span();
   }
   span->RemoveFromList();
-}
-
-void PageHeap::IncrementalScavenge(Length n) {
 }
 
 Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {

@@ -143,11 +143,6 @@ class PageHeap : public PageAllocatorInterface {
   void RemoveFromFreeList(Span* span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Incrementally release some memory to the system.
-  // IncrementalScavenge(n) is called whenever n pages are freed.
-  void IncrementalScavenge(Length n)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
   // Release the last span on the normal portion of this list.
   // Return the length of that span.
   Length ReleaseLastNormalSpan(SpanListPair* slist)
@@ -171,9 +166,6 @@ class PageHeap : public PageAllocatorInterface {
 
   // Do invariant testing.
   bool Check() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // Number of pages to deallocate before doing more scavenging
-  int64_t scavenge_counter_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Index of last free list where we released memory to the OS.
   int release_index_ ABSL_GUARDED_BY(pageheap_lock);
