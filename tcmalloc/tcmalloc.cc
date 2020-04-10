@@ -347,6 +347,10 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   // clang-format on
 
   tcmalloc::PrintExperiments(out);
+  out->printf(
+      "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (peak)\n",
+      static_cast<size_t>(tcmalloc::Static::sampled_objects_size_.value()),
+      tcmalloc::Static::peak_heap_tracker()->CurrentPeakSize());
 
   tcmalloc::tcmalloc_internal::MemoryStats memstats;
   if (tcmalloc::tcmalloc_internal::GetMemoryStats(&memstats)) {
@@ -478,6 +482,14 @@ namespace {
   region.PrintI64("percpu_slab_residence", stats.percpu_metadata_bytes_res);
   region.PrintI64("tcmalloc_page_size", uint64_t(kPageSize));
   region.PrintI64("tcmalloc_huge_page_size", uint64_t(tcmalloc::kHugePageSize));
+
+  {
+    auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
+    sampled_profiles.PrintI64("current_bytes",
+                              tcmalloc::Static::sampled_objects_size_.value());
+    sampled_profiles.PrintI64(
+        "peak_bytes", tcmalloc::Static::peak_heap_tracker()->CurrentPeakSize());
+  }
 
   // Print total process stats (inclusive of non-malloc sources).
   tcmalloc::tcmalloc_internal::MemoryStats memstats;

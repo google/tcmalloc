@@ -37,6 +37,8 @@ class PeakHeapTracker {
   std::unique_ptr<tcmalloc_internal::ProfileBase> DumpSample() const
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
+  size_t CurrentPeakSize() const { return peak_sampled_heap_size_.value(); }
+
  private:
   // Linked list of stack traces from sampled allocations saved (from
   // sampled_objects_ above) when we allocate memory from the system. The
