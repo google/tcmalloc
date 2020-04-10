@@ -586,13 +586,13 @@ class HugePageFiller {
   HintedTrackerLists<kNumLists> regular_alloc_partial_released_;
   HintedTrackerLists<kNumLists> regular_alloc_released_;
 
-  // Remove pt from the appropriate HintedTrackerList.
-  void Remove(TrackerType *pt);
+  // RemoveFromFillerList pt from the appropriate HintedTrackerList.
+  void RemoveFromFillerList(TrackerType *pt);
   // Put pt in the appropriate HintedTrackerList.
-  void Place(TrackerType *pt);
-  // Like Place(), but for use when donating from the tail of a multi-hugepage
-  // allocation.
-  void Donate(TrackerType *pt);
+  void AddToFillerList(TrackerType *pt);
+  // Like AddToFillerList(), but for use when donating from the tail of a
+  // multi-hugepage allocation.
+  void DonateToFillerList(TrackerType *pt);
 
   HugeLength size_;
 
@@ -875,7 +875,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   *hugepage = pt;
   auto page_allocation = pt->Get(n);
   *p = page_allocation.page;
-  Place(pt);
+  AddToFillerList(pt);
   allocated_ += n;
 
   ASSERT(was_released || page_allocation.previously_unbacked == 0);
@@ -904,13 +904,14 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
   //     pt->released() => regular_alloc_released_.size() > 0 ||
   //                       regular_alloc_partial_released_.size() > 0
   //   We do this before removing pt from our lists, since another thread may
-  //   encounter our post-Remove() update to regular_alloc_released_.size() and
-  //   regular_alloc_partial_released_.size() while encountering pt.
+  //   encounter our post-RemoveFromFillerList() update to
+  //   regular_alloc_released_.size() and regular_alloc_partial_released_.size()
+  //   while encountering pt.
   if (partial_rerelease_ == FillerPartialRerelease::Return) {
     pt->MaybeRelease(p, n);
   }
 
-  Remove(pt);
+  RemoveFromFillerList(pt);
 
   pt->Put(p, n);
 
@@ -950,7 +951,7 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
     UpdateFillerStatsTracker();
     return pt;
   }
-  Place(pt);
+  AddToFillerList(pt);
   UpdateFillerStatsTracker();
   return nullptr;
 }
@@ -963,9 +964,9 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
 
   allocated_ += pt->used_pages();
   if (donated) {
-    Donate(pt);
+    DonateToFillerList(pt);
   } else {
-    Place(pt);
+    AddToFillerList(pt);
   }
   ++size_;
   UpdateFillerStatsTracker();
@@ -1024,11 +1025,11 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
       break;
     }
 
-    Remove(best);
+    RemoveFromFillerList(best);
     Length ret = best->ReleaseFree();
     unmapped_ += ret;
     released += ret;
-    Place(best);
+    AddToFillerList(best);
   }
 
   return released;
@@ -1373,7 +1374,7 @@ inline size_t HugePageFiller<TrackerType>::ListFor(const size_t longest,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Remove(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType *pt) {
   size_t longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
@@ -1398,7 +1399,7 @@ inline void HugePageFiller<TrackerType>::Remove(TrackerType *pt) {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Place(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType *pt) {
   size_t chunk = IndexFor(pt);
   size_t longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
@@ -1424,7 +1425,7 @@ inline void HugePageFiller<TrackerType>::Place(TrackerType *pt) {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Donate(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType *pt) {
   size_t longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
