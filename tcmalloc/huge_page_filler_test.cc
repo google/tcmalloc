@@ -1132,6 +1132,104 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   }
 }
 
+TEST_P(FillerTest, ParallelUnlockingSubrelease) {
+  if (GetParam() == FillerPartialRerelease::Retain) {
+    // When rerelease happens without going to Unback(), this test
+    // (intentionally) deadlocks, as we never receive the call.
+    return;
+  }
+
+  // Verify that we can deallocate a partial huge page and successfully unlock
+  // the pageheap_lock without introducing race conditions around the metadata
+  // for PageTracker::released_.
+  //
+  // Currently, HPAA unbacks *all* subsequent deallocations to a huge page once
+  // we have broken up *any* part of it.
+  //
+  // If multiple deallocations are in-flight, we need to leave sufficient
+  // breadcrumbs to ourselves (PageTracker::releasing_ is a Length, not a bool)
+  // so that one deallocation completing does not have us "forget" that another
+  // deallocation is about to unback other parts of the hugepage.
+  //
+  // If PageTracker::releasing_ were a bool, the completion of "t1" and
+  // subsequent reallocation of "a2" in this test would mark the entirety of the
+  // page as full, so we would choose to *not* unback a2 (when deallocated) or
+  // a3 (when deallocated by t3).
+  constexpr Length N = kPagesPerHugePage;
+
+  auto a1 = AllocateRaw(N / 2);
+  auto a2 = AllocateRaw(1);
+  auto a3 = AllocateRaw(1);
+
+  // Trigger subrelease.  The filler now has a partial hugepage, so subsequent
+  // calls to Delete() will cause us to unback the remainder of it.
+  EXPECT_GT(ReleasePages(kMaxValidPages), 0);
+
+  auto m1 = absl::make_unique<absl::Mutex>();
+  auto m2 = absl::make_unique<absl::Mutex>();
+
+  m1->Lock();
+  m2->Lock();
+
+  absl::BlockingCounter counter(2);
+  BlockingUnback::counter = &counter;
+
+  std::thread t1([&]() {
+    BlockingUnback::set_lock(m1.get());
+
+    DeleteRaw(a2);
+  });
+
+  std::thread t2([&]() {
+    BlockingUnback::set_lock(m2.get());
+
+    DeleteRaw(a3);
+  });
+
+  // Wait for t1 and t2 to block.
+  counter.Wait();
+
+  // At this point, t1 and t2 are blocked (as if they were on a long-running
+  // syscall) on "unback" (m1 and m2, respectively).  pageheap_lock is not held.
+  //
+  // Allocating a4 will complete the hugepage, but we have on-going releaser
+  // threads.
+  auto a4 = AllocateRaw((N / 2) - 2);
+  EXPECT_EQ(NHugePages(1), filler_.size());
+
+  // Let one of the threads proceed.  The huge page consists of:
+  // * a1 (N/2  ):  Allocated
+  // * a2 (    1):  Unbacked
+  // * a3 (    1):  Unbacking (blocked on m2)
+  // * a4 (N/2-2):  Allocated
+  m1->Unlock();
+  t1.join();
+
+  // Reallocate a2.  We should still consider the huge page partially backed for
+  // purposes of subreleasing.
+  a2 = AllocateRaw(1);
+  EXPECT_EQ(NHugePages(1), filler_.size());
+  DeleteRaw(a2);
+
+  // Let the other thread proceed.  The huge page consists of:
+  // * a1 (N/2  ):  Allocated
+  // * a2 (    1):  Unbacked
+  // * a3 (    1):  Unbacked
+  // * a4 (N/2-2):  Allocated
+  m2->Unlock();
+  t2.join();
+
+  EXPECT_EQ(filler_.used_pages(), N - 2);
+  EXPECT_EQ(filler_.unmapped_pages(), 2);
+  EXPECT_EQ(filler_.free_pages(), 0);
+
+  // Clean up.
+  DeleteRaw(a1);
+  DeleteRaw(a4);
+
+  BlockingUnback::counter = nullptr;
+}
+
 class FillerStatsTrackerTest : public testing::Test {
  private:
   static int64_t clock_;
