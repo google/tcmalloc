@@ -25,14 +25,6 @@
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
 
-#if defined(PERCPU_USE_RSEQ) && (!defined(__clang__) || __clang_major__ >= 9)
-// asm goto requires the use of Clang 9 or newer:
-// https://releases.llvm.org/9.0.0/tools/clang/docs/ReleaseNotes.html#c-language-changes-in-clang
-#define PERCPU_USE_RSEQ_ASM_GOTO 1
-#else
-#define PERCPU_USE_RSEQ_ASM_GOTO 0
-#endif
-
 namespace tcmalloc {
 
 struct PerCPUMetadataState {
@@ -232,12 +224,15 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
 #define PERCPU_XSTRINGIFY(s) #s
 #define PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
 
-#if PERCPU_USE_RSEQ_ASM_GOTO && defined(__x86_64__)
+#if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f) {
-  asm goto(
+  // TODO(b/149467541):  Move this to asm goto.
+  uint64_t scratch, current;
+  bool overflow;
+  asm volatile(
       // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
       // relocations, but could be read-only for non-PIE builds.
       ".pushsection __rseq_cs, \"aw?\"\n"
@@ -272,49 +267,42 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "jmp 3f\n"
       ".popsection\n"
       // Prepare
-      //
-      // TODO(b/151503411):  Pending widespread availability of LLVM's asm goto
-      // with output contraints
-      // (https://github.com/llvm/llvm-project/commit/23c2a5ce33f0), we can
-      // return the register allocations to the compiler rather than using
-      // explicit clobbers.  Prior to this, blocks which use asm goto cannot
-      // also specify outputs.
-      //
-      // r10: Scratch
-      // r11: Current
       "3:\n"
-      "lea __rseq_cs_TcmallocSlab_Push_%=(%%rip), %%r10\n"
-      "mov %%r10, (%[rseq_cs])\n"
+      "lea __rseq_cs_TcmallocSlab_Push_%=(%%rip), %[scratch]\n"
+      "mov %[scratch], (%[rseq_cs])\n"
       // Start
       "4:\n"
-      // r10 = __rseq_abi.cpu_id;
-      "mov (%[rseq_cpu]), %%r10d\n"
-      // r10 = slabs + r10
-      "shl %[shift], %%r10\n"
-      "add %[slabs], %%r10\n"
+      // scratch = __rseq_abi.cpu_id;
+      "mov (%[rseq_cpu]), %k[scratch]\n"
+      // scratch = slabs + scratch
+      "shl %[shift], %[scratch]\n"
+      "add %[slabs], %[scratch]\n"
       // r11 = slabs->current;
-      "movzwq (%%r10, %[cl], 8), %%r11\n"
+      "movzwq (%[scratch], %[cl], 8), %[current]\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
-      "cmp 6(%%r10, %[cl], 8), %%r11w\n"
-      "jae %l[overflow_label]\n"
-      "mov %[item], (%%r10, %%r11, 8)\n"
-      "inc %%r11\n"
-      "mov %%r11w, (%%r10, %[cl], 8)\n"
+      "cmp 6(%[scratch], %[cl], 8), %w[current]\n"
+      "setae %b[overflow]\n"
+      "jae 5f\n"
+      "mov %[item], (%[scratch], %[current], 8)\n"
+      "inc %[current]\n"
+      "mov %w[current], (%[scratch], %[cl], 8)\n"
       // Commit
       "5:\n"
-      :
-      : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
-        [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
-        [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
-      : "cc", "memory", "r10", "r11"
-      : overflow_label);
-  return 0;
-overflow_label:
-  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path.  The values on the taken branches are
-  // undefined.
-  int cpu = __rseq_abi.cpu_id;
-  return f(cpu, cl, item);
+      : [ current ] "=&r"(current), [ scratch ] "=&r"(scratch),
+        [ overflow ] "=&r"(overflow)
+      : [ rseq_cs ] "r"(&__rseq_abi.rseq_cs),
+        [ rseq_cpu ] "r"(&__rseq_abi.cpu_id),
+        [ rseq_sig ] "in"(PERCPU_RSEQ_SIGNATURE), [ shift ] "in"(Shift),
+        [ slabs ] "r"(slabs), [ cl ] "r"(cl), [ item ] "r"(item)
+      : "cc", "memory");
+  // Undo transformation of cpu_id to the value of scratch.
+  int cpu = reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
+                scratch) -
+            slabs;
+  if (ABSL_PREDICT_FALSE(overflow)) {
+    return f(cpu, cl, item);
+  }
+  return cpu;
 }
 #endif  // defined(__x86_64__)
 
