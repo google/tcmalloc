@@ -25,6 +25,7 @@
 #include <limits>
 #include <new>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <utility>
 #include <vector>
 
@@ -273,6 +274,40 @@ TEST_F(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
   EXPECT_LE(GetFreeBytes(), 20 * kHugePageSize);
   for (auto *span : small_allocs) {
     Delete(span);
+  }
+}
+
+TEST_F(HugePageAwareAllocatorTest, Multithreaded) {
+  static const size_t kThreads = 16;
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  absl::Barrier b1(kThreads);
+  absl::Barrier b2(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.push_back(std::thread([this, &b1, &b2]() {
+      absl::BitGen rng;
+      std::vector<Span *> allocs;
+      for (int i = 0; i < 150; ++i) {
+        Length n = RandomAllocSize();
+        allocs.push_back(New(n));
+      }
+      b1.Block();
+      static const size_t kReps = 4 * 1000;
+      for (int i = 0; i < kReps; ++i) {
+        size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
+        Delete(allocs[index]);
+        Length n = RandomAllocSize();
+        allocs[index] = New(n);
+      }
+      b2.Block();
+      for (auto s : allocs) {
+        Delete(s);
+      }
+    }));
+  }
+
+  for (auto &t : threads) {
+    t.join();
   }
 }
 
