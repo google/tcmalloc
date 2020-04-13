@@ -37,9 +37,6 @@ NO_BUILTIN_MALLOC = [
     "-fno-builtin-free",
 ]
 
-overlay_deps = [
-]
-
 cc_library(
     name = "experiment",
     srcs = ["experiment.cc"],
@@ -105,7 +102,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common",
     ],
     alwayslink = 1,
@@ -127,7 +124,7 @@ cc_library(
     visibility = [
         "//tcmalloc/testing:__pkg__",
     ],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
     ],
     alwayslink = 1,
@@ -152,7 +149,7 @@ cc_library(
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common",
     ],
     alwayslink = 1,
@@ -403,7 +400,7 @@ cc_library(
     copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common_large_pages",
     ],
     alwayslink = 1,
@@ -432,7 +429,7 @@ cc_library(
     copts = ["-DTCMALLOC_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common_256k_pages",
     ],
     alwayslink = 1,
@@ -460,7 +457,7 @@ cc_library(
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
-    deps = overlay_deps + tcmalloc_deps + [
+    deps = tcmalloc_deps + [
         ":common_small_but_slow",
     ],
     alwayslink = 1,
