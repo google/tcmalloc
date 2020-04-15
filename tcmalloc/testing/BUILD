@@ -48,7 +48,7 @@ REGTEST_DEPS = [
 ]
 
 REGTEST_OPTS = [
-    "$(STACK_FRAME_UNLIMITED)",  # required for tcmalloc_regtest.cc
+    "$(STACK_FRAME_UNLIMITED)",  # required for tcmalloc_test.cc
 ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS
 
 cc_library(
@@ -64,9 +64,9 @@ cc_library(
 )
 
 cc_test(
-    name = "tcmalloc_regtest",
+    name = "tcmalloc_test",
     timeout = "long",
-    srcs = ["tcmalloc_regtest.cc"],
+    srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc",
@@ -77,8 +77,8 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_small_but_slow",
-    srcs = ["tcmalloc_regtest.cc"],
+    name = "tcmalloc_test_small_but_slow",
+    srcs = ["tcmalloc_test.cc"],
     copts = [
         "-DTCMALLOC_SMALL_BUT_SLOW",
     ] + REGTEST_OPTS,
@@ -88,9 +88,9 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_large_page",
+    name = "tcmalloc_test_large_page",
     timeout = "long",
-    srcs = ["tcmalloc_regtest.cc"],
+    srcs = ["tcmalloc_test.cc"],
     copts = [
         "-DTCMALLOC_LARGE_PAGES",
     ] + REGTEST_OPTS,
@@ -100,9 +100,9 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_256k_pages",
+    name = "tcmalloc_test_256k_pages",
     timeout = "long",
-    srcs = ["tcmalloc_regtest.cc"],
+    srcs = ["tcmalloc_test.cc"],
     copts = [
         "-DTCMALLOC_256K_PAGES",
     ] + REGTEST_OPTS,
@@ -112,8 +112,8 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_no_hp_aware",
-    srcs = ["tcmalloc_regtest.cc"],
+    name = "tcmalloc_test_no_hp_aware",
+    srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc",
@@ -124,8 +124,8 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_hp_aware",
-    srcs = ["tcmalloc_regtest.cc"],
+    name = "tcmalloc_test_hp_aware",
+    srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc",
@@ -136,9 +136,9 @@ cc_test(
 )
 
 cc_test(
-    name = "tcmalloc_regtest_deprecated_perthread",
+    name = "tcmalloc_test_deprecated_perthread",
     timeout = "long",
-    srcs = ["tcmalloc_regtest.cc"],
+    srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS + ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
@@ -146,8 +146,8 @@ cc_test(
 )
 
 cc_test(
-    name = "markidle_unittest",
-    srcs = ["markidle_unittest.cc"],
+    name = "markidle_test",
+    srcs = ["markidle_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     deps = [
@@ -160,8 +160,8 @@ cc_test(
 )
 
 cc_test(
-    name = "memalign_unittest",
-    srcs = ["memalign_unittest.cc"],
+    name = "memalign_test",
+    srcs = ["memalign_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
@@ -173,10 +173,10 @@ cc_test(
     ],
 )
 
-# Fragmentation timing and unittest
+# Fragmentation timing and test
 cc_test(
-    name = "frag_unittest",
-    srcs = ["frag_unittest.cc"],
+    name = "frag_test",
+    srcs = ["frag_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
@@ -198,20 +198,20 @@ LARGESMALL_FRAG_DEPS = [
 ]
 
 cc_test(
-    name = "largesmall_frag_unittest",
-    srcs = ["largesmall_frag_unittest.cc"],
+    name = "largesmall_frag_test",
+    srcs = ["largesmall_frag_test.cc"],
     copts = [
-        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_unittest.cc
+        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
     ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = LARGESMALL_FRAG_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
 cc_test(
-    name = "largesmall_frag_unittest_256k_pages",
-    srcs = ["largesmall_frag_unittest.cc"],
+    name = "largesmall_frag_test_256k_pages",
+    srcs = ["largesmall_frag_test.cc"],
     copts = [
-        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_unittest.cc
+        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
         "-DTCMALLOC_256K_PAGES",
     ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_256k_pages",
@@ -219,10 +219,10 @@ cc_test(
 )
 
 cc_test(
-    name = "largesmall_frag_unittest_large_page",
-    srcs = ["largesmall_frag_unittest.cc"],
+    name = "largesmall_frag_test_large_page",
+    srcs = ["largesmall_frag_test.cc"],
     copts = [
-        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_unittest.cc
+        "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
         "-DTCMALLOC_LARGE_PAGES",
     ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_large_pages",
@@ -400,20 +400,20 @@ cc_test(
 # static initializers are invoked caused a race and crashes before cl/19792144
 # fixed that race.
 cc_library(
-    name = "thread_ctor_unittest_lib",
+    name = "thread_ctor_test_lib",
     testonly = 1,
-    srcs = ["thread_ctor_unittest_lib.cc"],
+    srcs = ["thread_ctor_test_lib.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkopts = ["-pthread"],
 )
 
 cc_test(
-    name = "thread_ctor_unittest",
-    srcs = ["thread_ctor_unittest_main.cc"],
+    name = "thread_ctor_test",
+    srcs = ["thread_ctor_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
-        ":thread_ctor_unittest_lib",
+        ":thread_ctor_test_lib",
         "@com_github_google_benchmark//:benchmark",
     ],
 )

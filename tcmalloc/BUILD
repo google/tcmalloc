@@ -661,8 +661,8 @@ cc_test(
 )
 
 cc_test(
-    name = "pagemap_unittest",
-    srcs = ["pagemap_unittest.cc"],
+    name = "pagemap_test",
+    srcs = ["pagemap_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
@@ -673,8 +673,8 @@ cc_test(
 )
 
 cc_test(
-    name = "realloc_unittest",
-    srcs = ["realloc_unittest.cc"],
+    name = "realloc_test",
+    srcs = ["realloc_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
@@ -704,8 +704,8 @@ cc_test(
 )
 
 cc_test(
-    name = "system-alloc_unittest",
-    srcs = ["system-alloc_unittest.cc"],
+    name = "system-alloc_test",
+    srcs = ["system-alloc_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
@@ -721,10 +721,10 @@ cc_test(
 # This test has been named "large" since before tests were s/m/l.
 # The "large" refers to large allocation sizes.
 cc_test(
-    name = "tcmalloc_large_unittest",
+    name = "tcmalloc_large_test",
     size = "small",
     timeout = "moderate",
-    srcs = ["tcmalloc_large_unittest.cc"],
+    srcs = ["tcmalloc_large_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
@@ -738,9 +738,6 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
-
-# There are more unittests in the tools subdirectory!  (Mostly, those
-# tests that depend on more than just //base and //tcmalloc).
 
 cc_test(
     name = "malloc_extension_system_malloc_test",
