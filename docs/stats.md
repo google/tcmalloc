@@ -364,12 +364,14 @@ PageHeap: 6 page info:  1718534 /  1718486 a/f,     48 (   9.0 MiB) live,      1
 
 ### GWP-ASan Status
 
-The GWP-ASan section displays information about allocations guarded by GWP-ASan.
+The GWP-ASan section displays information about allocations guarded by
+[GWP-ASan](gwp-asan.md).
 
 *   The number of successful and failed GWP-ASan allocations. If there are 0
     successful and 0 failed allocations, GWP-ASan is probably disabled on your
     binary. If there are a large number of failed allocations, it probably means
     your sampling rate is too high, causing the guarded slots to be exhausted.
+    See [GWP-ASan sampling rate](gwp-asan.md#what-should-i-set-the-sampling-rate-to).
 *   The number of "slots" currently allocated and quarantined. An allocated slot
     contains an allocation that is still active (i.e. not freed) while a
     quarantined slot has either not been used yet or contains an allocation that
