@@ -145,6 +145,48 @@ cc_test(
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
+THREADCACHESIZE_DEPS = [
+    "@com_google_googletest//:gtest_main",
+    "@com_google_absl//absl/base:core_headers",
+    "@com_google_absl//absl/synchronization",
+    "//tcmalloc:malloc_extension",
+]
+
+cc_test(
+    name = "threadcachesize_test",
+    srcs = ["threadcachesize_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = THREADCACHESIZE_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
+    name = "threadcachesize_test_small_but_slow",
+    srcs = ["threadcachesize_test.cc"],
+    copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_small_but_slow",
+    deps = THREADCACHESIZE_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
+    name = "threadcachesize_test_256k_pages",
+    srcs = ["threadcachesize_test.cc"],
+    copts = ["-DTCMALLOC_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_256k_pages",
+    deps = THREADCACHESIZE_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
+    name = "threadcachesize_test_large_page",
+    srcs = ["threadcachesize_test.cc"],
+    copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_large_pages",
+    deps = THREADCACHESIZE_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
 cc_test(
     name = "markidle_test",
     srcs = ["markidle_test.cc"],
