@@ -419,7 +419,7 @@ When a range of pages are returned to the pageheap, the adjacent pages are
 checked to determine if they now form a contiguous region, if that is the case
 then the pages are concatenated and placed into the appropriate free list.
 
-### Hugepage Aware Pageheap
+### Hugepage Aware Allocator
 
 The objective of the hugepage aware allocator is to hold memory in hugepage size
 chunks. On x86 a hugepage is 2MiB in size. To do this the back-end has three
@@ -441,6 +441,9 @@ different caches:
     is overlap in usage with the region cache, but the region cache is only
     enabled when it is determined (at runtime) that the allocation pattern would
     benefit from it.
+
+Additional information about the design choices made in HPAA are discussed in a
+specific [design doc](temeraire.md) for it.
 
 ## Caveats
 

@@ -413,6 +413,8 @@ hugepage aware. It is designed to better handle memory backed by hugepages -
 avoiding breaking them up. Since it is more elaborate code, it reports
 additional information.
 
+See the [Temeraire design doc](temeraire.md) for more complete information.
+
 ### Summary Statistics
 
 The initial set of statistics from the Huge Page Aware Allocator are similar to
