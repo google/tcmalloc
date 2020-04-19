@@ -113,11 +113,17 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
   // Put the computed p-value through the CDF of a geometric.
   double interval = (std::log2(q) - 26) * (-std::log(2.0) * mean);
 
-  // Very large values of interval overflow ssize_t. If we happen to
-  // hit such improbable condition, we simply cheat and clamp interval
-  // to largest supported value.
-  return static_cast<ssize_t>(
-      std::min<double>(interval, std::numeric_limits<ssize_t>::max()));
+  // Very large values of interval overflow ssize_t. If we happen to hit this
+  // improbable condition, we simply cheat and clamp interval to the largest
+  // supported value.  This is slightly tricky, since casting the maximum
+  // ssize_t value to a double rounds it up, and casting that rounded value
+  // back to an ssize_t will still overflow.  Thus, we specifically need to
+  // use a ">=" condition here, rather than simply ">" as would be appropriate
+  // if the arithmetic were exact.
+  if (interval >= static_cast<double>(std::numeric_limits<ssize_t>::max()))
+    return std::numeric_limits<ssize_t>::max();
+  else
+    return static_cast<ssize_t>(interval);
 }
 
 size_t Sampler::RecordAllocationSlow(size_t k) {
