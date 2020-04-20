@@ -876,6 +876,68 @@ TEST_P(FillerTest, Fragmentation) {
   }
 }
 
+TEST_P(FillerTest, PrintFreeRatio) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != 256) {
+    GTEST_SKIP();
+  }
+
+  // Allocate two huge pages, release one, verify that we do not get an invalid
+  // (>1.) ratio of free : non-fulls.
+  PAlloc a1 = Allocate(kPagesPerHugePage);
+
+  constexpr Length kQ = kPagesPerHugePage / 4;
+
+  PAlloc a2 = Allocate(kQ);
+  PAlloc a3 = Allocate(kQ);
+  PAlloc a4 = Allocate(kQ);
+  PAlloc a5 = Allocate(kQ);
+
+  Delete(a5);
+
+  ReleasePages(kQ);
+
+  Delete(a4);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, /*everything=*/true);
+  }
+  // Find the \0 that got added.
+  buffer.resize(strlen(buffer.c_str()));
+
+  if (GetParam() == FillerPartialRerelease::Retain) {
+    EXPECT_THAT(
+        buffer,
+        testing::StartsWith(
+            R"(HugePageFiller: densely pack small requests into hugepages
+HugePageFiller: 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
+HugePageFiller: 64 pages free in 2 hugepages, 0.1250 free
+HugePageFiller: among non-fulls, 0.2500 free
+HugePageFiller: 128 used pages in subreleased hugepages (128 of them in partially released)
+HugePageFiller: 1 hugepages partially released, 0.2500 released
+HugePageFiller: 0.6667 of used pages hugepageable)"));
+  } else {
+    EXPECT_THAT(
+        buffer,
+        testing::StartsWith(
+            R"(HugePageFiller: densely pack small requests into hugepages
+HugePageFiller: 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
+HugePageFiller: 0 pages free in 2 hugepages, 0.0000 free
+HugePageFiller: among non-fulls, 0.0000 free
+HugePageFiller: 128 used pages in subreleased hugepages (0 of them in partially released)
+HugePageFiller: 1 hugepages partially released, 0.5000 released
+HugePageFiller: 0.6667 of used pages hugepageable)"));
+  }
+
+  // Cleanup remaining allocs.
+  Delete(a1);
+  Delete(a2);
+  Delete(a3);
+}
+
 static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
 
 using testing::AnyOf;

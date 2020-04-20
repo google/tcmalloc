@@ -1314,16 +1314,19 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
   ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
   const auto safe_div = [](double a, double b) { return b == 0 ? 0 : a / b; };
-  const HugeLength n_nonfull = size() - nrel - nfull;
+  const HugeLength n_partial = size() - nrel - nfull;
+  const HugeLength n_nonfull =
+      n_partial + regular_alloc_partial_released_.size();
   out->printf(
       "HugePageFiller: %zu total, %zu full, %zu partial, %zu released "
       "(%zu partially), 0 quarantined\n",
-      size().raw_num(), nfull.raw_num(), n_nonfull.raw_num(), nrel.raw_num(),
+      size().raw_num(), nfull.raw_num(), n_partial.raw_num(), nrel.raw_num(),
       regular_alloc_partial_released_.size().raw_num());
   out->printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
               free_pages(), size().raw_num(),
               safe_div(free_pages(), size().in_pages()));
 
+  ASSERT(free_pages() <= n_nonfull.in_pages());
   out->printf("HugePageFiller: among non-fulls, %.4f free\n",
               safe_div(free_pages(), n_nonfull.in_pages()));
 
@@ -1385,9 +1388,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
   ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
   const auto safe_div = [](double a, double b) { return b == 0 ? 0 : a / b; };
-  const HugeLength n_nonfull = size() - nrel - nfull;
+  const HugeLength n_partial = size() - nrel - nfull;
   hpaa->PrintI64("filler_full_huge_pages", nfull.raw_num());
-  hpaa->PrintI64("filler_partial_huge_pages", n_nonfull.raw_num());
+  hpaa->PrintI64("filler_partial_huge_pages", n_partial.raw_num());
   hpaa->PrintI64("filler_released_huge_pages", nrel.raw_num());
   hpaa->PrintI64("filler_partially_released_huge_pages",
                  regular_alloc_partial_released_.size().raw_num());
