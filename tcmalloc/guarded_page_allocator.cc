@@ -376,14 +376,29 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
          GetWriteOverflowMagic(slot), magic_size);
   *ptr = reinterpret_cast<void *>(adjusted_ptr);
 }
-//
-// error contains the type of error to record.
-//
-// Note that we cannot use ::testing::Test::RecordProperty() because it doesn't
-// write the XML file if a test crashes (which we're about to do here).  So we
-// write directly to the XML file instead.
-static void RecordCrash(absl::string_view error) {
 
+// If this failure occurs during "bazel test", writes a warning for Bazel to
+// display.
+static void RecordBazelWarning(absl::string_view error) {
+  const char *warning_file = tcmalloc::tcmalloc_internal::thread_safe_getenv(
+      "TEST_WARNINGS_OUTPUT_FILE");
+  if (!warning_file) return;  // Not a bazel test.
+
+  constexpr char warning[] = "GWP-ASan error detected: ";
+  int fd = open(warning_file, O_CREAT | O_WRONLY | O_APPEND, 0644);
+  if (fd == -1) return;
+  (void)write(fd, warning, sizeof(warning) - 1);
+  (void)write(fd, error.data(), error.size());
+  (void)write(fd, "\n", 1);
+  close(fd);
+}
+
+// If this failure occurs during a gUnit test, writes an XML file describing the
+// error type.  Note that we cannot use ::testing::Test::RecordProperty()
+// because it doesn't write the XML file if a test crashes (which we're about to
+// do here).  So we write directly to the XML file instead.
+//
+static void RecordTestFailure(absl::string_view error) {
   const char *xml_file =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("XML_OUTPUT_FILE");
   if (!xml_file) return;  // Not a gUnit test.
@@ -408,6 +423,15 @@ static void RecordCrash(absl::string_view error) {
   (void)write(fd, error.data(), error.size());
   (void)write(fd, xml_text_footer, sizeof(xml_text_footer) - 1);
   close(fd);
+}
+//
+// If this crash occurs in a test, records test failure summaries.
+//
+// error contains the type of error to record.
+static void RecordCrash(absl::string_view error) {
+
+  RecordBazelWarning(error);
+  RecordTestFailure(error);
 }
 
 static struct sigaction old_sa;
