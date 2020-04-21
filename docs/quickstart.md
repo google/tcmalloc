@@ -259,7 +259,7 @@ Congratulations! You've created your first binary using TCMalloc.
 * Read through the TCMalloc [reference](reference.md) for information on the
   behavior of `malloc()`, `::operator new`, and other allocation/deallocation
   routines in TCMalloc.
-* Consult the TCMalloc C++ `malloc_extensions.h` header file, which contains
+* Consult the TCMalloc C++ `malloc_extension.h` header file, which contains
   information on TCMalloc's supported extensions.
 * Read our [contribution guidelines](https://github.com/google/tcmalloc/blob/master/CONTRIBUTING.md), if you
   intend to submit code to our repository.
