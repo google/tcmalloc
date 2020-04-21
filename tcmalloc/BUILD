@@ -804,6 +804,24 @@ cc_test(
 )
 
 cc_test(
+    name = "thread_cache_test",
+    size = "medium",
+    srcs = ["thread_cache_test.cc"],
+    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
+    deps = [
+        ":malloc_extension",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:memory_stats",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "size_classes_test",
     srcs = ["size_classes_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
