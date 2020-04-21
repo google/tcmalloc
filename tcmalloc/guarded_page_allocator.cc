@@ -434,6 +434,19 @@ static void RecordCrash(absl::string_view error) {
   RecordTestFailure(error);
 }
 
+static void PrintStackTrace(void **stack_frames, size_t depth) {
+  for (size_t i = 0; i < depth; ++i) {
+    Log(kLog, __FILE__, __LINE__, "  @  ", stack_frames[i]);
+  }
+}
+
+static void PrintStackTraceFromSignalHandler(void *context) {
+  void *stack_frames[kMaxStackDepth];
+  size_t depth = absl::GetStackTraceWithContext(
+      stack_frames, kMaxStackDepth, 1, context, nullptr);
+  PrintStackTrace(stack_frames, depth);
+}
+
 static struct sigaction old_sa;
 
 static void ForwardSignal(int signo, siginfo_t *info, void *context) {
@@ -477,11 +490,13 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
   Log(kLog, __FILE__, __LINE__,
       "Error originates from memory allocated in thread", alloc_trace.tid,
       "at:");
+  PrintStackTrace(alloc_trace.stack, alloc_trace.depth);
 
   switch (error) {
     case GuardedPageAllocator::ErrorType::kUseAfterFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace.tid, "at:");
+      PrintStackTrace(dealloc_trace.stack, dealloc_trace.depth);
       Log(kLog, __FILE__, __LINE__, "Use-after-free occurs in thread",
           current_thread, "at:");
       RecordCrash("use-after-free");
@@ -499,6 +514,7 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
     case GuardedPageAllocator::ErrorType::kDoubleFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace.tid, "at:");
+      PrintStackTrace(dealloc_trace.stack, dealloc_trace.depth);
       Log(kLog, __FILE__, __LINE__, "Double free occurs in thread",
           current_thread, "at:");
       RecordCrash("double-free");
@@ -512,6 +528,7 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
     case GuardedPageAllocator::ErrorType::kUnknown:
       Log(kCrash, __FILE__, __LINE__, "Unexpected ErrorType::kUnknown");
   }
+  PrintStackTraceFromSignalHandler(context);
   if (error == GuardedPageAllocator::ErrorType::kBufferOverflowOnDealloc) {
     Log(kLog, __FILE__, __LINE__,
         "*** Try rerunning with --config=asan to get stack trace of overflow "
