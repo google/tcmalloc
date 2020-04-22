@@ -47,17 +47,18 @@ class PageMap2 {
  private:
   // The leaf node (regardless of pointer size) always maps 2^15 entries;
   // with 8K pages, this gives us 256MB mapped per leaf node.
-  static const int kLeafBits = 15;
-  static const int kLeafLength = 1 << kLeafBits;
-  static const int kRootBits = (BITS >= kLeafBits) ? (BITS - kLeafBits) : 0;
+  static constexpr int kLeafBits = 15;
+  static constexpr int kLeafLength = 1 << kLeafBits;
+  static constexpr int kRootBits = (BITS >= kLeafBits) ? (BITS - kLeafBits) : 0;
   // (1<<kRootBits) must not overflow an "int"
   static_assert(kRootBits < sizeof(int) * 8 - 1, "kRootBits is too large");
-  static const int kRootLength = 1 << kRootBits;
+  static constexpr int kRootLength = 1 << kRootBits;
 
-  static const size_t kLeafCoveredBytes = 1ul << (kLeafBits + kPageShift);
+  static constexpr size_t kLeafCoveredBytes = 1ul << (kLeafBits + kPageShift);
   static_assert(kLeafCoveredBytes >= kHugePageSize, "leaf too small");
-  static const size_t kLeafHugeBits = (kLeafBits + kPageShift - kHugePageShift);
-  static const size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
+  static constexpr size_t kLeafHugeBits =
+      (kLeafBits + kPageShift - kHugePageShift);
+  static constexpr size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
   static_assert(kLeafHugepages == 1 << kLeafHugeBits, "sanity");
   struct Leaf {
     // We keep parallel arrays indexed by page number.  One keeps the
@@ -190,20 +191,22 @@ class PageMap3 {
   // 4KiB page sizes (12 bits) we end up with 36 bits for x86 and 34 bits
   // for POWER. So leaf covers 4KiB * 1 << 12 = 16MiB - which is huge page
   // size for POWER.
-  static const int kLeafBits = (BITS + 2) / 3;  // Round up
-  static const int kLeafLength = 1 << kLeafBits;
-  static const int kMidBits = (BITS + 2) / 3;  // Round up
-  static const int kMidLength = 1 << kMidBits;
-  static const int kRootBits = BITS - kLeafBits - kMidBits;
+  static constexpr int kLeafBits = (BITS + 2) / 3;  // Round up
+  static constexpr int kLeafLength = 1 << kLeafBits;
+  static constexpr int kMidBits = (BITS + 2) / 3;  // Round up
+  static constexpr int kMidLength = 1 << kMidBits;
+  static constexpr int kRootBits = BITS - kLeafBits - kMidBits;
   static_assert(kRootBits > 0, "Too many bits assigned to leaf and mid");
   // (1<<kRootBits) must not overflow an "int"
   static_assert(kRootBits < sizeof(int) * 8 - 1, "Root bits too large");
-  static const int kRootLength = 1 << kRootBits;
+  static constexpr int kRootLength = 1 << kRootBits;
 
-  static const size_t kLeafCoveredBytes = size_t{1} << (kLeafBits + kPageShift);
+  static constexpr size_t kLeafCoveredBytes = size_t{1}
+                                              << (kLeafBits + kPageShift);
   static_assert(kLeafCoveredBytes >= kHugePageSize, "leaf too small");
-  static const size_t kLeafHugeBits = (kLeafBits + kPageShift - kHugePageShift);
-  static const size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
+  static constexpr size_t kLeafHugeBits =
+      (kLeafBits + kPageShift - kHugePageShift);
+  static constexpr size_t kLeafHugepages = kLeafCoveredBytes / kHugePageSize;
   static_assert(kLeafHugepages == 1 << kLeafHugeBits, "sanity");
   struct Leaf {
     // We keep parallel arrays indexed by page number.  One keeps the

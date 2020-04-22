@@ -166,8 +166,8 @@ class Span : public SpanList::Elem {
  private:
   // See the comment on freelist organization in cc file.
   typedef uint16_t ObjIdx;
-  static const size_t kCacheSize = 4;
-  static const ObjIdx kListEnd = -1;
+  static constexpr size_t kCacheSize = 4;
+  static constexpr ObjIdx kListEnd = -1;
 
   // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.
   // LLVM will generate widen load/store and bit masking operations to access

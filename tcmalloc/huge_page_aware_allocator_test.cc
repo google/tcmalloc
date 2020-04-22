@@ -699,7 +699,7 @@ class StatTest : public testing::Test {
     friend class Region;
     AddressRegionFactory *underlying_;
 
-    static const size_t kNumAllocs = 1000;
+    static constexpr size_t kNumAllocs = 1000;
     size_t n_;
     std::pair<void *, size_t> allocs_[kNumAllocs];
   };

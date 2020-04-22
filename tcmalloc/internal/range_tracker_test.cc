@@ -237,11 +237,9 @@ class RangeTrackerTest : public ::testing::Test {
     }
     return ret;
   }
-  static const size_t kBits = 1017;
+  static constexpr size_t kBits = 1017;
   RangeTracker<kBits> range_;
 };
-
-const size_t RangeTrackerTest::kBits;
 
 TEST_F(RangeTrackerTest, Trivial) {
   EXPECT_EQ(kBits, range_.size());

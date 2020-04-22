@@ -85,11 +85,11 @@ class PageHeap : public PageAllocatorInterface {
   // Never delay scavenging for more than the following number of
   // deallocated pages.  With 8K pages, this comes to 8GiB of
   // deallocation.
-  static const int kMaxReleaseDelay = 1 << 20;
+  static constexpr int kMaxReleaseDelay = 1 << 20;
 
   // If there is nothing to release, wait for so many pages before
   // scavenging again.  With 8K pages, this comes to 2GiB of memory.
-  static const int kDefaultReleaseDelay = 1 << 18;
+  static constexpr int kDefaultReleaseDelay = 1 << 18;
 
   // We segregate spans of a given size into two circular linked
   // lists: one for normal spans, and one for spans whose memory

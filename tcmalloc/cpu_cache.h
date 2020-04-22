@@ -93,7 +93,7 @@ class CPUCache {
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
   static const size_t kPerCpuShift = 12;
 #else
-  static const size_t kPerCpuShift = 18;
+  static constexpr size_t kPerCpuShift = 18;
 #endif
 
  private:

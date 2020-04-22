@@ -73,7 +73,7 @@ class StackTraceTable : public tcmalloc_internal::ProfileBase {
   int bucket_total() const { return bucket_total_; }
 
  private:
-  static const int kHashTableSize = 1 << 14; // => table_ is 128k
+  static constexpr int kHashTableSize = 1 << 14;  // => table_ is 128k
 
   ProfileType type_;
   int64_t period_;

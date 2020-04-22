@@ -26,7 +26,7 @@ namespace tcmalloc_internal {
 class ProcMapsIterator {
  public:
   struct Buffer {
-    static const size_t kBufSize = PATH_MAX + 1024;
+    static constexpr size_t kBufSize = PATH_MAX + 1024;
     char buf[kBufSize];
   };
 

@@ -43,7 +43,7 @@ class Arena {
 
  private:
   // How much to allocate from system at a time
-  static const int kAllocIncrement = 128 << 10;
+  static constexpr int kAllocIncrement = 128 << 10;
 
   // Free area from which to carve new objects
   char* free_area_ ABSL_GUARDED_BY(pageheap_lock);

@@ -249,11 +249,11 @@ inline bool IsTaggedMemory(const void* ptr) {
 class SizeMap {
  public:
   // All size classes <= 512 in all configs always have 1 page spans.
-  static const size_t kMultiPageSize = 512;
+  static constexpr size_t kMultiPageSize = 512;
   // Min alignment for all size classes > kMultiPageSize in all configs.
-  static const size_t kMultiPageAlignment = 64;
+  static constexpr size_t kMultiPageAlignment = 64;
   // log2 (kMultiPageAlignment)
-  static const size_t kMultiPageAlignmentShift =
+  static constexpr size_t kMultiPageAlignmentShift =
       tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(kMultiPageAlignment);
 
  private:
@@ -279,8 +279,8 @@ class SizeMap {
   //   1025       (1025 + 127 + (120<<7)) / 128   129
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
-  static const int kMaxSmallSize = 1024;
-  static const size_t kClassArraySize =
+  static constexpr int kMaxSmallSize = 1024;
+  static constexpr size_t kClassArraySize =
       ((kMaxSize + 127 + (120 << 7)) >> 7) + 1;
 
   // Batch size is the number of objects to move at once.

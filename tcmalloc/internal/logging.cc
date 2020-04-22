@@ -55,7 +55,7 @@ class Logger {
   bool AddStr(const char* str, int n);
   bool AddNum(uint64_t num, int base);  // base must be 10 or 16.
 
-  static const int kBufSize = 200;
+  static constexpr int kBufSize = 200;
   char* p_;
   char* end_;
   char buf_[kBufSize];

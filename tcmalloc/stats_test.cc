@@ -82,7 +82,7 @@ class AgeTest : public testing::Test {
   static constexpr size_t kBufferSize = 256 * 1024;
   char buf_[kBufferSize];
 
-  static const int64_t kNow = 1000ll * 1000 * 1000 * 1000;
+  static constexpr int64_t kNow = 1000ll * 1000 * 1000 * 1000;
 
   // correct "when" value to compute age as <age>
   int64_t WhenForAge(double age) {
