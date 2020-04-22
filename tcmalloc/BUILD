@@ -764,6 +764,18 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "malloc_extension_fuzz",
+    testonly = 1,
+    srcs = ["malloc_extension_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":malloc_extension",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
+
 cc_test(
     name = "page_allocator_test",
     srcs = ["page_allocator_test.cc"],
@@ -1038,6 +1050,30 @@ cc_test(
         ":experiment",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "experiment_fuzz",
+    testonly = 1,
+    srcs = ["experiment_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":experiment",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_library(
+    name = "runtime_size_classes_fuzz",
+    testonly = 1,
+    srcs = ["runtime_size_classes_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        ":runtime_size_classes",
+        ":size_class_info",
+        "@com_google_absl//absl/strings",
     ],
 )
 
