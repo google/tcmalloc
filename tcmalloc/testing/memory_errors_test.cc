@@ -14,6 +14,7 @@
 
 #include <stddef.h>
 #include <stdlib.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -246,6 +247,14 @@ TEST_F(TcMallocTest, OffsetAndLength) {
                ">>> Access at offset 1221 into buffer of length 6543");
   EXPECT_DEATH(RepeatUseAfterFree(8192, 8484),
                ">>> Access at offset 8484 into buffer of length 8192");
+}
+
+// Ensure non-GWP-ASan segfaults also crash.
+TEST_F(TcMallocTest, NonGwpAsanSegv) {
+  int *volatile p = static_cast<int *>(
+      mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+  EXPECT_DEATH((*p)++, "");
+  munmap(p, kPageSize);
 }
 
 }  // namespace

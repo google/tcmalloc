@@ -447,25 +447,6 @@ static void PrintStackTraceFromSignalHandler(void *context) {
   PrintStackTrace(stack_frames, depth);
 }
 
-static struct sigaction old_sa;
-
-static void ForwardSignal(int signo, siginfo_t *info, void *context) {
-  if (old_sa.sa_flags & SA_SIGINFO) {
-    old_sa.sa_sigaction(signo, info, context);
-  } else if (old_sa.sa_handler == SIG_DFL) {
-    // No previous handler registered.  Re-raise signal for core dump.
-    int err = sigaction(signo, &old_sa, nullptr);
-    if (err == -1) {
-      Log(kLog, __FILE__, __LINE__, "Couldn't restore previous sigaction!");
-    }
-    raise(signo);
-  } else if (old_sa.sa_handler == SIG_IGN) {
-    return;  // Previous sigaction ignored signal, so do the same.
-  } else {
-    old_sa.sa_handler(signo);
-  }
-}
-
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 static void SegvHandler(int signo, siginfo_t *info, void *context) {
@@ -534,7 +515,29 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
         "*** Try rerunning with --config=asan to get stack trace of overflow "
         "***");
   }
+}
 
+static struct sigaction old_sa;
+
+static void ForwardSignal(int signo, siginfo_t *info, void *context) {
+  if (old_sa.sa_flags & SA_SIGINFO) {
+    old_sa.sa_sigaction(signo, info, context);
+  } else if (old_sa.sa_handler == SIG_DFL) {
+    // No previous handler registered.  Re-raise signal for core dump.
+    int err = sigaction(signo, &old_sa, nullptr);
+    if (err == -1) {
+      Log(kLog, __FILE__, __LINE__, "Couldn't restore previous sigaction!");
+    }
+    raise(signo);
+  } else if (old_sa.sa_handler == SIG_IGN) {
+    return;  // Previous sigaction ignored signal, so do the same.
+  } else {
+    old_sa.sa_handler(signo);
+  }
+}
+
+static void HandleSegvAndForward(int signo, siginfo_t *info, void *context) {
+  SegvHandler(signo, info, context);
   ForwardSignal(signo, info, context);
 }
 
@@ -544,7 +547,7 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
   static absl::once_flag flag;
   absl::call_once(flag, []() {
     struct sigaction action = {};
-    action.sa_sigaction = SegvHandler;
+    action.sa_sigaction = HandleSegvAndForward;
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &action, &old_sa);
