@@ -24,6 +24,8 @@ package(default_visibility = ["//visibility:private"])
 
 licenses(["notice"])
 
+exports_files(["LICENSE"])
+
 config_setting(
     name = "llvm",
     flag_values = {
