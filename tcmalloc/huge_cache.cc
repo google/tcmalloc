@@ -52,25 +52,59 @@ HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
 
 template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
-  // Prints timestamp:min_pages:max_pages for each window with records.
-  // Timestamp == kEpochs - 1 is the most recent measurement.
+  // Prints content of each non-empty epoch, from oldest to most recent data
   const long long millis = absl::ToInt64Milliseconds(kEpochLength);
-  out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
-  int written = 0;
-  timeseries_.Iter(
-      [&](size_t offset, int64_t ts, const Extrema &e) {
-        if ((written++) % 100 == 0)
-          out->printf("\nHugeCache: Usage timeseries ");
-        out->printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
+  out->printf("\nHugeCache Usage Timeseries Stats: window %lldms * %zu", millis,
+              kEpochs);
+
+  const absl::Duration max_window =
+      kEpochLength * static_cast<const size_t>(kEpochs);
+  // clang-format off
+  static const absl::Duration kWindows[] = {
+    max_window*0.10,
+    max_window*0.25,
+    max_window*0.50,
+    max_window*0.75,
+    max_window,
+  };
+  // clang-format on
+  const int kNumWindows = ABSL_ARRAYSIZE(kWindows);
+  SeriesStats stats[kNumWindows]{};
+  size_t offset_boundary[kNumWindows];
+  for (int i = 0; i < kNumWindows; ++i) {
+    offset_boundary[i] = ceil(absl::FDivDuration(kWindows[i], kEpochLength));
+  }
+  // make sure we cannot overflow offset_boundary nor stats
+  ASSERT(kEpochs == offset_boundary[kNumWindows - 1]);
+
+  int curr_window = 0;
+  timeseries_.IterBackwards(
+      [&](size_t offset, int64_t, const Extrema &e) {
+        if (e.empty()) return;
+        while (offset >= offset_boundary[curr_window]) {
+          curr_window++;
+        }
+        stats[curr_window].Report(offset, e);
       },
-      timeseries_.kSkipEmptyEntries);
+      kEpochs);
+
+  out->printf("\n%24s %9s %9s %12s %12s", "report rate", "min", "max", "mean",
+              "std_dev");
+  // Aggegate and print
+  for (int i = 0; i < kNumWindows; ++i) {
+    double fraction = absl::FDivDuration(kWindows[i], max_window) * 100;
+    out->printf("\nAt %3.0f%% mark:", fraction);
+    stats[i].Print(out);
+
+    if (i + 1 == kNumWindows || stats[i + 1].empty()) break;
+    stats[i + 1] += stats[i];
+  }
   out->printf("\n");
 }
 
 template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
-  // Prints timestamp:min_pages:max_pages for each window with records.
-  // Timestamp == kEpochs - 1 is the most recent measurement.
+  // Prints content of each non-empty epoch, from oldest to most recent data
   auto huge_cache_history = hpaa->CreateSubRegion("huge_cache_history");
   huge_cache_history.PrintI64("window_ms",
                               absl::ToInt64Milliseconds(kEpochLength));
@@ -94,6 +128,59 @@ bool MinMaxTracker<kEpochs>::Extrema::operator==(const Extrema &other) const {
 template <size_t kEpochs>
 bool MinMaxTracker<kEpochs>::Extrema::operator!=(const Extrema &other) const {
   return !(this->operator==(other));
+}
+
+template <size_t kEpochs>
+typename MinMaxTracker<kEpochs>::Extrema &
+MinMaxTracker<kEpochs>::Extrema::operator+=(const Extrema &other) {
+  max += other.max;
+  min += other.min;
+  return *this;
+}
+
+template <size_t kEpochs>
+void MinMaxTracker<kEpochs>::SeriesStats::Report(size_t offset,
+                                                 const Extrema &e) {
+  max.Report(e.max);
+  min.Report(e.min);
+  sum += e;
+  sum_square += {.min = NHugePages(e.min.raw_num() * e.min.raw_num()),
+                 .max = NHugePages(e.max.raw_num() * e.max.raw_num())};
+  max_offset = offset;
+  count++;
+}
+
+template <size_t kEpochs>
+typename MinMaxTracker<kEpochs>::SeriesStats &
+MinMaxTracker<kEpochs>::SeriesStats::operator+=(SeriesStats &other) {
+  ASSERT(max_offset > other.max_offset);
+  max.Report(other.max);
+  min.Report(other.min);
+  sum += other.sum;
+  sum_square += other.sum_square;
+  count += other.count;
+  return *this;
+}
+
+template <size_t kEpochs>
+void MinMaxTracker<kEpochs>::SeriesStats::Print(TCMalloc_Printer *out) const {
+  auto safe_ratio = [](double a, double b) {
+    if (b == 0) return 0.0;
+    return a / b;
+  };
+
+  auto std_dev = [&](size_t sq, size_t s, size_t c) {
+    double variance = safe_ratio(sq - safe_ratio(s * s, c), c);
+    return std::sqrt(variance);
+  };
+  out->printf("\n%s %4zu /%4zu %9zu %9zu %12.3f %12.3f", "hugepages_max", count,
+              max_offset + 1, max.min.raw_num(), max.max.raw_num(),
+              safe_ratio(sum.max.raw_num(), count),
+              std_dev(sum_square.max.raw_num(), sum.max.raw_num(), count));
+  out->printf("\n%s  =%8.3f %9zu %9zu %12.3f %12.3f", "hugepages_min",
+              count / static_cast<double>(max_offset + 1), min.min.raw_num(),
+              min.max.raw_num(), safe_ratio(sum.min.raw_num(), count),
+              std_dev(sum_square.min.raw_num(), sum.min.raw_num(), count));
 }
 
 // Explicit instantiations of template

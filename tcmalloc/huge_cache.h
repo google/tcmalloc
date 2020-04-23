@@ -68,15 +68,48 @@ class MinMaxTracker {
       return e;
     }
 
+    static Extrema Zero() {
+      Extrema e;
+      e.max = NHugePages(0);
+      e.min = NHugePages(0);
+      return e;
+    }
+
     void Report(HugeLength n) {
       max = std::max(max, n);
       min = std::min(min, n);
+    }
+
+    void Report(Extrema &other) {
+      max = std::max(max, other.max);
+      min = std::min(min, other.min);
     }
 
     bool empty() const { return (*this == Nil()); }
 
     bool operator==(const Extrema &other) const;
     bool operator!=(const Extrema &other) const;
+    Extrema &operator+=(const Extrema &other);
+  };
+
+  struct SeriesStats {
+    Extrema max, min, sum, sum_square;
+    size_t max_offset, count;
+
+    SeriesStats()
+        : max(Extrema::Nil()),
+          min(Extrema::Nil()),
+          sum(Extrema::Zero()),
+          sum_square(Extrema::Zero()),
+          max_offset(0),
+          count(0) {}
+
+    bool empty() const { return count == 0; }
+
+    void Report(size_t offset, const Extrema &e);
+    SeriesStats &operator+=(SeriesStats &other);
+
+    void Print(TCMalloc_Printer *out) const;
   };
 
   TimeSeriesTracker<Extrema, HugeLength, kEpochs> timeseries_;
