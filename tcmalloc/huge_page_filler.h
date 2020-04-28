@@ -106,7 +106,7 @@ class FillerStatsTracker {
   // allows us to approximate the envelope of the different metrics.
   enum StatsType {
     kStatsAtMinDemand,
-    KStatsAtMaxDemand,
+    kStatsAtMaxDemand,
     kStatsAtMinHugePages,
     kStatsAtMaxHugePages,
     kNumStatsTypes
@@ -133,8 +133,8 @@ class FillerStatsTracker {
         stats[kStatsAtMinDemand] = e;
       }
 
-      if (e.num_pages > stats[KStatsAtMaxDemand].num_pages) {
-        stats[KStatsAtMaxDemand] = e;
+      if (e.num_pages > stats[kStatsAtMaxDemand].num_pages) {
+        stats[kStatsAtMaxDemand] = e;
       }
 
       if (e.total_huge_pages() <
@@ -180,8 +180,8 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
       [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
         if (!e.empty()) {
           if (at_peak_demand.empty() ||
-              at_peak_demand.stats[KStatsAtMaxDemand].num_pages <
-                  e.stats[KStatsAtMaxDemand].num_pages) {
+              at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
+                  e.stats[kStatsAtMaxDemand].num_pages) {
             at_peak_demand = e;
           }
 
@@ -198,27 +198,27 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
       "HugePageFiller: at peak demand: %zu pages (and %zu free, %zu unmapped)\n"
       "HugePageFiller: at peak demand: %zu hps (%zu regular, %zu donated, "
       "%zu partial, %zu released)\n",
-      at_peak_demand.stats[KStatsAtMaxDemand].num_pages,
-      at_peak_demand.stats[KStatsAtMaxDemand].free_pages,
-      at_peak_demand.stats[KStatsAtMaxDemand].unmapped_pages,
-      at_peak_demand.stats[KStatsAtMaxDemand].total_huge_pages(),
-      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kRegular],
-      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kDonated],
-      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kPartialReleased],
-      at_peak_demand.stats[KStatsAtMaxDemand].huge_pages[kReleased]);
+      at_peak_demand.stats[kStatsAtMaxDemand].num_pages,
+      at_peak_demand.stats[kStatsAtMaxDemand].free_pages,
+      at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages,
+      at_peak_demand.stats[kStatsAtMaxDemand].total_huge_pages(),
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kRegular],
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kDonated],
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kPartialReleased],
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased]);
 
   out->printf(
       "HugePageFiller: at peak hps: %zu pages (and %zu free, %zu unmapped)\n"
       "HugePageFiller: at peak hps: %zu hps (%zu regular, %zu donated, "
       "%zu partial, %zu released)",
-      at_peak_hps.stats[KStatsAtMaxDemand].num_pages,
-      at_peak_hps.stats[KStatsAtMaxDemand].free_pages,
-      at_peak_hps.stats[KStatsAtMaxDemand].unmapped_pages,
-      at_peak_hps.stats[KStatsAtMaxDemand].total_huge_pages(),
-      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kRegular],
-      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kDonated],
-      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kPartialReleased],
-      at_peak_hps.stats[KStatsAtMaxDemand].huge_pages[kReleased]);
+      at_peak_hps.stats[kStatsAtMaxDemand].num_pages,
+      at_peak_hps.stats[kStatsAtMaxDemand].free_pages,
+      at_peak_hps.stats[kStatsAtMaxDemand].unmapped_pages,
+      at_peak_hps.stats[kStatsAtMaxDemand].total_huge_pages(),
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kRegular],
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kDonated],
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kPartialReleased],
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kReleased]);
 }
 
 template <size_t kEpochs>
