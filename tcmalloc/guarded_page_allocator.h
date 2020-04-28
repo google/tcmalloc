@@ -231,10 +231,9 @@ class GuardedPageAllocator {
   // Returns true if magic bytes for slot were overwritten.
   bool WriteOverflowOccurred(size_t slot) const;
 
-  // Returns the likely error type for the given trace depths and access
-  // address.
-  ErrorType GetErrorType(uintptr_t addr, uintptr_t alloc_trace_depth,
-                         uintptr_t dealloc_trace_depth) const;
+  // Returns the likely error type for the given access address and metadata
+  // associated with the nearest slot.
+  ErrorType GetErrorType(uintptr_t addr, const SlotMetadata &d) const;
 
   // Magic constant used for detecting write-overflows at deallocation time.
   static uint8_t GetWriteOverflowMagic(size_t slot) {

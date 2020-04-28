@@ -155,7 +155,7 @@ GuardedPageAllocator::ErrorType GuardedPageAllocator::GetStackTraces(
   size_t slot = GetNearestSlot(addr);
   *alloc_trace = data_[slot].alloc_trace;
   *dealloc_trace = data_[slot].dealloc_trace;
-  return GetErrorType(addr, alloc_trace->depth, dealloc_trace->depth);
+  return GetErrorType(addr, data_[slot]);
 }
 
 // We take guarded samples during periodic profiling samples.  Computes the
@@ -322,23 +322,16 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 }
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetErrorType(
-    uintptr_t addr, uintptr_t alloc_trace_depth,
-    uintptr_t dealloc_trace_depth) const {
-  if (!alloc_trace_depth) return ErrorType::kUnknown;
+    uintptr_t addr, const SlotMetadata &d) const {
+  if (!d.alloc_trace.depth) return ErrorType::kUnknown;
   if (double_free_detected_) return ErrorType::kDoubleFree;
   if (write_overflow_detected_) return ErrorType::kBufferOverflowOnDealloc;
-  if (dealloc_trace_depth) return ErrorType::kUseAfterFree;
-  if (addr < first_page_addr_) return ErrorType::kBufferUnderflow;
-  const uintptr_t last_page_addr =
-      first_page_addr_ + 2 * (total_pages_ - 1) * page_size_;
-  if (addr > last_page_addr) return ErrorType::kBufferOverflow;
-
-  const uintptr_t offset = addr - first_page_addr_;
-  if ((offset / page_size_) % 2 == 0) return ErrorType::kUnknown;
-
-  const size_t kHalfPageSize = page_size_ / 2;
-  return (offset / kHalfPageSize) % 2 == 0 ? ErrorType::kBufferOverflow
-                                           : ErrorType::kBufferUnderflow;
+  if (d.dealloc_trace.depth) return ErrorType::kUseAfterFree;
+  if (addr < d.allocation_start) return ErrorType::kBufferUnderflow;
+  if (addr >= d.allocation_start + d.requested_size) {
+    return ErrorType::kBufferOverflow;
+  }
+  return ErrorType::kUnknown;
 }
 
 uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
