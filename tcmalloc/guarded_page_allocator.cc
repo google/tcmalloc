@@ -537,8 +537,6 @@ static void HandleSegvAndForward(int signo, siginfo_t *info, void *context) {
   ForwardSignal(signo, info, context);
 }
 
-ABSL_ATTRIBUTE_WEAK void SetDefaultGuardedSamplingRate();
-
 extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
   static absl::once_flag flag;
   absl::call_once(flag, []() {
@@ -548,9 +546,6 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
     action.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &action, &old_sa);
     Static::guardedpage_allocator()->AllowAllocations();
-    if (SetDefaultGuardedSamplingRate) {
-      SetDefaultGuardedSamplingRate();
-    }
   });
 }
 
