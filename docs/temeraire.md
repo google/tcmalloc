@@ -202,6 +202,9 @@ A few important details:
     `RangeTracker` has a low-address bias, which will help somewhat here by
     compacting allocations towards the low end of any region).
 
+Additional details on the design goals/tradeoffs are in the
+[Regions Are Not Optional](regions-are-not-optional.md) design doc.
+
 ### `HugePageAwareAllocator` (putting it all together...)
 
 This class houses the above components and routes between them, in addition to
