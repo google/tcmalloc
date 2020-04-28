@@ -226,6 +226,9 @@ void GuardedPageAllocator::MapPages() {
   // Allocate memory for slot metadata.
   data_ = reinterpret_cast<SlotMetadata *>(
       Static::arena()->Alloc(sizeof(*data_) * total_pages_));
+  for (size_t i = 0; i < total_pages_; ++i) {
+    new (&data_[i]) SlotMetadata;
+  }
 
   pages_base_addr_ = base_addr;
   pages_end_addr_ = pages_base_addr_ + len;

@@ -189,10 +189,10 @@ class GuardedPageAllocator {
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
-    GpaStackTrace alloc_trace;
-    GpaStackTrace dealloc_trace;
-    size_t requested_size;
-    uintptr_t allocation_start;
+    GpaStackTrace alloc_trace = {.stack = {}, .depth = 0, .tid = 0};
+    GpaStackTrace dealloc_trace = {.stack = {}, .depth = 0, .tid = 0};
+    size_t requested_size = 0;
+    uintptr_t allocation_start = 0;
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
