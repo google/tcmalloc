@@ -101,7 +101,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
 
   static std::atomic<int64_t> guarded_sampling_rate_;
-  static std::atomic<bool> hpaa_subrelease_;
   static std::atomic<bool> lazy_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
