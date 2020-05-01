@@ -82,7 +82,9 @@ class FillerStatsTracker {
         NumberOfFreePages({.free = std::numeric_limits<size_t>::max(),
                            .free_backed = std::numeric_limits<size_t>::max()});
 
-    int64_t num_epochs = w / epoch_length_;
+    int64_t num_epochs =
+        std::clamp(w / epoch_length_, int64_t{0}, static_cast<int64_t>(kEpochs));
+
     tracker_.IterBackwards(
         [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
           if (!e.empty()) {

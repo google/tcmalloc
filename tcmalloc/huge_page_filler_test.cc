@@ -1298,7 +1298,9 @@ class FillerStatsTrackerTest : public testing::Test {
   static int64_t FakeClock() { return clock_; }
 
  protected:
-  tcmalloc::FillerStatsTracker<16> tracker_{FakeClock, absl::Minutes(10),
+  static constexpr absl::Duration kWindow = absl::Minutes(10);
+
+  tcmalloc::FillerStatsTracker<16> tracker_{FakeClock, kWindow,
                                             absl::Minutes(5)};
 
   void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
@@ -1497,6 +1499,14 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
   }
 )");
   }
+}
+
+TEST_F(FillerStatsTrackerTest, InvalidDurations) {
+  // These should not crash.
+  tracker_.min_free_pages(absl::InfiniteDuration());
+  tracker_.min_free_pages(kWindow + absl::Seconds(1));
+  tracker_.min_free_pages(-(kWindow + absl::Seconds(1)));
+  tracker_.min_free_pages(-absl::InfiniteDuration());
 }
 
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
