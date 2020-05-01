@@ -73,9 +73,9 @@ namespace subtle {
 namespace percpu {
 
 // Internal state used for tracking initialization of RseqCpuId()
-static const int kCpuIdUnsupported = -2;
-static const int kCpuIdUninitialized = -1;
-static const int kCpuIdInitialized = 0;
+inline constexpr int kCpuIdUnsupported = -2;
+inline constexpr int kCpuIdUninitialized = -1;
+inline constexpr int kCpuIdInitialized = 0;
 
 #if PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
