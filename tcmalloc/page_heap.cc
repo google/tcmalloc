@@ -150,10 +150,10 @@ Span* PageHeap::NewAligned(Length n, Length align) {
     if (span == nullptr) return nullptr;
     // <span> certainly contains an appropriately aligned region; find it
     // and chop off the rest.
-    PageID p = span->first_page();
-    const PageID mask = align - 1;
-    PageID aligned = (p + mask) & ~mask;
-    ASSERT(aligned % align == 0);
+    PageId p = span->first_page();
+    const Length mask = align - 1;
+    PageId aligned = PageId{(p.index() + mask) & ~mask};
+    ASSERT(aligned.index() % align == 0);
     ASSERT(p <= aligned);
     ASSERT(aligned + n <= p + span->num_pages());
     // we have <extra> too many pages now, possible all before, possibly all
@@ -288,7 +288,7 @@ void PageHeap::MergeIntoFreeList(Span* span) {
   //
   // Note that only similar spans are merged together.  For example,
   // we do not coalesce "returned" spans with "normal" spans.
-  const PageID p = span->first_page();
+  const PageId p = span->first_page();
   const Length n = span->num_pages();
   Span* prev = pagemap_->GetDescriptor(p - 1);
   if (prev != nullptr && prev->location() == span->location()) {
@@ -433,8 +433,8 @@ bool PageHeap::GrowHeap(Length n) {
   n = actual_size >> kPageShift;
 
   stats_.system_bytes += actual_size;
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
-  ASSERT(p > 0);
+  const PageId p = PageIdContaining(ptr);
+  ASSERT(p > PageId{0});
 
   // If we have already a lot of pages allocated, just pre allocate a bunch of
   // memory for the page map. This prevents fragmentation by pagemap metadata

@@ -24,21 +24,21 @@ namespace tcmalloc {
 
 void PageMap::RegisterSizeClass(Span* span, size_t sc) {
   ASSERT(span->location() == Span::IN_USE);
-  const PageID first = span->first_page();
-  const PageID last = span->last_page();
+  const PageId first = span->first_page();
+  const PageId last = span->last_page();
   ASSERT(GetDescriptor(first) == span);
-  for (PageID p = first; p <= last; ++p) {
-    map_.set_with_sizeclass(p, span, sc);
+  for (PageId p = first; p <= last; ++p) {
+    map_.set_with_sizeclass(p.index(), span, sc);
   }
 }
 
 void PageMap::UnregisterSizeClass(Span* span) {
   ASSERT(span->location() == Span::IN_USE);
-  const PageID first = span->first_page();
-  const PageID last = span->last_page();
+  const PageId first = span->first_page();
+  const PageId last = span->last_page();
   ASSERT(GetDescriptor(first) == span);
-  for (PageID p = first; p <= last; ++p) {
-    map_.clear_sizeclass(p);
+  for (PageId p = first; p <= last; ++p) {
+    map_.clear_sizeclass(p.index());
   }
 }
 

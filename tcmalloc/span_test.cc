@@ -39,7 +39,7 @@ class RawSpan {
     void *mem;
     int res = posix_memalign(&mem, kPageSize, npages * kPageSize);
     CHECK_CONDITION(res == 0);
-    span_.set_first_page(reinterpret_cast<uintptr_t>(mem) / kPageSize);
+    span_.set_first_page(PageIdContaining(mem));
     span_.set_num_pages(npages);
     span_.BuildFreelist(size, objects_per_span);
   }

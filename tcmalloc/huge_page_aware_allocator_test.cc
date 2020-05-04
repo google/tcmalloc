@@ -150,8 +150,6 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     Span *span = AllocatorNew(n);
     CHECK_CONDITION(span != nullptr);
     EXPECT_GE(span->num_pages(), n);
-    const PageID p = span->first_page();
-    const PageID end = p + span->num_pages();
     const size_t id = next_id_++;
     total_ += n;
     CheckStats();
@@ -164,8 +162,6 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     Length n = span->num_pages();
     {
       absl::base_internal::SpinLockHolder h(&lock_);
-      const PageID p = span->first_page();
-      const PageID end = p + span->num_pages();
       auto i = ids_.find(span);
       CHECK_CONDITION(i != ids_.end());
       const size_t id = i->second;
@@ -578,9 +574,9 @@ bool HugePageResident(HugePage p) {
   return BytesInCore(p.start_addr(), kHugePageSize) > 0;
 }
 
-void Touch(PageID p) {
+void Touch(PageId p) {
   // a tcmalloc-page may contain more than an actual kernel page
-  volatile char *base = reinterpret_cast<char *>(p * kPageSize);
+  volatile char *base = reinterpret_cast<char *>(p.start_addr());
   static size_t kActualPages = std::max<size_t>(kPageSize / pagesize, 1);
   for (int i = 0; i < kActualPages; ++i) {
     base[i * pagesize] = 1;
@@ -591,24 +587,24 @@ void Touch(PageID p) {
 // empty hugepage. (In real life, this will usually, but not always,
 // happen: we make sure it does so our accounting is accurate.)
 void Touch(HugePage hp) {
-  PageID p = hp.first_page();
-  const PageID lim = p + kPagesPerHugePage;
+  PageId p = hp.first_page();
+  const PageId lim = p + kPagesPerHugePage;
   while (p < lim) {
     Touch(p);
-    p++;
+    ++p;
   }
 }
 
 void Touch(Span *s) {
-  for (PageID p = s->first_page(); p <= s->last_page(); ++p) {
+  for (PageId p = s->first_page(); p <= s->last_page(); ++p) {
     Touch(p);
   }
 }
 
 // Fault in memory across a span (SystemBack doesn't always do this.)
 void TouchTHP(Span *s) {
-  PageID p = s->first_page();
-  PageID lim = s->last_page();
+  PageId p = s->first_page();
+  PageId lim = s->last_page();
   HugePage last = HugePageContaining(nullptr);
   while (p <= lim) {
     HugePage hp = HugePageContaining(p);
@@ -626,7 +622,7 @@ void TouchTHP(Span *s) {
     // Regardless of whether we've optimistically faulted in a
     // hugepage, we also touch each page in the span.
     Touch(p);
-    p++;
+    ++p;
   }
 }
 

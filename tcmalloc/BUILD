@@ -244,6 +244,7 @@ common_hdrs = [
     "page_allocator_interface.h",
     "page_heap.h",
     "page_heap_allocator.h",
+    "pages.h",
     "pagemap.h",
     "parameters.h",
     "peak_heap_tracker.h",
@@ -508,6 +509,7 @@ cc_library(
     ],
     hdrs = [
         "common.h",
+        "pages.h",
         "sampler.h",
         "size_class_info.h",
         "span.h",

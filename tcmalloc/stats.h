@@ -21,6 +21,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 
 namespace tcmalloc {
 
@@ -196,8 +197,8 @@ class PageAllocInfo {
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
-  void RecordAlloc(PageID p, Length n);
-  void RecordFree(PageID p, Length n);
+  void RecordAlloc(PageId p, Length n);
+  void RecordFree(PageId p, Length n);
   void RecordRelease(Length n, Length got);
   // And invoking this in their Print() implementation.
   void Print(TCMalloc_Printer *out) const;
@@ -251,11 +252,11 @@ class PageAllocInfo {
   // State for page trace logging.
   const int fd_;
   uint64_t last_ms_{0};
-  void Write(uint64_t when, uint8_t what, PageID p, Length n);
+  void Write(uint64_t when, uint8_t what, PageId p, Length n);
   bool log_on() const { return fd_ >= 0; }
-  void LogAlloc(int64_t when, PageID p, Length n) { Write(when, 0, p, n); }
-  void LogFree(int64_t when, PageID p, Length n) { Write(when, 1, p, n); }
-  void LogRelease(int64_t when, Length n) { Write(when, 2, 0, n); }
+  void LogAlloc(int64_t when, PageId p, Length n) { Write(when, 0, p, n); }
+  void LogFree(int64_t when, PageId p, Length n) { Write(when, 1, p, n); }
+  void LogRelease(int64_t when, Length n) { Write(when, 2, PageId{0}, n); }
 };
 
 }  // namespace tcmalloc

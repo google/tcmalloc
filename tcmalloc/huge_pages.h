@@ -28,6 +28,7 @@
 
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 
 namespace tcmalloc {
 
@@ -37,7 +38,7 @@ struct HugePage {
     return reinterpret_cast<void *>(pn << kHugePageShift);
   }
 
-  PageID first_page() const { return pn << (kHugePageShift - kPageShift); }
+  PageId first_page() const { return PageIdContaining(start_addr()); }
 
   size_t index() const { return pn; }
 
@@ -212,12 +213,12 @@ inline void PrintTo(const HugeLength &n, ::std::ostream *os) {
   *os << n.raw_num() << "hps";
 }
 
-inline HugePage HugePageContaining(PageID p) {
-  return {p >> (kHugePageShift - kPageShift)};
+inline HugePage HugePageContaining(PageId p) {
+  return {p.index() >> (kHugePageShift - kPageShift)};
 }
 
 inline HugePage HugePageContaining(void *p) {
-  return HugePageContaining(reinterpret_cast<uintptr_t>(p) >> kPageShift);
+  return HugePageContaining(PageIdContaining(p));
 }
 
 // A set of contiguous huge pages.
@@ -242,7 +243,7 @@ struct HugeRange {
     return H::combine(std::move(h), r.start().start_addr(), r.len().raw_num());
   }
 
-  bool contains(PageID p) const { return contains(HugePageContaining(p)); }
+  bool contains(PageId p) const { return contains(HugePageContaining(p)); }
   bool contains(HugePage p) const { return p >= first && (p - first) < n; }
   bool contains(HugeRange r) const {
     return r.first >= first && (r.first + r.n) <= (first + n);

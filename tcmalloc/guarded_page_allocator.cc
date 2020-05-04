@@ -216,7 +216,7 @@ void GuardedPageAllocator::MapPages() {
   if (!base_addr) return;
 
   // Tell TCMalloc's PageMap about the memory we own.
-  const PageID page = base_addr >> kPageShift;
+  const PageId page = PageIdContaining(reinterpret_cast<void *>(base_addr));
   const Length page_len = len >> kPageShift;
   if (!Static::pagemap()->Ensure(page, page_len)) {
     ASSERT(false && "Failed to notify page map of page-guarded memory.");

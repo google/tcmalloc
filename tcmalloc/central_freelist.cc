@@ -36,7 +36,7 @@ void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
 }
 
 static Span* MapObjectToSpan(void* object) {
-  const PageID p = reinterpret_cast<uintptr_t>(object) >> kPageShift;
+  const PageId p = PageIdContaining(object);
   Span* span = Static::pagemap()->GetExistingDescriptor(p);
   return span;
 }

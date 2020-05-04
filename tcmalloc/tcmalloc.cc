@@ -123,9 +123,12 @@ using tcmalloc::kCrash;
 using tcmalloc::kCrashWithStats;
 using tcmalloc::kLog;
 using tcmalloc::kLogWithStack;
+using tcmalloc::Length;
 using tcmalloc::Log;
 using tcmalloc::MallocPolicy;
 using tcmalloc::pageheap_lock;
+using tcmalloc::PageId;
+using tcmalloc::PageIdContaining;
 using tcmalloc::Sampler;
 using tcmalloc::Span;
 using tcmalloc::StackTrace;
@@ -629,7 +632,7 @@ DumpFragmentationProfile() {
 
       // Fetch the span on which the proxy lives so we can examine its
       // co-residents.
-      const PageID p = reinterpret_cast<uintptr_t>(t->proxy) >> kPageShift;
+      const PageId p = PageIdContaining(t->proxy);
       Span* span = Static::pagemap()->GetDescriptor(p);
       if (span == nullptr) {
         // Avoid crashes in production mode code, but report in tests.
@@ -992,7 +995,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 }
 
 tcmalloc::MallocExtension::Ownership GetOwnership(const void* ptr) {
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
+  const PageId p = PageIdContaining(ptr);
   return Static::pagemap()->GetDescriptor(p)
              ? tcmalloc::MallocExtension::Ownership::kOwned
              : tcmalloc::MallocExtension::Ownership::kNotOwned;
@@ -1252,9 +1255,15 @@ static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
     void* ptr, size_t t) {
   // Refresh the fast path state.
   GetThreadSampler()->UpdateFastPathState();
-  if (hooks_state == Hooks::RUN) {
-  }
   return F(ptr, t);
+}
+
+template <void F(void*, PageId), Hooks hooks_state>
+static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
+    void* ptr, PageId p) {
+  // Refresh the fast path state.
+  GetThreadSampler()->UpdateFastPathState();
+  return F(ptr, p);
 }
 
 }  // namespace tcmalloc
@@ -1374,8 +1383,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
   }
 
   if (cl != 0) {
-    ASSERT(cl == Static::pagemap()->sizeclass(
-                     reinterpret_cast<uintptr_t>(obj) >> kPageShift));
+    ASSERT(cl == Static::pagemap()->sizeclass(PageIdContaining(obj)));
 
     allocated_size = Static::sizemap()->class_to_size(cl);
 
@@ -1384,7 +1392,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
     if ((guarded_alloc = TrySampleGuardedAllocation(
              requested_size, requested_alignment, num_pages))) {
       ASSERT(tcmalloc::IsTaggedMemory(guarded_alloc));
-      const PageID p = reinterpret_cast<uintptr_t>(guarded_alloc) >> kPageShift;
+      const PageId p = PageIdContaining(guarded_alloc);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       span = Span::New(p, num_pages);
       Static::pagemap()->Set(p, span);
@@ -1528,7 +1536,7 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy, size_t cl,
 // keep it out of fast-path. This helps avoid expensive
 // prologue/epiloge for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
-static void do_free_pages(void* ptr, const PageID p) {
+static void do_free_pages(void* ptr, const PageId p) {
   void* proxy = nullptr;
   size_t size;
   bool notify_sampled_alloc = false;
@@ -1575,7 +1583,7 @@ static void do_free_pages(void* ptr, const PageID p) {
 
 #ifndef NDEBUG
 static size_t GetSizeClass(void* ptr) {
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
+  const PageId p = PageIdContaining(ptr);
   return Static::pagemap()->sizeclass(p);
 }
 #endif
@@ -1596,7 +1604,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_cl(void* ptr, size_t cl) {
   // !have_cl -> cl == 0
   ASSERT(have_cl || cl == 0);
 
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
+  const PageId p = PageIdContaining(ptr);
 
   // if we have_cl, then we've excluded ptr == nullptr case. See
   // comment in do_free_with_size. Thus we only bother testing nullptr
@@ -1639,7 +1647,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreePages(void* ptr) {
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
+  const PageId p = PageIdContaining(ptr);
   tcmalloc::invoke_delete_hooks_and_free<do_free_pages, Hooks::RUN>(ptr, p);
 }
 
@@ -1684,7 +1692,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
 inline size_t GetSize(const void* ptr) {
   if (ptr == nullptr) return 0;
-  const PageID p = reinterpret_cast<uintptr_t>(ptr) >> kPageShift;
+  const PageId p = PageIdContaining(ptr);
   size_t cl = Static::pagemap()->sizeclass(p);
   if (cl != 0) {
     return Static::sizemap()->class_to_size(cl);

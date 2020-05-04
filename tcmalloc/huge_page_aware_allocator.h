@@ -132,13 +132,13 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages);
 
-  PageID RefillFiller(Length n, bool* from_released)
+  PageId RefillFiller(Length n, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
   // "donated" is true, the contribution will be marked as coming from the
   // tail of a multi-hugepage alloc.  Returns the allocated section.
-  PageID AllocAndContribute(HugePage p, Length n, bool donated)
+  PageId AllocAndContribute(HugePage p, Length n, bool donated)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
@@ -159,11 +159,11 @@ class HugePageAwareAllocator : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
-  void DeleteFromHugepage(FillerType::Tracker* pt, PageID p, Length n)
+  void DeleteFromHugepage(FillerType::Tracker* pt, PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  Span* Finalize(Length n, PageID page);
+  Span* Finalize(Length n, PageId page);
 };
 
 }  // namespace tcmalloc

@@ -424,7 +424,7 @@ static size_t RoundUp(size_t value, size_t alignment) {
   return (value + alignment - 1) & ~(alignment - 1);
 }
 
-void PageAllocInfo::RecordAlloc(PageID p, Length n) {
+void PageAllocInfo::RecordAlloc(PageId p, Length n) {
   if (ABSL_PREDICT_FALSE(log_on())) {
     int64_t t = TimeNanos();
     LogAlloc(t, p, n);
@@ -444,7 +444,7 @@ void PageAllocInfo::RecordAlloc(PageID p, Length n) {
   }
 }
 
-void PageAllocInfo::RecordFree(PageID p, Length n) {
+void PageAllocInfo::RecordFree(PageId p, Length n) {
   if (ABSL_PREDICT_FALSE(log_on())) {
     int64_t t = TimeNanos();
     LogFree(t, p, n);
@@ -498,7 +498,7 @@ struct Entry {
 
 using tcmalloc::tcmalloc_internal::signal_safe_write;
 
-void PageAllocInfo::Write(uint64_t when, uint8_t what, PageID p, Length n) {
+void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
   static_assert(sizeof(Entry) == 16, "bad sizing");
   Entry e;
   // Round the time to ms *before* computing deltas, because this produces more
@@ -516,7 +516,7 @@ void PageAllocInfo::Write(uint64_t when, uint8_t what, PageID p, Length n) {
     delta_ms = (1 << 24) - 1;
   }
   e.whenwhat = delta_ms << 8 | what;
-  e.id = p;
+  e.id = p.index();
   size_t bytes = (n << kPageShift);
   static const size_t KiB = 1024;
   static const size_t kMaxRep = std::numeric_limits<uint32_t>::max() * KiB;

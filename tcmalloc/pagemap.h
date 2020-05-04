@@ -360,14 +360,14 @@ class PageMap {
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  uint8_t sizeclass(PageID p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return map_.sizeclass(p);
+  uint8_t sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return map_.sizeclass(p.index());
   }
 
-  void Set(PageID p, Span* span) { map_.set(p, span); }
+  void Set(PageId p, Span* span) { map_.set(p.index(), span); }
 
-  bool Ensure(PageID p, size_t n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return map_.Ensure(p, n);
+  bool Ensure(PageId p, size_t n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return map_.Ensure(p.index(), n);
   }
 
   // Mark an allocated span as being used for small objects of the
@@ -384,18 +384,18 @@ class PageMap {
   void UnregisterSizeClass(Span* span);
 
   // Return the descriptor for the specified page.  Returns NULL if
-  // this PageID was not allocated previously.
+  // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  inline Span* GetDescriptor(PageID p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    return reinterpret_cast<Span*>(map_.get(p));
+  inline Span* GetDescriptor(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    return reinterpret_cast<Span*>(map_.get(p.index()));
   }
 
   // Return the descriptor for the specified page.
-  // PageID must have been previously allocated.
+  // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span* GetExistingDescriptor(
-      PageID p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    Span* span = reinterpret_cast<Span*>(map_.get_existing(p));
+      PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    Span* span = reinterpret_cast<Span*>(map_.get_existing(p.index()));
     ASSERT(span != nullptr);
     return span;
   }
@@ -404,9 +404,9 @@ class PageMap {
     return map_.bytes_used();
   }
 
-  void* GetHugepage(PageID p) { return map_.get_hugepage(p); }
+  void* GetHugepage(PageId p) { return map_.get_hugepage(p.index()); }
 
-  void SetHugepage(PageID p, void* v) { map_.set_hugepage(p, v); }
+  void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }
 
   // The PageMap root node can be quite large and sparsely used. If this
   // gets mapped with hugepages we potentially end up holding a large

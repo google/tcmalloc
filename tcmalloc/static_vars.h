@@ -179,7 +179,7 @@ inline void Static::InitIfNecessary() {
 // includes static_vars.h, this is a perfectly good compromise.
 // TODO(b/134687001): move span_allocator to Span, getting rid of the need for
 // this.
-inline Span* Span::New(PageID p, Length len) {
+inline Span* Span::New(PageId p, Length len) {
   Span* result = Static::span_allocator()->New();
   result->Init(p, len);
   return result;

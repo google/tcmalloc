@@ -155,7 +155,7 @@ class PageTrackerTest : public testing::Test {
   ~PageTrackerTest() override { mock_.VerifyAndClear(); }
 
   struct PAlloc {
-    PageID p;
+    PageId p;
     Length n;
   };
 
@@ -229,14 +229,14 @@ class PageTrackerTest : public testing::Test {
   TestPageTracker tracker_;
 
   void ExpectPages(PAlloc a) {
-    void *ptr = reinterpret_cast<void *>(a.p << kPageShift);
+    void *ptr = a.p.start_addr();
     size_t bytes = a.n << kPageShift;
     mock_.Expect(ptr, bytes);
   }
 
   PAlloc Get(Length n) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    PageID p = tracker_.Get(n).page;
+    PageId p = tracker_.Get(n).page;
     return {p, n};
   }
 
@@ -472,9 +472,9 @@ TEST_F(PageTrackerTest, Stats) {
   std::vector<Length> small_backed, small_unbacked;
   double avg_age_backed, avg_age_unbacked;
 
-  const PageID p = Get(kPagesPerHugePage).p;
-  const PageID end = p + kPagesPerHugePage;
-  PageID next = p;
+  const PageId p = Get(kPagesPerHugePage).p;
+  const PageId end = p + kPagesPerHugePage;
+  PageId next = p;
   Put({next, kMaxPages + 1});
   next += kMaxPages + 1;
 
@@ -488,7 +488,7 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_EQ(0, large.returned_pages);
   EXPECT_LE(0.01, avg_age_backed);
 
-  next++;
+  ++next;
   Put({next, 1});
   next += 1;
   absl::SleepFor(absl::Milliseconds(20));
@@ -503,7 +503,7 @@ TEST_F(PageTrackerTest, Stats) {
             avg_age_backed);
   EXPECT_EQ(0, avg_age_unbacked);
 
-  next++;
+  ++next;
   Put({next, 2});
   next += 2;
   absl::SleepFor(absl::Milliseconds(30));
@@ -518,7 +518,7 @@ TEST_F(PageTrackerTest, Stats) {
             avg_age_backed);
   EXPECT_EQ(0, avg_age_unbacked);
 
-  next++;
+  ++next;
   Put({next, 3});
   next += 3;
   ASSERT_LE(next, end);
@@ -644,15 +644,15 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     return HugePageContaining(reinterpret_cast<void *>(addr));
   }
 
-  size_t *GetFakePage(PageID p) { return &backing_[p]; }
+  size_t *GetFakePage(PageId p) { return &backing_[p.index()]; }
 
-  void MarkRange(PageID p, Length n, size_t mark) {
+  void MarkRange(PageId p, Length n, size_t mark) {
     for (Length i = 0; i < n; ++i) {
       *GetFakePage(p + i) = mark;
     }
   }
 
-  void CheckRange(PageID p, Length n, size_t mark) {
+  void CheckRange(PageId p, Length n, size_t mark) {
     for (Length i = 0; i < n; ++i) {
       EXPECT_EQ(mark, *GetFakePage(p + i));
     }
@@ -668,7 +668,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   struct PAlloc {
     FakeTracker *pt;
-    PageID p;
+    PageId p;
     Length n;
     size_t mark;
   };

@@ -108,22 +108,22 @@ void HugePageAwareAllocator::SetTracker(
   Static::pagemap()->SetHugepage(p.first_page(), pt);
 }
 
-PageID HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
+PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
                                                   bool donated) {
   CHECK_CONDITION(p.start_addr() != nullptr);
   FillerType::Tracker *pt = tracker_allocator_.New();
   new (pt) FillerType::Tracker(p, absl::base_internal::CycleClock::Now());
   ASSERT(pt->longest_free_range() >= n);
-  PageID page = pt->Get(n).page;
+  PageId page = pt->Get(n).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated);
   return page;
 }
 
-PageID HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
+PageId HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
   HugeRange r = cache_.Get(NHugePages(1), from_released);
-  if (!r.valid()) return 0;
+  if (!r.valid()) return PageId{0};
   // This is duplicate to Finalize, but if we need to break up
   // hugepages to get to our usage limit it would be very bad to break
   // up what's left of r after we allocate from there--while r is
@@ -136,9 +136,9 @@ PageID HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
   return AllocAndContribute(r.start(), n, /*donated=*/false);
 }
 
-Span *HugePageAwareAllocator::Finalize(Length n, PageID page)
+Span *HugePageAwareAllocator::Finalize(Length n, PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  if (page == 0) return nullptr;
+  if (page == PageId{0}) return nullptr;
   Span *ret = Span::New(page, n);
   Static::pagemap()->Set(page, ret);
   ASSERT(!ret->sampled());
@@ -150,7 +150,7 @@ Span *HugePageAwareAllocator::Finalize(Length n, PageID page)
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
 Span *HugePageAwareAllocator::AllocSmall(Length n, bool *from_released) {
-  PageID page;
+  PageId page;
   FillerType::Tracker *pt;
   if (filler_.TryGet(n, &pt, &page)) {
     *from_released = false;
@@ -168,7 +168,7 @@ Span *HugePageAwareAllocator::AllocLarge(Length n, bool *from_released) {
     return AllocRawHugepages(n, from_released);
   }
 
-  PageID page;
+  PageId page;
   // If we fit in a single hugepage, try the Filler first.
   if (n < kPagesPerHugePage) {
     FillerType::Tracker *pt;
@@ -304,7 +304,7 @@ Span *HugePageAwareAllocator::NewAligned(Length n, Length align) {
 }
 
 void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker *pt,
-                                                PageID p, Length n) {
+                                                PageId p, Length n) {
   if (filler_.Put(pt, p, n) == nullptr) return;
   ReleaseHugepage(pt);
 }
@@ -320,7 +320,7 @@ bool HugePageAwareAllocator::AddRegion() {
 
 void HugePageAwareAllocator::Delete(Span *span) {
   ASSERT(!span || IsTaggedMemory(span->start_address()) == tagged_);
-  PageID p = span->first_page();
+  PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
   info_.RecordFree(p, n);
@@ -357,7 +357,7 @@ void HugePageAwareAllocator::Delete(Span *span) {
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation
     // onto the last hugepage.
-    PageID virt = last.first_page();
+    PageId virt = last.first_page();
     Length virt_len = kPagesPerHugePage - slack;
     pt = filler_.Put(pt, virt, virt_len);
     // We may have used the slack, which would prevent us from returning
@@ -592,7 +592,7 @@ void *HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t *actual,
                                              size_t align) {
   void *p = SystemAlloc(bytes, actual, align, tagged);
   if (p == nullptr) return p;
-  const PageID page = reinterpret_cast<uintptr_t>(p) >> kPageShift;
+  const PageId page = PageIdContaining(p);
   const Length page_len = (*actual) >> kPageShift;
   Static::pagemap()->Ensure(page, page_len);
   return p;

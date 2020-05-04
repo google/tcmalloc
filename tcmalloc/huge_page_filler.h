@@ -281,18 +281,18 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
         donated_(false) {}
 
   struct PageAllocation {
-    PageID page;
+    PageId page;
     Length previously_unbacked;
   };
 
   // REQUIRES: there's a free range of at least n pages
   //
-  // Returns a PageID i and a count of previously unbacked pages in the range
+  // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
   PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: p was the result of a previous call to Get(n)
-  void Put(PageID p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Put(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
@@ -329,7 +329,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // tracking.
   //
   // TODO(b/141550014):  Make retaining the default/sole policy.
-  void MaybeRelease(PageID p, Length n)
+  void MaybeRelease(PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (released_count_ == 0) {
       return;
@@ -377,17 +377,17 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   uint16_t released_count_;
   bool donated_;
 
-  void ReleasePages(PageID p, Length n) {
-    void *ptr = reinterpret_cast<void *>(p << kPageShift);
+  void ReleasePages(PageId p, Length n) {
+    void *ptr = p.start_addr();
     size_t byte_len = n << kPageShift;
     Unback(ptr, byte_len);
   }
 
-  void ReleasePagesWithoutLock(PageID p, Length n)
+  void ReleasePagesWithoutLock(PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
 
-    void *ptr = reinterpret_cast<void *>(p << kPageShift);
+    void *ptr = p.start_addr();
     size_t byte_len = n << kPageShift;
     Unback(ptr, byte_len);
 
@@ -425,14 +425,14 @@ class HugePageFiller {
   // allocate new hugepages if needed.  This simplifies using it in a
   // few different contexts (and improves the testing story - no
   // dependencies.)
-  bool TryGet(Length n, TrackerType **hugepage, PageID *p)
+  bool TryGet(Length n, TrackerType **hugepage, PageId *p)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, p, n} was the result of a previous TryGet.
-  TrackerType *Put(TrackerType *pt, PageID p, Length n)
+  TrackerType *Put(TrackerType *pt, PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -656,7 +656,7 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
 }
 
 template <MemoryModifyFunction Unback>
-inline void PageTracker<Unback>::Put(PageID p, Length n) {
+inline void PageTracker<Unback>::Put(PageId p, Length n) {
   size_t index = p - location_.first_page();
   const Length before = free_.total_free();
   free_.Unmark(index, n);
@@ -697,7 +697,7 @@ inline size_t PageTracker<Unback>::ReleaseFree() {
       // Mark pages as released.  Amortize the update to release_count_.
       released_by_page_.SetRange(free_index, length);
 
-      PageID p = location_.first_page() + free_index;
+      PageId p = location_.first_page() + free_index;
       // TODO(b/122551676):  If release fails, we should not SetRange above.
       ReleasePages(p, length);
 
@@ -799,7 +799,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,
                                                 TrackerType **hugepage,
-                                                PageID *p) {
+                                                PageId *p) {
   // How do we choose which hugepage to allocate from (among those with
   // a free range of at least n?) Our goal is to be as space-efficient
   // as possible, which leads to two priorities:
@@ -922,7 +922,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
 // REQUIRES: pt is owned by this object (has been Contribute()), and
 // {pt, p, n} was the result of a previous TryGet.
 template <class TrackerType>
-inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageID p,
+inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageId p,
                                                      Length n) {
   // Consider releasing [p, p+n).  We do this here:
   // * To unback the memory before we mark it as free.  When partially

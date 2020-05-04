@@ -29,12 +29,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
 
-// Type that can hold a page number
-typedef uintptr_t PageID;
-
-// Type that can hold the length of a run of pages
-typedef uintptr_t Length;
-
 //-------------------------------------------------------------------
 // Configuration
 //-------------------------------------------------------------------
@@ -190,9 +184,6 @@ inline constexpr int kMaxOverages = 3;
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr int kMaxDynamicFreeListLength = 8192;
 
-inline constexpr Length kMaxValidPages =
-    (~static_cast<Length>(0)) >> kPageShift;
-
 #if defined __x86_64__
 // All current and planned x86_64 processors only look at the lower 48 bits
 // in virtual to physical address translation.  The top 16 are thus unused.
@@ -239,13 +230,6 @@ inline constexpr size_t kMinMmapAlloc = 32 << 20;
 static_assert(kMinMmapAlloc % kMinSystemAlloc == 0,
               "Minimum mmap allocation size is not a multiple of"
               " minimum system allocation size");
-
-// Convert byte size into pages.  This won't overflow, but may return
-// an unreasonably large value if bytes is huge enough.
-inline Length pages(size_t bytes) {
-  return (bytes >> kPageShift) +
-      ((bytes & (kPageSize - 1)) > 0 ? 1 : 0);
-}
 
 // Returns true if ptr is tagged.
 inline bool IsTaggedMemory(const void* ptr) {

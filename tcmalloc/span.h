@@ -25,6 +25,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 
 namespace tcmalloc {
 
@@ -56,7 +57,7 @@ class Span : public SpanList::Elem {
  public:
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
-  static Span* New(PageID p, Length len)
+  static Span* New(PageId p, Length len)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -104,13 +105,13 @@ class Span : public SpanList::Elem {
   // ---------------------------------------------------------------------------
 
   // Returns first page of the span.
-  PageID first_page() const;
+  PageId first_page() const;
 
   // Returns the last page in the span.
-  PageID last_page() const;
+  PageId last_page() const;
 
   // Sets span first page.
-  void set_first_page(PageID p);
+  void set_first_page(PageId p);
 
   // Returns start address of the span.
   void* start_address() const;
@@ -158,7 +159,7 @@ class Span : public SpanList::Elem {
   size_t FreelistPopBatch(void** batch, size_t N, size_t size);
 
   // Reset a Span object to track the range [p, p + n).
-  void Init(PageID p, Length n);
+  void Init(PageId p, Length n);
 
   // Initialize freelist to contain all objects in the span.
   void BuildFreelist(size_t size, size_t count);
@@ -202,7 +203,7 @@ class Span : public SpanList::Elem {
     uint64_t freelist_added_time_;
   };
 
-  PageID first_page_;  // Starting page number.
+  PageId first_page_;  // Starting page number.
   Length num_pages_;   // Number of pages in span.
 
   // Convert object pointer <-> freelist index.
@@ -223,7 +224,7 @@ Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
   ASSERT(idx != kListEnd);
   ASSERT(align == Align::LARGE || align == Align::SMALL);
   uintptr_t off =
-      first_page_ * kPageSize +
+      first_page_.start_uintptr() +
       (static_cast<uintptr_t>(idx)
        << (align == Align::SMALL ? kAlignmentShift
                                  : SizeMap::kMultiPageAlignmentShift));
@@ -303,15 +304,13 @@ inline StackTrace* Span::sampled_stack() const {
 
 inline bool Span::sampled() const { return sampled_; }
 
-inline PageID Span::first_page() const { return first_page_; }
+inline PageId Span::first_page() const { return first_page_; }
 
-inline PageID Span::last_page() const { return first_page_ + num_pages_ - 1; }
+inline PageId Span::last_page() const { return first_page_ + num_pages_ - 1; }
 
-inline void Span::set_first_page(PageID p) { first_page_ = p; }
+inline void Span::set_first_page(PageId p) { first_page_ = p; }
 
-inline void* Span::start_address() const {
-  return reinterpret_cast<void*>(first_page_ * kPageSize);
-}
+inline void* Span::start_address() const { return first_page_.start_addr(); }
 
 inline Length Span::num_pages() const { return num_pages_; }
 
@@ -354,7 +353,7 @@ inline void Span::Prefetch() {
 #endif
 }
 
-inline void Span::Init(PageID p, Length n) {
+inline void Span::Init(PageId p, Length n) {
   first_page_ = p;
   num_pages_ = n;
   location_ = IN_USE;

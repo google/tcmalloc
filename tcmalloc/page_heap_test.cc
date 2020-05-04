@@ -87,7 +87,7 @@ TEST_F(PageHeapTest, Stats) {
   // Allocate an aligned span 's2'
   static const Length kHalf = kMinSpanLength / 2;
   tcmalloc::Span* s2 = ph->NewAligned(kHalf, kHalf);
-  ASSERT_EQ(s2->first_page() % kHalf, 0);
+  ASSERT_EQ(s2->first_page().index() % kHalf, 0);
   CheckStats(ph, kMinSpanLength * 2, 0, kHalf);
 
   // Delete the old one

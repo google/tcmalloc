@@ -75,7 +75,7 @@ class HugeRegionTest : public ::testing::Test {
   }
 
   struct Alloc {
-    PageID p;
+    PageId p;
     Length n;
     size_t mark;
   };
@@ -465,14 +465,14 @@ class HugeRegionSetTest : public testing::Test {
   HugePage next_;
 
   struct Alloc {
-    PageID p;
+    PageId p;
     Length n;
   };
 };
 
 TEST_F(HugeRegionSetTest, Set) {
   absl::BitGen rng;
-  PageID p;
+  PageId p;
   Length kSize = kPagesPerHugePage + 1;
   bool from_released;
   ASSERT_FALSE(set_.MaybeGet(1, &p, &from_released));

@@ -145,10 +145,10 @@ Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
     // So we avoid loading first_page_ for smaller sizes that have one page per
     // span, instead we compute the offset by taking low kPageShift bits of the
     // pointer.
-    ASSERT(p - first_page_ * kPageSize < kPageSize);
+    ASSERT(PageIdContaining(ptr) == first_page_);
     off = (p & (kPageSize - 1)) / kAlignment;
   } else {
-    off = (p - (first_page_ * kPageSize)) / SizeMap::kMultiPageAlignment;
+    off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
   }
   ObjIdx idx = static_cast<ObjIdx>(off);
   ASSERT(idx != kListEnd);
@@ -158,11 +158,11 @@ Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 
 Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size) const {
   ASSERT(idx != kListEnd);
-  uintptr_t off =
-      first_page_ * kPageSize + (static_cast<uintptr_t>(idx)
-                                 << (size <= SizeMap::kMultiPageSize
-                                         ? kAlignmentShift
-                                         : SizeMap::kMultiPageAlignmentShift));
+  uintptr_t off = first_page_.start_uintptr() +
+                  (static_cast<uintptr_t>(idx)
+                   << (size <= SizeMap::kMultiPageSize
+                           ? kAlignmentShift
+                           : SizeMap::kMultiPageAlignmentShift));
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
   ASSERT(PtrToIdx(ptr, size) == idx);
   return ptr;
