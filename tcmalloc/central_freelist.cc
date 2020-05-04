@@ -67,9 +67,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
   for (int i = 0; i < N; ++i) {
     Span* span = MapObjectToSpan(batch[i]);
     ASSERT(span != nullptr);
-#if defined(__GNUC__)
-    __builtin_prefetch(span, 0, 3);
-#endif
+    span->Prefetch();
     spans[i] = span;
   }
 

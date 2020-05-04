@@ -163,6 +163,9 @@ class Span : public SpanList::Elem {
   // Initialize freelist to contain all objects in the span.
   void BuildFreelist(size_t size, size_t count);
 
+  // Prefetch cacheline containing most important span information.
+  void Prefetch();
+
  private:
   // See the comment on freelist organization in cc file.
   typedef uint16_t ObjIdx;
@@ -329,6 +332,27 @@ inline bool Span::FreelistEmpty() const {
 }
 
 inline void Span::RemoveFromList() { SpanList::Elem::remove(); }
+
+inline void Span::Prefetch() {
+  // The first 16 bytes of a Span are the next and previous pointers
+  // for when it is stored in a linked list. Since the sizeof(Span) is
+  // 48 bytes, spans fit into 2 cache lines 50% of the time, with either
+  // the first 16-bytes or the last 16-bytes in a different cache line.
+  // Prefetch the cacheline that contains the most frequestly accessed
+  // data by offseting into the middle of the Span.
+#if defined(__GNUC__)
+#if __WORDSIZE == 32
+  // The Span fits in one cache line, so simply prefetch the base pointer.
+  static_assert(sizeof(Span) == 32, "Update span prefetch offset");
+  __builtin_prefetch(this, 0, 3);
+#else
+  // The Span can occupy two cache lines, so prefetch the cacheline with the
+  // most frequently accessed parts of the Span.
+  static_assert(sizeof(Span) == 48, "Update span prefetch offset");
+  __builtin_prefetch(&this->allocated_, 0, 3);
+#endif
+#endif
+}
 
 inline void Span::Init(PageID p, Length n) {
   first_page_ = p;
