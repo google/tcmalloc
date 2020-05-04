@@ -20,6 +20,7 @@
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "tcmalloc/cpu_cache.h"
@@ -38,11 +39,11 @@ namespace tcmalloc {
 // lines these arrays use.
 //
 // IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
-absl::base_internal::SpinLock pageheap_lock(
-    absl::base_internal::kLinkerInitialized);
+ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT Arena Static::arena_;
 SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
-TransferCache Static::transfer_cache_[kNumClasses];
+ABSL_CONST_INIT TransferCache Static::transfer_cache_[kNumClasses];
 CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 PageHeapAllocator<Span> Static::span_allocator_;
 PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
@@ -55,9 +56,9 @@ ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 bool Static::cpu_cache_active_;
 Static::PageAllocatorStorage Static::page_allocator_;
 PageMap Static::pagemap_;
-absl::base_internal::SpinLock guarded_page_lock(
-    absl::base_internal::kLinkerInitialized);
-GuardedPageAllocator Static::guardedpage_allocator_;
+ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses

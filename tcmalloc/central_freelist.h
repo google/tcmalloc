@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
@@ -28,12 +29,14 @@ namespace tcmalloc {
 // Data kept per size-class in central cache.
 class CentralFreeList {
  public:
-  // A CentralFreeList may be used before its constructor runs.
-  // So we prevent lock_'s constructor from doing anything to the lock_ state.
-  CentralFreeList()
-      : lock_(absl::base_internal::kLinkerInitialized),
-        counter_(absl::base_internal::kLinkerInitialized),
-        num_spans_(absl::base_internal::kLinkerInitialized) {}
+  constexpr CentralFreeList()
+      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+        size_class_(0),
+        object_size_(0),
+        objects_per_span_(0),
+        counter_(),
+        num_spans_(),
+        nonempty_() {}
 
   void Init(size_t cl) ABSL_LOCKS_EXCLUDED(lock_);
 
@@ -87,8 +90,8 @@ class CentralFreeList {
   // Num spans in empty_ plus nonempty_
   tcmalloc_internal::StatsCounter num_spans_;
 
-  SpanList nonempty_
-      ABSL_GUARDED_BY(lock_);  // Dummy header for non-empty spans
+  // Dummy header for non-empty spans
+  SpanList nonempty_ ABSL_GUARDED_BY(lock_);
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;

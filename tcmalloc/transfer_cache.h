@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
@@ -34,9 +35,14 @@ namespace tcmalloc {
 // thread caches and the central cache for a given size class.
 class TransferCache {
  public:
-  // A TransferCache may be used before its constructor runs.
-  // So we prevent lock_'s constructor from doing anything to the lock_ state.
-  TransferCache() : lock_(absl::base_internal::kLinkerInitialized) {}
+  constexpr TransferCache()
+      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+        used_slots_(0),
+        slots_(nullptr),
+        cache_slots_(0),
+        max_cache_slots_(0),
+        freelist_(),
+        arbitrary_transfer_(false) {}
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
@@ -126,7 +132,7 @@ class TransferCache {
 // For the small memory model, the transfer cache is not used.
 class TransferCache {
  public:
-  TransferCache() {}
+  constexpr TransferCache() : freelist_() {}
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 

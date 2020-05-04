@@ -25,6 +25,7 @@
 #include <algorithm>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
@@ -33,8 +34,8 @@
 
 // Variables for storing crash output.  Allocated statically since we
 // may not be able to heap-allocate while crashing.
-static absl::base_internal::SpinLock crash_lock(
-    absl::base_internal::kLinkerInitialized);
+ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;

@@ -72,6 +72,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/config.h"
+#include "absl/base/const_init.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
@@ -1043,8 +1044,8 @@ extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
   // We're dropping page heap lock while actually calling to kernel to release
   // pages. To avoid confusing ourselves with extra_bytes_released handling,
   // lets do separate lock just for release.
-  static absl::base_internal::SpinLock release_lock(
-      absl::base_internal::kLinkerInitialized);
+  ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
   // ReleaseMemoryToSystem() might release more than the requested bytes because
   // the page heap releases at the span granularity, and spans are of wildly
   // different sizes.  This keeps track of the extra bytes bytes released so

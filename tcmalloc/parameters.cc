@@ -129,8 +129,8 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // Ensure that page allocator is set up.
   tcmalloc::Static::InitIfNecessary();
 
-  static absl::base_internal::SpinLock update_lock(
-      absl::base_internal::kLinkerInitialized);
+  ABSL_CONST_INIT static absl::base_internal::SpinLock update_lock(
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
   absl::base_internal::SpinLockHolder l(&update_lock);
 
   size_t limit = std::numeric_limits<size_t>::max();
@@ -187,5 +187,3 @@ void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
 }
 
 }  // extern "C"
-
-

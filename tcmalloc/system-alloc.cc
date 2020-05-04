@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
@@ -76,7 +77,8 @@ union MemoryAligner {
 static_assert(sizeof(MemoryAligner) < kMinSystemAlloc,
               "hugepage alignment too small");
 
-absl::base_internal::SpinLock spinlock(absl::base_internal::kLinkerInitialized);
+ABSL_CONST_INIT absl::base_internal::SpinLock spinlock(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 // Page size is initialized on demand
 size_t pagesize = 0;

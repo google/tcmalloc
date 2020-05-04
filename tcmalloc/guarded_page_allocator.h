@@ -29,7 +29,7 @@
 
 namespace tcmalloc {
 
-extern absl::base_internal::SpinLock guarded_page_lock;
+ABSL_CONST_INIT extern absl::base_internal::SpinLock guarded_page_lock;
 
 // An allocator that gives each allocation a new region, with guard pages on
 // either side of the allocated region.  If a buffer is overflowed to the next
@@ -49,9 +49,10 @@ extern absl::base_internal::SpinLock guarded_page_lock;
 //   accessing the internal free page map.
 //
 // Example:
-//   absl::base_internal::SpinLock
-//   guarded_page_lock(absl::base_internal::kLinkerInitialized);
-//   GuardedPageAllocator gpa;
+//   ABSL_CONST_INIT absl::base_internal::SpinLock
+//       guarded_page_lock(absl::kConstInit,
+//                         absl::base_internal::SCHEDULE_KERNEL_ONLY);
+//   ABSL_CONST_INIT GuardedPageAllocator gpa;
 //
 //   void foo() {
 //     char *buf = reinterpret_cast<char *>(gpa.Allocate(8000, 1));

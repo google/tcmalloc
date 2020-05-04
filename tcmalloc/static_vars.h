@@ -95,7 +95,7 @@ class Static {
   // only written while holding pageheap_lock, so writes can safely use
   // LossyAdd and reads do not require locking.
   static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
-  static tcmalloc_internal::StatsCounter sampled_objects_size_;
+  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
   static PageHeapAllocator<StackTraceTable::Bucket>* bucket_allocator() {
     return &bucket_allocator_;
   }
@@ -138,18 +138,18 @@ class Static {
   // static variables may try to allocate memory before these variables
   // can run their constructors.
 
-  static Arena arena_;
+  ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
-  static TransferCache transfer_cache_[kNumClasses];
+  ABSL_CONST_INIT static TransferCache transfer_cache_[kNumClasses];
   static CPUCache cpu_cache_;
-  static GuardedPageAllocator guardedpage_allocator_;
+  ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
   static PageHeapAllocator<StackTraceTable::Bucket> bucket_allocator_;
-  static std::atomic<bool> inited_;
+  ABSL_CONST_INIT static std::atomic<bool> inited_;
   static bool cpu_cache_active_;
-  static PeakHeapTracker peak_heap_tracker_;
+  ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd
