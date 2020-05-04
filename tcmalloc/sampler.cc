@@ -192,7 +192,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
 
 double AllocatedBytes(const StackTrace& stack, bool unsample) {
   if (unsample) {
-    return stack.weight * stack.allocated_size * 1.0 /
+    return static_cast<double>(stack.weight) * stack.allocated_size /
            (stack.requested_size + 1);
   } else {
     return stack.allocated_size;
