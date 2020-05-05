@@ -347,7 +347,7 @@ HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
 
 void HugeCache::AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                              PageAgeHistograms *ages) const {
-  CHECK_CONDITION(kPagesPerHugePage >= kMaxPages);
+  static_assert(kPagesPerHugePage >= kMaxPages);
   for (const HugeAddressMap::Node *node = cache_.first(); node != nullptr;
        node = node->next()) {
     HugeLength n = node->range().len();
