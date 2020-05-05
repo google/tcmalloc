@@ -55,21 +55,23 @@ class ProfileAccessor {
 extern "C" {
 
 ABSL_ATTRIBUTE_WEAK tcmalloc::AddressRegionFactory*
-TCMalloc_Internal_GetRegionFactory();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetRegionFactory(
+MallocExtension_Internal_GetRegionFactory();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetRegionFactory(
     tcmalloc::AddressRegionFactory* factory);
 
 ABSL_ATTRIBUTE_WEAK const tcmalloc::tcmalloc_internal::ProfileBase*
-TCMalloc_Internal_SnapshotCurrent(tcmalloc::ProfileType type);
+MallocExtension_Internal_SnapshotCurrent(tcmalloc::ProfileType type);
 
 ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase*
-TCMalloc_Internal_StartAllocationProfiling();
+MallocExtension_Internal_StartAllocationProfiling();
 
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ActivateGuardedSampling();
 ABSL_ATTRIBUTE_WEAK tcmalloc::MallocExtension::Ownership
 MallocExtension_Internal_GetOwnership(const void* ptr);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetMemoryLimit(
     tcmalloc::MallocExtension::MemoryLimit* limit);
+ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetNumericProperty(
+    const char* name_data, size_t name_size, size_t* value);
 ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetPerCpuCachesActive();
 ABSL_ATTRIBUTE_WEAK int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetProperties(
@@ -83,9 +85,21 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ReleaseMemoryToSystem(
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMemoryLimit(
     const tcmalloc::MallocExtension::MemoryLimit* limit);
 
-ABSL_ATTRIBUTE_WEAK size_t MallocExtension_GetAllocatedSize(const void* ptr);
-ABSL_ATTRIBUTE_WEAK void MallocExtension_MarkThreadBusy();
-ABSL_ATTRIBUTE_WEAK void MallocExtension_MarkThreadIdle();
+ABSL_ATTRIBUTE_WEAK size_t
+MallocExtension_Internal_GetAllocatedSize(const void* ptr);
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadBusy();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadIdle();
+
+ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetProfileSamplingRate();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetProfileSamplingRate(int64_t);
+
+ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetGuardedSamplingRate();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetGuardedSamplingRate(int64_t);
+
+ABSL_ATTRIBUTE_WEAK int64_t
+MallocExtension_Internal_GetMaxTotalThreadCacheBytes();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(
+    int64_t value);
 }
 
 #endif

@@ -807,7 +807,7 @@ extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
 }
 
 extern "C" const tcmalloc::tcmalloc_internal::ProfileBase*
-TCMalloc_Internal_SnapshotCurrent(tcmalloc::ProfileType type) {
+MallocExtension_Internal_SnapshotCurrent(tcmalloc::ProfileType type) {
   switch (type) {
     case tcmalloc::ProfileType::kHeap:
       return DumpHeapProfile(true).release();
@@ -821,7 +821,7 @@ TCMalloc_Internal_SnapshotCurrent(tcmalloc::ProfileType type) {
 }
 
 extern "C" tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase*
-TCMalloc_Internal_StartAllocationProfiling() {
+MallocExtension_Internal_StartAllocationProfiling() {
   return new AllocationSample();
 }
 
@@ -1028,15 +1028,17 @@ extern "C" void MallocExtension_Internal_SetMemoryLimit(
   }
 }
 
-extern "C" void MallocExtension_MarkThreadIdle() { ThreadCache::BecomeIdle(); }
+extern "C" void MallocExtension_Internal_MarkThreadIdle() {
+  ThreadCache::BecomeIdle();
+}
 
 extern "C" tcmalloc::AddressRegionFactory*
-TCMalloc_Internal_GetRegionFactory() {
+MallocExtension_Internal_GetRegionFactory() {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   return tcmalloc::GetRegionFactory();
 }
 
-extern "C" void TCMalloc_Internal_SetRegionFactory(
+extern "C" void MallocExtension_Internal_SetRegionFactory(
     tcmalloc::AddressRegionFactory* factory) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   tcmalloc::SetRegionFactory(factory);
@@ -1860,13 +1862,13 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   return ret;
 }
 
-extern "C" size_t MallocExtension_GetAllocatedSize(const void* ptr) {
+extern "C" size_t MallocExtension_Internal_GetAllocatedSize(const void* ptr) {
   ASSERT(!ptr || tcmalloc::GetOwnership(ptr) !=
                      tcmalloc::MallocExtension::Ownership::kNotOwned);
   return GetSize(ptr);
 }
 
-extern "C" void MallocExtension_MarkThreadBusy() {
+extern "C" void MallocExtension_Internal_MarkThreadBusy() {
   // Allocate to force the creation of a thread cache, but avoid
   // invoking any hooks.
   Static::InitIfNecessary();

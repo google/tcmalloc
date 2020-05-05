@@ -76,27 +76,27 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
 
 extern "C" {
 
-ABSL_ATTRIBUTE_UNUSED int64_t TCMalloc_GetProfileSamplingRate() {
+int64_t MallocExtension_Internal_GetProfileSamplingRate() {
   return tcmalloc::Parameters::profile_sampling_rate();
 }
 
-ABSL_ATTRIBUTE_UNUSED void TCMalloc_SetProfileSamplingRate(int64_t value) {
+void MallocExtension_Internal_SetProfileSamplingRate(int64_t value) {
   tcmalloc::Parameters::set_profile_sampling_rate(value);
 }
 
-ABSL_ATTRIBUTE_UNUSED int64_t TCMalloc_GetGuardedSamplingRate() {
+int64_t MallocExtension_Internal_GetGuardedSamplingRate() {
   return tcmalloc::Parameters::guarded_sampling_rate();
 }
 
-ABSL_ATTRIBUTE_UNUSED void TCMalloc_SetGuardedSamplingRate(int64_t value) {
+void MallocExtension_Internal_SetGuardedSamplingRate(int64_t value) {
   tcmalloc::Parameters::set_guarded_sampling_rate(value);
 }
 
-ABSL_ATTRIBUTE_UNUSED int64_t TCMalloc_GetMaxTotalThreadCacheBytes() {
+int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
   return tcmalloc::Parameters::max_total_thread_cache_bytes();
 }
 
-ABSL_ATTRIBUTE_UNUSED void TCMalloc_SetMaxTotalThreadCacheBytes(int64_t value) {
+void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
   tcmalloc::Parameters::set_max_total_thread_cache_bytes(value);
 }
 

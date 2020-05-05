@@ -114,21 +114,6 @@ void* AddressRegionFactory::MallocInternal(size_t size) {
 #define ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS 0
 #else
 #define ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS 1
-
-extern "C" {
-
-ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_GetProfileSamplingRate();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_SetProfileSamplingRate(int64_t);
-
-ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_GetGuardedSamplingRate();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_SetGuardedSamplingRate(int64_t);
-
-ABSL_ATTRIBUTE_WEAK int64_t TCMalloc_GetMaxTotalThreadCacheBytes();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_SetMaxTotalThreadCacheBytes(int64_t value);
-
-ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetNumericProperty(
-    const char* name_data, size_t name_size, size_t* value);
-}
 #endif
 
 std::string MallocExtension::GetStats() {
@@ -151,11 +136,11 @@ void MallocExtension::ReleaseMemoryToSystem(size_t num_bytes) {
 
 AddressRegionFactory* MallocExtension::GetRegionFactory() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_Internal_GetRegionFactory == nullptr) {
+  if (&MallocExtension_Internal_GetRegionFactory == nullptr) {
     return nullptr;
   }
 
-  return TCMalloc_Internal_GetRegionFactory();
+  return MallocExtension_Internal_GetRegionFactory();
 #else
   return nullptr;
 #endif
@@ -163,24 +148,24 @@ AddressRegionFactory* MallocExtension::GetRegionFactory() {
 
 void MallocExtension::SetRegionFactory(AddressRegionFactory* factory) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_Internal_SetRegionFactory == nullptr) {
+  if (&MallocExtension_Internal_SetRegionFactory == nullptr) {
     return;
   }
 
-  TCMalloc_Internal_SetRegionFactory(factory);
+  MallocExtension_Internal_SetRegionFactory(factory);
 #endif
   // Default implementation does nothing
 }
 
 Profile MallocExtension::SnapshotCurrent(tcmalloc::ProfileType type) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_Internal_SnapshotCurrent == nullptr) {
+  if (&MallocExtension_Internal_SnapshotCurrent == nullptr) {
     return Profile();
   }
 
   return tcmalloc_internal::ProfileAccessor::MakeProfile(
       std::unique_ptr<const tcmalloc_internal::ProfileBase>(
-          TCMalloc_Internal_SnapshotCurrent(type)));
+          MallocExtension_Internal_SnapshotCurrent(type)));
 #else
   return Profile();
 #endif
@@ -189,13 +174,13 @@ Profile MallocExtension::SnapshotCurrent(tcmalloc::ProfileType type) {
 MallocExtension::AllocationProfilingToken
 MallocExtension::StartAllocationProfiling() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_Internal_StartAllocationProfiling == nullptr) {
+  if (&MallocExtension_Internal_StartAllocationProfiling == nullptr) {
     return {};
   }
 
   return tcmalloc_internal::AllocationProfilingTokenAccessor::MakeToken(
       std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase>(
-          TCMalloc_Internal_StartAllocationProfiling()));
+          MallocExtension_Internal_StartAllocationProfiling()));
 #else
   return {};
 #endif
@@ -203,21 +188,21 @@ MallocExtension::StartAllocationProfiling() {
 
 void MallocExtension::MarkThreadIdle() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_MarkThreadIdle == nullptr) {
+  if (&MallocExtension_Internal_MarkThreadIdle == nullptr) {
     return;
   }
 
-  MallocExtension_MarkThreadIdle();
+  MallocExtension_Internal_MarkThreadIdle();
 #endif
 }
 
 void MallocExtension::MarkThreadBusy() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_MarkThreadBusy == nullptr) {
+  if (&MallocExtension_Internal_MarkThreadBusy == nullptr) {
     return;
   }
 
-  MallocExtension_MarkThreadBusy();
+  MallocExtension_Internal_MarkThreadBusy();
 #endif
 }
 
@@ -242,8 +227,8 @@ void MallocExtension::SetMemoryLimit(
 
 int64_t MallocExtension::GetProfileSamplingRate() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_GetProfileSamplingRate != nullptr) {
-    return TCMalloc_GetProfileSamplingRate();
+  if (&MallocExtension_Internal_GetProfileSamplingRate != nullptr) {
+    return MallocExtension_Internal_GetProfileSamplingRate();
   }
 #endif
   return -1;
@@ -251,8 +236,8 @@ int64_t MallocExtension::GetProfileSamplingRate() {
 
 void MallocExtension::SetProfileSamplingRate(int64_t rate) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&TCMalloc_SetProfileSamplingRate != nullptr) {
-    TCMalloc_SetProfileSamplingRate(rate);
+  if (&MallocExtension_Internal_SetProfileSamplingRate != nullptr) {
+    MallocExtension_Internal_SetProfileSamplingRate(rate);
   }
 #endif
   (void) rate;
@@ -260,11 +245,11 @@ void MallocExtension::SetProfileSamplingRate(int64_t rate) {
 
 int64_t MallocExtension::GetGuardedSamplingRate() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (TCMalloc_GetGuardedSamplingRate == nullptr) {
+  if (MallocExtension_Internal_GetGuardedSamplingRate == nullptr) {
     return -1;
   }
 
-  return TCMalloc_GetGuardedSamplingRate();
+  return MallocExtension_Internal_GetGuardedSamplingRate();
 #else
   return -1;
 #endif
@@ -272,11 +257,11 @@ int64_t MallocExtension::GetGuardedSamplingRate() {
 
 void MallocExtension::SetGuardedSamplingRate(int64_t rate) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (TCMalloc_SetGuardedSamplingRate == nullptr) {
+  if (MallocExtension_Internal_SetGuardedSamplingRate == nullptr) {
     return;
   }
 
-  TCMalloc_SetGuardedSamplingRate(rate);
+  MallocExtension_Internal_SetGuardedSamplingRate(rate);
 #else
   (void) rate;
 #endif
@@ -328,11 +313,11 @@ void MallocExtension::SetMaxPerCpuCacheSize(int32_t value) {
 
 int64_t MallocExtension::GetMaxTotalThreadCacheBytes() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (TCMalloc_GetMaxTotalThreadCacheBytes == nullptr) {
+  if (MallocExtension_Internal_GetMaxTotalThreadCacheBytes == nullptr) {
     return -1;
   }
 
-  return TCMalloc_GetMaxTotalThreadCacheBytes();
+  return MallocExtension_Internal_GetMaxTotalThreadCacheBytes();
 #else
   return -1;
 #endif
@@ -340,11 +325,11 @@ int64_t MallocExtension::GetMaxTotalThreadCacheBytes() {
 
 void MallocExtension::SetMaxTotalThreadCacheBytes(int64_t value) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (TCMalloc_SetMaxTotalThreadCacheBytes == nullptr) {
+  if (MallocExtension_Internal_SetMaxTotalThreadCacheBytes == nullptr) {
     return;
   }
 
-  TCMalloc_SetMaxTotalThreadCacheBytes(value);
+  MallocExtension_Internal_SetMaxTotalThreadCacheBytes(value);
 #else
   (void) value;
 #endif
@@ -370,8 +355,8 @@ size_t MallocExtension::GetEstimatedAllocatedSize(size_t size) {
 
 absl::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_GetAllocatedSize != nullptr) {
-    return MallocExtension_GetAllocatedSize(p);
+  if (MallocExtension_Internal_GetAllocatedSize != nullptr) {
+    return MallocExtension_Internal_GetAllocatedSize(p);
   }
 #endif
   return absl::nullopt;
