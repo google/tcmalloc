@@ -105,8 +105,8 @@ overall size).
 `tcmalloc::MallocExtension::ReleaseMemoryToSystem` makes a request to release
 `n` bytes of memory to TCMalloc. This can keep the memory footprint of the
 application down to a minimal amount, however it should be considered that this
-just reduces the application down from it's peak memory footprint, and does not
-make that peak memory footprint smaller.
+just reduces the application down from its peak memory footprint over time, and
+does not make that peak memory footprint smaller.
 
 There are two disadvantages of releasing memory aggressively:
 

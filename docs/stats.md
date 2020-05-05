@@ -262,7 +262,7 @@ mapped (backed by physical memory) or unmapped (not necessarily backed by
 physical memory).
 
 Memory from the pageheap is used either to replenish the per-thread or per-cpu
-caches to to directly satisfy requests that are larger than the sizes supported
+caches, or to directly satisfy requests that are larger than the sizes supported
 by the per-thread or per-cpu caches.
 
 **Note:** TCMalloc cannot tell whether a span of memory is actually backed by
