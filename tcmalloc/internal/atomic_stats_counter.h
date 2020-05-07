@@ -69,12 +69,6 @@ class StatsCounter {
   }
 
  private:
-  friend class tcmalloc::CentralFreeList;
-
-  // Deprecated constructor, currently only used by tcmalloc.
-  explicit StatsCounter(absl::base_internal::LinkerInitialized x) {
-  }  // value_ is zero
-
   std::atomic<Value> value_;
 };
 
