@@ -1307,23 +1307,25 @@ class FillerStatsTrackerTest : public testing::Test {
 
   // Generates four data points for the tracker that represent "interesting"
   // points (i.e., min/max pages demand, min/max hugepages).
-  void GenerateInterestingPoints(size_t num_pages, size_t num_hugepages,
-                                 size_t num_free_pages);
+  void GenerateInterestingPoints(Length num_pages, HugeLength num_hugepages,
+                                 Length num_free_pages);
 };
 
 int64_t FillerStatsTrackerTest::clock_{0};
 
-void FillerStatsTrackerTest::GenerateInterestingPoints(size_t num_pages,
-                                                       size_t num_hugepages,
-                                                       size_t num_free_pages) {
+void FillerStatsTrackerTest::GenerateInterestingPoints(Length num_pages,
+                                                       HugeLength num_hugepages,
+                                                       Length num_free_pages) {
   for (size_t i = 0; i <= 1; i++) {
     for (size_t j = 0; j <= 1; j++) {
-      tracker_.Report({.num_pages = num_pages + ((i == 0) ? 4 : 8 * j),
-                       .free_pages = num_free_pages + 10 * i + j,
-                       .unmapped_pages = 10,
-                       .used_pages_in_subreleased_huge_pages = num_pages,
-                       .huge_pages = {num_hugepages + ((i == 1) ? 4 : 8 * j),
-                                      num_hugepages, i, j}});
+      tracker_.Report(
+          {.num_pages = num_pages + ((i == 0) ? 4 : 8 * j),
+           .free_pages = num_free_pages + 10 * i + j,
+           .unmapped_pages = 10,
+           .used_pages_in_subreleased_huge_pages = num_pages,
+           .huge_pages = {
+               num_hugepages + ((i == 1) ? NHugePages(4) : NHugePages(8) * j),
+               num_hugepages, NHugePages(i), NHugePages(j)}});
     }
   }
 }
@@ -1334,14 +1336,14 @@ void FillerStatsTrackerTest::GenerateInterestingPoints(size_t num_pages,
 TEST_F(FillerStatsTrackerTest, Works) {
   // Ensure that the beginning (when free pages are 0) is outside the 5-min
   // window the instrumentation is recording.
-  GenerateInterestingPoints(1, 1, 1);
+  GenerateInterestingPoints(Length(1), NHugePages(1), Length(1));
   Advance(absl::Minutes(5));
 
-  GenerateInterestingPoints(100, 5, 200);
+  GenerateInterestingPoints(Length(100), NHugePages(5), Length(200));
 
   Advance(absl::Minutes(1));
 
-  GenerateInterestingPoints(200, 10, 100);
+  GenerateInterestingPoints(Length(200), NHugePages(10), Length(100));
 
   Advance(absl::Minutes(1));
 

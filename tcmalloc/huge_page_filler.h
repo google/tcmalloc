@@ -42,14 +42,14 @@ class FillerStatsTracker {
   enum Type { kRegular, kDonated, kPartialReleased, kReleased, kNumTypes };
 
   struct FillerStats {
-    size_t num_pages = 0;
-    size_t free_pages = 0;
-    size_t unmapped_pages = 0;
-    size_t used_pages_in_subreleased_huge_pages = 0;
-    size_t huge_pages[kNumTypes] = {0};
+    Length num_pages = 0;
+    Length free_pages = 0;
+    Length unmapped_pages = 0;
+    Length used_pages_in_subreleased_huge_pages = 0;
+    HugeLength huge_pages[kNumTypes];
 
-    size_t total_huge_pages() const {
-      size_t total_huge_pages = 0;
+    HugeLength total_huge_pages() const {
+      HugeLength total_huge_pages;
       for (int i = 0; i < kNumTypes; i++) {
         total_huge_pages += huge_pages[i];
       }
@@ -58,8 +58,8 @@ class FillerStatsTracker {
   };
 
   struct NumberOfFreePages {
-    size_t free;
-    size_t free_backed;
+    Length free;
+    Length free_backed;
   };
 
   explicit constexpr FillerStatsTracker(ClockFunc clock, absl::Duration w,
@@ -203,11 +203,13 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
       at_peak_demand.stats[kStatsAtMaxDemand].num_pages,
       at_peak_demand.stats[kStatsAtMaxDemand].free_pages,
       at_peak_demand.stats[kStatsAtMaxDemand].unmapped_pages,
-      at_peak_demand.stats[kStatsAtMaxDemand].total_huge_pages(),
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kRegular],
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kDonated],
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kPartialReleased],
-      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased]);
+      at_peak_demand.stats[kStatsAtMaxDemand].total_huge_pages().raw_num(),
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kRegular].raw_num(),
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kDonated].raw_num(),
+      at_peak_demand.stats[kStatsAtMaxDemand]
+          .huge_pages[kPartialReleased]
+          .raw_num(),
+      at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
 
   out->printf(
       "HugePageFiller: at peak hps: %zu pages (and %zu free, %zu unmapped)\n"
@@ -216,11 +218,13 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
       at_peak_hps.stats[kStatsAtMaxDemand].num_pages,
       at_peak_hps.stats[kStatsAtMaxDemand].free_pages,
       at_peak_hps.stats[kStatsAtMaxDemand].unmapped_pages,
-      at_peak_hps.stats[kStatsAtMaxDemand].total_huge_pages(),
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kRegular],
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kDonated],
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kPartialReleased],
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kReleased]);
+      at_peak_hps.stats[kStatsAtMaxDemand].total_huge_pages().raw_num(),
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kRegular].raw_num(),
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kDonated].raw_num(),
+      at_peak_hps.stats[kStatsAtMaxDemand]
+          .huge_pages[kPartialReleased]
+          .raw_num(),
+      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
 }
 
 template <size_t kEpochs>
@@ -251,11 +255,14 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
           auto m = region.CreateSubRegion(labels[i]);
           FillerStats stats = e.stats[i];
           m.PrintI64("num_pages", stats.num_pages);
-          m.PrintI64("regular_huge_pages", stats.huge_pages[kRegular]);
-          m.PrintI64("donated_huge_pages", stats.huge_pages[kDonated]);
+          m.PrintI64("regular_huge_pages",
+                     stats.huge_pages[kRegular].raw_num());
+          m.PrintI64("donated_huge_pages",
+                     stats.huge_pages[kDonated].raw_num());
           m.PrintI64("partial_released_huge_pages",
-                     stats.huge_pages[kPartialReleased]);
-          m.PrintI64("released_huge_pages", stats.huge_pages[kReleased]);
+                     stats.huge_pages[kPartialReleased].raw_num());
+          m.PrintI64("released_huge_pages",
+                     stats.huge_pages[kReleased].raw_num());
           m.PrintI64("used_pages_in_subreleased_huge_pages",
                      stats.used_pages_in_subreleased_huge_pages);
         }
@@ -1443,10 +1450,9 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
        .unmapped_pages = unmapped_pages(),
        .used_pages_in_subreleased_huge_pages =
            n_used_partial_released_ + n_used_released_,
-       .huge_pages = {regular_alloc_.size().raw_num(),
-                      donated_alloc_.size().raw_num(),
-                      regular_alloc_partial_released_.size().raw_num(),
-                      regular_alloc_released_.size().raw_num()}});
+       .huge_pages = {regular_alloc_.size(), donated_alloc_.size(),
+                      regular_alloc_partial_released_.size(),
+                      regular_alloc_released_.size()}});
 }
 
 template <class TrackerType>
