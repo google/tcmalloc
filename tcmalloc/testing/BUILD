@@ -485,6 +485,40 @@ cc_test(
     deps = ["@com_github_google_benchmark//:benchmark"],
 )
 
+cc_library(
+    name = "empirical",
+    testonly = 1,
+    srcs = ["empirical.cc"],
+    hdrs = ["empirical.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/random:seed_sequences",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "empirical_test",
+    srcs = ["empirical_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = [
+        ":empirical",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "limit_test",
     srcs = ["limit_test.cc"],
