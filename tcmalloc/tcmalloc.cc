@@ -674,9 +674,6 @@ class AllocationSample
 
   tcmalloc::Profile Stop() && override;
 
-  std::unique_ptr<const tcmalloc::tcmalloc_internal::ProfileBase>
-  StopInternal() &&;
-
  private:
   std::unique_ptr<StackTraceTable> mallocs_;
   AllocationSample* next ABSL_GUARDED_BY(pageheap_lock);
@@ -734,17 +731,6 @@ AllocationSample::~AllocationSample() {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocation_samples_.Remove(this);
   }
-}
-
-std::unique_ptr<const tcmalloc::tcmalloc_internal::ProfileBase>
-    AllocationSample::StopInternal() && ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  // We need to remove ourselves from the allocation_samples_ list before we
-  // mutate mallocs_;
-  if (mallocs_) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocation_samples_.Remove(this);
-  }
-  return std::move(mallocs_);
 }
 
 tcmalloc::Profile AllocationSample::Stop() &&
