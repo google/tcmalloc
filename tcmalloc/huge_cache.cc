@@ -100,39 +100,6 @@ bool MinMaxTracker<kEpochs>::Extrema::operator!=(const Extrema &other) const {
 template class MinMaxTracker<>;
 template class MinMaxTracker<600>;
 
-void MovingAverageTracker::Report(HugeLength val) {
-  int64_t now = clock_();
-  if (rolling_max_average_ < 1 || val >= HugeLength(rolling_max_average_ - 1)) {
-    rolling_max_average_ = val.raw_num();
-    last_update_ = now;
-    last_val_ = val;
-    return;
-  }
-  absl::Duration delta = absl::Nanoseconds(now - last_update_);
-  if (delta < kResolution) {
-    last_max_ = std::max(last_max_, val);
-  } else if (delta < kTimeConstant) {
-    while (delta > kResolution) {
-      rolling_max_average_ =
-          (static_cast<double>(2 * last_max_.raw_num()) +
-           rolling_max_average_ * (res_per_time_constant_ - 1)) /
-          (res_per_time_constant_ + 1);
-      delta -= kResolution;
-      last_update_ += absl::ToInt64Nanoseconds(kResolution);
-    }
-    last_max_ = std::max(last_val_, val);
-  } else {
-    // Old data is too old
-    rolling_max_average_ = std::max(last_val_, val).raw_num();
-    last_update_ = now;
-  }
-  last_val_ = val;
-}
-
-HugeLength MovingAverageTracker::RollingMaxAverage() const {
-  return NHugePages(rolling_max_average_);
-}
-
 // The logic for actually allocating from the cache or backing, and keeping
 // the hit rates specified.
 HugeRange HugeCache::DoGet(HugeLength n, bool *from_released) {

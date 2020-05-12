@@ -89,35 +89,6 @@ extern template class MinMaxTracker<600>;
 template <size_t kEpochs>
 constexpr HugeLength MinMaxTracker<kEpochs>::kMaxVal;
 
-class MovingAverageTracker {
- public:
-  explicit MovingAverageTracker(ClockFunc clock, absl::Duration time_constant,
-                                absl::Duration resolution)
-      : kTimeConstant(time_constant),
-        kResolution(resolution),
-        res_per_time_constant_(kTimeConstant / kResolution),
-        clock_(clock),
-        last_update_(clock_()) {}
-
-  void Report(HugeLength val);
-
-  HugeLength RollingMaxAverage() const;
-
- private:
-  const absl::Duration kTimeConstant;
-  const absl::Duration kResolution;
-  const size_t res_per_time_constant_{0};
-
-  static constexpr HugeLength kMaxVal =
-      NHugePages(std::numeric_limits<size_t>::max());
-
-  HugeLength last_max_ = NHugePages(0);
-  HugeLength last_val_ = NHugePages(0);
-  double rolling_max_average_{0};
-  ClockFunc clock_;
-  int64_t last_update_;
-};
-
 class HugeCache {
  public:
   // For use in production
