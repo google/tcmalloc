@@ -170,8 +170,6 @@ inline constexpr size_t kAlignment = 8;
 // log2 (kAlignment)
 inline constexpr size_t kAlignmentShift =
     tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(kAlignment);
-// For all span-lengths < kMaxPages we keep an exact-size list.
-inline constexpr size_t kMaxPages = 1 << (20 - kPageShift);
 
 // The number of times that a deallocation can cause a freelist to
 // go over its max_length() before shrinking max_length().
@@ -209,8 +207,6 @@ inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
 
 namespace tcmalloc {
-inline constexpr size_t kPagesPerHugePage = static_cast<size_t>(1)
-                                            << (kHugePageShift - kPageShift);
 inline constexpr uintptr_t kTagMask = uintptr_t{1}
                                       << std::min(kAddressBits - 4, 42);
 

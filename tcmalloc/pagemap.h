@@ -366,7 +366,7 @@ class PageMap {
 
   void Set(PageId p, Span* span) { map_.set(p.index(), span); }
 
-  bool Ensure(PageId p, size_t n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  bool Ensure(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return map_.Ensure(p.index(), n);
   }
 

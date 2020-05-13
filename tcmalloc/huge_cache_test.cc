@@ -258,7 +258,7 @@ TEST_F(HugeCacheTest, Stats) {
 
   struct Helper {
     static void Stat(const HugeCache &cache, size_t *spans,
-                     size_t *pages_backed, size_t *pages_unbacked,
+                     Length *pages_backed, Length *pages_unbacked,
                      double *avg_age) {
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       LargeSpanStats large;
@@ -275,8 +275,8 @@ TEST_F(HugeCacheTest, Stats) {
 
   double avg_age;
   size_t spans;
-  size_t pages_backed;
-  size_t pages_unbacked;
+  Length pages_backed;
+  Length pages_unbacked;
 
   cache_.Release(r1);
   absl::SleepFor(absl::Microseconds(5000));

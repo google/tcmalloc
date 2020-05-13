@@ -342,7 +342,7 @@ TEST_P(HugeAllocatorTest, Frugal) {
 TEST_P(HugeAllocatorTest, Stats) {
   struct Helper {
     static void Stats(const HugeAllocator *huge, size_t *num_spans,
-                      size_t *pages, absl::Duration *avg_age) {
+                      Length *pages, absl::Duration *avg_age) {
       SmallSpanStats small;
       LargeSpanStats large;
       memset(&small, 0, sizeof(small));
@@ -376,7 +376,8 @@ TEST_P(HugeAllocatorTest, Stats) {
   const HugeRange b2 = {p + NHugePages(4), NHugePages(1)};
   const HugeRange r3 = {p + NHugePages(5), NHugePages(3)};
 
-  size_t num_spans, pages;
+  size_t num_spans;
+  Length pages;
   absl::Duration avg_age;
 
   Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);

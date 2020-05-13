@@ -21,6 +21,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/huge_pages.h"
 
 namespace tcmalloc {
 namespace {
@@ -134,7 +135,7 @@ Unmapped span,   >=64 pages:    600.0       0       0       0     200       0   
 
 TEST_F(AgeTest, Overflow) {
   tcmalloc::PageAgeHistograms ages(kNow);
-  const uint32_t too_big = 4 * (std::numeric_limits<uint32_t>::max() / 5);
+  const Length too_big = 4 * (std::numeric_limits<uint32_t>::max() / 5);
   ages.RecordRange(too_big, false, WhenForAge(0.5));
   ages.RecordRange(too_big, false, WhenForAge(0.5));
 

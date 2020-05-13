@@ -32,6 +32,9 @@
 
 namespace tcmalloc {
 
+inline constexpr size_t kPagesPerHugePage = static_cast<size_t>(1)
+                                            << (kHugePageShift - kPageShift);
+
 // A single aligned huge page.
 struct HugePage {
   void *start_addr() const {

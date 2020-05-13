@@ -65,6 +65,8 @@ class PageId {
 
 inline constexpr Length kMaxValidPages =
     (~static_cast<Length>(0)) >> kPageShift;
+// For all span-lengths < kMaxPages we keep an exact-size list.
+inline constexpr Length kMaxPages = Length(1 << (20 - kPageShift));
 
 // Convert byte size into pages.  This won't overflow, but may return
 // an unreasonably large value if bytes is huge enough.

@@ -29,6 +29,7 @@
 #include "absl/debugging/internal/vdso_support.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -46,7 +47,7 @@ static double PagesToMiB(uint64_t pages) {
 
 // For example, PrintRightAdjustedWithPrefix(out, ">=", 42, 6) prints "  >=42".
 static void PrintRightAdjustedWithPrefix(TCMalloc_Printer *out,
-                                         const char *prefix, int num,
+                                         const char *prefix, Length num,
                                          int width) {
   width -= strlen(prefix);
   int num_tmp = num;
@@ -56,7 +57,8 @@ static void PrintRightAdjustedWithPrefix(TCMalloc_Printer *out,
       out->printf(" ");
     }
   }
-  out->printf("%s%d", prefix, num);
+  size_t value = num;
+  out->printf("%s%zu", prefix, value);
 }
 
 void PrintStats(const char *label, TCMalloc_Printer *out,
@@ -75,7 +77,7 @@ void PrintStats(const char *label, TCMalloc_Printer *out,
               BytesToMiB(backing.unmapped_bytes));
   out->printf("------------------------------------------------\n");
 
-  size_t cum_normal_pages = 0, cum_returned_pages = 0, cum_total_pages = 0;
+  Length cum_normal_pages = 0, cum_returned_pages = 0, cum_total_pages = 0;
   if (!everything) return;
 
   for (size_t i = 0; i < kMaxPages; ++i) {
@@ -83,9 +85,9 @@ void PrintStats(const char *label, TCMalloc_Printer *out,
     const size_t ret = small.returned_length[i];
     const size_t total = norm + ret;
     if (total == 0) continue;
-    const size_t norm_pages = norm * i;
-    const size_t ret_pages = ret * i;
-    const size_t total_pages = norm_pages + ret_pages;
+    const Length norm_pages = norm * i;
+    const Length ret_pages = ret * i;
+    const Length total_pages = norm_pages + ret_pages;
     cum_normal_pages += norm_pages;
     cum_returned_pages += ret_pages;
     cum_total_pages += total_pages;
@@ -98,7 +100,7 @@ void PrintStats(const char *label, TCMalloc_Printer *out,
 
   cum_normal_pages += large.normal_pages;
   cum_returned_pages += large.returned_pages;
-  const size_t large_total_pages = large.normal_pages + large.returned_pages;
+  const Length large_total_pages = large.normal_pages + large.returned_pages;
   cum_total_pages += large_total_pages;
   PrintRightAdjustedWithPrefix(out, ">=", kMaxPages, 6);
   out->printf(
@@ -176,13 +178,13 @@ void PrintStatsInPbtxt(PbtxtRegion *region, const SmallSpanStats &small,
                        const LargeSpanStats &large,
                        const PageAgeHistograms &ages) {
   // Print for small pages.
-  for (size_t i = 0; i < kMaxPages; ++i) {
+  for (Length i = 0; i < kMaxPages; ++i) {
     const size_t norm = small.normal_length[i];
     const size_t ret = small.returned_length[i];
     const size_t total = norm + ret;
     if (total == 0) continue;
-    const size_t norm_pages = norm * i;
-    const size_t ret_pages = ret * i;
+    const Length norm_pages = norm * i;
+    const Length ret_pages = ret * i;
     PageHeapEntry entry;
     entry.span_size = i * kPageSize;
     entry.present = norm_pages * kPageSize;
@@ -296,7 +298,7 @@ void PageAgeHistograms::Print(const char *label, TCMalloc_Printer *out) const {
 }
 
 static void PrintLineHeader(TCMalloc_Printer *out, const char *kind,
-                            const char *prefix, int num) {
+                            const char *prefix, Length num) {
   // Print the beginning of the line, e.g. "Live span,   >=128 pages: ".  The
   // span size ("128" in the example) is padded such that it plus the span
   // prefix ("Live") plus the span size prefix (">=") is kHeaderExtraChars wide.
@@ -350,8 +352,8 @@ void PageAllocInfo::Print(TCMalloc_Printer *out) const {
                                       Length nmax) {
     const size_t a = c.nalloc;
     const size_t f = c.nfree;
-    const size_t a_pages = c.alloc_size;
-    const size_t f_pages = c.free_size;
+    const Length a_pages = c.alloc_size;
+    const Length f_pages = c.free_size;
     if (a == 0) return;
     const size_t live = a - f;
     const double live_mib = BytesToMiB((a_pages - f_pages) * kPageSize);
@@ -368,7 +370,7 @@ void PageAllocInfo::Print(TCMalloc_Printer *out) const {
         a, f, live, live_mib, rate_hz, mib_hz);
   };
 
-  for (int i = 0; i < kMaxPages; ++i) {
+  for (Length i = 0; i < kMaxPages; ++i) {
     const Length n = i + 1;
     print_counts(small_[i], n, n);
   }
@@ -392,8 +394,8 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion *region,
                                                Length nmax) {
     const size_t a = c.nalloc;
     const size_t f = c.nfree;
-    const size_t a_pages = c.alloc_size;
-    const size_t f_pages = c.free_size;
+    const Length a_pages = c.alloc_size;
+    const Length f_pages = c.free_size;
     if (a == 0) return;
     const int64_t live_bytes = (a_pages - f_pages) * kPageSize;
     const double rate_hz = a * hz;
@@ -408,7 +410,7 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion *region,
     stat.PrintI64("bytes_allocated_per_second", static_cast<int64_t>(bytes_hz));
   };
 
-  for (int i = 0; i < kMaxPages; ++i) {
+  for (Length i = 0; i < kMaxPages; ++i) {
     const Length n = i + 1;
     print_counts(small_[i], n, n);
   }
@@ -420,7 +422,7 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion *region,
   }
 }
 
-static size_t RoundUp(size_t value, size_t alignment) {
+static Length RoundUp(Length value, Length alignment) {
   return (value + alignment - 1) & ~(alignment - 1);
 }
 

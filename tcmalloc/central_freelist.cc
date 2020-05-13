@@ -121,7 +121,7 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
 void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
-  const size_t npages = Static::sizemap()->class_to_pages(size_class_);
+  const Length npages = Static::sizemap()->class_to_pages(size_class_);
 
   Span* span = Static::page_allocator()->New(npages, /*tagged=*/false);
   if (span == nullptr) {

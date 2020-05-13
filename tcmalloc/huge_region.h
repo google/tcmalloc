@@ -116,7 +116,7 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
   void UnbackHugepages(bool should[kNumHugePages]);
 
   // How many pages are used in each hugepage?
-  size_t pages_used_[kNumHugePages];
+  Length pages_used_[kNumHugePages];
   // Is this hugepage backed?
   bool backed_[kNumHugePages];
   HugeLength nbacked_;
@@ -270,7 +270,7 @@ inline void HugeRegion<Unback>::AddSpanStats(SmallSpanStats *small,
                                              LargeSpanStats *large,
                                              PageAgeHistograms *ages) const {
   size_t index = 0, n;
-  size_t f = 0, u = 0;
+  Length f = 0, u = 0;
   // This is complicated a bit by the backed/unbacked status of pages.
   while (tracker_.NextFreeRange(index, &index, &n)) {
     // [index, index + n) is an *unused* range.  As it may cross

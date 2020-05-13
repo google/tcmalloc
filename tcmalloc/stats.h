@@ -68,9 +68,9 @@ inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
 
 // Stats for free large spans (i.e., spans with more than kMaxPages pages).
 struct LargeSpanStats {
-  int64_t spans;           // Number of such spans
-  int64_t normal_pages;    // Combined page length of normal large spans
-  int64_t returned_pages;  // Combined page length of unmapped spans
+  size_t spans;           // Number of such spans
+  Length normal_pages;    // Combined page length of normal large spans
+  Length returned_pages;  // Combined page length of unmapped spans
 
   LargeSpanStats &operator+=(LargeSpanStats rhs) {
     spans += rhs.spans;
@@ -103,7 +103,7 @@ class PageAgeHistograms {
   static constexpr size_t kNumBuckets = 7;
   static constexpr size_t kNumSizes = 64;
 
-  static constexpr size_t kLargeSize = kNumSizes;
+  static constexpr Length kLargeSize = kNumSizes;
   class Histogram {
    public:
     void Record(Length pages, double age);
@@ -111,7 +111,7 @@ class PageAgeHistograms {
 
     uint32_t pages_in_bucket(size_t i) const { return buckets_[i]; }
 
-    uint32_t total() const { return total_pages_; }
+    Length total() const { return total_pages_; }
 
     double avg_age() const { return empty() ? 0.0 : total_age_ / total_pages_; }
 
@@ -124,7 +124,7 @@ class PageAgeHistograms {
     // RAM, and just in case we will update this with saturating arithmetic.
     uint32_t buckets_[kNumBuckets];
 
-    uint64_t total_pages_;
+    Length total_pages_;
     double total_age_;
   };
 

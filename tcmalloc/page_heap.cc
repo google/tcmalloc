@@ -224,8 +224,8 @@ Span* PageHeap::Carve(Span* span, Length n) {
   RemoveFromFreeList(span);
   span->set_location(Span::IN_USE);
 
-  const int extra = span->num_pages() - n;
-  ASSERT(extra >= 0);
+  ASSERT(span->num_pages() >= n);
+  const Length extra = span->num_pages() - n;
   if (extra > 0) {
     Span* leftover = nullptr;
     // Check if this span has another span on the right but not on the left.

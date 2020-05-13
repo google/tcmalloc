@@ -47,11 +47,12 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/stats.h"
 
-ABSL_FLAG(uint64_t, page_tracker_defrag_lim, 32,
+ABSL_FLAG(tcmalloc::Length, page_tracker_defrag_lim, 32,
           "Max allocation size for defrag test");
 
-ABSL_FLAG(uint64_t, frag_req_limit, 32, "request size limit for frag test");
-ABSL_FLAG(uint64_t, frag_size, 512 * 1024,
+ABSL_FLAG(tcmalloc::Length, frag_req_limit, 32,
+          "request size limit for frag test");
+ABSL_FLAG(tcmalloc::Length, frag_size, 512 * 1024,
           "target number of pages for frag test");
 ABSL_FLAG(uint64_t, frag_iters, 10 * 1000 * 1000, "iterations for frag test");
 
@@ -245,7 +246,7 @@ class PageTrackerTest : public testing::Test {
     tracker_.Put(a.p, a.n);
   }
 
-  size_t ReleaseFree() {
+  Length ReleaseFree() {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     return tracker_.ReleaseFree();
   }
@@ -283,7 +284,7 @@ TEST_F(PageTrackerTest, AllocSane) {
 }
 
 TEST_F(PageTrackerTest, ReleasingReturn) {
-  static const size_t kAllocSize = kPagesPerHugePage / 4;
+  static const Length kAllocSize = kPagesPerHugePage / 4;
   PAlloc a1 = Get(kAllocSize - 3);
   PAlloc a2 = Get(kAllocSize);
   PAlloc a3 = Get(kAllocSize + 1);
@@ -311,7 +312,7 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
 }
 
 TEST_F(PageTrackerTest, ReleasingRetain) {
-  static const size_t kAllocSize = kPagesPerHugePage / 4;
+  static const Length kAllocSize = kPagesPerHugePage / 4;
   PAlloc a1 = Get(kAllocSize - 3);
   PAlloc a2 = Get(kAllocSize);
   PAlloc a3 = Get(kAllocSize + 1);
@@ -808,7 +809,7 @@ TEST_P(FillerTest, Density) {
 }
 
 TEST_P(FillerTest, Release) {
-  static const size_t kAlloc = kPagesPerHugePage / 2;
+  static const Length kAlloc = kPagesPerHugePage / 2;
   PAlloc p1 = Allocate(kAlloc - 1);
   PAlloc p2 = Allocate(kAlloc + 1);
 

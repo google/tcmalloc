@@ -32,10 +32,10 @@ namespace {
 
 // PageHeap expands by kMinSystemAlloc by default, so use this as the minimum
 // Span length to not get more memory than expected.
-static const size_t kMinSpanLength = kMinSystemAlloc >> kPageShift;
+constexpr Length kMinSpanLength = kMinSystemAlloc >> kPageShift;
 
-static void CheckStats(const tcmalloc::PageHeap* ph, uint64_t system_pages,
-                       uint64_t free_pages, uint64_t unmapped_pages)
+void CheckStats(const tcmalloc::PageHeap* ph, Length system_pages,
+                Length free_pages, Length unmapped_pages)
     ABSL_LOCKS_EXCLUDED(tcmalloc::pageheap_lock) {
   tcmalloc::BackingStats stats;
   {

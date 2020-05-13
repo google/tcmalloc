@@ -118,9 +118,9 @@ class FillerStatsTracker {
     // Collect filler stats at "interesting points" (minimum/maximum page demand
     // and at minimum/maximum usage of huge pages).
     FillerStats stats[kNumStatsTypes] = {};
-    static constexpr size_t kDefaultValue = std::numeric_limits<size_t>::max();
-    size_t min_free_pages = kDefaultValue;
-    size_t min_free_backed_pages = kDefaultValue;
+    static constexpr Length kDefaultValue = std::numeric_limits<Length>::max();
+    Length min_free_pages = kDefaultValue;
+    Length min_free_backed_pages = kDefaultValue;
 
     static FillerStatsEntry Nil() { return FillerStatsEntry(); }
 
@@ -327,7 +327,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
   // Return all unused pages to the system, mark future frees to do same.
   // Returns the count of pages unbacked.
-  size_t ReleaseFree() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  Length ReleaseFree() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Return this allocation to the system, if policy warrants it.
   //
@@ -570,7 +570,7 @@ class HugePageFiller {
   // allocation.
   size_t IndexFor(TrackerType *pt);
   // Returns index for regular_alloc_.
-  static size_t ListFor(size_t longest, size_t chunk);
+  static size_t ListFor(Length longest, size_t chunk);
   static constexpr size_t kNumLists = kPagesPerHugePage * kChunks;
 
   HintedTrackerLists<kNumLists> regular_alloc_;
@@ -675,7 +675,7 @@ inline void PageTracker<Unback>::Put(PageId p, Length n) {
 }
 
 template <MemoryModifyFunction Unback>
-inline size_t PageTracker<Unback>::ReleaseFree() {
+inline Length PageTracker<Unback>::ReleaseFree() {
   size_t count = 0;
   size_t index = 0;
   size_t n;
@@ -1212,8 +1212,8 @@ class UsageInfo {
 
   template <class TrackerType>
   void Record(const TrackerType *pt, Type which) {
-    const size_t free = kPagesPerHugePage - pt->used_pages();
-    const size_t lf = pt->longest_free_range();
+    const Length free = kPagesPerHugePage - pt->used_pages();
+    const Length lf = pt->longest_free_range();
     const size_t nalloc = pt->nallocs();
     // This is a little annoying as our buckets *have* to differ;
     // nalloc is in [1,256], free_pages and longest_free are in [0, 255].
@@ -1322,7 +1322,9 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
   // donated in the first place. (It's an even hugepage.)
   ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
-  const auto safe_div = [](double a, double b) { return b == 0 ? 0 : a / b; };
+  const auto safe_div = [](Length a, Length b) {
+    return b == 0 ? 0. : static_cast<double>(a) / static_cast<double>(b);
+  };
   const HugeLength n_partial = size() - nrel - nfull;
   const HugeLength n_nonfull =
       n_partial + regular_alloc_partial_released_.size();
@@ -1475,7 +1477,7 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType *pt) {
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::ListFor(const size_t longest,
+inline size_t HugePageFiller<TrackerType>::ListFor(const Length longest,
                                                    const size_t chunk) {
   ASSERT(chunk < kChunks);
   ASSERT(longest < kPagesPerHugePage);
@@ -1484,7 +1486,7 @@ inline size_t HugePageFiller<TrackerType>::ListFor(const size_t longest,
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType *pt) {
-  size_t longest = pt->longest_free_range();
+  Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
   if (pt->donated()) {
@@ -1510,7 +1512,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType *pt) {
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType *pt) {
   size_t chunk = IndexFor(pt);
-  size_t longest = pt->longest_free_range();
+  Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
   // Once a donated alloc is used in any way, it degenerates into being a
@@ -1535,7 +1537,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType *pt) {
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType *pt) {
-  size_t longest = pt->longest_free_range();
+  Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
   // We should never be donating already-released trackers!

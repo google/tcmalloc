@@ -33,7 +33,7 @@ class RawSpan {
  public:
   void Init(size_t cl) {
     size_t size = Static::sizemap()->class_to_size(cl);
-    size_t npages = Static::sizemap()->class_to_pages(cl);
+    Length npages = Static::sizemap()->class_to_pages(cl);
     size_t objects_per_span = npages * kPageSize / size;
 
     void *mem;
