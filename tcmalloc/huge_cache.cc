@@ -69,8 +69,7 @@ void MinMaxTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
 
 template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
-  // Prints timestamp:min_pages:max_pages for each window with records.
-  // Timestamp == kEpochs - 1 is the most recent measurement.
+  // Prints content of each non-empty epoch, from oldest to most recent data
   auto huge_cache_history = hpaa->CreateSubRegion("huge_cache_history");
   huge_cache_history.PrintI64("window_ms",
                               absl::ToInt64Milliseconds(kEpochLength));
@@ -83,7 +82,7 @@ void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
         m.PrintI64("min_bytes", e.min.in_bytes());
         m.PrintI64("max_bytes", e.max.in_bytes());
       },
-      timeseries_.kDoNotSkipEmptyEntries);
+      timeseries_.kSkipEmptyEntries);
 }
 
 template <size_t kEpochs>
