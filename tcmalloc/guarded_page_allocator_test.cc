@@ -22,10 +22,13 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/internal/sysinfo.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
@@ -131,6 +134,75 @@ TEST_F(GuardedPageAllocatorTest, Print) {
   TCMalloc_Printer out(buf, sizeof(buf));
   gpa_.Print(&out);
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
+}
+
+// Test that no pages are double-allocated or left unallocated, and that no
+// extra pages are allocated when there's concurrent calls to Allocate().
+TEST_F(GuardedPageAllocatorTest, ThreadedAllocCount) {
+  constexpr size_t kNumThreads = 2;
+  void *allocations[kNumThreads][kMaxGpaPages];
+  {
+    std::vector<std::thread> threads;
+    threads.reserve(kNumThreads);
+    for (size_t i = 0; i < kNumThreads; i++) {
+      threads.push_back(std::thread([this, &allocations, i]() {
+        for (size_t j = 0; j < kMaxGpaPages; j++) {
+          allocations[i][j] = gpa_.Allocate(1, 0);
+        }
+      }));
+    }
+
+    for (auto &t : threads) {
+      t.join();
+    }
+  }
+  std::set<void *> allocations_set;
+  for (size_t i = 0; i < kNumThreads; i++) {
+    for (size_t j = 0; j < kMaxGpaPages; j++) {
+      allocations_set.insert(allocations[i][j]);
+    }
+  }
+  allocations_set.erase(nullptr);
+  EXPECT_EQ(allocations_set.size(), kMaxGpaPages);
+}
+
+// Test that allocator remains in consistent state under high contention and
+// doesn't double-allocate pages or fail to deallocate pages.
+TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
+  const size_t kNumThreads = 4 * absl::base_internal::NumCPUs();
+  {
+    std::vector<std::thread> threads;
+    threads.reserve(kNumThreads);
+    for (size_t i = 0; i < kNumThreads; i++) {
+      threads.push_back(std::thread([this]() {
+        char *buf;
+        while ((buf = reinterpret_cast<char *>(gpa_.Allocate(1, 0))) ==
+               nullptr) {
+          absl::SleepFor(absl::Nanoseconds(5000));
+        }
+
+        // Verify that no other thread has access to this page.
+        EXPECT_EQ(buf[0], 0);
+
+        // Mark this page and allow some time for another thread to potentially
+        // gain access to this page.
+        buf[0] = 'A';
+        absl::SleepFor(absl::Nanoseconds(5000));
+
+        // Unmark this page and deallocate.
+        buf[0] = 0;
+        gpa_.Deallocate(buf);
+      }));
+    }
+
+    for (auto &t : threads) {
+      t.join();
+    }
+  }
+  // Verify all pages have been deallocated now that all threads are done.
+  for (size_t i = 0; i < kMaxGpaPages; i++) {
+    EXPECT_NE(gpa_.Allocate(1, 0), nullptr);
+  }
 }
 
 }  // namespace
