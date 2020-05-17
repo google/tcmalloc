@@ -29,6 +29,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
@@ -156,7 +157,7 @@ TEST_F(GuardedPageAllocatorTest, ThreadedAllocCount) {
       t.join();
     }
   }
-  std::set<void *> allocations_set;
+  absl::flat_hash_set<void *> allocations_set;
   for (size_t i = 0; i < kNumThreads; i++) {
     for (size_t j = 0; j < kMaxGpaPages; j++) {
       allocations_set.insert(allocations[i][j]);
