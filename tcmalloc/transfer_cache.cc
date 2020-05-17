@@ -63,10 +63,9 @@ void TransferCache::Init(size_t cl) {
     // whichever is greater. Total transfer cache memory used across all
     // size classes then can't be greater than approximately
     // 1MB * kMaxNumTransferEntries.
-    max_cache_slots_ = std::min<size_t>(
-        max_cache_slots_,
-        std::max<size_t>(objs_to_move, (1024 * 1024) / (bytes * objs_to_move) *
-                                           objs_to_move));
+    max_cache_slots_ = std::clamp<size_t>(
+        objs_to_move, max_cache_slots_,
+        (1024 * 1024) / (bytes * objs_to_move) * objs_to_move);
     cache_slots = std::min(cache_slots, max_cache_slots_);
     slots_ = reinterpret_cast<void **>(
         Static::arena()->Alloc(max_cache_slots_ * sizeof(void *)));
@@ -77,17 +76,12 @@ void TransferCache::Init(size_t cl) {
 }
 
 bool TransferCache::EvictRandomSizeClass(int locked_size_class, bool force) {
+  // t == 0 is never valid, hence starting at/reseting to 1
   static std::atomic<int32_t> race_counter{1};
   int t = race_counter.load(std::memory_order_relaxed);
+  if (t >= kNumClasses) t = 1;
   race_counter.store(t + 1, std::memory_order_relaxed);
-  if (t >= kNumClasses) {
-    while (t >= kNumClasses) {
-      t -= kNumClasses - 1;  // Don't want t == 0
-    }
-    race_counter.store(t, std::memory_order_relaxed);
-  }
-  ASSERT(t > 0);
-  ASSERT(t < kNumClasses);
+  ASSERT(0 < t && t < kNumClasses);
   if (t == locked_size_class) return false;
   return Static::transfer_cache()[t].ShrinkCache(locked_size_class, force);
 }
