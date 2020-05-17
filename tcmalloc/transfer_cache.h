@@ -18,6 +18,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <atomic>
+
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
@@ -30,6 +32,11 @@ namespace tcmalloc {
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
+struct alignas(8) SizeInfo {
+  int32_t used;
+  int32_t capacity;
+};
+
 // TransferCache is used to cache transfers of
 // sizemap.num_objects_to_move(size_class) back and forth between
 // thread caches and the central cache for a given size class.
@@ -37,10 +44,9 @@ class TransferCache {
  public:
   constexpr TransferCache()
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        used_slots_(0),
+        max_capacity_(0),
+        slot_info_{},
         slots_(nullptr),
-        cache_slots_(0),
-        max_cache_slots_(0),
         freelist_(),
         arbitrary_transfer_(false) {}
   TransferCache(const TransferCache &) = delete;
@@ -101,25 +107,28 @@ class TransferCache {
     return slots_ + i;
   }
 
+  void SetSlotInfo(SizeInfo info) {
+    ASSERT(0 <= info.used);
+    ASSERT(info.used <= info.capacity);
+    ASSERT(info.capacity <= max_capacity_);
+    slot_info_.store(info, std::memory_order_relaxed);
+  }
+
   // This lock protects all the data members.  used_slots_ and cache_slots_
   // may be looked at without holding the lock.
   absl::base_internal::SpinLock lock_;
 
-  // Number of currently used cached entries in tc_slots_.  This variable is
-  // updated under a lock but can be read without one.
-  std::atomic<int32_t> used_slots_;
+  // Maximum size of the cache for a given size class. (immutable after Init())
+  int32_t max_capacity_;
+
+  // Number of currently used and available cached entries in slots_.  This
+  // variable is updated under a lock but can be read without one.
+  // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
+  std::atomic<SizeInfo> slot_info_;
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
-
-  // The current number of slots for this size class.  This is an adaptive value
-  // that is increased if there is lots of traffic on a given size class.  This
-  // variable is updated under a lock but can be read without one.
-  std::atomic<int32_t> cache_slots_;
-
-  // Maximum size of the cache for a given size class. (immutable after Init())
-  int32_t max_cache_slots_;
 
   CentralFreeList freelist_;
 

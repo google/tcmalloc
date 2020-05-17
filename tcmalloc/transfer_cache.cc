@@ -40,8 +40,8 @@ void TransferCache::Init(size_t cl) {
       IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER_CACHE);
 
   slots_ = nullptr;
-  max_cache_slots_ = 0;
-  int32_t cache_slots = 0;
+  max_capacity_ = 0;
+  SizeInfo info = {0, 0};
 
   if (cl > 0) {
     // Limit the maximum size of the cache based on the size class.  If this
@@ -54,25 +54,23 @@ void TransferCache::Init(size_t cl) {
     // Starting point for the maximum number of entries in the transfer cache.
     // This actual maximum for a given size class may be lower than this
     // maximum value.
-    max_cache_slots_ = 64 * objs_to_move;
+    max_capacity_ = 64 * objs_to_move;
     // A transfer cache freelist can have anywhere from 0 to
-    // max_cache_slots_ slots to put link list chains into.
-    cache_slots = 16 * objs_to_move;
+    // max_capacity_ slots to put link list chains into.
+    info.capacity = 16 * objs_to_move;
 
     // Limit each size class cache to at most 1MB of objects or one entry,
     // whichever is greater. Total transfer cache memory used across all
     // size classes then can't be greater than approximately
     // 1MB * kMaxNumTransferEntries.
-    max_cache_slots_ = std::clamp<size_t>(
-        objs_to_move, max_cache_slots_,
+    max_capacity_ = std::clamp<size_t>(
+        objs_to_move, max_capacity_,
         (1024 * 1024) / (bytes * objs_to_move) * objs_to_move);
-    cache_slots = std::min(cache_slots, max_cache_slots_);
+    info.capacity = std::min(info.capacity, max_capacity_);
     slots_ = reinterpret_cast<void **>(
-        Static::arena()->Alloc(max_cache_slots_ * sizeof(void *)));
+        Static::arena()->Alloc(max_capacity_ * sizeof(void *)));
   }
-  used_slots_.store(0, std::memory_order_relaxed);
-  cache_slots_.store(cache_slots, std::memory_order_relaxed);
-  ASSERT(cache_slots <= max_cache_slots_);
+  SetSlotInfo(info);
 }
 
 bool TransferCache::EvictRandomSizeClass(int locked_size_class, bool force) {
@@ -87,12 +85,11 @@ bool TransferCache::EvictRandomSizeClass(int locked_size_class, bool force) {
 }
 
 bool TransferCache::MakeCacheSpace(int N) {
-  int32_t used_slots = used_slots_.load(std::memory_order_relaxed);
-  int32_t cache_slots = cache_slots_.load(std::memory_order_relaxed);
+  auto info = slot_info_.load(std::memory_order_relaxed);
   // Is there room in the cache?
-  if (used_slots + N <= cache_slots) return true;
+  if (info.used + N <= info.capacity) return true;
   // Check if we can expand this cache?
-  if (cache_slots + N > max_cache_slots_) return false;
+  if (info.capacity + N > max_capacity_) return false;
   // Ok, we'll try to grab an entry from some other size class.
   if (EvictRandomSizeClass(freelist_.size_class(), false) ||
       EvictRandomSizeClass(freelist_.size_class(), true)) {
@@ -100,10 +97,10 @@ bool TransferCache::MakeCacheSpace(int N) {
     // may have dropped and re-acquired the lock in EvictRandomSizeClass (via
     // ShrinkCache), so the cache_size may have changed.  Therefore, check and
     // verify that it is still OK to increase the cache_size.
-    cache_slots = cache_slots_.load(std::memory_order_relaxed);
-    if (cache_slots + N <= max_cache_slots_) {
-      cache_slots += N;
-      cache_slots_.store(cache_slots, std::memory_order_relaxed);
+    info = slot_info_.load(std::memory_order_relaxed);
+    if (info.capacity + N <= max_capacity_) {
+      info.capacity += N;
+      SetSlotInfo(info);
       return true;
     }
   }
@@ -111,16 +108,15 @@ bool TransferCache::MakeCacheSpace(int N) {
 }
 
 bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
-  int32_t used_slots = used_slots_.load(std::memory_order_relaxed);
-  int32_t cache_slots = cache_slots_.load(std::memory_order_relaxed);
+  auto info = slot_info_.load(std::memory_order_relaxed);
 
   // Start with a quick check without taking a lock.
-  if (cache_slots == 0) return false;
+  if (info.capacity == 0) return false;
 
   int N = Static::sizemap()->num_objects_to_move(freelist_.size_class());
 
   // We don't evict from a full cache unless we are 'forcing'.
-  if (!force && used_slots + N >= cache_slots) return false;
+  if (!force && info.used + N >= info.capacity) return false;
 
   // Release the other held lock before acquiring the current lock to avoid a
   // dead lock.
@@ -139,30 +135,27 @@ bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
     absl::base_internal::SpinLockHolder h(&lock_);
 
     // Fetch while holding the lock in case they changed.
-    cache_slots = cache_slots_.load(std::memory_order_relaxed);
-    used_slots = used_slots_.load(std::memory_order_relaxed);
-    ASSERT(0 <= used_slots && used_slots <= cache_slots);
+    info = slot_info_.load(std::memory_order_relaxed);
 
-    if (cache_slots == 0) return false;
-    if (!arbitrary_transfer_ && cache_slots < N) return false;
+    if (info.capacity == 0) return false;
+    if (!arbitrary_transfer_ && info.capacity < N) return false;
 
-    N = std::min(N, cache_slots);
-    int unused = cache_slots - used_slots;
+    N = std::min(N, info.capacity);
+    int unused = info.capacity - info.used;
     if (N <= unused) {
-      cache_slots -= N;
-      cache_slots_.store(cache_slots, std::memory_order_relaxed);
+      info.capacity -= N;
+      SetSlotInfo(info);
       return true;
     }
     if (!force) return false;
 
     num_to_free = N - unused;
-    cache_slots -= N;
-    used_slots -= num_to_free;
-    cache_slots_.store(cache_slots, std::memory_order_relaxed);
-    used_slots_.store(used_slots, std::memory_order_relaxed);
+    info.capacity -= N;
+    info.used -= num_to_free;
+    SetSlotInfo(info);
     // Our internal slot array may get overwritten as soon as we drop the lock,
     // so copy the items to free to an on stack buffer.
-    memcpy(to_free, GetSlot(used_slots), sizeof(void *) * num_to_free);
+    memcpy(to_free, GetSlot(info.used), sizeof(void *) * num_to_free);
   }
   // Access the freelist while holding *neither* lock.
   freelist_.InsertRange(to_free, num_to_free);
@@ -172,16 +165,16 @@ bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
 void TransferCache::InsertRange(absl::Span<void *> batch, int N) {
   const int B = Static::sizemap()->num_objects_to_move(freelist_.size_class());
   ASSERT(0 < N && N <= B);
-  int32_t used_slots = used_slots_.load(std::memory_order_relaxed);
-  if (N == B && used_slots + N <= max_cache_slots_) {
+  auto info = slot_info_.load(std::memory_order_relaxed);
+  if (N == B && info.used + N <= max_capacity_) {
     absl::base_internal::SpinLockHolder h(&lock_);
     if (MakeCacheSpace(N)) {
       // MakeCacheSpace can drop the lock, so refetch
-      used_slots = used_slots_.load(std::memory_order_relaxed);
-      ASSERT(0 <= used_slots && used_slots + N <= max_cache_slots_);
-      used_slots_.store(used_slots + N, std::memory_order_relaxed);
+      info = slot_info_.load(std::memory_order_relaxed);
+      info.used += N;
+      SetSlotInfo(info);
 
-      void **entry = GetSlot(used_slots);
+      void **entry = GetSlot(info.used - N);
       memcpy(entry, batch.data(), sizeof(void *) * N);
       tracking::Report(kTCInsertHit, freelist_.size_class(), 1);
       return;
@@ -190,13 +183,12 @@ void TransferCache::InsertRange(absl::Span<void *> batch, int N) {
     absl::base_internal::SpinLockHolder h(&lock_);
     MakeCacheSpace(N);
     // MakeCacheSpace can drop the lock, so refetch
-    int32_t used_slots = used_slots_.load(std::memory_order_relaxed);
-    int32_t cache_slots = cache_slots_.load(std::memory_order_relaxed);
-    int unused = cache_slots - used_slots;
+    info = slot_info_.load(std::memory_order_relaxed);
+    int unused = info.capacity - info.used;
     if (N < unused) {
-      used_slots_.store(used_slots + N, std::memory_order_relaxed);
-      ASSERT(0 <= used_slots && used_slots + N <= max_cache_slots_);
-      void **entry = GetSlot(used_slots);
+      info.used += N;
+      SetSlotInfo(info);
+      void **entry = GetSlot(info.used - N);
       memcpy(entry, batch.data(), sizeof(void *) * N);
       tracking::Report(kTCInsertHit, freelist_.size_class(), 1);
       return;
@@ -209,14 +201,14 @@ void TransferCache::InsertRange(absl::Span<void *> batch, int N) {
     // First of all fill up the rest of the batch with elements from the
     // transfer cache.
     int extra = B - N;
-    if (N > 1 && extra > 0 && used_slots > 0 && batch.size() >= B) {
+    if (N > 1 && extra > 0 && info.used > 0 && batch.size() >= B) {
       // Take at most all the objects present
-      extra = std::min(extra, used_slots);
+      extra = std::min(extra, info.used);
       ASSERT(extra + N <= kMaxObjectsToMove);
-      used_slots -= extra;
-      used_slots_.store(used_slots, std::memory_order_relaxed);
+      info.used -= extra;
+      SetSlotInfo(info);
 
-      void **entry = GetSlot(used_slots);
+      void **entry = GetSlot(info.used);
       memcpy(batch.data() + N, entry, sizeof(void *) * extra);
       N += extra;
 #ifndef NDEBUG
@@ -235,30 +227,28 @@ int TransferCache::RemoveRange(void **batch, int N) {
   ASSERT(N > 0);
   const int B = Static::sizemap()->num_objects_to_move(freelist_.size_class());
   int fetch = 0;
-  int32_t used_slots = used_slots_.load(std::memory_order_relaxed);
-  if (N == B && used_slots >= N) {
+  auto info = slot_info_.load(std::memory_order_relaxed);
+  if (N == B && info.used >= N) {
     absl::base_internal::SpinLockHolder h(&lock_);
     // Refetch with the lock
-    used_slots = used_slots_.load(std::memory_order_relaxed);
-    if (used_slots >= N) {
-      used_slots -= N;
-      used_slots_.store(used_slots, std::memory_order_relaxed);
-      ASSERT(0 <= used_slots);
-      void **entry = GetSlot(used_slots);
+    info = slot_info_.load(std::memory_order_relaxed);
+    if (info.used >= N) {
+      info.used -= N;
+      SetSlotInfo(info);
+      void **entry = GetSlot(info.used);
       memcpy(batch, entry, sizeof(void *) * N);
       tracking::Report(kTCRemoveHit, freelist_.size_class(), 1);
       return N;
     }
-  } else if (arbitrary_transfer_ && used_slots >= 0) {
+  } else if (arbitrary_transfer_ && info.used >= 0) {
     absl::base_internal::SpinLockHolder h(&lock_);
     // Refetch with the lock
-    used_slots = used_slots_.load(std::memory_order_relaxed);
+    info = slot_info_.load(std::memory_order_relaxed);
 
-    fetch = std::min(N, used_slots);
-    used_slots -= fetch;
-    ASSERT(0 <= used_slots);
-    used_slots_.store(used_slots, std::memory_order_relaxed);
-    void **entry = GetSlot(used_slots);
+    fetch = std::min(N, info.used);
+    info.used -= fetch;
+    SetSlotInfo(info);
+    void **entry = GetSlot(info.used);
     memcpy(batch, entry, sizeof(void *) * fetch);
     tracking::Report(kTCRemoveHit, freelist_.size_class(), 1);
     if (fetch == N) return N;
@@ -268,7 +258,7 @@ int TransferCache::RemoveRange(void **batch, int N) {
 }
 
 size_t TransferCache::tc_length() {
-  return static_cast<size_t>(used_slots_.load(std::memory_order_relaxed));
+  return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
 }
 
 #endif
