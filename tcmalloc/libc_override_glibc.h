@@ -33,14 +33,13 @@
 // function call.
 #if !defined(__GNUC__) || defined(__MACH__)
 
-// This also defines ReplaceSystemAlloc().
 #include "libc_override_redefine.h"
 
 #else  // #if !defined(__GNUC__) || defined(__MACH__)
 
 // If we get here, we're a gcc system, so do all the overriding we do
 // with gcc.  This does the overriding of all the 'normal' memory
-// allocation.  This also defines ReplaceSystemAlloc().
+// allocation.
 # include "libc_override_gcc_and_weak.h"
 
 // We also have to do some glibc-specific overriding.  Some library
@@ -118,8 +117,5 @@ void* (* __MALLOC_HOOK_VOLATILE __memalign_hook)(size_t,size_t, const void*) =
     &glibc_override_memalign;
 
 }   // extern "C"
-
-// No need to write ReplaceSystemAlloc(); one of the #includes above
-// did it for us.
 
 #endif  // TCMALLOC_LIBC_OVERRIDE_GLIBC_INL_H_

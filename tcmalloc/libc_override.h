@@ -17,15 +17,6 @@
 // logic that makes it so calls to malloc(10) go through tcmalloc,
 // rather than the default (libc) malloc.
 //
-// This file also provides a method: ReplaceSystemAlloc(), that every
-// libc_override_*.h file it #includes is required to provide.  This
-// is called when first setting up tcmalloc -- that is, when a global
-// constructor in tcmalloc.cc is executed -- to do any initialization
-// work that may be required for this OS.  (Note we cannot entirely
-// control when tcmalloc is initialized, and the system may do some
-// mallocs and frees before this routine is called.)  It may be a
-// noop.
-//
 // Every libc has its own way of doing this, and sometimes the compiler
 // matters too, so we have a different file for each libc, and often
 // for different compilers and OS's.
@@ -37,13 +28,7 @@
 
 #include "tcmalloc/tcmalloc.h"
 
-static void ReplaceSystemAlloc();  // defined in the .h files below
-
-#if defined(OS_WINDOWS)
-// We don't do any overriding on windows.  Just provide a dummy function.
-static void ReplaceSystemAlloc() { }
-
-#elif defined(__GLIBC__)
+#if defined(__GLIBC__)
 #include "tcmalloc/libc_override_glibc.h"
 
 #else

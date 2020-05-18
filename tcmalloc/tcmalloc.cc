@@ -2279,7 +2279,6 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
 class TCMallocGuard {
  public:
   TCMallocGuard() {
-    ReplaceSystemAlloc();  // defined in libc_override_*.h
     TCMallocInternalFree(TCMallocInternalMalloc(1));
     ThreadCache::InitTSD();
     TCMallocInternalFree(TCMallocInternalMalloc(1));

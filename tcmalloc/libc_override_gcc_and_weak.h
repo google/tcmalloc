@@ -110,8 +110,4 @@ size_t malloc_usable_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 }   // extern "C"
 
-// No need to do anything at tcmalloc-registration time: we do it all
-// via overriding weak symbols (at link time).
-static void ReplaceSystemAlloc() { }
-
 #endif  // TCMALLOC_LIBC_OVERRIDE_GCC_AND_WEAK_INL_H_

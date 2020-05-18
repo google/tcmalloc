@@ -80,8 +80,4 @@ size_t malloc_usable_size(void* p) noexcept {
 }
 }  // extern "C"
 
-// No need to do anything at tcmalloc-registration time: we do it all
-// via overriding weak symbols (at link time).
-static void ReplaceSystemAlloc() { }
-
 #endif  // TCMALLOC_LIBC_OVERRIDE_REDEFINE_H_
