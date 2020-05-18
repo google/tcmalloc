@@ -288,12 +288,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "mov %w[current], (%[scratch], %[cl], 8)\n"
       // Commit
       "5:\n"
-      : [ current ] "=&r"(current), [ scratch ] "=&r"(scratch),
-        [ overflow ] "=&r"(overflow)
-      : [ rseq_cs ] "r"(&__rseq_abi.rseq_cs),
-        [ rseq_cpu ] "r"(&__rseq_abi.cpu_id),
-        [ rseq_sig ] "in"(PERCPU_RSEQ_SIGNATURE), [ shift ] "in"(Shift),
-        [ slabs ] "r"(slabs), [ cl ] "r"(cl), [ item ] "r"(item)
+      : [current] "=&r"(current), [scratch] "=&r"(scratch),
+        [overflow] "=&r"(overflow)
+      : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
+        [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
+        [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory");
   // Undo transformation of cpu_id to the value of scratch.
   int cpu = reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
