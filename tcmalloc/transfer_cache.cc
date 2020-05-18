@@ -94,9 +94,10 @@ void TransferCache::Init(size_t cl) {
     // whichever is greater. Total transfer cache memory used across all
     // size classes then can't be greater than approximately
     // 1MB * kMaxNumTransferEntries.
-    max_capacity_ = std::clamp<size_t>(
-        objs_to_move, max_capacity_,
-        (1024 * 1024) / (bytes * objs_to_move) * objs_to_move);
+    max_capacity_ = std::min<size_t>(
+        max_capacity_,
+        std::max<size_t>(objs_to_move, (1024 * 1024) / (bytes * objs_to_move) *
+                                           objs_to_move));
     info.capacity = std::min(info.capacity, max_capacity_);
     slots_ = reinterpret_cast<void **>(
         Static::arena()->Alloc(max_capacity_ * sizeof(void *)));
