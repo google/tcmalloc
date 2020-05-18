@@ -65,11 +65,6 @@
     GET_CPU_UNMASKED(dst); \
     MASK_CPU(dst, dst)
 
-// Given an unmasked CPU number, calculate the offset of that CPU's word from
-// CPU 0's into dst.
-#define CALCULATE_PER_CPU_WORD_OFFSET(dst, unmasked_cpu) \
-    clrlsldi dst, unmasked_cpu, 52, PERCPU_BYTES_PER_REGION_SHIFT
-
 // This is part of the upstream rseq ABI.  The 4 bytes prior to the abort IP
 // must match PERCPU_RSEQ_SIGNATURE (as configured by our rseq syscall's
 // signature parameter).  This signature is used to annotate valid abort IPs

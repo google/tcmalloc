@@ -123,25 +123,6 @@ label##_trampoline:                                 \
  */
 #define ENCODE_SIZE(label) .size label, . - label;
 
-/*
- * Fetches the per-cpu data addressed by (%base) for cpu %cpu into %dest.
- *
- *  %base must be distinct from %dest since the actual address is calculated in
- *  place using %cpu
- */
-#define FETCH_PERCPU_DATA(cpu, base, dest) \
-  movslq cpu, dest; \
-  shlq $PERCPU_BYTES_PER_REGION_SHIFT, dest; \
-  addq base, dest;
-
-/*
- *  Combines FETCH_CPU and FETCH_PERCPU_DATA above for the local cpu (which is
- *  also returned in %cpu).
- */
-#define FETCH_LOCAL_PERCPU_DATA(cpu, base, dest) \
-  FETCH_CPU(cpu); \
-  FETCH_PERCPU_DATA(cpu, base, dest);
-
 /* In all non-position independent cases we need to use RIP-relative label
    addresses */
 #if !defined(__PIC__)
