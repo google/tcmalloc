@@ -63,16 +63,20 @@ class PageId {
   uintptr_t pn_;
 };
 
-inline constexpr Length kMaxValidPages =
-    (~static_cast<Length>(0)) >> kPageShift;
-// For all span-lengths < kMaxPages we keep an exact-size list.
-inline constexpr Length kMaxPages = Length(1 << (20 - kPageShift));
-
 // Convert byte size into pages.  This won't overflow, but may return
 // an unreasonably large value if bytes is huge enough.
-inline Length pages(size_t bytes) {
+inline constexpr Length BytesToLengthCeil(size_t bytes) {
   return (bytes >> kPageShift) + ((bytes & (kPageSize - 1)) > 0 ? 1 : 0);
 }
+
+inline constexpr Length BytesToLengthFloor(size_t bytes) {
+  return bytes >> kPageShift;
+}
+
+inline constexpr Length kMaxValidPages =
+    BytesToLengthFloor(~static_cast<Length>(0));
+// For all span-lengths < kMaxPages we keep an exact-size list.
+inline constexpr Length kMaxPages = Length(1 << (20 - kPageShift));
 
 inline PageId& operator++(PageId& p) {  // NOLINT(runtime/references)
   return p += 1;

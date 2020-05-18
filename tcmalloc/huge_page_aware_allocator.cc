@@ -593,7 +593,7 @@ void *HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t *actual,
   void *p = SystemAlloc(bytes, actual, align, tagged);
   if (p == nullptr) return p;
   const PageId page = PageIdContaining(p);
-  const Length page_len = (*actual) >> kPageShift;
+  const Length page_len = BytesToLengthFloor(*actual);
   Static::pagemap()->Ensure(page, page_len);
   return p;
 }

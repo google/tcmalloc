@@ -430,7 +430,7 @@ bool PageHeap::GrowHeap(Length n) {
   size_t actual_size;
   void* ptr = SystemAlloc(n << kPageShift, &actual_size, kPageSize, tagged_);
   if (ptr == nullptr) return false;
-  n = actual_size >> kPageShift;
+  n = BytesToLengthFloor(actual_size);
 
   stats_.system_bytes += actual_size;
   const PageId p = PageIdContaining(ptr);

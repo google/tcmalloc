@@ -32,7 +32,7 @@ namespace {
 
 // PageHeap expands by kMinSystemAlloc by default, so use this as the minimum
 // Span length to not get more memory than expected.
-constexpr Length kMinSpanLength = kMinSystemAlloc >> kPageShift;
+constexpr Length kMinSpanLength = BytesToLengthFloor(kMinSystemAlloc);
 
 void CheckStats(const tcmalloc::PageHeap* ph, Length system_pages,
                 Length free_pages, Length unmapped_pages)
