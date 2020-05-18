@@ -134,21 +134,13 @@ bool TransferCache::MakeCacheSpace(int N) {
 }
 
 bool TransferCache::ShrinkCache() {
-  auto info = slot_info_.load(std::memory_order_relaxed);
-
-  // Start with a quick check without taking a lock.
-  if (info.capacity == 0) return false;
-
   int N = Static::sizemap()->num_objects_to_move(freelist_.size_class());
 
   void *to_free[kMaxObjectsToMove];
   int num_to_free;
   {
     absl::base_internal::SpinLockHolder h(&lock_);
-
-    // Fetch while holding the lock in case they changed.
-    info = slot_info_.load(std::memory_order_relaxed);
-
+    auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity == 0) return false;
     if (!arbitrary_transfer_ && info.capacity < N) return false;
 
@@ -164,6 +156,7 @@ bool TransferCache::ShrinkCache() {
     info.capacity -= N;
     info.used -= num_to_free;
     SetSlotInfo(info);
+
     // Our internal slot array may get overwritten as soon as we drop the lock,
     // so copy the items to free to an on stack buffer.
     memcpy(to_free, GetSlot(info.used), sizeof(void *) * num_to_free);
