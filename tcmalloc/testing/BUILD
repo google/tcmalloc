@@ -51,6 +51,27 @@ REGTEST_OPTS = [
     "$(STACK_FRAME_UNLIMITED)",  # required for tcmalloc_test.cc
 ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS
 
+EMPIRICAL_DEPS = [
+    ":empirical",
+    ":empirical_distributions",
+    ":testutil",
+    "//tcmalloc/internal:atomic_stats_counter",
+    "//tcmalloc/internal:logging",
+    "//tcmalloc/internal:util",
+    "//tcmalloc:want_hpaa",
+    "@com_google_absl//absl/base",
+    "@com_google_absl//absl/base:core_headers",
+    "@com_google_absl//absl/flags:flag",
+    "@com_google_absl//absl/flags:parse",
+    "@com_google_absl//absl/memory",
+    "@com_google_absl//absl/random:distributions",
+    "@com_google_absl//absl/strings",
+    "@com_google_absl//absl/strings:str_format",
+    "@com_google_absl//absl/synchronization",
+    "@com_google_absl//absl/time",
+    "//tcmalloc:malloc_extension",
+]
+
 cc_library(
     name = "testutil",
     testonly = 1,
@@ -517,6 +538,58 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
+)
+
+cc_library(
+    name = "empirical_distributions",
+    testonly = 1,
+    srcs = ["empirical_distributions.cc"],
+    hdrs = ["empirical_distributions.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":empirical",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_binary(
+    name = "empirical_driver",
+    testonly = 1,
+    srcs = ["empirical_driver.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = EMPIRICAL_DEPS,
+)
+
+cc_binary(
+    name = "empirical_driver_hpaa",
+    testonly = 1,
+    srcs = ["empirical_driver.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = EMPIRICAL_DEPS,
+)
+
+cc_binary(
+    name = "empirical_driver_small_but_slow",
+    testonly = 1,
+    srcs = ["empirical_driver.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_small_but_slow",
+    deps = EMPIRICAL_DEPS,
+)
+
+cc_binary(
+    name = "empirical_driver_256k_pages",
+    testonly = 1,
+    srcs = ["empirical_driver.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_256k_pages",
+    deps = EMPIRICAL_DEPS,
 )
 
 cc_test(
