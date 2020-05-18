@@ -78,6 +78,10 @@ class TransferCache {
     return freelist_.OverheadBytes();
   }
 
+  SizeInfo GetSlotInfo() const {
+    return slot_info_.load(std::memory_order_relaxed);
+  }
+
  private:
   // REQUIRES: lock is held.
   // Tries to make room for a batch.  If the cache is full it will try to expand
@@ -85,22 +89,10 @@ class TransferCache {
   // space.
   bool MakeCacheSpace(int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
-  // REQUIRES: lock_ for locked_size_class is held.
-  // Picks a "random" size class to steal slots from.  In reality it just
-  // iterates over the sizeclasses but does so without taking a lock.  Returns
-  // true on success.
-  // May temporarily lock a "random" size class.
-  static bool EvictRandomSizeClass(int locked_size_class, bool force);
-
   // REQUIRES: lock_ is *not* held.
-  // Tries to shrink the Cache.  If force is true it will relase objects to
-  // spans if it allows it to shrink the cache.  Return false if it failed to
-  // shrink the cache.  Decreases cache_slots_ on success.
-  // May temporarily take lock_.  If it takes lock_, the locked_size_class
-  // lock is released to keep the thread from holding two size class locks
-  // concurrently which could lead to a deadlock.
-  bool ShrinkCache(int locked_size_class, bool force)
-      ABSL_LOCKS_EXCLUDED(lock_);
+  // Tries to shrink the Cache.  Return false if it failed to shrink the cache.
+  // Decreases cache_slots_ on success.
+  bool ShrinkCache() ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns first object of the i-th slot.
   void **GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {

@@ -19,8 +19,10 @@
 #include <algorithm>
 #include <atomic>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
@@ -28,6 +30,35 @@
 
 namespace tcmalloc {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
+class EvictionManager {
+ public:
+  constexpr EvictionManager() : next_(1) {}
+
+  int DetermineSizeClassToEvict() {
+    int t = next_.load(std::memory_order_relaxed);
+    if (t >= kNumClasses) t = 1;
+    next_.store(t + 1, std::memory_order_relaxed);
+
+    // Ask nicely first.
+    int N = Static::sizemap()->num_objects_to_move(t);
+    auto info = Static::transfer_cache()[t].GetSlotInfo();
+    if (info.capacity - info.used >= N) {
+      return t;
+    }
+
+    // But insist on the second try.
+    t = next_.load(std::memory_order_relaxed);
+    if (t >= kNumClasses) t = 1;
+    next_.store(t + 1, std::memory_order_relaxed);
+    return t;
+  }
+
+ private:
+  std::atomic<int32_t> next_;
+};
+
+ABSL_CONST_INIT EvictionManager gEvictionManager;
+
 void TransferCache::Init(size_t cl) {
   absl::base_internal::SpinLockHolder h(&lock_);
   freelist_.Init(cl);
@@ -73,41 +104,35 @@ void TransferCache::Init(size_t cl) {
   SetSlotInfo(info);
 }
 
-bool TransferCache::EvictRandomSizeClass(int locked_size_class, bool force) {
-  // t == 0 is never valid, hence starting at/reseting to 1
-  static std::atomic<int32_t> race_counter{1};
-  int t = race_counter.load(std::memory_order_relaxed);
-  if (t >= kNumClasses) t = 1;
-  race_counter.store(t + 1, std::memory_order_relaxed);
-  ASSERT(0 < t && t < kNumClasses);
-  if (t == locked_size_class) return false;
-  return Static::transfer_cache()[t].ShrinkCache(locked_size_class, force);
-}
-
 bool TransferCache::MakeCacheSpace(int N) {
   auto info = slot_info_.load(std::memory_order_relaxed);
   // Is there room in the cache?
   if (info.used + N <= info.capacity) return true;
   // Check if we can expand this cache?
   if (info.capacity + N > max_capacity_) return false;
-  // Ok, we'll try to grab an entry from some other size class.
-  if (EvictRandomSizeClass(freelist_.size_class(), false) ||
-      EvictRandomSizeClass(freelist_.size_class(), true)) {
-    // Succeeded in evicting, we're going to make our cache larger.  However, we
-    // may have dropped and re-acquired the lock in EvictRandomSizeClass (via
-    // ShrinkCache), so the cache_size may have changed.  Therefore, check and
-    // verify that it is still OK to increase the cache_size.
-    info = slot_info_.load(std::memory_order_relaxed);
-    if (info.capacity + N <= max_capacity_) {
-      info.capacity += N;
-      SetSlotInfo(info);
-      return true;
-    }
-  }
-  return false;
+
+  int to_evict = gEvictionManager.DetermineSizeClassToEvict();
+  if (to_evict == freelist_.size_class()) return false;
+
+  // Release the held lock before the other instance tries to grab its lock.
+  lock_.Unlock();
+  bool made_space = Static::transfer_cache()[to_evict].ShrinkCache();
+  lock_.Lock();
+
+  if (!made_space) return false;
+
+  // Succeeded in evicting, we're going to make our cache larger.  However, we
+  // may have dropped and re-acquired the lock, so the cache_size may have
+  // changed.  Therefore, check and verify that it is still OK to increase the
+  // cache_size.
+  info = slot_info_.load(std::memory_order_relaxed);
+  if (info.capacity + N > max_capacity_) return false;
+  info.capacity += N;
+  SetSlotInfo(info);
+  return true;
 }
 
-bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
+bool TransferCache::ShrinkCache() {
   auto info = slot_info_.load(std::memory_order_relaxed);
 
   // Start with a quick check without taking a lock.
@@ -115,20 +140,6 @@ bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
 
   int N = Static::sizemap()->num_objects_to_move(freelist_.size_class());
 
-  // We don't evict from a full cache unless we are 'forcing'.
-  if (!force && info.used + N >= info.capacity) return false;
-
-  // Release the other held lock before acquiring the current lock to avoid a
-  // dead lock.
-  struct SpinLockReleaser {
-    absl::base_internal::SpinLock *lock_;
-
-    SpinLockReleaser(absl::base_internal::SpinLock *lock) : lock_(lock) {
-      lock_->Unlock();
-    }
-    ~SpinLockReleaser() { lock_->Lock(); }
-  };
-  SpinLockReleaser unlocker(&Static::transfer_cache()[locked_size_class].lock_);
   void *to_free[kMaxObjectsToMove];
   int num_to_free;
   {
@@ -147,7 +158,6 @@ bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
       SetSlotInfo(info);
       return true;
     }
-    if (!force) return false;
 
     num_to_free = N - unused;
     info.capacity -= N;
@@ -157,7 +167,8 @@ bool TransferCache::ShrinkCache(int locked_size_class, bool force) {
     // so copy the items to free to an on stack buffer.
     memcpy(to_free, GetSlot(info.used), sizeof(void *) * num_to_free);
   }
-  // Access the freelist while holding *neither* lock.
+
+  // Access the freelist without holding the lock.
   freelist_.InsertRange(to_free, num_to_free);
   return true;
 }
