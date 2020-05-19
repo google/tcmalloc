@@ -281,15 +281,16 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "movzwq (%[scratch], %[cl], 8), %[current]\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
       "cmp 6(%[scratch], %[cl], 8), %w[current]\n"
-      "setae %b[overflow]\n"
       "jae 5f\n"
+      // Important! code below this must not affect any flags (i.e.: ccae)
+      // If so, the above code needs to explicitly set a ccae return value.
       "mov %[item], (%[scratch], %[current], 8)\n"
-      "inc %[current]\n"
+      "lea 1(%[current]), %[current]\n"
       "mov %w[current], (%[scratch], %[cl], 8)\n"
       // Commit
       "5:\n"
       : [current] "=&r"(current), [scratch] "=&r"(scratch),
-        [overflow] "=&r"(overflow)
+        [overflow] "=@ccae"(overflow)
       : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
         [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
@@ -382,8 +383,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
       "movzwq (%[scratch], %[cl], 8), %[current]\n"
       // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
       "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
-      "setbe %[underflow]\n"
       "jbe 5f\n"
+      // Important! code below this must not affect any flags (i.e.: ccbe)
+      // If so, the above code needs to explicitly set a ccbe return value.
       "mov -16(%[scratch], %[current], 8), %[result]\n"
       // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
       // trace analysis shows the target is frequently used (b/70294962).
@@ -392,10 +394,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
       // may have deps) to fill the TLB and the cache miss.
       "prefetcht0 (%[result])\n"
       "movq -8(%[scratch], %[current], 8), %[result]\n"
-      "decl (%[scratch], %[cl], 8)\n"
+      "lea -1(%[current]), %[current]\n"
+      "mov %w[current], (%[scratch], %[cl], 8)\n"
       // Commit
       "5:\n"
-      : [result] "=&r"(result), [underflow] "=&r"(underflow),
+      : [result] "=&r"(result), [underflow] "=@ccbe"(underflow),
         [scratch] "=&r"(scratch), [current] "=&r"(current)
       : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
         [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
