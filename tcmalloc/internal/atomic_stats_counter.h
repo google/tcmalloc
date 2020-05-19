@@ -20,9 +20,6 @@
 #include "absl/base/macros.h"
 
 namespace tcmalloc {
-
-class CentralFreeList;
-
 namespace tcmalloc_internal {
 
 class StatsCounter {
