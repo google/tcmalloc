@@ -98,7 +98,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     stacktrace_allocator_.Init(&arena_);
     bucket_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
-    CHECK_CONDITION((sizeof(transfer_cache_[0]) % 64) == 0);
+    CHECK_CONDITION((sizeof(transfer_cache_[0]) % ABSL_CACHELINE_SIZE) == 0);
     for (int i = 0; i < kNumClasses; ++i) {
       transfer_cache_[i].Init(i);
     }

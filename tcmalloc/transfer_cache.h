@@ -157,7 +157,7 @@ class TransferCache {
 
  private:
   CentralFreeList freelist_;
-};
+} ABSL_CACHELINE_ALIGNED;
 
 #endif
 }  // namespace tcmalloc
