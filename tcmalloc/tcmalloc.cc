@@ -1030,13 +1030,14 @@ extern "C" void MallocExtension_Internal_SetRegionFactory(
   tcmalloc::SetRegionFactory(factory);
 }
 
+// ReleaseMemoryToSystem drops the page heap lock while actually calling to
+// kernel to release pages. To avoid confusing ourselves with
+// extra_bytes_released handling, lets do separate lock just for release.
+ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
+
 extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
     size_t num_bytes) {
-  // We're dropping page heap lock while actually calling to kernel to release
-  // pages. To avoid confusing ourselves with extra_bytes_released handling,
-  // lets do separate lock just for release.
-  ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
   // ReleaseMemoryToSystem() might release more than the requested bytes because
   // the page heap releases at the span granularity, and spans are of wildly
   // different sizes.  This keeps track of the extra bytes bytes released so
