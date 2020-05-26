@@ -20,7 +20,6 @@
 
 extern "C" {
 
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetDetectUseAfterFree();
 ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetLazyPerCpuCachesEnabled();
@@ -29,7 +28,6 @@ TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesEnabled();
 ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
                                                       size_t buffer_length);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetDetectUseAfterFree(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
