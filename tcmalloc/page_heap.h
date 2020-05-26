@@ -82,14 +82,6 @@ class PageHeap : public PageAllocatorInterface {
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
  private:
-  // Never delay scavenging for more than the following number of
-  // deallocated pages.  With 8K pages, this comes to 8GiB of
-  // deallocation.
-  static constexpr int kMaxReleaseDelay = 1 << 20;
-
-  // If there is nothing to release, wait for so many pages before
-  // scavenging again.  With 8K pages, this comes to 2GiB of memory.
-  static constexpr int kDefaultReleaseDelay = 1 << 18;
 
   // We segregate spans of a given size into two circular linked
   // lists: one for normal spans, and one for spans whose memory
@@ -147,22 +139,6 @@ class PageHeap : public PageAllocatorInterface {
   // Return the length of that span.
   Length ReleaseLastNormalSpan(SpanListPair* slist)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // Prints stats for the given list of Spans.
-  //  - span_type: a short, human-readable string describing the spans
-  //    (typically "live" or "unmapped").
-  //  - span_size: the number of pages in each of the given spans.  For large
-  //    spans (which are of various sizes), pass kMaxPages.
-  //  - span_size_prefix: We print this string immediately to the left of the
-  //    span size.  This is useful for large spans (e.g. you might pass ">=").
-  void DumpSubSpanStats(TCMalloc_Printer* out, const SpanList* spans,
-                        const char* span_type, int span_size,
-                        uint64_t cycle_now, double cycle_clock_freq,
-                        const char* span_size_prefix);
-  // Prints summary stats for all live ("normal") or unmapped ("returned")
-  // pages.
-  void DumpSpanTotalStats(TCMalloc_Printer* out, uint64_t cycle_now,
-                          double cycle_clock_freq, bool live_spans);
 
   // Do invariant testing.
   bool Check() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
