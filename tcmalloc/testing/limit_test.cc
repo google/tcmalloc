@@ -137,7 +137,7 @@ TEST_F(LimitTest, LimitRespected) {
   }
 }
 
-  TEST_F(LimitTest, DISABLED_HardLimitRespected) {  // b/143314400
+TEST_F(LimitTest, HardLimitRespected) {
   static const size_t kLim = 300 << 20;
   SetLimit(kLim, true);
 
