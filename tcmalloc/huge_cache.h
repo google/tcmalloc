@@ -133,15 +133,6 @@ class HugeCache {
   // Sum total of unreleased requests.
   HugeLength usage() const { return usage_; }
 
-  size_t hits() const { return hits_; }
-  size_t misses() const { return misses_; }
-  uint64_t max_size() const { return max_size_.raw_num(); }
-  uint64_t max_rss() const { return max_rss_.raw_num(); }
-  uint64_t weighted_hits() const { return weighted_hits_; }
-  uint64_t weighted_misses() const { return weighted_misses_; }
-
-  const MinMaxTracker<> *usage_tracker() const { return &usage_tracker_; }
-
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                     PageAgeHistograms *ages) const;
 
