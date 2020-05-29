@@ -807,6 +807,8 @@ template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,
                                                 TrackerType **hugepage,
                                                 PageId *p) {
+  ASSERT(n > Length(0));
+
   // How do we choose which hugepage to allocate from (among those with
   // a free range of at least n?) Our goal is to be as space-efficient
   // as possible, which leads to two priorities:

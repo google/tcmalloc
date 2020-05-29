@@ -198,6 +198,8 @@ inline size_t RangeTracker<N>::allocs() const {
 
 template <size_t N>
 inline size_t RangeTracker<N>::FindAndMark(size_t n) {
+  ASSERT(n > 0);
+
   // We keep the two longest ranges in the bitmap since we might allocate
   // from one.
   size_t longest_len = 0;
