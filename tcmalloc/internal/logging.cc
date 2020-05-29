@@ -19,7 +19,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syscall.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -44,7 +43,7 @@ static char stats_buffer[kStatsBufferSize] = { 0 };
 namespace tcmalloc {
 
 static void WriteMessage(const char* msg, int length) {
-  syscall(SYS_write, STDERR_FILENO, msg, length);
+  (void)::write(STDERR_FILENO, msg, length);
 }
 
 void (*log_message_writer)(const char* msg, int length) = WriteMessage;
