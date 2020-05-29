@@ -574,8 +574,7 @@ void HugePageAwareAllocator::PrintInPbtxt(PbtxtRegion *region) {
     astats.system_bytes -= (fstats + rstats + cstats).system_bytes;
     BreakdownStatsInPbtxt(&hpaa, astats, "alloc_usage");
 
-    filler_.PrintInPbtxt(
-        &hpaa, fstats.system_bytes - fstats.free_bytes - fstats.unmapped_bytes);
+    filler_.PrintInPbtxt(&hpaa);
     regions_.PrintInPbtxt(&hpaa);
     cache_.PrintInPbtxt(&hpaa);
     alloc_.PrintInPbtxt(&hpaa);

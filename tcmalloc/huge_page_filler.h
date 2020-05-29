@@ -480,7 +480,7 @@ class HugePageFiller {
 
   BackingStats stats() const;
   void Print(TCMalloc_Printer *out, bool everything) const;
-  void PrintInPbtxt(PbtxtRegion *hpaa, uint64_t filler_usage_used) const;
+  void PrintInPbtxt(PbtxtRegion *hpaa) const;
 
  private:
   typedef TList<TrackerType> TrackerList;
@@ -1386,8 +1386,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(
-    PbtxtRegion *hpaa, uint64_t filler_usage_used) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   HugeLength nrel =
       regular_alloc_released_.size() + regular_alloc_partial_released_.size();
   HugeLength nfull = NHugePages(0);
@@ -1416,9 +1415,10 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(
       "filler_unmapped_bytes",
       static_cast<uint64_t>(nrel.raw_num() *
                           safe_div(unmapped_pages(), nrel.in_pages())));
-  hpaa->PrintI64("filler_hugepageable_used_bytes",
-                 static_cast<uint64_t>(hugepage_frac() *
-                                     static_cast<double>(filler_usage_used)));
+  hpaa->PrintI64(
+      "filler_hugepageable_used_bytes",
+      static_cast<uint64_t>(hugepage_frac() *
+                          static_cast<double>(allocated_ * kPageSize)));
 
   // Compute some histograms of fullness.
   using ::tcmalloc::internal::UsageInfo;

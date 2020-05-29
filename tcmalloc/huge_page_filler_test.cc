@@ -1657,9 +1657,7 @@ TEST_P(FillerTest, PrintInPbtxt) {
   {
     TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     PbtxtRegion region(&printer, kTop, /*indent=*/0);
-    // Hardcoding the effective page size, to avoid depending on it in the
-    // output.
-    filler_.PrintInPbtxt(&region, filler_.used_pages() * 8192);
+    filler_.PrintInPbtxt(&region);
   }
   // Find the \0 that got added.
   buffer.resize(strlen(buffer.c_str()));
@@ -3198,7 +3196,7 @@ TEST_P(FillerTest, CheckBufferSize) {
   {
     TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     PbtxtRegion region(&printer, kTop, /*indent=*/0);
-    filler_.PrintInPbtxt(&region, filler_.used_pages() * 8192);
+    filler_.PrintInPbtxt(&region);
   }
 
   // We assume a maximum buffer size of 1 MiB. When increasing this size, ensure
