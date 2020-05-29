@@ -20,8 +20,8 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/util.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 

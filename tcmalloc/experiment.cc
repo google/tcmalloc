@@ -18,8 +18,8 @@
 
 #include "absl/base/macros.h"
 #include "absl/strings/str_cat.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/util.h"
 
 using tcmalloc::internal::kNumExperiments;
 using tcmalloc::tcmalloc_internal::thread_safe_getenv;

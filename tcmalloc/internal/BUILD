@@ -80,6 +80,27 @@ cc_library(
 )
 
 cc_library(
+    name = "environment",
+    srcs = ["environment.cc"],
+    hdrs = ["environment.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+)
+
+cc_test(
+    name = "environment_test",
+    srcs = ["environment_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":environment",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "linked_list",
     hdrs = ["linked_list.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

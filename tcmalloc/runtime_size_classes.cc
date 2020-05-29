@@ -17,8 +17,8 @@
 #include <string.h>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/util.h"
 
 using tcmalloc::kLog;
 

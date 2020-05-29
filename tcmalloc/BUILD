@@ -49,8 +49,8 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":malloc_extension",
+        "//tcmalloc/internal:environment",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:util",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
@@ -285,6 +285,7 @@ common_deps = [
     "//tcmalloc/internal:bits",
     "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
+    "//tcmalloc/internal:environment",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
@@ -370,8 +371,8 @@ cc_library(
     ],
     deps = [
         ":size_class_info",
+        "//tcmalloc/internal:environment",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:util",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
     ],

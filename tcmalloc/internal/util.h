@@ -85,20 +85,6 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read);
 // involved with the latter.
 int signal_safe_poll(struct ::pollfd *fds, int nfds, absl::Duration timeout);
 
-// WARNING ********************************************************************
-// getenv(2) can only be safely used in the absence of calls which perturb the
-// environment (e.g. putenv/setenv/clearenv).  The use of such calls is
-// strictly thread-hostile since these calls do *NOT* synchronize and there is
-// *NO* thread-safe way in which the POSIX **environ array may be queried about
-// modification.
-// ****************************************************************************
-// The default getenv(2) is not guaranteed to be thread-safe as there are no
-// semantics specifying the implementation of the result buffer.  The result
-// from thread_safe_getenv() may be safely queried in a multi-threaded context.
-// If you have explicit synchronization with changes environment variables then
-// any copies of the returned pointer must be invalidated across modification.
-const char* thread_safe_getenv(const char *env_var);
-
 // Affinity helpers.
 
 // Returns a vector of the which cpus the currently allowed thread is allowed to

@@ -124,27 +124,6 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read) {
   return rc;
 }
 
-// POSIX provides the **environ array which contains environment variables in a
-// linear array, terminated by a NULL string.  This array is only perturbed when
-// the environment is changed (which is inherently unsafe) so it's safe to
-// return a const pointer into it.
-// e.g. { "SHELL=/bin/bash", "MY_ENV_VAR=1", "" }
-extern "C" char **environ;
-const char* thread_safe_getenv(const char *env_var) {
-  int var_len = strlen(env_var);
-
-  char **envv = environ;
-  if (!envv) {
-    return nullptr;
-  }
-
-  for (; *envv != nullptr; envv++)
-    if (strncmp(*envv, env_var, var_len) == 0 && (*envv)[var_len] == '=')
-      return *envv + var_len + 1;  // skip over the '='
-
-  return nullptr;
-}
-
 std::vector<int> AllowedCpus() {
   // We have no need for dynamically sized sets (currently >1024 CPUs for glibc)
   // at the present time.  We could change this in the future.

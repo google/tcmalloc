@@ -32,6 +32,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/bits.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/pagemap.h"
