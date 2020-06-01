@@ -24,6 +24,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -46,6 +47,11 @@ void DumpHeapStats(absl::string_view label) {
 // Fixture for friend access to MallocExtension.
 class LimitTest : public ::testing::Test {
  protected:
+  LimitTest() {
+    stats_buffer_.reserve(3 << 20);
+    stats_pbtxt_.reserve(3 << 20);
+  }
+
   void SetLimit(size_t limit, bool is_hard) {
     MallocExtension::MemoryLimit v;
     v.limit = limit;
@@ -78,19 +84,50 @@ class LimitTest : public ::testing::Test {
     CHECK_CONDITION(i != m.end());
     return i->second.value;
   }
+
+  // Returns a human-readable stats representation.  This is backed by
+  // stats_buffer_, to avoid allocating while potentially under a memory limit.
+  absl::string_view GetStats() {
+    size_t capacity = stats_buffer_.capacity();
+    stats_buffer_.resize(capacity);
+    char *data = stats_buffer_.data();
+
+    int actual_size = TCMalloc_Internal_GetStats(data, capacity);
+    stats_buffer_.erase(actual_size);
+    return absl::string_view(data, actual_size);
+  }
+
+  // Returns a pbtxt-based stats representation.  This is backed by
+  // stats_pbtxt_, to avoid allocating while potentially under a memory limit.
+  absl::string_view GetStatsInPbTxt() {
+    size_t capacity = stats_pbtxt_.capacity();
+    stats_pbtxt_.resize(capacity);
+    char *data = stats_pbtxt_.data();
+
+    int actual_size = MallocExtension_Internal_GetStatsInPbtxt(data, capacity);
+    stats_pbtxt_.erase(actual_size);
+    return absl::string_view(data, actual_size);
+  }
+
+  std::string stats_buffer_;
+  std::string stats_pbtxt_;
 };
 
 TEST_F(LimitTest, LimitRespected) {
   static const size_t kLim = 4ul * 1024 * 1024 * 1024;
   SetLimit(kLim, false);
 
-  std::string statsBuf = MallocExtension::GetStats();
-  std::string statsPbtxt = GetStatsInPbTxt();
-  EXPECT_THAT(statsBuf, HasSubstr(absl::StrFormat(
-                            "PARAMETER desired_usage_limit_bytes %u", kLim)));
+  absl::string_view statsBuf = GetStats();
+  absl::string_view statsPbtxt = GetStatsInPbTxt();
+
+  char buf[512];
+  absl::SNPrintF(buf, sizeof(buf), "PARAMETER desired_usage_limit_bytes %u",
+                 kLim);
+  EXPECT_THAT(statsBuf, HasSubstr(buf));
   EXPECT_THAT(statsBuf, HasSubstr("Number of times limit was hit: 0"));
-  EXPECT_THAT(statsPbtxt, HasSubstr(absl::StrFormat(
-                              "desired_usage_limit_bytes: %u", kLim)));
+
+  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
+  EXPECT_THAT(statsPbtxt, HasSubstr(buf));
   EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: false"));
   EXPECT_THAT(statsPbtxt, HasSubstr("limit_hits: 0"));
 
@@ -125,7 +162,7 @@ TEST_F(LimitTest, LimitRespected) {
   DumpHeapStats("after allocating large objects");
   EXPECT_LE(physical_memory_used(), kLim);
 
-  statsBuf = MallocExtension::GetStats();
+  statsBuf = GetStats();
   statsPbtxt = GetStatsInPbTxt();
   // The HugePageAwareAllocator hits the limit more than once.
   EXPECT_THAT(statsBuf,
@@ -138,21 +175,24 @@ TEST_F(LimitTest, LimitRespected) {
 }
 
 TEST_F(LimitTest, HardLimitRespected) {
-  static const size_t kLim = 300 << 20;
+  static const size_t kLim = 400 << 20;
   SetLimit(kLim, true);
 
-  std::string statsBuf = MallocExtension::GetStats();
-  std::string statsPbtxt = GetStatsInPbTxt();
-  EXPECT_THAT(statsBuf,
-              HasSubstr(absl::StrFormat(
-                  "PARAMETER desired_usage_limit_bytes %u (hard)", kLim)));
-  EXPECT_THAT(statsPbtxt, HasSubstr(absl::StrFormat(
-                              "desired_usage_limit_bytes: %u", kLim)));
-  EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: true"));
+  absl::string_view statsBuf = GetStats();
+  absl::string_view statsPbtxt = GetStatsInPbTxt();
 
-  void *ptr = malloc_pages(50 << 20);
+  // Avoid gmock matchers, as they require a std::string which may allocate.
+  char buf[512];
+  absl::SNPrintF(buf, sizeof(buf),
+                 "PARAMETER desired_usage_limit_bytes %u (hard)", kLim);
+  EXPECT_TRUE(absl::StrContains(statsBuf, buf)) << statsBuf;
+
+  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
+  EXPECT_TRUE(absl::StrContains(statsPbtxt, buf)) << statsPbtxt;
+  EXPECT_TRUE(absl::StrContains(statsPbtxt, "hard_limit: true")) << statsPbtxt;
+
   ASSERT_DEATH(malloc_pages(400 << 20), "limit");
-  free(ptr);
+
   SetLimit(std::numeric_limits<size_t>::max(), false);
 }
 
@@ -162,13 +202,16 @@ TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
   TCMalloc_Internal_SetHPAASubrelease(false);
   EXPECT_FALSE(TCMalloc_Internal_GetHPAASubrelease());
 
-  std::string statsBuf = MallocExtension::GetStats();
-  std::string statsPbtxt = GetStatsInPbTxt();
-  EXPECT_THAT(statsBuf,
-              HasSubstr(absl::StrFormat(
-                  "PARAMETER desired_usage_limit_bytes %u (hard)", kLim)));
-  EXPECT_THAT(statsPbtxt, HasSubstr(absl::StrFormat(
-                              "desired_usage_limit_bytes: %u", kLim)));
+  absl::string_view statsBuf = GetStats();
+  absl::string_view statsPbtxt = GetStatsInPbTxt();
+
+  char buf[512];
+  absl::SNPrintF(buf, sizeof(buf),
+                 "PARAMETER desired_usage_limit_bytes %u (hard)", kLim);
+  EXPECT_THAT(statsBuf, HasSubstr(buf));
+
+  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
+  EXPECT_THAT(statsPbtxt, HasSubstr(buf));
   EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: true"));
 
   ASSERT_DEATH(
