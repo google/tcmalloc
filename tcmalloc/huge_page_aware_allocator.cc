@@ -69,6 +69,22 @@ bool decide_subrelease() {
   return true;
 }
 
+FillerPartialRerelease decide_partial_rerelease() {
+  const char *e = tcmalloc::tcmalloc_internal::thread_safe_getenv(
+      "TCMALLOC_PARTIAL_RELEASE_CONTROL");
+  if (e) {
+    if (e[0] == '0') {
+      return FillerPartialRerelease::Return;
+    }
+    if (e[0] == '1') {
+      return FillerPartialRerelease::Retain;
+    }
+    Log(kCrash, __FILE__, __LINE__, "bad env var", e);
+  }
+
+  return FillerPartialRerelease::Retain;
+}
+
 }  // namespace tcmalloc
 
 namespace tcmalloc {
@@ -85,9 +101,7 @@ namespace tcmalloc {
 // constructor from an experiment.
 HugePageAwareAllocator::HugePageAwareAllocator(bool tagged)
     : PageAllocatorInterface("HugePageAware", tagged),
-      filler_(IsExperimentActive(Experiment::TCMALLOC_PARTIAL_RELEASE)
-                  ? FillerPartialRerelease::Retain
-                  : FillerPartialRerelease::Return),
+      filler_(decide_partial_rerelease()),
       alloc_(tagged ? AllocAndReport<true> : AllocAndReport<false>,
              MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}) {
