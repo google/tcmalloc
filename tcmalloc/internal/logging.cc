@@ -103,9 +103,11 @@ void Log(LogMode mode, const char* filename, int line,
   // We might be crashing holding tcmalloc locks.
   // We're substantially less likely to try to take those locks
   // (and thus deadlock until the alarm timer fires) if we disable sampling.
-  if (TCMalloc_Internal_SetProfileSamplingRate != nullptr) {
+#ifndef __APPLE__
+  if (&TCMalloc_Internal_SetProfileSamplingRate != nullptr) {
     TCMalloc_Internal_SetProfileSamplingRate(0);
   }
+#endif  // __APPLE__
 
   bool first_crash = false;
   {
@@ -118,10 +120,12 @@ void Log(LogMode mode, const char* filename, int line,
 
   (*log_message_writer)(state.buf_, msglen);
   if (first_crash && mode == kCrashWithStats) {
+#ifndef __APPLE__
     if (&TCMalloc_Internal_GetStats != nullptr) {
       size_t n = TCMalloc_Internal_GetStats(stats_buffer, kStatsBufferSize);
       (*log_message_writer)(stats_buffer, std::min(n, kStatsBufferSize));
     }
+#endif  // __APPLE__
   }
 
   abort();
