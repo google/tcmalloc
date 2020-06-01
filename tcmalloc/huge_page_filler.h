@@ -1015,21 +1015,31 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType *> candidates, int current_candidates,
     const HintedTrackerLists<N> &tracker_list, size_t tracker_start) {
   auto PushCandidate = [&](TrackerType *pt) {
+    // If we have few candidates, we can avoid creating a heap.
+    //
+    // In ReleaseCandidates(), we unconditionally sort the list and linearly
+    // iterate through it--rather than pop_heap repeatedly--so we only need the
+    // heap for creating a bounded-size priority queue.
     if (current_candidates < candidates.size()) {
       candidates[current_candidates] = pt;
       current_candidates++;
-    } else {
-      // Consider popping the worst candidate from our list.
-      if (!CompareForSubrelease(candidates[0], pt)) {
-        // pt is worse than the current worst.
-        return;
-      }
 
-      std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
-                    CompareForSubrelease);
-      candidates[current_candidates - 1] = pt;
+      if (current_candidates == candidates.size()) {
+        std::make_heap(candidates.begin(), candidates.end(),
+                       CompareForSubrelease);
+      }
+      return;
     }
 
+    // Consider popping the worst candidate from our list.
+    if (!CompareForSubrelease(candidates[0], pt)) {
+      // pt is worse than the current worst.
+      return;
+    }
+
+    std::pop_heap(candidates.begin(), candidates.begin() + current_candidates,
+                  CompareForSubrelease);
+    candidates[current_candidates - 1] = pt;
     std::push_heap(candidates.begin(), candidates.begin() + current_candidates,
                    CompareForSubrelease);
   };
