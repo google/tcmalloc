@@ -13,7 +13,7 @@ starting development using TCMalloc at least run through this quick tutorial.
 
 Running the code within this tutorial requires:
 
-*   A compatible platform (E.g. Linux). Consult the [Platforms Guide](platforms)
+*   A compatible platform (E.g. Linux). Consult the [Platforms Guide](platforms.md)
     for more information.
 *   A compatible C++ compiler *supporting at least C++17*. Most major compilers
     are supported.
