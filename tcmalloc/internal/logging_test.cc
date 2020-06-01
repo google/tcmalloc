@@ -58,7 +58,10 @@ TEST(InternalLogging, MessageFormatting) {
   EXPECT_EQ("foo.cc:2] 0x401", *log_buffer);
 
   Log(kLog, "foo.cc", 10, "hello", long_string.c_str());
-  EXPECT_EQ("foo.cc:10] hello", *log_buffer);
+  EXPECT_THAT(*log_buffer,
+              testing::StartsWith(
+                  "foo.cc:10] hello the quick brown fox jumped over the lazy "
+                  "dogthe quick brown fox jumped over the lazy dog"));
 
   Log(kLogWithStack, "foo.cc", 10, "stk");
   EXPECT_TRUE(strstr(log_buffer->c_str(), "stk @ 0x") != nullptr)

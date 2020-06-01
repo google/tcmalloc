@@ -55,7 +55,7 @@ class Logger {
   bool AddStr(const char* str, int n);
   bool AddNum(uint64_t num, int base);  // base must be 10 or 16.
 
-  static constexpr int kBufSize = 200;
+  static constexpr int kBufSize = 512;
   char* p_;
   char* end_;
   char buf_[kBufSize];
@@ -161,7 +161,19 @@ bool Logger::Add(const LogItem& item) {
 }
 
 bool Logger::AddStr(const char* str, int n) {
-  if (end_ - p_ < n) {
+  ptrdiff_t remaining = end_ - p_;
+  if (remaining < n) {
+    // Try to log a truncated message if there is some space.
+    static constexpr absl::string_view kDots = "...";
+    if (remaining > kDots.size() + 1) {
+      int truncated = remaining - kDots.size();
+      memcpy(p_, str, truncated);
+      p_ += truncated;
+      memcpy(p_, kDots.data(), kDots.size());
+      p_ += kDots.size();
+
+      return true;
+    }
     return false;
   } else {
     memcpy(p_, str, n);
