@@ -39,6 +39,7 @@
 #include "absl/memory/memory.h"
 #include "absl/random/bernoulli_distribution.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_join.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -3456,6 +3457,106 @@ TEST_P(FillerTest, CheckBufferSize) {
   size_t buffer_size = strlen(buffer.c_str());
   printf("HugePageFiller buffer size: %zu\n", buffer_size);
   EXPECT_LE(buffer_size, 1024 * 1024);
+}
+
+TEST_P(FillerTest, ReleasePriority) {
+  // Fill up many huge pages (>> kPagesPerHugePage).  This relies on an
+  // implementation detail of ReleasePages buffering up at most
+  // kPagesPerHugePage as potential release candidates.
+  const HugeLength kHugePages = NHugePages(10 * kPagesPerHugePage);
+
+  // We will ensure that we fill full huge pages, then deallocate some parts of
+  // those to provide space for subrelease.
+  absl::BitGen rng;
+  std::vector<PAlloc> alloc;
+  alloc.reserve(kHugePages.raw_num());
+  std::vector<PAlloc> dead;
+  dead.reserve(kHugePages.raw_num());
+
+  absl::flat_hash_set<FakeTracker *> unique_pages;
+  unique_pages.reserve(kHugePages.raw_num());
+
+  for (HugeLength i; i < kHugePages; ++i) {
+    Length size = absl::Uniform<Length>(rng, 1, kPagesPerHugePage - 1);
+
+    PAlloc a = Allocate(size);
+    unique_pages.insert(a.pt);
+    alloc.push_back(a);
+    dead.push_back(Allocate(kPagesPerHugePage - size));
+  }
+
+  ASSERT_EQ(filler_.size(), kHugePages);
+
+  for (auto &a : dead) {
+    Delete(a);
+  }
+
+  // As of 5/2020, our release priority is to subrelease huge pages with the
+  // fewest used pages.  Bucket unique_pages by that used_pages().
+  std::vector<std::vector<FakeTracker *>> ordered(kPagesPerHugePage);
+  for (auto *pt : unique_pages) {
+    // None of these should be released yet.
+    EXPECT_FALSE(pt->released());
+    ordered[pt->used_pages()].push_back(pt);
+  }
+
+  // Iteratively release random amounts of free memory--until all free pages
+  // become unmapped pages--and validate that we followed the expected release
+  // priority.
+  Length free_pages;
+  while ((free_pages = filler_.free_pages()) > Length(0)) {
+    Length to_release = absl::LogUniform<Length>(rng, Length(1), free_pages);
+    Length released = ReleasePages(to_release);
+    ASSERT_LE(released, free_pages);
+
+    // Iterate through each element of ordered.  If any trackers are released,
+    // all previous trackers must be released.
+    bool previous_all_released = true;
+    for (Length l = 0; l < kPagesPerHugePage; ++l) {
+      bool any_released = false;
+      bool all_released = true;
+
+      for (auto *pt : ordered[l]) {
+        bool released = pt->released();
+
+        any_released |= released;
+        all_released &= released;
+      }
+
+      if (any_released) {
+        EXPECT_TRUE(previous_all_released) << [&]() {
+          // On mismatch, print the bitmap of released states on l-1/l.
+          std::vector<bool> before;
+          if (l > Length(0)) {
+            before.reserve(ordered[l - 1].size());
+            for (auto *pt : ordered[l - 1]) {
+              before.push_back(pt->released());
+            }
+          }
+
+          std::vector<bool> after;
+          after.reserve(ordered[l].size());
+          for (auto *pt : ordered[l]) {
+            after.push_back(pt->released());
+          }
+
+          return absl::StrCat("before = {", absl::StrJoin(before, ";"),
+                              "}\nafter  = {", absl::StrJoin(after, ";"), "}");
+        }();
+      }
+
+      previous_all_released = all_released;
+    }
+  }
+
+  // All huge pages should be released.
+  for (auto *pt : unique_pages) {
+    EXPECT_TRUE(pt->released());
+  }
+
+  for (auto &a : alloc) {
+    Delete(a);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(All, FillerTest,

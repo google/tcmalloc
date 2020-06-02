@@ -890,7 +890,7 @@ class HugePageFiller {
     ASSERT(a != nullptr);
     ASSERT(b != nullptr);
 
-    return a->used_pages() > b->used_pages();
+    return a->used_pages() < b->used_pages();
   }
 
   // SelectCandidates identifies the candidates.size() best candidates in the
@@ -1312,7 +1312,7 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     }
 
     // Consider popping the worst candidate from our list.
-    if (!CompareForSubrelease(candidates[0], pt)) {
+    if (CompareForSubrelease(candidates[0], pt)) {
       // pt is worse than the current worst.
       return;
     }
@@ -1338,9 +1338,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 #ifndef NDEBUG
   Length last = 0;
 #endif
-  // Since CompareForSubreleas selects for the worst candidate in the
-  // comparison, iterate through the candidates list in reverse.
-  for (int i = candidates.size() - 1; i >= 0 && total_released < target; i--) {
+  for (int i = 0; i < candidates.size() && total_released < target; i++) {
     TrackerType *best = candidates[i];
     ASSERT(best != nullptr);
 
