@@ -21,6 +21,7 @@
 
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -463,7 +464,8 @@ Length HugePageAwareAllocator::ReleaseAtLeastNPages(Length num_pages) {
   // TODO(b/134690769): make this work, remove the flag guard.
   if (Parameters::hpaa_subrelease()) {
     if (released < num_pages) {
-      released += filler_.ReleasePages(num_pages - released);
+      released += filler_.ReleasePages(
+          num_pages - released, Parameters::filler_skip_subrelease_interval());
     }
   }
 
@@ -619,7 +621,7 @@ void *HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {
   // We desparately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the filler.
-  return filler_.ReleasePages(n);
+  return filler_.ReleasePages(n, absl::ZeroDuration());
 }
 
 void HugePageAwareAllocator::UnbackWithoutLock(void *start, size_t length) {

@@ -44,7 +44,9 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 ABSL_FLAG(tcmalloc::Length, page_tracker_defrag_lim, 32,
@@ -626,6 +628,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
   static void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+  static void ResetClock() { clock_ = 1234; }
   static int64_t clock_;
 
   static void Unback(void *p, size_t len) {}
@@ -661,7 +664,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   HugePageFiller<FakeTracker> filler_;
 
-  FillerTest() : filler_(GetParam(), FakeClock) {}
+  FillerTest() : filler_(GetParam(), FakeClock) { ResetClock(); }
 
   ~FillerTest() override {
     EXPECT_EQ(NHugePages(0), filler_.size());
@@ -754,9 +757,9 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     return r;
   }
 
-  Length ReleasePages(Length desired) {
+  Length ReleasePages(Length desired, absl::Duration d = absl::ZeroDuration()) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired);
+    return filler_.ReleasePages(desired, d);
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -943,6 +946,7 @@ static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
 
 using testing::AnyOf;
 using testing::Eq;
+using testing::StrEq;
 
 TEST_P(FillerTest, HugePageFrac) {
   // I don't actually care which we get, both are
@@ -1293,6 +1297,102 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   BlockingUnback::counter = nullptr;
 }
 
+TEST_P(FillerTest, SkipSubrelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != 256) {
+    GTEST_SKIP();
+  }
+
+  // Generate a peak, wait for time interval a, generate a trough, subrelease,
+  // wait for time interval b, generate another peak.
+  const auto peak_trough_peak = [&](absl::Duration a, absl::Duration b,
+                                    absl::Duration peak_interval,
+                                    bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    PAlloc half = Allocate(N / 2);
+    PAlloc tiny1 = Allocate(N / 4);
+    PAlloc tiny2 = Allocate(N / 4);
+
+    PAlloc peak = Allocate(N);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    Delete(peak);
+    Advance(a);
+
+    Delete(half);
+
+    EXPECT_EQ(expected_subrelease ? N / 2 : 0,
+              ReleasePages(10 * N, peak_interval));
+
+    Advance(b);
+
+    PAlloc peak2 = Allocate(N);
+    PAlloc peak3 = Allocate(N);
+
+    Delete(tiny1);
+    Delete(tiny2);
+    Delete(peak2);
+    Delete(peak3);
+
+    EXPECT_EQ(filler_.used_pages(), 0);
+    EXPECT_EQ(filler_.unmapped_pages(), 0);
+    EXPECT_EQ(filler_.free_pages(), 0);
+
+    EXPECT_EQ(expected_subrelease ? N / 2 : 0, ReleasePages(10 * N));
+  };
+
+  {
+    SCOPED_TRACE("peak-trough-peak 1");
+    peak_trough_peak(absl::Minutes(2), absl::Minutes(2), absl::Minutes(3),
+                     false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    SCOPED_TRACE("peak-trough-peak 2");
+    peak_trough_peak(absl::Minutes(2), absl::Minutes(7), absl::Minutes(3),
+                     false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    SCOPED_TRACE("peak-trough-peak 3");
+    peak_trough_peak(absl::Minutes(5), absl::Minutes(3), absl::Minutes(2),
+                     true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("peak-trough-peak 4");
+    peak_trough_peak(absl::Milliseconds(10), absl::Milliseconds(10),
+                     absl::Minutes(2), false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(1);
+  Delete(tiny);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to recent (120s) peaks.
+HugePageFiller: 25.0000% of decisions confirmed correct, 0 pending (25.0000% of pages, 0 pending).
+)"));
+}
+
 class FillerStatsTrackerTest : public testing::Test {
  private:
   static int64_t clock_;
@@ -1310,6 +1410,10 @@ class FillerStatsTrackerTest : public testing::Test {
   // points (i.e., min/max pages demand, min/max hugepages).
   void GenerateInterestingPoints(Length num_pages, HugeLength num_hugepages,
                                  Length num_free_pages);
+
+  // Generates a data point with a particular amount of demand pages, while
+  // ignoring the specific number of hugepages.
+  void GenerateDemandPoint(Length num_pages, Length num_free_pages);
 };
 
 int64_t FillerStatsTrackerTest::clock_{0};
@@ -1329,6 +1433,16 @@ void FillerStatsTrackerTest::GenerateInterestingPoints(Length num_pages,
                num_hugepages, NHugePages(i), NHugePages(j)}});
     }
   }
+}
+
+void FillerStatsTrackerTest::GenerateDemandPoint(Length num_pages,
+                                                 Length num_free_pages) {
+  HugeLength hp = NHugePages(1);
+  tracker_.Report({.num_pages = num_pages,
+                   .free_pages = num_free_pages,
+                   .unmapped_pages = 0,
+                   .used_pages_in_subreleased_huge_pages = 0,
+                   .huge_pages = {hp, hp, hp, hp}});
 }
 
 // Tests that the tracker aggregates all data correctly. The output is tested by
@@ -1358,14 +1472,17 @@ TEST_F(FillerStatsTrackerTest, Works) {
     }
     buffer.resize(strlen(buffer.c_str()));
 
-    EXPECT_EQ(buffer, R"(HugePageFiller: time series over 5 min interval
+    EXPECT_THAT(buffer, StrEq(R"(HugePageFiller: time series over 5 min interval
 
 HugePageFiller: minimum free pages: 110 (100 backed)
 HugePageFiller: at peak demand: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 HugePageFiller: at peak hps: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
-)");
+
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+)"));
   }
 
   // Test pbtxt output (full time series).
@@ -1378,7 +1495,16 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
     }
     buffer.resize(strlen(buffer.c_str()));
 
-    EXPECT_EQ(buffer, R"(
+    EXPECT_THAT(buffer, StrEq(R"(
+  filler_skipped_subrelease {
+    skipped_subrelease_interval_ms: 0
+    skipped_subrelease_pages: 0
+    correctly_skipped_subrelease_pages: 0
+    pending_skipped_subrelease_pages: 0
+    skipped_subrelease_count: 0
+    correctly_skipped_subrelease_count: 0
+    pending_skipped_subrelease_count: 0
+  }
   filler_stats_timeseries {
     window_ms: 37500
     epochs: 16
@@ -1500,7 +1626,7 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
       }
     }
   }
-)");
+)"));
   }
 }
 
@@ -1510,6 +1636,120 @@ TEST_F(FillerStatsTrackerTest, InvalidDurations) {
   tracker_.min_free_pages(kWindow + absl::Seconds(1));
   tracker_.min_free_pages(-(kWindow + absl::Seconds(1)));
   tracker_.min_free_pages(-absl::InfiniteDuration());
+}
+
+TEST_F(FillerStatsTrackerTest, ComputeRecentPeaks) {
+  GenerateDemandPoint(3000, 1000);
+  Advance(absl::Minutes(1.25));
+  GenerateDemandPoint(1500, 0);
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(100, 2000);
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(200, 3000);
+
+  GenerateDemandPoint(200, 3000);
+  FillerStatsTracker<>::FillerStats stats =
+      tracker_.GetRecentPeak(absl::Minutes(3));
+  EXPECT_EQ(stats.num_pages, 1500);
+  EXPECT_EQ(stats.free_pages, 0);
+
+  FillerStatsTracker<>::FillerStats stats2 =
+      tracker_.GetRecentPeak(absl::Minutes(5));
+  EXPECT_EQ(stats2.num_pages, 3000);
+  EXPECT_EQ(stats2.free_pages, 1000);
+
+  Advance(absl::Minutes(4));
+  GenerateDemandPoint(200, 3000);
+
+  FillerStatsTracker<>::FillerStats stats3 =
+      tracker_.GetRecentPeak(absl::Minutes(4));
+  EXPECT_EQ(stats3.num_pages, 200);
+  EXPECT_EQ(stats3.free_pages, 3000);
+
+  Advance(absl::Minutes(5));
+  GenerateDemandPoint(200, 3000);
+
+  FillerStatsTracker<>::FillerStats stats4 =
+      tracker_.GetRecentPeak(absl::Minutes(5));
+  EXPECT_EQ(stats4.num_pages, 200);
+  EXPECT_EQ(stats4.free_pages, 3000);
+}
+
+TEST_F(FillerStatsTrackerTest, TrackCorrectSubreleaseDecisions) {
+  // First peak (large)
+  GenerateDemandPoint(1000, 1000);
+
+  // Incorrect subrelease: Subrelease to 1000
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(100, 1000);
+  tracker_.ReportSkippedSubreleasePages(900, 1000, absl::Minutes(3));
+
+  // Second peak (small)
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(500, 1000);
+
+  EXPECT_EQ(tracker_.total_skipped().pages, 900);
+  EXPECT_EQ(tracker_.total_skipped().count, 1);
+  EXPECT_EQ(tracker_.correctly_skipped().pages, 0);
+  EXPECT_EQ(tracker_.correctly_skipped().count, 0);
+  EXPECT_EQ(tracker_.pending_skipped().pages, 900);
+  EXPECT_EQ(tracker_.pending_skipped().count, 1);
+
+  // Correct subrelease: Subrelease to 500
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(500, 100);
+  tracker_.ReportSkippedSubreleasePages(50, 550, absl::Minutes(3));
+  GenerateDemandPoint(500, 50);
+  tracker_.ReportSkippedSubreleasePages(50, 500, absl::Minutes(3));
+  GenerateDemandPoint(500, 0);
+
+  EXPECT_EQ(tracker_.total_skipped().pages, 1000);
+  EXPECT_EQ(tracker_.total_skipped().count, 3);
+  EXPECT_EQ(tracker_.correctly_skipped().pages, 0);
+  EXPECT_EQ(tracker_.correctly_skipped().count, 0);
+  EXPECT_EQ(tracker_.pending_skipped().pages, 1000);
+  EXPECT_EQ(tracker_.pending_skipped().count, 3);
+
+  // Third peak (large, too late for first peak)
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(1100, 1000);
+
+  Advance(absl::Minutes(5));
+  GenerateDemandPoint(1100, 1000);
+
+  EXPECT_EQ(tracker_.total_skipped().pages, 1000);
+  EXPECT_EQ(tracker_.total_skipped().count, 3);
+  EXPECT_EQ(tracker_.correctly_skipped().pages, 100);
+  EXPECT_EQ(tracker_.correctly_skipped().count, 2);
+  EXPECT_EQ(tracker_.pending_skipped().pages, 0);
+  EXPECT_EQ(tracker_.pending_skipped().count, 0);
+}
+
+TEST_F(FillerStatsTrackerTest, SubreleaseCorrectnessWithChangingIntervals) {
+  // First peak (large)
+  GenerateDemandPoint(1000, 1000);
+
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(100, 1000);
+
+  tracker_.ReportSkippedSubreleasePages(50, 1000, absl::Minutes(4));
+  Advance(absl::Minutes(1));
+
+  // With two correctness intervals in the same epoch, take the maximum
+  tracker_.ReportSkippedSubreleasePages(100, 1000, absl::Minutes(1));
+  tracker_.ReportSkippedSubreleasePages(200, 1000, absl::Minutes(7));
+
+  Advance(absl::Minutes(5));
+  GenerateDemandPoint(1100, 1000);
+  Advance(absl::Minutes(10));
+  GenerateDemandPoint(1100, 1000);
+
+  EXPECT_EQ(tracker_.total_skipped().pages, 350);
+  EXPECT_EQ(tracker_.total_skipped().count, 3);
+  EXPECT_EQ(tracker_.correctly_skipped().pages, 300);
+  EXPECT_EQ(tracker_.correctly_skipped().count, 2);
+  EXPECT_EQ(tracker_.pending_skipped().pages, 0);
+  EXPECT_EQ(tracker_.pending_skipped().count, 0);
 }
 
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
@@ -1637,6 +1877,9 @@ HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
+
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
 )");
   for (const auto &alloc : allocs) {
     Delete(alloc);
@@ -3123,6 +3366,15 @@ TEST_P(FillerTest, PrintInPbtxt) {
       upper_bound: 256
       value: 0
     }
+  }
+  filler_skipped_subrelease {
+    skipped_subrelease_interval_ms: 0
+    skipped_subrelease_pages: 0
+    correctly_skipped_subrelease_pages: 0
+    pending_skipped_subrelease_pages: 0
+    skipped_subrelease_count: 0
+    correctly_skipped_subrelease_count: 0
+    pending_skipped_subrelease_count: 0
   }
   filler_stats_timeseries {
     window_ms: 1000

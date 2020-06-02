@@ -20,6 +20,7 @@
 #include <string>
 
 #include "absl/base/internal/spinlock.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 
@@ -90,6 +91,11 @@ class Parameters {
     TCMalloc_Internal_SetProfileSamplingRate(value);
   }
 
+  static absl::Duration filler_skip_subrelease_interval() {
+    return absl::Nanoseconds(
+        filler_skip_subrelease_interval_ns_.load(std::memory_order_relaxed));
+  }
+
  private:
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
@@ -100,6 +106,9 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
 
+  friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
+      absl::Duration v);
+
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> lazy_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
@@ -107,6 +116,7 @@ class Parameters {
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
+  static std::atomic<int64_t> filler_skip_subrelease_interval_ns_;
 };
 
 }  // namespace tcmalloc

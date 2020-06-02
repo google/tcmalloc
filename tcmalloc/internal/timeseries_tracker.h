@@ -41,7 +41,7 @@ class TimeSeriesTracker {
   explicit constexpr TimeSeriesTracker(ClockFunc clock, absl::Duration w)
       : window_(w), epoch_length_(window_ / kEpochs), clock_(clock) {}
 
-  void Report(S val);
+  bool Report(S val);
 
   // Iterates over the time series, starting from the oldest entry. The callback
   // receives the offset of the entry, its timestamp according to the clock and
@@ -53,6 +53,10 @@ class TimeSeriesTracker {
   // oldest entry). Offsets are relative to the end of the buffer.
   void IterBackwards(absl::FunctionRef<void(size_t, int64_t, const T&)> f,
                      size_t num_epochs = -1) const;
+
+  // This retrieves a particular data point (if offset is outside the valid
+  // range, the default data point will be returned).
+  const T GetEpochAtOffset(size_t offset);
 
   // Updates the time base to the current time. This is useful to report the
   // most recent time window rather than the last time window that had any
@@ -139,9 +143,17 @@ void TimeSeriesTracker<T, S, kEpochs>::IterBackwards(
 }
 
 template <class T, class S, size_t kEpochs>
-void TimeSeriesTracker<T, S, kEpochs>::Report(S val) {
-  UpdateClock();
+const T TimeSeriesTracker<T, S, kEpochs>::GetEpochAtOffset(size_t offset) {
+  return (offset >= kEpochs)
+             ? T::Nil()
+             : entries_[(current_epoch_ + kEpochs - offset) % kEpochs];
+}
+
+template <class T, class S, size_t kEpochs>
+bool TimeSeriesTracker<T, S, kEpochs>::Report(S val) {
+  bool updated_clock = UpdateClock();
   entries_[current_epoch_].Report(val);
+  return updated_clock;
 }
 
 }  // namespace tcmalloc

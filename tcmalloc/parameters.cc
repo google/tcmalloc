@@ -13,6 +13,7 @@
 // limitations under the License.
 #include "tcmalloc/parameters.h"
 
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/malloc_extension.h"
@@ -71,6 +72,9 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate
 );
+
+ABSL_CONST_INIT std::atomic<int64_t>
+    Parameters::filler_skip_subrelease_interval_ns_(0);
 
 }  // namespace tcmalloc
 
@@ -186,6 +190,12 @@ void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
 void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
   tcmalloc::Parameters::profile_sampling_rate_.store(v,
                                                      std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
+    absl::Duration v) {
+  tcmalloc::Parameters::filler_skip_subrelease_interval_ns_.store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
 }  // extern "C"

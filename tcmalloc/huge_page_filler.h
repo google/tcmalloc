@@ -35,6 +35,164 @@
 
 namespace tcmalloc {
 
+// Tracks correctness of skipped subrelease decisions over time.
+template <size_t kEpochs = 16>
+class SkippedSubreleaseCorrectnessTracker {
+ public:
+  struct SkippedSubreleaseDecision {
+    Length pages;  // Number of pages we skipped subreleasing.
+    size_t count;  // Number of times we skipped a subrelease.
+
+    SkippedSubreleaseDecision() : pages(0), count(0) {}
+    explicit SkippedSubreleaseDecision(Length pages) : pages(pages), count(1) {}
+    explicit SkippedSubreleaseDecision(Length pages, size_t count)
+        : pages(pages), count(count) {}
+
+    SkippedSubreleaseDecision &operator+=(SkippedSubreleaseDecision rhs) {
+      pages += rhs.pages;
+      count += rhs.count;
+      return *this;
+    }
+
+    static SkippedSubreleaseDecision Zero() {
+      return SkippedSubreleaseDecision();
+    }
+  };
+
+  explicit constexpr SkippedSubreleaseCorrectnessTracker(ClockFunc clock,
+                                                         absl::Duration w)
+      : window_(w),
+        epoch_length_(window_ / kEpochs),
+        last_confirmed_peak_(0),
+        tracker_(clock, w) {}
+
+  // Not copyable or movable
+  SkippedSubreleaseCorrectnessTracker(
+      const SkippedSubreleaseCorrectnessTracker &) = delete;
+  SkippedSubreleaseCorrectnessTracker &operator=(
+      const SkippedSubreleaseCorrectnessTracker &) = delete;
+
+  void ReportSkippedSubreleasePages(
+      Length skipped_pages, Length peak_pages,
+      absl::Duration expected_time_until_next_peak) {
+    total_skipped_ += SkippedSubreleaseDecision(skipped_pages);
+    pending_skipped_ += SkippedSubreleaseDecision(skipped_pages);
+    tracker_.Report({.decision = SkippedSubreleaseDecision(skipped_pages),
+                     .num_pages_at_decision = peak_pages,
+                     .correctness_interval_epochs =
+                         expected_time_until_next_peak / epoch_length_});
+  }
+
+  void ReportUpdatedPeak(Length current_peak) {
+    // Record this peak for the current epoch (so we don't double-count correct
+    // predictions later) and advance the tracker.
+    if (tracker_.Report({.confirmed_peak = current_peak})) {
+      // Also keep track of the largest peak we have confirmed this epoch.
+      last_confirmed_peak_ = 0;
+    }
+
+    // Recompute currently pending decisions.
+    pending_skipped_ = SkippedSubreleaseDecision::Zero();
+
+    Length largest_peak_already_confirmed = last_confirmed_peak_;
+
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const SkippedSubreleaseEntry &e) {
+          // Do not clear any decisions in the current epoch.
+          if (offset == 0) {
+            return;
+          }
+
+          if (e.decisions.count > 0 &&
+              e.max_num_pages_at_decision > largest_peak_already_confirmed &&
+              offset <= e.correctness_interval_epochs) {
+            if (e.max_num_pages_at_decision <= current_peak) {
+              // We can confirm a subrelease decision as correct and it had not
+              // been confirmed correct by an earlier peak yet.
+              correctly_skipped_ += e.decisions;
+            } else {
+              pending_skipped_ += e.decisions;
+            }
+          }
+
+          // Did we clear any earlier decisions based on a peak in this epoch?
+          // Keep track of the peak, so we do not clear them again.
+          largest_peak_already_confirmed =
+              std::max(largest_peak_already_confirmed, e.max_confirmed_peak);
+        },
+        -1);
+
+    last_confirmed_peak_ = std::max(last_confirmed_peak_, current_peak);
+  }
+
+  inline SkippedSubreleaseDecision total_skipped() const {
+    return total_skipped_;
+  }
+
+  inline SkippedSubreleaseDecision correctly_skipped() const {
+    return correctly_skipped_;
+  }
+
+  inline SkippedSubreleaseDecision pending_skipped() const {
+    return pending_skipped_;
+  }
+
+ private:
+  struct SkippedSubreleaseUpdate {
+    // A subrelease decision that was made at this time step: How much did we
+    // decide not to release?
+    SkippedSubreleaseDecision decision;
+
+    // What does our future demand have to be for this to be correct? If there
+    // were multiple subrelease decisions in the same epoch, use the max.
+    Length num_pages_at_decision = 0;
+
+    // How long from the time of the decision do we have before the decision
+    // will be determined incorrect?
+    int64_t correctness_interval_epochs;
+
+    // At this time step, we confirmed a demand peak at this level, which means
+    // all subrelease decisions in earlier time steps that had peak_demand_pages
+    // <= this confirmed_peak were confirmed correct and don't need to be
+    // considered again in the future.
+    Length confirmed_peak = 0;
+  };
+
+  struct SkippedSubreleaseEntry {
+    SkippedSubreleaseDecision decisions = SkippedSubreleaseDecision::Zero();
+    Length max_num_pages_at_decision = 0;
+    int64_t correctness_interval_epochs = 0;
+    Length max_confirmed_peak = 0;
+
+    static SkippedSubreleaseEntry Nil() { return SkippedSubreleaseEntry(); }
+
+    void Report(SkippedSubreleaseUpdate e) {
+      decisions += e.decision;
+      correctness_interval_epochs =
+          std::max(correctness_interval_epochs, e.correctness_interval_epochs);
+      max_num_pages_at_decision =
+          std::max(max_num_pages_at_decision, e.num_pages_at_decision);
+      max_confirmed_peak = std::max(max_confirmed_peak, e.confirmed_peak);
+    }
+
+    bool empty() const { return false; }
+  };
+
+  const absl::Duration window_;
+  const absl::Duration epoch_length_;
+
+  // The largest peak we processed this epoch. This is required to avoid us
+  // double-counting correctly predicted decisions.
+  Length last_confirmed_peak_;
+
+  SkippedSubreleaseDecision total_skipped_;
+  SkippedSubreleaseDecision correctly_skipped_;
+  SkippedSubreleaseDecision pending_skipped_;
+
+  TimeSeriesTracker<SkippedSubreleaseEntry, SkippedSubreleaseUpdate, kEpochs>
+      tracker_;
+};
+
 // Track filler statistics over a time window.
 template <size_t kEpochs = 16>
 class FillerStatsTracker {
@@ -55,6 +213,8 @@ class FillerStatsTracker {
       }
       return total_huge_pages;
     }
+
+    Length allocated_pages() const { return num_pages + free_pages; }
   };
 
   struct NumberOfFreePages {
@@ -67,12 +227,82 @@ class FillerStatsTracker {
       : summary_interval_(summary_interval),
         window_(w),
         epoch_length_(window_ / kEpochs),
-        tracker_(clock, w) {}
+        tracker_(clock, w),
+        skipped_subrelease_correctness_(clock, w) {}
 
-  void Report(const FillerStats stats) { tracker_.Report(stats); }
+  // Not copyable or movable
+  FillerStatsTracker(const FillerStatsTracker &) = delete;
+  FillerStatsTracker &operator=(const FillerStatsTracker &) = delete;
+
+  void Report(const FillerStats stats) {
+    if (ABSL_PREDICT_FALSE(tracker_.Report(stats))) {
+      if (ABSL_PREDICT_FALSE(pending_skipped().count > 0)) {
+        // Consider the peak within the just completed epoch to confirm the
+        // correctness of any recent subrelease decisions.
+        skipped_subrelease_correctness_.ReportUpdatedPeak(std::max(
+            stats.num_pages,
+            tracker_.GetEpochAtOffset(1).stats[kStatsAtMaxDemand].num_pages));
+      }
+    }
+  }
 
   void Print(TCMalloc_Printer *out) const;
   void PrintInPbtxt(PbtxtRegion *hpaa) const;
+
+  // Calculates recent peaks for skipping subrelease decisions. If our allocated
+  // memory is below the demand peak within the last peak_interval, we stop
+  // subreleasing. If our demand is going above that peak again within another
+  // peak_interval, we report that we made the correct decision.
+  FillerStats GetRecentPeak(absl::Duration peak_interval) {
+    last_peak_interval_ = peak_interval;
+    FillerStats recent_peak;
+    Length max_demand_pages = 0;
+
+    int64_t num_epochs = peak_interval / epoch_length_;
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+          if (!e.empty()) {
+            // Identify the maximum number of demand pages we have seen within
+            // the time interval.
+            if (e.stats[kStatsAtMaxDemand].num_pages > max_demand_pages) {
+              recent_peak = e.stats[kStatsAtMaxDemand];
+              max_demand_pages = recent_peak.num_pages;
+            }
+          }
+        },
+        num_epochs);
+
+    return recent_peak;
+  }
+
+  void ReportSkippedSubreleasePages(
+      Length pages, Length peak_pages,
+      absl::Duration expected_time_until_next_peak) {
+    if (pages == 0) {
+      return;
+    }
+
+    skipped_subrelease_correctness_.ReportSkippedSubreleasePages(
+        pages, peak_pages, expected_time_until_next_peak);
+  }
+
+  inline typename SkippedSubreleaseCorrectnessTracker<
+      kEpochs>::SkippedSubreleaseDecision
+  total_skipped() const {
+    return skipped_subrelease_correctness_.total_skipped();
+  }
+
+  inline typename SkippedSubreleaseCorrectnessTracker<
+      kEpochs>::SkippedSubreleaseDecision
+  correctly_skipped() const {
+    return skipped_subrelease_correctness_.correctly_skipped();
+  }
+
+  inline typename SkippedSubreleaseCorrectnessTracker<
+      kEpochs>::SkippedSubreleaseDecision
+  pending_skipped() const {
+    return skipped_subrelease_correctness_.pending_skipped();
+  }
 
   // Returns the minimum number of free pages throughout the tracker period.
   // The first value of the pair is the number of all free pages, the second
@@ -165,6 +395,10 @@ class FillerStatsTracker {
   const absl::Duration epoch_length_;
 
   TimeSeriesTracker<FillerStatsEntry, FillerStats, kEpochs> tracker_;
+  SkippedSubreleaseCorrectnessTracker<kEpochs> skipped_subrelease_correctness_;
+
+  // Records the last peak_interval value, for reporting and debugging only.
+  absl::Duration last_peak_interval_;
 };
 
 template <size_t kEpochs>
@@ -214,7 +448,7 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   out->printf(
       "HugePageFiller: at peak hps: %zu pages (and %zu free, %zu unmapped)\n"
       "HugePageFiller: at peak hps: %zu hps (%zu regular, %zu donated, "
-      "%zu partial, %zu released)",
+      "%zu partial, %zu released)\n",
       at_peak_hps.stats[kStatsAtMaxDemand].num_pages,
       at_peak_hps.stats[kStatsAtMaxDemand].free_pages,
       at_peak_hps.stats[kStatsAtMaxDemand].unmapped_pages,
@@ -225,10 +459,51 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
           .huge_pages[kPartialReleased]
           .raw_num(),
       at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
+
+  out->printf(
+      "\nHugePageFiller: Since the start of the execution, %zu subreleases (%zu"
+      " pages) were skipped due to recent (%llds) peaks.\n",
+      total_skipped().count, total_skipped().pages,
+      static_cast<long long>(absl::ToInt64Seconds(last_peak_interval_)));
+
+  // Evaluate a/b, avoiding division by zero
+  const auto safe_div = [](Length a, Length b) {
+    return b == 0 ? 0. : static_cast<double>(a) / static_cast<double>(b);
+  };
+
+  size_t skipped_pages = total_skipped().pages - pending_skipped().pages;
+  double correctly_skipped_pages_percentage =
+      safe_div(100.0 * correctly_skipped().pages, skipped_pages);
+
+  size_t skipped_count = total_skipped().count - pending_skipped().count;
+  double correctly_skipped_count_percentage =
+      safe_div(100.0 * correctly_skipped().count, skipped_count);
+
+  out->printf(
+      "HugePageFiller: %.4f%% of decisions confirmed correct, %zu "
+      "pending (%.4f%% of pages, %zu pending).",
+      correctly_skipped_count_percentage, pending_skipped().count,
+      correctly_skipped_pages_percentage, pending_skipped().pages);
 }
 
 template <size_t kEpochs>
 void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+  {
+    auto skip_subrelease = hpaa->CreateSubRegion("filler_skipped_subrelease");
+    skip_subrelease.PrintI64("skipped_subrelease_interval_ms",
+                             absl::ToInt64Milliseconds(last_peak_interval_));
+    skip_subrelease.PrintI64("skipped_subrelease_pages", total_skipped().pages);
+    skip_subrelease.PrintI64("correctly_skipped_subrelease_pages",
+                             correctly_skipped().pages);
+    skip_subrelease.PrintI64("pending_skipped_subrelease_pages",
+                             pending_skipped().pages);
+    skip_subrelease.PrintI64("skipped_subrelease_count", total_skipped().count);
+    skip_subrelease.PrintI64("correctly_skipped_subrelease_count",
+                             correctly_skipped().count);
+    skip_subrelease.PrintI64("pending_skipped_subrelease_count",
+                             pending_skipped().count);
+  }
+
   auto filler_stats = hpaa->CreateSubRegion("filler_stats_timeseries");
   filler_stats.PrintI64("window_ms", absl::ToInt64Milliseconds(epoch_length_));
   filler_stats.PrintI64("epochs", kEpochs);
@@ -469,10 +744,17 @@ class HugePageFiller {
   // *is* hugepage-backed!)
   double hugepage_frac() const;
 
+  // Returns the amount of memory to release if all remaining options of
+  // releasing memory involve subreleasing pages.
+  Length GetDesiredSubreleasePages(Length desired, Length total_released,
+                                   absl::Duration peak_interval)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
   // Tries to release desired pages by iteratively releasing from the emptiest
   // possible hugepage and releasing its free memory to the system.  Return the
   // number of pages actually released.
-  Length ReleasePages(Length desired)
+  Length ReleasePages(Length desired,
+                      absl::Duration skip_subrelease_after_peaks_interval)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
@@ -535,9 +817,7 @@ class HugePageFiller {
       ASSERT(n < N);
       return lists_[n];
     }
-    HugeLength size() const {
-      return size_;
-    }
+    HugeLength size() const { return size_; }
     bool empty() const { return size().raw_num() == 0; }
     // Runs a functor on all HugePages in the TrackerLists.
     // This method is const but the Functor gets passed a non-const pointer.
@@ -1081,11 +1361,55 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
   return total_released;
 }
 
+template <class TrackerType>
+inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
+    Length desired, Length total_released, absl::Duration peak_interval) {
+  // Don't subrelease pages if it wouldn't push you under the latest peak.
+  // This is a bit subtle: We want the current *mapped* pages not to be below
+  // the recent *demand* peak, i.e., if we have a large amount of free memory
+  // right now but demand is below a recent peak, we still want to subrelease.
+  ASSERT(total_released < desired);
+
+  if (peak_interval == absl::ZeroDuration()) {
+    return desired;
+  }
+
+  UpdateFillerStatsTracker();
+  Length demand_at_peak =
+      fillerstats_tracker_.GetRecentPeak(peak_interval).num_pages;
+  Length current_pages = used_pages() + free_pages();
+
+  if (demand_at_peak != 0) {
+    Length new_desired;
+    if (demand_at_peak >= current_pages) {
+      new_desired = total_released;
+    } else {
+      new_desired = total_released + (current_pages - demand_at_peak);
+    }
+
+    if (new_desired >= desired) {
+      return desired;
+    }
+
+    // Report the amount of memory that we didn't release due to this
+    // mechanism, but never more than free_pages, since we would not have
+    // been able to release that much memory with or without this mechanism
+    // (i.e., reporting more would be confusing).
+    Length skipped_pages = std::min(free_pages(), (desired - new_desired));
+    fillerstats_tracker_.ReportSkippedSubreleasePages(
+        skipped_pages, current_pages, peak_interval);
+    return new_desired;
+  }
+
+  return desired;
+}
+
 // Tries to release desired pages by iteratively releasing from the emptiest
 // possible hugepage and releasing its free memory to the system.  Return the
 // number of pages actually released.
 template <class TrackerType>
-inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
+inline Length HugePageFiller<TrackerType>::ReleasePages(
+    Length desired, absl::Duration skip_subrelease_after_peaks_interval) {
   Length total_released = 0;
 
   // We also do eager release, once we've called this at least once:
@@ -1101,6 +1425,14 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(Length desired) {
     }
 
     total_released += n;
+  }
+
+  if (skip_subrelease_after_peaks_interval != absl::ZeroDuration()) {
+    desired = GetDesiredSubreleasePages(desired, total_released,
+                                        skip_subrelease_after_peaks_interval);
+    if (desired <= total_released) {
+      return total_released;
+    }
   }
 
   // Optimize for releasing up to a huge page worth of small pages (scattered

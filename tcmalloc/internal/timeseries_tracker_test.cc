@@ -17,7 +17,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-using ::testing::ElementsAreArray;
+using ::testing::ElementsAre;
 
 namespace tcmalloc {
 namespace {
@@ -68,13 +68,13 @@ TEST_F(TimeSeriesTrackerTest, Works) {
         if (num_timestamps == 0) {
           offset_1 = offset;
           EXPECT_EQ(ToInt64Nanoseconds(kDuration), ts);
-          EXPECT_THAT(e.values_, ElementsAreArray({1, 2}));
+          EXPECT_THAT(e.values_, ElementsAre(1, 2));
         } else {
           offset_2 = offset;
           EXPECT_EQ(
               ToInt64Nanoseconds(kDuration) + ToInt64Nanoseconds(kDuration) / 4,
               ts);
-          EXPECT_THAT(e.values_, ElementsAreArray({4}));
+          EXPECT_THAT(e.values_, ElementsAre(4));
         }
         num_timestamps++;
       },
@@ -113,11 +113,11 @@ TEST_F(TimeSeriesTrackerTest, Works) {
         EXPECT_EQ(num_timestamps, offset);
         EXPECT_EQ(expected_timestamp, ts);
         if (num_timestamps == 0) {
-          EXPECT_THAT(e.values_, ElementsAreArray({16}));
+          EXPECT_THAT(e.values_, ElementsAre(16));
         } else if (num_timestamps == 1) {
           EXPECT_TRUE(e.values_.empty());
         } else {
-          EXPECT_THAT(e.values_, ElementsAreArray({8}));
+          EXPECT_THAT(e.values_, ElementsAre(8));
         }
         expected_timestamp -= kEpochLength;
         num_timestamps++;
@@ -125,6 +125,11 @@ TEST_F(TimeSeriesTrackerTest, Works) {
       3);
 
   EXPECT_EQ(3, num_timestamps);
+
+  EXPECT_THAT(tracker_.GetEpochAtOffset(0).values_, ElementsAre(16));
+  EXPECT_THAT(tracker_.GetEpochAtOffset(2).values_, ElementsAre(8));
+  EXPECT_TRUE(tracker_.GetEpochAtOffset(3).empty());
+  EXPECT_TRUE(tracker_.GetEpochAtOffset(1000).empty());
 
   // This should annilate everything.
   Advance(kDuration * 2);
@@ -134,6 +139,8 @@ TEST_F(TimeSeriesTrackerTest, Works) {
         ASSERT_TRUE(false) << "Time series should be empty";
       },
       tracker_.kSkipEmptyEntries);
+
+  EXPECT_TRUE(tracker_.GetEpochAtOffset(1).empty());
 }
 
 }  // namespace
