@@ -82,7 +82,6 @@ extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 #else  // !PERCPU_USE_RSEQ
-#define ATTR_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 #endif
 
