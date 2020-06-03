@@ -17,7 +17,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 
 extern "C" {
 
