@@ -110,8 +110,6 @@ class HugeCacheTest : public testing::Test {
     backing.resize(1024);
     metadata_bytes = 0;
     mock_ = absl::make_unique<testing::NiceMock<MockBackingInterface>>();
-
-    clock_offset_ = 0;
   }
 
   ~HugeCacheTest() override {
@@ -121,6 +119,8 @@ class HugeCacheTest : public testing::Test {
     metadata_allocs.clear();
     backing.clear();
     mock_.reset(nullptr);
+
+    clock_offset_ = 0;
   }
 
   size_t *GetActual(HugePage p) {
@@ -152,7 +152,7 @@ size_t HugeCacheTest::metadata_bytes;
 std::unique_ptr<testing::NiceMock<HugeCacheTest::MockBackingInterface>>
     HugeCacheTest::mock_;
 
-int64_t HugeCacheTest::clock_offset_;
+int64_t HugeCacheTest::clock_offset_ = 0;
 
 TEST_F(HugeCacheTest, Basic) {
   bool from;
