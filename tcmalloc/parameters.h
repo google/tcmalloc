@@ -23,6 +23,7 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/parameter_accessors.h"
+#include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 
