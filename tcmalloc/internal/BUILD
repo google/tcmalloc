@@ -260,6 +260,21 @@ cc_library(
 )
 
 cc_library(
+    name = "percpu_tcmalloc",
+    hdrs = ["percpu_tcmalloc.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":mincore",
+        ":percpu",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:dynamic_annotations",
+    ],
+)
+
+cc_library(
     name = "proc_maps",
     srcs = ["proc_maps.cc"],
     hdrs = ["proc_maps.h"],

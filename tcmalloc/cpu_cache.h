@@ -27,7 +27,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
-#include "tcmalloc/percpu_tcmalloc.h"
+#include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/tracking.h"

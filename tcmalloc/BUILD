@@ -57,18 +57,6 @@ cc_library(
     ],
 )
 
-cc_library(
-    name = "percpu_tcmalloc",
-    hdrs = ["percpu_tcmalloc.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc/internal:mincore",
-        "//tcmalloc/internal:percpu",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:dynamic_annotations",
-    ],
-)
-
 # Dependencies required by :tcmalloc and its variants.  Since :common is built
 # several different ways, it should not be included on this list.
 tcmalloc_deps = [
@@ -264,7 +252,6 @@ common_deps = [
     ":experiment",
     ":malloc_extension",
     ":noruntime_size_classes",
-    ":percpu_tcmalloc",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
     "@com_google_absl//absl/base",
@@ -291,6 +278,7 @@ common_deps = [
     "//tcmalloc/internal:mincore",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",
+    "//tcmalloc/internal:percpu_tcmalloc",
     "//tcmalloc/internal:range_tracker",
     "//tcmalloc/internal:timeseries_tracker",
     "//tcmalloc/internal:util",
