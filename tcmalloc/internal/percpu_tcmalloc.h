@@ -269,11 +269,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // Prepare
       "3:\n"
       "lea __rseq_cs_TcmallocSlab_Push_%=(%%rip), %[scratch]\n"
-      "mov %[scratch], (%[rseq_cs])\n"
+      "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
       // scratch = __rseq_abi.cpu_id;
-      "mov (%[rseq_cpu]), %k[scratch]\n"
+      "mov %c[rseq_cpu_offset](%[rseq_abi]), %k[scratch]\n"
       // scratch = slabs + scratch
       "shl %[shift], %[scratch]\n"
       "add %[slabs], %[scratch]\n"
@@ -291,7 +291,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "5:\n"
       : [current] "=&r"(current), [scratch] "=&r"(scratch),
         [overflow] "=@ccae"(overflow)
-      : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
+      : [rseq_abi] "r"(&__rseq_abi),
+        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
+        // TODO(b/130894622):  When using virtual CPU IDs, this will be dynamic.
+        [rseq_cpu_offset] "n"(offsetof(kernel_rseq, cpu_id)),
         [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory");
@@ -371,11 +374,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
       // Prepare
       "3:\n"
       "lea __rseq_cs_TcmallocSlab_Pop_%=(%%rip), %[scratch];\n"
-      "mov %[scratch], (%[rseq_cs])\n"
+      "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
       // scratch = __rseq_abi.cpu_id;
-      "mov (%[rseq_cpu]), %k[scratch]\n"
+      "mov %c[rseq_cpu_offset](%[rseq_abi]), %k[scratch]\n"
       // scratch = slabs + scratch
       "shl %[shift], %[scratch]\n"
       "add %[slabs], %[scratch]\n"
@@ -400,7 +403,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
       "5:\n"
       : [result] "=&r"(result), [underflow] "=@ccbe"(underflow),
         [scratch] "=&r"(scratch), [current] "=&r"(current)
-      : [rseq_cs] "r"(&__rseq_abi.rseq_cs), [rseq_cpu] "r"(&__rseq_abi.cpu_id),
+      : [rseq_abi] "r"(&__rseq_abi),
+        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
+        // TODO(b/130894622):  When using virtual CPU IDs, this will be dynamic.
+        [rseq_cpu_offset] "n"(offsetof(kernel_rseq, cpu_id)),
         [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl)
       : "cc", "memory");
