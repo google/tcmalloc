@@ -93,12 +93,14 @@ typedef void *(*UnderflowHandler)(int cpu, size_t cl);
 extern "C" {
 int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,
                                  intptr_t new_val);
+#ifndef __x86_64__
 int TcmallocSlab_Push(void *ptr, size_t cl, void *item, size_t shift,
                       OverflowHandler f);
 int TcmallocSlab_Push_FixedShift(void *ptr, size_t cl, void *item,
                                  OverflowHandler f);
 void *TcmallocSlab_Pop(void *ptr, size_t cl, UnderflowHandler f, size_t shift);
 void *TcmallocSlab_Pop_FixedShift(void *ptr, size_t cl, UnderflowHandler f);
+#endif  // __x86_64__
 
 // Push a batch for a slab which the Shift equal to
 // PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
