@@ -47,8 +47,7 @@ class TransferCache {
         max_capacity_(0),
         slot_info_{},
         slots_(nullptr),
-        freelist_(),
-        arbitrary_transfer_(false) {}
+        freelist_() {}
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
@@ -124,8 +123,6 @@ class TransferCache {
 
   CentralFreeList freelist_;
 
-  // Cached value of IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER)
-  bool arbitrary_transfer_;
 } ABSL_CACHELINE_ALIGNED;
 
 #else

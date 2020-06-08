@@ -66,10 +66,6 @@ void TransferCache::Init(size_t cl) {
   // We need at least 2 slots to store list head and tail.
   ASSERT(kMinObjectsToMove >= 2);
 
-  // Cache this value, for performance.
-  arbitrary_transfer_ =
-      IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER_CACHE);
-
   slots_ = nullptr;
   max_capacity_ = 0;
   SizeInfo info = {0, 0};
@@ -142,7 +138,6 @@ bool TransferCache::ShrinkCache() {
     absl::base_internal::SpinLockHolder h(&lock_);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity == 0) return false;
-    if (!arbitrary_transfer_ && info.capacity < N) return false;
 
     N = std::min(N, info.capacity);
     int unused = info.capacity - info.used;
@@ -184,7 +179,7 @@ void TransferCache::InsertRange(absl::Span<void *> batch, int N) {
       tracking::Report(kTCInsertHit, freelist_.size_class(), 1);
       return;
     }
-  } else if (arbitrary_transfer_) {
+  } else {
     absl::base_internal::SpinLockHolder h(&lock_);
     MakeCacheSpace(N);
     // MakeCacheSpace can drop the lock, so refetch
@@ -223,6 +218,7 @@ void TransferCache::InsertRange(absl::Span<void *> batch, int N) {
       }
 #endif
     }
+    // We don't need to hold the lock here, so release it earlier.
   }
   tracking::Report(kTCInsertMiss, freelist_.size_class(), 1);
   freelist_.InsertRange(batch.data(), N);
@@ -245,7 +241,7 @@ int TransferCache::RemoveRange(void **batch, int N) {
       tracking::Report(kTCRemoveHit, freelist_.size_class(), 1);
       return N;
     }
-  } else if (arbitrary_transfer_ && info.used >= 0) {
+  } else if (info.used >= 0) {
     absl::base_internal::SpinLockHolder h(&lock_);
     // Refetch with the lock
     info = slot_info_.load(std::memory_order_relaxed);
@@ -257,6 +253,7 @@ int TransferCache::RemoveRange(void **batch, int N) {
     memcpy(batch, entry, sizeof(void *) * fetch);
     tracking::Report(kTCRemoveHit, freelist_.size_class(), 1);
     if (fetch == N) return N;
+    // We don't need to hold the lock here, so release it earlier.
   }
   tracking::Report(kTCRemoveMiss, freelist_.size_class(), 1);
   return freelist_.RemoveRange(batch + fetch, N - fetch) + fetch;
