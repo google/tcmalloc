@@ -324,7 +324,7 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata &d) const {
-  if (!d.alloc_trace.depth) return ErrorType::kUnknown;
+  if (!d.allocation_start) return ErrorType::kUnknown;
   if (double_free_detected_) return ErrorType::kDoubleFree;
   if (write_overflow_detected_) return ErrorType::kBufferOverflowOnDealloc;
   if (d.dealloc_trace.depth) return ErrorType::kUseAfterFree;
