@@ -24,9 +24,12 @@
 
 #include <malloc.h>
 #include <stddef.h>
+#include <new>
 
 #include "absl/base/attributes.h"
+#ifndef TCMALLOC_NO_NEW_DELETE_OVERRIDES
 #include "tcmalloc/internal/declarations.h"
+#endif
 
 // __THROW is defined in glibc systems.  It means, counter-intuitively,
 // "This function will never throw an exception."  It's an optional
