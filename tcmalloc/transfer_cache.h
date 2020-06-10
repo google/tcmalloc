@@ -47,7 +47,7 @@ class TransferCache {
         max_capacity_(0),
         slot_info_{},
         slots_(nullptr),
-        freelist_() {}
+        freelist_do_not_access_directly_() {}
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
@@ -64,7 +64,7 @@ class TransferCache {
   int RemoveRange(void **batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in the central cache.
-  size_t central_length() { return freelist_.length(); }
+  size_t central_length() { return freelist().length(); }
 
   // Returns the number of free objects in the transfer cache.
   size_t tc_length();
@@ -73,9 +73,7 @@ class TransferCache {
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
   // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() {
-    return freelist_.OverheadBytes();
-  }
+  size_t OverheadBytes() { return freelist().OverheadBytes(); }
 
   SizeInfo GetSlotInfo() const {
     return slot_info_.load(std::memory_order_relaxed);
@@ -121,8 +119,18 @@ class TransferCache {
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
 
-  CentralFreeList freelist_;
+  // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
+  // that we are not holding lock_ when we access it.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist()
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    return freelist_do_not_access_directly_;
+  }
 
+  size_t size_class() const {
+    return freelist_do_not_access_directly_.size_class();
+  }
+
+  CentralFreeList freelist_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
 #else
