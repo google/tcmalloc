@@ -1451,11 +1451,22 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
   }
 
   if (obj != nullptr) {
+#if TCMALLOC_HAVE_TRACKING
     // We delete directly into central cache to avoid tracking this as
     // purely internal deletion. We've already (correctly) tracked
     // this allocation as either malloc hit or malloc miss, and we
     // must not count anything else for this allocation.
+    //
+    // TODO(b/158678747):  As of cl/315283185, we may occasionally see a hit in
+    // the TransferCache here.  Prior to that CL, we always forced a miss.  Both
+    // of these may artificially skew our tracking data.
     Static::transfer_cache()[cl].InsertRange(absl::Span<void*>(&obj, 1), 1);
+#else
+    // We are not maintaining precise statistics on malloc hit/miss rates at our
+    // cache tiers.  We can deallocate into our ordinary cache.
+    ASSERT(cl != 0);
+    FreeSmallSlow(obj, cl);
+#endif
   }
   return guarded_alloc ? guarded_alloc : span->start_address();
 }
