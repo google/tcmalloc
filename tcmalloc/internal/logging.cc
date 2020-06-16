@@ -268,7 +268,7 @@ void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
   NewLineAndIndent();
-  out_->printf("%s: %.3g", key.data(), value);
+  out_->printf("%s: %f", key.data(), value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
