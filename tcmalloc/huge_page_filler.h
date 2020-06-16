@@ -697,7 +697,7 @@ enum class FillerPartialRerelease : bool {
 template <class TrackerType>
 class HugePageFiller {
  public:
-  HugePageFiller(FillerPartialRerelease partial_rerelease);
+  explicit HugePageFiller(FillerPartialRerelease partial_rerelease);
   HugePageFiller(FillerPartialRerelease partial_rerelease, ClockFunc clock);
 
   typedef TrackerType Tracker;
