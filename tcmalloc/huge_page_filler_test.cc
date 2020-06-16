@@ -1800,8 +1800,9 @@ TEST_P(FillerTest, Print) {
   // Find the \0 that got added.
   buffer.resize(strlen(buffer.c_str()));
 
-  EXPECT_EQ(buffer,
-            R"(HugePageFiller: densely pack small requests into hugepages
+  EXPECT_THAT(
+      buffer,
+      StrEq(R"(HugePageFiller: densely pack small requests into hugepages
 HugePageFiller: 8 total, 3 full, 3 partial, 2 released (0 partially), 0 quarantined
 HugePageFiller: 261 pages free in 8 hugepages, 0.1274 free
 HugePageFiller: among non-fulls, 0.3398 free
@@ -1881,7 +1882,7 @@ HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
-)");
+)"));
   for (const auto &alloc : allocs) {
     Delete(alloc);
   }
@@ -1906,7 +1907,7 @@ TEST_P(FillerTest, PrintInPbtxt) {
   // Find the \0 that got added.
   buffer.resize(strlen(buffer.c_str()));
 
-  EXPECT_EQ(buffer, R"(
+  EXPECT_THAT(buffer, StrEq(R"(
   filler_full_huge_pages: 3
   filler_partial_huge_pages: 3
   filler_released_huge_pages: 2
@@ -3422,7 +3423,7 @@ TEST_P(FillerTest, PrintInPbtxt) {
       }
     }
   }
-)");
+)"));
   for (const auto &alloc : allocs) {
     Delete(alloc);
   }
