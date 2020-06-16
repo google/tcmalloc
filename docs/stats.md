@@ -320,10 +320,10 @@ Unmapped span,    3 pages:  28.4       0      60      42       3       0       0
 
 This reports some stats on the number of pages allocated.
 
-*   The number of live (ie not on page heap) pages that were "small"
+*   The number of live (i.e., not on page heap) pages that were "small"
     allocations. Small allocations are ones that are tracked in the pageheap by
-    size (eg a region of two pages in size). Larger allocations are just kept in
-    an array that has to be scanned linearly.
+    size (e.g., a region of two pages in size). Larger allocations are just kept
+    in an array that has to be scanned linearly.
 *   The pages of slack result from situations where allocation is rounded up to
     hugepages, and this leaves some spare pages.
 *   The largest seen allocation is self explanatory.
@@ -371,9 +371,10 @@ The GWP-ASan section displays information about allocations guarded by
     successful and 0 failed allocations, GWP-ASan is probably disabled on your
     binary. If there are a large number of failed allocations, it probably means
     your sampling rate is too high, causing the guarded slots to be exhausted.
-    See [GWP-ASan sampling rate](gwp-asan.md#what-should-i-set-the-sampling-rate-to).
+    See
+    [GWP-ASan sampling rate](gwp-asan.md#what-should-i-set-the-sampling-rate-to).
 *   The number of "slots" currently allocated and quarantined. An allocated slot
-    contains an allocation that is still active (i.e. not freed) while a
+    contains an allocation that is still active (i.e., not freed) while a
     quarantined slot has either not been used yet or contains an allocation that
     was freed.
 *   The maximum number of slots that have been allocated at the same time. This
@@ -488,28 +489,34 @@ cache.
 
 ```
 HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 19882 total, 3870 full, 16012 partial, 0 released (0 partially), 0 quarantined
+HugePageFiller: 19882 total, 8083 full, 11799 partial, 0 released (0 partially), 0 quarantined
 HugePageFiller: 120168 pages free in 19882 hugepages, 0.0236 free
-HugePageFiller: among non-fulls, 0.0293 free
+HugePageFiller: among non-fulls, 0.0398 free
 HugePageFiller: 499 used pages in subreleased hugepages (0 of them in partially released)
-HugePageFiller: 0 hugepages partially released, nan released
+HugePageFiller: 0 hugepages partially released, 0.0000 released
 HugePageFiller: 1.0000 of used pages hugepageable
 ```
 
 The summary stats are as follows:
 
-*   Total pages is the number of hugepages in the filler cache.
-*   Full is the number of hugepages on that have multiple in-use allocations.
-*   Partial is the remaining number of hugepages that have a single in-use
+*   "total" refers to the total number of hugepages in the filler cache.
+*   "full" is the number of those hugepages that have multiple in-use
+    allocations.
+*   "partial" is the remaining number of hugepages that have a single in-use
     allocation.
-*   Released is the number of hugepages that are released - ie partially
+*   "released" is the number of hugepages that are released - i.e., partially
     unmapped. If partially released hugepages are enabled, the number in
     parentheses shows the number of hugepages in this category.
-*   Quarantined is a feature has been disabled, so the result is currently zero.
+*   "quarantined" is a feature has been disabled, so the result is currently zero.
 
 The second section gives an indication of the number of pages in various states
-in the filler cache. "Used pages" refers to the number of occupied pages in the
-different types of partially unmapped hugepages.
+in the filler cache:
+
+* "pages free" refers to the number of free TCMalloc pages in the filler, as
+  well as the ratio to the total number of hugepages.
+* "among non-fulls" states this ratio to the number of non-full hugepages.
+* "used pages" refers to the number of occupied pages in the different types of
+  partially unmapped hugepages.
 
 ```
 HugePageFiller: fullness histograms
@@ -639,7 +646,7 @@ contain multiple regions.
 HugeRegionSet: 1 MiB+ allocations best-fit into 1024 MiB slabs
 HugeRegionSet: 0 total regions
 HugeRegionSet: 0 hugepages backed out of 0 total
-HugeRegionSet: 0 pages free in backed region, nan free
+HugeRegionSet: 0 pages free in backed region, 0.0000 free
 ```
 
 The lines of output indicate:
@@ -768,4 +775,3 @@ Unmapped span TOTAL PAGES:     51.3     0      0  131072   16640       0       0
 Unmapped span,   >=64 pages:   51.3     0      0  131072   16640       0       0       0
 ...
 ```
-
