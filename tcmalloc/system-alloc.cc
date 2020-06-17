@@ -127,7 +127,7 @@ class MmapRegionFactory : public AddressRegionFactory {
   size_t GetStatsInPbtxt(absl::Span<char> buffer) override;
 
  private:
-  std::atomic<int64_t> bytes_reserved_{0};
+  std::atomic<size_t> bytes_reserved_{0};
 };
 std::aligned_storage<sizeof(MmapRegionFactory),
                      alignof(MmapRegionFactory)>::type mmap_space;
@@ -194,32 +194,20 @@ AddressRegion* MmapRegionFactory::Create(void* start, size_t size,
 
 size_t MmapRegionFactory::GetStats(absl::Span<char> buffer) {
   TCMalloc_Printer printer(buffer.data(), buffer.size());
-  long long allocated = bytes_reserved_.load(std::memory_order_relaxed);
+  size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
   constexpr double MiB = 1048576.0;
-  printer.printf("MmapSysAllocator: %lld bytes (%.1f MiB) reserved\n",
-                 allocated, allocated / MiB);
+  printer.printf("MmapSysAllocator: %zu bytes (%.1f MiB) reserved\n", allocated,
+                 allocated / MiB);
 
-  size_t required = printer.SpaceRequired();
-  // SpaceRequired includes the null terminator.
-  if (required > 0) {
-    required--;
-  }
-
-  return required;
+  return printer.SpaceRequired();
 }
 
 size_t MmapRegionFactory::GetStatsInPbtxt(absl::Span<char> buffer) {
   TCMalloc_Printer printer(buffer.data(), buffer.size());
-  long long allocated = bytes_reserved_.load(std::memory_order_relaxed);
+  size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
   printer.printf("mmap_sys_allocator: %lld\n", allocated);
 
-  size_t required = printer.SpaceRequired();
-  // SpaceRequired includes the null terminator.
-  if (required > 0) {
-    required--;
-  }
-
-  return required;
+  return printer.SpaceRequired();
 }
 
 std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,

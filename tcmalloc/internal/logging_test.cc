@@ -97,13 +97,13 @@ TEST(Printer, RequiredSpace) {
       printer.printf("%s", kChunk);
     }
     EXPECT_EQ(buf.get(), expected);
-    EXPECT_EQ(length, printer.SpaceRequired());
+    EXPECT_EQ(length - 1, printer.SpaceRequired());
 
     // Go past the end of the buffer.  This should not overrun or affect the
     // existing contents of buf, but we should see SpaceRequired tick up.
     printer.printf("%s", kChunk);
     EXPECT_EQ(buf.get(), expected);
-    EXPECT_EQ(length + strlen(kChunk), printer.SpaceRequired());
+    EXPECT_EQ(length - 1 + strlen(kChunk), printer.SpaceRequired());
 
     expected.append(kChunk);
   }

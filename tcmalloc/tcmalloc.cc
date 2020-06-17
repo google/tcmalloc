@@ -430,17 +430,15 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
     std::tie(limit_bytes, is_hard) = Static::page_allocator()->limit();
     out->printf("PARAMETER desired_usage_limit_bytes %" PRIu64 " %s\n",
                 limit_bytes, is_hard ? "(hard)" : "");
-    long long limit_hits = Static::page_allocator()->limit_hits();
-    out->printf("Number of times limit was hit: %lld\n", limit_hits);
+    out->printf("Number of times limit was hit: %lld\n",
+                Static::page_allocator()->limit_hits());
 
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 tcmalloc::Parameters::per_cpu_caches() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
                 tcmalloc::Parameters::max_per_cpu_cache_size());
-    const long long thread_cache_max =
-        tcmalloc::Parameters::max_total_thread_cache_bytes();
     out->printf("PARAMETER tcmalloc_max_total_thread_cache_bytes %lld\n",
-                thread_cache_max);
+                tcmalloc::Parameters::max_total_thread_cache_bytes());
   }
 }
 
@@ -587,10 +585,6 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
   }
 
   size_t required = printer.SpaceRequired();
-  // SpaceRequired includes the null terminator.
-  if (required > 0) {
-    required--;
-  }
 
   if (buffer_length > required) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -778,10 +772,6 @@ extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
                  tcmalloc::SystemReleaseErrors());
 
   size_t n = printer.SpaceRequired();
-  // SpaceRequired includes the null terminator.  Remove it.
-  if (n > 0) {
-    n--;
-  }
 
   size_t bytes_remaining = buffer_length > n ? buffer_length - n : 0;
   if (bytes_remaining > 0) {

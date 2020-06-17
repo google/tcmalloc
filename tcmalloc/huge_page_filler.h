@@ -404,8 +404,8 @@ class FillerStatsTracker {
 template <size_t kEpochs>
 void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
-  out->printf("HugePageFiller: time series over %lld min interval\n\n",
-              static_cast<long long>(absl::ToInt64Minutes(summary_interval_)));
+  out->printf("HugePageFiller: time series over %d min interval\n\n",
+              absl::ToInt64Minutes(summary_interval_));
   out->printf("HugePageFiller: minimum free pages: %zu (%zu backed)\n",
               free_pages.free, free_pages.free_backed);
 

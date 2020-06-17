@@ -195,7 +195,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     ret.resize(kSize);
     TCMalloc_Printer p(&ret[0], kSize);
     allocator_->Print(&p);
-    ret.erase(strlen(ret.c_str()));
+    ret.erase(p.SpaceRequired());
     return ret;
   }
 
@@ -208,7 +208,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
       PbtxtRegion region(&p, kNested, 0);
       allocator_->PrintInPbtxt(&region);
     }
-    ret.erase(strlen(ret.c_str()));
+    ret.erase(p.SpaceRequired());
     return ret;
   }
 

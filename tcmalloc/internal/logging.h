@@ -18,8 +18,11 @@
 #define TCMALLOC_INTERNAL_LOGGING_H_
 
 #include <stdint.h>
+#include <stdlib.h>
 
+#include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 
 //-------------------------------------------------------------------
@@ -163,13 +166,32 @@ class TCMalloc_Printer {
  public:
   // REQUIRES: "length > 0"
   TCMalloc_Printer(char* buf, int length)
-      : buf_(buf), left_(length), required_(1) {
+      : buf_(buf), left_(length), required_(0) {
     ASSERT(length > 0);
     buf[0] = '\0';
   }
 
-  void printf(const char* format, ...)
-    __attribute__ ((__format__ (__printf__, 2, 3)));
+  template <typename... Args>
+  void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
+    ASSERT(left_ >= 0);
+    if (left_ <= 0) {
+      return;
+    }
+
+    const int r = absl::SNPrintF(buf_, left_, format, args...);
+    if (r < 0) {
+      left_ = 0;
+      return;
+    }
+    required_ += r;
+
+    if (r > left_) {
+      left_ = 0;
+    } else {
+      left_ -= r;
+      buf_ += r;
+    }
+  }
 
   int SpaceRequired() const { return required_; }
 };

@@ -197,30 +197,6 @@ bool Logger::AddNum(uint64_t num, int base) {
 
 }  // namespace tcmalloc
 
-void TCMalloc_Printer::printf(const char* format, ...) {
-  ASSERT(left_ >= 0);
-  va_list ap;
-  va_start(ap, format);
-  const int r = vsnprintf(buf_, left_, format, ap);
-  va_end(ap);
-  if (r < 0) {
-    // Perhaps an old glibc that returns -1 on truncation?  We can't draw
-    // conclusions on how this affects the required buffer space.
-    left_ = 0;
-    return;
-  }
-
-  required_ += r;
-
-  if (r > left_) {
-    // Truncation
-    left_ = 0;
-  } else {
-    left_ -= r;
-    buf_ += r;
-  }
-}
-
 PbtxtRegion::PbtxtRegion(TCMalloc_Printer* out, PbtxtRegionType type,
                          int indent)
     : out_(out), type_(type), indent_(indent) {
@@ -258,32 +234,32 @@ void PbtxtRegion::NewLineAndIndent() {
 
 void PbtxtRegion::PrintU64(absl::string_view key, uint64_t value) {
   NewLineAndIndent();
-  out_->printf("%s: %" PRIu64, key.data(), value);
+  out_->printf("%s: %" PRIu64, key, value);
 }
 
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
   NewLineAndIndent();
-  out_->printf("%s: %" PRIi64, key.data(), value);
+  out_->printf("%s: %" PRIi64, key, value);
 }
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
   NewLineAndIndent();
-  out_->printf("%s: %f", key.data(), value);
+  out_->printf("%s: %f", key, value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
   NewLineAndIndent();
-  out_->printf("%s: %s", key.data(), value ? "true" : "false");
+  out_->printf("%s: %s", key, value ? "true" : "false");
 }
 
 void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
   NewLineAndIndent();
-  out_->printf("%s: %s", key.data(), value.data());
+  out_->printf("%s: %s", key, value);
 }
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   NewLineAndIndent();
-  out_->printf("%s ", key.data());
+  out_->printf("%s ", key);
   PbtxtRegion sub(out_, kNested, indent_);
   return sub;
 }

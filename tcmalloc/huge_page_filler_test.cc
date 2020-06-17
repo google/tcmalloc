@@ -909,9 +909,8 @@ TEST_P(FillerTest, PrintFreeRatio) {
   {
     TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
+    buffer.erase(printer.SpaceRequired());
   }
-  // Find the \0 that got added.
-  buffer.resize(strlen(buffer.c_str()));
 
   if (GetParam() == FillerPartialRerelease::Retain) {
     EXPECT_THAT(
@@ -1466,12 +1465,12 @@ TEST_F(FillerStatsTrackerTest, Works) {
   // Test text output (time series summary).
   {
     std::string buffer(1024 * 1024, '\0');
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     {
-      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
       PbtxtRegion region(&printer, kTop, /*indent=*/0);
       tracker_.Print(&printer);
     }
-    buffer.resize(strlen(buffer.c_str()));
+    buffer.erase(printer.SpaceRequired());
 
     EXPECT_THAT(buffer, StrEq(R"(HugePageFiller: time series over 5 min interval
 
@@ -1489,12 +1488,12 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
   // Test pbtxt output (full time series).
   {
     std::string buffer(1024 * 1024, '\0');
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     {
-      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
       PbtxtRegion region(&printer, kTop, /*indent=*/0);
       tracker_.PrintInPbtxt(&region);
     }
-    buffer.resize(strlen(buffer.c_str()));
+    buffer.erase(printer.SpaceRequired());
 
     EXPECT_THAT(buffer, StrEq(R"(
   filler_skipped_subrelease {
@@ -1796,9 +1795,8 @@ TEST_P(FillerTest, Print) {
   {
     TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
+    buffer.erase(printer.SpaceRequired());
   }
-  // Find the \0 that got added.
-  buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(
       buffer,
@@ -1899,13 +1897,12 @@ TEST_P(FillerTest, PrintInPbtxt) {
   auto allocs = GenerateInterestingAllocs();
 
   std::string buffer(1024 * 1024, '\0');
+  TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     PbtxtRegion region(&printer, kTop, /*indent=*/0);
     filler_.PrintInPbtxt(&region);
   }
-  // Find the \0 that got added.
-  buffer.resize(strlen(buffer.c_str()));
+  buffer.erase(printer.SpaceRequired());
 
   EXPECT_THAT(buffer, StrEq(R"(
   filler_full_huge_pages: 3
@@ -3447,15 +3444,15 @@ TEST_P(FillerTest, CheckBufferSize) {
   Delete(big);
 
   std::string buffer(1024 * 1024, '\0');
+  TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
   {
-    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     PbtxtRegion region(&printer, kTop, /*indent=*/0);
     filler_.PrintInPbtxt(&region);
   }
 
   // We assume a maximum buffer size of 1 MiB. When increasing this size, ensure
   // that all places processing mallocz protos get updated as well.
-  size_t buffer_size = strlen(buffer.c_str());
+  size_t buffer_size = printer.SpaceRequired();
   printf("HugePageFiller buffer size: %zu\n", buffer_size);
   EXPECT_LE(buffer_size, 1024 * 1024);
 }

@@ -54,7 +54,7 @@ template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   // Prints timestamp:min_pages:max_pages for each window with records.
   // Timestamp == kEpochs - 1 is the most recent measurement.
-  const long long millis = absl::ToInt64Milliseconds(kEpochLength);
+  const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
   out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
   int written = 0;
   timeseries_.Iter(
@@ -376,7 +376,7 @@ HugeAddressMap::Node *HugeCache::Find(HugeLength n) {
 }
 
 void HugeCache::Print(TCMalloc_Printer *out) {
-  const long long millis = absl::ToInt64Milliseconds(kCacheTime);
+  const int64_t millis = absl::ToInt64Milliseconds(kCacheTime);
   out->printf(
       "HugeCache: contains unused, backed hugepage(s) "
       "(kCacheTime = %lldms)\n",
