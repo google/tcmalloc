@@ -87,6 +87,7 @@ static bool InitThreadPerCpu() {
     return true;
   }
 
+#ifdef __NR_rseq
   auto ret = syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
                      PERCPU_RSEQ_SIGNATURE);
   if (ret == 0) {
@@ -94,7 +95,7 @@ static bool InitThreadPerCpu() {
   } else {
     __rseq_refcount--;
   }
-
+#endif  // __NR_rseq
   return false;
 }
 
