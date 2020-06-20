@@ -425,6 +425,28 @@ class MallocExtension final
   // Start recording a sample of allocation and deallocation calls.  Returns
   // null if the implementation does not support profiling.
   static AllocationProfilingToken StartAllocationProfiling();
+
+  // Runs housekeeping actions for the allocator off of the main allocation path
+  // of new/delete.  As of 2020, this includes:
+  // * Inspecting the current CPU mask and releasing memory from inaccessible
+  //   CPUs.
+  // * Releasing GetBackgroundReleaseRate() bytes per second from the page
+  //   heap, if that many bytes are free, via ReleaseMemoryToSystem().
+  //
+  // When linked against TCMalloc, this method does not return.
+  static void ProcessBackgroundActions();
+
+  // Specifies a rate in bytes per second.
+  //
+  // The enum is used to provide strong-typing for the value.
+  enum class BytesPerSecond : size_t {};
+
+  // Gets the current release rate (in bytes per second) from the page heap.
+  // Zero inhibits the release path.
+  static BytesPerSecond GetBackgroundReleaseRate();
+  // Specifies the release rate from the page heap.  ProcessBackgroundActions
+  // must be called for this to be operative.
+  static void SetBackgroundReleaseRate(BytesPerSecond rate);
 };
 
 }  // namespace tcmalloc

@@ -51,6 +51,10 @@ void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
 
+ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
+    Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
+        0
+    });
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 ABSL_CONST_INIT std::atomic<bool> Parameters::lazy_per_cpu_caches_enabled_(
@@ -102,6 +106,21 @@ int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
 
 void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
   tcmalloc::Parameters::set_max_total_thread_cache_bytes(value);
+}
+
+tcmalloc::MallocExtension::BytesPerSecond
+MallocExtension_Internal_GetBackgroundReleaseRate() {
+  return tcmalloc::Parameters::background_release_rate();
+}
+
+void MallocExtension_Internal_SetBackgroundReleaseRate(
+    tcmalloc::MallocExtension::BytesPerSecond rate) {
+  tcmalloc::Parameters::set_background_release_rate(rate);
+}
+
+void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
+  tcmalloc::Parameters::background_release_rate_.store(
+      static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
 }
 
 uint64_t TCMalloc_Internal_GetHeapSizeHardLimit() {

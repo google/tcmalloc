@@ -57,7 +57,8 @@ other tools:
 The configuration on Github mirrors our production defaults, with two notable
 exceptions:
 
-*   Many of our production servers start a background thread to regularly call
+*   Many of our production servers start a background thread (via
+    `tcmalloc::MallocExtension::ProcessBackgroundActions`) to regularly call
     `tcmalloc::MallocExtension::ReleaseMemoryToSystem`, while others never
     release memory in favor of better CPU performance. These tradeoffs are
     discussed in our [tuning page](tuning.md).

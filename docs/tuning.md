@@ -91,6 +91,9 @@ each CPU, so the total amount of memory for application could be much larger
 than this. Memory on CPUs where the application is no longer able to run can be
 freed by calling `tcmalloc::MallocExtension::ReleaseCpuMemory`.
 
+Releasing memory held by unuable CPU caches is handled by
+`tcmalloc::MallocExtension::ProcessBackgroundActions`.
+
 In contrast `tcmalloc::MallocExtension::SetMaxTotalThreadCacheBytes` controls
 the _total_ size of all thread caches in the application.
 
@@ -107,6 +110,10 @@ overall size).
 application down to a minimal amount, however it should be considered that this
 just reduces the application down from its peak memory footprint over time, and
 does not make that peak memory footprint smaller.
+
+Using a background thread running
+`tcmalloc::MallocExtension::ProcessBackgroundActions()`, memory will be released
+from the page heap at the specified rate.
 
 There are two disadvantages of releasing memory aggressively:
 

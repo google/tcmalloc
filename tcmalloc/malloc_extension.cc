@@ -391,6 +391,31 @@ size_t MallocExtension::ReleaseCpuMemory(int cpu) {
   return 0;
 }
 
+void MallocExtension::ProcessBackgroundActions() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (&MallocExtension_Internal_ProcessBackgroundActions != nullptr) {
+    MallocExtension_Internal_ProcessBackgroundActions();
+  }
+#endif
+}
+
+MallocExtension::BytesPerSecond MallocExtension::GetBackgroundReleaseRate() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (&MallocExtension_Internal_GetBackgroundReleaseRate != nullptr) {
+    return MallocExtension_Internal_GetBackgroundReleaseRate();
+  }
+#endif
+  return static_cast<MallocExtension::BytesPerSecond>(0);
+}
+
+void MallocExtension::SetBackgroundReleaseRate(BytesPerSecond rate) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (&MallocExtension_Internal_SetBackgroundReleaseRate != nullptr) {
+    MallocExtension_Internal_SetBackgroundReleaseRate(rate);
+  }
+#endif
+}
+
 }  // namespace tcmalloc
 
 // Default implementation just returns size. The expectation is that

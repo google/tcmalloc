@@ -22,6 +22,22 @@
 namespace tcmalloc {
 namespace {
 
+TEST(MallocExtension, BackgroundReleaseRate) {
+
+  // Mutate via MallocExtension.
+  MallocExtension::SetBackgroundReleaseRate(
+      MallocExtension::BytesPerSecond{100 << 20});
+
+  EXPECT_EQ(static_cast<size_t>(MallocExtension::GetBackgroundReleaseRate()),
+            100 << 20);
+
+  // Disable release
+  MallocExtension::SetBackgroundReleaseRate(MallocExtension::BytesPerSecond{0});
+
+  EXPECT_EQ(static_cast<size_t>(MallocExtension::GetBackgroundReleaseRate()),
+            0);
+}
+
 TEST(MallocExtension, Properties) {
   // Verify that every property under GetProperties also works with
   // GetNumericProperty.

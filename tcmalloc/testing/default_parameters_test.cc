@@ -31,10 +31,14 @@ constexpr int64_t kDefaultProfileSamplingRate =
     ;
 constexpr int64_t kDefaultGuardedSamplingRate = 50 * kDefaultProfileSamplingRate;
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
+constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
+    0
+};
 #else
 constexpr int64_t kDefaultProfileSamplingRate = -1;
 constexpr int64_t kDefaultGuardedSamplingRate = -1;
 constexpr int64_t kDefaultGuardedSampleParameter = -1;
+constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{0};
 #endif
 
 bool TestProfileSamplingRate() {
@@ -61,6 +65,18 @@ bool TestGuardedSamplingRate() {
   return true;
 }
 
+bool TestBackgroundReleaseRate() {
+
+  auto extension_value = MallocExtension::GetBackgroundReleaseRate();
+  if (extension_value != kDefaultBackgroundReleaseRate) {
+    absl::FPrintF(stderr, "BackgroundReleaseRate: got %d, want %d\n",
+                  extension_value, kDefaultBackgroundReleaseRate);
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
@@ -70,6 +86,7 @@ int main() {
   bool success = true;
   success = success & tcmalloc::TestProfileSamplingRate();
   success = success & tcmalloc::TestGuardedSamplingRate();
+  success = success & tcmalloc::TestBackgroundReleaseRate();
 
   if (success) {
     fprintf(stderr, "PASS");

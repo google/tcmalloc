@@ -23,11 +23,20 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/parameter_accessors.h"
+#include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 
 class Parameters {
  public:
+  static MallocExtension::BytesPerSecond background_release_rate() {
+    return background_release_rate_.load(std::memory_order_relaxed);
+  }
+
+  static void set_background_release_rate(
+      MallocExtension::BytesPerSecond value) {
+    TCMalloc_Internal_SetBackgroundReleaseRate(static_cast<size_t>(value));
+  }
 
   static uint64_t heap_size_hard_limit();
   static void set_heap_size_hard_limit(uint64_t value);
@@ -97,6 +106,7 @@ class Parameters {
   }
 
  private:
+  friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetLazyPerCpuCachesEnabled(bool v);
@@ -109,6 +119,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
 
+  static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> lazy_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;

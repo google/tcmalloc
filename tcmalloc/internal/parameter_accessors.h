@@ -20,6 +20,8 @@
 
 extern "C" {
 
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackgroundReleaseRate(
+    size_t value);
 ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetLazyPerCpuCachesEnabled();
