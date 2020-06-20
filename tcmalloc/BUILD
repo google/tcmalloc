@@ -158,6 +158,7 @@ cc_library(
 common_srcs = [
     "arena.cc",
     "arena.h",
+    "background.cc",
     "central_freelist.cc",
     "central_freelist.h",
     "common.cc",
