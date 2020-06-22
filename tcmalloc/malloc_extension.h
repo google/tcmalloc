@@ -168,10 +168,8 @@ class AddressRegionFactory {
   static void* MallocInternal(size_t size);
 };
 
-class MallocExtension final
-{
+class MallocExtension final {
  public:
-
   // Gets a human readable description of the current state of the malloc data
   // structures.
   //
