@@ -381,6 +381,8 @@ cc_library(
     alwayslink = 1,
 )
 
+# TCMalloc with large pages is usually faster but fragmentation is higher.  See
+# https://github.com/google/tcmalloc/tree/master/docs/tuning.md for more details.
 cc_library(
     name = "tcmalloc_large_pages",
     srcs = [
@@ -409,7 +411,8 @@ cc_library(
     alwayslink = 1,
 )
 
-# This is another large page configuration (256k)
+# TCMalloc with 256k pages is usually faster but fragmentation is higher.  See
+# https://github.com/google/tcmalloc/tree/master/docs/tuning.md for more details.
 cc_library(
     name = "tcmalloc_256k_pages",
     srcs = [
@@ -438,6 +441,12 @@ cc_library(
     alwayslink = 1,
 )
 
+# TCMalloc small-but-slow is a a version of TCMalloc that chooses to minimize
+# fragmentation at a *severe* cost to performance.  It should be used by
+# applications that have significant memory constraints, but don't need to
+# frequently allocate/free objects.
+#
+# See https://github.com/google/tcmalloc/tree/master/docs/tuning.md for more details.
 cc_library(
     name = "tcmalloc_small_but_slow",
     srcs = [
