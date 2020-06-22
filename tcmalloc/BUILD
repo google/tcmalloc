@@ -112,6 +112,7 @@ cc_library(
     copts = ["-DTCMALLOC_DEPRECATED_PERTHREAD"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [
+        "//tcmalloc/internal:__pkg__",
         "//tcmalloc/testing:__pkg__",
     ],
     deps = tcmalloc_deps + [

@@ -72,6 +72,8 @@ namespace tcmalloc {
 namespace subtle {
 namespace percpu {
 
+inline constexpr int kRseqUnregister = 1;
+
 // Internal state used for tracking initialization of RseqCpuId()
 inline constexpr int kCpuIdUnsupported = -2;
 inline constexpr int kCpuIdUninitialized = -1;
@@ -79,6 +81,7 @@ inline constexpr int kCpuIdInitialized = 0;
 
 #if PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
+extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile uint32_t __rseq_refcount;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 #else  // !PERCPU_USE_RSEQ
