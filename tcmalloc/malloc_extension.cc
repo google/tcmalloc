@@ -24,7 +24,6 @@
 #include <string>
 
 #include "absl/base/attributes.h"
-#include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/memory/memory.h"
 #include "tcmalloc/internal/parameter_accessors.h"
