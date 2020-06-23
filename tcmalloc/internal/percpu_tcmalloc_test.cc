@@ -49,6 +49,8 @@ namespace {
 
 using tcmalloc::tcmalloc_internal::AllowedCpus;
 using tcmalloc::tcmalloc_internal::ScopedAffinityMask;
+using testing::Each;
+using testing::UnorderedElementsAreArray;
 
 // Choose an available CPU and executes the passed functor on it. The
 // cpu that is chosen, as long as a valid disjoint remote CPU will be passed
@@ -144,6 +146,10 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
     slab_.Init(
         &ByteCountingMalloc, [](size_t cl) { return kCapacity; },
         GetParam() == SlabInit::kLazy);
+
+    for (int i = 0; i < kCapacity; ++i) {
+      object_ptrs_[i] = &objects_[i];
+    }
   }
 
   ~TcmallocSlabTest() { slab_.Destroy(free); }
@@ -200,6 +206,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
 
   static constexpr size_t kCapacity = 10;
   static char objects_[kCapacity];
+  static void* object_ptrs_[kCapacity];
   static int current_cpu_;
   static size_t current_cl_;
   static bool overflow_called_;
@@ -219,6 +226,7 @@ static void* ExpectNoUnderflow(int cpu, size_t cl) {
 }
 
 char TcmallocSlabTest::objects_[TcmallocSlabTest::kCapacity];
+void* TcmallocSlabTest::object_ptrs_[TcmallocSlabTest::kCapacity];
 int TcmallocSlabTest::current_cpu_;
 size_t TcmallocSlabTest::current_cl_;
 bool TcmallocSlabTest::overflow_called_;
@@ -431,8 +439,10 @@ TEST_P(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, cl), 0);
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, cl), &objects_[5]);
 
+        ASSERT_THAT(absl::MakeSpan(&batch[0], i),
+                    UnorderedElementsAreArray(&object_ptrs_[0], i));
+        ASSERT_THAT(absl::MakeSpan(&batch[i], kCapacity - i), Each(nullptr));
         for (size_t j = 0; j < kCapacity + 1; ++j) {
-          EXPECT_EQ(batch[j], j < i ? &objects_[i - j - 1] : nullptr);
           batch[j] = nullptr;
         }
       }
@@ -452,8 +462,12 @@ TEST_P(TcmallocSlabTest, Unit) {
 
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, cl), &objects_[5]);
 
+        ASSERT_GE(i, want);
+        ASSERT_THAT(absl::MakeSpan(&batch[0], want),
+                    UnorderedElementsAreArray(&object_ptrs_[i - want], want));
+        ASSERT_THAT(absl::MakeSpan(&batch[want], kCapacity - want),
+                    Each(nullptr));
         for (size_t j = 0; j < kCapacity + 1; ++j) {
-          EXPECT_EQ(batch[j], j < want ? &objects_[i - j - 1] : nullptr);
           batch[j] = nullptr;
         }
       }
@@ -466,8 +480,10 @@ TEST_P(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, cl), 0);
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, cl), &objects_[5]);
 
+        ASSERT_THAT(absl::MakeSpan(&batch[0], i),
+                    UnorderedElementsAreArray(&object_ptrs_[0], i));
+        ASSERT_THAT(absl::MakeSpan(&batch[i], kCapacity - i), Each(nullptr));
         for (size_t j = 0; j < kCapacity + 1; ++j) {
-          EXPECT_EQ(batch[j], j < i ? &objects_[i - j - 1] : nullptr);
           batch[j] = nullptr;
         }
       }
