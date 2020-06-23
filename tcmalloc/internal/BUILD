@@ -275,6 +275,34 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "percpu_tcmalloc_test",
+    timeout = "long",
+    srcs = ["percpu_tcmalloc_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
+    deps = [
+        ":config",
+        ":logging",
+        ":percpu_tcmalloc",
+        ":util",
+        "//tcmalloc:malloc_extension",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/debugging:symbolize",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:seed_sequences",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "proc_maps",
     srcs = ["proc_maps.cc"],
