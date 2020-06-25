@@ -302,9 +302,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "mov %%r10, %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
-      // r10 = __rseq_abi.cpu_id;
-      "mov %c[rseq_cpu_offset](%[rseq_abi]), %%r10d\n"
-      // r10 = slabs + r10
+      // scratch = __rseq_abi.cpu_id;
+      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %%r10d\n"
+      // scratch = slabs + scratch
       "shl %[shift], %%r10\n"
       "add %[slabs], %%r10\n"
       // r11 = slabs->current;
@@ -329,8 +329,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        // TODO(b/130894622):  When using virtual CPU IDs, this will be dynamic.
-        [rseq_cpu_offset] "n"(offsetof(kernel_rseq, cpu_id)),
+        [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
         [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
@@ -422,7 +421,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
       // Start
       "4:\n"
       // scratch = __rseq_abi.cpu_id;
-      "mov %c[rseq_cpu_offset](%[rseq_abi]), %k[scratch]\n"
+      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
       // scratch = slabs + scratch
       "shl %[shift], %[scratch]\n"
       "add %[slabs], %[scratch]\n"
@@ -449,8 +448,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
         [scratch] "=&r"(scratch), [current] "=&r"(current)
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        // TODO(b/130894622):  When using virtual CPU IDs, this will be dynamic.
-        [rseq_cpu_offset] "n"(offsetof(kernel_rseq, cpu_id)),
+        [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
         [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl)
       : "cc", "memory");
@@ -494,7 +492,24 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
                                                          size_t len) {
   ASSERT(len != 0);
   if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_PushBatch_FixedShift(slabs_, cl, batch, len);
+#if PERCPU_USE_RSEQ
+    // TODO(b/159923407): TcmallocSlab_PushBatch_FixedShift needs to be
+    // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
+    // avoid needing to dispatch on two separate versions of the same function
+    // with only minor differences between them.
+    switch (tcmalloc_virtual_cpu_id_offset) {
+      case offsetof(kernel_rseq, cpu_id):
+        return TcmallocSlab_PushBatch_FixedShift(slabs_, cl, batch, len);
+#ifdef __x86_64__
+      case offsetof(kernel_rseq, vcpu_id):
+        return TcmallocSlab_PushBatch_FixedShift_VCPU(slabs_, cl, batch, len);
+#endif  // __x86_64__
+      default:
+        __builtin_unreachable();
+    }
+#else  // !PERCPU_USE_RSEQ
+    __builtin_unreachable();
+#endif  // !PERCPU_USE_RSEQ
   } else {
     size_t n = 0;
     // Push items until either all done or a push fails
@@ -511,10 +526,30 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
   ASSERT(len != 0);
   size_t n = 0;
   if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    n = TcmallocSlab_PopBatch_FixedShift(slabs_, cl, batch, len);
+#if PERCPU_USE_RSEQ
+    // TODO(b/159923407): TcmallocSlab_PopBatch_FixedShift needs to be
+    // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
+    // avoid needing to dispatch on two separate versions of the same function
+    // with only minor differences between them.
+    switch (tcmalloc_virtual_cpu_id_offset) {
+      case offsetof(kernel_rseq, cpu_id):
+        n = TcmallocSlab_PopBatch_FixedShift(slabs_, cl, batch, len);
+        break;
+#ifdef __x86_64__
+      case offsetof(kernel_rseq, vcpu_id):
+        n = TcmallocSlab_PopBatch_FixedShift_VCPU(slabs_, cl, batch, len);
+        break;
+#endif  // __x86_64__
+      default:
+        __builtin_unreachable();
+    }
+
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
+#else  // !PERCPU_USE_RSEQ
+    __builtin_unreachable();
+#endif  // !PERCPU_USE_RSEQ
   } else {
     // Pop items until either all done or a pop fails
     while (n < len && (batch[n] = Pop(cl, NoopUnderflow))) {

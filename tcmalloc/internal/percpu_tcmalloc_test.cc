@@ -293,6 +293,10 @@ TEST_P(TcmallocSlabTest, Unit) {
     ScopedAffinityMask aff(cpu);
 #else
     __rseq_abi.cpu_id = cpu;
+
+    if (UsingFlatVirtualCpus()) {
+      __rseq_abi.vcpu_id = cpu;
+    }
 #endif
     current_cpu_ = cpu;
 

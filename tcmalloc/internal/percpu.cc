@@ -55,6 +55,8 @@ ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
         static_cast<unsigned>(kCpuIdUninitialized),
         0,
         0,
+        {0, 0},
+        {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
 ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t __rseq_refcount;
@@ -71,6 +73,9 @@ ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void *tcmalloc_tls_fetch_pic() {
   return const_cast<kernel_rseq *>(&__rseq_abi);
 }
 #endif
+
+ABSL_CONST_INIT size_t tcmalloc_virtual_cpu_id_offset =
+    offsetof(kernel_rseq, cpu_id);
 
 }  // extern "C"
 
@@ -99,11 +104,26 @@ static bool InitThreadPerCpu() {
   return false;
 }
 
+bool UsingFlatVirtualCpus() {
+  return false;
+}
+
 static void InitPerCpu() {
+  CHECK_CONDITION(absl::base_internal::NumCPUs() <=
+                  std::numeric_limits<uint16_t>::max());
+
   // Based on the results of successfully initializing the first thread, mark
   // init_status to initialize all subsequent threads.
   if (InitThreadPerCpu()) {
     init_status = kFastMode;
+
+#if PERCPU_USE_RSEQ
+#ifdef __x86_64__
+    if (UsingFlatVirtualCpus()) {
+      tcmalloc_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
+    }
+#endif  // __x86_64__
+#endif  // PERCPU_USE_RSEQ
   }
 }
 
@@ -272,9 +292,17 @@ void FenceCpu(int cpu) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (GetCurrentCpu() == cpu) {
+  if (GetCurrentVirtualCpu() == cpu) {
     return;
   }
+
+  if (UsingFlatVirtualCpus()) {
+    // With virtual CPUs, we cannot identify the true physical core we need to
+    // interrupt.
+    FenceInterruptCPUs(nullptr);
+    return;
+  }
+
   cpu_set_t set;
   CPU_ZERO(&set);
   CPU_SET(cpu, &set);

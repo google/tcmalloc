@@ -22,6 +22,19 @@ struct kernel_rseq {
   unsigned cpu_id;
   unsigned long long rseq_cs;
   unsigned flags;
+  unsigned padding[2];
+  // This is a prototype extension to the rseq() syscall.  Since a process may
+  // run on only a few cores at a time, we can use a dense set of "v(irtual)
+  // cpus."  This can reduce cache requirements, as we only need N caches for
+  // the cores we actually run on simultaneously, rather than a cache for every
+  // physical core.
+  union {
+    struct {
+      short numa_node_id;
+      short vcpu_id;
+    };
+    int vcpu_flat;
+  };
 } __attribute__((aligned(4 * sizeof(unsigned long long))));
 
 static_assert(sizeof(kernel_rseq) == (4 * sizeof(unsigned long long)),

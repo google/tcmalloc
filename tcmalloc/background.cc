@@ -18,6 +18,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -46,6 +47,12 @@ void ReleasePerCpuMemoryToOS() {
   // supporting per-CPU allocations supports sched_getaffinity().
   // See b/27247854.
   if (!MallocExtension::PerCpuCachesActive()) {
+    return;
+  }
+
+  if (subtle::percpu::UsingFlatVirtualCpus()) {
+    // Our (real) CPU mask does not provide useful information about the state
+    // of our virtual CPU set.
     return;
   }
 

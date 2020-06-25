@@ -35,7 +35,7 @@
 
 namespace tcmalloc {
 
-using subtle::percpu::GetCurrentCpuUnsafe;
+using subtle::percpu::GetCurrentVirtualCpuUnsafe;
 
 // MaxCapacity() determines how we distribute memory in the per-cpu cache
 // to the various class sizes.
@@ -166,7 +166,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
-           cpu == GetCurrentCpuUnsafe());
+           cpu == GetCurrentVirtualCpuUnsafe());
 
   for (size_t i = 0; i < returned; ++i) {
     ObjectClass *ret = &to_return[i];
@@ -389,7 +389,7 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
       acquired += size;
     }
 
-    if (cpu != GetCurrentCpuUnsafe() || acquired >= bytes) {
+    if (cpu != GetCurrentVirtualCpuUnsafe() || acquired >= bytes) {
       // can't steal any more or don't need to
       break;
     }
@@ -421,7 +421,7 @@ int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
     Static::transfer_cache()[cl].InsertRange(absl::Span<void *>(batch), count);
     if (count != batch_length) break;
     count = 0;
-  } while (total < target && cpu == GetCurrentCpuUnsafe());
+  } while (total < target && cpu == GetCurrentVirtualCpuUnsafe());
   tracking::Report(kFreeTruncations, cl, 1);
   return 1;
 }
