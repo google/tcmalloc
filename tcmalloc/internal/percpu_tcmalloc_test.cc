@@ -295,7 +295,8 @@ TEST_P(TcmallocSlabTest, Unit) {
     __rseq_abi.cpu_id = cpu;
 
     if (UsingFlatVirtualCpus()) {
-      __rseq_abi.vcpu_id = cpu;
+      __rseq_abi.vcpu_id = cpu ^ 1;
+      cpu = cpu ^ 1;
     }
 #endif
     current_cpu_ = cpu;

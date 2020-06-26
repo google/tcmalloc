@@ -347,7 +347,7 @@ overflow_label:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
-  int cpu = __rseq_abi.cpu_id;
+  int cpu = VirtualRseqCpuId();
   return f(cpu, cl, item);
 }
 #endif  // defined(__x86_64__)
