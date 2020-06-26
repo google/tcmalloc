@@ -28,6 +28,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace {
 
 class RawSpan {
  public:
@@ -180,4 +181,5 @@ TEST_P(SpanTest, FreelistRandomized) {
 
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
 
+}  // namespace
 }  // namespace tcmalloc
