@@ -58,7 +58,9 @@ TEST(CpuCacheTest, Metadata) {
 
   EXPECT_EQ(0, count_cores());
 
+  int allowed_cpu_id;
   const size_t kSizeClass = 3;
+  const size_t num_to_move = Static::sizemap()->num_objects_to_move(kSizeClass);
   void* ptr;
   {
     // Restrict this thread to a single core while allocating and processing the
@@ -67,8 +69,8 @@ TEST(CpuCacheTest, Metadata) {
     // TODO(b/151313823):  Without this restriction, we may access--for reading
     // only--other slabs if we end up being migrated.  These may cause huge
     // pages to be faulted for those cores, leading to test flakiness.
-    tcmalloc_internal::ScopedAffinityMask mask(
-        tcmalloc_internal::AllowedCpus()[0]);
+    allowed_cpu_id = tcmalloc_internal::AllowedCpus()[0];
+    tcmalloc_internal::ScopedAffinityMask mask(allowed_cpu_id);
 
     ptr = cache.Allocate<OOMHandler>(kSizeClass);
 
@@ -112,6 +114,40 @@ TEST(CpuCacheTest, Metadata) {
         ASSUME(false);
         break;
     };
+
+    // Read stats from the CPU caches.  This should not impact resident_size.
+    const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
+    size_t total_used_bytes = 0;
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      size_t used_bytes = cache.UsedBytes(cpu);
+      total_used_bytes += used_bytes;
+
+      if (cpu == allowed_cpu_id) {
+        EXPECT_GT(used_bytes, 0);
+        EXPECT_TRUE(cache.HasPopulated(cpu));
+      } else {
+        EXPECT_EQ(used_bytes, 0);
+        EXPECT_FALSE(cache.HasPopulated(cpu));
+      }
+
+      EXPECT_LE(cache.Unallocated(cpu), max_cpu_cache_size);
+    }
+
+    for (int cl = 0; cl < kNumClasses; ++cl) {
+      // This is sensitive to the current growth policies of CPUCache.  It may
+      // require updating from time-to-time.
+      EXPECT_EQ(cache.TotalObjectsOfClass(cl),
+                (cl == kSizeClass ? num_to_move - 1 : 0))
+          << cl;
+    }
+    EXPECT_EQ(cache.TotalUsedBytes(), total_used_bytes);
+
+    PerCPUMetadataState post_stats = cache.MetadataMemoryUsage();
+    // Confirm stats are within expected bounds.
+    EXPECT_GT(post_stats.resident_size, 0);
+    EXPECT_LE(post_stats.resident_size, upper_bound) << count_cores();
+    // Confirm stats are unchanged.
+    EXPECT_EQ(r.resident_size, post_stats.resident_size);
   } else {
     EXPECT_EQ(r.resident_size, r.virtual_size);
   }

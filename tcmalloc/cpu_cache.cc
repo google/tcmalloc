@@ -428,6 +428,10 @@ int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
 
 uint64_t CPUCache::UsedBytes(int target_cpu) const {
   ASSERT(target_cpu >= 0);
+  if (!HasPopulated(target_cpu)) {
+    return 0;
+  }
+
   uint64_t total = 0;
   for (int cl = 1; cl < kNumClasses; cl++) {
     int size = Static::sizemap()->class_to_size(cl);
@@ -458,7 +462,10 @@ uint64_t CPUCache::TotalObjectsOfClass(size_t cl) const {
   ASSERT(cl < kNumClasses);
   uint64_t total_objects = 0;
   if (cl > 0) {
-    for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); cpu++) {
+    for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; cpu++) {
+      if (!HasPopulated(cpu)) {
+        continue;
+      }
       total_objects += freelist_.Length(cpu, cl);
     }
   }
