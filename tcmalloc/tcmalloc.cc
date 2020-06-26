@@ -1959,7 +1959,8 @@ extern "C" void TCMallocInternalCfree(void* ptr) noexcept
 }
 #endif  // TCMALLOC_ALIAS
 
-static inline void* do_realloc(void* old_ptr, size_t new_size) {
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
+                                                            size_t new_size) {
   Static::InitIfNecessary();
   // Get the size of the old entry
   const size_t old_size = GetSize(old_ptr);
