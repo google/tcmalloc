@@ -96,6 +96,10 @@ class CPUCache {
   static constexpr size_t kPerCpuShift = 18;
 #endif
 
+  // Report statistics
+  void Print(TCMalloc_Printer *out) const;
+  void PrintInPbtxt(PbtxtRegion *region) const;
+
  private:
   // Per-size-class freelist resizing info.
   class PerClassResizeInfo {

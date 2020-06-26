@@ -516,6 +516,53 @@ uint64_t CPUCache::Reclaim(int cpu) {
   return ctx.bytes;
 }
 
+void CPUCache::Print(TCMalloc_Printer *out) const {
+  out->printf("------------------------------------------------\n");
+  out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
+              Static::cpu_cache()->CacheLimit());
+  out->printf("------------------------------------------------\n");
+
+  cpu_set_t allowed_cpus;
+  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
+    CPU_ZERO(&allowed_cpus);
+  }
+
+  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
+       ++cpu) {
+    static constexpr double MiB = 1048576.0;
+
+    uint64_t rbytes = UsedBytes(cpu);
+    bool populated = HasPopulated(cpu);
+    uint64_t unallocated = Unallocated(cpu);
+    out->printf("cpu %3d: %12" PRIu64
+                " bytes (%7.1f MiB) with"
+                "%12" PRIu64 " bytes unallocated %s%s\n",
+                cpu, rbytes, rbytes / MiB, unallocated,
+                CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
+                populated ? " populated" : "");
+  }
+}
+
+void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
+  cpu_set_t allowed_cpus;
+  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
+    CPU_ZERO(&allowed_cpus);
+  }
+
+  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
+       ++cpu) {
+    PbtxtRegion entry = region->CreateSubRegion("cpu_cache");
+    uint64_t rbytes = UsedBytes(cpu);
+    bool populated = HasPopulated(cpu);
+    uint64_t unallocated = Unallocated(cpu);
+    entry.PrintI64("cpu", uint64_t(cpu));
+    entry.PrintI64("used", rbytes);
+    entry.PrintI64("unused", unallocated);
+    entry.PrintBool("active", CPU_ISSET(cpu, &allowed_cpus));
+    entry.PrintBool("populated", populated);
+  }
+}
+
 void CPUCache::PerClassResizeInfo::Init() {
   state_.store(0, std::memory_order_relaxed);
 }

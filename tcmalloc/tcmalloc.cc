@@ -395,29 +395,7 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
     }
 
     if (tcmalloc::UsePerCpuCache()) {
-      out->printf("------------------------------------------------\n");
-      out->printf(
-          "Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
-          Static::cpu_cache()->CacheLimit());
-      out->printf("------------------------------------------------\n");
-
-      cpu_set_t allowed_cpus;
-      if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
-        CPU_ZERO(&allowed_cpus);
-      }
-
-      for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs();
-           cpu < num_cpus; ++cpu) {
-        uint64_t rbytes = Static::cpu_cache()->UsedBytes(cpu);
-        bool populated = Static::cpu_cache()->HasPopulated(cpu);
-        uint64_t unallocated = Static::cpu_cache()->Unallocated(cpu);
-        out->printf("cpu %3d: %12" PRIu64
-                    " bytes (%7.1f MiB) with"
-                    "%12" PRIu64 " bytes unallocated %s%s\n",
-                    cpu, rbytes, rbytes / MiB, unallocated,
-                    CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
-                    populated ? " populated" : "");
-      }
+      Static::cpu_cache()->Print(out);
     }
 
     Static::page_allocator()->Print(out, /*tagged=*/false);
@@ -514,23 +492,7 @@ namespace {
     }
 
     if (tcmalloc::UsePerCpuCache()) {
-      cpu_set_t allowed_cpus;
-      if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
-        CPU_ZERO(&allowed_cpus);
-      }
-
-      for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs();
-           cpu < num_cpus; ++cpu) {
-        PbtxtRegion entry = region.CreateSubRegion("cpu_cache");
-        uint64_t rbytes = Static::cpu_cache()->UsedBytes(cpu);
-        bool populated = Static::cpu_cache()->HasPopulated(cpu);
-        uint64_t unallocated = Static::cpu_cache()->Unallocated(cpu);
-        entry.PrintI64("cpu", uint64_t(cpu));
-        entry.PrintI64("used", rbytes);
-        entry.PrintI64("unused", unallocated);
-        entry.PrintBool("active", CPU_ISSET(cpu, &allowed_cpus));
-        entry.PrintBool("populated", populated);
-      }
+      Static::cpu_cache()->PrintInPbtxt(&region);
     }
   }
   Static::page_allocator()->PrintInPbtxt(&region, /*tagged=*/false);
