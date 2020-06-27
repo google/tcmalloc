@@ -495,6 +495,7 @@ HugePageFiller: among non-fulls, 0.0398 free
 HugePageFiller: 499 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 0 hugepages partially released, 0.0000 released
 HugePageFiller: 1.0000 of used pages hugepageable
+HugePageFiller: Since startup, 26159 pages subreleased, 345 hugepages broken
 ```
 
 The summary stats are as follows:

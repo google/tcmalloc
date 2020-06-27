@@ -465,7 +465,8 @@ Length HugePageAwareAllocator::ReleaseAtLeastNPages(Length num_pages) {
   if (Parameters::hpaa_subrelease()) {
     if (released < num_pages) {
       released += filler_.ReleasePages(
-          num_pages - released, Parameters::filler_skip_subrelease_interval());
+          num_pages - released, Parameters::filler_skip_subrelease_interval(),
+          /*hit_limit*/ false);
     }
   }
 
@@ -621,7 +622,7 @@ void *HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {
   // We desparately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the filler.
-  return filler_.ReleasePages(n, absl::ZeroDuration());
+  return filler_.ReleasePages(n, absl::ZeroDuration(), /*hit_limit*/ true);
 }
 
 void HugePageAwareAllocator::UnbackWithoutLock(void *start, size_t length) {

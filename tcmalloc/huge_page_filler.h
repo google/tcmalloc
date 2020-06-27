@@ -193,6 +193,32 @@ class SkippedSubreleaseCorrectnessTracker {
       tracker_;
 };
 
+struct SubreleaseStats {
+  Length total_pages_subreleased = 0;  // cumulative since startup
+  Length num_pages_subreleased = 0;
+  HugeLength total_hugepages_broken{NHugePages(0)};  // cumulative since startup
+  HugeLength num_hugepages_broken{NHugePages(0)};
+
+  bool is_limit_hit = false;
+  // Keep these limit-related stats cumulative since startup only
+  Length total_pages_subreleased_due_to_limit = 0;
+  HugeLength total_hugepages_broken_due_to_limit{NHugePages(0)};
+
+  void reset() {
+    total_pages_subreleased += num_pages_subreleased;
+    total_hugepages_broken += num_hugepages_broken;
+    num_pages_subreleased = 0;
+    num_hugepages_broken = NHugePages(0);
+  }
+
+  // Must be called at the beginning of each subrelease request
+  void set_limit_hit(bool value) { is_limit_hit = value; }
+
+  // This only has a well-defined meaning within ReleaseCandidates where
+  // set_limit_hit() has been called earlier. Do not use anywhere else.
+  bool limit_hit() { return is_limit_hit; }
+};
+
 // Track filler statistics over a time window.
 template <size_t kEpochs = 16>
 class FillerStatsTracker {
@@ -205,6 +231,8 @@ class FillerStatsTracker {
     Length unmapped_pages = 0;
     Length used_pages_in_subreleased_huge_pages = 0;
     HugeLength huge_pages[kNumTypes];
+    Length num_pages_subreleased = 0;
+    HugeLength num_hugepages_broken = NHugePages(0);
 
     HugeLength total_huge_pages() const {
       HugeLength total_huge_pages;
@@ -351,6 +379,8 @@ class FillerStatsTracker {
     static constexpr Length kDefaultValue = std::numeric_limits<Length>::max();
     Length min_free_pages = kDefaultValue;
     Length min_free_backed_pages = kDefaultValue;
+    Length num_pages_subreleased = 0;
+    HugeLength num_hugepages_broken = NHugePages(0);
 
     static FillerStatsEntry Nil() { return FillerStatsEntry(); }
 
@@ -382,6 +412,10 @@ class FillerStatsTracker {
       min_free_pages =
           std::min(min_free_pages, e.free_pages + e.unmapped_pages);
       min_free_backed_pages = std::min(min_free_backed_pages, e.free_pages);
+
+      // Subrelease stats
+      num_pages_subreleased += e.num_pages_subreleased;
+      num_hugepages_broken += e.num_hugepages_broken;
     }
 
     bool empty() const { return min_free_pages == kDefaultValue; }
@@ -481,9 +515,24 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
 
   out->printf(
       "HugePageFiller: %.4f%% of decisions confirmed correct, %zu "
-      "pending (%.4f%% of pages, %zu pending).",
+      "pending (%.4f%% of pages, %zu pending).\n",
       correctly_skipped_count_percentage, pending_skipped().count,
       correctly_skipped_pages_percentage, pending_skipped().pages);
+
+  // Print subrelease stats
+  Length total_subreleased = 0;
+  HugeLength total_broken = NHugePages(0);
+  tracker_.Iter(
+      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+        total_subreleased += e.num_pages_subreleased;
+        total_broken += e.num_hugepages_broken;
+      },
+      tracker_.kSkipEmptyEntries);
+  out->printf(
+      "HugePageFiller: Subrelease stats last %d min: total "
+      "%zu pages subreleased, %zu hugepages broken\n",
+      static_cast<int64_t>(absl::ToInt64Minutes(window_)), total_subreleased,
+      total_broken.raw_num());
 }
 
 template <size_t kEpochs>
@@ -526,6 +575,9 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
                         absl::ToInt64Milliseconds(absl::Nanoseconds(ts)));
         region.PrintI64("min_free_pages", e.min_free_pages);
         region.PrintI64("min_free_backed_pages", e.min_free_backed_pages);
+        region.PrintI64("num_pages_subreleased", e.num_pages_subreleased);
+        region.PrintI64("num_hugepages_broken",
+                        e.num_hugepages_broken.raw_num());
         for (int i = 0; i < kNumStatsTypes; i++) {
           auto m = region.CreateSubRegion(labels[i]);
           FillerStats stats = e.stats[i];
@@ -754,13 +806,15 @@ class HugePageFiller {
   // possible hugepage and releasing its free memory to the system.  Return the
   // number of pages actually released.
   Length ReleasePages(Length desired,
-                      absl::Duration skip_subrelease_after_peaks_interval)
+                      absl::Duration skip_subrelease_after_peaks_interval,
+                      bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                     PageAgeHistograms *ages) const;
 
   BackingStats stats() const;
+  SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
   void Print(TCMalloc_Printer *out, bool everything) const;
   void PrintInPbtxt(PbtxtRegion *hpaa) const;
 
@@ -841,6 +895,8 @@ class HugePageFiller {
     Bitmap<N> nonempty_;
     HugeLength size_;
   };
+
+  SubreleaseStats subrelease_stats_;
 
   // We group hugepages first by longest-free (as a measure of fragmentation),
   // then into 8 chunks inside there by desirability of allocation.
@@ -1335,6 +1391,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
   absl::c_sort(candidates, CompareForSubrelease);
 
   Length total_released = 0;
+  HugeLength total_broken = NHugePages(0);
 #ifndef NDEBUG
   Length last = 0;
 #endif
@@ -1348,6 +1405,12 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     last = best->used_pages();
 #endif
 
+    // We use !released() to figure out whether a hugepage is unbroken or not
+    // TODO(b/160020285): Use a boolean to track the transition of a hugepage
+    // from unbroken->broken and vice versa. Only the former is being captured.
+    if (!best->released()) {
+      ++total_broken;
+    }
     RemoveFromFillerList(best);
     Length ret = best->ReleaseFree();
     unmapped_ += ret;
@@ -1356,6 +1419,15 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     AddToFillerList(best);
   }
 
+  subrelease_stats_.num_pages_subreleased += total_released;
+  subrelease_stats_.num_hugepages_broken += total_broken;
+
+  // Keep separate stats if the on going release is triggered by reaching
+  // tcmalloc limit
+  if (subrelease_stats_.limit_hit()) {
+    subrelease_stats_.total_pages_subreleased_due_to_limit += total_released;
+    subrelease_stats_.total_hugepages_broken_due_to_limit += total_broken;
+  }
   return total_released;
 }
 
@@ -1407,7 +1479,8 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
 // number of pages actually released.
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(
-    Length desired, absl::Duration skip_subrelease_after_peaks_interval) {
+    Length desired, absl::Duration skip_subrelease_after_peaks_interval,
+    bool hit_limit) {
   Length total_released = 0;
 
   // We also do eager release, once we've called this at least once:
@@ -1417,6 +1490,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // pages.
     Length n = unmapping_unaccounted_;
     unmapping_unaccounted_ = 0;
+    subrelease_stats_.num_pages_subreleased += n;
 
     if (n >= desired) {
       return n;
@@ -1432,6 +1506,8 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
       return total_released;
     }
   }
+
+  subrelease_stats_.set_limit_hit(hit_limit);
 
   // Optimize for releasing up to a huge page worth of small pages (scattered
   // over many parts of the filler).  Since we hold pageheap_lock, we cannot
@@ -1693,6 +1769,16 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
       nrel.raw_num(), safe_div(unmapped_pages(), nrel.in_pages()));
   out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
               hugepage_frac());
+
+  // Subrelease
+  out->printf(
+      "HugePageFiller: Since startup, %zu pages subreleased, %zu hugepages "
+      "broken, (%zu pages, %zu hugepages due to reaching tcmalloc limit)\n",
+      subrelease_stats_.total_pages_subreleased,
+      subrelease_stats_.total_hugepages_broken.raw_num(),
+      subrelease_stats_.total_pages_subreleased_due_to_limit,
+      subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
+
   if (!everything) return;
 
   // Compute some histograms of fullness.
@@ -1722,7 +1808,6 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
 
   out->printf("\n");
   fillerstats_tracker_.Print(out);
-  out->printf("\n");
 }
 
 template <class TrackerType>
@@ -1759,7 +1844,15 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(hugepage_frac() *
                           static_cast<double>(allocated_ * kPageSize)));
-
+  hpaa->PrintI64("filler_num_pages_subreleased",
+                 subrelease_stats_.total_pages_subreleased);
+  hpaa->PrintI64("filler_num_hugepages_broken",
+                 subrelease_stats_.total_hugepages_broken.raw_num());
+  hpaa->PrintI64("filler_num_pages_subreleased_due_to_limit",
+                 subrelease_stats_.total_pages_subreleased_due_to_limit);
+  hpaa->PrintI64(
+      "filler_num_hugepages_broken_due_to_limit",
+      subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
   // Compute some histograms of fullness.
   using ::tcmalloc::internal::UsageInfo;
   UsageInfo usage;
@@ -1796,7 +1889,10 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
            n_used_partial_released_ + n_used_released_,
        .huge_pages = {regular_alloc_.size(), donated_alloc_.size(),
                       regular_alloc_partial_released_.size(),
-                      regular_alloc_released_.size()}});
+                      regular_alloc_released_.size()},
+       .num_pages_subreleased = subrelease_stats_.num_pages_subreleased,
+       .num_hugepages_broken = subrelease_stats_.num_hugepages_broken});
+  subrelease_stats_.reset();
 }
 
 template <class TrackerType>

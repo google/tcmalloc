@@ -760,7 +760,12 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   Length ReleasePages(Length desired, absl::Duration d = absl::ZeroDuration()) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, d);
+    return filler_.ReleasePages(desired, d, false);
+  }
+
+  Length HardReleasePages(Length desired) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    return filler_.ReleasePages(desired, absl::ZeroDuration(), true);
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -1467,10 +1472,9 @@ TEST_F(FillerStatsTrackerTest, Works) {
     std::string buffer(1024 * 1024, '\0');
     TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
     {
-      PbtxtRegion region(&printer, kTop, /*indent=*/0);
       tracker_.Print(&printer);
+      buffer.erase(printer.SpaceRequired());
     }
-    buffer.erase(printer.SpaceRequired());
 
     EXPECT_THAT(buffer, StrEq(R"(HugePageFiller: time series over 5 min interval
 
@@ -1482,6 +1486,7 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased, 0 hugepages broken
 )"));
   }
 
@@ -1516,6 +1521,8 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
       timestamp_ms: 0
       min_free_pages: 11
       min_free_backed_pages: 1
+      num_pages_subreleased: 0
+      num_hugepages_broken: 0
       at_minimum_demand {
         num_pages: 1
         regular_huge_pages: 5
@@ -1554,6 +1561,8 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
       timestamp_ms: 300000
       min_free_pages: 210
       min_free_backed_pages: 200
+      num_pages_subreleased: 0
+      num_hugepages_broken: 0
       at_minimum_demand {
         num_pages: 100
         regular_huge_pages: 9
@@ -1592,6 +1601,8 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
       timestamp_ms: 337500
       min_free_pages: 110
       min_free_backed_pages: 100
+      num_pages_subreleased: 0
+      num_hugepages_broken: 0
       at_minimum_demand {
         num_pages: 200
         regular_huge_pages: 14
@@ -1807,6 +1818,7 @@ HugePageFiller: among non-fulls, 0.3398 free
 HugePageFiller: 499 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 2 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7187 of used pages hugepageable
+HugePageFiller: Since startup, 269 pages subreleased, 3 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
 
 HugePageFiller: fullness histograms
 
@@ -1880,6 +1892,7 @@ HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
 )"));
   for (const auto &alloc : allocs) {
     Delete(alloc);
@@ -1914,6 +1927,10 @@ TEST_P(FillerTest, PrintInPbtxt) {
   filler_used_pages_in_partial_released: 0
   filler_unmapped_bytes: 0
   filler_hugepageable_used_bytes: 10444800
+  filler_num_pages_subreleased: 269
+  filler_num_hugepages_broken: 3
+  filler_num_pages_subreleased_due_to_limit: 0
+  filler_num_hugepages_broken_due_to_limit: 0
   filler_tracker {
     type: REGULAR
     free_pages_histogram {
@@ -3386,6 +3403,8 @@ TEST_P(FillerTest, PrintInPbtxt) {
       timestamp_ms: 0
       min_free_pages: 0
       min_free_backed_pages: 0
+      num_pages_subreleased: 269
+      num_hugepages_broken: 3
       at_minimum_demand {
         num_pages: 0
         regular_huge_pages: 0
@@ -3422,6 +3441,90 @@ TEST_P(FillerTest, PrintInPbtxt) {
   }
 )"));
   for (const auto &alloc : allocs) {
+    Delete(alloc);
+  }
+}
+
+// Testing subrelase stats: ensure that the cumulative number of released
+// pages and broken hugepages is no less than those of the last 10 mins
+TEST_P(FillerTest, CheckSubreleaseStats) {
+  // Get lots of hugepages into the filler.
+  Advance(absl::Minutes(1));
+  std::vector<PAlloc> result;
+  static_assert(kPagesPerHugePage > 10, "Not enough pages per hugepage!");
+  for (int i = 0; i < 10; ++i) {
+    result.push_back(Allocate(kPagesPerHugePage - i - 1));
+  }
+
+  // Breaking up 2 hugepages, releasing 19 pages due to reaching limit,
+  EXPECT_EQ(HardReleasePages(10), 10);
+  EXPECT_EQ(HardReleasePages(9), 9);
+
+  Advance(absl::Minutes(1));
+  SubreleaseStats subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.total_pages_subreleased, 0);
+  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 0);
+  EXPECT_EQ(subrelease.num_pages_subreleased, 19);
+  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 2);
+  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+
+  // Do some work so that the timeseries updates its stats
+  for (int i = 0; i < 5; ++i) {
+    result.push_back(Allocate(1));
+  }
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.total_pages_subreleased, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
+  EXPECT_EQ(subrelease.num_pages_subreleased, 0);
+  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
+  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+
+  // Breaking up 3 hugepages, releasing 21 pages (background thread)
+  EXPECT_EQ(ReleasePages(8), 8);
+  EXPECT_EQ(ReleasePages(7), 7);
+  EXPECT_EQ(ReleasePages(6), 6);
+
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.total_pages_subreleased, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
+  EXPECT_EQ(subrelease.num_pages_subreleased, 21);
+  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 3);
+  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+
+  Advance(absl::Minutes(10));  // This forces timeseries to wrap
+  // Do some work
+  for (int i = 0; i < 5; ++i) {
+    result.push_back(Allocate(1));
+  }
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.total_pages_subreleased, 40);
+  EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 5);
+  EXPECT_EQ(subrelease.num_pages_subreleased, 0);
+  EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
+  EXPECT_EQ(subrelease.total_pages_subreleased_due_to_limit, 19);
+  EXPECT_EQ(subrelease.total_hugepages_broken_due_to_limit.raw_num(), 2);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, /*everything=*/true);
+    buffer.erase(printer.SpaceRequired());
+  }
+
+  ASSERT_THAT(
+      buffer,
+      testing::ContainsRegex(
+          "HugePageFiller: Since startup, 40 pages subreleased, 5 hugepages "
+          "broken, \\(19 pages, 2 hugepages due to reaching tcmalloc "
+          "limit\\)"));
+  ASSERT_THAT(buffer, testing::EndsWith(
+                          "HugePageFiller: Subrelease stats last 10 min: total "
+                          "21 pages subreleased, 3 hugepages broken\n"));
+
+  for (const auto &alloc : result) {
     Delete(alloc);
   }
 }
