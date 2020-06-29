@@ -37,6 +37,30 @@ namespace tcmalloc {
 
 using subtle::percpu::GetCurrentVirtualCpuUnsafe;
 
+static cpu_set_t FillActiveCpuMask() {
+  cpu_set_t allowed_cpus;
+  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
+    CPU_ZERO(&allowed_cpus);
+  }
+
+#ifdef PERCPU_USE_RSEQ
+  const bool real_cpus = tcmalloc::subtle::percpu::UsingFlatVirtualCpus();
+#else
+  const bool real_cpus = true;
+#endif
+
+  if (real_cpus) {
+    return allowed_cpus;
+  }
+
+  const int virtual_cpu_count = CPU_COUNT(&allowed_cpus);
+  CPU_ZERO(&allowed_cpus);
+  for (int cpu = 0; cpu < virtual_cpu_count; ++cpu) {
+    CPU_SET(cpu, &allowed_cpus);
+  }
+  return allowed_cpus;
+}
+
 // MaxCapacity() determines how we distribute memory in the per-cpu cache
 // to the various class sizes.
 static size_t MaxCapacity(size_t cl) {
@@ -522,10 +546,7 @@ void CPUCache::Print(TCMalloc_Printer *out) const {
               Static::cpu_cache()->CacheLimit());
   out->printf("------------------------------------------------\n");
 
-  cpu_set_t allowed_cpus;
-  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
-    CPU_ZERO(&allowed_cpus);
-  }
+  const cpu_set_t allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
        ++cpu) {
@@ -544,10 +565,7 @@ void CPUCache::Print(TCMalloc_Printer *out) const {
 }
 
 void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
-  cpu_set_t allowed_cpus;
-  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
-    CPU_ZERO(&allowed_cpus);
-  }
+  const cpu_set_t allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
        ++cpu) {
