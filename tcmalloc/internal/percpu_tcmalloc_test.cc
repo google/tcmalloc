@@ -260,6 +260,19 @@ TEST_P(TcmallocSlabTest, Metadata) {
     // A single core may be less than the full slab for that core, since we do
     // not touch every page within the slab.
     EXPECT_GE(expected, r.resident_size);
+
+    // Read stats from the slab.  This will fault additional memory.
+    for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; ++cpu) {
+      // To inhibit optimization, verify the values are sensible.
+      for (int cl = 0; cl < kStressSlabs; ++cl) {
+        EXPECT_EQ(0, slab_.Length(cpu, cl));
+        EXPECT_EQ(0, slab_.Capacity(cpu, cl));
+      }
+    }
+
+    PerCPUMetadataState post_stats = slab_.MetadataMemoryUsage();
+    EXPECT_LE(post_stats.resident_size, metadata_bytes_);
+    EXPECT_GT(post_stats.resident_size, r.resident_size);
   } else {
     EXPECT_EQ(r.resident_size, metadata_bytes_);
   }
