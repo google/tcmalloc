@@ -69,12 +69,14 @@ TEST(CpuCacheTest, Metadata) {
     // TODO(b/151313823):  Without this restriction, we may access--for reading
     // only--other slabs if we end up being migrated.  These may cause huge
     // pages to be faulted for those cores, leading to test flakiness.
-    allowed_cpu_id = tcmalloc_internal::AllowedCpus()[0];
-    tcmalloc_internal::ScopedAffinityMask mask(allowed_cpu_id);
+    tcmalloc_internal::ScopedAffinityMask mask(
+        tcmalloc_internal::AllowedCpus()[0]);
+    allowed_cpu_id = subtle::percpu::GetCurrentVirtualCpuUnsafe();
 
     ptr = cache.Allocate<OOMHandler>(kSizeClass);
 
-    if (mask.Tampered()) {
+    if (mask.Tampered() ||
+        allowed_cpu_id != subtle::percpu::GetCurrentVirtualCpuUnsafe()) {
       return;
     }
   }
