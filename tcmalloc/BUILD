@@ -714,6 +714,11 @@ cc_test(
     srcs = ["system-alloc_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":common",
         ":malloc_extension",
@@ -733,6 +738,7 @@ cc_test(
     srcs = ["tcmalloc_large_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    tags = ["noasan"],
     deps = [
         ":common",
         ":malloc_extension",
@@ -763,6 +769,11 @@ cc_test(
     srcs = ["malloc_extension_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":malloc_extension",
         "@com_github_google_benchmark//:benchmark",
@@ -775,6 +786,11 @@ cc_library(
     testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/strings",
@@ -810,6 +826,11 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     shard_count = 2,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:declarations",
@@ -828,6 +849,11 @@ cc_test(
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:logging",
@@ -913,6 +939,11 @@ cc_test(
     srcs = ["heap_profiling_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":common",
         ":malloc_extension",
