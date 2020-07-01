@@ -417,6 +417,8 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
                 tcmalloc::Parameters::max_per_cpu_cache_size());
     out->printf("PARAMETER tcmalloc_max_total_thread_cache_bytes %lld\n",
                 tcmalloc::Parameters::max_total_thread_cache_bytes());
+    out->printf("PARAMETER malloc_release_bytes_per_sec %llu\n",
+                tcmalloc::Parameters::background_release_rate());
   }
 }
 
@@ -519,6 +521,9 @@ namespace {
                   tcmalloc::Parameters::max_per_cpu_cache_size());
   region.PrintI64("tcmalloc_max_total_thread_cache_bytes",
                   tcmalloc::Parameters::max_total_thread_cache_bytes());
+  region.PrintI64(
+      "malloc_release_bytes_per_sec",
+      static_cast<long long>(tcmalloc::Parameters::background_release_rate()));
 }
 
 }  // namespace
