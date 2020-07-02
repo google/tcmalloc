@@ -75,8 +75,8 @@ class GuardedPageAllocator {
  public:
   struct GpaStackTrace {
     void *stack[kMaxStackDepth];
-    size_t depth;
-    pid_t tid;
+    size_t depth = 0;
+    pid_t tid = 0;
   };
 
   // Maximum number of pages this class can allocate.
@@ -190,8 +190,8 @@ class GuardedPageAllocator {
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
-    GpaStackTrace alloc_trace = {.stack = {}, .depth = 0, .tid = 0};
-    GpaStackTrace dealloc_trace = {.stack = {}, .depth = 0, .tid = 0};
+    GpaStackTrace alloc_trace;
+    GpaStackTrace dealloc_trace;
     size_t requested_size = 0;
     uintptr_t allocation_start = 0;
   };

@@ -77,16 +77,21 @@ class SkippedSubreleaseCorrectnessTracker {
       absl::Duration expected_time_until_next_peak) {
     total_skipped_ += SkippedSubreleaseDecision(skipped_pages);
     pending_skipped_ += SkippedSubreleaseDecision(skipped_pages);
-    tracker_.Report({.decision = SkippedSubreleaseDecision(skipped_pages),
-                     .num_pages_at_decision = peak_pages,
-                     .correctness_interval_epochs =
-                         expected_time_until_next_peak / epoch_length_});
+
+    SkippedSubreleaseUpdate update;
+    update.decision = SkippedSubreleaseDecision(skipped_pages);
+    update.num_pages_at_decision = peak_pages;
+    update.correctness_interval_epochs =
+        expected_time_until_next_peak / epoch_length_;
+    tracker_.Report(update);
   }
 
   void ReportUpdatedPeak(Length current_peak) {
     // Record this peak for the current epoch (so we don't double-count correct
     // predictions later) and advance the tracker.
-    if (tracker_.Report({.confirmed_peak = current_peak})) {
+    SkippedSubreleaseUpdate update;
+    update.confirmed_peak = current_peak;
+    if (tracker_.Report(update)) {
       // Also keep track of the largest peak we have confirmed this epoch.
       last_confirmed_peak_ = 0;
     }
@@ -149,7 +154,7 @@ class SkippedSubreleaseCorrectnessTracker {
 
     // How long from the time of the decision do we have before the decision
     // will be determined incorrect?
-    int64_t correctness_interval_epochs;
+    int64_t correctness_interval_epochs = 0;
 
     // At this time step, we confirmed a demand peak at this level, which means
     // all subrelease decisions in earlier time steps that had peak_demand_pages
@@ -336,9 +341,9 @@ class FillerStatsTracker {
   // The first value of the pair is the number of all free pages, the second
   // value contains only the backed ones.
   NumberOfFreePages min_free_pages(absl::Duration w) const {
-    NumberOfFreePages mins =
-        NumberOfFreePages({.free = std::numeric_limits<size_t>::max(),
-                           .free_backed = std::numeric_limits<size_t>::max()});
+    NumberOfFreePages mins;
+    mins.free = std::numeric_limits<size_t>::max();
+    mins.free_backed = std::numeric_limits<size_t>::max();
 
     int64_t num_epochs =
         std::clamp(w / epoch_length_, int64_t{0}, static_cast<int64_t>(kEpochs));
@@ -978,7 +983,8 @@ class HugePageFiller {
 
   // Functionality related to time series tracking.
   void UpdateFillerStatsTracker();
-  FillerStatsTracker<600> fillerstats_tracker_;
+  using StatsTrackerType = FillerStatsTracker<600>;
+  StatsTrackerType fillerstats_tracker_;
 };
 
 template <MemoryModifyFunction Unback>
@@ -1881,17 +1887,21 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
-  fillerstats_tracker_.Report(
-      {.num_pages = allocated_,
-       .free_pages = free_pages(),
-       .unmapped_pages = unmapped_pages(),
-       .used_pages_in_subreleased_huge_pages =
-           n_used_partial_released_ + n_used_released_,
-       .huge_pages = {regular_alloc_.size(), donated_alloc_.size(),
-                      regular_alloc_partial_released_.size(),
-                      regular_alloc_released_.size()},
-       .num_pages_subreleased = subrelease_stats_.num_pages_subreleased,
-       .num_hugepages_broken = subrelease_stats_.num_hugepages_broken});
+  StatsTrackerType::FillerStats stats;
+  stats.num_pages = allocated_;
+  stats.free_pages = free_pages();
+  stats.unmapped_pages = unmapped_pages();
+  stats.used_pages_in_subreleased_huge_pages =
+      n_used_partial_released_ + n_used_released_;
+  stats.huge_pages[StatsTrackerType::kRegular] = regular_alloc_.size();
+  stats.huge_pages[StatsTrackerType::kDonated] = donated_alloc_.size();
+  stats.huge_pages[StatsTrackerType::kPartialReleased] =
+      regular_alloc_partial_released_.size();
+  stats.huge_pages[StatsTrackerType::kReleased] =
+      regular_alloc_released_.size();
+  stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
+  stats.num_hugepages_broken = subrelease_stats_.num_hugepages_broken;
+  fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();
 }
 

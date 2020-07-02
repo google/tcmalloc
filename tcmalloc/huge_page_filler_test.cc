@@ -1406,8 +1406,8 @@ class FillerStatsTrackerTest : public testing::Test {
  protected:
   static constexpr absl::Duration kWindow = absl::Minutes(10);
 
-  tcmalloc::FillerStatsTracker<16> tracker_{FakeClock, kWindow,
-                                            absl::Minutes(5)};
+  using StatsTrackerType = tcmalloc::FillerStatsTracker<16>;
+  StatsTrackerType tracker_{FakeClock, kWindow, absl::Minutes(5)};
 
   void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
 
@@ -1428,14 +1428,17 @@ void FillerStatsTrackerTest::GenerateInterestingPoints(Length num_pages,
                                                        Length num_free_pages) {
   for (size_t i = 0; i <= 1; i++) {
     for (size_t j = 0; j <= 1; j++) {
-      tracker_.Report(
-          {.num_pages = num_pages + ((i == 0) ? 4 : 8 * j),
-           .free_pages = num_free_pages + 10 * i + j,
-           .unmapped_pages = 10,
-           .used_pages_in_subreleased_huge_pages = num_pages,
-           .huge_pages = {
-               num_hugepages + ((i == 1) ? NHugePages(4) : NHugePages(8) * j),
-               num_hugepages, NHugePages(i), NHugePages(j)}});
+      StatsTrackerType::FillerStats stats;
+      stats.num_pages = num_pages + ((i == 0) ? 4 : 8 * j);
+      stats.free_pages = num_free_pages + 10 * i + j;
+      stats.unmapped_pages = 10;
+      stats.used_pages_in_subreleased_huge_pages = num_pages;
+      stats.huge_pages[StatsTrackerType::kRegular] =
+          num_hugepages + ((i == 1) ? NHugePages(4) : NHugePages(8) * j);
+      stats.huge_pages[StatsTrackerType::kDonated] = num_hugepages;
+      stats.huge_pages[StatsTrackerType::kPartialReleased] = NHugePages(i);
+      stats.huge_pages[StatsTrackerType::kReleased] = NHugePages(j);
+      tracker_.Report(stats);
     }
   }
 }
@@ -1443,11 +1446,16 @@ void FillerStatsTrackerTest::GenerateInterestingPoints(Length num_pages,
 void FillerStatsTrackerTest::GenerateDemandPoint(Length num_pages,
                                                  Length num_free_pages) {
   HugeLength hp = NHugePages(1);
-  tracker_.Report({.num_pages = num_pages,
-                   .free_pages = num_free_pages,
-                   .unmapped_pages = 0,
-                   .used_pages_in_subreleased_huge_pages = 0,
-                   .huge_pages = {hp, hp, hp, hp}});
+  StatsTrackerType::FillerStats stats;
+  stats.num_pages = num_pages;
+  stats.free_pages = num_free_pages;
+  stats.unmapped_pages = 0;
+  stats.used_pages_in_subreleased_huge_pages = 0;
+  stats.huge_pages[StatsTrackerType::kRegular] = hp;
+  stats.huge_pages[StatsTrackerType::kDonated] = hp;
+  stats.huge_pages[StatsTrackerType::kPartialReleased] = hp;
+  stats.huge_pages[StatsTrackerType::kReleased] = hp;
+  tracker_.Report(stats);
 }
 
 // Tests that the tracker aggregates all data correctly. The output is tested by
