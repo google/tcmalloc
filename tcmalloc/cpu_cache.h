@@ -229,17 +229,33 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void *ptr,
 }
 
 inline bool UsePerCpuCache() {
-  return (Static::CPUCacheActive() &&
-          // We call IsFast() on every non-fastpath'd malloc or free since
-          // IsFast() has the side-effect of initializing the per-thread state
-          // needed for "unsafe" per-cpu operations in case this is the first
-          // time a new thread is calling into tcmalloc.
-          //
-          // If the per-CPU cache for a thread is not initialized, we push
-          // ourselves onto the slow path (if
-          // !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this occurs.  See
-          // fast_alloc's use of TryRecordAllocationFast.
-          subtle::percpu::IsFast());
+  // We expect a fast path of per-CPU caches being active and the thread being
+  // registered with rseq.
+  if (ABSL_PREDICT_FALSE(!Static::CPUCacheActive())) {
+    return false;
+  }
+
+  if (ABSL_PREDICT_TRUE(tcmalloc::subtle::percpu::IsFastNoInit())) {
+    return true;
+  }
+
+  // When rseq is not registered, use this transition edge to shutdown the
+  // thread cache for this thread.
+  //
+  // We call IsFast() on every non-fastpath'd malloc or free since IsFast() has
+  // the side-effect of initializing the per-thread state needed for "unsafe"
+  // per-cpu operations in case this is the first time a new thread is calling
+  // into tcmalloc.
+  //
+  // If the per-CPU cache for a thread is not initialized, we push ourselves
+  // onto the slow path (if !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this
+  // occurs.  See fast_alloc's use of TryRecordAllocationFast.
+  if (ABSL_PREDICT_TRUE(tcmalloc::subtle::percpu::IsFast())) {
+    ThreadCache::BecomeIdle();
+    return true;
+  }
+
+  return false;
 }
 
 };  // namespace tcmalloc
