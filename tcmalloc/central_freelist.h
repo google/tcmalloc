@@ -34,6 +34,7 @@ class CentralFreeList {
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
+        pages_per_span_(0),
         counter_(),
         num_spans_(),
         nonempty_() {}
@@ -80,6 +81,7 @@ class CentralFreeList {
   size_t size_class_;  // My size class (immutable after Init())
   size_t object_size_;
   size_t objects_per_span_;
+  Length pages_per_span_;
 
   // Following are kept as a StatsCounter so that they can read without
   // acquiring a lock. Updates to these variables are guarded by lock_ so writes
@@ -87,7 +89,7 @@ class CentralFreeList {
 
   // Num free objects in cache entry
   tcmalloc_internal::StatsCounter counter_;
-  // Num spans in empty_ plus nonempty_
+  // Num spans in nonempty_
   tcmalloc_internal::StatsCounter num_spans_;
 
   // Dummy header for non-empty spans

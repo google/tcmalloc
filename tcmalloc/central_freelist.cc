@@ -30,6 +30,7 @@ void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   object_size_ = Static::sizemap()->class_to_size(cl);
   objects_per_span_ = Static::sizemap()->class_to_pages(cl) * kPageSize /
                       (cl ? object_size_ : 1);
+  pages_per_span_ = Static::sizemap()->class_to_pages(cl);
   nonempty_.Init();
   num_spans_.Clear();
   counter_.Clear();
@@ -121,16 +122,15 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
 void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
-  const Length npages = Static::sizemap()->class_to_pages(size_class_);
 
-  Span* span = Static::page_allocator()->New(npages, /*tagged=*/false);
+  Span* span = Static::page_allocator()->New(pages_per_span_, /*tagged=*/false);
   if (span == nullptr) {
-    Log(kLog, __FILE__, __LINE__,
-        "tcmalloc: allocation failed", npages << kPageShift);
+    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
+        pages_per_span_ << kPageShift);
     lock_.Lock();
     return;
   }
-  ASSERT(span->num_pages() == npages);
+  ASSERT(span->num_pages() == pages_per_span_);
 
   Static::pagemap()->RegisterSizeClass(span, size_class_);
   span->BuildFreelist(object_size_, objects_per_span_);
@@ -146,8 +146,7 @@ size_t CentralFreeList::OverheadBytes() {
   if (size_class_ == 0) {  // 0 holds the 0-sized allocations
     return 0;
   }
-  const size_t pages_per_span = Static::sizemap()->class_to_pages(size_class_);
-  const size_t overhead_per_span = (pages_per_span * kPageSize) % object_size_;
+  const size_t overhead_per_span = (pages_per_span_ * kPageSize) % object_size_;
   return static_cast<size_t>(num_spans_.value()) * overhead_per_span;
 }
 
