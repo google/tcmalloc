@@ -15,6 +15,7 @@
 """This package provides default compiler warning flags for the OSS release"""
 
 TCMALLOC_LLVM_FLAGS = [
+    "-Wno-deprecated-declarations",
     "-Wno-implicit-int-float-conversion",
     "-Wno-sign-compare",
     "-Wno-uninitialized",
