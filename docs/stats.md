@@ -508,16 +508,17 @@ The summary stats are as follows:
 *   "released" is the number of hugepages that are released - i.e., partially
     unmapped. If partially released hugepages are enabled, the number in
     parentheses shows the number of hugepages in this category.
-*   "quarantined" is a feature has been disabled, so the result is currently zero.
+*   "quarantined" is a feature has been disabled, so the result is currently
+    zero.
 
 The second section gives an indication of the number of pages in various states
 in the filler cache:
 
-* "pages free" refers to the number of free TCMalloc pages in the filler, as
-  well as the ratio to the total number of hugepages.
-* "among non-fulls" states this ratio to the number of non-full hugepages.
-* "used pages" refers to the number of occupied pages in the different types of
-  partially unmapped hugepages.
+*   "pages free" refers to the number of free TCMalloc pages in the filler, as
+    well as the ratio to the total number of hugepages.
+*   "among non-fulls" states this ratio to the number of non-full hugepages.
+*   "used pages" refers to the number of occupied pages in the different types
+    of partially unmapped hugepages.
 
 ```
 HugePageFiller: fullness histograms
@@ -728,8 +729,8 @@ HugePageAware: largest seen allocation 45839 pages
 These are:
 
 *   The number of live "small" TCMalloc pages allocated (these less than 2MiB in
-    size).
-    [Note: the 2MiB size distinction is separate from the size of hugepages]
+    size). [Note: the 2MiB size distinction is separate from the size of
+    hugepages]
 *   The number of TCMalloc pages which are left over from "large" allocations.
     These allocations are larger than 2MiB in size, and are rounded to a
     hugepage - the slack being the amount left over after rounding.
