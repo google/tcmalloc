@@ -235,6 +235,10 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   }
 }
 
+static void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
+  ExtractStats(r, nullptr, nullptr, nullptr, report_residence);
+}
+
 // Because different fields of stats are computed from state protected
 // by different locks, they may be inconsistent.  Prevent underflow
 // when subtracting to avoid gigantic results.
@@ -274,7 +278,7 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   if (level >= 2) {
     ExtractStats(&stats, class_count, nullptr, nullptr, true);
   } else {
-    ExtractStats(&stats, nullptr, nullptr, nullptr, true);
+    ExtractTCMallocStats(&stats, true);
   }
 
   static const double MiB = 1048576.0;
@@ -430,7 +434,7 @@ namespace {
   if (level >= 2) {
     ExtractStats(&stats, class_count, nullptr, nullptr, true);
   } else {
-    ExtractStats(&stats, nullptr, nullptr, nullptr, true);
+    ExtractTCMallocStats(&stats, true);
   }
 
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
@@ -784,14 +788,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "generic.virtual_memory_used") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = VirtualMemoryUsed(stats);
     return true;
   }
 
   if (name == "generic.physical_memory_used") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = PhysicalMemoryUsed(stats);
     return true;
   }
@@ -799,7 +803,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "generic.current_allocated_bytes" ||
       name == "generic.bytes_in_use_by_app") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = InUseByApp(stats);
     return true;
   }
@@ -813,14 +817,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.central_cache_free") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.central_bytes;
     return true;
   }
 
   if (name == "tcmalloc.cpu_free") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.per_cpu_bytes;
     return true;
   }
@@ -863,28 +867,28 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.current_total_thread_cache_bytes" ||
       name == "tcmalloc.thread_cache_free") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.thread_bytes;
     return true;
   }
 
   if (name == "tcmalloc.thread_cache_count") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.tc_stats.in_use;
     return true;
   }
 
   if (name == "tcmalloc.local_bytes") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.thread_bytes + stats.per_cpu_bytes;
     return true;
   }
 
   if (name == "tcmalloc.external_fragmentation_bytes") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value =
         (stats.pageheap.free_bytes + stats.central_bytes + stats.per_cpu_bytes +
          stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes);
@@ -893,14 +897,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.metadata_bytes") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, true);
+    ExtractTCMallocStats(&stats, true);
     *value = stats.metadata_bytes;
     return true;
   }
 
   if (name == "tcmalloc.transfer_cache_free") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = stats.transfer_bytes;
     return true;
   }
@@ -919,7 +923,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.required_bytes") {
     TCMallocStats stats;
-    ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+    ExtractTCMallocStats(&stats, false);
     *value = RequiredBytes(stats);
     return true;
   }
@@ -1078,7 +1082,7 @@ MallocExtension_Internal_GetOwnership(const void* ptr) {
 extern "C" void MallocExtension_Internal_GetProperties(
     std::map<std::string, tcmalloc::MallocExtension::Property>* result) {
   TCMallocStats stats;
-  ExtractStats(&stats, nullptr, nullptr, nullptr, true);
+  ExtractTCMallocStats(&stats, true);
 
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
@@ -1709,7 +1713,7 @@ inline int do_mallopt(int cmd, int value) {
 #ifdef HAVE_STRUCT_MALLINFO
 inline struct mallinfo do_mallinfo() {
   TCMallocStats stats;
-  ExtractStats(&stats, nullptr, nullptr, nullptr, false);
+  ExtractTCMallocStats(&stats, false);
 
   // Just some of the fields are filled in.
   struct mallinfo info;
