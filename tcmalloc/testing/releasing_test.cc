@@ -159,7 +159,7 @@ int main() {
 
   if (unmapped_diff * (1. + kTolerance) < memusage_diff ||
       unmapped_diff * (1. - kTolerance) > memusage_diff) {
-    tcmalloc::Log(tcmalloc::kCrash,
+    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
                   "(after_unmapped - before_unmapped) != (before - after)",
                   after_unmapped - before_unmapped, before - after);
   }
