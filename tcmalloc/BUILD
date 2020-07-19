@@ -19,6 +19,7 @@
 # how this malloc works.
 
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
+load("//tcmalloc:variants.bzl", "create_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -407,6 +408,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -438,6 +440,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -473,6 +476,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -866,52 +870,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "size_classes_test",
     srcs = ["size_classes_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
-        ":common",
-        ":size_class_info",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "size_classes_test_large_pages",
-    srcs = ["size_classes_test.cc"],
-    copts = ["-DTCMALLOC_LARGE_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_large_pages",
-    deps = [
-        ":common_large_pages",
-        ":size_class_info",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "size_classes_test_256k_pages",
-    srcs = ["size_classes_test.cc"],
-    copts = ["-DTCMALLOC_256K_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_256k_pages",
-    deps = [
-        ":common_256k_pages",
-        ":size_class_info",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "size_classes_test_small_but_slow",
-    srcs = ["size_classes_test.cc"],
-    copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_small_but_slow",
-    deps = [
-        ":common_small_but_slow",
         ":size_class_info",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -967,61 +930,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "span_test",
     srcs = ["span_test.cc"],
     copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
-        ":common",
-        "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/random",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "span_test_small_but_slow",
-    srcs = ["span_test.cc"],
-    copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_small_but_slow",
-    deps = [
-        ":common_small_but_slow",
-        "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/random",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "span_test_large_pages",
-    srcs = ["span_test.cc"],
-    copts = ["-DTCMALLOC_LARGE_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_large_pages",
-    deps = [
-        ":common_large_pages",
-        "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/random",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "span_test_256k_pages",
-    srcs = ["span_test.cc"],
-    copts = ["-DTCMALLOC_256K_PAGES"] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_256k_pages",
-    deps = [
-        ":common_256k_pages",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",

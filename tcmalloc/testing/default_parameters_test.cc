@@ -20,8 +20,6 @@
 namespace tcmalloc {
 namespace {
 
-#if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
-    !defined(THREAD_SANITIZER)
 constexpr int64_t kDefaultProfileSamplingRate =
 #ifdef TCMALLOC_SMALL_BUT_SLOW
     512 << 10
@@ -34,12 +32,6 @@ constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0
 };
-#else
-constexpr int64_t kDefaultProfileSamplingRate = -1;
-constexpr int64_t kDefaultGuardedSamplingRate = -1;
-constexpr int64_t kDefaultGuardedSampleParameter = -1;
-constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{0};
-#endif
 
 bool TestProfileSamplingRate() {
 
