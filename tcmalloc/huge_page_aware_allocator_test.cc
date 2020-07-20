@@ -519,6 +519,46 @@ TEST_F(HugePageAwareAllocatorTest, DonatedPageLists) {
   Delete(large);
 }
 
+TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
+  const Length kSmallPages = 2;
+  const Length kOneHugePageDonation = kPagesPerHugePage - kSmallPages;
+  const Length kMultipleHugePagesDonation = 3 * kPagesPerHugePage - kSmallPages;
+
+  // Each of these allocations should count as one donation, but only if they
+  // are actually being reused.
+  Span *large = New(kOneHugePageDonation);
+  ASSERT_NE(large, nullptr);
+
+  // This allocation ensures that the donation is not counted.
+  Span *small = New(kSmallPages);
+  ASSERT_NE(small, nullptr);
+
+  Span *large2 = New(kMultipleHugePagesDonation);
+  ASSERT_NE(large, nullptr);
+
+  // This allocation ensures that the donation is not counted.
+  Span *small2 = New(kSmallPages);
+  ASSERT_NE(small, nullptr);
+
+  Span *large3 = New(kOneHugePageDonation);
+  ASSERT_NE(large, nullptr);
+
+  Span *large4 = New(kMultipleHugePagesDonation);
+  ASSERT_NE(large, nullptr);
+
+  // Clean up.
+  Delete(large);
+  Delete(large2);
+  Delete(large3);
+  Delete(large4);
+  Delete(small);
+  Delete(small2);
+
+  // Check donation count.
+  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  CHECK_CONDITION(NHugePages(2) == allocator_->DonatedHugePages());
+}
+
 // We'd like to test OOM behavior but this, err, OOMs. :)
 // (Usable manually in controlled environments.
 TEST_F(HugePageAwareAllocatorTest, DISABLED_OOM) {

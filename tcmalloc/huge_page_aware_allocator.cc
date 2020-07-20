@@ -321,6 +321,9 @@ Span *HugePageAwareAllocator::NewAligned(Length n, Length align) {
 void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker *pt,
                                                 PageId p, Length n) {
   if (filler_.Put(pt, p, n) == nullptr) return;
+  if (pt->donated()) {
+    --donated_huge_pages_;
+  }
   ReleaseHugepage(pt);
 }
 
