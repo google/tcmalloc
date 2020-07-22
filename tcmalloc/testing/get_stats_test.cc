@@ -65,6 +65,7 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 }
 
 TEST_F(GetStatsTest, Parameters) {
@@ -77,6 +78,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_per_cpu_caches(false);
   Parameters::set_max_per_cpu_cache_size(-1);
   Parameters::set_max_total_thread_cache_bytes(-1);
+  Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -93,6 +95,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1s)"));
 
 #ifdef __x86_64__
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
@@ -102,6 +106,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 1000000000)"));
   }
 
 #ifdef __x86_64__
@@ -112,6 +119,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_per_cpu_caches(true);
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);
+  Parameters::set_filler_skip_subrelease_interval(absl::Milliseconds(60125));
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -132,6 +140,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf, HasSubstr(
                  R"(PARAMETER tcmalloc_max_total_thread_cache_bytes 4194304)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1m0.125s)"));
 
 #ifdef __x86_64__
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
@@ -144,6 +155,9 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 3145728)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: 4194304)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 60125000000)"));
   }
 }
 

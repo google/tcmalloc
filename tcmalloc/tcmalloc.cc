@@ -423,6 +423,9 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
                 tcmalloc::Parameters::max_total_thread_cache_bytes());
     out->printf("PARAMETER malloc_release_bytes_per_sec %llu\n",
                 tcmalloc::Parameters::background_release_rate());
+    out->printf("PARAMETER tcmalloc_skip_subrelease_interval %s\n",
+                absl::FormatDuration(
+                    tcmalloc::Parameters::filler_skip_subrelease_interval()));
   }
 }
 
@@ -528,6 +531,9 @@ namespace {
   region.PrintI64(
       "malloc_release_bytes_per_sec",
       static_cast<long long>(tcmalloc::Parameters::background_release_rate()));
+  region.PrintI64("tcmalloc_skip_subrelease_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      tcmalloc::Parameters::filler_skip_subrelease_interval()));
 }
 
 }  // namespace

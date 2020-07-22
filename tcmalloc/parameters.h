@@ -100,6 +100,10 @@ class Parameters {
     TCMalloc_Internal_SetProfileSamplingRate(value);
   }
 
+  static void set_filler_skip_subrelease_interval(absl::Duration value) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(value);
+  }
+
   static absl::Duration filler_skip_subrelease_interval() {
     return absl::Nanoseconds(
         filler_skip_subrelease_interval_ns_.load(std::memory_order_relaxed));
