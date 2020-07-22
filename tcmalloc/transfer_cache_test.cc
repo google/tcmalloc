@@ -23,6 +23,9 @@
 
 namespace tcmalloc {
 namespace {
+using TransferCache =
+    internal_transfer_cache::TransferCache<CentralFreeList,
+                                           TransferCacheManager>;
 
 struct Batch {
   Batch() {

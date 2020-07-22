@@ -213,6 +213,7 @@ common_srcs = [
     "tracking.h",
     "transfer_cache.cc",
     "transfer_cache.h",
+    "transfer_cache_internals.h",
 ]
 
 common_hdrs = [
@@ -247,6 +248,7 @@ common_hdrs = [
     "thread_cache.h",
     "tracking.h",
     "transfer_cache.h",
+    "transfer_cache_internals.h",
 ]
 
 common_deps = [
@@ -510,7 +512,9 @@ cc_library(
         "parameters.h",
         "peak_heap_tracker.h",
         "stack_trace_table.h",
+        "tracking.h",
         "transfer_cache.h",
+        "transfer_cache_internals.h",
     ],
     hdrs = [
         "common.h",
