@@ -24,6 +24,15 @@
 namespace tcmalloc {
 namespace {
 
+void Deallocate(void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete(ptr, size);
+#else
+  (void)size;
+  ::operator delete(ptr);
+#endif
+}
+
 int64_t VirtualProcessSize() {
   tcmalloc::tcmalloc_internal::MemoryStats stats;
 
@@ -54,7 +63,8 @@ TEST(LargeSmallFrag, Test) {
   const int64_t num_allocs =
       32 * MallocExtension::GetProfileSamplingRate() / kAlloc;
   for (int64_t i = 0; i < num_allocs; ++i) {
-    ::operator delete(::operator new(kAlloc));
+    void* ptr = ::operator new(kAlloc);
+    Deallocate(ptr, kAlloc);
   }
 
   // Chew up all possible memory that could be used to allocate
@@ -77,7 +87,7 @@ TEST(LargeSmallFrag, Test) {
 
   // Fragmentation loop
   for (int iter = 0; iter < 100; iter++) {
-    ::operator delete(::operator new(kLarge));
+    Deallocate(::operator new(kLarge), kLarge);
 
     // Allocate some small objects and keep the middle one
     void* objects[kNumSmall];
@@ -88,7 +98,7 @@ TEST(LargeSmallFrag, Test) {
       if (i == 50) {
         small.Push(objects[i]);
       } else {
-        ::operator delete(objects[i]);
+        Deallocate(objects[i], kSmall);
       }
     }
     allowed += 2*kSmall;
@@ -102,7 +112,7 @@ TEST(LargeSmallFrag, Test) {
 
   void* ptr;
   while (small.TryPop(&ptr)) {
-    ::operator delete(ptr);
+    Deallocate(ptr, kSmall);
   }
 }
 
