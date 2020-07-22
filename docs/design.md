@@ -184,7 +184,7 @@ itself.
 
 The practical implication of this for TCMalloc is that the code can use a
 restartable sequence like
-[TcmallocSlab_Push](https://github.com/google/tcmalloc/blob/master/tcmalloc/percpu_rseq_x86_64.S)
+[TcmallocSlab_Push](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/percpu_tcmalloc.h)
 to fetch from or return an element to a per-CPU array without needing locking.
 The restartable sequence ensures that either the array is updated without the
 thread being interrupted, or the sequence is restarted if the thread was
