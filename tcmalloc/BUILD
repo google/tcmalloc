@@ -555,6 +555,21 @@ cc_test(
 )
 
 cc_test(
+    name = "transfer_cache_test",
+    srcs = ["transfer_cache_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "huge_cache_test",
     srcs = ["huge_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
