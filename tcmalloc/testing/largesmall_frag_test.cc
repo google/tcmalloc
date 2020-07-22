@@ -76,7 +76,7 @@ TEST(LargeSmallFrag, Test) {
   int64_t allowed = VirtualProcessSize() + 3*kLarge + (10 << 20);
 
   // Fragmentation loop
-  for (int iter = 0; iter < 1000; iter++) {
+  for (int iter = 0; iter < 100; iter++) {
     ::operator delete(::operator new(kLarge));
 
     // Allocate some small objects and keep the middle one
