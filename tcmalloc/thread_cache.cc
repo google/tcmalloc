@@ -78,7 +78,7 @@ void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
   void* batch[kMaxObjectsToMove];
   int fetch_count =
-      Static::transfer_cache()[cl].RemoveRange(batch, num_to_move);
+      Static::transfer_cache().RemoveRange(cl, batch, num_to_move);
   if (fetch_count == 0) {
     return nullptr;
   }
@@ -146,14 +146,14 @@ void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t cl, int N) {
     src->PopBatch(batch_size, batch);
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache()[cl].InsertRange(absl::Span<void*>(batch),
-                                             batch_size);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch),
+                                         batch_size);
     N -= batch_size;
   }
   src->PopBatch(N, batch);
   static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                 "not enough space in batch");
-  Static::transfer_cache()[cl].InsertRange(absl::Span<void*>(batch), N);
+  Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch), N);
   size_ -= delta_bytes;
 }
 

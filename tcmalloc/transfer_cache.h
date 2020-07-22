@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <utility>
 
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
@@ -32,6 +33,8 @@ namespace tcmalloc {
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
+class TransferCaches;
+
 struct alignas(8) SizeInfo {
   int32_t used;
   int32_t capacity;
@@ -42,8 +45,9 @@ struct alignas(8) SizeInfo {
 // thread caches and the central cache for a given size class.
 class TransferCache {
  public:
-  constexpr TransferCache()
-      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+  constexpr TransferCache(TransferCaches *owner)
+      : owner_(owner),
+        lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(0),
         slot_info_{},
         slots_(nullptr),
@@ -81,6 +85,8 @@ class TransferCache {
   }
 
  private:
+  friend TransferCaches;
+
   // REQUIRES: lock is held.
   // Tries to make room for a batch.  If the cache is full it will try to expand
   // it at the cost of some other cache size.  Return false if there is no
@@ -103,6 +109,8 @@ class TransferCache {
     ASSERT(info.capacity <= max_capacity_);
     slot_info_.store(info, std::memory_order_relaxed);
   }
+
+  TransferCaches *const owner_;
 
   // This lock protects all the data members.  used_slots_ and cache_slots_
   // may be looked at without holding the lock.
@@ -137,35 +145,86 @@ class TransferCache {
   bool arbitrary_transfer_;
 } ABSL_CACHELINE_ALIGNED;
 
+class TransferCaches {
+  template <size_t... Idx>
+  constexpr TransferCaches(std::index_sequence<Idx...> i)
+      : cache_{((void)Idx, TransferCache(this))...}, next_to_evict_(1) {
+    static_assert(sizeof...(Idx) == kNumClasses);
+  }
+
+ public:
+  constexpr TransferCaches()
+      : TransferCaches(std::make_index_sequence<kNumClasses>{}) {}
+
+  TransferCaches(const TransferCaches &) = delete;
+  TransferCaches &operator=(const TransferCaches &) = delete;
+
+  void Init() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    for (int i = 0; i < kNumClasses; ++i) {
+      cache_[i].Init(i);
+    }
+  }
+
+  void InsertRange(int size_class, absl::Span<void *> batch, int n) {
+    cache_[size_class].InsertRange(batch, n);
+  }
+
+  int RemoveRange(int size_class, void **batch, int n) {
+    return cache_[size_class].RemoveRange(batch, n);
+  }
+
+  size_t central_length(int size_class) {
+    return cache_[size_class].central_length();
+  }
+  size_t tc_length(int size_class) { return cache_[size_class].tc_length(); }
+  size_t OverheadBytes(int size_class) {
+    return cache_[size_class].OverheadBytes();
+  }
+
+ private:
+  friend TransferCache;
+  int DetermineSizeClassToEvict();
+  bool ShrinkCache(int size_class) { return cache_[size_class].ShrinkCache(); }
+
+  TransferCache cache_[kNumClasses];
+  std::atomic<int32_t> next_to_evict_;
+} ABSL_CACHELINE_ALIGNED;
+
 #else
 
 // For the small memory model, the transfer cache is not used.
-class TransferCache {
+class TransferCaches {
  public:
-  constexpr TransferCache() : freelist_() {}
-  TransferCache(const TransferCache &) = delete;
-  TransferCache &operator=(const TransferCache &) = delete;
+  constexpr TransferCaches() : freelist_() {}
+  TransferCaches(const TransferCaches &) = delete;
+  TransferCaches &operator=(const TransferCaches &) = delete;
 
-  void Init(size_t cl) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    freelist_.Init(cl);
+  void Init() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    for (int i = 0; i < kNumClasses; ++i) {
+      freelist_[i].Init(i);
+    }
   }
 
-  void InsertRange(absl::Span<void *> batch, int N) {
-    freelist_.InsertRange(batch.data(), N);
+  void InsertRange(int size_class, absl::Span<void *> batch, int n) {
+    freelist_[size_class].InsertRange(batch.data(), n);
   }
 
-  int RemoveRange(void **batch, int N) {
-    return freelist_.RemoveRange(batch, N);
+  int RemoveRange(int size_class, void **batch, int n) {
+    return freelist_[size_class].RemoveRange(batch, n);
   }
 
-  size_t central_length() { return freelist_.length(); }
+  size_t central_length(int size_class) {
+    return freelist_[size_class].length();
+  }
 
-  size_t tc_length() { return 0; }
+  size_t tc_length(int size_class) { return 0; }
 
-  size_t OverheadBytes() { return freelist_.OverheadBytes(); }
+  size_t OverheadBytes(int size_class) {
+    return freelist_[size_class].OverheadBytes();
+  }
 
  private:
-  CentralFreeList freelist_;
+  CentralFreeList freelist_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
 
 #endif

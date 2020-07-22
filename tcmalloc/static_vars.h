@@ -56,7 +56,7 @@ class Static {
 
   // Central cache -- an array of free-lists, one per size-class.
   // We have a separate lock per free-list to reduce contention.
-  static TransferCache* transfer_cache() { return transfer_cache_; }
+  static TransferCaches& transfer_cache() { return transfer_cache_; }
 
   static SizeMap* sizemap() { return &sizemap_; }
 
@@ -140,7 +140,7 @@ class Static {
 
   ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
-  ABSL_CONST_INIT static TransferCache transfer_cache_[kNumClasses];
+  ABSL_CONST_INIT static TransferCaches transfer_cache_;
   static CPUCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static PageHeapAllocator<Span> span_allocator_;

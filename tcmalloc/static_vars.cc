@@ -43,7 +43,7 @@ ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT Arena Static::arena_;
 SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
-ABSL_CONST_INIT TransferCache Static::transfer_cache_[kNumClasses];
+ABSL_CONST_INIT TransferCaches Static::transfer_cache_;
 CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 PageHeapAllocator<Span> Static::span_allocator_;
 PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
@@ -98,10 +98,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     stacktrace_allocator_.Init(&arena_);
     bucket_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
-    CHECK_CONDITION((sizeof(transfer_cache_[0]) % ABSL_CACHELINE_SIZE) == 0);
-    for (int i = 0; i < kNumClasses; ++i) {
-      transfer_cache_[i].Init(i);
-    }
+    CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
+    transfer_cache_.Init();
     new (page_allocator_.memory) PageAllocator;
     sampled_objects_.Init();
     threadcache_allocator_.Init(&arena_);

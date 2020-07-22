@@ -30,34 +30,24 @@
 
 namespace tcmalloc {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
-class EvictionManager {
- public:
-  constexpr EvictionManager() : next_(1) {}
+int TransferCaches::DetermineSizeClassToEvict() {
+  int t = next_to_evict_.load(std::memory_order_relaxed);
+  if (t >= kNumClasses) t = 1;
+  next_to_evict_.store(t + 1, std::memory_order_relaxed);
 
-  int DetermineSizeClassToEvict() {
-    int t = next_.load(std::memory_order_relaxed);
-    if (t >= kNumClasses) t = 1;
-    next_.store(t + 1, std::memory_order_relaxed);
-
-    // Ask nicely first.
-    int N = Static::sizemap()->num_objects_to_move(t);
-    auto info = Static::transfer_cache()[t].GetSlotInfo();
-    if (info.capacity - info.used >= N) {
-      return t;
-    }
-
-    // But insist on the second try.
-    t = next_.load(std::memory_order_relaxed);
-    if (t >= kNumClasses) t = 1;
-    next_.store(t + 1, std::memory_order_relaxed);
+  // Ask nicely first.
+  int n = Static::sizemap()->num_objects_to_move(t);
+  auto info = cache_[t].GetSlotInfo();
+  if (info.capacity - info.used >= n) {
     return t;
   }
 
- private:
-  std::atomic<int32_t> next_;
-};
-
-ABSL_CONST_INIT EvictionManager gEvictionManager;
+  // But insist on the second try.
+  t = next_to_evict_.load(std::memory_order_relaxed);
+  if (t >= kNumClasses) t = 1;
+  next_to_evict_.store(t + 1, std::memory_order_relaxed);
+  return t;
+}
 
 void TransferCache::Init(size_t cl) {
   // Init is guarded by the pageheap_lock, so no other threads can Init freelist
@@ -114,12 +104,12 @@ bool TransferCache::MakeCacheSpace(int N) {
   // Check if we can expand this cache?
   if (info.capacity + N > max_capacity_) return false;
 
-  int to_evict = gEvictionManager.DetermineSizeClassToEvict();
+  int to_evict = owner_->DetermineSizeClassToEvict();
   if (to_evict == size_class()) return false;
 
   // Release the held lock before the other instance tries to grab its lock.
   lock_.Unlock();
-  bool made_space = Static::transfer_cache()[to_evict].ShrinkCache();
+  bool made_space = owner_->ShrinkCache(to_evict);
   lock_.Lock();
 
   if (!made_space) return false;

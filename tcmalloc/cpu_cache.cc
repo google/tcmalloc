@@ -171,7 +171,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
   void *batch[kMaxObjectsToMove];
   do {
     const size_t want = std::min(batch_length, target - total);
-    got = Static::transfer_cache()[cl].RemoveRange(batch, want);
+    got = Static::transfer_cache().RemoveRange(cl, batch, want);
     if (got == 0) {
       break;
     }
@@ -186,7 +186,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        Static::transfer_cache()[cl].InsertRange(absl::Span<void *>(batch), i);
+        Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch), i);
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
@@ -194,8 +194,8 @@ void *CPUCache::Refill(int cpu, size_t cl) {
 
   for (size_t i = 0; i < returned; ++i) {
     ObjectClass *ret = &to_return[i];
-    Static::transfer_cache()[ret->cl].InsertRange(
-        absl::Span<void *>(&ret->obj, 1), 1);
+    Static::transfer_cache().InsertRange(ret->cl,
+                                         absl::Span<void *>(&ret->obj, 1), 1);
   }
 
   return result;
@@ -442,7 +442,7 @@ int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache()[cl].InsertRange(absl::Span<void *>(batch), count);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch), count);
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == GetCurrentVirtualCpuUnsafe());
@@ -520,8 +520,8 @@ static void DrainHandler(void *arg, size_t cl, void **batch, size_t count,
   ctx->available->fetch_add(cap * size, std::memory_order_relaxed);
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache()[cl].InsertRange(absl::Span<void *>(batch + i, n),
-                                             n);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch + i, n),
+                                         n);
   }
 }
 
