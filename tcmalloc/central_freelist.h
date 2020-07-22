@@ -39,6 +39,9 @@ class CentralFreeList {
         num_spans_(),
         nonempty_() {}
 
+  CentralFreeList(const CentralFreeList&) = delete;
+  CentralFreeList& operator=(const CentralFreeList&) = delete;
+
   void Init(size_t cl) ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
@@ -94,9 +97,6 @@ class CentralFreeList {
 
   // Dummy header for non-empty spans
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);
-
-  CentralFreeList(const CentralFreeList&) = delete;
-  CentralFreeList& operator=(const CentralFreeList&) = delete;
 };
 
 }  // namespace tcmalloc
