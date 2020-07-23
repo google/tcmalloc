@@ -46,7 +46,19 @@ struct alignas(8) SizeInfo {
 template <typename CentralFreeList, typename TransferCacheManager>
 class TransferCache {
  public:
-  constexpr TransferCache(TransferCacheManager *owner)
+  static constexpr int kMaxCapacityInBatches = 64;
+  static constexpr int kInitialCapacityInBatches = 16;
+
+  constexpr explicit TransferCache(TransferCacheManager *owner)
+      : TransferCache(owner, 0) {}
+
+  // C++11 has complex rules for direct initialization of an array of aggregate
+  // types that are not copy constructible.  The int parameters allows us to do
+  // two distinct things at the same time:
+  //  - have an implicit constructor (one arg implicit ctors are dangerous)
+  //  - build an array of these in an arg pack expansion without a comma
+  //    operator trick
+  constexpr TransferCache(TransferCacheManager *owner, int)
       : owner_(owner),
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(0),
@@ -54,10 +66,13 @@ class TransferCache {
         slots_(nullptr),
         freelist_do_not_access_directly_(),
         arbitrary_transfer_(false) {}
+
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
-  void Init(size_t cl) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  // We require the pageheap_lock with some templates, but not in tests, so the
+  // thread safety analysis breaks pretty hard here.
+  void Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     freelist().Init(cl);
     absl::base_internal::SpinLockHolder h(&lock_);
 
@@ -83,10 +98,10 @@ class TransferCache {
       // Starting point for the maximum number of entries in the transfer cache.
       // This actual maximum for a given size class may be lower than this
       // maximum value.
-      max_capacity_ = 64 * objs_to_move;
+      max_capacity_ = kMaxCapacityInBatches * objs_to_move;
       // A transfer cache freelist can have anywhere from 0 to
       // max_capacity_ slots to put link list chains into.
-      info.capacity = 16 * objs_to_move;
+      info.capacity = kInitialCapacityInBatches * objs_to_move;
 
       // Limit each size class cache to at most 1MB of objects or one entry,
       // whichever is greater. Total transfer cache memory used across all
@@ -99,7 +114,7 @@ class TransferCache {
               (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
       info.capacity = std::min(info.capacity, max_capacity_);
       slots_ = reinterpret_cast<void **>(
-          TransferCacheManager::Alloc(max_capacity_ * sizeof(void *)));
+          owner_->Alloc(max_capacity_ * sizeof(void *)));
     }
     SetSlotInfo(info);
   }
@@ -292,6 +307,13 @@ class TransferCache {
     return true;
   }
 
+  // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
+  // that we are not holding lock_ when we access it.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist()
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    return freelist_do_not_access_directly_;
+  }
+
  private:
   // Returns first object of the i-th slot.
   void **GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
@@ -322,13 +344,6 @@ class TransferCache {
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
-
-  // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
-  // that we are not holding lock_ when we access it.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist()
-      ABSL_LOCKS_EXCLUDED(lock_) {
-    return freelist_do_not_access_directly_;
-  }
 
   size_t size_class() const {
     return freelist_do_not_access_directly_.size_class();

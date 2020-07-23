@@ -38,14 +38,15 @@ namespace tcmalloc {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
 class TransferCacheManager {
+  template <typename CentralFreeList, typename Manager>
+  friend class internal_transfer_cache::TransferCache;
   using TransferCache =
       internal_transfer_cache::TransferCache<CentralFreeList,
                                              TransferCacheManager>;
-  friend TransferCache;
 
   template <size_t... Idx>
-  constexpr TransferCacheManager(std::index_sequence<Idx...> i)
-      : cache_{((void)Idx, TransferCache(this))...}, next_to_evict_(1) {
+  constexpr explicit TransferCacheManager(std::index_sequence<Idx...> i)
+      : cache_{{this, Idx}...}, next_to_evict_(1) {
     static_assert(sizeof...(Idx) == kNumClasses);
   }
 
@@ -56,7 +57,7 @@ class TransferCacheManager {
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
-  void Init() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
       cache_[i].Init(i);
     }
@@ -81,7 +82,7 @@ class TransferCacheManager {
  private:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void *Alloc(size_t size) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) { return cache_[size_class].ShrinkCache(); }
 

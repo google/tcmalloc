@@ -532,6 +532,19 @@ cc_library(
 )
 
 cc_library(
+    name = "mock_central_freelist",
+    testonly = 1,
+    hdrs = ["mock_central_freelist.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "page_allocator_test_util",
     testonly = 1,
     srcs = [
@@ -566,6 +579,7 @@ cc_test(
     ],
     deps = [
         ":common",
+        ":mock_central_freelist",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/types:span",
