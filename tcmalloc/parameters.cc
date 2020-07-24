@@ -15,6 +15,8 @@
 
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
@@ -27,6 +29,22 @@ namespace tcmalloc {
 static std::atomic<bool>* hpaa_subrelease_ptr() {
   static std::atomic<bool> v(decide_subrelease());
   return &v;
+}
+
+// As skip_subrelease_interval_ns() is determined at runtime, we cannot require
+// constant initialization for the atomic.  This avoids an initialization order
+// fiasco.
+static std::atomic<int64_t>& skip_subrelease_interval_ns() {
+  static std::atomic<int64_t> v([]() {
+    int64_t ret = 0;
+    if (IsExperimentActive(Experiment::TCMALLOC_SKIP_SUBRELEASE_60SEC)) {
+      ret = absl::ToInt64Nanoseconds(absl::Seconds(60));
+    }
+
+    return ret;
+  }());
+
+  return v;
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
@@ -77,8 +95,10 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate
 );
 
-ABSL_CONST_INIT std::atomic<int64_t>
-    Parameters::filler_skip_subrelease_interval_ns_(0);
+absl::Duration Parameters::filler_skip_subrelease_interval() {
+  return absl::Nanoseconds(
+      skip_subrelease_interval_ns().load(std::memory_order_relaxed));
+}
 
 }  // namespace tcmalloc
 
@@ -213,8 +233,8 @@ void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
     absl::Duration v) {
-  tcmalloc::Parameters::filler_skip_subrelease_interval_ns_.store(
-      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+  tcmalloc::skip_subrelease_interval_ns().store(absl::ToInt64Nanoseconds(v),
+                                                std::memory_order_relaxed);
 }
 
 }  // extern "C"

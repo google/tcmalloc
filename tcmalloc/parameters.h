@@ -104,10 +104,7 @@ class Parameters {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(value);
   }
 
-  static absl::Duration filler_skip_subrelease_interval() {
-    return absl::Nanoseconds(
-        filler_skip_subrelease_interval_ns_.load(std::memory_order_relaxed));
-  }
+  static absl::Duration filler_skip_subrelease_interval();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
@@ -131,7 +128,6 @@ class Parameters {
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
-  static std::atomic<int64_t> filler_skip_subrelease_interval_ns_;
 };
 
 }  // namespace tcmalloc
