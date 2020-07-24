@@ -87,7 +87,6 @@ cc_library(
         "libc_override_gcc_and_weak.h",
         "libc_override_glibc.h",
         "libc_override_redefine.h",
-        "sampler.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
