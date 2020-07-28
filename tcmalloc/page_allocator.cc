@@ -45,7 +45,7 @@ bool decide_want_hpaa() {
     if (e[0] == '0') return false;
     if (e[0] == '1') return true;
     if (e[0] == '2') return true;
-    Log(kCrash, __FILE__, __LINE__, "bad env var", e);
+    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
     return false;
   }
 
@@ -106,7 +106,8 @@ void PageAllocator::ShrinkToUsageLimit() {
   // We're still not below limit.
   if (limit_is_hard_) {
     limit_ = std::numeric_limits<decltype(limit_)>::max();
-    Log(kCrash, __FILE__, __LINE__,
+    Crash(
+        kCrash, __FILE__, __LINE__,
         "Hit hard tcmalloc heap limit (e.g. --tcmalloc_heap_size_hard_limit). "
         "Aborting.\nIt was most likely set to catch "
         "allocations that would crash the process anyway. "

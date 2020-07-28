@@ -49,12 +49,12 @@ class HugeCacheTest : public testing::Test {
   // Use a tiny fraction of actual size so we can test aggressively.
   static void *AllocateFake(size_t bytes, size_t *actual, size_t align) {
     if (bytes % kHugePageSize != 0) {
-      tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned", bytes,
-                    kHugePageSize);
+      tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned",
+                      bytes, kHugePageSize);
     }
     if (align % kHugePageSize != 0) {
-      tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned", align,
-                    kHugePageSize);
+      tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned",
+                      align, kHugePageSize);
     }
     *actual = bytes;
     // we'll actually provide hidden backing, one word per hugepage.

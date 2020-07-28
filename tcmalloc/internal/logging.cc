@@ -48,7 +48,6 @@ static void WriteMessage(const char* msg, int length) {
 
 void (*log_message_writer)(const char* msg, int length) = WriteMessage;
 
-
 class Logger {
  public:
   bool Add(const LogItem& item);
@@ -59,11 +58,12 @@ class Logger {
   char* p_;
   char* end_;
   char buf_[kBufSize];
+
+  StackTrace trace;
 };
 
-ABSL_ATTRIBUTE_NOINLINE
-void Log(LogMode mode, const char* filename, int line,
-         LogItem a, LogItem b, LogItem c, LogItem d) {
+static Logger FormatLog(bool with_stack, const char* filename, int line,
+                        LogItem a, LogItem b, LogItem c, LogItem d) {
   Logger state;
   state.p_ = state.buf_;
   state.end_ = state.buf_ + sizeof(state.buf_);
@@ -76,13 +76,12 @@ void Log(LogMode mode, const char* filename, int line,
       && state.Add(c)
       && state.Add(d);
 
-  const bool crash = (mode == kCrash || mode == kCrashWithStats);
-  StackTrace t;
-  if (crash || mode == kLogWithStack) {
-    t.depth = absl::GetStackTrace(t.stack, tcmalloc::kMaxStackDepth, 1);
+  if (with_stack) {
+    state.trace.depth =
+        absl::GetStackTrace(state.trace.stack, tcmalloc::kMaxStackDepth, 1);
     state.Add(LogItem("@"));
-    for (int i = 0; i < t.depth; i++) {
-      state.Add(LogItem(t.stack[i]));
+    for (int i = 0; i < state.trace.depth; i++) {
+      state.Add(LogItem(state.trace.stack[i]));
     }
   }
 
@@ -93,11 +92,23 @@ void Log(LogMode mode, const char* filename, int line,
   *state.p_ = '\n';
   state.p_++;
 
+  return state;
+}
+
+ABSL_ATTRIBUTE_NOINLINE
+void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
+         LogItem c, LogItem d) {
+  Logger state = FormatLog(mode == kLogWithStack, filename, line, a, b, c, d);
   int msglen = state.p_ - state.buf_;
-  if (!crash) {
-    (*log_message_writer)(state.buf_, msglen);
-    return;
-  }
+  (*log_message_writer)(state.buf_, msglen);
+}
+
+ABSL_ATTRIBUTE_NOINLINE
+void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
+           LogItem c, LogItem d) {
+  Logger state = FormatLog(true, filename, line, a, b, c, d);
+
+  int msglen = state.p_ - state.buf_;
 
   // FailureSignalHandler mallocs for various logging attempts.
   // We might be crashing holding tcmalloc locks.
@@ -147,14 +158,14 @@ bool Logger::Add(const LogItem& item) {
       if (item.u_.snum < 0) {
         // The cast to uint64_t is intentionally before the negation
         // so that we do not attempt to negate -2^63.
-        return AddStr("-", 1)
-            && AddNum(- static_cast<uint64_t>(item.u_.snum), 10);
+        return AddStr("-", 1) &&
+               AddNum(-static_cast<uint64_t>(item.u_.snum), 10);
       } else {
         return AddNum(static_cast<uint64_t>(item.u_.snum), 10);
       }
     case LogItem::kPtr:
-      return AddStr("0x", 2)
-          && AddNum(reinterpret_cast<uintptr_t>(item.u_.ptr), 16);
+      return AddStr("0x", 2) &&
+             AddNum(reinterpret_cast<uintptr_t>(item.u_.ptr), 16);
     default:
       return false;
   }

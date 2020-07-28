@@ -82,12 +82,12 @@
 # define pvalloc malloc
 static bool kOSSupportsMemalign = false;
 static inline void* Memalign(size_t align, size_t size) {
-  tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                "memalign not supported on windows");
+  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                  "memalign not supported on windows");
 }
 static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
-  tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                "posix_memalign not supported on windows");
+  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                  "posix_memalign not supported on windows");
 }
 
 // OS X defines posix_memalign in some OS versions but not others;
@@ -95,12 +95,12 @@ static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
 #elif defined(__APPLE__)
 static bool kOSSupportsMemalign = false;
 static inline void* Memalign(size_t align, size_t size) {
-  tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                "memalign not supported on OS X");
+  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                  "memalign not supported on OS X");
 }
 static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
-  tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                "posix_memalign not supported on OS X");
+  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                  "posix_memalign not supported on OS X");
 }
 
 #else

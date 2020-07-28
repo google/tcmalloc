@@ -62,8 +62,8 @@ int main() {
       // Determine if we should be able to mlock memory due to our limits.
       struct rlimit lock_limit;
       if (getrlimit(RLIMIT_MEMLOCK, &lock_limit) != 0) {
-        tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                      "getrlimit failed: errno", errno);
+        tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                        "getrlimit failed: errno", errno);
       }
 
       if (lock_limit.rlim_cur != RLIM_INFINITY && errno == ENOMEM) {
@@ -73,8 +73,8 @@ int main() {
         return 0;
       }
     }
-    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "mlockall failed: errno", errno);
+    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                    "mlockall failed: errno", errno);
   }
 
   const int kSmallAllocations = 1000;
@@ -122,10 +122,10 @@ int main() {
   int64_t unmapped_diff = after_unmapped - before_unmapped;
   int64_t memusage_diff = before - after;
   if (unmapped_diff < 0) {
-    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__, "Memory was mapped.");
+    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "Memory was mapped.");
   } else if (unmapped_diff % tcmalloc::kHugePageSize != 0) {
-    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "Non-hugepage size for unmapped memory: ", unmapped_diff);
+    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                    "Non-hugepage size for unmapped memory: ", unmapped_diff);
   }
 
   // Try to release all unused memory.
@@ -153,15 +153,15 @@ int main() {
                 before - after);
 
   if (unmapped_diff == 0) {
-    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "No memory was unmapped.");
+    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                    "No memory was unmapped.");
   }
 
   if (unmapped_diff * (1. + kTolerance) < memusage_diff ||
       unmapped_diff * (1. - kTolerance) > memusage_diff) {
-    tcmalloc::Log(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "(after_unmapped - before_unmapped) != (before - after)",
-                  after_unmapped - before_unmapped, before - after);
+    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
+                    "(after_unmapped - before_unmapped) != (before - after)",
+                    after_unmapped - before_unmapped, before - after);
   }
 
   printf("PASS\n");

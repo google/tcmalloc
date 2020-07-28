@@ -128,12 +128,12 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
 void SizeMap::Init() {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   if (ClassIndex(0) != 0) {
-    Log(kCrash, __FILE__, __LINE__,
-        "Invalid class index for size 0", ClassIndex(0));
+    Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
+          ClassIndex(0));
   }
   if (ClassIndex(kMaxSize) >= sizeof(class_array_)) {
-    Log(kCrash, __FILE__, __LINE__,
-        "Invalid class index for kMaxSize", ClassIndex(kMaxSize));
+    Crash(kCrash, __FILE__, __LINE__, "Invalid class index for kMaxSize",
+          ClassIndex(kMaxSize));
   }
 
   static_assert(kAlignment <= 16, "kAlignment is too large");

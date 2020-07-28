@@ -76,8 +76,6 @@ struct StackTrace {
 enum LogMode {
   kLog,                       // Just print the message
   kLogWithStack,              // Print the message and a stack trace
-  kCrash,                     // Print the message and crash
-  kCrashWithStats             // Print the message, some stats, and crash
 };
 
 class Logger;
@@ -117,6 +115,15 @@ extern void Log(LogMode mode, const char* filename, int line,
                 LogItem a, LogItem b = LogItem(),
                 LogItem c = LogItem(), LogItem d = LogItem());
 
+enum CrashMode {
+  kCrash,          // Print the message and crash
+  kCrashWithStats  // Print the message, some stats, and crash
+};
+
+ABSL_ATTRIBUTE_NORETURN
+void Crash(CrashMode mode, const char* filename, int line, LogItem a,
+           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem());
+
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
@@ -124,11 +131,10 @@ extern void (*log_message_writer)(const char* msg, int length);
 
 // Like assert(), but executed even in NDEBUG mode
 #undef CHECK_CONDITION
-#define CHECK_CONDITION(cond)                                             \
-  (ABSL_PREDICT_TRUE(cond)                                                \
-       ? (void)0                                                          \
-       : (::tcmalloc::Log(::tcmalloc::kCrash, __FILE__, __LINE__, #cond), \
-          __builtin_unreachable()))
+#define CHECK_CONDITION(cond) \
+  (ABSL_PREDICT_TRUE(cond)    \
+       ? (void)0              \
+       : (::tcmalloc::Crash(::tcmalloc::kCrash, __FILE__, __LINE__, #cond)))
 
 // Our own version of assert() so we can avoid hanging by trying to do
 // all kinds of goofy printing while holding the malloc lock.

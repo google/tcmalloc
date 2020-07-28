@@ -598,7 +598,7 @@ inline int TcmallocSlab<Shift, NumClasses>::CompareAndSwapHeader(
   return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
                               static_cast<intptr_t>(new_raw));
 #else
-  Log(kCrash, __FILE__, __LINE__, "This architecture is not supported.");
+  Crash(kCrash, __FILE__, __LINE__, "This architecture is not supported.");
 #endif
 }
 

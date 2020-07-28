@@ -78,8 +78,8 @@ struct MallocOomPolicy {
 struct CppOomPolicy {
   static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN void* handle_oom(
       size_t size) {
-    Log(kCrashWithStats, __FILE__, __LINE__, "Unable to allocate (new failed)",
-        size);
+    Crash(kCrashWithStats, __FILE__, __LINE__,
+          "Unable to allocate (new failed)", size);
     __builtin_unreachable();
   }
 

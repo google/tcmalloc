@@ -25,8 +25,8 @@ namespace subtle {
 namespace percpu {
 
 static void Unsupported() {
-  Log(kCrash, __FILE__, __LINE__,
-      "RSEQ function called on unsupported platform.");
+  Crash(kCrash, __FILE__, __LINE__,
+        "RSEQ function called on unsupported platform.");
 }
 
 int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,

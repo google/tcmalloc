@@ -52,7 +52,7 @@ bool decide_subrelease() {
     if (e[0] == '0') return false;
     if (e[0] == '1') return false;
     if (e[0] == '2') return true;
-    Log(kCrash, __FILE__, __LINE__, "bad env var", e);
+    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
     return false;
   }
 
@@ -80,7 +80,7 @@ FillerPartialRerelease decide_partial_rerelease() {
     if (e[0] == '1') {
       return FillerPartialRerelease::Retain;
     }
-    Log(kCrash, __FILE__, __LINE__, "bad env var", e);
+    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
   }
 
   return FillerPartialRerelease::Retain;

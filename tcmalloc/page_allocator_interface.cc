@@ -55,7 +55,7 @@ static int OpenLog(bool tagged) {
       signal_safe_open(buf, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
 
   if (fd < 0) {
-    Log(kCrash, __FILE__, __LINE__, fd, errno, fname);
+    Crash(kCrash, __FILE__, __LINE__, fd, errno, fname);
   }
 
   return fd;
@@ -70,7 +70,7 @@ PageAllocatorInterface::PageAllocatorInterface(const char *label, PageMap *map,
 
 PageAllocatorInterface::~PageAllocatorInterface() {
   // This is part of tcmalloc statics - they must be immortal.
-  Log(kCrash, __FILE__, __LINE__, "should never destroy this");
+  Crash(kCrash, __FILE__, __LINE__, "should never destroy this");
 }
 
 }  // namespace tcmalloc

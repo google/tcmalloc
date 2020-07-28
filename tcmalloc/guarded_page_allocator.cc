@@ -504,7 +504,7 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
       RecordCrash("buffer-overflow-detected-at-free");
       break;
     case GuardedPageAllocator::ErrorType::kUnknown:
-      Log(kCrash, __FILE__, __LINE__, "Unexpected ErrorType::kUnknown");
+      Crash(kCrash, __FILE__, __LINE__, "Unexpected ErrorType::kUnknown");
   }
   PrintStackTraceFromSignalHandler(context);
   if (error == GuardedPageAllocator::ErrorType::kBufferOverflowOnDealloc) {

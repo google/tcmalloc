@@ -28,10 +28,10 @@ void* Arena::Alloc(size_t bytes) {
     free_area_ = reinterpret_cast<char*>(
         SystemAlloc(ask, &actual_size, kPageSize, /*tagged=*/false));
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
-      Log(kCrash, __FILE__, __LINE__,
-          "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
-          "data (bytes, object-size)",
-          kAllocIncrement, bytes);
+      Crash(kCrash, __FILE__, __LINE__,
+            "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
+            "data (bytes, object-size)",
+            kAllocIncrement, bytes);
     }
     SystemBack(free_area_, actual_size);
     free_avail_ = actual_size;

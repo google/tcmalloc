@@ -439,8 +439,8 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment, bool tagged) {
     void* seed =
         mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (seed == MAP_FAILED) {
-      Log(kCrash, __FILE__, __LINE__,
-          "Initial mmap() reservation failed (size)", kPageSize);
+      Crash(kCrash, __FILE__, __LINE__,
+            "Initial mmap() reservation failed (size)", kPageSize);
     }
     munmap(seed, kPageSize);
     return reinterpret_cast<uintptr_t>(seed);
