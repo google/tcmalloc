@@ -104,6 +104,8 @@ ABSL_FLAG(int64_t, simulated_bytes_per_sec, 0,
           "If non-0, empirical driver will simulate tick of "
           "ReleaseMemoryToOS iteration each given number of bytes allocated");
 
+ABSL_FLAG(bool, print_stats_to_file, true, "Write mallocz stats to a file");
+
 ABSL_FLAG(int64_t, empirical_malloc_release_bytes_per_sec, 0,
           "Number of bytes to try to release from the page heap per second");
 
@@ -500,6 +502,7 @@ void RunSim() {
   const size_t per_thread_size = absl::GetFlag(FLAGS_bytes) / nthreads;
   const size_t per_thread_transient =
       absl::GetFlag(FLAGS_transient_bytes) / nthreads;
+  const bool print_stats = absl::GetFlag(FLAGS_print_stats_to_file);
 
   absl::Barrier b(nthreads + 1);
   std::vector<SimThread *> state(nthreads, nullptr);
@@ -521,7 +524,7 @@ void RunSim() {
     const absl::Time t = absl::Now();
     const absl::Duration dur = t - last;
     const absl::Duration life = t - start;
-    if (t - last_mallocz > absl::Seconds(10)) {
+    if (print_stats && t - last_mallocz > absl::Seconds(10)) {
       PrintStatsToFile();
       last_mallocz = t;
     }
