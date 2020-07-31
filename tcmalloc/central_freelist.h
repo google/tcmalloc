@@ -17,12 +17,15 @@
 
 #include <stddef.h>
 
+#include <cstddef>
+
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/span_stats.h"
 
 namespace tcmalloc {
 
@@ -35,8 +38,6 @@ class CentralFreeList {
         object_size_(0),
         objects_per_span_(0),
         pages_per_span_(0),
-        counter_(),
-        num_spans_(),
         nonempty_() {}
 
   CentralFreeList(const CentralFreeList&) = delete;
@@ -68,6 +69,8 @@ class CentralFreeList {
     return size_class_;
   }
 
+  SpanStats GetSpanStats() const;
+
  private:
   // Release an object to spans.
   // Returns object's span if it become completely free.
@@ -86,14 +89,38 @@ class CentralFreeList {
   size_t objects_per_span_;
   Length pages_per_span_;
 
-  // Following are kept as a StatsCounter so that they can read without
-  // acquiring a lock. Updates to these variables are guarded by lock_ so writes
-  // are performed using LossyAdd for speed, the lock still guarantees accuracy.
+  size_t num_spans() const {
+    size_t requested = num_spans_requested_.value();
+    size_t returned = num_spans_returned_.value();
+    if (requested < returned) return 0;
+    return (requested - returned);
+  }
+
+  void RecordSpanAllocated() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    counter_.LossyAdd(objects_per_span_);
+    num_spans_requested_.LossyAdd(1);
+  }
+
+  void RecordMultiSpansDeallocated(size_t num_spans_returned)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    counter_.LossyAdd(-num_spans_returned * objects_per_span_);
+    num_spans_returned_.LossyAdd(num_spans_returned);
+  }
+
+  void UpdateObjectCounts(int num) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    counter_.LossyAdd(num);
+  }
+
+  // The followings are kept as a StatsCounter so that they can read without
+  // acquiring a lock. Updates to these variables are guarded by lock_
+  // so writes are performed using LossyAdd for speed, the lock still
+  // guarantees accuracy.
 
   // Num free objects in cache entry
   tcmalloc_internal::StatsCounter counter_;
-  // Num spans in nonempty_
-  tcmalloc_internal::StatsCounter num_spans_;
+
+  tcmalloc_internal::StatsCounter num_spans_requested_;
+  tcmalloc_internal::StatsCounter num_spans_returned_;
 
   // Dummy header for non-empty spans
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);

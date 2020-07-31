@@ -199,6 +199,7 @@ common_srcs = [
     "size_classes.cc",
     "span.cc",
     "span.h",
+    "span_stats.h",
     "stack_trace_table.cc",
     "stack_trace_table.h",
     "static_vars.cc",
@@ -239,6 +240,7 @@ common_hdrs = [
     "peak_heap_tracker.h",
     "sampler.h",
     "span.h",
+    "span_stats.h",
     "stack_trace_table.h",
     "stats.h",
     "static_vars.h",
@@ -510,6 +512,7 @@ cc_library(
         "pagemap.h",
         "parameters.h",
         "peak_heap_tracker.h",
+        "span_stats.h",
         "stack_trace_table.h",
         "tracking.h",
         "transfer_cache.h",
@@ -1069,6 +1072,17 @@ cc_test(
         ":common_deprecated_perthread",
         "//tcmalloc/internal:util",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "central_freelist_test",
+    srcs = ["central_freelist_test.cc"],
+    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
 )

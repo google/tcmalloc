@@ -84,6 +84,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/strip.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
@@ -164,6 +165,7 @@ struct TCMallocStats {
 // should be captured or not. Residence info requires a potentially
 // costly OS call, and is not necessary in all situations.
 static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
+                         tcmalloc::SpanStats* span_stats,
                          tcmalloc::SmallSpanStats* small_spans,
                          tcmalloc::LargeSpanStats* large_spans,
                          bool report_residence) {
@@ -183,6 +185,9 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       if (tcmalloc::UsePerCpuCache()) {
         class_count[cl] += Static::cpu_cache()->TotalObjectsOfClass(cl);
       }
+    }
+    if (span_stats) {
+      span_stats[cl] = Static::transfer_cache().GetSpanStats(cl);
     }
   }
 
@@ -236,7 +241,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 }
 
 static void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
-  ExtractStats(r, nullptr, nullptr, nullptr, report_residence);
+  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
 }
 
 // Because different fields of stats are computed from state protected
@@ -275,8 +280,9 @@ static uint64_t RequiredBytes(const TCMallocStats& stats) {
 static void DumpStats(TCMalloc_Printer* out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
+  tcmalloc::SpanStats span_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, nullptr, nullptr, true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -373,6 +379,7 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
         rss, rss / MiB, vss, vss / MiB);
     // clang-format on
   }
+
   out->printf(
       "------------------------------------------------\n"
       "Call ReleaseMemoryToSystem() to release freelist memory to the OS"
@@ -382,20 +389,26 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   if (level >= 2) {
     out->printf("------------------------------------------------\n");
     out->printf("Total size of freelists for per-thread and per-CPU caches,\n");
-    out->printf("transfer cache, and central cache, by size class\n");
+    out->printf("transfer cache, and central cache, as well as number of\n");
+    out->printf("live pages, returned/requested spans by size class\n");
     out->printf("------------------------------------------------\n");
+
     uint64_t cumulative = 0;
-    for (int cl = 0; cl < kNumClasses; ++cl) {
-      if (class_count[cl] > 0) {
-        uint64_t class_bytes =
-            class_count[cl] * Static::sizemap()->class_to_size(cl);
-        cumulative += class_bytes;
-        out->printf(
-            "class %3d [ %8zu bytes ] : "
-            "%8" PRIu64 " objs; %5.1f MiB; %5.1f cum MiB\n",
-            cl, Static::sizemap()->class_to_size(cl), class_count[cl],
-            class_bytes / MiB, cumulative / MiB);
-      }
+    for (int cl = 1; cl < kNumClasses; ++cl) {
+      uint64_t class_bytes =
+          class_count[cl] * Static::sizemap()->class_to_size(cl);
+
+      cumulative += class_bytes;
+      // clang-format off
+      out->printf(
+          "class %3d [ %8zu bytes ] : %8" PRIu64 " objs; %5.1f MiB; %5.1f cum MiB; "
+          "%8" PRIu64 " live pages; spans: %6zu ret / %6zu req = %5.4f;\n",
+          cl, Static::sizemap()->class_to_size(cl), class_count[cl],
+          class_bytes / MiB, cumulative / MiB,
+          span_stats[cl].num_live_spans()*Static::sizemap()->class_to_pages(cl),
+          span_stats[cl].num_spans_returned, span_stats[cl].num_spans_requested,
+          span_stats[cl].prob_returned());
+      // clang-format on
     }
 
     if (tcmalloc::UsePerCpuCache()) {
@@ -434,8 +447,9 @@ namespace {
 /*static*/ void DumpStatsInPbtxt(TCMalloc_Printer* out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
+  tcmalloc::SpanStats span_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, nullptr, nullptr, true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -489,14 +503,16 @@ namespace {
 
   if (level >= 2) {
     {
-      for (int cl = 0; cl < kNumClasses; ++cl) {
-        if (class_count[cl] > 0) {
-          uint64_t class_bytes =
-              class_count[cl] * Static::sizemap()->class_to_size(cl);
-          PbtxtRegion entry = region.CreateSubRegion("freelist");
-          entry.PrintI64("sizeclass", Static::sizemap()->class_to_size(cl));
-          entry.PrintI64("bytes", class_bytes);
-        }
+      for (int cl = 1; cl < kNumClasses; ++cl) {
+        uint64_t class_bytes =
+            class_count[cl] * Static::sizemap()->class_to_size(cl);
+        PbtxtRegion entry = region.CreateSubRegion("freelist");
+        entry.PrintI64("sizeclass", Static::sizemap()->class_to_size(cl));
+        entry.PrintI64("bytes", class_bytes);
+        entry.PrintI64("num_spans_requested",
+                       span_stats[cl].num_spans_requested);
+        entry.PrintI64("num_spans_returned", span_stats[cl].num_spans_returned);
+        entry.PrintI64("obj_capacity", span_stats[cl].obj_capacity);
       }
     }
 

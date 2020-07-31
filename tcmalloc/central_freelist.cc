@@ -28,12 +28,9 @@ namespace tcmalloc {
 void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
   object_size_ = Static::sizemap()->class_to_size(cl);
-  objects_per_span_ = Static::sizemap()->class_to_pages(cl) * kPageSize /
-                      (cl ? object_size_ : 1);
   pages_per_span_ = Static::sizemap()->class_to_pages(cl);
+  objects_per_span_ = pages_per_span_ * kPageSize / (cl ? object_size_ : 1);
   nonempty_.Init();
-  num_spans_.Clear();
-  counter_.Clear();
 }
 
 static Span* MapObjectToSpan(void* object) {
@@ -50,9 +47,6 @@ Span* CentralFreeList::ReleaseToSpans(void* object, Span* span) {
   if (span->FreelistPush(object, object_size_)) {
     return nullptr;
   }
-
-  counter_.LossyAdd(-objects_per_span_);
-  num_spans_.LossyAdd(-1);
   span->RemoveFromList();  // from nonempty_
   return span;
 }
@@ -83,7 +77,8 @@ void CentralFreeList::InsertRange(void** batch, int N) {
         free_count++;
       }
     }
-    counter_.LossyAdd(N);
+    RecordMultiSpansDeallocated(free_count);
+    UpdateObjectCounts(N);
   }
 
   // Then, release all free spans into page heap under its mutex.
@@ -114,7 +109,7 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
     }
     result += here;
   }
-  counter_.LossyAdd(-result);
+  UpdateObjectCounts(-result);
   return result;
 }
 
@@ -138,8 +133,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Add span to list of non-empty spans
   lock_.Lock();
   nonempty_.prepend(span);
-  num_spans_.LossyAdd(1);
-  counter_.LossyAdd(objects_per_span_);
+  RecordSpanAllocated();
 }
 
 size_t CentralFreeList::OverheadBytes() {
@@ -147,7 +141,18 @@ size_t CentralFreeList::OverheadBytes() {
     return 0;
   }
   const size_t overhead_per_span = (pages_per_span_ * kPageSize) % object_size_;
-  return static_cast<size_t>(num_spans_.value()) * overhead_per_span;
+  return num_spans() * overhead_per_span;
+}
+
+SpanStats CentralFreeList::GetSpanStats() const {
+  SpanStats stats;
+  if (size_class_ == 0) {  // 0 holds the 0-sized allocations
+    return stats;
+  }
+  stats.num_spans_requested = static_cast<size_t>(num_spans_requested_.value());
+  stats.num_spans_returned = static_cast<size_t>(num_spans_returned_.value());
+  stats.obj_capacity = stats.num_live_spans() * objects_per_span_;
+  return stats;
 }
 
 }  // namespace tcmalloc

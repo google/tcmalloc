@@ -43,8 +43,11 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, ContainsRegex(R"(page_heap_freelist: [0-9]+)"));
   EXPECT_THAT(buf, ContainsRegex(R"(tcmalloc_huge_page_size: [0-9]+)"));
 #if defined(GTEST_USES_PCRE)
-  EXPECT_THAT(
-      buf, ContainsRegex(R"(freelist\s{\s*sizeclass:\s\d+\s*bytes:\s\d+\s*})"));
+  EXPECT_THAT(buf,
+              ContainsRegex(absl::StrCat(
+                  R"(freelist\s{\s*sizeclass:\s\d+\s*bytes:\s\d+\s*)",
+                  R"(num_spans_requested:\s\d+\s*num_spans_returned:\s\d+\s*)",
+                  R"(obj_capacity:\s\d+\s*)")));
 #endif  // defined(GTEST_USES_PCRE)
   EXPECT_THAT(buf, AnyOf(HasSubstr(R"(page_heap {)"),
                          HasSubstr(R"(huge_page_aware {)")));

@@ -74,9 +74,15 @@ class TransferCacheManager {
   size_t central_length(int size_class) {
     return cache_[size_class].central_length();
   }
+
   size_t tc_length(int size_class) { return cache_[size_class].tc_length(); }
+
   size_t OverheadBytes(int size_class) {
     return cache_[size_class].OverheadBytes();
+  }
+
+  SpanStats GetSpanStats(int size_class) const {
+    return cache_[size_class].GetSpanStats();
   }
 
  private:
@@ -121,6 +127,10 @@ class TransferCacheManager {
 
   size_t OverheadBytes(int size_class) {
     return freelist_[size_class].OverheadBytes();
+  }
+
+  SpanStats GetSpanStats(int size_class) const {
+    return freelist_[size_class].GetSpanStats();
   }
 
  private:

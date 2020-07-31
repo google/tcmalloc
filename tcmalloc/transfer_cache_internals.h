@@ -228,6 +228,9 @@ class TransferCache {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
 
+  // Returns the number of spans allocated and deallocated from the CFL
+  SpanStats GetSpanStats() const { return freelist().GetSpanStats(); }
+
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
@@ -310,6 +313,12 @@ class TransferCache {
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
   ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist()
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    return freelist_do_not_access_directly_;
+  }
+
+  // The const version of the wrapper, needed to call stats on
+  ABSL_ATTRIBUTE_ALWAYS_INLINE const CentralFreeList &freelist() const
       ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
