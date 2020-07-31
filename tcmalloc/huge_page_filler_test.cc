@@ -39,6 +39,7 @@
 #include "absl/memory/memory.h"
 #include "absl/random/bernoulli_distribution.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/synchronization/mutex.h"
@@ -3524,16 +3525,75 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
 
   ASSERT_THAT(
       buffer,
-      testing::ContainsRegex(
+      testing::HasSubstr(
           "HugePageFiller: Since startup, 40 pages subreleased, 5 hugepages "
-          "broken, \\(19 pages, 2 hugepages due to reaching tcmalloc "
-          "limit\\)"));
+          "broken, (19 pages, 2 hugepages due to reaching tcmalloc "
+          "limit)"));
   ASSERT_THAT(buffer, testing::EndsWith(
                           "HugePageFiller: Subrelease stats last 10 min: total "
                           "21 pages subreleased, 3 hugepages broken\n"));
 
   for (const auto &alloc : result) {
     Delete(alloc);
+  }
+}
+
+TEST_P(FillerTest, ConstantBrokenHugePages) {
+  // Get and Fill up many huge pages
+  const HugeLength kHugePages = NHugePages(10 * kPagesPerHugePage);
+
+  absl::BitGen rng;
+  std::vector<PAlloc> alloc;
+  alloc.reserve(kHugePages.raw_num());
+  std::vector<PAlloc> dead;
+  dead.reserve(kHugePages.raw_num());
+  std::vector<PAlloc> alloc_small;
+  alloc_small.reserve(kHugePages.raw_num() + 2);
+
+  for (HugeLength i; i < kHugePages; ++i) {
+    Length size = absl::Uniform<Length>(rng, Length(2), kPagesPerHugePage - 1);
+    alloc_small.push_back(Allocate(1));
+    alloc.push_back(Allocate(size - 1));
+    dead.push_back(Allocate(kPagesPerHugePage - size));
+  }
+  ASSERT_EQ(filler_.size(), kHugePages);
+
+  for (int i = 0; i < 2; ++i) {
+    for (auto &a : dead) {
+      Delete(a);
+    }
+    ReleasePages(filler_.free_pages());
+    ASSERT_EQ(filler_.free_pages(), 0);
+    alloc_small.push_back(Allocate(1));  // To force subrelease stats to update
+
+    std::string buffer(1024 * 1024, '\0');
+    {
+      TCMalloc_Printer printer(&*buffer.begin(), buffer.size());
+      filler_.Print(&printer, /*everything=*/false);
+      buffer.erase(printer.SpaceRequired());
+    }
+
+    ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(kHugePages.raw_num(),
+                                                        " hugepages broken")));
+    if (i == 1) {
+      // Number of pages in alloc_small
+      ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(
+                              kHugePages.raw_num() + 2,
+                              " used pages in subreleased hugepages")));
+      // Sum of pages in alloc and dead
+      ASSERT_THAT(buffer, testing::HasSubstr(absl::StrCat(
+                              kHugePages.raw_num() * kPagesPerHugePage -
+                                  kHugePages.raw_num(),
+                              " pages subreleased")));
+    }
+
+    dead.swap(alloc);
+    alloc.clear();
+  }
+
+  // Clean up
+  for (auto &a : alloc_small) {
+    Delete(a);
   }
 }
 

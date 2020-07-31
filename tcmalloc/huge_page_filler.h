@@ -617,7 +617,8 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
         free_{},
         when_(when),
         released_count_(0),
-        donated_(false) {}
+        donated_(false),
+        unbroken_(true) {}
 
   struct PageAllocation {
     PageId page;
@@ -653,6 +654,8 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   Length free_pages() const;
   bool empty() const;
   bool full() const;
+
+  bool unbroken() const { return unbroken_; }
 
   // Returns the hugepage whose availability is being tracked.
   HugePage location() const { return location_; }
@@ -715,11 +718,13 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
   uint16_t released_count_;
   bool donated_;
+  bool unbroken_;
 
   void ReleasePages(PageId p, Length n) {
     void *ptr = p.start_addr();
     size_t byte_len = n << kPageShift;
     Unback(ptr, byte_len);
+    unbroken_ = false;
   }
 
   void ReleasePagesWithoutLock(PageId p, Length n)
@@ -731,6 +736,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
     Unback(ptr, byte_len);
 
     pageheap_lock.Lock();
+    unbroken_ = false;
   }
 };
 
@@ -1000,7 +1006,6 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
   released_count_ -= unbacked;
 
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage) == released_count_);
-
   return PageAllocation{location_.first_page() + index, unbacked};
 }
 
@@ -1411,10 +1416,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     last = best->used_pages();
 #endif
 
-    // We use !released() to figure out whether a hugepage is unbroken or not
-    // TODO(b/160020285): Use a boolean to track the transition of a hugepage
-    // from unbroken->broken and vice versa. Only the former is being captured.
-    if (!best->released()) {
+    if (best->unbroken()) {
       ++total_broken;
     }
     RemoveFromFillerList(best);
