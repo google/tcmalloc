@@ -128,6 +128,7 @@ cc_test(
     ] + REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc:tcmalloc_large_pages",
+    shard_count = 2,
     tags = [
         "noasan",
         "nomsan",
