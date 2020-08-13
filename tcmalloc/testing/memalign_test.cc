@@ -31,6 +31,7 @@
 #include <memory>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "tcmalloc/testing/testutil.h"
@@ -180,9 +181,10 @@ TEST(MemalignTest, AlignedAlloc) {
 
 #ifndef NDEBUG
 TEST(MemalignTest, AlignedAllocDeathTest) {
-  EXPECT_DEATH(aligned_alloc(0, 1), "");
-  EXPECT_DEATH(aligned_alloc(sizeof(void*) + 1, 1), "");
-  EXPECT_DEATH(aligned_alloc(4097, 1), "");
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(0, 1)), "");
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(sizeof(void*) + 1, 1)),
+               "");
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(4097, 1)), "");
 }
 #endif
 
