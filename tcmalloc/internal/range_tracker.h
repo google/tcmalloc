@@ -301,6 +301,7 @@ inline void Bitmap<N>::SetWordBits(size_t i, size_t from, size_t to) {
   const size_t n = to - from;
   ASSERT(n > 0 && n <= kWordSize);
   const size_t mask = (all_ones >> (kWordSize - n)) << from;
+  ASSUME(i < kWords);
   if (Value) {
     bits_[i] |= mask;
   } else {

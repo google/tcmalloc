@@ -334,6 +334,22 @@ cc_library(
     ],
 )
 
+cc_binary(
+    name = "range_tracker_benchmark",
+    testonly = 1,
+    srcs = ["range_tracker_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":range_tracker",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:fixed_array",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+    ],
+)
+
 cc_test(
     name = "range_tracker_test",
     srcs = ["range_tracker_test.cc"],
