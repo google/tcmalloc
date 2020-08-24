@@ -35,7 +35,7 @@ class TimeSeriesTrackerTest : public testing::Test {
   };
 
  protected:
-  void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+  void Advance(absl::Duration d) { clock_ += absl::ToInt64Nanoseconds(d); }
 
   static constexpr absl::Duration kDuration = absl::Seconds(2);
 
@@ -50,7 +50,7 @@ class TimeSeriesTrackerTest : public testing::Test {
 int64_t TimeSeriesTrackerTest::clock_{0};
 
 TEST_F(TimeSeriesTrackerTest, Works) {
-  const int64_t kEpochLength = ToInt64Nanoseconds(kDuration) / 8;
+  const int64_t kEpochLength = absl::ToInt64Nanoseconds(kDuration) / 8;
   Advance(kDuration);
 
   tracker_.Report(1);
@@ -67,13 +67,13 @@ TEST_F(TimeSeriesTrackerTest, Works) {
         ASSERT_LT(num_timestamps, 2);
         if (num_timestamps == 0) {
           offset_1 = offset;
-          EXPECT_EQ(ToInt64Nanoseconds(kDuration), ts);
+          EXPECT_EQ(absl::ToInt64Nanoseconds(kDuration), ts);
           EXPECT_THAT(e.values_, ElementsAre(1, 2));
         } else {
           offset_2 = offset;
-          EXPECT_EQ(
-              ToInt64Nanoseconds(kDuration) + ToInt64Nanoseconds(kDuration) / 4,
-              ts);
+          EXPECT_EQ(absl::ToInt64Nanoseconds(kDuration) +
+                        absl::ToInt64Nanoseconds(kDuration) / 4,
+                    ts);
           EXPECT_THAT(e.values_, ElementsAre(4));
         }
         num_timestamps++;
@@ -86,7 +86,7 @@ TEST_F(TimeSeriesTrackerTest, Works) {
   Advance(kDuration / 4);
 
   // Iterate through entries not skipping empty entries.
-  int64_t expected_timestamp = ToInt64Nanoseconds(kDuration) / 4;
+  int64_t expected_timestamp = absl::ToInt64Nanoseconds(kDuration) / 4;
   num_timestamps = 0;
 
   tracker_.Iter(
@@ -106,7 +106,8 @@ TEST_F(TimeSeriesTrackerTest, Works) {
 
   // Iterate backwards.
   num_timestamps = 0;
-  expected_timestamp = 7 * ToInt64Nanoseconds(kDuration) / 4;  // Current time
+  expected_timestamp =
+      7 * absl::ToInt64Nanoseconds(kDuration) / 4;  // Current time
   tracker_.IterBackwards(
       [&](size_t offset, int64_t ts, const TestEntry& e) {
         ASSERT_LT(num_timestamps, 3);

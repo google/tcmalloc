@@ -80,7 +80,7 @@ class TimeSeriesTracker {
 // to the current location in the ringbuffer.
 template <class T, class S, size_t kEpochs>
 bool TimeSeriesTracker<T, S, kEpochs>::UpdateClock() {
-  const size_t epoch = clock_() / ToInt64Nanoseconds(epoch_length_);
+  const size_t epoch = clock_() / absl::ToInt64Nanoseconds(epoch_length_);
   // How many time steps did we take?  (Since we only record kEpochs
   // time steps, we can pretend it was at most that.)
   size_t delta = epoch - last_epoch_;
@@ -112,9 +112,10 @@ void TimeSeriesTracker<T, S, kEpochs>::Iter(
     SkipEntriesSetting skip_entries) const {
   size_t j = current_epoch_ + 1;
   if (j == kEpochs) j = 0;
-  int64_t timestamp = (last_epoch_ - kEpochs) * ToInt64Nanoseconds(epoch_length_);
+  int64_t timestamp =
+      (last_epoch_ - kEpochs) * absl::ToInt64Nanoseconds(epoch_length_);
   for (int offset = 0; offset < kEpochs; offset++) {
-    timestamp += ToInt64Nanoseconds(epoch_length_);
+    timestamp += absl::ToInt64Nanoseconds(epoch_length_);
     if (skip_entries == kDoNotSkipEmptyEntries || !entries_[j].empty()) {
       f(offset, timestamp, entries_[j]);
     }
@@ -131,12 +132,12 @@ void TimeSeriesTracker<T, S, kEpochs>::IterBackwards(
   num_epochs = (num_epochs == -1) ? kEpochs : num_epochs;
   size_t j = current_epoch_;
   ASSERT(num_epochs <= kEpochs);
-  int64_t timestamp = last_epoch_ * ToInt64Nanoseconds(epoch_length_);
+  int64_t timestamp = last_epoch_ * absl::ToInt64Nanoseconds(epoch_length_);
   for (size_t offset = 0; offset < num_epochs; ++offset) {
     // This is deliberately int64_t and not a time unit, since clock_ is not
     // guaranteed to be a real time base.
     f(offset, timestamp, entries_[j]);
-    timestamp -= ToInt64Nanoseconds(epoch_length_);
+    timestamp -= absl::ToInt64Nanoseconds(epoch_length_);
     if (j == 0) j = kEpochs;
     --j;
   }

@@ -58,5 +58,5 @@ TEST(BitsTest, Log2Random) {
 }
 
 }  // namespace
-}  // nmaespace tcmalloc_internal
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
