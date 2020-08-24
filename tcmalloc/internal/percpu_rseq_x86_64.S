@@ -320,11 +320,11 @@ TcmallocSlab_PushBatch_FixedShift:
   incq %r9;
   cmpq %r9, %r10;
   jne .LTcmallocSlab_PushBatch_FixedShift_loop
-  movq %rcx, %rax;
-  subq %r11, %rax;
   movw %r9w, (%r8, %rsi, 8);
 .LTcmallocSlab_PushBatch_FixedShift_region1:
 .LTcmallocSlab_PushBatch_FixedShift_commit:
+  movq %rcx, %rax;
+  subq %r11, %rax;
   ret;
 .LTcmallocSlab_PushBatch_FixedShift_region2:
   xor %rax, %rax;
@@ -360,11 +360,11 @@ TcmallocSlab_PushBatch_FixedShift_VCPU:
   incq %r9;
   cmpq %r9, %r10;
   jne .LTcmallocSlab_PushBatch_FixedShift_VCPU_loop
-  movq %rcx, %rax;
-  subq %r11, %rax;
   movw %r9w, (%r8, %rsi, 8);
 .LTcmallocSlab_PushBatch_FixedShift_VCPU_region1:
 .LTcmallocSlab_PushBatch_FixedShift_VCPU_commit:
+  movq %rcx, %rax;
+  subq %r11, %rax;
   ret;
 .LTcmallocSlab_PushBatch_FixedShift_VCPU_region2:
   xor %rax, %rax;
