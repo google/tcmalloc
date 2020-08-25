@@ -35,11 +35,6 @@ config_setting(
     visibility = ["//visibility:private"],
 )
 
-NO_BUILTIN_MALLOC = [
-    "-fno-builtin-malloc",
-    "-fno-builtin-free",
-]
-
 cc_library(
     name = "experiment",
     srcs = ["experiment.cc"],
@@ -563,7 +558,7 @@ cc_library(
 cc_test(
     name = "page_heap_test",
     srcs = ["page_heap_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
         "@com_github_google_benchmark//:benchmark",
@@ -691,7 +686,7 @@ cc_test(
 cc_test(
     name = "guarded_page_allocator_test",
     srcs = ["guarded_page_allocator_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
         ":common",
@@ -709,7 +704,7 @@ cc_test(
 cc_test(
     name = "pagemap_test",
     srcs = ["pagemap_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
         "@com_github_google_benchmark//:benchmark",
@@ -721,7 +716,7 @@ cc_test(
 cc_test(
     name = "realloc_test",
     srcs = ["realloc_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
         "@com_github_google_benchmark//:benchmark",
@@ -734,7 +729,7 @@ cc_test(
 cc_test(
     name = "stack_trace_table_test",
     srcs = ["stack_trace_table_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
@@ -752,7 +747,7 @@ cc_test(
 cc_test(
     name = "system-alloc_test",
     srcs = ["system-alloc_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -776,7 +771,7 @@ cc_test(
     size = "small",
     timeout = "moderate",
     srcs = ["tcmalloc_large_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = ["noasan"],
     deps = [
@@ -807,7 +802,7 @@ cc_test(
 cc_test(
     name = "malloc_extension_test",
     srcs = ["malloc_extension_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -862,7 +857,7 @@ cc_test(
     name = "profile_test",
     size = "medium",
     srcs = ["profile_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     shard_count = 2,
@@ -886,7 +881,7 @@ cc_test(
     name = "thread_cache_test",
     size = "medium",
     srcs = ["thread_cache_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
@@ -908,7 +903,7 @@ cc_test(
 create_tcmalloc_testsuite(
     name = "size_classes_test",
     srcs = ["size_classes_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":size_class_info",
         "@com_github_google_benchmark//:benchmark",
@@ -919,7 +914,7 @@ create_tcmalloc_testsuite(
 cc_test(
     name = "size_classes_test_with_runtime_size_classes",
     srcs = ["size_classes_with_runtime_size_classes_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
@@ -936,7 +931,7 @@ cc_test(
 cc_test(
     name = "heap_profiling_test",
     srcs = ["heap_profiling_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -955,7 +950,7 @@ cc_test(
 cc_test(
     name = "runtime_size_classes_test",
     srcs = ["runtime_size_classes_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
@@ -968,7 +963,7 @@ cc_test(
 create_tcmalloc_testsuite(
     name = "span_test",
     srcs = ["span_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
@@ -1079,7 +1074,7 @@ cc_test(
 create_tcmalloc_testsuite(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",

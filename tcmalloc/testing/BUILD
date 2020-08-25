@@ -22,15 +22,6 @@ load("//tcmalloc:variants.bzl", "create_tcmalloc_testsuite")
 
 licenses(["notice"])  # Apache 2.0
 
-# Several tests below test internals of malloc.
-# As such, they must disable the compiler's builtin knowledge about malloc/free,
-# e.g. that malloc has no side effects, etc.
-NO_BUILTIN_MALLOC = [
-    "-fno-builtin-malloc",
-    "-fno-builtin-free",
-    "-fno-builtin-strdup",
-]
-
 REGTEST_DEPS = [
     ":testutil",
     "//tcmalloc:headers_for_tests",
@@ -50,7 +41,7 @@ REGTEST_DEPS = [
 
 REGTEST_OPTS = [
     "$(STACK_FRAME_UNLIMITED)",  # required for tcmalloc_test.cc
-] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS
+] + TCMALLOC_DEFAULT_COPTS
 
 EMPIRICAL_DEPS = [
     ":empirical",
@@ -219,7 +210,7 @@ create_tcmalloc_testsuite(
 cc_test(
     name = "markidle_test",
     srcs = ["markidle_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
         "noasan",
@@ -238,7 +229,7 @@ cc_test(
 cc_test(
     name = "memalign_test",
     srcs = ["memalign_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -279,7 +270,7 @@ create_tcmalloc_testsuite(
     srcs = ["largesmall_frag_test.cc"],
     copts = [
         "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
-    ] + NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    ] + TCMALLOC_DEFAULT_COPTS,
     tags = [
         "noasan",
         "nomsan",
@@ -298,7 +289,7 @@ create_tcmalloc_testsuite(
 cc_test(
     name = "outofmemory_test",
     srcs = ["outofmemory_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -316,7 +307,7 @@ cc_test(
     name = "current_allocated_bytes_test",
     size = "small",
     srcs = ["current_allocated_bytes_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
         "//tcmalloc:malloc_extension",
@@ -329,7 +320,7 @@ cc_test(
 cc_test(
     name = "sampling_test",
     srcs = ["sampling_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
@@ -377,7 +368,7 @@ create_tcmalloc_testsuite(
 cc_test(
     name = "sampler_test",
     srcs = ["sampler_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
@@ -401,7 +392,7 @@ cc_test(
 cc_test(
     name = "startup_size_test",
     srcs = ["startup_size_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
@@ -421,7 +412,7 @@ cc_test(
 cc_test(
     name = "large_alloc_size_test",
     srcs = ["large_alloc_size_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
@@ -446,7 +437,7 @@ cc_library(
 cc_test(
     name = "thread_ctor_test",
     srcs = ["thread_ctor_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
         ":thread_ctor_test_lib",
@@ -457,7 +448,7 @@ cc_test(
 cc_test(
     name = "sample_size_class_test",
     srcs = ["sample_size_class_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
@@ -478,7 +469,7 @@ cc_test(
 cc_test(
     name = "no_deps_test",
     srcs = ["no_deps_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = ["@com_github_google_benchmark//:benchmark"],
@@ -649,7 +640,7 @@ cc_test(
 cc_test(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",
@@ -671,7 +662,7 @@ cc_test(
 cc_test(
     name = "get_stats_test",
     srcs = ["get_stats_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
@@ -691,7 +682,7 @@ cc_test(
 cc_test(
     name = "releasing_test",
     srcs = ["releasing_test.cc"],
-    copts = NO_BUILTIN_MALLOC + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
         "noasan",

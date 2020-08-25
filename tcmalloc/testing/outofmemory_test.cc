@@ -18,6 +18,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+#include <new>
+
 #include "gtest/gtest.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -35,11 +37,11 @@ TEST_F(OutOfMemoryTest, TestUntilFailure) {
   static const size_t kMaxSize = ~static_cast<size_t>(0);
   for (size_t s = kIncrement; s < kMaxSize - kIncrement; s += kIncrement) {
     SCOPED_TRACE(s);
-    void* large_object = malloc(s);
+    void* large_object = ::operator new(s, std::nothrow);
     if (large_object == nullptr) {
       return;
     }
-    free(large_object);
+    ::operator delete(large_object);
   }
   ASSERT_TRUE(false) << "Did not run out of memory";
 }

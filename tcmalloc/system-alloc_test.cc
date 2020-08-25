@@ -100,8 +100,7 @@ TEST(Basic, InvokedTest) {
   MallocExtension::SetRegionFactory(&f);
 
   // An allocation size that is likely to trigger the system allocator.
-  void* p = malloc(tcmalloc::kMinSystemAlloc);
-  free(p);
+  ::operator delete(::operator new(tcmalloc::kMinSystemAlloc));
 
   // Make sure that our allocator was invoked.
   ASSERT_TRUE(simple_region_alloc_invoked);

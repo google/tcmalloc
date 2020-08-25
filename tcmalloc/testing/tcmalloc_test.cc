@@ -300,7 +300,10 @@ TEST(TCMallocTest, EnormousAllocations) {
   // Check that asking for stuff tiny bit smaller than largest possible
   // size returns NULL.
   for (size_t i = 0; i < 70000; i += absl::Uniform(rand, 1, 20)) {
-    const size_t size = kMaxSize - i;
+    size_t size = kMaxSize - i;
+    // Convince the compiler that size may change, as to suppress
+    // optimization/warnings around the size being too large.
+    benchmark::DoNotOptimize(size);
     void* p;
 
     p = malloc(size);
@@ -358,8 +361,8 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   }
 
   static const int MB = 1048576;
-  void* a = malloc(MB);
-  void* b = malloc(MB);
+  void* a = ::operator new(MB);
+  void* b = ::operator new(MB);
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
   size_t starting_bytes = GetUnmappedBytes();
 
@@ -371,7 +374,7 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   MallocExtension::ReleaseMemoryToSystem(MB);
   EXPECT_EQ(starting_bytes, GetUnmappedBytes());
 
-  free(a);
+  ::operator delete(a);
 
   // The span to release should be 1MB.
   MallocExtension::ReleaseMemoryToSystem(MB / 2);
@@ -381,7 +384,7 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   MallocExtension::ReleaseMemoryToSystem(MB / 4);
   EXPECT_EQ(starting_bytes + MB, GetUnmappedBytes());
 
-  free(b);
+  ::operator delete(b);
 
   // Use up the extra MB/4 bytes from 'a' and also release 'b'.
   MallocExtension::ReleaseMemoryToSystem(MB / 2);
@@ -395,8 +398,8 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
   EXPECT_EQ(starting_bytes + 2*MB, GetUnmappedBytes());
 
-  a = malloc(MB);
-  free(a);
+  a = ::operator new(MB);
+  ::operator delete(a);
   EXPECT_EQ(starting_bytes + MB, GetUnmappedBytes());
 
   // Releasing less than a page should still trigger a release.
