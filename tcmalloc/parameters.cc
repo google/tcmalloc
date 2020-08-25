@@ -37,7 +37,7 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   static std::atomic<int64_t> v([]() {
     int64_t ret = 0;
-    if (IsExperimentActive(Experiment::TCMALLOC_SKIP_SUBRELEASE_60SEC)) {
+    if (IsExperimentActive(Experiment::TCMALLOC_SKIP_SUBRELEASE_60SEC_V2)) {
       ret = absl::ToInt64Nanoseconds(absl::Seconds(60));
     }
 
@@ -229,6 +229,11 @@ void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
 void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
   tcmalloc::Parameters::profile_sampling_rate_.store(v,
                                                      std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(
+    absl::Duration* v) {
+  *v = tcmalloc::Parameters::filler_skip_subrelease_interval();
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
