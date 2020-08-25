@@ -154,6 +154,11 @@ inline int GetCurrentCpuUnsafe() {
 // On PowerPC, Linux maintains the current CPU in the bottom 12 bits of special
 // purpose register SPRG3, which is readable from user mode. References:
 //
+//   https://github.com/torvalds/linux/blob/164c09978cebebd8b5fc198e9243777dbaecdfa0/arch/powerpc/kernel/vdso.c#L727
+//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L966
+//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L593
+//   https://lists.ozlabs.org/pipermail/linuxppc-dev/2012-July/099011.html
+//
 // This is intended for VDSO syscalls, but is much faster if we simply inline it
 // here, presumably due to the function call and null-check overheads of the
 // VDSO version. As of 2014-07 the CPU time costs are something like 1.2 ns for
