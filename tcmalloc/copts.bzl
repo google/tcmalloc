@@ -17,7 +17,6 @@
 TCMALLOC_LLVM_FLAGS = [
     "-Wno-deprecated-declarations",
     "-Wno-implicit-int-float-conversion",
-    "-Wno-return-type-c-linkage",
     "-Wno-sign-compare",
     "-Wno-uninitialized",
     "-Wno-unused-function",

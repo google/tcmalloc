@@ -24,8 +24,6 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetBackgroundReleaseRate(
     size_t value);
 ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
-ABSL_ATTRIBUTE_WEAK absl::Duration
-TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetLazyPerCpuCachesEnabled();
 ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
