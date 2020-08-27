@@ -36,6 +36,10 @@
 // detect these compilation modes since
 // https://github.com/llvm/llvm-project/commit/379e68a763097bed55556c6dc7453e4b732e3d68.
 #define PERCPU_USE_RSEQ_ASM_GOTO 1
+#if __clang_major__ >= 11
+#define PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
+#endif
+
 #else
 #define PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
@@ -372,96 +376,122 @@ template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     UnderflowHandler f) {
-  // TODO(b/149467541):  GCC and LLVM asm goto currently do not support output
-  // constraints.  When https://reviews.llvm.org/D69876 and
-  // https://reviews.llvm.org/D69868 are merged to allow asm goto with output
-  // constraints, switch this implementation to use it.
   void* result;
   void* scratch;
   uintptr_t current;
+#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  asm goto
+#else
   bool underflow;
-  asm(
-      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
-      // relocations, but could be read-only for non-PIE builds.
-      ".pushsection __rseq_cs, \"aw?\"\n"
-      ".balign 32\n"
-      ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
-      ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
-      ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
-      "__rseq_cs_TcmallocSlab_Pop_%=:\n"
-      ".long 0x0\n"
-      ".long 0x0\n"
-      ".quad 4f\n"
-      ".quad 5f - 4f\n"
-      ".quad 2f\n"
-      ".popsection\n"
-#if !defined(__clang_major__) || __clang_major__ >= 9
-      ".reloc 0, R_X86_64_NONE, 1f\n"
+  asm
 #endif
-      ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
-      "1:\n"
-      ".balign 8;"
-      ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
-      // Force this section to be retained.  It is for debugging, but is
-      // otherwise not referenced.
-      ".popsection\n"
-      ".pushsection .text.unlikely, \"ax?\"\n"
-      ".byte 0x0f, 0x1f, 0x05\n"
-      ".long %c[rseq_sig]\n"
-      ".local TcmallocSlab_Pop_trampoline_%=\n"
-      ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
-      "TcmallocSlab_Pop_trampoline_%=:\n"
-      "2:\n"
-      "jmp 3f\n"
-      ".popsection\n"
-      // Prepare
-      "3:\n"
-      "lea __rseq_cs_TcmallocSlab_Pop_%=(%%rip), %[scratch];\n"
-      "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
-      // Start
-      "4:\n"
-      // scratch = __rseq_abi.cpu_id;
-      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
-      // scratch = slabs + scratch
-      "shl %[shift], %[scratch]\n"
-      "add %[slabs], %[scratch]\n"
-      // current = scratch->header[cl].current;
-      "movzwq (%[scratch], %[cl], 8), %[current]\n"
-      // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
-      "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
-      "jbe 5f\n"
-      // Important! code below this must not affect any flags (i.e.: ccbe)
-      // If so, the above code needs to explicitly set a ccbe return value.
-      "mov -16(%[scratch], %[current], 8), %[result]\n"
-      // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
-      // trace analysis shows the target is frequently used (b/70294962).
-      // Stalling on a TLB miss at the prefetch site (which has no deps) and
-      // prefetching the line async is better than stalling at the use (which
-      // may have deps) to fill the TLB and the cache miss.
-      "prefetcht0 (%[result])\n"
-      "movq -8(%[scratch], %[current], 8), %[result]\n"
-      "lea -1(%[current]), %[current]\n"
-      "mov %w[current], (%[scratch], %[cl], 8)\n"
-      // Commit
-      "5:\n"
-      : [result] "=&r"(result), [underflow] "=@ccbe"(underflow),
-        [scratch] "=&r"(scratch), [current] "=&r"(current)
-      : [rseq_abi] "r"(&__rseq_abi),
-        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
-        [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
-        [slabs] "r"(slabs), [cl] "r"(cl)
-      : "cc", "memory");
+      (
+          // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow
+          // for relocations, but could be read-only for non-PIE builds.
+          ".pushsection __rseq_cs, \"aw?\"\n"
+          ".balign 32\n"
+          ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
+          ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
+          ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
+          "__rseq_cs_TcmallocSlab_Pop_%=:\n"
+          ".long 0x0\n"
+          ".long 0x0\n"
+          ".quad 4f\n"
+          ".quad 5f - 4f\n"
+          ".quad 2f\n"
+          ".popsection\n"
+#if !defined(__clang_major__) || __clang_major__ >= 9
+          ".reloc 0, R_X86_64_NONE, 1f\n"
+#endif
+          ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
+          "1:\n"
+          ".balign 8;"
+          ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
+          // Force this section to be retained.  It is for debugging, but is
+          // otherwise not referenced.
+          ".popsection\n"
+          ".pushsection .text.unlikely, \"ax?\"\n"
+          ".byte 0x0f, 0x1f, 0x05\n"
+          ".long %c[rseq_sig]\n"
+          ".local TcmallocSlab_Pop_trampoline_%=\n"
+          ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
+          "TcmallocSlab_Pop_trampoline_%=:\n"
+          "2:\n"
+          "jmp 3f\n"
+          ".popsection\n"
+          // Prepare
+          "3:\n"
+          "lea __rseq_cs_TcmallocSlab_Pop_%=(%%rip), %[scratch];\n"
+          "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
+          // Start
+          "4:\n"
+          // scratch = __rseq_abi.cpu_id;
+          "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
+          // scratch = slabs + scratch
+          "shl %[shift], %[scratch]\n"
+          "add %[slabs], %[scratch]\n"
+          // current = scratch->header[cl].current;
+          "movzwq (%[scratch], %[cl], 8), %[current]\n"
+          // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
+          "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
+#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          "jbe %l[underflow_path]\n"
+#else
+          "jbe 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccbe)
+  // If so, the above code needs to explicitly set a ccbe return value.
+#endif
+          "mov -16(%[scratch], %[current], 8), %[result]\n"
+          // A note about prefetcht0 in Pop:  While this prefetch may appear
+          // costly, trace analysis shows the target is frequently used
+          // (b/70294962). Stalling on a TLB miss at the prefetch site (which
+          // has no deps) and prefetching the line async is better than stalling
+          // at the use (which may have deps) to fill the TLB and the cache
+          // miss.
+          "prefetcht0 (%[result])\n"
+          "movq -8(%[scratch], %[current], 8), %[result]\n"
+          "lea -1(%[current]), %[current]\n"
+          "mov %w[current], (%[scratch], %[cl], 8)\n"
+          // Commit
+          "5:\n"
+          : [result] "=&r"(result),
+#ifndef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+            [underflow] "=@ccbe"(underflow),
+#endif
+            [scratch] "=&r"(scratch), [current] "=&r"(current)
+          : [rseq_abi] "r"(&__rseq_abi),
+            [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
+            [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
+            [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
+            [slabs] "r"(slabs), [cl] "r"(cl)
+          : "cc", "memory"
+#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          : underflow_path
+#endif
+      );
+#ifndef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
-    // Undo transformation of cpu_id to the value of scratch.
-    int cpu =
-        reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
-            scratch) -
-        slabs;
-    return f(cpu, cl);
+    goto underflow_path;
   }
+#endif
 
   return result;
+underflow_path:
+#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
+  // values for the fallthrough path.  The values on the taken branches are
+  // undefined.
+  int cpu = VirtualRseqCpuId();
+#else
+  // With asm goto--without output constraints--the value of scratch is
+  // well-defined by the compiler and our implementation.  As an optimization on
+  // this case, we can avoid looking up cpu_id again, by undoing the
+  // transformation of cpu_id to the value of scratch.
+  int cpu = reinterpret_cast<typename TcmallocSlab<Shift, NumClasses>::Slabs*>(
+                scratch) -
+            slabs;
+#endif
+  return f(cpu, cl);
 }
 #endif  // defined(__x86_64__)
 
