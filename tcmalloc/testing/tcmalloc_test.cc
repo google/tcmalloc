@@ -121,12 +121,6 @@ static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
 // kLogMaxMemalign.
 const int kLogMaxMemalign = 18;
 
-using testing::Contains;
-using testing::ElementsAre;
-using testing::HasSubstr;
-using testing::SizeIs;
-using testing::UnorderedElementsAre;
-
 static const int kSizeBits = 8 * sizeof(size_t);
 static const size_t kMaxSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits-1)) - 1);
