@@ -152,7 +152,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
     }
   }
 
-  ~TcmallocSlabTest() { slab_.Destroy(free); }
+  ~TcmallocSlabTest() override { slab_.Destroy(free); }
 
   template <int result>
   static int ExpectOverflow(int cpu, size_t cl, void* item) {
