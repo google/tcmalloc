@@ -439,6 +439,8 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
     out->printf("PARAMETER tcmalloc_skip_subrelease_interval %s\n",
                 absl::FormatDuration(
                     tcmalloc::Parameters::filler_skip_subrelease_interval()));
+    out->printf("PARAMETER flat vcpus %d\n",
+                tcmalloc::subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
   }
 }
 
@@ -550,6 +552,9 @@ namespace {
   region.PrintI64("tcmalloc_skip_subrelease_interval_ns",
                   absl::ToInt64Nanoseconds(
                       tcmalloc::Parameters::filler_skip_subrelease_interval()));
+  region.PrintRaw(
+      "percpu_vcpu_type",
+      tcmalloc::subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
 }
 
 }  // namespace
