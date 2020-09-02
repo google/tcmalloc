@@ -35,4 +35,4 @@ const char* thread_safe_getenv(const char *env_var);
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
-#endif  // TCMALLOC_INTERNAL_UTIL_H_
+#endif  // TCMALLOC_INTERNAL_ENVIRONMENT_H_

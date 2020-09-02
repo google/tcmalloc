@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_PERCPU_TCMALLOC_H_
-#define TCMALLOC_PERCPU_TCMALLOC_H_
+#ifndef TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
+#define TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
 
 #include <bits/wordsize.h>
 
@@ -907,4 +907,4 @@ PerCPUMetadataState TcmallocSlab<Shift, NumClasses>::MetadataMemoryUsage()
 }  // namespace subtle
 }  // namespace tcmalloc
 
-#endif  // TCMALLOC_PERCPU_TCMALLOC_H_
+#endif  // TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_

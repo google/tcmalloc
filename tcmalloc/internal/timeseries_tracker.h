@@ -11,8 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#ifndef TCMALLOC_TIMESERIES_TRACKER_H_
-#define TCMALLOC_TIMESERIES_TRACKER_H_
+#ifndef TCMALLOC_INTERNAL_TIMESERIES_TRACKER_H_
+#define TCMALLOC_INTERNAL_TIMESERIES_TRACKER_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -159,4 +159,4 @@ bool TimeSeriesTracker<T, S, kEpochs>::Report(S val) {
 
 }  // namespace tcmalloc
 
-#endif  // TCMALLOC_TIMESERIES_TRACKER_H_
+#endif  // TCMALLOC_INTERNAL_TIMESERIES_TRACKER_H_

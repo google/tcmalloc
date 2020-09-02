@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_RANGE_TRACKER_H_
-#define TCMALLOC_RANGE_TRACKER_H_
+#ifndef TCMALLOC_INTERNAL_RANGE_TRACKER_H_
+#define TCMALLOC_INTERNAL_RANGE_TRACKER_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -527,4 +527,4 @@ inline ssize_t Bitmap<N>::FindValueBackwards(size_t index) const {
 
 }  // namespace tcmalloc
 
-#endif  // TCMALLOC_RANGE_TRACKER_H_
+#endif  // TCMALLOC_INTERNAL_RANGE_TRACKER_H_
