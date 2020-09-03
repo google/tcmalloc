@@ -683,6 +683,21 @@ cc_test(
     ],
 )
 
+cc_binary(
+    name = "guarded_page_allocator_benchmark",
+    testonly = 1,
+    srcs = ["guarded_page_allocator_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        "//tcmalloc/internal:logging",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/base",
+    ],
+)
+
 cc_test(
     name = "guarded_page_allocator_test",
     srcs = ["guarded_page_allocator_test.cc"],
