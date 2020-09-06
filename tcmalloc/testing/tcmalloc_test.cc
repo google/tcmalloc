@@ -53,6 +53,7 @@
 #include <new>
 #include <random>
 #include <string>
+#include <thread>  // NOLINT(build/c++11)
 #include <type_traits>
 #include <utility>
 #include <vector>
