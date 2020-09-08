@@ -289,6 +289,10 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
 
   static const double MiB = 1048576.0;
 
+  out->printf(
+      "See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an explanation of "
+      "this page\n");
+
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
