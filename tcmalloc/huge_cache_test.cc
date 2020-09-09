@@ -42,8 +42,13 @@ class HugeCacheTest : public testing::Test {
  private:
   // Allow tests to modify the clock used by the cache.
   static int64_t clock_offset_;
-  static int64_t Clock() {
-    return tcmalloc::GetCurrentTimeNanos() + clock_offset_;
+  static double GetClockFrequency() {
+    return absl::base_internal::CycleClock::Frequency();
+  }
+  static int64_t GetClock() {
+    return absl::base_internal::CycleClock::Now() +
+           clock_offset_ * GetClockFrequency() /
+               absl::ToDoubleNanoseconds(absl::Seconds(1));
   }
 
   // Use a tiny fraction of actual size so we can test aggressively.
@@ -140,10 +145,13 @@ class HugeCacheTest : public testing::Test {
     }
   }
 
-  void Advance(absl::Duration d) { clock_offset_ += ToInt64Nanoseconds(d); }
+  void Advance(absl::Duration d) {
+    clock_offset_ += absl::ToInt64Nanoseconds(d);
+  }
 
   tcmalloc::HugeAllocator alloc_{AllocateFake, MallocMetadata};
-  HugeCache cache_{&alloc_, MallocMetadata, MockUnback, Clock};
+  HugeCache cache_{&alloc_, MallocMetadata, MockUnback,
+                   Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
 
 std::vector<size_t> HugeCacheTest::backing;
@@ -507,72 +515,71 @@ TEST_F(HugeCacheTest, Usage) {
 }
 
 class MinMaxTrackerTest : public testing::Test {
- private:
-  static int64_t clock_;
+
+ protected:
+  void Advance(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
+  }
 
   static int64_t FakeClock() { return clock_; }
 
- protected:
-  absl::Duration duration_ = absl::Seconds(2);
-
-  tcmalloc::MinMaxTracker<> tracker_{FakeClock, duration_};
-
-  void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
-  void CheckMax(HugeLength expected) {
-    EXPECT_EQ(expected, tracker_.MaxOverTime(absl::Nanoseconds(1)));
-    EXPECT_EQ(expected, tracker_.MaxOverTime(duration_ / 2));
-    EXPECT_EQ(expected, tracker_.MaxOverTime(duration_));
+  static double GetFakeClockFrequency() {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
   }
-  void CheckMin(HugeLength expected) {
-    EXPECT_EQ(expected, tracker_.MinOverTime(absl::Nanoseconds(1)));
-    EXPECT_EQ(expected, tracker_.MinOverTime(duration_ / 2));
-    EXPECT_EQ(expected, tracker_.MinOverTime(duration_));
-  }
+
+ private:
+  static int64_t clock_;
 };
 
 int64_t MinMaxTrackerTest::clock_{0};
 
 TEST_F(MinMaxTrackerTest, Works) {
-  tracker_.Report(NHugePages(0));
-  CheckMax(NHugePages(0));
-  CheckMin(NHugePages(0));
+  const absl::Duration kDuration = absl::Seconds(2);
+  tcmalloc::MinMaxTracker<> tracker{
+      Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kDuration};
 
-  tracker_.Report(NHugePages(10));
-  CheckMax(NHugePages(10));
-  CheckMin(NHugePages(0));
+  tracker.Report(NHugePages(0));
+  EXPECT_EQ(NHugePages(0), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
 
-  tracker_.Report(NHugePages(5));
-  CheckMax(NHugePages(10));
-  CheckMin(NHugePages(0));
+  tracker.Report(NHugePages(10));
+  EXPECT_EQ(NHugePages(10), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
 
-  tracker_.Report(NHugePages(100));
-  CheckMax(NHugePages(100));
-  CheckMin(NHugePages(0));
+  tracker.Report(NHugePages(5));
+  EXPECT_EQ(NHugePages(10), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
+
+  tracker.Report(NHugePages(100));
+  EXPECT_EQ(NHugePages(100), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
 
   // Some tests for advancing time
-  Advance(duration_ / 3);
-  tracker_.Report(NHugePages(2));
-  EXPECT_EQ(NHugePages(2), tracker_.MaxOverTime(absl::Nanoseconds(1)));
-  EXPECT_EQ(NHugePages(100), tracker_.MaxOverTime(duration_ / 2));
-  EXPECT_EQ(NHugePages(100), tracker_.MaxOverTime(duration_));
-  EXPECT_EQ(NHugePages(2), tracker_.MinOverTime(absl::Nanoseconds(1)));
-  EXPECT_EQ(NHugePages(0), tracker_.MinOverTime(duration_ / 2));
-  EXPECT_EQ(NHugePages(0), tracker_.MinOverTime(duration_));
+  Advance(kDuration / 3);
+  tracker.Report(NHugePages(2));
+  EXPECT_EQ(NHugePages(2), tracker.MaxOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(100), tracker.MaxOverTime(kDuration / 2));
+  EXPECT_EQ(NHugePages(100), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(2), tracker.MinOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration / 2));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
 
-  Advance(duration_ / 3);
-  tracker_.Report(NHugePages(5));
-  EXPECT_EQ(NHugePages(5), tracker_.MaxOverTime(absl::Nanoseconds(1)));
-  EXPECT_EQ(NHugePages(5), tracker_.MaxOverTime(duration_ / 2));
-  EXPECT_EQ(NHugePages(100), tracker_.MaxOverTime(duration_));
-  EXPECT_EQ(NHugePages(5), tracker_.MinOverTime(absl::Nanoseconds(1)));
-  EXPECT_EQ(NHugePages(2), tracker_.MinOverTime(duration_ / 2));
-  EXPECT_EQ(NHugePages(0), tracker_.MinOverTime(duration_));
+  Advance(kDuration / 3);
+  tracker.Report(NHugePages(5));
+  EXPECT_EQ(NHugePages(5), tracker.MaxOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(5), tracker.MaxOverTime(kDuration / 2));
+  EXPECT_EQ(NHugePages(100), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(5), tracker.MinOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(2), tracker.MinOverTime(kDuration / 2));
+  EXPECT_EQ(NHugePages(0), tracker.MinOverTime(kDuration));
 
-  // This should annilate everything.
-  Advance(duration_ * 2);
-  tracker_.Report(NHugePages(1));
-  CheckMax(NHugePages(1));
-  CheckMin(NHugePages(1));
+  // This should annihilate everything.
+  Advance(kDuration * 2);
+  tracker.Report(NHugePages(1));
+  EXPECT_EQ(NHugePages(1), tracker.MaxOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(1), tracker.MinOverTime(absl::Nanoseconds(1)));
+  EXPECT_EQ(NHugePages(1), tracker.MaxOverTime(kDuration));
+  EXPECT_EQ(NHugePages(1), tracker.MinOverTime(kDuration));
 }
 
 }  // namespace

@@ -169,7 +169,7 @@ void HugeCache::MaybeGrowCacheLimit(HugeLength missed) {
   const HugeLength lim = dip + slack;
 
   if (lim > limit()) {
-    last_limit_change_ = clock_();
+    last_limit_change_ = clock_.now();
     limit_ = lim;
   }
 }
@@ -199,8 +199,8 @@ void HugeCache::UpdateSize(HugeLength size) {
   if (size + usage() > max_rss_) max_rss_ = size + usage();
 
   // TODO(b/134691947): moving this inside the MinMaxTracker would save one call
-  // to clock_() but all MinMaxTrackers would track regret instead.
-  int64_t now = clock_();
+  // to clock_.now() but all MinMaxTrackers would track regret instead.
+  int64_t now = clock_.now();
   if (now > last_regret_update_) {
     regret_ += size.raw_num() * (now - last_regret_update_);
     last_regret_update_ = now;
@@ -233,7 +233,7 @@ void HugeCache::Release(HugeRange r) {
   // Shrink the limit, if we're going to do it, before we shrink to
   // the max size.  (This could reduce the number of regions we break
   // in half to avoid overshrinking.)
-  if (absl::Nanoseconds(clock_() - last_limit_change_) > (kCacheTime * 2)) {
+  if ((clock_.now() - last_limit_change_) > (cache_time_ticks_ * 2)) {
     total_fast_unbacked_ += MaybeShrinkCacheLimit();
   }
   total_fast_unbacked_ += ShrinkCache(limit());
@@ -248,7 +248,7 @@ void HugeCache::ReleaseUnbacked(HugeRange r) {
 }
 
 HugeLength HugeCache::MaybeShrinkCacheLimit() {
-  last_limit_change_ = clock_();
+  last_limit_change_ = clock_.now();
 
   const HugeLength min = size_tracker_.MinOverTime(kCacheTime * 2);
   // If cache size has gotten down to at most 20% of max, we assume
@@ -399,8 +399,9 @@ void HugeCache::Print(TCMalloc_Printer *out) {
               total_fast_unbacked_.in_bytes() / 1024 / 1024,
               total_periodic_unbacked_.in_bytes() / 1024 / 1024);
   UpdateSize(size());
-  out->printf("HugeCache: %zu MiB*s cached since startup\n",
-              NHugePages(regret_).in_mib() / 1000 / 1000 / 1000);
+  out->printf(
+      "HugeCache: %zu MiB*s cached since startup\n",
+      NHugePages(regret_).in_mib() / static_cast<size_t>(clock_.freq()));
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(kCacheTime);
@@ -455,8 +456,8 @@ void HugeCache::PrintInPbtxt(PbtxtRegion *hpaa) {
                  total_periodic_unbacked_.in_bytes());
   UpdateSize(size());
   // memory cached since startup (in MiB*s)
-  hpaa->PrintI64("huge_cache_regret",
-                 NHugePages(regret_).in_mib() / 1000 / 1000 / 1000);
+  hpaa->PrintI64("huge_cache_regret", NHugePages(regret_).in_mib() /
+                                          static_cast<size_t>(clock_.freq()));
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(kCacheTime);

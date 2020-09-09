@@ -18,16 +18,28 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 
+#include "absl/base/internal/cycleclock.h"
 #include "absl/functional/function_ref.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 
-// Assumed to tick in nanoseconds.
-typedef int64_t (*ClockFunc)();
+// Represents an abstract clock to underpin a time-based tracker. The now and
+// freq functions are analogous to CycleClock::Now and CycleClock::Frequency,
+// which will be the most commonly used implementations. Tests can use this
+// interface to mock out the real clock.
+struct Clock {
+  // Returns the current time in ticks (relative to an arbitrary time base).
+  int64_t (*now)();
+
+  // Returns the number of ticks per second.
+  double (*freq)();
+};
 
 // Aggregates a series of reported values of type S in a set of entries of type
 // T, one entry per epoch. This class factors out common functionality of
@@ -38,8 +50,12 @@ class TimeSeriesTracker {
  public:
   enum SkipEntriesSetting { kSkipEmptyEntries, kDoNotSkipEmptyEntries };
 
-  explicit constexpr TimeSeriesTracker(ClockFunc clock, absl::Duration w)
-      : window_(w), epoch_length_(window_ / kEpochs), clock_(clock) {}
+  explicit constexpr TimeSeriesTracker(Clock clock, absl::Duration w)
+      : window_(w),
+        epoch_length_(window_ / kEpochs),
+        epoch_ticks_(static_cast<int64_t>(absl::ToDoubleSeconds(epoch_length_) *
+                                        clock.freq())),
+        clock_(clock) {}
 
   bool Report(S val);
 
@@ -61,11 +77,14 @@ class TimeSeriesTracker {
   // Updates the time base to the current time. This is useful to report the
   // most recent time window rather than the last time window that had any
   // reported values.
-  void UpdateTimeBase();
+  void UpdateTimeBase() { UpdateClock(); }
 
  private:
   // Returns true if the tracker moved to a different epoch.
   bool UpdateClock();
+
+  // Returns the current epoch based on the clock.
+  int64_t GetCurrentEpoch() { return clock_.now() / epoch_ticks_; }
 
   const absl::Duration window_;
   const absl::Duration epoch_length_;
@@ -73,14 +92,16 @@ class TimeSeriesTracker {
   T entries_[kEpochs]{};
   size_t last_epoch_{0};
   size_t current_epoch_{0};
-  ClockFunc clock_;
+  int64_t epoch_ticks_;
+
+  Clock clock_;
 };
 
 // Erases values from the window that are out of date; sets the current epoch
 // to the current location in the ringbuffer.
 template <class T, class S, size_t kEpochs>
 bool TimeSeriesTracker<T, S, kEpochs>::UpdateClock() {
-  const size_t epoch = clock_() / absl::ToInt64Nanoseconds(epoch_length_);
+  const size_t epoch = GetCurrentEpoch();
   // How many time steps did we take?  (Since we only record kEpochs
   // time steps, we can pretend it was at most that.)
   size_t delta = epoch - last_epoch_;
@@ -99,11 +120,6 @@ bool TimeSeriesTracker<T, S, kEpochs>::UpdateClock() {
     entries_[current_epoch_] = T::Nil();
   }
   return true;
-}
-
-template <class T, class S, size_t kEpochs>
-void TimeSeriesTracker<T, S, kEpochs>::UpdateTimeBase() {
-  UpdateClock();
 }
 
 template <class T, class S, size_t kEpochs>

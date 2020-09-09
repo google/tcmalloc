@@ -59,7 +59,7 @@ class SkippedSubreleaseCorrectnessTracker {
     }
   };
 
-  explicit constexpr SkippedSubreleaseCorrectnessTracker(ClockFunc clock,
+  explicit constexpr SkippedSubreleaseCorrectnessTracker(Clock clock,
                                                          absl::Duration w)
       : window_(w),
         epoch_length_(window_ / kEpochs),
@@ -255,7 +255,7 @@ class FillerStatsTracker {
     Length free_backed;
   };
 
-  explicit constexpr FillerStatsTracker(ClockFunc clock, absl::Duration w,
+  explicit constexpr FillerStatsTracker(Clock clock, absl::Duration w,
                                         absl::Duration summary_interval)
       : summary_interval_(summary_interval),
         window_(w),
@@ -761,7 +761,7 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(FillerPartialRerelease partial_rerelease);
-  HugePageFiller(FillerPartialRerelease partial_rerelease, ClockFunc clock);
+  HugePageFiller(FillerPartialRerelease partial_rerelease, Clock clock);
 
   typedef TrackerType Tracker;
 
@@ -1136,12 +1136,15 @@ inline Length PageTracker<Unback>::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease)
-    : HugePageFiller(partial_rerelease, GetCurrentTimeNanos) {}
+    : HugePageFiller(
+          partial_rerelease,
+          Clock{.now = absl::base_internal::CycleClock::Now,
+                .freq = absl::base_internal::CycleClock::Frequency}) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    FillerPartialRerelease partial_rerelease, ClockFunc clock)
+    FillerPartialRerelease partial_rerelease, Clock clock)
     : n_used_partial_released_(0),
       n_used_released_(0),
       size_(NHugePages(0)),

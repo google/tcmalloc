@@ -41,7 +41,7 @@ typedef void (*MemoryModifyFunction)(void *start, size_t len);
 template <size_t kEpochs = 16>
 class MinMaxTracker {
  public:
-  explicit constexpr MinMaxTracker(ClockFunc clock, absl::Duration w)
+  explicit constexpr MinMaxTracker(Clock clock, absl::Duration w)
       : kEpochLength(w / kEpochs), timeseries_(clock, w) {}
 
   void Report(HugeLength val);
@@ -94,16 +94,21 @@ class HugeCache {
   // For use in production
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback)
-      : HugeCache(allocator, meta_allocate, unback, GetCurrentTimeNanos) {}
+      : HugeCache(allocator, meta_allocate, unback,
+                  Clock{.now = absl::base_internal::CycleClock::Now,
+                        .freq = absl::base_internal::CycleClock::Frequency}) {}
 
   // For testing with mock clock
   HugeCache(HugeAllocator *allocator, MetadataAllocFunction meta_allocate,
-            MemoryModifyFunction unback, ClockFunc clock)
+            MemoryModifyFunction unback, Clock clock)
       : allocator_(allocator),
         cache_(meta_allocate),
         clock_(clock),
-        last_limit_change_(clock()),
-        last_regret_update_(clock()),
+        cache_time_ticks_(clock_.freq() * absl::ToDoubleSeconds(kCacheTime)),
+        nanoseconds_per_tick_(absl::ToInt64Nanoseconds(absl::Seconds(1)) /
+                              clock_.freq()),
+        last_limit_change_(clock.now()),
+        last_regret_update_(clock.now()),
         detailed_tracker_(clock, absl::Minutes(10)),
         usage_tracker_(clock, kCacheTime * 2),
         off_peak_tracker_(clock, kCacheTime * 2),
@@ -127,7 +132,7 @@ class HugeCache {
   // Backed memory available.
   HugeLength size() const { return size_; }
   // Total memory cached (in HugeLength * nanoseconds)
-  uint64_t regret() const { return regret_; }
+  uint64_t regret() const { return regret_ * nanoseconds_per_tick_; }
   // Current limit for how much backed memory we'll cache.
   HugeLength limit() const { return limit_; }
   // Sum total of unreleased requests.
@@ -184,8 +189,11 @@ class HugeCache {
   void DecUsage(HugeLength n);
   HugeLength usage_{NHugePages(0)};
 
-  // This is tcmalloc::GetCurrentTimeNanos, except overridable for tests.
-  ClockFunc clock_;
+  // This is CycleClock, except overridable for tests.
+  Clock clock_;
+  const int64_t cache_time_ticks_;
+  const double nanoseconds_per_tick_;
+
   int64_t last_limit_change_;
 
   // 10 hugepages is a good baseline for our cache--easily wiped away

@@ -35,19 +35,59 @@ class TimeSeriesTrackerTest : public testing::Test {
   };
 
  protected:
-  void Advance(absl::Duration d) { clock_ += absl::ToInt64Nanoseconds(d); }
+  void Advance(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
+  }
 
   static constexpr absl::Duration kDuration = absl::Seconds(2);
 
-  tcmalloc::TimeSeriesTracker<TestEntry, int, 8> tracker_{FakeClock, kDuration};
+  tcmalloc::TimeSeriesTracker<TestEntry, int, 8> tracker_{
+      Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kDuration};
 
  private:
   static int64_t FakeClock() { return clock_; }
+
+  static double GetFakeClockFrequency() {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
+  }
 
   static int64_t clock_;
 };
 
 int64_t TimeSeriesTrackerTest::clock_{0};
+
+// Test that frequency conversion in the cycle clock works correctly
+TEST(TimeSeriesTest, CycleClock) {
+  tcmalloc::TimeSeriesTracker<TimeSeriesTrackerTest::TestEntry, int, 100>
+      tracker{Clock{absl::base_internal::CycleClock::Now,
+                    absl::base_internal::CycleClock::Frequency},
+              absl::Seconds(10)};  // 100ms epochs
+
+  tracker.Report(1);
+  absl::SleepFor(absl::Milliseconds(100));
+  tracker.Report(2);
+
+  // Iterate through entries skipping empty entries.
+  int num_timestamps = 0;
+  int offset_1, offset_2;
+  tracker.Iter(
+      [&](size_t offset, int64_t ts, const TimeSeriesTrackerTest::TestEntry& e) {
+        ASSERT_LT(num_timestamps, 2);
+        if (num_timestamps == 0) {
+          offset_1 = offset;
+          EXPECT_THAT(e.values_, ElementsAre(1));
+        } else {
+          offset_2 = offset;
+          EXPECT_THAT(e.values_, ElementsAre(2));
+        }
+        num_timestamps++;
+      },
+      tracker.kSkipEmptyEntries);
+
+  // If we are near an epoch boundary, we may skip two epochs.
+  EXPECT_GE(offset_2 - offset_1, 1);
+  EXPECT_LE(offset_2 - offset_1, 2);
+}
 
 TEST_F(TimeSeriesTrackerTest, Works) {
   const int64_t kEpochLength = absl::ToInt64Nanoseconds(kDuration) / 8;

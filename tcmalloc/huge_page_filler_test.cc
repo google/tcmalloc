@@ -629,9 +629,13 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
-  static void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+  static double GetFakeClockFrequency() {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
+  }
+  static void Advance(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
+  }
   static void ResetClock() { clock_ = 1234; }
-  static int64_t clock_;
 
   static void Unback(void *p, size_t len) {}
 
@@ -666,7 +670,11 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   HugePageFiller<FakeTracker> filler_;
 
-  FillerTest() : filler_(GetParam(), FakeClock) { ResetClock(); }
+  FillerTest()
+      : filler_(GetParam(),
+                Clock{.now = FakeClock, .freq = GetFakeClockFrequency}) {
+    ResetClock();
+  }
 
   ~FillerTest() override {
     EXPECT_EQ(NHugePages(0), filler_.size());
@@ -772,6 +780,9 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   // Generates an "interesting" pattern of allocations that highlights all the
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
+
+ private:
+  static int64_t clock_;
 };
 
 int64_t FillerTest::clock_{1234};
@@ -1403,14 +1414,22 @@ class FillerStatsTrackerTest : public testing::Test {
  private:
   static int64_t clock_;
   static int64_t FakeClock() { return clock_; }
+  static double GetFakeClockFrequency() {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
+  }
 
  protected:
   static constexpr absl::Duration kWindow = absl::Minutes(10);
 
   using StatsTrackerType = tcmalloc::FillerStatsTracker<16>;
-  StatsTrackerType tracker_{FakeClock, kWindow, absl::Minutes(5)};
+  StatsTrackerType tracker_{
+      Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kWindow,
+      absl::Minutes(5)};
 
-  void Advance(absl::Duration d) { clock_ += ToInt64Nanoseconds(d); }
+  void Advance(absl::Duration d) {
+    clock_ += static_cast<int64_t>(absl::ToDoubleSeconds(d) *
+                                   GetFakeClockFrequency());
+  }
 
   // Generates four data points for the tracker that represent "interesting"
   // points (i.e., min/max pages demand, min/max hugepages).
