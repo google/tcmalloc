@@ -48,10 +48,12 @@ inline BackingStats operator+(BackingStats lhs, BackingStats rhs) {
 }
 
 struct SmallSpanStats {
+  constexpr SmallSpanStats() = default;
+
   // For each free list of small spans, the length (in spans) of the
   // normal and returned free lists for that size.
-  int64_t normal_length[kMaxPages];
-  int64_t returned_length[kMaxPages];
+  int64_t normal_length[kMaxPages] = {0};
+  int64_t returned_length[kMaxPages] = {0};
 
   SmallSpanStats &operator+=(SmallSpanStats rhs) {
     for (size_t i = 0; i < kMaxPages; ++i) {
@@ -68,9 +70,9 @@ inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
 
 // Stats for free large spans (i.e., spans with more than kMaxPages pages).
 struct LargeSpanStats {
-  size_t spans;           // Number of such spans
-  Length normal_pages;    // Combined page length of normal large spans
-  Length returned_pages;  // Combined page length of unmapped spans
+  size_t spans = 0;           // Number of such spans
+  Length normal_pages = 0;    // Combined page length of normal large spans
+  Length returned_pages = 0;  // Combined page length of unmapped spans
 
   LargeSpanStats &operator+=(LargeSpanStats rhs) {
     spans += rhs.spans;

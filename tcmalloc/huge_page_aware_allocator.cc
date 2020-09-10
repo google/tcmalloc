@@ -444,10 +444,10 @@ void HugePageAwareAllocator::GetSpanStats(SmallSpanStats *small,
                                           LargeSpanStats *large,
                                           PageAgeHistograms *ages) {
   if (small != nullptr) {
-    memset(small, 0, sizeof(*small));
+    *small = SmallSpanStats();
   }
   if (large != nullptr) {
-    memset(large, 0, sizeof(*large));
+    *large = LargeSpanStats();
   }
 
   alloc_.AddSpanStats(small, large, ages);

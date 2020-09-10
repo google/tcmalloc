@@ -270,7 +270,6 @@ TEST_F(HugeCacheTest, Stats) {
                      double *avg_age) {
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       LargeSpanStats large;
-      memset(&large, 0, sizeof(large));
       cache.AddSpanStats(nullptr, &large, &ages);
 
       const PageAgeHistograms::Histogram *hist = ages.GetTotalHistogram(false);

@@ -345,8 +345,6 @@ TEST_P(HugeAllocatorTest, Stats) {
                       Length *pages, absl::Duration *avg_age) {
       SmallSpanStats small;
       LargeSpanStats large;
-      memset(&small, 0, sizeof(small));
-      memset(&large, 0, sizeof(large));
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       huge->AddSpanStats(&small, &large, &ages);
       for (int i = 0; i < kMaxPages; ++i) {

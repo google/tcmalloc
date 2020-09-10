@@ -452,8 +452,7 @@ TEST_F(PageTrackerTest, Stats) {
                      std::vector<Length> *small_unbacked, LargeSpanStats *large,
                      double *avg_age_backed, double *avg_age_unbacked) {
       SmallSpanStats small;
-      memset(&small, 0, sizeof(small));
-      memset(large, 0, sizeof(*large));
+      *large = LargeSpanStats();
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       tracker.AddSpanStats(&small, large, &ages);
       small_backed->clear();
@@ -587,9 +586,7 @@ TEST_F(PageTrackerTest, b151915873) {
   ASSERT_EQ(tracker_.used_pages(), kPagesPerHugePage - 1);
 
   SmallSpanStats small;
-  memset(&small, 0, sizeof(small));
   LargeSpanStats large;
-  memset(&large, 0, sizeof(large));
   PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
 
   tracker_.AddSpanStats(&small, &large, &ages);

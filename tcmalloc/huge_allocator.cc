@@ -90,7 +90,6 @@ void HugeAllocator::CheckFreelist() {
   free_.Check();
   CHECK_CONDITION(n == from_system_ - in_use_);
   LargeSpanStats large;
-  memset(&large, 0, sizeof(large));
   AddSpanStats(nullptr, &large, nullptr);
   CHECK_CONDITION(num_nodes == large.spans);
   CHECK_CONDITION(n.in_pages() == large.returned_pages);

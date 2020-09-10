@@ -283,8 +283,7 @@ TEST_F(HugeRegionTest, Stats) {
                      BackingStats *stats, double *avg_age_backed,
                      double *avg_age_unbacked) {
       SmallSpanStats small;
-      memset(&small, 0, sizeof(small));
-      memset(large, 0, sizeof(*large));
+      *large = LargeSpanStats();
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       region.AddSpanStats(&small, large, &ages);
       small_backed->clear();
@@ -427,8 +426,6 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Delete(c);
   SmallSpanStats small;
   LargeSpanStats large;
-  memset(&small, 0, sizeof(small));
-  memset(&large, 0, sizeof(large));
   region_.AddSpanStats(&small, &large, nullptr);
   // Backed beginning of hugepage 0, unbacked range in middle of b,
   // long backed range from c, unbacked tail of allocation.
