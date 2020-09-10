@@ -208,9 +208,11 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
     for (int i = 0; i < 1000000; i++) {
       // Make buffer smaller than kPageSize to test detection-at-free of write
       // overflows.
-      auto sink_buf = absl::make_unique<char[]>(kPageSize - 1);
+      constexpr size_t kSize = kPageSize - 1;
+      auto sink_buf = absl::make_unique<char[]>(kSize);
       benchmark::DoNotOptimize(sink_buf);
-      sink_buf[kPageSize - 1] = '\0';
+      sink_buf[kSize] = '\0';
+      benchmark::DoNotOptimize(sink_buf[kSize]);
     }
   };
   EXPECT_DEATH(RepeatOverflowWrite(),
