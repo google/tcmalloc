@@ -21,9 +21,9 @@
 
 namespace tcmalloc {
 
-class MockCentralFreeList {
+class RawMockCentralFreeList {
  public:
-  MockCentralFreeList() : size_class_(0) {
+  RawMockCentralFreeList() : size_class_(0) {
     ON_CALL(*this, Init).WillByDefault([this](size_t size_class) {
       size_class_ = size_class;
     });
@@ -32,8 +32,8 @@ class MockCentralFreeList {
     ON_CALL(*this, OverheadBytes).WillByDefault([]() { return 0; });
   }
 
-  MockCentralFreeList(const MockCentralFreeList&) = delete;
-  MockCentralFreeList& operator=(const MockCentralFreeList&) = delete;
+  RawMockCentralFreeList(const RawMockCentralFreeList&) = delete;
+  RawMockCentralFreeList& operator=(const RawMockCentralFreeList&) = delete;
 
   MOCK_METHOD(void, Init, (size_t cl));
   MOCK_METHOD(void, InsertRange, (void** batch, int N));
@@ -45,6 +45,8 @@ class MockCentralFreeList {
  private:
   size_t size_class_;
 };
+
+using MockCentralFreeList = testing::NiceMock<RawMockCentralFreeList>;
 
 }  // namespace tcmalloc
 

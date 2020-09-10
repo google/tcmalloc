@@ -21,16 +21,21 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
 namespace {
-class MockTransferCacheManager {
+constexpr size_t kClassSize = 8;
+constexpr size_t kNumToMove = 32;
+
+class RawMockTransferCacheManager {
  public:
   MOCK_METHOD(int, DetermineSizeClassToEvict, ());
   MOCK_METHOD(bool, ShrinkCache, (int size_class));
+  MOCK_METHOD(bool, GrowCache, (int size_class));
 
-  static size_t class_to_size(int size_class) { return 8; }
-  static size_t num_objects_to_move(int size_class) { return 32; }
+  static size_t class_to_size(int size_class) { return kClassSize; }
+  static size_t num_objects_to_move(int size_class) { return kNumToMove; }
   void* Alloc(size_t size) {
     memory_.emplace_back(malloc(size));
     return memory_.back().get();
@@ -42,10 +47,6 @@ class MockTransferCacheManager {
   std::vector<std::unique_ptr<void, Free>> memory_;
 };
 
-using TransferCache =
-    internal_transfer_cache::TransferCache<MockCentralFreeList,
-                                           MockTransferCacheManager>;
-
 struct Batch {
   Batch() {
     for (int i = 0; i < kMaxObjectsToMove; ++i) {
@@ -54,6 +55,12 @@ struct Batch {
   }
   void* objs[kMaxObjectsToMove];
 };
+
+using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
+
+using TransferCache =
+    internal_transfer_cache::TransferCache<MockCentralFreeList,
+                                           MockTransferCacheManager>;
 
 TEST(TransferCache, IsolatedSmoke) {
   const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
