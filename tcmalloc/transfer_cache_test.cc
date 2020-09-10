@@ -14,131 +14,80 @@
 
 #include "tcmalloc/transfer_cache.h"
 
+#include <atomic>
+#include <random>
+#include <thread>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
+#include "absl/synchronization/blocking_counter.h"
+#include "absl/time/clock.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
+#include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
 namespace {
-constexpr size_t kClassSize = 8;
-constexpr size_t kNumToMove = 32;
-
-class RawMockTransferCacheManager {
- public:
-  MOCK_METHOD(int, DetermineSizeClassToEvict, ());
-  MOCK_METHOD(bool, ShrinkCache, (int size_class));
-  MOCK_METHOD(bool, GrowCache, (int size_class));
-
-  static size_t class_to_size(int size_class) { return kClassSize; }
-  static size_t num_objects_to_move(int size_class) { return kNumToMove; }
-  void* Alloc(size_t size) {
-    memory_.emplace_back(malloc(size));
-    return memory_.back().get();
-  }
-  struct Free {
-    void operator()(void* b) { free(b); }
-  };
-
-  std::vector<std::unique_ptr<void, Free>> memory_;
-};
-
-struct Batch {
-  Batch() {
-    for (int i = 0; i < kMaxObjectsToMove; ++i) {
-      objs[i] = &(objs[i]);
-    }
-  }
-  void* objs[kMaxObjectsToMove];
-};
-
-using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
 
 using TransferCache =
     internal_transfer_cache::TransferCache<MockCentralFreeList,
                                            MockTransferCacheManager>;
 
+using Env = FakeTransferCacheEnvironment<TransferCache>;
+
 TEST(TransferCache, IsolatedSmoke) {
   const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  MockTransferCacheManager manager;
-  TransferCache cache(&manager);
-  cache.Init(1);
-  Batch in, out;
-  cache.InsertRange(absl::MakeSpan(in.objs, batch_size), batch_size);
-  cache.InsertRange(absl::MakeSpan(in.objs + batch_size, batch_size),
-                    batch_size);
-  ASSERT_EQ(cache.RemoveRange(out.objs, batch_size), batch_size);
-  ASSERT_EQ(cache.RemoveRange(out.objs + batch_size, batch_size), batch_size);
-  for (int i = 0; i < batch_size; ++i) {
-    EXPECT_NE(out.objs[i], out.objs[i + batch_size]);
-    EXPECT_EQ(in.objs[i], out.objs[i + batch_size]);
-    EXPECT_EQ(in.objs[i + batch_size], out.objs[i]);
-  }
+  Env e;
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
+  e.Insert(batch_size);
+  e.Insert(batch_size);
+  e.Remove(batch_size);
+  e.Remove(batch_size);
 }
 
 TEST(TransferCache, FetchesFromFreelist) {
   const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  MockTransferCacheManager manager;
-  TransferCache cache(&manager);
-  cache.Init(1);
-  Batch in, out;
-  EXPECT_CALL(cache.freelist(), RemoveRange).WillOnce([&](void** bufs, int n) {
-    memcpy(bufs, in.objs, sizeof(void*) * n);
-    return n;
-  });
-  ASSERT_EQ(cache.RemoveRange(out.objs, batch_size), batch_size);
-  for (int i = 0; i < batch_size; ++i) {
-    EXPECT_EQ(in.objs[i], out.objs[i]);
-  }
+  Env e;
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
+  e.Remove(batch_size);
 }
 
 TEST(TransferCache, EvictsOtherCaches) {
   const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  Env e;
 
-  MockTransferCacheManager manager;
-  TransferCache cache(&manager);
-  cache.Init(1);
-
-  Batch in, out;
-  EXPECT_CALL(cache.freelist(), InsertRange).Times(0);
-  EXPECT_CALL(manager, DetermineSizeClassToEvict).WillOnce([]() { return 13; });
-  EXPECT_CALL(manager, ShrinkCache(13)).WillOnce([]() { return true; });
+  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
+    return true;
+  });
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
 
   for (int i = 0; i < TransferCache::kInitialCapacityInBatches; ++i) {
-    cache.InsertRange(absl::MakeSpan(in.objs, batch_size), batch_size);
+    e.Insert(batch_size);
   }
-  cache.InsertRange(absl::MakeSpan(in.objs + batch_size, batch_size),
-                    batch_size);
-  ASSERT_EQ(cache.RemoveRange(out.objs, batch_size), batch_size);
-  for (int i = 0; i < batch_size; ++i) {
-    EXPECT_EQ(in.objs[i + batch_size], out.objs[i]);
-  }
+  e.Insert(batch_size);
 }
 
 TEST(TransferCache, PushesToFreelist) {
   const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  MockTransferCacheManager manager;
-  TransferCache cache(&manager);
-  cache.Init(1);
-  Batch in, out;
+  Env e;
 
-  EXPECT_CALL(manager, DetermineSizeClassToEvict).WillOnce([]() { return 13; });
-  EXPECT_CALL(manager, ShrinkCache(13)).WillOnce([]() { return false; });
-  EXPECT_CALL(cache.freelist(), InsertRange).WillOnce([&](void** bufs, int n) {
-    for (int i = 0; i < batch_size; ++i) {
-      EXPECT_EQ(in.objs[i + batch_size], bufs[i]);
-    }
+  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
+    return false;
   });
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
 
   for (int i = 0; i < TransferCache::kInitialCapacityInBatches; ++i) {
-    cache.InsertRange(absl::MakeSpan(in.objs, batch_size), batch_size);
+    e.Insert(batch_size);
   }
-  cache.InsertRange(absl::MakeSpan(in.objs + batch_size, batch_size),
-                    batch_size);
+  e.Insert(batch_size);
 }
 
 }  // namespace

@@ -47,11 +47,7 @@ int TransferCacheManager::DetermineSizeClassToEvict() {
   next_to_evict_.store(t + 1, std::memory_order_relaxed);
 
   // Ask nicely first.
-  int n = Static::sizemap()->num_objects_to_move(t);
-  auto info = cache_[t].GetSlotInfo();
-  if (info.capacity - info.used >= n) {
-    return t;
-  }
+  if (cache_[t].HasSpareCapacity()) return t;
 
   // But insist on the second try.
   t = next_to_evict_.load(std::memory_order_relaxed);

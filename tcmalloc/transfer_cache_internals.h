@@ -26,6 +26,7 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
@@ -270,6 +271,17 @@ class TransferCache {
     if (info.capacity + N > max_capacity_) return false;
     info.capacity += N;
     SetSlotInfo(info);
+    return true;
+  }
+
+  bool HasSpareCapacity() {
+    int n = TransferCacheManager::num_objects_to_move(size_class());
+    auto info = GetSlotInfo();
+    return info.capacity - info.used >= n;
+  }
+
+  bool GrowCache() {
+    CHECK_CONDITION(false && "unused");
     return true;
   }
 

@@ -568,8 +568,28 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "mock_transfer_cache",
+    testonly = 1,
+    hdrs = ["mock_transfer_cache.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        ":mock_central_freelist",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
 cc_test(
     name = "transfer_cache_test",
+    timeout = "short",
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
@@ -577,8 +597,13 @@ cc_test(
     deps = [
         ":common",
         ":mock_central_freelist",
+        ":mock_transfer_cache",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
