@@ -576,14 +576,26 @@ cc_library(
     deps = [
         ":common",
         ":mock_central_freelist",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
+    name = "transfer_cache_fuzz",
+    testonly = 1,
+    srcs = ["transfer_cache_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
+    deps = [
+        ":common",
+        ":mock_central_freelist",
+        ":mock_transfer_cache",
     ],
 )
 

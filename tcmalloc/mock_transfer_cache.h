@@ -144,7 +144,7 @@ class FakeTransferCacheEnvironment {
     }
   }
 
-  TransferCache& transfer_cache() { return cache_.freelist(); }
+  TransferCache& transfer_cache() { return cache_; }
 
   MockTransferCacheManager& transfer_cache_manager() { return manager_; }
 

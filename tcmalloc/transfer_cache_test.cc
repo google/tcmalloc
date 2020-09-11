@@ -90,5 +90,156 @@ TEST(TransferCache, PushesToFreelist) {
   e.Insert(batch_size);
 }
 
+using LockFreeTransferCache =
+    internal_transfer_cache::LockFreeTransferCache<MockCentralFreeList,
+                                                   MockTransferCacheManager>;
+
+using LockFreeEnv = FakeTransferCacheEnvironment<LockFreeTransferCache>;
+
+TEST(LockFreeTransferCache, IsolatedSmoke) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  LockFreeEnv env;
+  env.Insert(batch_size);
+  env.Insert(batch_size);
+  env.Remove(batch_size);
+  env.Remove(batch_size);
+}
+
+TEST(LockFreeTransferCache, FetchesFromFreelist) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  LockFreeEnv env;
+  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(1);
+  env.Remove(batch_size);
+}
+
+TEST(LockFreeTransferCache, EvictsOtherCaches) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  LockFreeEnv env;
+
+  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
+    return true;
+  });
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
+
+  while (env.transfer_cache().HasSpareCapacity()) {
+    env.Insert(batch_size);
+  }
+  env.Insert(batch_size);
+}
+
+TEST(LockFreeTransferCache, PushesToFreelist) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  LockFreeEnv env;
+
+  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
+    return false;
+  });
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(1);
+
+  while (env.transfer_cache().HasSpareCapacity()) {
+    env.Insert(batch_size);
+  }
+  env.Insert(batch_size);
+}
+
+TEST(LockFreeTransferCache, WrappingWorks) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+
+  LockFreeEnv env;
+  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
+
+  while (env.transfer_cache().HasSpareCapacity()) {
+    env.Insert(batch_size);
+  }
+  for (int i = 0; i < 100; ++i) {
+    env.Remove(batch_size);
+    env.Insert(batch_size);
+  }
+}
+
+class ThreadManager {
+ public:
+  ThreadManager() : shutdown_(false) {}
+  ~ThreadManager() {
+    EXPECT_TRUE(shutdown_.load()) << "ThreadManager not stopped";
+  }
+
+  void Start(int n, const std::function<void()>& func) {
+    absl::BlockingCounter started(n);
+    for (int i = 0; i < n; ++i) {
+      threads_.emplace_back([this, func, &started]() {
+        started.DecrementCount();
+        while (!shutdown_.load()) {
+          func();
+        }
+      });
+    }
+    started.Wait();
+  }
+
+  void Stop() {
+    shutdown_.store(true);
+    for (auto& t : threads_) t.join();
+  }
+
+ private:
+  std::atomic<bool> shutdown_;
+  std::vector<std::thread> threads_;
+};
+
+TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
+  LockFreeEnv env;
+  ThreadManager threads;
+  threads.Start(10, [&]() { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(0.3) > absl::Now()) env.RandomlyPoke();
+  threads.Stop();
+}
+
+TEST(LockFreeTransferCache, MultiThreadedBiasedInsert) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+
+  LockFreeEnv env;
+  ThreadManager threads;
+  threads.Start(10, [&]() { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Insert(batch_size);
+  threads.Stop();
+}
+
+TEST(LockFreeTransferCache, MultiThreadedBiasedRemove) {
+  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+
+  LockFreeEnv env;
+  ThreadManager threads;
+  threads.Start(10, [&]() { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Remove(batch_size);
+  threads.Stop();
+}
+
+TEST(LockFreeTransferCache, MultiThreadedBiasedShrink) {
+  LockFreeEnv env;
+  ThreadManager threads;
+  threads.Start(10, [&]() { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Shrink();
+  threads.Stop();
+}
+
+TEST(LockFreeTransferCache, MultiThreadedBiasedGrow) {
+  LockFreeEnv env;
+  ThreadManager threads;
+  threads.Start(10, [&]() { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Grow();
+  threads.Stop();
+}
+
 }  // namespace
 }  // namespace tcmalloc

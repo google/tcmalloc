@@ -32,6 +32,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/tracking.h"
 
 namespace tcmalloc::internal_transfer_cache {
@@ -374,6 +375,375 @@ class TransferCache {
 
   // Cached value of IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER)
   bool arbitrary_transfer_;
+} ABSL_CACHELINE_ALIGNED;
+
+// Lock free transfer cache based on LMAX disruptor pattern.
+//
+// Use `GetSlot()` to get pointers to entries.
+// Pointer to array of `max_capacity_ + 1` free objects which forms a circular
+// buffer.
+//
+// Various offsets have a strict ordering invariant:
+//   * tail_committed <= tail <= head_committed <= head (viewed circularly).
+//   * Empty when tail_committed == head_committed.
+//   * Full when tail_committed - 1 == head_committed.
+//
+// When there are no active threads,
+//   *  `tail_committed == tail`
+//   *  `head_committed == head`
+//
+// In terms of atomic sequencing, only committed variables hold dependencies.
+// - `RemoveRange` acquires `head_committed` and releases `tail_committed`
+// - `InsertRange` acquires `tail_committed` and releases `head_committed`
+//
+// For example:
+//
+// The queue is idle with some data in it and a batch size of 3.
+//   +--------------------------------------------------------------------+
+//   |  |  |  |xx|xx|xx|xx|xx|xx|xx|xx|xx|xx|xx|  |  |  |  |  |  |  |  |  |
+//   +--------------------------------------------------------------------+
+//             ^                                ^
+//             |                                |
+//         tail_committed/tail              head_committed/head
+//
+// Four threads arrive (near simultaneously). Two are concurrently removing
+// batches (c1, c2), and two threads are inserting batches (p1, p2).
+//   +--------------------------------------------------------------------+
+//   |  |  |  |c1|c1|c1|c2|c2|c2|xx|xx|xx|xx|xx|p1|p1|p1|p2|p2|p2|  |  |  |
+//   +--------------------------------------------------------------------+
+//             ^        ^        ^              ^        ^        ^
+//             |        |        |              |        |        |
+//             | c1 commit point |              | p1 commit point |
+//         tail_committed        tail       head_committed        head
+//
+// At this point c2 and p2, cannot commit until c1 or p1 commit respectively.
+// Let's say c1 commits:
+//   +--------------------------------------------------------------------+
+//   |  |  |  |  |  |  |c2|c2|c2|xx|xx|xx|xx|xx|p1|p1|p1|p2|p2|p2|  |  |  |
+//   +--------------------------------------------------------------------+
+//                      ^        ^              ^        ^        ^
+//                      |        |              |        |        |
+//                      |        |              | p1 commit point |
+//         tail_committed        tail       head_committed        head
+//
+// Now, c2 can commit its batch:
+//   +--------------------------------------------------------------------+
+//   |  |  |  |  |  |  |  |  |  |xx|xx|xx|xx|xx|p1|p1|p1|p2|p2|p2|  |  |  |
+//   +--------------------------------------------------------------------+
+//                               ^              ^        ^        ^
+//                               |              |        |        |
+//                               |              | p1 commit point |
+//                tail_committed/tail       head_committed        head
+//
+// In parallel, p1 could have completed and committed its batch:
+//   +--------------------------------------------------------------------+
+//   |  |  |  |  |  |  |  |  |  |xx|xx|xx|xx|xx|xx|xx|xx|p2|p2|p2|  |  |  |
+//   +--------------------------------------------------------------------+
+//                               ^                       ^        ^
+//                               |                       |        |
+//                tail_committed/tail       head_committed        head
+//
+// At which point p2 can commit:
+//   +--------------------------------------------------------------------+
+//   |  |  |  |  |  |  |  |  |  |xx|xx|xx|xx|xx|xx|xx|xx|xx|xx|xx|  |  |  |
+//   +--------------------------------------------------------------------+
+//                               ^                                ^
+//                               |                                |
+//                tail_committed/tail              head_committed/head
+template <typename CentralFreeList, typename TransferCacheManager>
+class LockFreeTransferCache {
+ public:
+  static constexpr int kMaxCapacityInBatches = 64;
+  static constexpr int kInitialCapacityInBatches = 16;
+
+  constexpr explicit LockFreeTransferCache(TransferCacheManager *owner)
+      : LockFreeTransferCache(owner, 0) {}
+
+  // C++11 has complex rules for direct initialization of an array of aggregate
+  // types that are not copy constructible.  The int parameters allows us to do
+  // two distinct things at the same time:
+  //  - have an implicit constructor (one arg implicit ctors are dangerous)
+  //  - build an array of these in an arg pack expansion without a comma
+  //    operator trick
+  constexpr LockFreeTransferCache(TransferCacheManager *owner, int)
+      : owner_(owner),
+        slots_(nullptr),
+        freelist_(),
+        max_capacity_(0),
+        capacity_(),
+        head_(),
+        head_committed_(),
+        tail_(),
+        tail_committed_() {}
+
+  LockFreeTransferCache(const LockFreeTransferCache &) = delete;
+  LockFreeTransferCache &operator=(const LockFreeTransferCache &) = delete;
+
+  // We require the pageheap_lock with some templates, but not in tests, so the
+  // thread safety analysis breaks pretty hard here.
+  void Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    freelist_.Init(cl);
+
+    // We need at least 2 slots to store list head and tail.
+    ASSERT(kMinObjectsToMove >= 2);
+
+    slots_ = nullptr;
+    max_capacity_ = 0;
+    int32_t capacity = 0;
+
+    if (cl > 0) {
+      // Limit the maximum size of the cache based on the size class.  If this
+      // is not done, large size class objects will consume a lot of memory if
+      // they just sit in the transfer cache.
+      size_t bytes = TransferCacheManager::class_to_size(cl);
+      size_t objs_to_move = TransferCacheManager::num_objects_to_move(cl);
+      ASSERT(objs_to_move > 0 && bytes > 0);
+
+      // Starting point for the maximum number of entries in the transfer cache.
+      // This actual maximum for a given size class may be lower than this
+      // maximum value.
+      max_capacity_ = kMaxCapacityInBatches * objs_to_move;
+      // A transfer cache freelist can have anywhere from 0 to
+      // max_capacity_ slots to put link list chains into.
+      capacity = kInitialCapacityInBatches * objs_to_move;
+
+      // Limit each size class cache to at most 1MB of objects or one entry,
+      // whichever is greater. Total transfer cache memory used across all
+      // size classes then can't be greater than approximately
+      // 1MB * kMaxNumTransferEntries.
+      max_capacity_ = std::min<size_t>(
+          max_capacity_,
+          std::max<size_t>(
+              objs_to_move,
+              (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
+      capacity = std::min(capacity, max_capacity_);
+      capacity_.store(capacity, std::memory_order_relaxed);
+      slots_ = reinterpret_cast<void **>(
+          owner_->Alloc(slots_size() * sizeof(void *)));
+    }
+  }
+
+  // Insert the specified batch into the transfer cache.  N is the number of
+  // elements in the range.  RemoveRange() is the opposite operation.
+  void InsertRange(absl::Span<void *> batch, int N) {
+    ASSERT(0 < N &&
+           N <= TransferCacheManager::num_objects_to_move(size_class()));
+    int32_t new_h;
+    int32_t old_h = head_.load(std::memory_order_relaxed);
+    do {
+      int32_t t = tail_committed_.load(std::memory_order_acquire);
+      int32_t s = size_from_pos(old_h, t);
+      int32_t c = capacity_.load(std::memory_order_relaxed);
+
+      // We could grow the capacity and then have another thread steal our hard
+      // work, so make sure to refetch capacity and see if we still have space
+      // after growing.
+      while (c - s < N) {
+        if (!MakeCacheSpace(N)) {
+          tracking::Report(kTCInsertMiss, size_class(), 1);
+          freelist_.InsertRange(batch.data(), N);
+          return;
+        }
+        c = capacity_.load(std::memory_order_relaxed);
+      }
+
+      new_h = old_h + N;
+      if (new_h >= slots_size()) new_h -= slots_size();
+    } while (!head_.compare_exchange_weak(
+        old_h, new_h, std::memory_order_relaxed, std::memory_order_relaxed));
+
+    tracking::Report(kTCInsertHit, size_class(), 1);
+    if (old_h < new_h) {
+      ASSERT(new_h - old_h == N);
+      void **entry = GetSlot(old_h);
+      memcpy(entry, batch.data(), sizeof(void *) * N);
+    } else {
+      int32_t overhang = slots_size() - old_h;
+      ASSERT(overhang + new_h == N);
+      void **entry = GetSlot(old_h);
+      memcpy(entry, batch.data(), sizeof(void *) * overhang);
+      batch.remove_prefix(overhang);
+      entry = GetSlot(0);
+      memcpy(entry, batch.data(), sizeof(void *) * new_h);
+    }
+
+    int32_t temp_h;
+    while (!head_committed_.compare_exchange_weak(temp_h = old_h, new_h,
+                                                  std::memory_order_release,
+                                                  std::memory_order_relaxed)) {
+      // TODO(kfm): this is a simple spin lock, it would be nice if we could
+      // report contention here.
+    }
+  }
+
+  // Returns the actual number of fetched elements and stores elements in the
+  // batch.
+  int RemoveRange(void **batch, int N) {
+    ASSERT(N > 0);
+    int32_t new_t;
+    int32_t old_t = tail_.load(std::memory_order_relaxed);
+    do {
+      int32_t h = head_committed_.load(std::memory_order_acquire);
+      int32_t s = size_from_pos(h, old_t);
+      if (s < N) {
+        tracking::Report(kTCRemoveMiss, size_class(), 1);
+        return freelist_.RemoveRange(batch, N);
+      }
+      new_t = old_t + N;
+      if (new_t >= slots_size()) new_t -= slots_size();
+    } while (!tail_.compare_exchange_weak(
+        old_t, new_t, std::memory_order_relaxed, std::memory_order_relaxed));
+
+    tracking::Report(kTCRemoveHit, size_class(), 1);
+    if (old_t < new_t) {
+      ASSERT(new_t - old_t == N);
+      void **entry = GetSlot(old_t);
+      memcpy(batch, entry, sizeof(void *) * N);
+    } else {
+      size_t overhang = slots_size() - old_t;
+      ASSERT(overhang + new_t == N);
+
+      void **entry = GetSlot(old_t);
+      memcpy(batch, entry, sizeof(void *) * overhang);
+      batch += overhang;
+      entry = GetSlot(0);
+      memcpy(batch, entry, sizeof(void *) * new_t);
+    }
+
+    // tail_ == tail_committed_ is not guaranteed, so we spin waiting for
+    // pending removals to be committed.
+    int32_t temp_t;
+    while (!tail_committed_.compare_exchange_weak(temp_t = old_t, new_t,
+                                                  std::memory_order_release,
+                                                  std::memory_order_relaxed)) {
+      // TODO(kfm): this is a simple spin lock, it would be nice if we could
+      // report contention here.
+    }
+    return N;
+  }
+
+  // Returns the number of free objects in the central cache.
+  size_t central_length() { return freelist_.length(); }
+
+  // Returns the number of free objects in the transfer cache.
+  size_t tc_length() {
+    return size_from_pos(head_committed_.load(std::memory_order_relaxed),
+                         tail_committed_.load(std::memory_order_relaxed));
+  }
+
+  size_t size_from_pos(int32_t h, int32_t t) {
+    int32_t s = h - t;
+    if (s < 0) s += slots_size();
+    return s;
+  }
+
+  // Returns the number of spans allocated and deallocated from the CFL
+  SpanStats GetSpanStats() const { return freelist_.GetSpanStats(); }
+
+  // Returns the memory overhead (internal fragmentation) attributable
+  // to the freelist.  This is memory lost when the size of elements
+  // in a freelist doesn't exactly divide the page-size (an 8192-byte
+  // page full of 5-byte objects would have 2 bytes memory overhead).
+  size_t OverheadBytes() { return freelist_.OverheadBytes(); }
+
+  // Tries to make room for a batch.  If the cache is full it will try to expand
+  // it at the cost of some other cache size.  Return false if there is no
+  // space.
+  bool MakeCacheSpace(int N) {
+    // Check if we can expand this cache?
+    int32_t c = capacity_.load(std::memory_order_relaxed);
+    if (c + N > max_capacity_) return false;
+
+    int to_evict = owner_->DetermineSizeClassToEvict();
+    if (to_evict == size_class()) return false;
+    if (!owner_->ShrinkCache(to_evict)) return false;
+    if (GrowCache()) return true;
+
+    // At this point, we have successfully taken cache space from someone.  Do
+    // not give up until we have given it back to somebody or the entire thing
+    // can just start leaking cache capacity.
+    while (true) {
+      if (++to_evict >= kNumClasses) to_evict = 1;
+
+      // In theory we could unconditionally call to owner_->GrowCache(to_evict);
+      // however, that would actually produce different behavior between the
+      // prod and the test fake, so we manually do this to avoid jumping through
+      // the manager when we "know" we are talking to ourself.
+      if (to_evict == size_class()) {
+        if (GrowCache()) return true;
+      } else if (owner_->GrowCache(to_evict)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Tries to grow the cache. Returns false if it failed.
+  bool GrowCache() {
+    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int new_c;
+    int old_c = capacity_.load(std::memory_order_relaxed);
+    do {
+      new_c = old_c + N;
+      if (new_c > max_capacity_) return false;
+    } while (!capacity_.compare_exchange_weak(
+        old_c, new_c, std::memory_order_relaxed, std::memory_order_relaxed));
+    return true;
+  }
+
+  // Tries to shrink the Cache.  Return false if it failed.
+  bool ShrinkCache() {
+    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int new_c;
+    int32_t old_c = capacity_.load(std::memory_order_relaxed);
+    do {
+      if (old_c < N) return false;
+      new_c = old_c - N;
+    } while (!capacity_.compare_exchange_weak(
+        old_c, new_c, std::memory_order_relaxed, std::memory_order_relaxed));
+
+    // TODO(kfm): decide if we want to do this or not
+    // if (tc_length() >= capacity_.load(std::memory_order_relaxed)) {
+    //   void *buf[kMaxObjectsToMove];
+    //   int i = RemoveRange(buf, N);
+    //   freelist().InsertRange(buf, i);
+    // }
+    return true;
+  }
+
+  bool HasSpareCapacity() {
+    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int32_t c = capacity_.load(std::memory_order_relaxed);
+    int32_t s = tc_length();
+    return c - s >= N;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist() { return freelist_; }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE const CentralFreeList &freelist() const {
+    return freelist_;
+  }
+
+ private:
+  // Returns first object of the i-th slot.
+  void **GetSlot(size_t i) { return slots_ + i; }
+
+  int32_t slots_size() const { return max_capacity_ + 1; }
+
+  size_t size_class() const { return freelist_.size_class(); }
+
+  TransferCacheManager *const owner_;
+
+  void **slots_;
+  CentralFreeList freelist_;
+
+  // Maximum size of the cache for a given size class. (immutable after Init())
+  int32_t max_capacity_;
+
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> capacity_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_committed_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_committed_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::internal_transfer_cache
