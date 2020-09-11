@@ -44,45 +44,75 @@ class TransferCacheManager {
       internal_transfer_cache::TransferCache<CentralFreeList,
                                              TransferCacheManager>;
 
-  template <size_t... Idx>
-  constexpr explicit TransferCacheManager(std::index_sequence<Idx...> i)
-      : cache_{{this, Idx}...}, next_to_evict_(1) {
-    static_assert(sizeof...(Idx) == kNumClasses);
-  }
+  template <typename CentralFreeList, typename Manager>
+  friend class internal_transfer_cache::LockFreeTransferCache;
+  using LockFreeTransferCache =
+      internal_transfer_cache::LockFreeTransferCache<CentralFreeList,
+                                                     TransferCacheManager>;
 
  public:
   constexpr TransferCacheManager()
-      : TransferCacheManager(std::make_index_sequence<kNumClasses>{}) {}
+      : use_lock_free_cache_(false), next_to_evict_(1) {}
 
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    use_lock_free_cache_ =
+        IsExperimentActive(Experiment::TCMALLOC_LOCK_FREE_TRANSFER_CACHE);
     for (int i = 0; i < kNumClasses; ++i) {
-      cache_[i].Init(i);
+      if (use_lock_free_cache_) {
+        auto *c = &cache_[i].lock_free;
+        new (c) LockFreeTransferCache(this, i);
+        c->Init(i);
+      } else {
+        auto *c = &cache_[i].legacy;
+        new (c) TransferCache(this, i);
+        c->Init(i);
+      }
     }
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch, int n) {
-    cache_[size_class].InsertRange(batch, n);
+    if (use_lock_free_cache_)
+      cache_[size_class].lock_free.InsertRange(batch, n);
+    else
+      cache_[size_class].legacy.InsertRange(batch, n);
   }
 
   int RemoveRange(int size_class, void **batch, int n) {
-    return cache_[size_class].RemoveRange(batch, n);
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.RemoveRange(batch, n);
+    else
+      return cache_[size_class].legacy.RemoveRange(batch, n);
   }
 
   size_t central_length(int size_class) {
-    return cache_[size_class].central_length();
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.central_length();
+    else
+      return cache_[size_class].legacy.central_length();
   }
 
-  size_t tc_length(int size_class) { return cache_[size_class].tc_length(); }
+  size_t tc_length(int size_class) {
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.tc_length();
+    else
+      return cache_[size_class].legacy.tc_length();
+  }
 
   size_t OverheadBytes(int size_class) {
-    return cache_[size_class].OverheadBytes();
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.OverheadBytes();
+    else
+      return cache_[size_class].legacy.OverheadBytes();
   }
 
   SpanStats GetSpanStats(int size_class) const {
-    return cache_[size_class].GetSpanStats();
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.GetSpanStats();
+    else
+      return cache_[size_class].legacy.GetSpanStats();
   }
 
  private:
@@ -90,10 +120,30 @@ class TransferCacheManager {
   static size_t num_objects_to_move(int size_class);
   void *Alloc(size_t size) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
-  bool ShrinkCache(int size_class) { return cache_[size_class].ShrinkCache(); }
+  bool ShrinkCache(int size_class) {
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.ShrinkCache();
+    else
+      return cache_[size_class].legacy.ShrinkCache();
+  }
+  bool GrowCache(int size_class) {
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.GrowCache();
+    else
+      return cache_[size_class].legacy.GrowCache();
+  }
 
-  TransferCache cache_[kNumClasses];
+  bool use_lock_free_cache_;
   std::atomic<int32_t> next_to_evict_;
+  union Cache {
+    constexpr Cache() : dummy(false) {}
+    ~Cache() {}
+
+    LockFreeTransferCache lock_free;
+    TransferCache legacy;
+    bool dummy;
+  };
+  Cache cache_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
 
 #else
