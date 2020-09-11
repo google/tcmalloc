@@ -48,7 +48,7 @@ CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 PageHeapAllocator<Span> Static::span_allocator_;
 PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
 PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
-SpanList Static::sampled_objects_;
+ABSL_CONST_INIT SpanList Static::sampled_objects_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
 PageHeapAllocator<StackTraceTable::Bucket> Static::bucket_allocator_;
@@ -101,7 +101,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
     transfer_cache_.Init();
     new (page_allocator_.memory) PageAllocator;
-    sampled_objects_.Init();
     threadcache_allocator_.Init(&arena_);
     cpu_cache_active_ = false;
     pagemap_.MapRootWithSmallPages();

@@ -43,14 +43,7 @@ PageHeap::PageHeap(bool tagged) : PageHeap(Static::pagemap(), tagged) {}
 PageHeap::PageHeap(PageMap* map, bool tagged)
     : PageAllocatorInterface("PageHeap", map, tagged),
       // Start scavenging at kMaxPages list
-      release_index_(kMaxPages) {
-  large_.normal.Init();
-  large_.returned.Init();
-  for (int i = 0; i < kMaxPages; i++) {
-    free_[i].normal.Init();
-    free_[i].returned.Init();
-  }
-}
+      release_index_(kMaxPages) {}
 
 Span* PageHeap::SearchFreeAndLargeLists(Length n, bool* from_returned) {
   ASSERT(Check());

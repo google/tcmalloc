@@ -129,8 +129,6 @@ class MockSpan : public MockSpanList::Elem {
 
 class TListTest : public ::testing::Test {
  protected:
-  void SetUp() override { list_.Init(); }
-
   MockSpanList list_;
 };
 

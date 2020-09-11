@@ -30,7 +30,6 @@ void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   object_size_ = Static::sizemap()->class_to_size(cl);
   pages_per_span_ = Static::sizemap()->class_to_pages(cl);
   objects_per_span_ = pages_per_span_ * kPageSize / (cl ? object_size_ : 1);
-  nonempty_.Init();
 }
 
 static Span* MapObjectToSpan(void* object) {

@@ -837,11 +837,8 @@ class HugePageFiller {
   template <size_t N>
   class HintedTrackerLists {
    public:
-    HintedTrackerLists() : nonempty_{}, size_(NHugePages(0)) {
-      for (int i = 0; i < N; ++i) {
-        lists_[i].Init();
-      }
-    }
+    HintedTrackerLists() : nonempty_{}, size_(NHugePages(0)) {}
+
     // Removes a TrackerType from the first non-empty freelist with index at
     // least n and returns it. Returns nullptr if there is none.
     TrackerType *GetLeast(const size_t n) {

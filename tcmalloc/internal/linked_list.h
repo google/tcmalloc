@@ -136,6 +136,8 @@ class TList {
     Elem *prev_;
 
    protected:
+    constexpr Elem() : next_(nullptr), prev_(nullptr) {}
+
     // Returns true iff the list is empty after removing this
     bool remove() {
       // Copy out next/prev before doing stores, otherwise compiler assumes
@@ -171,7 +173,7 @@ class TList {
   };
 
   // Initialize to empty list.
-  void Init() { head_.next_ = head_.prev_ = &head_; }
+  constexpr TList() { head_.next_ = head_.prev_ = &head_; }
 
   bool empty() const { return head_.next_ == &head_; }
 

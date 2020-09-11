@@ -129,7 +129,7 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
 template <typename Region>
 class HugeRegionSet {
  public:
-  HugeRegionSet() : n_(0) { list_.Init(); }
+  HugeRegionSet() : n_(0) {}
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.

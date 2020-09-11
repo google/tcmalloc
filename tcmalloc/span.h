@@ -354,15 +354,15 @@ inline void Span::Prefetch() {
 }
 
 inline void Span::Init(PageId p, Length n) {
+#ifndef NDEBUG
+  // In debug mode we have additional checking of our list ops; these must be
+  // initialized.
+  new (this) Span();
+#endif
   first_page_ = p;
   num_pages_ = n;
   location_ = IN_USE;
   sampled_ = 0;
-#ifndef NDEBUG
-  // In debug mode we have additional checking of our list ops;
-  // these must be initialized.
-  memset(static_cast<SpanList::Elem*>(this), 0, sizeof(SpanList::Elem));
-#endif
 }
 
 }  // namespace tcmalloc
