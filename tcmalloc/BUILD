@@ -531,12 +531,12 @@ cc_library(
 cc_library(
     name = "mock_central_freelist",
     testonly = 1,
+    srcs = ["mock_central_freelist.cc"],
     hdrs = ["mock_central_freelist.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
+        "//tcmalloc/internal:logging",
         "@com_google_googletest//:gtest",
     ],
 )
@@ -571,6 +571,7 @@ cc_test(
 cc_library(
     name = "mock_transfer_cache",
     testonly = 1,
+    srcs = ["mock_transfer_cache.cc"],
     hdrs = ["mock_transfer_cache.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
@@ -618,6 +619,20 @@ cc_test(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_binary(
+    name = "transfer_cache_benchmark",
+    testonly = 1,
+    srcs = ["transfer_cache_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":common",
+        ":mock_central_freelist",
+        ":mock_transfer_cache",
+        "@com_github_google_benchmark//:benchmark_main",
     ],
 )
 

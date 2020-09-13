@@ -48,11 +48,13 @@ struct alignas(8) SizeInfo {
 template <typename CentralFreeList, typename TransferCacheManager>
 class TransferCache {
  public:
+  using Manager = TransferCacheManager;
+  using FreeList = CentralFreeList;
+
   static constexpr int kMaxCapacityInBatches = 64;
   static constexpr int kInitialCapacityInBatches = 16;
 
-  constexpr explicit TransferCache(TransferCacheManager *owner)
-      : TransferCache(owner, 0) {}
+  constexpr explicit TransferCache(Manager *owner) : TransferCache(owner, 0) {}
 
   // C++11 has complex rules for direct initialization of an array of aggregate
   // types that are not copy constructible.  The int parameters allows us to do
@@ -60,7 +62,7 @@ class TransferCache {
   //  - have an implicit constructor (one arg implicit ctors are dangerous)
   //  - build an array of these in an arg pack expansion without a comma
   //    operator trick
-  constexpr TransferCache(TransferCacheManager *owner, int)
+  constexpr TransferCache(Manager *owner, int)
       : owner_(owner),
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(0),
@@ -93,8 +95,8 @@ class TransferCache {
       // Limit the maximum size of the cache based on the size class.  If this
       // is not done, large size class objects will consume a lot of memory if
       // they just sit in the transfer cache.
-      size_t bytes = TransferCacheManager::class_to_size(cl);
-      size_t objs_to_move = TransferCacheManager::num_objects_to_move(cl);
+      size_t bytes = Manager::class_to_size(cl);
+      size_t objs_to_move = Manager::num_objects_to_move(cl);
       ASSERT(objs_to_move > 0 && bytes > 0);
 
       // Starting point for the maximum number of entries in the transfer cache.
@@ -126,7 +128,7 @@ class TransferCache {
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
   void InsertRange(absl::Span<void *> batch, int N) ABSL_LOCKS_EXCLUDED(lock_) {
-    const int B = TransferCacheManager::num_objects_to_move(size_class());
+    const int B = Manager::num_objects_to_move(size_class());
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used + N <= max_capacity_) {
@@ -190,7 +192,7 @@ class TransferCache {
   // batch.
   int RemoveRange(void **batch, int N) ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(N > 0);
-    const int B = TransferCacheManager::num_objects_to_move(size_class());
+    const int B = Manager::num_objects_to_move(size_class());
     int fetch = 0;
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used >= N) {
@@ -276,7 +278,7 @@ class TransferCache {
   }
 
   bool HasSpareCapacity() {
-    int n = TransferCacheManager::num_objects_to_move(size_class());
+    int n = Manager::num_objects_to_move(size_class());
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
   }
@@ -290,7 +292,7 @@ class TransferCache {
   // Tries to shrink the Cache.  Return false if it failed to shrink the cache.
   // Decreases cache_slots_ on success.
   bool ShrinkCache() ABSL_LOCKS_EXCLUDED(lock_) {
-    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int N = Manager::num_objects_to_move(size_class());
 
     void *to_free[kMaxObjectsToMove];
     int num_to_free;
@@ -325,13 +327,12 @@ class TransferCache {
 
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist()
-      ABSL_LOCKS_EXCLUDED(lock_) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
 
   // The const version of the wrapper, needed to call stats on
-  ABSL_ATTRIBUTE_ALWAYS_INLINE const CentralFreeList &freelist() const
+  ABSL_ATTRIBUTE_ALWAYS_INLINE const FreeList &freelist() const
       ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
@@ -349,7 +350,7 @@ class TransferCache {
     slot_info_.store(info, std::memory_order_relaxed);
   }
 
-  TransferCacheManager *const owner_;
+  Manager *const owner_;
 
   // This lock protects all the data members.  used_slots_ and cache_slots_
   // may be looked at without holding the lock.
@@ -371,7 +372,7 @@ class TransferCache {
     return freelist_do_not_access_directly_.size_class();
   }
 
-  CentralFreeList freelist_do_not_access_directly_;
+  FreeList freelist_do_not_access_directly_;
 
   // Cached value of IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER)
   bool arbitrary_transfer_;
@@ -453,10 +454,12 @@ class TransferCache {
 template <typename CentralFreeList, typename TransferCacheManager>
 class LockFreeTransferCache {
  public:
+  using Manager = TransferCacheManager;
+  using FreeList = CentralFreeList;
   static constexpr int kMaxCapacityInBatches = 64;
   static constexpr int kInitialCapacityInBatches = 16;
 
-  constexpr explicit LockFreeTransferCache(TransferCacheManager *owner)
+  constexpr explicit LockFreeTransferCache(Manager *owner)
       : LockFreeTransferCache(owner, 0) {}
 
   // C++11 has complex rules for direct initialization of an array of aggregate
@@ -465,7 +468,7 @@ class LockFreeTransferCache {
   //  - have an implicit constructor (one arg implicit ctors are dangerous)
   //  - build an array of these in an arg pack expansion without a comma
   //    operator trick
-  constexpr LockFreeTransferCache(TransferCacheManager *owner, int)
+  constexpr LockFreeTransferCache(Manager *owner, int)
       : owner_(owner),
         slots_(nullptr),
         freelist_(),
@@ -495,8 +498,8 @@ class LockFreeTransferCache {
       // Limit the maximum size of the cache based on the size class.  If this
       // is not done, large size class objects will consume a lot of memory if
       // they just sit in the transfer cache.
-      size_t bytes = TransferCacheManager::class_to_size(cl);
-      size_t objs_to_move = TransferCacheManager::num_objects_to_move(cl);
+      size_t bytes = Manager::class_to_size(cl);
+      size_t objs_to_move = Manager::num_objects_to_move(cl);
       ASSERT(objs_to_move > 0 && bytes > 0);
 
       // Starting point for the maximum number of entries in the transfer cache.
@@ -526,8 +529,7 @@ class LockFreeTransferCache {
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
   void InsertRange(absl::Span<void *> batch, int N) {
-    ASSERT(0 < N &&
-           N <= TransferCacheManager::num_objects_to_move(size_class()));
+    ASSERT(0 < N && N <= Manager::num_objects_to_move(size_class()));
     int32_t new_h;
     int32_t old_h = head_.load(std::memory_order_relaxed);
     do {
@@ -680,7 +682,7 @@ class LockFreeTransferCache {
 
   // Tries to grow the cache. Returns false if it failed.
   bool GrowCache() {
-    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int N = Manager::num_objects_to_move(size_class());
     int new_c;
     int old_c = capacity_.load(std::memory_order_relaxed);
     do {
@@ -693,7 +695,7 @@ class LockFreeTransferCache {
 
   // Tries to shrink the Cache.  Return false if it failed.
   bool ShrinkCache() {
-    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int N = Manager::num_objects_to_move(size_class());
     int new_c;
     int32_t old_c = capacity_.load(std::memory_order_relaxed);
     do {
@@ -712,14 +714,14 @@ class LockFreeTransferCache {
   }
 
   bool HasSpareCapacity() {
-    int N = TransferCacheManager::num_objects_to_move(size_class());
+    int N = Manager::num_objects_to_move(size_class());
     int32_t c = capacity_.load(std::memory_order_relaxed);
     int32_t s = tc_length();
     return c - s >= N;
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE CentralFreeList &freelist() { return freelist_; }
-  ABSL_ATTRIBUTE_ALWAYS_INLINE const CentralFreeList &freelist() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() { return freelist_; }
+  ABSL_ATTRIBUTE_ALWAYS_INLINE const FreeList &freelist() const {
     return freelist_;
   }
 
@@ -731,10 +733,10 @@ class LockFreeTransferCache {
 
   size_t size_class() const { return freelist_.size_class(); }
 
-  TransferCacheManager *const owner_;
+  Manager *const owner_;
 
   void **slots_;
-  CentralFreeList freelist_;
+  FreeList freelist_;
 
   // Maximum size of the cache for a given size class. (immutable after Init())
   int32_t max_capacity_;

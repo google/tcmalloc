@@ -15,6 +15,7 @@
 #include "tcmalloc/transfer_cache.h"
 
 #include <atomic>
+#include <cstring>
 #include <random>
 #include <thread>
 
@@ -26,6 +27,7 @@
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/time/clock.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
@@ -35,15 +37,13 @@
 namespace tcmalloc {
 namespace {
 
-using TransferCache =
-    internal_transfer_cache::TransferCache<MockCentralFreeList,
-                                           MockTransferCacheManager>;
-
-using Env = FakeTransferCacheEnvironment<TransferCache>;
+using MockTransferCacheEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
 
 TEST(TransferCache, IsolatedSmoke) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  Env e;
+  const int batch_size = MockTransferCacheEnv::kBatchSize;
+  MockTransferCacheEnv e;
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
   e.Insert(batch_size);
@@ -53,51 +53,49 @@ TEST(TransferCache, IsolatedSmoke) {
 }
 
 TEST(TransferCache, FetchesFromFreelist) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  Env e;
+  const int batch_size = MockTransferCacheEnv::kBatchSize;
+  MockTransferCacheEnv e;
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
   e.Remove(batch_size);
 }
 
 TEST(TransferCache, EvictsOtherCaches) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  Env e;
+  const int batch_size = MockTransferCacheEnv::kBatchSize;
+  MockTransferCacheEnv e;
 
   EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
     return true;
   });
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
 
-  for (int i = 0; i < TransferCache::kInitialCapacityInBatches; ++i) {
+  while (e.transfer_cache().HasSpareCapacity()) {
     e.Insert(batch_size);
   }
   e.Insert(batch_size);
 }
 
 TEST(TransferCache, PushesToFreelist) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-  Env e;
+  const int batch_size = MockTransferCacheEnv::kBatchSize;
+  MockTransferCacheEnv e;
 
   EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
     return false;
   });
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
 
-  for (int i = 0; i < TransferCache::kInitialCapacityInBatches; ++i) {
+  while (e.transfer_cache().HasSpareCapacity()) {
     e.Insert(batch_size);
   }
   e.Insert(batch_size);
 }
 
-using LockFreeTransferCache =
-    internal_transfer_cache::LockFreeTransferCache<MockCentralFreeList,
-                                                   MockTransferCacheManager>;
-
-using LockFreeEnv = FakeTransferCacheEnvironment<LockFreeTransferCache>;
+using LockFreeEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
 
 TEST(LockFreeTransferCache, IsolatedSmoke) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
   env.Insert(batch_size);
   env.Insert(batch_size);
@@ -106,14 +104,14 @@ TEST(LockFreeTransferCache, IsolatedSmoke) {
 }
 
 TEST(LockFreeTransferCache, FetchesFromFreelist) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(1);
   env.Remove(batch_size);
 }
 
 TEST(LockFreeTransferCache, EvictsOtherCaches) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
 
   EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
@@ -128,7 +126,7 @@ TEST(LockFreeTransferCache, EvictsOtherCaches) {
 }
 
 TEST(LockFreeTransferCache, PushesToFreelist) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
 
   EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
@@ -143,7 +141,7 @@ TEST(LockFreeTransferCache, PushesToFreelist) {
 }
 
 TEST(LockFreeTransferCache, WrappingWorks) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
 
   LockFreeEnv env;
   EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
@@ -198,7 +196,7 @@ TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
 }
 
 TEST(LockFreeTransferCache, MultiThreadedBiasedInsert) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
 
   LockFreeEnv env;
   ThreadManager threads;
@@ -210,7 +208,7 @@ TEST(LockFreeTransferCache, MultiThreadedBiasedInsert) {
 }
 
 TEST(LockFreeTransferCache, MultiThreadedBiasedRemove) {
-  const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
+  const int batch_size = LockFreeEnv::kBatchSize;
 
   LockFreeEnv env;
   ThreadManager threads;

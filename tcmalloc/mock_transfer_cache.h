@@ -30,15 +30,12 @@ namespace tcmalloc {
 inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
 
-// Mocks for TransferCacheManager to allow use in tests.
-class RawMockTransferCacheManager {
+class FakeTransferCacheManagerBase {
  public:
-  MOCK_METHOD(int, DetermineSizeClassToEvict, ());
-  MOCK_METHOD(bool, ShrinkCache, (int size_class));
-  MOCK_METHOD(bool, GrowCache, (int size_class));
-
-  static size_t class_to_size(int size_class) { return kClassSize; }
-  static size_t num_objects_to_move(int size_class) { return kNumToMove; }
+  constexpr static size_t class_to_size(int size_class) { return kClassSize; }
+  constexpr static size_t num_objects_to_move(int size_class) {
+    return kNumToMove;
+  }
   void* Alloc(size_t size) {
     memory_.emplace_back(::operator new(size));
     return memory_.back().get();
@@ -47,7 +44,46 @@ class RawMockTransferCacheManager {
     void operator()(void* b) { ::operator delete(b); }
   };
 
+ private:
   std::vector<std::unique_ptr<void, Free>> memory_;
+};
+
+// TransferCacheManager with basic stubs for everything.
+//
+// Useful for benchmarks where you want to unrelated expensive operations.
+class FakeTransferCacheManager : public FakeTransferCacheManagerBase {
+ public:
+  int DetermineSizeClassToEvict();
+  bool ShrinkCache(int);
+  bool GrowCache(int);
+};
+
+// TransferCacheManager which allows intercepting intersting methods.
+//
+// Useful for intrusive unit tests that want to verify internal behavior.
+class RawMockTransferCacheManager : public FakeTransferCacheManagerBase {
+ public:
+  RawMockTransferCacheManager() : FakeTransferCacheManagerBase() {
+    // We want single threaded tests to be deterministic, so we use a
+    // deterministic generator.  Because we don't know about the threading for
+    // our tests we cannot keep the generator in a local variable.
+    ON_CALL(*this, ShrinkCache).WillByDefault([]() {
+      thread_local std::mt19937 gen{0};
+      return absl::Bernoulli(gen, 0.8);
+    });
+    ON_CALL(*this, GrowCache).WillByDefault([]() {
+      thread_local std::mt19937 gen{0};
+      return absl::Bernoulli(gen, 0.8);
+    });
+    ON_CALL(*this, DetermineSizeClassToEvict).WillByDefault([]() {
+      thread_local std::mt19937 gen{0};
+      return absl::Uniform<size_t>(gen, 1, kNumClasses);
+    });
+  }
+
+  MOCK_METHOD(int, DetermineSizeClassToEvict, ());
+  MOCK_METHOD(bool, ShrinkCache, (int size_class));
+  MOCK_METHOD(bool, GrowCache, (int size_class));
 };
 
 using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
@@ -62,63 +98,47 @@ using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
 // Exposes the underlying mocks to allow for more whitebox tests.
 //
 // Drains the cache and verifies that no data was lost in the destructor.
-template <typename TransferCache>
+template <typename TransferCacheT>
 class FakeTransferCacheEnvironment {
  public:
-  FakeTransferCacheEnvironment()
-      : manager_(), cache_(&manager_), allocs_(0), deallocs_(0) {
-    cache_.Init(1);
-    ON_CALL(central_freelist(), RemoveRange)
-        .WillByDefault(
-            [this](void** bufs, int n) { return AllocateBatch(bufs, n); });
-    ON_CALL(central_freelist(), InsertRange)
-        .WillByDefault(
-            [this](void** bufs, int n) { return DeallocateBatch(bufs, n); });
+  using TransferCache = TransferCacheT;
+  using Manager = typename TransferCache::Manager;
+  using FreeList = typename TransferCache::FreeList;
 
-    // We want single threaded tests to be deterministic, so we use a
-    // deterministic generator.  Because we don't know about the threading for
-    // our tests we cannot keep the generator in a local variable.
-    ON_CALL(transfer_cache_manager(), ShrinkCache).WillByDefault([]() {
-      thread_local std::mt19937 gen{0};
-      return absl::Bernoulli(gen, 0.8);
-    });
-    ON_CALL(transfer_cache_manager(), GrowCache).WillByDefault([]() {
-      thread_local std::mt19937 gen{0};
-      return absl::Bernoulli(gen, 0.8);
-    });
-    ON_CALL(transfer_cache_manager(), DetermineSizeClassToEvict)
-        .WillByDefault([]() {
-          thread_local std::mt19937 gen{0};
-          return absl::Uniform<size_t>(gen, 1, kNumClasses);
-        });
+  static constexpr int kMaxObjectsToMove = ::kMaxObjectsToMove;
+  static constexpr int kMaxCapacityInBatches =
+      TransferCache::kMaxCapacityInBatches;
+  static constexpr int kInitialCapacityInBatches =
+      TransferCache::kInitialCapacityInBatches;
+  static constexpr int kBatchSize = Manager::num_objects_to_move(1);
+
+  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_) {
+    cache_.Init(1);
   }
 
   ~FakeTransferCacheEnvironment() {
     Drain();
-    EXPECT_EQ(allocs_.load(), deallocs_.load());
   }
 
   void Shrink() { cache_.ShrinkCache(); }
   void Grow() { cache_.GrowCache(); }
 
   void Insert(int n) {
-    const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
     void* bufs[kMaxObjectsToMove];
     while (n > 0) {
-      int b = std::min(n, batch_size);
-      AllocateBatch(bufs, b);
+      int b = std::min(n, kBatchSize);
+      central_freelist().AllocateBatch(bufs, b);
       cache_.InsertRange(bufs, b);
       n -= b;
     }
   }
 
   void Remove(int n) {
-    const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
     void* bufs[kMaxObjectsToMove];
     while (n > 0) {
-      int b = std::min(n, batch_size);
+      int b = std::min(n, kBatchSize);
       cache_.RemoveRange(bufs, b);
-      DeallocateBatch(bufs, b);
+      central_freelist().FreeBatch(bufs, b);
       n -= b;
     }
   }
@@ -126,8 +146,6 @@ class FakeTransferCacheEnvironment {
   void Drain() { Remove(cache_.tc_length()); }
 
   void RandomlyPoke() {
-    const int batch_size = MockTransferCacheManager::num_objects_to_move(1);
-
     absl::BitGen gen;
     // We want a probabilistic steady state size:
     // - grow/shrink balance on average
@@ -138,40 +156,21 @@ class FakeTransferCacheEnvironment {
     } else if (choice < 0.2) {
       Grow();
     } else if (choice < 0.6) {
-      Insert(absl::Uniform(gen, 1, batch_size));
+      Insert(absl::Uniform(gen, 1, kBatchSize));
     } else {
-      Remove(absl::Uniform(gen, 1, batch_size));
+      Remove(absl::Uniform(gen, 1, kBatchSize));
     }
   }
 
   TransferCache& transfer_cache() { return cache_; }
 
-  MockTransferCacheManager& transfer_cache_manager() { return manager_; }
+  Manager& transfer_cache_manager() { return manager_; }
 
-  MockCentralFreeList& central_freelist() { return cache_.freelist(); }
+  FreeList& central_freelist() { return cache_.freelist(); }
 
  private:
-  int AllocateBatch(void** bufs, int n) {
-    allocs_.fetch_add(n);
-    for (int i = 0; i < n; ++i) {
-      bufs[i] = ::operator new(4);
-    }
-    return n;
-  }
-
-  int DeallocateBatch(void** bufs, int n) {
-    deallocs_.fetch_add(n);
-    for (int i = 0; i < n; ++i) {
-      ::operator delete(bufs[i]);
-    }
-    return n;
-  }
-
-  MockTransferCacheManager manager_;
+  Manager manager_;
   TransferCache cache_;
-
-  std::atomic<int64_t> allocs_;
-  std::atomic<int64_t> deallocs_;
 };
 
 }  // namespace tcmalloc

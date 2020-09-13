@@ -1,4 +1,4 @@
-// Copyright 2019 The TCMalloc Authors
+// Copyright 2020 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,29 +21,64 @@
 
 namespace tcmalloc {
 
-class RawMockCentralFreeList {
+class FakeCentralFreeListBase {
  public:
-  RawMockCentralFreeList() : size_class_(0) {
-    ON_CALL(*this, Init).WillByDefault([this](size_t size_class) {
-      size_class_ = size_class;
-    });
-    ON_CALL(*this, size_class).WillByDefault([this]() { return size_class_; });
-    ON_CALL(*this, length).WillByDefault([]() { return 0; });
-    ON_CALL(*this, OverheadBytes).WillByDefault([]() { return 0; });
-  }
+  FakeCentralFreeListBase() : size_class_(0) {}
+  FakeCentralFreeListBase(const FakeCentralFreeListBase&) = delete;
+  FakeCentralFreeListBase& operator=(const FakeCentralFreeListBase&) = delete;
 
-  RawMockCentralFreeList(const RawMockCentralFreeList&) = delete;
-  RawMockCentralFreeList& operator=(const RawMockCentralFreeList&) = delete;
-
-  MOCK_METHOD(void, Init, (size_t cl));
-  MOCK_METHOD(void, InsertRange, (void** batch, int N));
-  MOCK_METHOD(int, RemoveRange, (void** batch, int N));
-  MOCK_METHOD(size_t, length, ());
-  MOCK_METHOD(size_t, OverheadBytes, ());
-  MOCK_METHOD(size_t, size_class, (), (const));
+  void Init(size_t cl) { size_class_ = cl; }
+  size_t length() { return 0; }
+  size_t OverheadBytes() { return 0; }
+  size_t size_class() const { return size_class_; }
 
  private:
   size_t size_class_;
+};
+
+// CentralFreeList implementation that backs onto the system's malloc.
+//
+// Useful for unit tests and fuzz tests where identifying leaks and correctness
+// is important.
+class FakeCentralFreeList : public FakeCentralFreeListBase {
+ public:
+  void InsertRange(void** batch, int N);
+  int RemoveRange(void** batch, int N);
+
+  void AllocateBatch(void** batch, int n);
+  void FreeBatch(void** batch, int n);
+};
+
+// CentralFreeList implementation that does minimal work but no correctness
+// checking.
+//
+// Useful for benchmarks where you want to avoid unrelated expensive operations.
+class MinimalFakeCentralFreeList : public FakeCentralFreeListBase {
+ public:
+  void InsertRange(void** batch, int N);
+  int RemoveRange(void** batch, int N);
+
+  void AllocateBatch(void** batch, int n);
+  void FreeBatch(void** batch, int n);
+};
+
+// CentralFreeList implementation that allows intercepting specific calls.  By
+// default backs onto the system's malloc.
+//
+// Useful for intrusive unit tests that want to verify internal behavior.
+class RawMockCentralFreeList : public FakeCentralFreeList {
+ public:
+  RawMockCentralFreeList() : FakeCentralFreeList() {
+    ON_CALL(*this, InsertRange).WillByDefault([this](void** batch, int n) {
+      return static_cast<FakeCentralFreeList*>(this)->InsertRange(batch, n);
+    });
+    ON_CALL(*this, RemoveRange).WillByDefault([this](void** batch, int n) {
+      return static_cast<FakeCentralFreeList*>(this)->RemoveRange(batch, n);
+    });
+  }
+
+  MOCK_METHOD(void, InsertRange, (void** batch, int N));
+  MOCK_METHOD(int, RemoveRange, (void** batch, int N));
 };
 
 using MockCentralFreeList = testing::NiceMock<RawMockCentralFreeList>;
