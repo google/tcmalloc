@@ -121,9 +121,7 @@
 using tcmalloc::AllocatorStats;
 using tcmalloc::CppPolicy;
 using tcmalloc::kCrash;
-using tcmalloc::kCrashWithStats;
 using tcmalloc::kLog;
-using tcmalloc::kLogWithStack;
 using tcmalloc::Length;
 using tcmalloc::Log;
 using tcmalloc::MallocPolicy;
