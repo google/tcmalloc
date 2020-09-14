@@ -633,6 +633,7 @@ cc_binary(
         ":mock_central_freelist",
         ":mock_transfer_cache",
         "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/types:optional",
     ],
 )
 

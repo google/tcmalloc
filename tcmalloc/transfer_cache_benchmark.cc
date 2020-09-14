@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/types/optional.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
@@ -22,11 +23,11 @@
 namespace tcmalloc {
 namespace {
 
-using FakeTransferCacheEnv =
+using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
 
-using FakeLockFreeTransferCacheEnv =
+using LockFreeEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
 
@@ -75,61 +76,56 @@ void BM_CrossThreadDraining(benchmark::State& state) {
 }
 
 template <typename Env>
-void BM_WithinThreadBalance(benchmark::State& state) {
-  using Manager = typename Env::Manager;
-  using Cache = typename Env::TransferCache;
+void BM_InsertRange(benchmark::State& state) {
   const int kBatchSize = Env::kBatchSize;
   const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
-  void* batch[kMaxObjectsToMove];
 
-  struct CrossThreadState {
-    CrossThreadState() : m(), c(&m) { c.Init(1); }
-    Manager m;
-    Cache c;
-  };
-  static CrossThreadState* s = nullptr;
-  if (state.thread_index == 0) {
-    s = new CrossThreadState();
-    for (int i = 0; i < Env::kInitialCapacityInBatches / 2; ++i) {
-      s->c.freelist().AllocateBatch(batch, kBatchSize);
-      s->c.InsertRange(batch, kBatchSize);
-    }
-  }
+  // optional to have more precise control of when the destruction occurs, as
+  // we want to avoid polluting the timing with the dtor.
+  absl::optional<Env> e;
+  e.emplace();
+  void* batch[kMaxObjectsToMove];
+  e->central_freelist().AllocateBatch(batch, kBatchSize);
 
   for (auto iter : state) {
+    state.PauseTiming();
+    e.emplace();
+    benchmark::DoNotOptimize(e);
     benchmark::DoNotOptimize(batch);
-    s->c.RemoveRange(batch, kBatchSize);
-    benchmark::DoNotOptimize(batch);
-    s->c.InsertRange(batch, kBatchSize);
-    benchmark::DoNotOptimize(batch);
-  }
+    state.ResumeTiming();
 
-  if (state.thread_index == 0) {
-    delete s;
-    s = nullptr;
+    e->transfer_cache().InsertRange(batch, kBatchSize);
   }
 }
 
-void BM_CrossThreadDraining_TransferCache(benchmark::State& state) {
-  BM_CrossThreadDraining<FakeTransferCacheEnv>(state);
+template <typename Env>
+void BM_RemoveRange(benchmark::State& state) {
+  const int kBatchSize = Env::kBatchSize;
+  const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+
+  // optional to have more precise control of when the destruction occurs, as
+  // we want to avoid polluting the timing with the dtor.
+  absl::optional<Env> e;
+  void* batch[kMaxObjectsToMove];
+  for (auto iter : state) {
+    state.PauseTiming();
+    e.emplace();
+    e->Insert(kBatchSize);
+    benchmark::DoNotOptimize(e);
+    state.ResumeTiming();
+
+    e->transfer_cache().RemoveRange(batch, kBatchSize);
+    benchmark::DoNotOptimize(batch);
+  }
 }
 
-void BM_CrossThreadDraining_LockFreeTransferCache(benchmark::State& state) {
-  BM_CrossThreadDraining<FakeLockFreeTransferCacheEnv>(state);
-}
-
-void BM_WithinThreadBalance_TransferCache(benchmark::State& state) {
-  BM_WithinThreadBalance<FakeTransferCacheEnv>(state);
-}
-
-void BM_WithinThreadBalance_LockFreeTransferCache(benchmark::State& state) {
-  BM_WithinThreadBalance<FakeLockFreeTransferCacheEnv>(state);
-}
-
-BENCHMARK(BM_CrossThreadDraining_TransferCache)->ThreadRange(2, 128);
-BENCHMARK(BM_CrossThreadDraining_LockFreeTransferCache)->ThreadRange(2, 128);
-BENCHMARK(BM_WithinThreadBalance_TransferCache)->ThreadRange(1, 128);
-BENCHMARK(BM_WithinThreadBalance_LockFreeTransferCache)->ThreadRange(1, 128);
+BENCHMARK_TEMPLATE(BM_CrossThreadDraining, TransferCacheEnv)
+    ->ThreadRange(2, 128);
+BENCHMARK_TEMPLATE(BM_CrossThreadDraining, LockFreeEnv)->ThreadRange(2, 128);
+BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_InsertRange, LockFreeEnv);
+BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_RemoveRange, LockFreeEnv);
 
 }  // namespace
 }  // namespace tcmalloc
