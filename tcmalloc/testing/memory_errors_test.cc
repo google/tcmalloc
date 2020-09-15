@@ -61,7 +61,7 @@ class GuardedAllocAlignmentTest : public testing::Test {
     ::operator delete(p);
   }
 
-  ~GuardedAllocAlignmentTest() {
+  ~GuardedAllocAlignmentTest() override {
     MallocExtension::SetProfileSamplingRate(profile_sampling_rate_);
     MallocExtension::SetGuardedSamplingRate(guarded_sample_rate_);
   }

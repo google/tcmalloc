@@ -230,7 +230,7 @@ TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
         for (size_t i = 0; i < ptrs.size(); i++) {
           if (i % 2) continue;
           ::operator delete(ptrs[i]);
-          ptrs[i] = static_cast<void *>(0);
+          ptrs[i] = static_cast<void *>(nullptr);
         }
         DumpHeapStats("after freeing half of medium objects");
         for (size_t i = 0; i < kNumLargeObjs; i++) {
