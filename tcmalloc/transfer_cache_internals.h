@@ -15,11 +15,18 @@
 #ifndef TCMALLOC_TRANSFER_CACHE_INTERNAL_H_
 #define TCMALLOC_TRANSFER_CACHE_INTERNAL_H_
 
+#include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __x86_64__
+#include <emmintrin.h>
+#include <xmmintrin.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -499,16 +506,16 @@ class LockFreeTransferCache {
       // is not done, large size class objects will consume a lot of memory if
       // they just sit in the transfer cache.
       size_t bytes = Manager::class_to_size(cl);
-      size_t objs_to_move = Manager::num_objects_to_move(cl);
-      ASSERT(objs_to_move > 0 && bytes > 0);
+      batch_size_ = Manager::num_objects_to_move(cl);
+      ASSERT(batch_size_ > 0 && bytes > 0);
 
       // Starting point for the maximum number of entries in the transfer cache.
       // This actual maximum for a given size class may be lower than this
       // maximum value.
-      max_capacity_ = kMaxCapacityInBatches * objs_to_move;
+      max_capacity_ = kMaxCapacityInBatches * batch_size_;
       // A transfer cache freelist can have anywhere from 0 to
       // max_capacity_ slots to put link list chains into.
-      capacity = kInitialCapacityInBatches * objs_to_move;
+      capacity = kInitialCapacityInBatches * batch_size_;
 
       // Limit each size class cache to at most 1MB of objects or one entry,
       // whichever is greater. Total transfer cache memory used across all
@@ -516,9 +523,8 @@ class LockFreeTransferCache {
       // 1MB * kMaxNumTransferEntries.
       max_capacity_ = std::min<size_t>(
           max_capacity_,
-          std::max<size_t>(
-              objs_to_move,
-              (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
+          std::max<size_t>(batch_size_, (1024 * 1024) / (bytes * batch_size_) *
+                                            batch_size_));
       capacity = std::min(capacity, max_capacity_);
       capacity_.store(capacity, std::memory_order_relaxed);
       slots_ = reinterpret_cast<void **>(
@@ -529,7 +535,7 @@ class LockFreeTransferCache {
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
   void InsertRange(absl::Span<void *> batch, int N) {
-    ASSERT(0 < N && N <= Manager::num_objects_to_move(size_class()));
+    ASSERT(0 < N && N <= batch_size_);
     int32_t new_h;
     int32_t old_h = head_.load(std::memory_order_relaxed);
     do {
@@ -569,13 +575,7 @@ class LockFreeTransferCache {
       memcpy(entry, batch.data(), sizeof(void *) * new_h);
     }
 
-    int32_t temp_h;
-    while (!head_committed_.compare_exchange_weak(temp_h = old_h, new_h,
-                                                  std::memory_order_release,
-                                                  std::memory_order_relaxed)) {
-      // TODO(kfm): this is a simple spin lock, it would be nice if we could
-      // report contention here.
-    }
+    AdvanceCommitLine(&head_committed_, old_h, new_h);
   }
 
   // Returns the actual number of fetched elements and stores elements in the
@@ -612,15 +612,7 @@ class LockFreeTransferCache {
       memcpy(batch, entry, sizeof(void *) * new_t);
     }
 
-    // tail_ == tail_committed_ is not guaranteed, so we spin waiting for
-    // pending removals to be committed.
-    int32_t temp_t;
-    while (!tail_committed_.compare_exchange_weak(temp_t = old_t, new_t,
-                                                  std::memory_order_release,
-                                                  std::memory_order_relaxed)) {
-      // TODO(kfm): this is a simple spin lock, it would be nice if we could
-      // report contention here.
-    }
+    AdvanceCommitLine(&tail_committed_, old_t, new_t);
     return N;
   }
 
@@ -682,11 +674,10 @@ class LockFreeTransferCache {
 
   // Tries to grow the cache. Returns false if it failed.
   bool GrowCache() {
-    int N = Manager::num_objects_to_move(size_class());
     int new_c;
     int old_c = capacity_.load(std::memory_order_relaxed);
     do {
-      new_c = old_c + N;
+      new_c = old_c + batch_size_;
       if (new_c > max_capacity_) return false;
     } while (!capacity_.compare_exchange_weak(
         old_c, new_c, std::memory_order_relaxed, std::memory_order_relaxed));
@@ -695,12 +686,11 @@ class LockFreeTransferCache {
 
   // Tries to shrink the Cache.  Return false if it failed.
   bool ShrinkCache() {
-    int N = Manager::num_objects_to_move(size_class());
     int new_c;
     int32_t old_c = capacity_.load(std::memory_order_relaxed);
     do {
-      if (old_c < N) return false;
-      new_c = old_c - N;
+      if (old_c < batch_size_) return false;
+      new_c = old_c - batch_size_;
     } while (!capacity_.compare_exchange_weak(
         old_c, new_c, std::memory_order_relaxed, std::memory_order_relaxed));
 
@@ -714,10 +704,9 @@ class LockFreeTransferCache {
   }
 
   bool HasSpareCapacity() {
-    int N = Manager::num_objects_to_move(size_class());
     int32_t c = capacity_.load(std::memory_order_relaxed);
     int32_t s = tc_length();
-    return c - s >= N;
+    return c - s >= batch_size_;
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() { return freelist_; }
@@ -726,6 +715,20 @@ class LockFreeTransferCache {
   }
 
  private:
+  // TODO(kfm): this is a simple spin lock, it would be nice if we could
+  // report contention here.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void AdvanceCommitLine(
+      std::atomic<int32_t> *commit, int32_t from, int32_t to) {
+    int32_t temp_pos;
+    while (!commit->compare_exchange_weak(temp_pos = from, to,
+                                          std::memory_order_release,
+                                          std::memory_order_relaxed)) {
+#ifdef __x86_64__
+      _mm_pause();
+#endif
+    }
+  }
+
   // Returns first object of the i-th slot.
   void **GetSlot(size_t i) { return slots_ + i; }
 
@@ -740,6 +743,7 @@ class LockFreeTransferCache {
 
   // Maximum size of the cache for a given size class. (immutable after Init())
   int32_t max_capacity_;
+  int32_t batch_size_;
 
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> capacity_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_;
