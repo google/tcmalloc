@@ -24,7 +24,6 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
-#include "absl/synchronization/blocking_counter.h"
 #include "absl/time/clock.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
@@ -32,6 +31,7 @@
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
@@ -154,36 +154,6 @@ TEST(LockFreeTransferCache, WrappingWorks) {
     env.Insert(batch_size);
   }
 }
-
-class ThreadManager {
- public:
-  ThreadManager() : shutdown_(false) {}
-  ~ThreadManager() {
-    EXPECT_TRUE(shutdown_.load()) << "ThreadManager not stopped";
-  }
-
-  void Start(int n, const std::function<void()>& func) {
-    absl::BlockingCounter started(n);
-    for (int i = 0; i < n; ++i) {
-      threads_.emplace_back([this, func, &started]() {
-        started.DecrementCount();
-        while (!shutdown_.load()) {
-          func();
-        }
-      });
-    }
-    started.Wait();
-  }
-
-  void Stop() {
-    shutdown_.store(true);
-    for (auto& t : threads_) t.join();
-  }
-
- private:
-  std::atomic<bool> shutdown_;
-  std::vector<std::thread> threads_;
-};
 
 TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
   LockFreeEnv env;

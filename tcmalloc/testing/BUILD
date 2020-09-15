@@ -286,6 +286,17 @@ create_tcmalloc_testsuite(
     ],
 )
 
+cc_library(
+    name = "thread_manager",
+    testonly = 1,
+    hdrs = ["thread_manager.h"],
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/synchronization",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_test(
     name = "outofmemory_test",
     srcs = ["outofmemory_test.cc"],
