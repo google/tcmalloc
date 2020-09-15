@@ -31,15 +31,17 @@ class ThreadManager {
     EXPECT_TRUE(shutdown_.load()) << "ThreadManager not stopped";
   }
 
-  void Start(int n, const std::function<void()>& func) {
+  void Start(int n, const std::function<void(int)>& func) {
     absl::BlockingCounter started(n);
     for (int i = 0; i < n; ++i) {
-      threads_.emplace_back([this, func, &started]() {
-        started.DecrementCount();
-        while (!shutdown_.load()) {
-          func();
-        }
-      });
+      threads_.emplace_back(
+          [this, func, &started](int thread_id) {
+            started.DecrementCount();
+            while (!shutdown_.load()) {
+              func(thread_id);
+            }
+          },
+          i);
     }
     started.Wait();
   }

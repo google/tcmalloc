@@ -158,7 +158,7 @@ TEST(LockFreeTransferCache, WrappingWorks) {
 TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
   LockFreeEnv env;
   ThreadManager threads;
-  threads.Start(10, [&]() { env.RandomlyPoke(); });
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
   auto start = absl::Now();
   while (start + absl::Seconds(0.3) > absl::Now()) env.RandomlyPoke();
@@ -170,7 +170,7 @@ TEST(LockFreeTransferCache, MultiThreadedBiasedInsert) {
 
   LockFreeEnv env;
   ThreadManager threads;
-  threads.Start(10, [&]() { env.RandomlyPoke(); });
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
   auto start = absl::Now();
   while (start + absl::Seconds(5) > absl::Now()) env.Insert(batch_size);
@@ -182,7 +182,7 @@ TEST(LockFreeTransferCache, MultiThreadedBiasedRemove) {
 
   LockFreeEnv env;
   ThreadManager threads;
-  threads.Start(10, [&]() { env.RandomlyPoke(); });
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
   auto start = absl::Now();
   while (start + absl::Seconds(5) > absl::Now()) env.Remove(batch_size);
@@ -192,7 +192,7 @@ TEST(LockFreeTransferCache, MultiThreadedBiasedRemove) {
 TEST(LockFreeTransferCache, MultiThreadedBiasedShrink) {
   LockFreeEnv env;
   ThreadManager threads;
-  threads.Start(10, [&]() { env.RandomlyPoke(); });
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
   auto start = absl::Now();
   while (start + absl::Seconds(5) > absl::Now()) env.Shrink();
@@ -202,7 +202,7 @@ TEST(LockFreeTransferCache, MultiThreadedBiasedShrink) {
 TEST(LockFreeTransferCache, MultiThreadedBiasedGrow) {
   LockFreeEnv env;
   ThreadManager threads;
-  threads.Start(10, [&]() { env.RandomlyPoke(); });
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
   auto start = absl::Now();
   while (start + absl::Seconds(5) > absl::Now()) env.Grow();

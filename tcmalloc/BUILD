@@ -707,6 +707,7 @@ cc_test(
         ":malloc_extension",
         ":page_allocator_test_util",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

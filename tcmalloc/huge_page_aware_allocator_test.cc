@@ -55,6 +55,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
+#include "tcmalloc/testing/thread_manager.h"
 
 ABSL_FLAG(std::string, tracefile, "", "file to pull trace from");
 ABSL_FLAG(uint64_t, limit, 0, "");
@@ -904,6 +905,66 @@ TEST_F(StatTest, Basic) {
   }
 
   // test over, malloc all you like
+}
+
+TEST_F(HugePageAwareAllocatorTest, ParallelRelease) {
+  ThreadManager threads;
+  constexpr int kThreads = 10;
+
+  struct ABSL_CACHELINE_ALIGNED Metadata {
+    absl::BitGen rng;
+    std::vector<Span *> spans;
+  };
+
+  std::vector<Metadata> metadata;
+  metadata.resize(kThreads);
+
+  threads.Start(kThreads, [&](int thread_id) {
+    Metadata &m = metadata[thread_id];
+
+    if (thread_id == 0) {
+      ReleasePages(Length(absl::Uniform(m.rng, 1, 1 << 10)));
+      return;
+    } else if (thread_id == 1) {
+      benchmark::DoNotOptimize(Print());
+      return;
+    }
+
+    if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
+      Span *s = AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)));
+      CHECK_CONDITION(s != nullptr);
+
+      // Touch the contents of the buffer.  We later use it to verify we are the
+      // only thread manipulating the Span, for example, if another thread
+      // madvise DONTNEED'd the contents and zero'd them.
+      const uintptr_t key = reinterpret_cast<uintptr_t>(s) ^ thread_id;
+      *reinterpret_cast<uintptr_t *>(s->start_address()) = key;
+
+      m.spans.push_back(s);
+    } else {
+      size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
+
+      Span *back = m.spans.back();
+      Span *s = m.spans[index];
+      m.spans[index] = back;
+      m.spans.pop_back();
+
+      const uintptr_t key = reinterpret_cast<uintptr_t>(s) ^ thread_id;
+      EXPECT_EQ(*reinterpret_cast<uintptr_t *>(s->start_address()), key);
+
+      AllocatorDelete(s);
+    }
+  });
+
+  absl::SleepFor(absl::Seconds(1));
+
+  threads.Stop();
+
+  for (auto &m : metadata) {
+    for (Span *s : m.spans) {
+      AllocatorDelete(s);
+    }
+  }
 }
 
 }  // namespace
