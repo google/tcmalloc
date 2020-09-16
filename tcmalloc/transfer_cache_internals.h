@@ -625,7 +625,7 @@ class LockFreeTransferCache {
                          tail_committed_.load(std::memory_order_relaxed));
   }
 
-  size_t size_from_pos(int32_t h, int32_t t) {
+  int32_t size_from_pos(int32_t h, int32_t t) {
     int32_t s = h - t;
     if (s < 0) s += slots_size();
     return s;
