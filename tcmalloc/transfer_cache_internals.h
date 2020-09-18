@@ -41,6 +41,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/tracking.h"
+#include "tcmalloc/transfer_cache_stats.h"
 
 namespace tcmalloc::internal_transfer_cache {
 
@@ -73,6 +74,10 @@ class TransferCache {
       : owner_(owner),
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(0),
+        insert_hits_(0),
+        remove_hits_(0),
+        insert_misses_(0),
+        remove_misses_(0),
         slot_info_{},
         slots_(nullptr),
         freelist_do_not_access_directly_(),
@@ -149,6 +154,7 @@ class TransferCache {
         void **entry = GetSlot(info.used - N);
         memcpy(entry, batch.data(), sizeof(void *) * N);
         tracking::Report(kTCInsertHit, size_class(), 1);
+        insert_hits_++;
         return;
       }
     } else if (arbitrary_transfer_) {
@@ -163,6 +169,7 @@ class TransferCache {
         void **entry = GetSlot(info.used - N);
         memcpy(entry, batch.data(), sizeof(void *) * N);
         tracking::Report(kTCInsertHit, size_class(), 1);
+        insert_hits_++;
         return;
       }
       // We could not fit the entire batch into the transfer cache
@@ -191,6 +198,7 @@ class TransferCache {
 #endif
       }
     }
+    insert_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCInsertMiss, size_class(), 1);
     freelist().InsertRange(batch.data(), N);
   }
@@ -212,6 +220,7 @@ class TransferCache {
         void **entry = GetSlot(info.used);
         memcpy(batch, entry, sizeof(void *) * N);
         tracking::Report(kTCRemoveHit, size_class(), 1);
+        remove_hits_++;
         return N;
       }
     } else if (arbitrary_transfer_ && info.used >= 0) {
@@ -225,8 +234,10 @@ class TransferCache {
       void **entry = GetSlot(info.used);
       memcpy(batch, entry, sizeof(void *) * fetch);
       tracking::Report(kTCRemoveHit, size_class(), 1);
+      remove_hits_++;
       if (fetch == N) return N;
     }
+    remove_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCRemoveMiss, size_class(), 1);
     return freelist().RemoveRange(batch + fetch, N - fetch) + fetch;
   }
@@ -241,6 +252,19 @@ class TransferCache {
 
   // Returns the number of spans allocated and deallocated from the CFL
   SpanStats GetSpanStats() const { return freelist().GetSpanStats(); }
+
+  // Returns the number of transfer cache insert/remove hits/misses.
+  TransferCacheStats GetHitRateStats() ABSL_LOCKS_EXCLUDED(lock_) {
+    TransferCacheStats stats;
+    {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      stats.insert_hits = insert_hits_;
+      stats.remove_hits = remove_hits_;
+    }
+    stats.insert_misses = insert_misses_;
+    stats.remove_misses = remove_misses_;
+    return stats;
+  }
 
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
@@ -368,6 +392,11 @@ class TransferCache {
   // Maximum size of the cache for a given size class. (immutable after Init())
   int32_t max_capacity_;
 
+  size_t insert_hits_ ABSL_GUARDED_BY(lock_);
+  size_t remove_hits_ ABSL_GUARDED_BY(lock_);
+  std::atomic<size_t> insert_misses_;
+  std::atomic<size_t> remove_misses_;
+
   // Number of currently used and available cached entries in slots_.  This
   // variable is updated under a lock but can be read without one.
   // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
@@ -484,8 +513,12 @@ class LockFreeTransferCache {
         max_capacity_(0),
         capacity_(),
         head_(),
+        insert_hits_(0),
+        insert_misses_(0),
         head_committed_(),
         tail_(),
+        remove_hits_(0),
+        remove_misses_(0),
         tail_committed_() {}
 
   LockFreeTransferCache(const LockFreeTransferCache &) = delete;
@@ -545,6 +578,7 @@ class LockFreeTransferCache {
 
       if (!EnsureCacheSpace(size_from_pos(old_h, t) + N)) {
         tracking::Report(kTCInsertMiss, size_class(), 1);
+        insert_misses_.fetch_add(1, std::memory_order_relaxed);
         freelist_.InsertRange(batch.data(), N);
         return;
       }
@@ -555,6 +589,7 @@ class LockFreeTransferCache {
         old_h, new_h, std::memory_order_relaxed, std::memory_order_relaxed));
 
     tracking::Report(kTCInsertHit, size_class(), 1);
+    insert_hits_.fetch_add(1, std::memory_order_relaxed);
     if (old_h < new_h) {
       ASSERT(new_h - old_h == N);
       void **entry = GetSlot(old_h);
@@ -583,6 +618,7 @@ class LockFreeTransferCache {
       int32_t s = size_from_pos(h, old_t);
       if (s < N) {
         tracking::Report(kTCRemoveMiss, size_class(), 1);
+        remove_misses_.fetch_add(1, std::memory_order_relaxed);
         return freelist_.RemoveRange(batch, N);
       }
       new_t = old_t + N;
@@ -591,6 +627,7 @@ class LockFreeTransferCache {
         old_t, new_t, std::memory_order_relaxed, std::memory_order_relaxed));
 
     tracking::Report(kTCRemoveHit, size_class(), 1);
+    remove_hits_.fetch_add(1, std::memory_order_relaxed);
     if (old_t < new_t) {
       ASSERT(new_t - old_t == N);
       void **entry = GetSlot(old_t);
@@ -627,6 +664,16 @@ class LockFreeTransferCache {
 
   // Returns the number of spans allocated and deallocated from the CFL
   SpanStats GetSpanStats() const { return freelist_.GetSpanStats(); }
+
+  // Returns the number of transfer cache insert/remove hits/misses.
+  TransferCacheStats GetHitRateStats() const {
+    TransferCacheStats stats;
+    stats.insert_hits = insert_hits_;
+    stats.insert_misses = insert_misses_;
+    stats.remove_hits = remove_hits_;
+    stats.remove_misses = remove_misses_;
+    return stats;
+  }
 
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
@@ -737,8 +784,12 @@ class LockFreeTransferCache {
 
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> capacity_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_;
+  std::atomic<size_t> insert_hits_;
+  std::atomic<size_t> insert_misses_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_committed_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_;
+  std::atomic<size_t> remove_hits_;
+  std::atomic<size_t> remove_misses_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_committed_;
 } ABSL_CACHELINE_ALIGNED;
 

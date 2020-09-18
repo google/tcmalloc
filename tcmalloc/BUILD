@@ -206,6 +206,7 @@ common_srcs = [
     "thread_cache.cc",
     "thread_cache.h",
     "tracking.h",
+    "transfer_cache_stats.h",
     "transfer_cache.cc",
     "transfer_cache.h",
     "transfer_cache_internals.h",
@@ -243,6 +244,7 @@ common_hdrs = [
     "tcmalloc.h",
     "thread_cache.h",
     "tracking.h",
+    "transfer_cache_stats.h",
     "transfer_cache.h",
     "transfer_cache_internals.h",
 ]
@@ -512,6 +514,7 @@ cc_library(
         "tracking.h",
         "transfer_cache.h",
         "transfer_cache_internals.h",
+        "transfer_cache_stats.h",
     ],
     hdrs = [
         "common.h",

@@ -28,6 +28,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 #include "tcmalloc/transfer_cache_internals.h"
@@ -115,6 +116,13 @@ class TransferCacheManager {
       return cache_[size_class].legacy.GetSpanStats();
   }
 
+  TransferCacheStats GetHitRateStats(int size_class) {
+    if (use_lock_free_cache_)
+      return cache_[size_class].lock_free.GetHitRateStats();
+    else
+      return cache_[size_class].legacy.GetHitRateStats();
+  }
+
  private:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
@@ -181,6 +189,15 @@ class TransferCacheManager {
 
   SpanStats GetSpanStats(int size_class) const {
     return freelist_[size_class].GetSpanStats();
+  }
+
+  TransferCacheStats GetHitRateStats(int size_class) const {
+    TransferCacheStats stats;
+    stats.insert_hits = 0;
+    stats.insert_misses = 0;
+    stats.remove_hits = 0;
+    stats.remove_misses = 0;
+    return stats;
   }
 
  private:

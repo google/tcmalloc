@@ -110,6 +110,7 @@
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/tracking.h"
 #include "tcmalloc/transfer_cache.h"
+#include "tcmalloc/transfer_cache_stats.h"
 
 #if defined(OS_FREEBSD) || defined(OS_MACOSX)
 #undef HAVE_STRUCT_MALLINFO
@@ -166,6 +167,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
                          tcmalloc::SpanStats* span_stats,
                          tcmalloc::SmallSpanStats* small_spans,
                          tcmalloc::LargeSpanStats* large_spans,
+                         tcmalloc::TransferCacheStats* tc_stats,
                          bool report_residence) {
   r->central_bytes = 0;
   r->transfer_bytes = 0;
@@ -186,6 +188,9 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     }
     if (span_stats) {
       span_stats[cl] = Static::transfer_cache().GetSpanStats(cl);
+    }
+    if (tc_stats) {
+      tc_stats[cl] = Static::transfer_cache().GetHitRateStats(cl);
     }
   }
 
@@ -239,7 +244,8 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 }
 
 static void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
-  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
+  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, nullptr,
+               report_residence);
 }
 
 // Because different fields of stats are computed from state protected
@@ -279,8 +285,10 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   tcmalloc::SpanStats span_stats[kNumClasses];
+  tcmalloc::TransferCacheStats tc_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
+                 true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -413,6 +421,18 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
       // clang-format on
     }
 
+    out->printf("------------------------------------------------\n");
+    out->printf("Transfer cache insert/remove hits/misses by size class\n");
+    for (int cl = 1; cl < kNumClasses; ++cl) {
+      // clang-format off
+      out->printf(
+          "class %3d [ %8zu bytes ] : %8" PRIu64 " insert hits; %8" PRIu64
+          " insert misses; %8" PRIu64 " remove hits; %8" PRIu64 " remove misses;\n",
+          cl, Static::sizemap()->class_to_size(cl), tc_stats[cl].insert_hits,
+          tc_stats[cl].insert_misses, tc_stats[cl].remove_hits, tc_stats[cl].remove_misses);
+      // clang-format on
+    }
+
     if (tcmalloc::UsePerCpuCache()) {
       Static::cpu_cache()->Print(out);
     }
@@ -452,8 +472,10 @@ namespace {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   tcmalloc::SpanStats span_stats[kNumClasses];
+  tcmalloc::TransferCacheStats tc_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
+                 true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -517,6 +539,17 @@ namespace {
                        span_stats[cl].num_spans_requested);
         entry.PrintI64("num_spans_returned", span_stats[cl].num_spans_returned);
         entry.PrintI64("obj_capacity", span_stats[cl].obj_capacity);
+      }
+    }
+
+    {
+      for (int cl = 1; cl < kNumClasses; ++cl) {
+        PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
+        entry.PrintI64("sizeclass", Static::sizemap()->class_to_size(cl));
+        entry.PrintI64("insert_hits", tc_stats[cl].insert_hits);
+        entry.PrintI64("insert_misses", tc_stats[cl].insert_misses);
+        entry.PrintI64("remove_hits", tc_stats[cl].remove_hits);
+        entry.PrintI64("remove_misses", tc_stats[cl].remove_misses);
       }
     }
 

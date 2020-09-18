@@ -199,6 +199,22 @@ class   5 [       40 bytes ] :  1047443 objs;  40.0 MiB;  65.1 cum MiB
 ...
 ```
 
+### Transfer Cache Information
+
+Transfer cache is used by TCMalloc, before going to central free list. For each
+size class we track how often insert or remove requests have been satisfied from
+transfer cache.
+
+```
+Transfer cache insert/remove hits/misses by size class
+class   1 [        8 bytes ] :    32417 insert hits;     1511 insert misses;    31919 remove hits;        0 remove misses;
+class   2 [       16 bytes ] :   277493 insert hits;     1436 insert misses;   277265 remove hits;        7 remove misses;
+class   3 [       24 bytes ] :   174842 insert hits;     1302 insert misses;   174521 remove hits;        9 remove misses;
+class   4 [       32 bytes ] :   140506 insert hits;     1796 insert misses;   140336 remove hits;        8 remove misses;
+class   5 [       40 bytes ] :   182921 insert hits;     1607 insert misses;   182745 remove hits;       12 remove misses;
+...
+```
+
 ### Per-CPU Information
 
 If the per-cpu cache is enabled then we get a report of the memory currently

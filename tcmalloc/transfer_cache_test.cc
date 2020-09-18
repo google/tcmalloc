@@ -46,10 +46,20 @@ TEST(TransferCache, IsolatedSmoke) {
   MockTransferCacheEnv e;
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
+
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+
   e.Insert(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
   e.Insert(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
   e.Remove(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
   e.Remove(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
 }
 
 TEST(TransferCache, FetchesFromFreelist) {
@@ -58,6 +68,7 @@ TEST(TransferCache, FetchesFromFreelist) {
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
   e.Remove(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
 }
 
 TEST(TransferCache, EvictsOtherCaches) {
@@ -72,7 +83,10 @@ TEST(TransferCache, EvictsOtherCaches) {
   while (e.transfer_cache().HasSpareCapacity()) {
     e.Insert(batch_size);
   }
+  size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
   e.Insert(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, old_hits + 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
 }
 
 TEST(TransferCache, PushesToFreelist) {
@@ -87,7 +101,10 @@ TEST(TransferCache, PushesToFreelist) {
   while (e.transfer_cache().HasSpareCapacity()) {
     e.Insert(batch_size);
   }
+  size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
   e.Insert(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, old_hits);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
 }
 
 using LockFreeEnv =
@@ -97,17 +114,29 @@ using LockFreeEnv =
 TEST(LockFreeTransferCache, IsolatedSmoke) {
   const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
+
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 0);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 0);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
+
   env.Insert(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 1);
   env.Insert(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 2);
   env.Remove(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 1);
   env.Remove(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 2);
 }
 
 TEST(LockFreeTransferCache, FetchesFromFreelist) {
   const int batch_size = LockFreeEnv::kBatchSize;
   LockFreeEnv env;
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(1);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
   env.Remove(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 1);
 }
 
 TEST(LockFreeTransferCache, EvictsOtherCaches) {
@@ -123,6 +152,7 @@ TEST(LockFreeTransferCache, EvictsOtherCaches) {
     env.Insert(batch_size);
   }
   env.Insert(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
 }
 
 TEST(LockFreeTransferCache, PushesToFreelist) {
@@ -138,6 +168,7 @@ TEST(LockFreeTransferCache, PushesToFreelist) {
     env.Insert(batch_size);
   }
   env.Insert(batch_size);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 1);
 }
 
 TEST(LockFreeTransferCache, WrappingWorks) {
@@ -153,6 +184,8 @@ TEST(LockFreeTransferCache, WrappingWorks) {
     env.Remove(batch_size);
     env.Insert(batch_size);
   }
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
 }
 
 TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
