@@ -140,7 +140,7 @@ class TransferCache {
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used + N <= max_capacity_) {
       absl::base_internal::SpinLockHolder h(&lock_);
-      if (MakeCacheSpace(N)) {
+      if (MakeCacheSpace()) {
         // MakeCacheSpace can drop the lock, so refetch
         info = slot_info_.load(std::memory_order_relaxed);
         info.used += N;
@@ -153,7 +153,7 @@ class TransferCache {
       }
     } else if (arbitrary_transfer_) {
       absl::base_internal::SpinLockHolder h(&lock_);
-      MakeCacheSpace(N);
+      MakeCacheSpace();
       // MakeCacheSpace can drop the lock, so refetch
       info = slot_info_.load(std::memory_order_relaxed);
       int unused = info.capacity - info.used;
@@ -256,7 +256,9 @@ class TransferCache {
   // Tries to make room for a batch.  If the cache is full it will try to expand
   // it at the cost of some other cache size.  Return false if there is no
   // space.
-  bool MakeCacheSpace(int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+  bool MakeCacheSpace() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    const int N = Manager::num_objects_to_move(size_class());
+
     auto info = slot_info_.load(std::memory_order_relaxed);
     // Is there room in the cache?
     if (info.used + N <= info.capacity) return true;
@@ -540,19 +542,11 @@ class LockFreeTransferCache {
     int32_t old_h = head_.load(std::memory_order_relaxed);
     do {
       int32_t t = tail_committed_.load(std::memory_order_acquire);
-      int32_t s = size_from_pos(old_h, t);
-      int32_t c = capacity_.load(std::memory_order_relaxed);
 
-      // We could grow the capacity and then have another thread steal our hard
-      // work, so make sure to refetch capacity and see if we still have space
-      // after growing.
-      while (c - s < N) {
-        if (!MakeCacheSpace(N)) {
-          tracking::Report(kTCInsertMiss, size_class(), 1);
-          freelist_.InsertRange(batch.data(), N);
-          return;
-        }
-        c = capacity_.load(std::memory_order_relaxed);
+      if (!EnsureCacheSpace(size_from_pos(old_h, t) + N)) {
+        tracking::Report(kTCInsertMiss, size_class(), 1);
+        freelist_.InsertRange(batch.data(), N);
+        return;
       }
 
       new_h = old_h + N;
@@ -640,33 +634,29 @@ class LockFreeTransferCache {
   // page full of 5-byte objects would have 2 bytes memory overhead).
   size_t OverheadBytes() { return freelist_.OverheadBytes(); }
 
-  // Tries to make room for a batch.  If the cache is full it will try to expand
-  // it at the cost of some other cache size.  Return false if there is no
-  // space.
-  bool MakeCacheSpace(int N) {
-    // Check if we can expand this cache?
-    int32_t c = capacity_.load(std::memory_order_relaxed);
-    if (c + N > max_capacity_) return false;
+  // Ensures that `size_needed` of total capacity is available.  If the cache is
+  // full it will try to expand this cache at the cost of some other cache size.
+  // Return false on failure.
+  bool EnsureCacheSpace(int32_t size_needed) {
+    while (capacity_.load(std::memory_order_relaxed) < size_needed) {
+      if (size_needed > max_capacity_) return false;
+      int to_evict = owner_->DetermineSizeClassToEvict();
+      if (to_evict == size_class()) return false;
+      if (!owner_->ShrinkCache(to_evict)) return false;
+      if (GrowCache()) continue;
 
-    int to_evict = owner_->DetermineSizeClassToEvict();
-    if (to_evict == size_class()) return false;
-    if (!owner_->ShrinkCache(to_evict)) return false;
-    if (GrowCache()) return true;
-
-    // At this point, we have successfully taken cache space from someone.  Do
-    // not give up until we have given it back to somebody or the entire thing
-    // can just start leaking cache capacity.
-    while (true) {
-      if (++to_evict >= kNumClasses) to_evict = 1;
-
-      // In theory we could unconditionally call to owner_->GrowCache(to_evict);
-      // however, that would actually produce different behavior between the
-      // prod and the test fake, so we manually do this to avoid jumping through
-      // the manager when we "know" we are talking to ourself.
-      if (to_evict == size_class()) {
-        if (GrowCache()) return true;
-      } else if (owner_->GrowCache(to_evict)) {
-        return false;
+      // At this point, we have successfully taken cache space from someone.  Do
+      // not give up until we have given it back to somebody or the entire thing
+      // can just start leaking cache capacity.
+      while (true) {
+        if (++to_evict >= kNumClasses) to_evict = 1;
+        if (to_evict == size_class()) {
+          // We gave it back to ourselves, which is nice, so we should break
+          // from the inner loop and see if we have ensured available space.
+          if (GrowCache()) break;
+        } else if (owner_->GrowCache(to_evict)) {
+          return false;
+        }
       }
     }
     return true;
