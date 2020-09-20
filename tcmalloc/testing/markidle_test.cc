@@ -17,10 +17,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <thread>  // NOLINT(build/c++11)
+
 #include "gtest/gtest.h"
 #include "absl/flags/flag.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -42,22 +43,26 @@ static void TestAllocation() {
 // Routine that does a bunch of MarkThreadIdle() calls in sequence
 // without any intervening allocations
 TEST(MarkIdleTest, MultipleIdleCalls) {
-  RunThread(+[]() {
+  std::thread t([]() {
     for (int i = 0; i < 4; i++) {
       MallocExtension::MarkThreadIdle();
     }
   });
+
+  t.join();
 }
 
 // Routine that does a bunch of MarkThreadIdle() calls in sequence
 // with intervening allocations
 TEST(MarkIdleTest, MultipleIdleNonIdlePhases) {
-  RunThread(+[]() {
+  std::thread t([]() {
     for (int i = 0; i < 4; i++) {
       TestAllocation();
       MallocExtension::MarkThreadIdle();
     }
   });
+
+  t.join();
 }
 
 // Get current thread cache usage
@@ -71,7 +76,7 @@ static size_t GetTotalThreadCacheSize() {
 // Check that MarkThreadIdle() actually reduces the amount
 // of per-thread memory.
 TEST(MarkIdleTest, TestIdleUsage) {
-  RunThread(+[]() {
+  std::thread t([]() {
     const size_t original = GetTotalThreadCacheSize();
 
     TestAllocation();
@@ -82,6 +87,8 @@ TEST(MarkIdleTest, TestIdleUsage) {
     const size_t post_idle = GetTotalThreadCacheSize();
     ASSERT_LE(post_idle, original);
   });
+
+  t.join();
 }
 
 }  // namespace
