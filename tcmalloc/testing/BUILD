@@ -70,6 +70,9 @@ cc_library(
     srcs = ["testutil.cc"],
     hdrs = ["testutil.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
@@ -199,6 +202,7 @@ create_tcmalloc_testsuite(
     srcs = ["threadcachesize_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
@@ -275,6 +279,7 @@ create_tcmalloc_testsuite(
         "nomsan",
     ],
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:memory_stats",
@@ -510,6 +515,7 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":empirical",
+        ":testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",

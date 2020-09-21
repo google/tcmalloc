@@ -115,14 +115,6 @@ namespace {
 
 void *alloc(size_t s) { return ::operator new(s); }
 
-void dealloc(void *p, size_t s) {
-#ifdef __cpp_sized_deallocation
-  ::operator delete(p, s);
-#else
-  ::operator delete(p);
-#endif
-}
-
 const EmpiricalProfile *ParseProfileChoice(const absl::string_view flag) {
   std::map<absl::string_view, const EmpiricalProfile> choices = {
       {"beta", empirical_distributions::Beta()},
@@ -189,7 +181,7 @@ ABSL_CONST_INIT tcmalloc_internal::StatsCounter reps;
 class Spike {
  public:
   explicit Spike(size_t size)
-      : data_(seeds.GetNext(), SpikeProfile(), size, alloc, dealloc) {
+      : data_(seeds.GetNext(), SpikeProfile(), size, alloc, sized_delete) {
     spike_usage.Add(data_.usage());
     live_spikes.Add(1);
   }
@@ -333,10 +325,10 @@ class SimThread {
   size_t usage() { return load_usage_.load(std::memory_order_relaxed); }
 
   void Run() {
-    EmpiricalData load(n_, Profile(), bytes_, alloc, dealloc);
+    EmpiricalData load(n_, Profile(), bytes_, alloc, sized_delete);
     if (transient_ > 0) {
       auto transient = absl::make_unique<EmpiricalData>(
-          n_, TransientProfile(), transient_, alloc, dealloc);
+          n_, TransientProfile(), transient_, alloc, sized_delete);
       startup_->Block();
       transient.reset(nullptr);
     } else {

@@ -24,6 +24,7 @@
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
+#include "tcmalloc/testing/testutil.h"
 
 // Koenig lookup
 namespace tcmalloc {
@@ -31,21 +32,11 @@ void PrintTo(const EmpiricalData::Entry &e, ::std::ostream *os) {
   *os << "{" << e.size << " bytes, " << e.alloc_rate << "/" << e.num_live
       << "}";
 }
-};
 
 namespace {
 
 void *alloc(size_t s) { return ::operator new(s); }
 
-void dealloc(void *p, size_t s) {
-#ifdef __cpp_sized_deallocation
-  ::operator delete(p, s);
-#else
-  ::operator delete(p);
-#endif
-}
-
-using tcmalloc::EmpiricalData;
 using testing::Pointwise;
 
 const std::vector<EmpiricalData::Entry> &dummy() {
@@ -106,7 +97,7 @@ TEST(Empirical, Basic) {
   auto const &expected = dummy();
   absl::BitGen rng;
   EmpiricalData data(absl::Uniform<uint32_t>(rng), expected, kSize, alloc,
-                     dealloc);
+                     sized_delete);
 
   for (int i = 0; i < 100; ++i) {
     for (int j = 0; j < 100 * 1000; ++j) {
@@ -127,3 +118,4 @@ TEST(Empirical, Basic) {
 }
 
 }  // namespace
+}  // namespace tcmalloc

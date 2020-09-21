@@ -941,6 +941,7 @@ cc_test(
         ":malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
+        "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/synchronization",

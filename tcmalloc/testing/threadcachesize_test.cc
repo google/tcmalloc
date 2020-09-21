@@ -27,6 +27,7 @@
 #include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -59,11 +60,7 @@ void Filler(absl::Barrier* fill, absl::Barrier* filled) {
   int size = 0;
   for (int i = 0; i < kAllocationsPerThread; i++) {
     void* p = ::operator new(size);
-#ifdef __cpp_sized_deallocation
-    ::operator delete(p, size);
-#else
-    ::operator delete(p);
-#endif
+    sized_delete(p, size);
     size += 64;
     if (size > (32 << 10)) size = 0;
 

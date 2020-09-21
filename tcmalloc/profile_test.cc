@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
@@ -81,11 +82,7 @@ TEST(AllocationSampleTest, RaceToClaim) {
         ptrs.push_back(::operator new(1));
       }
       for (void *p : ptrs) {
-#ifdef __cpp_sized_deallocation
-        ::operator delete(p, 1);
-#else
-        ::operator delete(p);
-#endif
+        sized_delete(p, 1);
       }
       ptrs.clear();
     }

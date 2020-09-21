@@ -25,6 +25,15 @@ void SetTestResourceLimit();
 
 namespace tcmalloc {
 
+inline void sized_delete(void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete(ptr, size);
+#else
+  (void)size;
+  ::operator delete(ptr);
+#endif
+}
+
 // Get the TCMalloc stats in textproto format.
 std::string GetStatsInPbTxt();
 extern "C" ABSL_ATTRIBUTE_WEAK int MallocExtension_Internal_GetStatsInPbtxt(
