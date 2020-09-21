@@ -540,7 +540,7 @@ cc_library(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_google_googletest//:gtest",
+        "//testing/base/public:gunit",
     ],
 )
 
@@ -580,9 +580,9 @@ cc_library(
     deps = [
         ":common",
         ":mock_central_freelist",
+        "//testing/base/public:gunit",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
-        "@com_google_googletest//:gtest",
     ],
 )
 
