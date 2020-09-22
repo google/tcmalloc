@@ -540,6 +540,35 @@ cc_library(
 )
 
 cc_binary(
+    name = "empirical_distributions_benchmark",
+    testonly = 1,
+    srcs = ["empirical_distributions_benchmark.cc"],
+    deps = [
+        ":empirical_distributions",
+        ":testutil",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "empirical_distributions_test",
+    srcs = ["empirical_distributions_test.cc"],
+    deps = [
+        ":empirical_distributions",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_binary(
     name = "empirical_driver",
     testonly = 1,
     srcs = ["empirical_driver.cc"],
