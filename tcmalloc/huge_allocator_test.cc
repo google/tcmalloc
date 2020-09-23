@@ -347,12 +347,12 @@ TEST_P(HugeAllocatorTest, Stats) {
       LargeSpanStats large;
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       huge->AddSpanStats(&small, &large, &ages);
-      for (int i = 0; i < kMaxPages; ++i) {
-        EXPECT_EQ(0, small.normal_length[0]);
-        EXPECT_EQ(0, small.returned_length[0]);
+      for (auto i = Length(0); i < kMaxPages; ++i) {
+        EXPECT_EQ(0, small.normal_length[i.raw_num()]);
+        EXPECT_EQ(0, small.returned_length[i.raw_num()]);
       }
       *num_spans = large.spans;
-      EXPECT_EQ(0, large.normal_pages);
+      EXPECT_EQ(Length(0), large.normal_pages);
       *pages = large.returned_pages;
       const PageAgeHistograms::Histogram *hist = ages.GetTotalHistogram(true);
       *avg_age = absl::Seconds(hist->avg_age());
@@ -380,7 +380,7 @@ TEST_P(HugeAllocatorTest, Stats) {
 
   Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
   EXPECT_EQ(0, num_spans);
-  EXPECT_EQ(0, pages);
+  EXPECT_EQ(Length(0), pages);
   EXPECT_EQ(absl::ZeroDuration(), avg_age);
 
   allocator_.Release(r1);

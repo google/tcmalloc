@@ -49,11 +49,11 @@ struct SmallSpanStats {
 
   // For each free list of small spans, the length (in spans) of the
   // normal and returned free lists for that size.
-  int64_t normal_length[kMaxPages] = {0};
-  int64_t returned_length[kMaxPages] = {0};
+  int64_t normal_length[kMaxPages.raw_num()] = {0};
+  int64_t returned_length[kMaxPages.raw_num()] = {0};
 
   SmallSpanStats &operator+=(SmallSpanStats rhs) {
-    for (size_t i = 0; i < kMaxPages; ++i) {
+    for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
       normal_length[i] += rhs.normal_length[i];
       returned_length[i] += rhs.returned_length[i];
     }
@@ -68,8 +68,8 @@ inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
 // Stats for free large spans (i.e., spans with more than kMaxPages pages).
 struct LargeSpanStats {
   size_t spans = 0;           // Number of such spans
-  Length normal_pages = 0;    // Combined page length of normal large spans
-  Length returned_pages = 0;  // Combined page length of unmapped spans
+  Length normal_pages;        // Combined page length of normal large spans
+  Length returned_pages;      // Combined page length of unmapped spans
 
   LargeSpanStats &operator+=(LargeSpanStats rhs) {
     spans += rhs.spans;
@@ -102,7 +102,7 @@ class PageAgeHistograms {
   static constexpr size_t kNumBuckets = 7;
   static constexpr size_t kNumSizes = 64;
 
-  static constexpr Length kLargeSize = kNumSizes;
+  static constexpr Length kLargeSize = Length(kNumSizes);
   class Histogram {
    public:
     void Record(Length pages, double age);
@@ -112,19 +112,21 @@ class PageAgeHistograms {
 
     Length total() const { return total_pages_; }
 
-    double avg_age() const { return empty() ? 0.0 : total_age_ / total_pages_; }
+    double avg_age() const {
+      return empty() ? 0.0 : total_age_ / total_pages_.raw_num();
+    }
 
-    bool empty() const { return total_pages_ == 0; }
+    bool empty() const { return total_pages_ == Length(0); }
 
    private:
     // total number of pages fitting in this bucket We are actually
     // somewhat space constrained so it's important to _not_ use a
     // 64-bit counter here.  This comfortably supports terabytes of
     // RAM, and just in case we will update this with saturating arithmetic.
-    uint32_t buckets_[kNumBuckets];
+    uint32_t buckets_[kNumBuckets] = {0};
 
     Length total_pages_;
-    double total_age_;
+    double total_age_ = 0;
   };
 
   const Histogram *GetSmallHistogram(bool released, Length n) const {
@@ -157,12 +159,12 @@ class PageAgeHistograms {
     void Print(const char *kind, TCMalloc_Printer *out) const;
 
     Histogram *GetSmall(Length n) {
-      CHECK_CONDITION(n < kNumSizes);
-      return &small[n - 1];
+      CHECK_CONDITION(n.raw_num() < kNumSizes);
+      return &small[n.raw_num() - 1];
     }
     const Histogram *GetSmall(Length n) const {
-      CHECK_CONDITION(n < kNumSizes);
-      return &small[n - 1];
+      CHECK_CONDITION(n.raw_num() < kNumSizes);
+      return &small[n.raw_num() - 1];
     }
 
     Histogram *GetLarge() { return &large; }
@@ -218,17 +220,18 @@ class PageAllocInfo {
   int64_t TimeTicks() const;
 
  private:
-  Length total_small_{0};
-  Length total_slack_{0};
+  Length total_small_;
+  Length total_slack_;
 
-  Length largest_seen_{0};
+  Length largest_seen_;
 
   // How many alloc/frees have we seen (of some size range?)
   struct Counts {
     // raw counts
     size_t nalloc{0}, nfree{0};
     // and total sizes (needed if this struct tracks a nontrivial range
-    Length alloc_size{0}, free_size{0};
+    Length alloc_size;
+    Length free_size;
 
     void Alloc(Length n) {
       nalloc++;
@@ -241,7 +244,7 @@ class PageAllocInfo {
   };
 
   // Indexed by exact length
-  Counts small_[kMaxPages];
+  Counts small_[kMaxPages.raw_num()];
   // Indexed by power-of-two-buckets
   Counts large_[kAddressBits - kPageShift];
   const char *label_;

@@ -95,7 +95,7 @@ class PageHeap : public PageAllocatorInterface {
   SpanListPair large_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Array mapping from span length to a doubly linked list of free spans
-  SpanListPair free_[kMaxPages] ABSL_GUARDED_BY(pageheap_lock);
+  SpanListPair free_[kMaxPages.raw_num()] ABSL_GUARDED_BY(pageheap_lock);
 
   // Statistics on system, free, and unmapped bytes
   BackingStats stats_ ABSL_GUARDED_BY(pageheap_lock);

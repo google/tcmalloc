@@ -23,6 +23,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
 
@@ -187,7 +188,7 @@ bool Span::FreelistPush(void* ptr, size_t size) {
     ObjIdx* host;
     if (size <= SizeMap::kMultiPageSize) {
       // Avoid loading first_page_ in this case (see the comment in PtrToIdx).
-      ASSERT(num_pages_ == 1);
+      ASSERT(num_pages_ == Length(1));
       host = reinterpret_cast<ObjIdx*>(
           (reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1)) +
           static_cast<uintptr_t>(freelist_) * kAlignment);

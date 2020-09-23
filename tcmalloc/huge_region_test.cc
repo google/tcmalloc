@@ -84,13 +84,13 @@ class HugeRegionTest : public ::testing::Test {
   typedef HugeRegion<MockUnback> Region;
   Region region_;
   size_t next_mark_{0};
-  size_t marks_[Region::size().in_pages()];
+  size_t marks_[Region::size().in_pages().raw_num()];
 
   void Mark(Alloc a) {
     EXPECT_LE(p_.first_page(), a.p);
-    size_t index = a.p - p_.first_page();
-    size_t end = index + a.n;
-    EXPECT_LE(end, region_.size().in_pages());
+    size_t index = (a.p - p_.first_page()).raw_num();
+    size_t end = index + a.n.raw_num();
+    EXPECT_LE(end, region_.size().in_pages().raw_num());
     for (; index < end; ++index) {
       marks_[index] = a.mark;
     }
@@ -98,9 +98,9 @@ class HugeRegionTest : public ::testing::Test {
 
   void Check(Alloc a) {
     EXPECT_LE(p_.first_page(), a.p);
-    size_t index = a.p - p_.first_page();
-    size_t end = index + a.n;
-    EXPECT_LE(end, region_.size().in_pages());
+    size_t index = (a.p - p_.first_page()).raw_num();
+    size_t end = index + a.n.raw_num();
+    EXPECT_LE(end, region_.size().in_pages().raw_num());
     for (; index < end; ++index) {
       EXPECT_EQ(a.mark, marks_[index]);
     }
@@ -134,9 +134,9 @@ class HugeRegionTest : public ::testing::Test {
 std::unique_ptr<HugeRegionTest::MockBackingInterface> HugeRegionTest::mock_;
 
 TEST_F(HugeRegionTest, Basic) {
-  Length total = 0;
+  Length total;
   std::vector<Alloc> allocs;
-  for (Length n = 1; total + n < region_.size().in_pages(); ++n) {
+  for (Length n(1); total + n < region_.size().in_pages(); ++n) {
     allocs.push_back(Allocate(n));
     total += n;
     EXPECT_EQ(total, region_.used_pages());
@@ -145,7 +145,7 @@ TEST_F(HugeRegionTest, Basic) {
   // Free every other alloc
   std::vector<Length> lengths;
   std::vector<Alloc> new_allocs;
-  for (Length j = 0; j < allocs.size(); ++j) {
+  for (int j = 0; j < allocs.size(); ++j) {
     if (j % 2 == 0) {
       new_allocs.push_back(allocs[j]);
       continue;
@@ -177,13 +177,13 @@ TEST_F(HugeRegionTest, ReqsBacking) {
   std::vector<Alloc> allocs;
   // should back the first page
   bool from_released;
-  allocs.push_back(Allocate(n - 1, &from_released));
+  allocs.push_back(Allocate(n - Length(1), &from_released));
   EXPECT_TRUE(from_released);
   // nothing
-  allocs.push_back(Allocate(1, &from_released));
+  allocs.push_back(Allocate(Length(1), &from_released));
   EXPECT_FALSE(from_released);
   // second page
-  allocs.push_back(Allocate(1, &from_released));
+  allocs.push_back(Allocate(Length(1), &from_released));
   EXPECT_TRUE(from_released);
   // third, fourth, fifth
   allocs.push_back(Allocate(3 * n, &from_released));
@@ -198,13 +198,13 @@ TEST_F(HugeRegionTest, Release) {
   mock_ = absl::make_unique<StrictMock<MockBackingInterface>>();
   const Length n = kPagesPerHugePage;
   bool from_released;
-  auto a = Allocate(n * 4 - 1, &from_released);
+  auto a = Allocate(n * 4 - Length(1), &from_released);
   EXPECT_TRUE(from_released);
 
   auto b = Allocate(n * 3, &from_released);
   EXPECT_TRUE(from_released);
 
-  auto c = Allocate(n * 5 + 1, &from_released);
+  auto c = Allocate(n * 5 + Length(1), &from_released);
   EXPECT_TRUE(from_released);
 
   auto d = Allocate(n * 2, &from_released);
@@ -276,7 +276,7 @@ TEST_F(HugeRegionTest, Reback) {
 
 TEST_F(HugeRegionTest, Stats) {
   const Length kLen = region_.size().in_pages();
-  const size_t kBytes = kLen * kPageSize;
+  const size_t kBytes = kLen.in_bytes();
   struct Helper {
     static void Stat(const Region &region, std::vector<Length> *small_backed,
                      std::vector<Length> *small_unbacked, LargeSpanStats *large,
@@ -288,12 +288,12 @@ TEST_F(HugeRegionTest, Stats) {
       region.AddSpanStats(&small, large, &ages);
       small_backed->clear();
       small_unbacked->clear();
-      for (int i = 0; i < kMaxPages; ++i) {
-        for (int j = 0; j < small.normal_length[i]; ++j) {
+      for (auto i = Length(0); i < kMaxPages; ++i) {
+        for (int j = 0; j < small.normal_length[i.raw_num()]; ++j) {
           small_backed->push_back(i);
         }
 
-        for (int j = 0; j < small.returned_length[i]; ++j) {
+        for (int j = 0; j < small.returned_length[i.raw_num()]; ++j) {
           small_unbacked->push_back(i);
         }
       }
@@ -316,7 +316,7 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_THAT(small_backed, testing::ElementsAre());
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(1, large.spans);
-  EXPECT_EQ(0, large.normal_pages);
+  EXPECT_EQ(Length(0), large.normal_pages);
   EXPECT_EQ(kLen, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ(0, stats.free_bytes);
@@ -326,13 +326,13 @@ TEST_F(HugeRegionTest, Stats) {
 
   // We don't, in production, use small allocations from the region, but
   // the API supports it, so test it here.
-  Alloc a = Allocate(1);
-  Allocate(1);
-  Alloc b = Allocate(2);
-  Alloc barrier = Allocate(1);
-  Alloc c = Allocate(3);
-  Allocate(1);
-  const Length slack = kPagesPerHugePage - 9;
+  Alloc a = Allocate(Length(1));
+  Allocate(Length(1));
+  Alloc b = Allocate(Length(2));
+  Alloc barrier = Allocate(Length(1));
+  Alloc c = Allocate(Length(3));
+  Allocate(Length(1));
+  const Length slack = kPagesPerHugePage - Length(9);
 
   absl::SleepFor(absl::Milliseconds(20));
   Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
@@ -343,7 +343,7 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(slack, large.normal_pages);
   EXPECT_EQ(kLen - kPagesPerHugePage, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
-  EXPECT_EQ(slack * kPageSize, stats.free_bytes);
+  EXPECT_EQ(slack.in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
   EXPECT_LE(0.02, avg_age_backed);
   EXPECT_LE(0.03, avg_age_unbacked);
@@ -352,45 +352,50 @@ TEST_F(HugeRegionTest, Stats) {
   absl::SleepFor(absl::Milliseconds(30));
   Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
                &avg_age_backed, &avg_age_unbacked);
-  EXPECT_THAT(small_backed, testing::ElementsAre(1));
+  EXPECT_THAT(small_backed, testing::ElementsAre(Length(1)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
   EXPECT_EQ(slack, large.normal_pages);
   EXPECT_EQ(kLen - kPagesPerHugePage, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
-  EXPECT_EQ((slack + 1) * kPageSize, stats.free_bytes);
+  EXPECT_EQ((slack + Length(1)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE((slack * 0.05 + 1 * 0.03) / (slack + 1), avg_age_backed);
+  EXPECT_LE((slack.raw_num() * 0.05 + 1 * 0.03) / (slack.raw_num() + 1),
+            avg_age_backed);
   EXPECT_LE(0.06, avg_age_unbacked);
 
   Delete(b);
   absl::SleepFor(absl::Milliseconds(40));
   Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
                &avg_age_backed, &avg_age_unbacked);
-  EXPECT_THAT(small_backed, testing::ElementsAre(1, 2));
+  EXPECT_THAT(small_backed, testing::ElementsAre(Length(1), Length(2)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
   EXPECT_EQ(slack, large.normal_pages);
   EXPECT_EQ(kLen - kPagesPerHugePage, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
-  EXPECT_EQ((slack + 3) * kPageSize, stats.free_bytes);
+  EXPECT_EQ((slack + Length(3)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE((slack * 0.09 + 1 * 0.07 + 2 * 0.04) / (slack + 3), avg_age_backed);
+  EXPECT_LE(
+      (slack.raw_num() * 0.09 + 1 * 0.07 + 2 * 0.04) / (slack.raw_num() + 3),
+      avg_age_backed);
   EXPECT_LE(0.10, avg_age_unbacked);
 
   Delete(c);
   absl::SleepFor(absl::Milliseconds(50));
   Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
                &avg_age_backed, &avg_age_unbacked);
-  EXPECT_THAT(small_backed, testing::ElementsAre(1, 2, 3));
+  EXPECT_THAT(small_backed,
+              testing::ElementsAre(Length(1), Length(2), Length(3)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
   EXPECT_EQ(slack, large.normal_pages);
   EXPECT_EQ(kLen - kPagesPerHugePage, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
-  EXPECT_EQ((slack + 6) * kPageSize, stats.free_bytes);
+  EXPECT_EQ((slack + Length(6)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE((slack * 0.14 + 1 * 0.12 + 2 * 0.09 + 3 * 0.05) / (slack + 6),
+  EXPECT_LE((slack.raw_num() * 0.14 + 1 * 0.12 + 2 * 0.09 + 3 * 0.05) /
+                (slack.raw_num() + 6),
             avg_age_backed);
   EXPECT_LE(0.15, avg_age_unbacked);
 
@@ -398,16 +403,17 @@ TEST_F(HugeRegionTest, Stats) {
   absl::SleepFor(absl::Milliseconds(60));
   Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
                &avg_age_backed, &avg_age_unbacked);
-  EXPECT_THAT(small_backed, testing::ElementsAre(1, 6));
+  EXPECT_THAT(small_backed, testing::ElementsAre(Length(1), Length(6)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
   EXPECT_EQ(slack, large.normal_pages);
   EXPECT_EQ(kLen - kPagesPerHugePage, large.returned_pages);
   EXPECT_EQ(kBytes, stats.system_bytes);
-  EXPECT_EQ((slack + 7) * kPageSize, stats.free_bytes);
+  EXPECT_EQ((slack + Length(7)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
   EXPECT_LE(
-      (slack * 0.20 + 1 * 0.18 + 2 * 0.15 + 3 * 0.11 + 1 * 0.06) / (slack + 7),
+      (slack.raw_num() * 0.20 + 1 * 0.18 + 2 * 0.15 + 3 * 0.11 + 1 * 0.06) /
+          (slack.raw_num() + 7),
       avg_age_backed);
   EXPECT_LE(0.21, avg_age_unbacked);
 }
@@ -419,7 +425,7 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Alloc a = Allocate(n / 4);
   Alloc b = Allocate(n * 3 + n / 3);
   Alloc c = Allocate((n - n / 3 - n / 4) + n * 5 + n / 5);
-  Alloc d = Allocate(n - (n / 5) - 1);
+  Alloc d = Allocate(n - (n / 5) - Length(1));
   // This unbacks the middle 2 hugepages, but not the beginning or
   // trailing region
   DeleteUnback(b);
@@ -436,9 +442,9 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   EXPECT_EQ(2 * n + (Region::size().raw_num() - 10) * n, large.returned_pages);
   EXPECT_EQ(1, small.normal_length[1]);
 
-  EXPECT_EQ(
-      1 + large.normal_pages + large.returned_pages + region_.used_pages(),
-      Region::size().in_pages());
+  EXPECT_EQ(Length(1) + large.normal_pages + large.returned_pages +
+                region_.used_pages(),
+            Region::size().in_pages());
   Delete(a);
   Delete(d);
 }
@@ -470,9 +476,9 @@ class HugeRegionSetTest : public testing::Test {
 TEST_F(HugeRegionSetTest, Set) {
   absl::BitGen rng;
   PageId p;
-  Length kSize = kPagesPerHugePage + 1;
+  constexpr Length kSize = kPagesPerHugePage + Length(1);
   bool from_released;
-  ASSERT_FALSE(set_.MaybeGet(1, &p, &from_released));
+  ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
   auto r1 = GetRegion();
   auto r2 = GetRegion();
   auto r3 = GetRegion();
@@ -522,15 +528,20 @@ TEST_F(HugeRegionSetTest, Set) {
 
   for (int i = 0; i < regions.size(); i++) {
     tcmalloc::Log(tcmalloc::kLog, __FILE__, __LINE__, i,
-                  regions[i]->used_pages(), regions[i]->free_pages(),
-                  regions[i]->unmapped_pages());
+                  regions[i]->used_pages().raw_num(),
+                  regions[i]->free_pages().raw_num(),
+                  regions[i]->unmapped_pages().raw_num());
   }
   // Now first two should be "full" (ish)
-  EXPECT_LE(Region::size().in_pages() * 0.9, regions[0]->used_pages());
-  EXPECT_LE(Region::size().in_pages() * 0.9, regions[1]->used_pages());
+  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+            regions[0]->used_pages().raw_num());
+  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+            regions[1]->used_pages().raw_num());
   // and last two "empty" (ish.)
-  EXPECT_LE(Region::size().in_pages() * 0.9, regions[2]->unmapped_pages());
-  EXPECT_LE(Region::size().in_pages() * 0.9, regions[3]->unmapped_pages());
+  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+            regions[2]->unmapped_pages().raw_num());
+  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+            regions[3]->unmapped_pages().raw_num());
 
   // Check the stats line up.
   auto stats = set_.stats();

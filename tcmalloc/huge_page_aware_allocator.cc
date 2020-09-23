@@ -252,7 +252,7 @@ Span *HugePageAwareAllocator::AllocRawHugepages(Length n, bool *from_released) {
   HugePage first = r.start();
   SetTracker(first, nullptr);
   HugePage last = first + r.len() - NHugePages(1);
-  if (slack == 0) {
+  if (slack == Length(0)) {
     SetTracker(last, nullptr);
     return Finalize(total, r.start().first_page());
   }
@@ -260,7 +260,7 @@ Span *HugePageAwareAllocator::AllocRawHugepages(Length n, bool *from_released) {
   ++donated_huge_pages_;
 
   Length here = kPagesPerHugePage - slack;
-  ASSERT(here > 0);
+  ASSERT(here > Length(0));
   AllocAndContribute(last, here, /*donated=*/true);
   return Finalize(n, r.start().first_page());
 }
@@ -271,7 +271,7 @@ static void BackSpan(Span *span) {
 
 // public
 Span *HugePageAwareAllocator::New(Length n) {
-  CHECK_CONDITION(n > 0);
+  CHECK_CONDITION(n > Length(0));
   bool from_released;
   Span *s = LockAndAlloc(n, &from_released);
   if (s && from_released) BackSpan(s);
@@ -300,7 +300,7 @@ Span *HugePageAwareAllocator::LockAndAlloc(Length n, bool *from_released) {
 
 // public
 Span *HugePageAwareAllocator::NewAligned(Length n, Length align) {
-  if (align <= 1) {
+  if (align <= Length(1)) {
     return New(n);
   }
 
@@ -351,7 +351,7 @@ void HugePageAwareAllocator::Delete(Span *span) {
   // a) We got packed by the filler onto a single hugepage - return our
   //    allocation to that hugepage in the filler.
   if (pt != nullptr) {
-    ASSERT(hp == HugePageContaining(p + n - 1));
+    ASSERT(hp == HugePageContaining(p + n - Length(1)));
     DeleteFromHugepage(pt, p, n);
     return;
   }
@@ -367,7 +367,7 @@ void HugePageAwareAllocator::Delete(Span *span) {
   HugeLength hl = HLFromPages(n);
   HugePage last = hp + hl - NHugePages(1);
   Length slack = hl.in_pages() - n;
-  if (slack == 0) {
+  if (slack == Length(0)) {
     ASSERT(GetTracker(last) == nullptr);
   } else {
     pt = GetTracker(last);
@@ -403,7 +403,7 @@ void HugePageAwareAllocator::Delete(Span *span) {
 }
 
 void HugePageAwareAllocator::ReleaseHugepage(FillerType::Tracker *pt) {
-  ASSERT(pt->used_pages() == 0);
+  ASSERT(pt->used_pages() == Length(0));
   HugeRange r = {pt->location(), NHugePages(1)};
   SetTracker(pt->location(), nullptr);
 
@@ -458,7 +458,7 @@ void HugePageAwareAllocator::GetSpanStats(SmallSpanStats *small,
 
 // public
 Length HugePageAwareAllocator::ReleaseAtLeastNPages(Length num_pages) {
-  Length released = 0;
+  Length released;
   released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
 
   // This is our long term plan but in current state will lead to insufficent
