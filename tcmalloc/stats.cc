@@ -26,8 +26,8 @@
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/macros.h"
-#include "absl/debugging/internal/vdso_support.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/bits.h"
@@ -339,8 +339,8 @@ void PageAgeHistograms::Histogram::Print(TCMalloc_Printer *out) const {
 }
 
 void PageAllocInfo::Print(TCMalloc_Printer *out) const {
-  int64_t ns = TimeNanos();
-  double hz = (1000.0 * 1000 * 1000) / ns;
+  int64_t ticks = TimeTicks();
+  double hz = freq_ / ticks;
   out->printf("%s: stats on allocation sizes\n", label_);
   out->printf("%s: %zu pages live small allocation\n", label_, total_small_);
   out->printf("%s: %zu pages of slack on large allocations\n", label_,
@@ -384,8 +384,8 @@ void PageAllocInfo::Print(TCMalloc_Printer *out) const {
 
 void PageAllocInfo::PrintInPbtxt(PbtxtRegion *region,
                                  absl::string_view stat_name) const {
-  int64_t ns = TimeNanos();
-  double hz = (1000.0 * 1000 * 1000) / ns;
+  int64_t ticks = TimeTicks();
+  double hz = freq_ / ticks;
   region->PrintI64("num_small_allocation_pages", total_small_);
   region->PrintI64("num_slack_pages", total_slack_);
   region->PrintI64("largest_allocation_pages", largest_seen_);
@@ -428,7 +428,7 @@ static Length RoundUp(Length value, Length alignment) {
 
 void PageAllocInfo::RecordAlloc(PageId p, Length n) {
   if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeNanos();
+    int64_t t = TimeTicks();
     LogAlloc(t, p, n);
   }
 
@@ -448,7 +448,7 @@ void PageAllocInfo::RecordAlloc(PageId p, Length n) {
 
 void PageAllocInfo::RecordFree(PageId p, Length n) {
   if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeNanos();
+    int64_t t = TimeTicks();
     LogFree(t, p, n);
   }
 
@@ -465,7 +465,7 @@ void PageAllocInfo::RecordFree(PageId p, Length n) {
 
 void PageAllocInfo::RecordRelease(Length n, Length got) {
   if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeNanos();
+    int64_t t = TimeTicks();
     LogRelease(t, n);
   }
 }
@@ -510,7 +510,7 @@ void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
   // we take deltas first, we say the first event occurred at +0.7 =
   // 0ms and the second event occurred at +49.3ms = 49ms.
   // Rounding first produces 0 and 50.
-  const uint64_t ms = when / 1000 / 1000;
+  const uint64_t ms = when * 1000 / freq_;
   uint64_t delta_ms = ms - last_ms_;
   last_ms_ = ms;
   // clamping
@@ -542,78 +542,8 @@ PageAllocInfo::PageAllocInfo(const char *label, int log_fd)
   }
 }
 
-int64_t PageAllocInfo::TimeNanos() const {
-  return GetCurrentTimeNanos() - baseline_ns_;
-}
-
-// Why does this exist?  Why not just use absl::GetCurrentTimeNanos?
-// Failing that, why not just use clock_gettime?  See b/65384231, but
-// essentially because we can't work around people LD_PRELOADing a
-// broken and unsafe clock_gettime. Since the real implementation is
-// actually a VDSO function, we just go straight to there, which LD_PRELOAD
-// can't interfere with.
-//
-// Now, of course, we can't guarantee this VDSO approach will work--we
-// may be on some strange system without one, or one with a newer
-// version of the symbols and no interpolating shim. But we can
-// gracefully fail back to the "real" clock_gettime.  Will it work if
-// someone is doing something weird? Who knows, but it's no worse than
-// any other option.
-typedef int (*ClockGettimePointer)(clockid_t clk_id, struct timespec *tp);
-
-const ClockGettimePointer GetRealClock() {
-#if ABSL_HAVE_ELF_MEM_IMAGE
-  absl::debugging_internal::VDSOSupport vdso;
-  absl::debugging_internal::VDSOSupport::SymbolInfo info;
-  // The VDSO contents aren't very consistent, so we make our best
-  // guesses.  Each of these named and versioned symbols should be
-  // equivalent to just calling clock_gettime if they exist.
-
-  // Expected on x86_64
-  if (vdso.LookupSymbol("__vdso_clock_gettime", "LINUX_2.6",
-                        absl::debugging_internal::VDSOSupport::kVDSOSymbolType,
-                        &info)) {
-    return reinterpret_cast<const ClockGettimePointer>(
-        const_cast<void *>(info.address));
-  }
-
-  // Expected on Power
-  if (vdso.LookupSymbol("__kernel_clock_gettime", "LINUX_2.6.15",
-                        absl::debugging_internal::VDSOSupport::kVDSOSymbolType,
-                        &info)) {
-    return reinterpret_cast<const ClockGettimePointer>(
-        const_cast<void *>(info.address));
-  }
-  // Expected on arm64
-  if (vdso.LookupSymbol("__kernel_clock_gettime", "LINUX_2.6.39",
-                        absl::debugging_internal::VDSOSupport::kVDSOSymbolType,
-                        &info)) {
-    return reinterpret_cast<const ClockGettimePointer>(
-        const_cast<void *>(info.address));
-  }
-#endif
-
-  // Hopefully this is good enough.
-  return &clock_gettime;
-}
-
-int64_t GetCurrentTimeNanos() {
-  static const ClockGettimePointer p = GetRealClock();
-  struct timespec ts;
-  int ret = p(CLOCK_MONOTONIC, &ts);
-  CHECK_CONDITION(ret == 0);
-
-  // If we are here rather than failing from the CHECK_CONDITION, gettime (via
-  // p) succeeded.  Since we used an unusual calling technique (directly into
-  // the VDSO), sanitizers cannot see that this memory has been initialized.
-  ANNOTATE_MEMORY_IS_INITIALIZED(&ts.tv_sec, sizeof(ts.tv_sec));
-  ANNOTATE_MEMORY_IS_INITIALIZED(&ts.tv_nsec, sizeof(ts.tv_nsec));
-
-  int64_t s = ts.tv_sec;
-  int64_t ns = ts.tv_nsec;
-  ns += s * 1000 * 1000 * 1000;
-
-  return ns;
+int64_t PageAllocInfo::TimeTicks() const {
+  return absl::base_internal::CycleClock::Now() - baseline_ticks_;
 }
 
 }  // namespace tcmalloc

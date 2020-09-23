@@ -18,16 +18,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/internal/cycleclock.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 
 namespace tcmalloc {
-
-// Return nanoseconds since some unspecified fixed point.
-// TODO(b/65384231): use absl::GetCurrentTimeNanos
-int64_t GetCurrentTimeNanos();
 
 struct BackingStats {
   BackingStats() : system_bytes(0), free_bytes(0), unmapped_bytes(0) {}
@@ -217,8 +214,8 @@ class PageAllocInfo {
 
   const Counts &counts_for(Length n) const;
 
-  // Returns (approximate) nanoseconds since class instantiation.
-  int64_t TimeNanos() const;
+  // Returns (approximate) CycleClock ticks since class instantiation.
+  int64_t TimeTicks() const;
 
  private:
   Length total_small_{0};
@@ -249,7 +246,8 @@ class PageAllocInfo {
   Counts large_[kAddressBits - kPageShift];
   const char *label_;
 
-  int64_t baseline_ns_{GetCurrentTimeNanos()};
+  const int64_t baseline_ticks_{absl::base_internal::CycleClock::Now()};
+  const double freq_{absl::base_internal::CycleClock::Frequency()};
 
   // State for page trace logging.
   const int fd_;

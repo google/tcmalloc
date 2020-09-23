@@ -249,14 +249,16 @@ TEST(ClockTest, ClockTicks) {
   // no one is using libfaketime on this binary, and of course we
   // don't care about signal safety, just ticking.
   const absl::Time before = absl::Now();
-  const int64_t b = tcmalloc::GetCurrentTimeNanos();
+  const double b = absl::base_internal::CycleClock::Now() /
+                   absl::base_internal::CycleClock::Frequency();
   static const absl::Duration kDur = absl::Milliseconds(500);
   absl::SleepFor(kDur);
-  const int64_t a = tcmalloc::GetCurrentTimeNanos();
+  const double a = absl::base_internal::CycleClock::Now() /
+                   absl::base_internal::CycleClock::Frequency();
   const absl::Time after = absl::Now();
 
   const absl::Duration actual = (after - before);
-  const absl::Duration measured = absl::Nanoseconds(a - b);
+  const absl::Duration measured = absl::Seconds(a - b);
   EXPECT_LE(actual * 0.99, measured) << actual;
   EXPECT_GE(actual * 1.01, measured) << actual;
 }
