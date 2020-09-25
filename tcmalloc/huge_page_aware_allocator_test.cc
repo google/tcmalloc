@@ -536,17 +536,17 @@ TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
   ASSERT_NE(small, nullptr);
 
   Span *large2 = New(kMultipleHugePagesDonation);
-  ASSERT_NE(large, nullptr);
+  ASSERT_NE(large2, nullptr);
 
   // This allocation ensures that the donation is not counted.
   Span *small2 = New(kSmallPages);
-  ASSERT_NE(small, nullptr);
+  ASSERT_NE(small2, nullptr);
 
   Span *large3 = New(kOneHugePageDonation);
-  ASSERT_NE(large, nullptr);
+  ASSERT_NE(large3, nullptr);
 
   Span *large4 = New(kMultipleHugePagesDonation);
-  ASSERT_NE(large, nullptr);
+  ASSERT_NE(large4, nullptr);
 
   // Clean up.
   Delete(large);
