@@ -64,18 +64,13 @@ class Length {
     return *this;
   }
 
-  constexpr size_t operator/=(Length rhs) {
-    ASSERT(rhs.n_ != 0);
-    return n_ / rhs.n_;
-  }
-
-  constexpr Length operator/=(size_t rhs) {
+  constexpr Length& operator/=(size_t rhs) {
     ASSERT(rhs != 0);
     n_ /= rhs;
     return *this;
   }
 
-  constexpr Length operator%=(Length rhs) {
+  constexpr Length& operator%=(Length rhs) {
     ASSERT(rhs.n_ != 0);
     n_ %= rhs.n_;
     return *this;
@@ -236,19 +231,35 @@ inline Length& operator++(Length& l) { return l += Length(1); }
 
 inline Length& operator--(Length& l) { return l -= Length(1); }
 
-inline constexpr Length operator+(Length lhs, Length rhs) { return lhs += rhs; }
+inline constexpr Length operator+(Length lhs, Length rhs) {
+  return Length(lhs.raw_num() + rhs.raw_num());
+}
 
-inline constexpr Length operator-(Length lhs, Length rhs) { return lhs -= rhs; }
+inline constexpr Length operator-(Length lhs, Length rhs) {
+  return Length(lhs.raw_num() - rhs.raw_num());
+}
 
-inline constexpr Length operator*(Length lhs, size_t rhs) { return lhs *= rhs; }
+inline constexpr Length operator*(Length lhs, size_t rhs) {
+  return Length(lhs.raw_num() * rhs);
+}
 
-inline constexpr Length operator*(size_t lhs, Length rhs) { return rhs *= lhs; }
+inline constexpr Length operator*(size_t lhs, Length rhs) {
+  return Length(lhs * rhs.raw_num());
+}
 
-inline constexpr size_t operator/(Length lhs, Length rhs) { return lhs /= rhs; }
+inline constexpr size_t operator/(Length lhs, Length rhs) {
+  return lhs.raw_num() / rhs.raw_num();
+}
 
-inline constexpr Length operator/(Length lhs, size_t rhs) { return lhs /= rhs; }
+inline constexpr Length operator/(Length lhs, size_t rhs) {
+  ASSERT(rhs != 0);
+  return Length(lhs.raw_num() / rhs);
+}
 
-inline constexpr Length operator%(Length lhs, Length rhs) { return lhs %= rhs; }
+inline constexpr Length operator%(Length lhs, Length rhs) {
+  ASSERT(rhs.raw_num() != 0);
+  return Length(lhs.raw_num() % rhs.raw_num());
+}
 
 }  // namespace tcmalloc
 
