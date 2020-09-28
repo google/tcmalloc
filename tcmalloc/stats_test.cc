@@ -50,7 +50,7 @@ class PrintTest : public ::testing::Test {
 
 TEST_F(PrintTest, Empty) {
   ExpectStats(Backing(0, 0, 0), {{}, {}},  // small
-              {0, Length(0), Length(0)},   // large
+              {0, 0, 0},                   // large
                                            // clang-format off
 R"LIT(------------------------------------------------
 PrintTest: 0 sizes;    0.0 MiB free;    0.0 MiB unmapped
@@ -64,7 +64,7 @@ TEST_F(PrintTest, ManySizes) {
   ExpectStats(Backing(987654321, 1900 * 1000, 67 * 1000 * 1000),
               {{0, 100, 0, 250, 0, 0, 0, 0, 0, 51},
                {0, 0, 300, 400, 0, 0, 0, 0, 0, 27}},  // small
-              {2, Length(100000), Length(2000)},      // large
+              {2, 100000, 2000},                      // large
                                                       // clang-format off
 R"LIT(------------------------------------------------
 PrintTest: 4 sizes;    1.8 MiB free;   63.9 MiB unmapped
@@ -103,18 +103,18 @@ class AgeTest : public testing::Test {
 
 TEST_F(AgeTest, Basic) {
   tcmalloc::PageAgeHistograms ages(kNow);
-  ages.RecordRange(Length(1), false, WhenForAge(0.5));
-  ages.RecordRange(Length(1), false, WhenForAge(1.2));
-  ages.RecordRange(Length(1), false, WhenForAge(3.7));
+  ages.RecordRange(1, false, WhenForAge(0.5));
+  ages.RecordRange(1, false, WhenForAge(1.2));
+  ages.RecordRange(1, false, WhenForAge(3.7));
 
-  ages.RecordRange(Length(3), false, WhenForAge(60 * 60 * 10));
+  ages.RecordRange(3, false, WhenForAge(60 * 60 * 10));
 
   for (int i = 0; i < 10; ++i) {
-    ages.RecordRange(Length(2), true, WhenForAge(0.1));
+    ages.RecordRange(2, true, WhenForAge(0.1));
   }
-  ages.RecordRange(Length(2), true, WhenForAge(10 * 60 + 5));
+  ages.RecordRange(2, true, WhenForAge(10 * 60 + 5));
 
-  ages.RecordRange(Length(200), true, WhenForAge(10 * 60));
+  ages.RecordRange(200, true, WhenForAge(10 * 60));
   // clang-format off
   const char kExpected[] =
 R"LIT(------------------------------------------------
@@ -135,7 +135,7 @@ Unmapped span,   >=64 pages:    600.0       0       0       0     200       0   
 
 TEST_F(AgeTest, Overflow) {
   tcmalloc::PageAgeHistograms ages(kNow);
-  const Length too_big = Length(4 * (std::numeric_limits<uint32_t>::max() / 5));
+  const Length too_big = 4 * (std::numeric_limits<uint32_t>::max() / 5);
   ages.RecordRange(too_big, false, WhenForAge(0.5));
   ages.RecordRange(too_big, false, WhenForAge(0.5));
 
@@ -157,55 +157,55 @@ Unmapped span   TOTAL PAGES:      0.0       0       0       0       0       0   
 TEST_F(AgeTest, ManySizes) {
   tcmalloc::PageAgeHistograms ages(kNow);
   const Length N = tcmalloc::PageAgeHistograms::kLargeSize;
-  for (auto i = Length(1); i <= N; ++i) {
-    ages.RecordRange(i, false, WhenForAge(i.raw_num() * 3));
+  for (Length i = 1; i <= N; ++i) {
+    ages.RecordRange(i, false, WhenForAge(i * 3));
   }
 
-  for (auto i = Length(1); i < N; ++i) {
+  for (Length i = 1; i < N; ++i) {
     auto hist = ages.GetSmallHistogram(false, i);
     EXPECT_EQ(i, hist->total());
-    EXPECT_FLOAT_EQ(i.raw_num() * 3, hist->avg_age());
+    EXPECT_FLOAT_EQ(i * 3, hist->avg_age());
   }
 
   auto large = ages.GetLargeHistogram(false);
   EXPECT_EQ(N, large->total());
-  EXPECT_FLOAT_EQ(N.raw_num() * 3, large->avg_age());
+  EXPECT_FLOAT_EQ(N * 3, large->avg_age());
 
   auto total = ages.GetTotalHistogram(false);
   // sum_{i = 1}^N i = n(n+1)/2
-  EXPECT_EQ(N.raw_num() * (N.raw_num() + 1) / 2, total->total().raw_num());
+  EXPECT_EQ(N * (N + 1) / 2, total->total());
   // sum_{i = 1}^N 3 * i * i = n(n + 1)(2n + 1) / 2;
   // divide by the above page total gives (2n+1)
-  EXPECT_FLOAT_EQ(2 * N.raw_num() + 1, total->avg_age());
+  EXPECT_FLOAT_EQ(2 * N + 1, total->avg_age());
 }
 
 TEST(PageAllocInfo, Small) {
   PageAllocInfo info("", -1);
-  static_assert(kMaxPages >= Length(4), "odd config");
+  static_assert(kMaxPages >= 4, "odd config");
 
-  info.RecordAlloc(PageId{0}, Length(2));
-  info.RecordAlloc(PageId{0}, Length(2));
-  info.RecordAlloc(PageId{0}, Length(2));
+  info.RecordAlloc(PageId{0}, 2);
+  info.RecordAlloc(PageId{0}, 2);
+  info.RecordAlloc(PageId{0}, 2);
 
-  info.RecordAlloc(PageId{0}, Length(3));
-  info.RecordAlloc(PageId{0}, Length(3));
+  info.RecordAlloc(PageId{0}, 3);
+  info.RecordAlloc(PageId{0}, 3);
 
-  info.RecordFree(PageId{0}, Length(3));
+  info.RecordFree(PageId{0}, 3);
 
-  auto c2 = info.counts_for(Length(2));
+  auto c2 = info.counts_for(2);
   EXPECT_EQ(3, c2.nalloc);
   EXPECT_EQ(0, c2.nfree);
-  EXPECT_EQ(Length(6), c2.alloc_size);
-  EXPECT_EQ(Length(0), c2.free_size);
+  EXPECT_EQ(6, c2.alloc_size);
+  EXPECT_EQ(0, c2.free_size);
 
-  auto c3 = info.counts_for(Length(3));
+  auto c3 = info.counts_for(3);
   EXPECT_EQ(2, c3.nalloc);
   EXPECT_EQ(1, c3.nfree);
-  EXPECT_EQ(Length(6), c3.alloc_size);
-  EXPECT_EQ(Length(3), c3.free_size);
+  EXPECT_EQ(6, c3.alloc_size);
+  EXPECT_EQ(3, c3.free_size);
 
-  EXPECT_EQ(Length(3 * 2 + (2 - 1) * 3), info.small());
-  EXPECT_EQ(Length(0), info.slack());
+  EXPECT_EQ(3 * 2 + (2 - 1) * 3, info.small());
+  EXPECT_EQ(0, info.slack());
 }
 
 TEST(PageAllocInfo, Large) {
@@ -213,33 +213,33 @@ TEST(PageAllocInfo, Large) {
   static_assert(kPagesPerHugePage > kMaxPages, "odd config");
 
   // These three should be aggregated
-  Length slack;
-  info.RecordAlloc(PageId{0}, kMaxPages + Length(1));
-  slack += kPagesPerHugePage - kMaxPages - Length(1);
+  Length slack = 0;
+  info.RecordAlloc(PageId{0}, kMaxPages + 1);
+  slack += kPagesPerHugePage - kMaxPages - 1;
   info.RecordAlloc(PageId{0}, kMaxPages * 3 / 2);
   slack += kPagesPerHugePage - kMaxPages * 3 / 2;
   info.RecordAlloc(PageId{0}, kMaxPages * 2);
   slack += kPagesPerHugePage - kMaxPages * 2;
 
   // This shouldn't
-  const Length larger = kMaxPages * 2 + Length(1);
+  const Length larger = kMaxPages * 2 + 1;
   info.RecordAlloc(PageId{0}, larger);
   slack +=
       (kPagesPerHugePage - (larger % kPagesPerHugePage)) % kPagesPerHugePage;
 
-  auto c1 = info.counts_for(kMaxPages + Length(1));
+  auto c1 = info.counts_for(kMaxPages + 1);
   EXPECT_EQ(3, c1.nalloc);
   EXPECT_EQ(0, c1.nfree);
-  EXPECT_EQ(kMaxPages * 9 / 2 + Length(1), c1.alloc_size);
-  EXPECT_EQ(Length(0), c1.free_size);
+  EXPECT_EQ(kMaxPages * 9 / 2 + 1, c1.alloc_size);
+  EXPECT_EQ(0, c1.free_size);
 
-  auto c2 = info.counts_for(kMaxPages * 2 + Length(1));
+  auto c2 = info.counts_for(kMaxPages * 2 + 1);
   EXPECT_EQ(1, c2.nalloc);
   EXPECT_EQ(0, c2.nfree);
-  EXPECT_EQ(kMaxPages * 2 + Length(1), c2.alloc_size);
-  EXPECT_EQ(Length(0), c2.free_size);
+  EXPECT_EQ(kMaxPages * 2 + 1, c2.alloc_size);
+  EXPECT_EQ(0, c2.free_size);
 
-  EXPECT_EQ(Length(0), info.small());
+  EXPECT_EQ(0, info.small());
   EXPECT_EQ(slack, info.slack());
 }
 

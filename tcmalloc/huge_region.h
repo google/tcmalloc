@@ -24,7 +24,6 @@
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
@@ -68,7 +67,7 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
   bool contains(PageId p) { return location_.contains(p); }
 
   // Stats
-  Length used_pages() const { return Length(tracker_.used()); }
+  Length used_pages() const { return tracker_.used(); }
   Length free_pages() const {
     return size().in_pages() - unmapped_pages() - used_pages();
   }
@@ -94,18 +93,18 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
   void append_it(HugeRegion *other) { this->append(other); }
 
  private:
-  RangeTracker<size().in_pages().raw_num()> tracker_;
+  RangeTracker<size().in_pages()> tracker_;
 
   HugeRange location_;
 
   static int64_t AverageWhens(Length a, int64_t a_when, Length b,
                               int64_t b_when) {
-    const double aw = static_cast<double>(a.raw_num()) * a_when;
-    const double bw = static_cast<double>(b.raw_num()) * b_when;
-    return static_cast<int64_t>((aw + bw) / (a.raw_num() + b.raw_num()));
+    const double aw = static_cast<double>(a) * a_when;
+    const double bw = static_cast<double>(b) * b_when;
+    return static_cast<int64_t>((aw + bw) / (a + b));
   }
 
-  Length longest_free() const { return Length(tracker_.longest_free()); }
+  Length longest_free() const { return tracker_.longest_free(); }
 
   // Adjust counts of allocs-per-hugepage for [p, p + n) being added/removed.
 
@@ -223,7 +222,7 @@ inline HugeRegion<Unback>::HugeRegion(HugeRange r)
   for (int i = 0; i < kNumHugePages; ++i) {
     whens_[i] = now;
     // These are already 0 but for clarity...
-    pages_used_[i] = Length(0);
+    pages_used_[i] = 0;
     backed_[i] = false;
   }
 }
@@ -232,7 +231,7 @@ template <MemoryModifyFunction Unback>
 inline bool HugeRegion<Unback>::MaybeGet(Length n, PageId *p,
                                          bool *from_released) {
   if (n > longest_free()) return false;
-  auto index = Length(tracker_.FindAndMark(n.raw_num()));
+  size_t index = tracker_.FindAndMark(n);
 
   PageId page = location_.start().first_page() + index;
   *p = page;
@@ -245,8 +244,8 @@ inline bool HugeRegion<Unback>::MaybeGet(Length n, PageId *p,
 // If release=true, release any hugepages made empty as a result.
 template <MemoryModifyFunction Unback>
 inline void HugeRegion<Unback>::Put(PageId p, Length n, bool release) {
-  Length index = p - location_.start().first_page();
-  tracker_.Unmark(index.raw_num(), n.raw_num());
+  size_t index = p - location_.start().first_page();
+  tracker_.Unmark(index, n);
 
   Dec(p, n, release);
 }
@@ -257,7 +256,7 @@ inline HugeLength HugeRegion<Unback>::Release() {
   HugeLength r = NHugePages(0);
   bool should_unback_[kNumHugePages] = {};
   for (size_t i = 0; i < kNumHugePages; ++i) {
-    if (backed_[i] && pages_used_[i] == Length(0)) {
+    if (backed_[i] && pages_used_[i] == 0) {
       should_unback_[i] = true;
       ++r;
     }
@@ -271,37 +270,37 @@ inline void HugeRegion<Unback>::AddSpanStats(SmallSpanStats *small,
                                              LargeSpanStats *large,
                                              PageAgeHistograms *ages) const {
   size_t index = 0, n;
-  Length f, u;
+  Length f = 0, u = 0;
   // This is complicated a bit by the backed/unbacked status of pages.
   while (tracker_.NextFreeRange(index, &index, &n)) {
     // [index, index + n) is an *unused* range.  As it may cross
     // hugepages, we may need to truncate it so it is either a
     // *free* or a *released* range, and compute a reasonable value
     // for its "when".
-    PageId p = location_.start().first_page() + Length(index);
+    PageId p = location_.start().first_page() + index;
     const HugePage hp = HugePageContaining(p);
     size_t i = (hp - location_.start()) / NHugePages(1);
     const bool backed = backed_[i];
-    Length truncated;
+    Length truncated = 0;
     int64_t when = 0;
     while (n > 0 && backed_[i] == backed) {
       const PageId lim = (location_.start() + NHugePages(i + 1)).first_page();
-      Length here = std::min(Length(n), lim - p);
+      Length here = std::min(n, lim - p);
       when = AverageWhens(truncated, when, here, whens_[i]);
       truncated += here;
-      n -= here.raw_num();
+      n -= here;
       p += here;
       i++;
       ASSERT(i < kNumHugePages || n == 0);
     }
-    n = truncated.raw_num();
+    n = truncated;
     const bool released = !backed;
     if (released) {
-      u += Length(n);
+      u += n;
     } else {
-      f += Length(n);
+      f += n;
     }
-    if (Length(n) < kMaxPages) {
+    if (n < kMaxPages) {
       if (small != nullptr) {
         if (released) {
           small->returned_length[n]++;
@@ -313,15 +312,15 @@ inline void HugeRegion<Unback>::AddSpanStats(SmallSpanStats *small,
       if (large != nullptr) {
         large->spans++;
         if (released) {
-          large->returned_pages += Length(n);
+          large->returned_pages += n;
         } else {
-          large->normal_pages += Length(n);
+          large->normal_pages += n;
         }
       }
     }
 
     if (ages != nullptr) {
-      ages->RecordRange(Length(n), released, when);
+      ages->RecordRange(n, released, when);
     }
     index += n;
   }
@@ -343,11 +342,11 @@ inline HugeLength HugeRegion<Unback>::backed() const {
 
 template <MemoryModifyFunction Unback>
 inline void HugeRegion<Unback>::Print(TCMalloc_Printer *out) const {
-  const size_t kib_used = used_pages().in_bytes() / 1024;
-  const size_t kib_free = free_pages().in_bytes() / 1024;
-  const size_t kib_longest_free = longest_free().in_bytes() / 1024;
+  const size_t kib_used = (used_pages() * kPageSize) / 1024;
+  const size_t kib_free = (free_pages() * kPageSize) / 1024;
+  const size_t kib_longest_free = (longest_free() * kPageSize) / 1024;
   const HugeLength unbacked = size() - backed();
-  const size_t mib_unbacked = unbacked.in_mib();
+  const size_t mib_unbacked = unbacked.in_bytes() / 1024 / 1024;
   out->printf(
       "HugeRegion: %zu KiB used, %zu KiB free, "
       "%zu KiB contiguous space, %zu MiB unbacked, "
@@ -358,9 +357,9 @@ inline void HugeRegion<Unback>::Print(TCMalloc_Printer *out) const {
 
 template <MemoryModifyFunction Unback>
 inline void HugeRegion<Unback>::PrintInPbtxt(PbtxtRegion *detail) const {
-  detail->PrintI64("used_bytes", used_pages().in_bytes());
-  detail->PrintI64("free_bytes", free_pages().in_bytes());
-  detail->PrintI64("longest_free_range_bytes", longest_free().in_bytes());
+  detail->PrintI64("used_bytes", used_pages() * kPageSize);
+  detail->PrintI64("free_bytes", free_pages() * kPageSize);
+  detail->PrintI64("longest_free_range_bytes", longest_free() * kPageSize);
   const HugeLength unbacked = size() - backed();
   detail->PrintI64("unbacked_bytes", unbacked.in_bytes());
   detail->PrintI64("total_unbacked_bytes", total_unbacked_.in_bytes());
@@ -370,8 +369,8 @@ template <MemoryModifyFunction Unback>
 inline BackingStats HugeRegion<Unback>::stats() const {
   BackingStats s;
   s.system_bytes = location_.len().in_bytes();
-  s.free_bytes = free_pages().in_bytes();
-  s.unmapped_bytes = unmapped_pages().in_bytes();
+  s.free_bytes = free_pages() * kPageSize;
+  s.unmapped_bytes = unmapped_pages() * kPageSize;
   return s;
 }
 
@@ -379,12 +378,12 @@ template <MemoryModifyFunction Unback>
 inline void HugeRegion<Unback>::Inc(PageId p, Length n, bool *from_released) {
   bool should_back = false;
   const int64_t now = absl::base_internal::CycleClock::Now();
-  while (n > Length(0)) {
+  while (n > 0) {
     const HugePage hp = HugePageContaining(p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
     Length here = std::min(n, lim - p);
-    if (pages_used_[i] == Length(0) && !backed_[i]) {
+    if (pages_used_[i] == 0 && !backed_[i]) {
       backed_[i] = true;
       should_back = true;
       ++nbacked_;
@@ -402,18 +401,18 @@ template <MemoryModifyFunction Unback>
 inline void HugeRegion<Unback>::Dec(PageId p, Length n, bool release) {
   const int64_t now = absl::base_internal::CycleClock::Now();
   bool should_unback_[kNumHugePages] = {};
-  while (n > Length(0)) {
+  while (n > 0) {
     const HugePage hp = HugePageContaining(p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
     Length here = std::min(n, lim - p);
-    ASSERT(here > Length(0));
+    ASSERT(here > 0);
     ASSERT(pages_used_[i] >= here);
     ASSERT(backed_[i]);
     whens_[i] =
         AverageWhens(here, now, kPagesPerHugePage - pages_used_[i], whens_[i]);
     pages_used_[i] -= here;
-    if (pages_used_[i] == Length(0)) {
+    if (pages_used_[i] == 0) {
       should_unback_[i] = true;
     }
     p += here;
@@ -502,7 +501,7 @@ inline void HugeRegionSet<Region>::Print(TCMalloc_Printer *out) const {
   out->printf("HugeRegionSet: 1 MiB+ allocations best-fit into %zu MiB slabs\n",
               Region::size().in_bytes() / 1024 / 1024);
   out->printf("HugeRegionSet: %zu total regions\n", n_);
-  Length total_free;
+  Length total_free = 0;
   HugeLength total_backed = NHugePages(0);
 
   for (Region *region : list_) {
@@ -516,10 +515,8 @@ inline void HugeRegionSet<Region>::Print(TCMalloc_Printer *out) const {
 
   const Length in_pages = total_backed.in_pages();
   out->printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
-              total_free.raw_num(),
-              in_pages > Length(0) ? static_cast<double>(total_free.raw_num()) /
-                                         static_cast<double>(in_pages.raw_num())
-                                   : 0.0);
+              total_free,
+              in_pages > 0 ? static_cast<double>(total_free) / in_pages : 0.0);
 }
 
 template <typename Region>

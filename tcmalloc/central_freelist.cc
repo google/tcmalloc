@@ -20,7 +20,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pagemap.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
@@ -29,8 +28,8 @@ namespace tcmalloc {
 void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
   object_size_ = Static::sizemap()->class_to_size(cl);
-  pages_per_span_ = Length(Static::sizemap()->class_to_pages(cl));
-  objects_per_span_ = pages_per_span_.in_bytes() / (cl ? object_size_ : 1);
+  pages_per_span_ = Static::sizemap()->class_to_pages(cl);
+  objects_per_span_ = pages_per_span_ * kPageSize / (cl ? object_size_ : 1);
 }
 
 static Span* MapObjectToSpan(void* object) {
@@ -121,7 +120,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   Span* span = Static::page_allocator()->New(pages_per_span_, /*tagged=*/false);
   if (span == nullptr) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
-        pages_per_span_.in_bytes());
+        pages_per_span_ << kPageShift);
     lock_.Lock();
     return;
   }
@@ -140,7 +139,7 @@ size_t CentralFreeList::OverheadBytes() {
   if (size_class_ == 0) {  // 0 holds the 0-sized allocations
     return 0;
   }
-  const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
+  const size_t overhead_per_span = (pages_per_span_ * kPageSize) % object_size_;
   return num_spans() * overhead_per_span;
 }
 

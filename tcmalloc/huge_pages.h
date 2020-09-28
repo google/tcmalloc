@@ -32,8 +32,8 @@
 
 namespace tcmalloc {
 
-inline constexpr Length kPagesPerHugePage =
-    Length(1 << (kHugePageShift - kPageShift));
+inline constexpr size_t kPagesPerHugePage = static_cast<size_t>(1)
+                                            << (kHugePageShift - kPageShift);
 
 // A single aligned huge page.
 struct HugePage {
@@ -80,8 +80,7 @@ inline constexpr HugeLength HLFromBytes(size_t bytes) {
 
 // Rounds *up* to the nearest hugepage.
 inline constexpr HugeLength HLFromPages(Length pages) {
-  return NHugePages((pages + kPagesPerHugePage - Length(1)) /
-                    kPagesPerHugePage);
+  return NHugePages((pages + kPagesPerHugePage - 1) / kPagesPerHugePage);
 }
 
 inline HugeLength &operator++(HugeLength &len) {  // NOLINT(runtime/references)

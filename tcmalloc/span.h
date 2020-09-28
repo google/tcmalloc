@@ -306,9 +306,7 @@ inline bool Span::sampled() const { return sampled_; }
 
 inline PageId Span::first_page() const { return first_page_; }
 
-inline PageId Span::last_page() const {
-  return first_page_ + num_pages_ - Length(1);
-}
+inline PageId Span::last_page() const { return first_page_ + num_pages_ - 1; }
 
 inline void Span::set_first_page(PageId p) { first_page_ = p; }
 
@@ -318,7 +316,7 @@ inline Length Span::num_pages() const { return num_pages_; }
 
 inline void Span::set_num_pages(Length len) { num_pages_ = len; }
 
-inline size_t Span::bytes_in_span() const { return num_pages_.in_bytes(); }
+inline size_t Span::bytes_in_span() const { return num_pages_ << kPageShift; }
 
 inline void Span::set_freelist_added_time(uint64_t t) {
   freelist_added_time_ = t;

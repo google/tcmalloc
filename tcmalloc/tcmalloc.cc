@@ -99,7 +99,6 @@
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
@@ -1086,12 +1085,12 @@ extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
     // A sub-page size request may round down to zero.  Assume the caller wants
     // some memory released.
     num_pages = tcmalloc::BytesToLengthCeil(num_bytes);
-    ASSERT(num_pages > Length(0));
+    ASSERT(num_pages > 0);
   } else {
-    num_pages = Length(0);
+    num_pages = 0;
   }
   size_t bytes_released =
-      Static::page_allocator()->ReleaseAtLeastNPages(num_pages).in_bytes();
+      Static::page_allocator()->ReleaseAtLeastNPages(num_pages) << kPageShift;
   if (bytes_released > num_bytes) {
     extra_bytes_released = bytes_released - num_bytes;
   } else {
@@ -1115,7 +1114,7 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
     ASSERT(cl != 0);
     return Static::sizemap()->class_to_size(cl);
   } else {
-    return tcmalloc::BytesToLengthCeil(size).in_bytes();
+    return tcmalloc::BytesToLengthCeil(size) << kPageShift;
   }
 }
 
@@ -1133,7 +1132,7 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
     ASSERT(cl != 0);
     return Static::sizemap()->class_to_size(cl);
   } else {
-    return tcmalloc::BytesToLengthCeil(size).in_bytes();
+    return tcmalloc::BytesToLengthCeil(size) << kPageShift;
   }
 }
 
@@ -1250,7 +1249,7 @@ inline void SetClassCapacity(const void* ptr, uint32_t cl, size_t* psize) {
 inline void SetPagesCapacity(const void*, size_t, std::nullptr_t) {}
 inline void SetPagesCapacity(const void* ptr, size_t size, size_t* psize) {
   if (ABSL_PREDICT_TRUE(ptr != nullptr)) {
-    *psize = tcmalloc::BytesToLengthCeil(size).in_bytes();
+    *psize = tcmalloc::BytesToLengthCeil(size) << kPageShift;
   } else {
     *psize = 0;
   }
@@ -1344,8 +1343,7 @@ namespace {
 // returns a guarded allocation Span.  Otherwise returns nullptr.
 static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
                                         Length num_pages) {
-  if (num_pages == Length(1) &&
-      GetThreadSampler()->ShouldSampleGuardedAllocation()) {
+  if (num_pages == 1 && GetThreadSampler()->ShouldSampleGuardedAllocation()) {
     // The num_pages == 1 constraint ensures that size <= kPageSize.  And since
     // alignments above kPageSize cause cl == 0, we're also guaranteed
     // alignment <= kPageSize
@@ -1423,7 +1421,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
       return obj;
     }
 
-    size_t span_size = Length(Static::sizemap()->class_to_pages(cl)).in_bytes();
+    size_t span_size = Static::sizemap()->class_to_pages(cl) << kPageShift;
     size_t objects_per_span = span_size / allocated_size;
 
     if (objects_per_span != 1) {
@@ -1508,8 +1506,7 @@ inline size_t ShouldSampleAllocation(size_t size) {
 
 inline void* do_malloc_pages(size_t size, size_t alignment) {
   // Page allocator does not deal well with num_pages = 0.
-  Length num_pages =
-      std::max<Length>(tcmalloc::BytesToLengthCeil(size), Length(1));
+  Length num_pages = std::max<Length>(tcmalloc::BytesToLengthCeil(size), 1);
 
   Span* span = Static::page_allocator()->NewAligned(
       num_pages, tcmalloc::BytesToLengthCeil(alignment), /*tagged=*/false);
@@ -1750,7 +1747,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   } else if (Static::sizemap()->GetSizeClass(size, align.align(), &cl)) {
     size = Static::sizemap()->class_to_size(cl);
   } else {
-    size = tcmalloc::BytesToLengthCeil(size).in_bytes();
+    size = tcmalloc::BytesToLengthCeil(size) << kPageShift;
   }
   size_t actual = GetSize(ptr);
   if (actual == size) return true;

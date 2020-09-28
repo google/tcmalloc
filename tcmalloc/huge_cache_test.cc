@@ -288,7 +288,7 @@ TEST_F(HugeCacheTest, Stats) {
   cache_.Release(r1);
   absl::SleepFor(absl::Microseconds(5000));
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
-  EXPECT_EQ(Length(0), pages_unbacked);
+  EXPECT_EQ(0, pages_unbacked);
   EXPECT_EQ(1, spans);
   EXPECT_EQ(NHugePages(1).in_pages(), pages_backed);
   EXPECT_LE(0.005, avg_age);
@@ -296,7 +296,7 @@ TEST_F(HugeCacheTest, Stats) {
   cache_.Release(r2);
   absl::SleepFor(absl::Microseconds(2500));
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
-  EXPECT_EQ(Length(0), pages_unbacked);
+  EXPECT_EQ(0, pages_unbacked);
   EXPECT_EQ(2, spans);
   EXPECT_EQ(NHugePages(3).in_pages(), pages_backed);
   EXPECT_LE((0.0075 * 1 + 0.0025 * 2) / (1 + 2), avg_age);
@@ -304,7 +304,7 @@ TEST_F(HugeCacheTest, Stats) {
   cache_.Release(r3);
   absl::SleepFor(absl::Microseconds(1250));
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
-  EXPECT_EQ(Length(0), pages_unbacked);
+  EXPECT_EQ(0, pages_unbacked);
   EXPECT_EQ(3, spans);
   EXPECT_EQ(NHugePages(6).in_pages(), pages_backed);
   EXPECT_LE((0.00875 * 1 + 0.00375 * 2 + 0.00125 * 3) / (1 + 2 + 3), avg_age);

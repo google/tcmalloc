@@ -43,9 +43,9 @@ void CheckStats(const tcmalloc::PageHeap* ph, Length system_pages,
     stats = ph->stats();
   }
 
-  ASSERT_EQ(system_pages.in_bytes(), stats.system_bytes);
-  ASSERT_EQ(free_pages.in_bytes(), stats.free_bytes);
-  ASSERT_EQ(unmapped_pages.in_bytes(), stats.unmapped_bytes);
+  ASSERT_EQ(system_pages, stats.system_bytes >> kPageShift);
+  ASSERT_EQ(free_pages, stats.free_bytes >> kPageShift);
+  ASSERT_EQ(unmapped_pages, stats.unmapped_bytes >> kPageShift);
 }
 
 static void Delete(tcmalloc::PageHeap* ph, tcmalloc::Span* s)
@@ -78,26 +78,26 @@ TEST_F(PageHeapTest, Stats) {
                                                            /*tagged=*/false);
 
   // Empty page heap
-  CheckStats(ph, Length(0), Length(0), Length(0));
+  CheckStats(ph, 0, 0, 0);
 
   // Allocate a span 's1'
   tcmalloc::Span* s1 = ph->New(kMinSpanLength);
-  CheckStats(ph, kMinSpanLength, Length(0), Length(0));
+  CheckStats(ph, kMinSpanLength, 0, 0);
 
   // Allocate an aligned span 's2'
   static const Length kHalf = kMinSpanLength / 2;
   tcmalloc::Span* s2 = ph->NewAligned(kHalf, kHalf);
-  ASSERT_EQ(s2->first_page().index() % kHalf.raw_num(), 0);
-  CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf);
+  ASSERT_EQ(s2->first_page().index() % kHalf, 0);
+  CheckStats(ph, kMinSpanLength * 2, 0, kHalf);
 
   // Delete the old one
   Delete(ph, s1);
   CheckStats(ph, kMinSpanLength * 2, kMinSpanLength, kHalf);
 
   // Release the space from there:
-  Length released = Release(ph, Length(1));
+  Length released = Release(ph, 1);
   ASSERT_EQ(released, kMinSpanLength);
-  CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf + kMinSpanLength);
+  CheckStats(ph, kMinSpanLength * 2, 0, kHalf + kMinSpanLength);
 
   // and delete the new one
   Delete(ph, s2);

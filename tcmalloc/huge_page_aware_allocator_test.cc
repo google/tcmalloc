@@ -90,7 +90,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
 
   ~HugePageAwareAllocatorTest() override {
     CHECK_CONDITION(ids_.empty());
-    CHECK_CONDITION(total_ == Length(0));
+    CHECK_CONDITION(total_ == 0);
     // We end up leaking both the backing allocations and the metadata.
     // The backing allocations are unmapped--it's silly, but not
     // costing us muchin a 64-bit address space.
@@ -119,7 +119,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
   };
 
   void CheckStats() {
-    size_t actual_used_bytes = total_.in_bytes();
+    size_t actual_used_bytes = total_ << kPageShift;
     BackingStats stats;
     {
       absl::base_internal::SpinLockHolder h2(&pageheap_lock);
@@ -178,12 +178,11 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     // TODO(b/128521238): scalable RNG
     absl::base_internal::SpinLockHolder h(&lock_);
     if (absl::Bernoulli(rng_, 1.0 / 1000)) {
-      Length n =
-          Length(1024) * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 8) - 1));
-      n += Length(absl::Uniform<int32_t>(rng_, 0, 1024));
+      Length n = 1024 * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 8) - 1));
+      n += absl::Uniform<int32_t>(rng_, 0, 1024);
       return n;
     }
-    return Length(1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1));
+    return 1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1);
   }
 
   Length ReleasePages(Length k) {
@@ -221,7 +220,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
   absl::base_internal::SpinLock lock_;
   absl::flat_hash_map<Span *, size_t> ids_;
   size_t next_id_{0};
-  Length total_;
+  Length total_{0};
 };
 
 TEST_F(HugePageAwareAllocatorTest, Fuzz) {
@@ -232,7 +231,7 @@ TEST_F(HugePageAwareAllocatorTest, Fuzz) {
   }
   static const size_t kReps = 50 * 1000;
   for (int i = 0; i < kReps; ++i) {
-    SCOPED_TRACE(absl::StrFormat("%d reps, %d pages", i, total_.raw_num()));
+    SCOPED_TRACE(absl::StrFormat("%d reps, %d pages", i, total_));
     size_t index = absl::Uniform<int32_t>(rng_, 0, allocs.size());
     Span *old = allocs[index];
     Delete(old);
@@ -251,17 +250,17 @@ TEST_F(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
   std::vector<Span *> big_allocs, small_allocs;
   // Trigger creation of a hugepage with more than one allocation and plenty of
   // free space.
-  small_allocs.push_back(New(Length(1)));
-  small_allocs.push_back(New(Length(10)));
+  small_allocs.push_back(New(1));
+  small_allocs.push_back(New(1));
   // Limit iterations so that the huge page with the small allocs doesn't fill
   // up.
-  size_t n_iter = (kPagesPerHugePage - Length(2)).raw_num();
+  size_t n_iter = kPagesPerHugePage >= 2 ? kPagesPerHugePage - 2 : 0;
   // Also limit memory usage to ~1 GB.
   n_iter = std::min((1 << 30) / (2 * kHugePageSize), n_iter);
   for (int i = 0; i < n_iter; ++i) {
-    Length n = 2 * kPagesPerHugePage - Length(1);
+    Length n = 2 * kPagesPerHugePage - 1;
     big_allocs.push_back(New(n));
-    small_allocs.push_back(New(Length(1)));
+    small_allocs.push_back(New(1));
   }
   for (auto *span : big_allocs) {
     Delete(span);
@@ -320,9 +319,9 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
   Parameters::set_hpaa_subrelease(true);
 
   std::vector<Span *> live, dead;
-  static const size_t N = kPagesPerHugePage.raw_num() * 128;
+  static const size_t N = kPagesPerHugePage * 128;
   for (int i = 0; i < N; ++i) {
-    Span *span = New(Length(1));
+    Span *span = New(1);
     ((i % 2 == 0) ? live : dead).push_back(span);
   }
 
@@ -330,7 +329,7 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(d);
   }
 
-  EXPECT_EQ(kPagesPerHugePage / 2, ReleasePages(Length(1)));
+  EXPECT_EQ(kPagesPerHugePage / 2, ReleasePages(1));
 
   for (auto l : live) {
     Delete(l);
@@ -341,9 +340,9 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   // This test verifies that we accurately measure the amount of RAM that we
   // donate to the huge page filler when making large allocations, including
   // those kept alive after we deallocate.
-  static constexpr Length kSlack = Length(2);
+  static constexpr Length kSlack = 2;
   static constexpr Length kLargeSize = 2 * kPagesPerHugePage - kSlack;
-  static constexpr Length kSmallSize = Length(1);
+  static constexpr Length kSmallSize = 1;
 
   Span *large1 = New(kLargeSize);
   Length slack;
@@ -368,7 +367,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
   }
-  EXPECT_EQ(slack, Length(0));
+  EXPECT_EQ(slack, 0);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
@@ -410,7 +409,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
   }
-  EXPECT_EQ(slack, Length(0));
+  EXPECT_EQ(slack, 0);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
@@ -427,7 +426,7 @@ TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
   std::vector<Span *> allocs;
 
   for (int i : {10, 20, 30}) {
-    auto n = Length(i << 7);
+    Length n = i << 7;
     allocs.push_back(New(n));
   }
 
@@ -439,7 +438,7 @@ TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
 
   // Do the same, but allocate something on the real page heap.
   for (int i : {10, 20, 30}) {
-    auto n = Length(i << 7);
+    Length n = i << 7;
     allocs.push_back(New(n));
 
     ::operator delete(::operator new(1 << 20));
@@ -454,7 +453,7 @@ static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
 
 TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
   const int kIters = 2000;
-  const Length kSmallPages = Length(1);
+  const Length kSmallPages = 1;
   // Large block must be larger than 1 huge page.
   const Length kLargePages = 2 * kPagesPerHugePage - kSmallPages;
   std::vector<Span *> small_allocs;
@@ -487,7 +486,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
   // Verify that we have less free memory than we allocated in total. We have
   // to account for bytes tied up in the cache.
   EXPECT_LE(stats.free_bytes - allocator_->cache()->size().in_bytes(),
-            kSmallPages.in_bytes() * kIters)
+            kSmallPages * kPageSize * kIters)
       << buffer;
 
   for (Span *small : small_allocs) {
@@ -497,7 +496,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
 
 // Tests an edge case in hugepage donation behavior.
 TEST_F(HugePageAwareAllocatorTest, DonatedPageLists) {
-  const Length kSmallPages = Length(1);
+  const Length kSmallPages = 1;
   // Large block must be larger than 1 huge page.
   const Length kLargePages = 2 * kPagesPerHugePage - 2 * kSmallPages;
 
@@ -522,7 +521,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedPageLists) {
 }
 
 TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
-  const Length kSmallPages = Length(2);
+  const Length kSmallPages = 2;
   const Length kOneHugePageDonation = kPagesPerHugePage - kSmallPages;
   const Length kMultipleHugePagesDonation = 3 * kPagesPerHugePage - kSmallPages;
 
@@ -565,7 +564,7 @@ TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
 // (Usable manually in controlled environments.
 TEST_F(HugePageAwareAllocatorTest, DISABLED_OOM) {
   std::vector<Span *> objs;
-  auto n = Length(1);
+  Length n = 1;
   while (true) {
     Span *s = New(n);
     if (!s) break;
@@ -769,24 +768,22 @@ class StatTest : public testing::Test {
   Length RandomAllocSize() {
     // Since we touch all of the pages, try to avoid OOM'ing by limiting the
     // number of big allocations.
-    const Length kMaxBigAllocs = Length(4096);
+    const Length kMaxBigAllocs = 4096;
 
     if (big_allocs_ < kMaxBigAllocs && absl::Bernoulli(rng_, 1.0 / 50)) {
-      auto n =
-          Length(1024 * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1)));
-      n += Length(absl::Uniform<int32_t>(rng_, 0, 1024));
+      Length n = 1024 * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1));
+      n += absl::Uniform<int32_t>(rng_, 0, 1024);
       big_allocs_ += n;
       return n;
     }
-    return Length(1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1));
+    return 1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1);
   }
 
   Span *Alloc(Length n) {
     Span *span = alloc->New(n);
     TouchTHP(span);
     if (n > span->num_pages()) {
-      Crash(kCrash, __FILE__, __LINE__, n.raw_num(),
-            "not <=", span->num_pages().raw_num());
+      Crash(kCrash, __FILE__, __LINE__, n, "not <=", span->num_pages());
     }
     n = span->num_pages();
     if (n > longest_) longest_ = n;
@@ -816,16 +813,15 @@ class StatTest : public testing::Test {
     }
 
     size_t span_stats_free_bytes = 0, span_stats_released_bytes = 0;
-    for (auto i = Length(0); i < kMaxPages; ++i) {
-      span_stats_free_bytes += i.in_bytes() * small.normal_length[i.raw_num()];
-      span_stats_released_bytes +=
-          i.in_bytes() * small.returned_length[i.raw_num()];
+    for (int i = 0; i < kMaxPages; ++i) {
+      span_stats_free_bytes += kPageSize * i * small.normal_length[i];
+      span_stats_released_bytes += kPageSize * i * small.returned_length[i];
     }
-    span_stats_free_bytes += large.normal_pages.in_bytes();
-    span_stats_released_bytes += large.returned_pages.in_bytes();
+    span_stats_free_bytes += large.normal_pages * kPageSize;
+    span_stats_released_bytes += large.returned_pages * kPageSize;
 
 #ifndef __ppc__
-    const size_t alloced_bytes = total_.in_bytes();
+    const size_t alloced_bytes = (total_ << kPageShift);
 #endif
     ASSERT_EQ(here.virt, stats.system_bytes);
 #ifndef __ppc__
@@ -849,10 +845,10 @@ class StatTest : public testing::Test {
   RegionFactory replacement_region_factory_{GetRegionFactory()};
   absl::BitGen rng_;
 
-  Length total_;
-  Length longest_;
-  Length peak_;
-  Length big_allocs_;
+  Length total_{0};
+  Length longest_{0};
+  Length peak_{0};
+  Length big_allocs_{0};
 };
 
 TEST_F(StatTest, Basic) {
@@ -883,9 +879,9 @@ TEST_F(StatTest, Basic) {
     allocs[index] = Alloc(k);
 
     if (absl::Bernoulli(rng_, 1.0 / 3)) {
-      Length pages(absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1) + 1);
+      Length k = absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1) + 1;
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      alloc->ReleaseAtLeastNPages(pages);
+      alloc->ReleaseAtLeastNPages(k);
     }
 
     // stats are expensive, don't always check
