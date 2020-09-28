@@ -314,8 +314,8 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingLarge) {
   ASSERT_LE(kPagesPerHugePage, ReleasePages(kPagesPerHugePage));
 }
 
-// For the moment, we have sub-hugepage-releasing disabled.
 TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
+  const bool old_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(true);
 
   std::vector<Span *> live, dead;
@@ -334,6 +334,8 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
   for (auto l : live) {
     Delete(l);
   }
+
+  Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
 TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
