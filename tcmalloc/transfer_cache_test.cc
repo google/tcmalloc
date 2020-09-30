@@ -37,13 +37,13 @@
 namespace tcmalloc {
 namespace {
 
-using MockTransferCacheEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
+template <typename Env>
+using TransferCacheTest = ::testing::Test;
+TYPED_TEST_SUITE_P(TransferCacheTest);
 
-TEST(TransferCache, IsolatedSmoke) {
-  const int batch_size = MockTransferCacheEnv::kBatchSize;
-  MockTransferCacheEnv e;
+TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
 
@@ -62,18 +62,18 @@ TEST(TransferCache, IsolatedSmoke) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
 }
 
-TEST(TransferCache, FetchesFromFreelist) {
-  const int batch_size = MockTransferCacheEnv::kBatchSize;
-  MockTransferCacheEnv e;
+TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
 }
 
-TEST(TransferCache, EvictsOtherCaches) {
-  const int batch_size = MockTransferCacheEnv::kBatchSize;
-  MockTransferCacheEnv e;
+TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
 
   EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
     return true;
@@ -89,9 +89,9 @@ TEST(TransferCache, EvictsOtherCaches) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
 }
 
-TEST(TransferCache, PushesToFreelist) {
-  const int batch_size = MockTransferCacheEnv::kBatchSize;
-  MockTransferCacheEnv e;
+TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
 
   EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
     return false;
@@ -107,71 +107,94 @@ TEST(TransferCache, PushesToFreelist) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
 }
 
+REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke,
+                            FetchesFromFreelist, EvictsOtherCaches,
+                            PushesToFreelist);
+template <typename Env>
+using TransferCacheFuzzTest = ::testing::Test;
+TYPED_TEST_SUITE_P(TransferCacheFuzzTest);
+
+TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedUnbiased) {
+  TypeParam env;
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(0.3) > absl::Now()) env.RandomlyPoke();
+  threads.Stop();
+}
+
+TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedInsert) {
+  const int batch_size = TypeParam::kBatchSize;
+
+  TypeParam env;
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Insert(batch_size);
+  threads.Stop();
+}
+
+TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedRemove) {
+  const int batch_size = TypeParam::kBatchSize;
+
+  TypeParam env;
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Remove(batch_size);
+  threads.Stop();
+}
+
+TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedShrink) {
+  TypeParam env;
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Shrink();
+  threads.Stop();
+}
+
+TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedGrow) {
+  TypeParam env;
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) env.Grow();
+  threads.Stop();
+}
+
+REGISTER_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, MultiThreadedUnbiased,
+                            MultiThreadedBiasedInsert,
+                            MultiThreadedBiasedRemove, MultiThreadedBiasedGrow,
+                            MultiThreadedBiasedShrink);
+
+using LegacyEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
+
 using LockFreeEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
         MockCentralFreeList, MockTransferCacheManager>>;
 
-TEST(LockFreeTransferCache, IsolatedSmoke) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-  LockFreeEnv env;
+// We keep these as separate lists of types to allow folks that are
+// experimenting with alternate implementations to disable the fuzz testing for
+// types they are not modifying more easily.  Also, Legacy env doesn't support
+// quite the right interface for fuzz testing in a mock environment at the
+// moment.
+using TransferCacheTypes = ::testing::Types<LegacyEnv, LockFreeEnv>;
+using TransferCacheFuzzTypes = ::testing::Types<LockFreeEnv>;
 
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 0);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 0);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheTest, TransferCacheTest,
+                               TransferCacheTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
+                               TransferCacheFuzzTypes);
 
-  env.Insert(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 1);
-  env.Insert(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_hits, 2);
-  env.Remove(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 1);
-  env.Remove(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_hits, 2);
-}
-
-TEST(LockFreeTransferCache, FetchesFromFreelist) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-  LockFreeEnv env;
-  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(1);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
-  env.Remove(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 1);
-}
-
-TEST(LockFreeTransferCache, EvictsOtherCaches) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-  LockFreeEnv env;
-
-  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
-    return true;
-  });
-  EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
-
-  while (env.transfer_cache().HasSpareCapacity()) {
-    env.Insert(batch_size);
-  }
-  env.Insert(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
-}
-
-TEST(LockFreeTransferCache, PushesToFreelist) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-  LockFreeEnv env;
-
-  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).WillOnce([]() {
-    return false;
-  });
-  EXPECT_CALL(env.central_freelist(), InsertRange).Times(1);
-
-  while (env.transfer_cache().HasSpareCapacity()) {
-    env.Insert(batch_size);
-  }
-  env.Insert(batch_size);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 1);
-}
-
-TEST(LockFreeTransferCache, WrappingWorks) {
+TEST(TransferCacheTest, WrappingWorks) {
   const int batch_size = LockFreeEnv::kBatchSize;
 
   LockFreeEnv env;
@@ -184,62 +207,6 @@ TEST(LockFreeTransferCache, WrappingWorks) {
     env.Remove(batch_size);
     env.Insert(batch_size);
   }
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().insert_misses, 0);
-  EXPECT_EQ(env.transfer_cache().GetHitRateStats().remove_misses, 0);
-}
-
-TEST(LockFreeTransferCache, MultiThreadedUnbiased) {
-  LockFreeEnv env;
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
-
-  auto start = absl::Now();
-  while (start + absl::Seconds(0.3) > absl::Now()) env.RandomlyPoke();
-  threads.Stop();
-}
-
-TEST(LockFreeTransferCache, MultiThreadedBiasedInsert) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-
-  LockFreeEnv env;
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
-
-  auto start = absl::Now();
-  while (start + absl::Seconds(5) > absl::Now()) env.Insert(batch_size);
-  threads.Stop();
-}
-
-TEST(LockFreeTransferCache, MultiThreadedBiasedRemove) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-
-  LockFreeEnv env;
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
-
-  auto start = absl::Now();
-  while (start + absl::Seconds(5) > absl::Now()) env.Remove(batch_size);
-  threads.Stop();
-}
-
-TEST(LockFreeTransferCache, MultiThreadedBiasedShrink) {
-  LockFreeEnv env;
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
-
-  auto start = absl::Now();
-  while (start + absl::Seconds(5) > absl::Now()) env.Shrink();
-  threads.Stop();
-}
-
-TEST(LockFreeTransferCache, MultiThreadedBiasedGrow) {
-  LockFreeEnv env;
-  ThreadManager threads;
-  threads.Start(10, [&](int) { env.RandomlyPoke(); });
-
-  auto start = absl::Now();
-  while (start + absl::Seconds(5) > absl::Now()) env.Grow();
-  threads.Stop();
 }
 
 }  // namespace

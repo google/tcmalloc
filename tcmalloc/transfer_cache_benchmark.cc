@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
+
 #include "absl/types/optional.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
@@ -19,6 +21,7 @@
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
+#include "tcmalloc/transfer_cache_stats.h"
 
 namespace tcmalloc {
 namespace {
@@ -47,20 +50,20 @@ void BM_CrossThreadDraining(benchmark::State& state) {
     Manager m;
     Cache c[2];
   };
+
   static CrossThreadState* s = nullptr;
   if (state.thread_index == 0) {
     s = new CrossThreadState();
     for (int i = 0; i < Env::kInitialCapacityInBatches / 2; ++i) {
-      for (int j : {0, 1}) {
-        s->c[j].freelist().AllocateBatch(batch, kBatchSize);
-        s->c[j].InsertRange(batch, kBatchSize);
+      for (Cache& c : s->c) {
+        c.freelist().AllocateBatch(batch, kBatchSize);
+        c.InsertRange(batch, kBatchSize);
       }
     }
   }
 
   int src = state.thread_index % 2;
   int dst = (src + 1) % 2;
-
   for (auto iter : state) {
     benchmark::DoNotOptimize(batch);
     s->c[src].RemoveRange(batch, kBatchSize);
@@ -68,8 +71,22 @@ void BM_CrossThreadDraining(benchmark::State& state) {
     s->c[dst].InsertRange(batch, kBatchSize);
     benchmark::DoNotOptimize(batch);
   }
-
   if (state.thread_index == 0) {
+    TransferCacheStats stats{};
+    for (Cache& c : s->c) {
+      TransferCacheStats other = c.GetHitRateStats();
+      stats.insert_hits += other.insert_hits;
+      stats.insert_misses += other.insert_misses;
+      stats.remove_hits += other.remove_hits;
+      stats.remove_misses += other.remove_misses;
+    }
+
+    state.counters["insert_hit_ratio"] =
+        static_cast<double>(stats.insert_hits) /
+        (stats.insert_hits + stats.insert_misses);
+    state.counters["remove_hit_ratio"] =
+        static_cast<double>(stats.remove_hits) /
+        (stats.remove_hits + stats.remove_misses);
     delete s;
     s = nullptr;
   }
@@ -83,13 +100,11 @@ void BM_InsertRange(benchmark::State& state) {
   // optional to have more precise control of when the destruction occurs, as
   // we want to avoid polluting the timing with the dtor.
   absl::optional<Env> e;
-  e.emplace();
   void* batch[kMaxObjectsToMove];
-  e->central_freelist().AllocateBatch(batch, kBatchSize);
-
   for (auto iter : state) {
     state.PauseTiming();
     e.emplace();
+    e->central_freelist().AllocateBatch(batch, kBatchSize);
     benchmark::DoNotOptimize(e);
     benchmark::DoNotOptimize(batch);
     state.ResumeTiming();
