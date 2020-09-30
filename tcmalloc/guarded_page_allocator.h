@@ -280,7 +280,7 @@ class GuardedPageAllocator {
   size_t max_alloced_pages_;   // Max number of pages to allocate at once.
   size_t total_pages_;         // Size of the page pool to allocate from.
   size_t page_size_;           // Size of pages we allocate.
-  uint64_t rand_;                // RNG seed.
+  uint64_t rand_;              // RNG seed.
 
   // True if this object has been fully initialized.
   bool initialized_ ABSL_GUARDED_BY(guarded_page_lock);

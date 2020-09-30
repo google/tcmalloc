@@ -91,7 +91,8 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadBusy();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_MarkThreadIdle();
 
 ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetProfileSamplingRate();
-ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetProfileSamplingRate(int64_t);
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetProfileSamplingRate(
+    int64_t);
 
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ProcessBackgroundActions();
 
@@ -101,7 +102,8 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetBackgroundReleaseRate(
     tcmalloc::MallocExtension::BytesPerSecond);
 
 ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetGuardedSamplingRate();
-ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetGuardedSamplingRate(int64_t);
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetGuardedSamplingRate(
+    int64_t);
 
 ABSL_ATTRIBUTE_WEAK int64_t
 MallocExtension_Internal_GetMaxTotalThreadCacheBytes();

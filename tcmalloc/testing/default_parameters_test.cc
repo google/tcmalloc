@@ -27,7 +27,8 @@ constexpr int64_t kDefaultProfileSamplingRate =
     2 << 20
 #endif
     ;
-constexpr int64_t kDefaultGuardedSamplingRate = 50 * kDefaultProfileSamplingRate;
+constexpr int64_t kDefaultGuardedSamplingRate =
+    50 * kDefaultProfileSamplingRate;
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0

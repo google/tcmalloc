@@ -345,8 +345,8 @@ class FillerStatsTracker {
     mins.free = std::numeric_limits<size_t>::max();
     mins.free_backed = std::numeric_limits<size_t>::max();
 
-    int64_t num_epochs =
-        std::clamp(w / epoch_length_, int64_t{0}, static_cast<int64_t>(kEpochs));
+    int64_t num_epochs = std::clamp(w / epoch_length_, int64_t{0},
+                                    static_cast<int64_t>(kEpochs));
 
     tracker_.IterBackwards(
         [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
@@ -1847,11 +1847,11 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   hpaa->PrintI64(
       "filler_unmapped_bytes",
       static_cast<uint64_t>(nrel.raw_num() *
-                          safe_div(unmapped_pages(), nrel.in_pages())));
+                            safe_div(unmapped_pages(), nrel.in_pages())));
   hpaa->PrintI64(
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(hugepage_frac() *
-                          static_cast<double>(allocated_ * kPageSize)));
+                            static_cast<double>(allocated_ * kPageSize)));
   hpaa->PrintI64("filler_num_pages_subreleased",
                  subrelease_stats_.total_pages_subreleased);
   hpaa->PrintI64("filler_num_hugepages_broken",

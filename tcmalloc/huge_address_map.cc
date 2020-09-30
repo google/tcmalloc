@@ -151,7 +151,8 @@ HugeAddressMap::Node *HugeAddressMap::Predecessor(HugePage p) {
 }
 
 void HugeAddressMap::Merge(Node *b, HugeRange r, Node *a) {
-  auto merge_when = [](HugeRange x, int64_t x_when, HugeRange y, int64_t y_when) {
+  auto merge_when = [](HugeRange x, int64_t x_when, HugeRange y,
+                       int64_t y_when) {
     // avoid overflow with floating-point
     const size_t x_len = x.len().raw_num();
     const size_t y_len = y.len().raw_num();

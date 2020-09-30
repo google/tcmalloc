@@ -71,7 +71,8 @@ TEST(TimeSeriesTest, CycleClock) {
   int num_timestamps = 0;
   int offset_1, offset_2;
   tracker.Iter(
-      [&](size_t offset, int64_t ts, const TimeSeriesTrackerTest::TestEntry& e) {
+      [&](size_t offset, int64_t ts,
+          const TimeSeriesTrackerTest::TestEntry& e) {
         ASSERT_LT(num_timestamps, 2);
         if (num_timestamps == 0) {
           offset_1 = offset;

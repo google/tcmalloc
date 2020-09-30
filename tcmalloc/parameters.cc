@@ -92,8 +92,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 );
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
-    kDefaultProfileSamplingRate
-);
+    kDefaultProfileSamplingRate);
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(

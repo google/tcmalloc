@@ -59,7 +59,8 @@ ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
         {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
-ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t __rseq_refcount;
+ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t
+    __rseq_refcount;
 
 #ifdef __ppc__
 // On PPC, we have two cases for accessing the __rseq_abi TLS variable:

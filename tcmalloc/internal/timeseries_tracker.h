@@ -54,7 +54,7 @@ class TimeSeriesTracker {
       : window_(w),
         epoch_length_(window_ / kEpochs),
         epoch_ticks_(static_cast<int64_t>(absl::ToDoubleSeconds(epoch_length_) *
-                                        clock.freq())),
+                                          clock.freq())),
         clock_(clock) {}
 
   bool Report(S val);

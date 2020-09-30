@@ -87,8 +87,8 @@ bool ProcMapsIterator::Valid() const {
 }
 
 bool ProcMapsIterator::NextExt(uint64_t* start, uint64_t* end, char** flags,
-                               uint64_t* offset, int64_t* inode, char** filename,
-                               dev_t* dev) {
+                               uint64_t* offset, int64_t* inode,
+                               char** filename, dev_t* dev) {
 #if defined __linux__
   do {
     // Advance to the start of the next line

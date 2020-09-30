@@ -75,7 +75,7 @@ TEST(LargeSmallFrag, Test) {
   // for the second large object.  That will cause the next iteration
   // to allocate a third large-object space. Therefore we allow the
   // virtual memory to grow to 3 * kLarge.
-  int64_t allowed = VirtualProcessSize() + 3*kLarge + (10 << 20);
+  int64_t allowed = VirtualProcessSize() + 3 * kLarge + (10 << 20);
 
   // Fragmentation loop
   for (int iter = 0; iter < 100; iter++) {

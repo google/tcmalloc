@@ -31,7 +31,8 @@ static void BM_MarkUnmark(benchmark::State& state) {
   absl::BitGen rng;
   std::vector<std::pair<size_t, size_t>> things;
   while (range.used() < N / 2) {
-    size_t len = absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
+    size_t len =
+        absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
     size_t i = range.FindAndMark(len);
     things.push_back({i, len});
   }
@@ -41,7 +42,8 @@ static void BM_MarkUnmark(benchmark::State& state) {
     size_t index = absl::Uniform<int32_t>(rng, 0, things.size());
     auto p = things[index];
     range.Unmark(p.first, p.second);
-    size_t len = absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
+    size_t len =
+        absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
     things[index] = {range.FindAndMark(len), len};
   }
 

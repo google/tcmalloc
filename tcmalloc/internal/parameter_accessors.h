@@ -37,7 +37,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLazyPerCpuCachesEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(
+    int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(
     double v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);

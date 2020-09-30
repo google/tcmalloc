@@ -136,9 +136,9 @@ struct PageHeapEntry {
   double avg_live_age_secs;
   double avg_released_age_secs;
   int64_t live_age_hist_bytes[PageAgeHistograms::kNumBuckets] = {0, 0, 0, 0,
-                                                               0, 0, 0};
+                                                                 0, 0, 0};
   int64_t released_age_hist_bytes[PageAgeHistograms::kNumBuckets] = {0, 0, 0, 0,
-                                                                   0, 0, 0};
+                                                                     0, 0, 0};
 
   void PrintInPbtxt(PbtxtRegion *parent,
                     absl::string_view sub_region_name) const;
@@ -157,8 +157,8 @@ void PageHeapEntry::PrintInPbtxt(PbtxtRegion *parent,
   for (int j = 0; j < PageAgeHistograms::kNumBuckets; j++) {
     uint64_t min_age_secs = kSpanAgeHistBuckets[j].min_sec;
     uint64_t max_age_secs = j != PageAgeHistograms::kNumBuckets - 1
-                              ? kSpanAgeHistBuckets[j + 1].min_sec
-                              : INT_MAX;
+                                ? kSpanAgeHistBuckets[j + 1].min_sec
+                                : INT_MAX;
     if (live_age_hist_bytes[j] != 0) {
       auto live_age_hist = page_heap.CreateSubRegion("live_age_hist");
       live_age_hist.PrintI64("bytes", live_age_hist_bytes[j]);

@@ -289,8 +289,8 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  static inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE ClassIndexMaybe(size_t s,
-                                                                  uint32_t* idx) {
+  static inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
+  ClassIndexMaybe(size_t s, uint32_t* idx) {
     if (ABSL_PREDICT_TRUE(s <= kMaxSmallSize)) {
       *idx = (static_cast<uint32_t>(s) + 7) >> 3;
       return true;
