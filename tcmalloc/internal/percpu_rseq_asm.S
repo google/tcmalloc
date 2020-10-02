@@ -21,6 +21,8 @@
 #include "tcmalloc/internal/percpu_rseq_x86_64.S"
 #elif defined(__ppc__)
 #include "tcmalloc/internal/percpu_rseq_ppc.S"
+#elif defined(__aarch64__)
+#include "tcmalloc/internal/percpu_rseq_aarch64.S"
 #else
 #error "RSEQ support expected, but not found."
 #endif
