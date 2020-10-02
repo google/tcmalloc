@@ -34,11 +34,11 @@ class RawSpan {
  public:
   void Init(size_t cl) {
     size_t size = Static::sizemap()->class_to_size(cl);
-    Length npages = Static::sizemap()->class_to_pages(cl);
-    size_t objects_per_span = npages * kPageSize / size;
+    auto npages = Length(Static::sizemap()->class_to_pages(cl));
+    size_t objects_per_span = npages.in_bytes() / size;
 
     void *mem;
-    int res = posix_memalign(&mem, kPageSize, npages * kPageSize);
+    int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     CHECK_CONDITION(res == 0);
     span_.set_first_page(PageIdContaining(mem));
     span_.set_num_pages(npages);

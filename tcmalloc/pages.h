@@ -15,13 +15,91 @@
 #ifndef TCMALLOC_PAGES_H_
 #define TCMALLOC_PAGES_H_
 
+#include <cmath>
+#include <string>
+
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 
 // Type that can hold the length of a run of pages
-using Length = uintptr_t;
+class Length {
+ public:
+  constexpr Length() : n_(0) {}
+  explicit constexpr Length(uintptr_t n) : n_(n) {}
+
+  constexpr Length(const Length&) = default;
+  constexpr Length& operator=(const Length&) = default;
+
+  constexpr size_t raw_num() const { return n_; }
+  constexpr size_t in_bytes() const { return n_ * kPageSize; }
+  double in_mib() const {
+    return std::ldexp(static_cast<double>(n_),
+                      static_cast<int>(kPageShift) - 20);
+  }
+  constexpr Length in_pages() const { return *this; }
+
+  static constexpr Length min() { return Length(0); }
+  static constexpr Length max() {
+    return Length(std::numeric_limits<uintptr_t>::max() >> kPageShift);
+  }
+
+  constexpr Length& operator+=(Length rhs) {
+    n_ += rhs.n_;
+    return *this;
+  }
+
+  constexpr Length& operator-=(Length rhs) {
+    ASSERT(n_ >= rhs.n_);
+    n_ -= rhs.n_;
+    return *this;
+  }
+
+  constexpr Length& operator*=(size_t rhs) {
+    n_ *= rhs;
+    return *this;
+  }
+
+  constexpr Length& operator/=(size_t rhs) {
+    ASSERT(rhs != 0);
+    n_ /= rhs;
+    return *this;
+  }
+
+  constexpr Length& operator%=(Length rhs) {
+    ASSERT(rhs.n_ != 0);
+    n_ %= rhs.n_;
+    return *this;
+  }
+
+  friend constexpr bool operator<(Length lhs, Length rhs);
+  friend constexpr bool operator>(Length lhs, Length rhs);
+  friend constexpr bool operator<=(Length lhs, Length rhs);
+  friend constexpr bool operator>=(Length lhs, Length rhs);
+  friend constexpr bool operator==(Length lhs, Length rhs);
+  friend constexpr bool operator!=(Length lhs, Length rhs);
+
+ private:
+  uintptr_t n_;
+};
+
+inline bool AbslParseFlag(absl::string_view text, Length* l,
+                          std::string* /* error */) {
+  uintptr_t n;
+  if (!absl::SimpleAtoi(text, &n)) {
+    return false;
+  }
+  *l = Length(n);
+  return true;
+}
+
+inline std::string AbslUnparseFlag(Length l) {
+  return absl::StrCat(l.raw_num());
+}
 
 // A single aligned page.
 class PageId {
@@ -41,13 +119,13 @@ class PageId {
   size_t index() const { return pn_; }
 
   constexpr PageId& operator+=(Length rhs) {
-    pn_ += rhs;
+    pn_ += rhs.raw_num();
     return *this;
   }
 
   constexpr PageId& operator-=(Length rhs) {
-    ASSERT(pn_ >= rhs);
-    pn_ -= rhs;
+    ASSERT(pn_ >= rhs.raw_num());
+    pn_ -= rhs.raw_num();
     return *this;
   }
 
@@ -63,23 +141,27 @@ class PageId {
   uintptr_t pn_;
 };
 
+inline constexpr Length LengthFromBytes(size_t bytes) {
+  return Length(bytes >> kPageShift);
+}
+
 // Convert byte size into pages.  This won't overflow, but may return
 // an unreasonably large value if bytes is huge enough.
 inline constexpr Length BytesToLengthCeil(size_t bytes) {
-  return (bytes >> kPageShift) + ((bytes & (kPageSize - 1)) > 0 ? 1 : 0);
+  return Length((bytes >> kPageShift) +
+                ((bytes & (kPageSize - 1)) > 0 ? 1 : 0));
 }
 
 inline constexpr Length BytesToLengthFloor(size_t bytes) {
-  return bytes >> kPageShift;
+  return Length(bytes >> kPageShift);
 }
 
-inline constexpr Length kMaxValidPages =
-    BytesToLengthFloor(~static_cast<Length>(0));
+inline constexpr Length kMaxValidPages = Length::max();
 // For all span-lengths < kMaxPages we keep an exact-size list.
 inline constexpr Length kMaxPages = Length(1 << (20 - kPageShift));
 
 inline PageId& operator++(PageId& p) {  // NOLINT(runtime/references)
-  return p += 1;
+  return p += Length(1);
 }
 
 inline constexpr bool operator<(PageId lhs, PageId rhs) {
@@ -119,6 +201,64 @@ inline constexpr Length operator-(PageId lhs, PageId rhs) {
 
 inline PageId PageIdContaining(const void* p) {
   return PageId(reinterpret_cast<uintptr_t>(p) >> kPageShift);
+}
+
+inline constexpr bool operator<(Length lhs, Length rhs) {
+  return lhs.n_ < rhs.n_;
+}
+
+inline constexpr bool operator>(Length lhs, Length rhs) {
+  return lhs.n_ > rhs.n_;
+}
+
+inline constexpr bool operator<=(Length lhs, Length rhs) {
+  return lhs.n_ <= rhs.n_;
+}
+
+inline constexpr bool operator>=(Length lhs, Length rhs) {
+  return lhs.n_ >= rhs.n_;
+}
+
+inline constexpr bool operator==(Length lhs, Length rhs) {
+  return lhs.n_ == rhs.n_;
+}
+
+inline constexpr bool operator!=(Length lhs, Length rhs) {
+  return lhs.n_ != rhs.n_;
+}
+
+inline Length& operator++(Length& l) { return l += Length(1); }
+
+inline Length& operator--(Length& l) { return l -= Length(1); }
+
+inline constexpr Length operator+(Length lhs, Length rhs) {
+  return Length(lhs.raw_num() + rhs.raw_num());
+}
+
+inline constexpr Length operator-(Length lhs, Length rhs) {
+  return Length(lhs.raw_num() - rhs.raw_num());
+}
+
+inline constexpr Length operator*(Length lhs, size_t rhs) {
+  return Length(lhs.raw_num() * rhs);
+}
+
+inline constexpr Length operator*(size_t lhs, Length rhs) {
+  return Length(lhs * rhs.raw_num());
+}
+
+inline constexpr size_t operator/(Length lhs, Length rhs) {
+  return lhs.raw_num() / rhs.raw_num();
+}
+
+inline constexpr Length operator/(Length lhs, size_t rhs) {
+  ASSERT(rhs != 0);
+  return Length(lhs.raw_num() / rhs);
+}
+
+inline constexpr Length operator%(Length lhs, Length rhs) {
+  ASSERT(rhs.raw_num() != 0);
+  return Length(lhs.raw_num() % rhs.raw_num());
 }
 
 }  // namespace tcmalloc

@@ -24,6 +24,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
@@ -33,7 +34,7 @@ namespace tcmalloc {
 // Helper function to record span address into pageheap
 void PageHeap::RecordSpan(Span* span) {
   pagemap_->Set(span->first_page(), span);
-  if (span->num_pages() > 1) {
+  if (span->num_pages() > Length(1)) {
     pagemap_->Set(span->last_page(), span);
   }
 }
@@ -43,15 +44,15 @@ PageHeap::PageHeap(bool tagged) : PageHeap(Static::pagemap(), tagged) {}
 PageHeap::PageHeap(PageMap* map, bool tagged)
     : PageAllocatorInterface("PageHeap", map, tagged),
       // Start scavenging at kMaxPages list
-      release_index_(kMaxPages) {}
+      release_index_(kMaxPages.raw_num()) {}
 
 Span* PageHeap::SearchFreeAndLargeLists(Length n, bool* from_returned) {
   ASSERT(Check());
-  ASSERT(n > 0);
+  ASSERT(n > Length(0));
 
   // Find first size >= n that has a non-empty list
-  for (Length s = n; s < kMaxPages; s++) {
-    SpanList* ll = &free_[s].normal;
+  for (Length s = n; s < kMaxPages; ++s) {
+    SpanList* ll = &free_[s.raw_num()].normal;
     // If we're lucky, ll is non-empty, meaning it has a suitable span.
     if (!ll->empty()) {
       ASSERT(ll->first()->location() == Span::ON_NORMAL_FREELIST);
@@ -59,7 +60,7 @@ Span* PageHeap::SearchFreeAndLargeLists(Length n, bool* from_returned) {
       return Carve(ll->first(), n);
     }
     // Alternatively, maybe there's a usable returned span.
-    ll = &free_[s].returned;
+    ll = &free_[s.raw_num()].returned;
     if (!ll->empty()) {
       ASSERT(ll->first()->location() == Span::ON_RETURNED_FREELIST);
       *from_returned = true;
@@ -88,7 +89,7 @@ Span* PageHeap::AllocateSpan(Length n, bool* from_returned) {
 }
 
 Span* PageHeap::New(Length n) {
-  ASSERT(n > 0);
+  ASSERT(n > Length(0));
   bool from_returned;
   Span* result;
   {
@@ -127,10 +128,10 @@ static bool IsSpanBetter(Span* span, Span* best, Length n) {
 // close to a fast path, and is going to be replaced soon anyway, so
 // don't bother.
 Span* PageHeap::NewAligned(Length n, Length align) {
-  ASSERT(n > 0);
-  ASSERT((align & (align - 1)) == 0);
+  ASSERT(n > Length(0));
+  ASSERT((align.raw_num() & (align.raw_num() - 1)) == 0);
 
-  if (align <= 1) {
+  if (align <= Length(1)) {
     return New(n);
   }
 
@@ -138,15 +139,15 @@ Span* PageHeap::NewAligned(Length n, Length align) {
   Span* span;
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    Length extra = align - 1;
+    Length extra = align - Length(1);
     span = AllocateSpan(n + extra, &from_returned);
     if (span == nullptr) return nullptr;
     // <span> certainly contains an appropriately aligned region; find it
     // and chop off the rest.
     PageId p = span->first_page();
-    const Length mask = align - 1;
-    PageId aligned = PageId{(p.index() + mask) & ~mask};
-    ASSERT(aligned.index() % align == 0);
+    const Length mask = align - Length(1);
+    PageId aligned = PageId{(p.index() + mask.raw_num()) & ~mask.raw_num()};
+    ASSERT(aligned.index() % align.raw_num() == 0);
     ASSERT(p <= aligned);
     ASSERT(aligned + n <= p + span->num_pages());
     // we have <extra> too many pages now, possible all before, possibly all
@@ -159,14 +160,14 @@ Span* PageHeap::NewAligned(Length n, Length align) {
 
     const Span::Location loc =
         from_returned ? Span::ON_RETURNED_FREELIST : Span::ON_NORMAL_FREELIST;
-    if (before > 0) {
+    if (before > Length(0)) {
       Span* extra = Span::New(p, before);
       extra->set_location(loc);
       RecordSpan(extra);
       MergeIntoFreeList(extra);
     }
 
-    if (after > 0) {
+    if (after > Length(0)) {
       Span* extra = Span::New(aligned + n, after);
       extra->set_location(loc);
       RecordSpan(extra);
@@ -211,15 +212,14 @@ Span* PageHeap::AllocLarge(Length n, bool* from_returned) {
 }
 
 Span* PageHeap::Carve(Span* span, Length n) {
-  ASSERT(n > 0);
+  ASSERT(n > Length(0));
   ASSERT(span->location() != Span::IN_USE);
   const Span::Location old_location = span->location();
   RemoveFromFreeList(span);
   span->set_location(Span::IN_USE);
 
-  ASSERT(span->num_pages() >= n);
   const Length extra = span->num_pages() - n;
-  if (extra > 0) {
+  if (extra > Length(0)) {
     Span* leftover = nullptr;
     // Check if this span has another span on the right but not on the left.
     // There is one special case we want to handle: if heap grows down (as it is
@@ -237,8 +237,8 @@ Span* PageHeap::Carve(Span* span, Length n) {
     // with the next system allocation which will result in dense packing.
     // There are no other known cases where span splitting strategy matters,
     // so in other cases we return beginning to user.
-    if (pagemap_->GetDescriptor(span->first_page() - 1) == nullptr &&
-        pagemap_->GetDescriptor(span->last_page() + 1) != nullptr) {
+    if (pagemap_->GetDescriptor(span->first_page() - Length(1)) == nullptr &&
+        pagemap_->GetDescriptor(span->last_page() + Length(1)) != nullptr) {
       leftover = Span::New(span->first_page(), extra);
       span->set_first_page(span->first_page() + extra);
       pagemap_->Set(span->first_page(), span);
@@ -262,7 +262,7 @@ void PageHeap::Delete(Span* span) {
   ASSERT(Check());
   ASSERT(span->location() == Span::IN_USE);
   ASSERT(!span->sampled());
-  ASSERT(span->num_pages() > 0);
+  ASSERT(span->num_pages() > Length(0));
   ASSERT(pagemap_->GetDescriptor(span->first_page()) == span);
   ASSERT(pagemap_->GetDescriptor(span->last_page()) == span);
   span->set_location(Span::ON_NORMAL_FREELIST);
@@ -283,10 +283,10 @@ void PageHeap::MergeIntoFreeList(Span* span) {
   // we do not coalesce "returned" spans with "normal" spans.
   const PageId p = span->first_page();
   const Length n = span->num_pages();
-  Span* prev = pagemap_->GetDescriptor(p - 1);
+  Span* prev = pagemap_->GetDescriptor(p - Length(1));
   if (prev != nullptr && prev->location() == span->location()) {
     // Merge preceding span into this span
-    ASSERT(prev->last_page() + 1 == p);
+    ASSERT(prev->last_page() + Length(1) == p);
     const Length len = prev->num_pages();
     span->AverageFreelistAddedTime(prev);
     RemoveFromFreeList(prev);
@@ -312,8 +312,9 @@ void PageHeap::MergeIntoFreeList(Span* span) {
 
 void PageHeap::PrependToFreeList(Span* span) {
   ASSERT(span->location() != Span::IN_USE);
-  SpanListPair* list =
-      (span->num_pages() < kMaxPages) ? &free_[span->num_pages()] : &large_;
+  SpanListPair* list = (span->num_pages() < kMaxPages)
+                           ? &free_[span->num_pages().raw_num()]
+                           : &large_;
   if (span->location() == Span::ON_NORMAL_FREELIST) {
     stats_.free_bytes += span->bytes_in_span();
     list->normal.prepend(span);
@@ -370,8 +371,8 @@ Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {
 }
 
 Length PageHeap::ReleaseAtLeastNPages(Length num_pages) {
-  Length released_pages = 0;
-  Length prev_released_pages = -1;
+  Length released_pages;
+  Length prev_released_pages = Length::max() + Length(1);
 
   // Round robin through the lists of free spans, releasing the last
   // span in each list.  Stop after releasing at least num_pages.
@@ -382,11 +383,12 @@ Length PageHeap::ReleaseAtLeastNPages(Length num_pages) {
     }
     prev_released_pages = released_pages;
 
-    for (int i = 0; i < kMaxPages+1 && released_pages < num_pages;
+    for (int i = 0; i < kMaxPages.raw_num() + 1 && released_pages < num_pages;
          i++, release_index_++) {
-      if (release_index_ > kMaxPages) release_index_ = 0;
-      SpanListPair* slist =
-          (release_index_ == kMaxPages) ? &large_ : &free_[release_index_];
+      if (release_index_ > kMaxPages.raw_num()) release_index_ = 0;
+      SpanListPair* slist = (release_index_ == kMaxPages.raw_num())
+                                ? &large_
+                                : &free_[release_index_];
       if (!slist->normal.empty()) {
         Length released_len = ReleaseLastNormalSpan(slist);
         released_pages += released_len;
@@ -398,7 +400,7 @@ Length PageHeap::ReleaseAtLeastNPages(Length num_pages) {
 }
 
 void PageHeap::GetSmallSpanStats(SmallSpanStats* result) {
-  for (int s = 0; s < kMaxPages; s++) {
+  for (int s = 0; s < kMaxPages.raw_num(); s++) {
     result->normal_length[s] = free_[s].normal.length();
     result->returned_length[s] = free_[s].returned.length();
   }
@@ -406,8 +408,8 @@ void PageHeap::GetSmallSpanStats(SmallSpanStats* result) {
 
 void PageHeap::GetLargeSpanStats(LargeSpanStats* result) {
   result->spans = 0;
-  result->normal_pages = 0;
-  result->returned_pages = 0;
+  result->normal_pages = Length(0);
+  result->returned_pages = Length(0);
   for (Span* s : large_.normal) {
     result->normal_pages += s->num_pages();
     result->spans++;
@@ -419,9 +421,9 @@ void PageHeap::GetLargeSpanStats(LargeSpanStats* result) {
 }
 
 bool PageHeap::GrowHeap(Length n) {
-  if (n > kMaxValidPages) return false;
+  if (n > Length::max()) return false;
   size_t actual_size;
-  void* ptr = SystemAlloc(n << kPageShift, &actual_size, kPageSize, tagged_);
+  void* ptr = SystemAlloc(n.in_bytes(), &actual_size, kPageSize, tagged_);
   if (ptr == nullptr) return false;
   n = BytesToLengthFloor(actual_size);
 
@@ -436,7 +438,7 @@ bool PageHeap::GrowHeap(Length n) {
   // Make sure pagemap has entries for all of the new pages.
   // Plus ensure one before and one after so coalescing code
   // does not need bounds-checking.
-  if (pagemap_->Ensure(p - 1, n + 2)) {
+  if (pagemap_->Ensure(p - Length(1), n + Length(2))) {
     // Pretend the new area is allocated and then return it to cause
     // any necessary coalescing to occur.
     Span* span = Span::New(p, n);
@@ -480,7 +482,7 @@ void PageHeap::PrintInPbtxt(PbtxtRegion* region) {
   };
 
   PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  for (int s = 0; s < kMaxPages; ++s) {
+  for (int s = 0; s < kMaxPages.raw_num(); ++s) {
     Helper::RecordAges(&ages, free_[s]);
   }
   Helper::RecordAges(&ages, large_);
@@ -509,7 +511,7 @@ void PageHeap::Print(TCMalloc_Printer* out) {
   };
 
   PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  for (int s = 0; s < kMaxPages; ++s) {
+  for (int s = 0; s < kMaxPages.raw_num(); ++s) {
     Helper::RecordAges(&ages, free_[s]);
   }
   Helper::RecordAges(&ages, large_);

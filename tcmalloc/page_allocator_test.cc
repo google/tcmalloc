@@ -93,37 +93,38 @@ class PageAllocatorTest : public testing::Test {
 // here we're just testing that we make the proper Record calls.
 TEST_F(PageAllocatorTest, Record) {
   for (int i = 0; i < 15; ++i) {
-    Delete(New(1));
+    Delete(New(Length(1)));
   }
 
   std::vector<Span *> spans;
   for (int i = 0; i < 20; ++i) {
-    spans.push_back(New(2));
+    spans.push_back(New(Length(2)));
   }
 
   for (int i = 0; i < 25; ++i) {
-    Delete(NewAligned(3, 2));
+    Delete(NewAligned(Length(3), Length(2)));
   }
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     auto info = allocator_->info(/*tagged=*/false);
 
-    CHECK_CONDITION(15 == info.counts_for(1).nalloc);
-    CHECK_CONDITION(15 == info.counts_for(1).nfree);
+    CHECK_CONDITION(15 == info.counts_for(Length(1)).nalloc);
+    CHECK_CONDITION(15 == info.counts_for(Length(1)).nfree);
 
-    CHECK_CONDITION(20 == info.counts_for(2).nalloc);
-    CHECK_CONDITION(0 == info.counts_for(2).nfree);
+    CHECK_CONDITION(20 == info.counts_for(Length(2)).nalloc);
+    CHECK_CONDITION(0 == info.counts_for(Length(2)).nfree);
 
-    CHECK_CONDITION(25 == info.counts_for(3).nalloc);
-    CHECK_CONDITION(25 == info.counts_for(3).nfree);
+    CHECK_CONDITION(25 == info.counts_for(Length(3)).nalloc);
+    CHECK_CONDITION(25 == info.counts_for(Length(3)).nfree);
 
-    for (Length i = 4; i <= kMaxPages; ++i) {
+    for (auto i = Length(4); i <= kMaxPages; ++i) {
       CHECK_CONDITION(0 == info.counts_for(i).nalloc);
       CHECK_CONDITION(0 == info.counts_for(i).nfree);
     }
 
-    const Length absurd = Length{1} << (kAddressBits - 1 - kPageShift);
-    for (Length i = kMaxPages + 1; i < absurd; i *= 2) {
+    const Length absurd =
+        Length(uintptr_t{1} << (kAddressBits - 1 - kPageShift));
+    for (Length i = kMaxPages + Length(1); i < absurd; i *= 2) {
       CHECK_CONDITION(0 == info.counts_for(i).nalloc);
       CHECK_CONDITION(0 == info.counts_for(i).nfree);
     }
@@ -133,7 +134,7 @@ TEST_F(PageAllocatorTest, Record) {
 
 // And that we call the print method properly.
 TEST_F(PageAllocatorTest, PrintIt) {
-  Delete(New(1));
+  Delete(New(Length(1)));
   std::string output = Print();
   EXPECT_THAT(output, testing::ContainsRegex("stats on allocation sizes"));
 }

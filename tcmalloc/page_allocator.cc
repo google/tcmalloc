@@ -98,7 +98,7 @@ void PageAllocator::ShrinkToUsageLimit() {
 
   limit_hits_++;
   const size_t overage = backed - limit_;
-  const Length pages = (overage + kPageSize - 1) / kPageSize;
+  const Length pages = LengthFromBytes(overage + kPageSize - 1);
   if (ShrinkHardBy(pages)) {
     return;
   }
