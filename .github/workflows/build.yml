@@ -25,7 +25,7 @@ on:
 
     - name: Test
       run: |
-      "${GITHUB_WORKSPACE}/bin/bazel" test //...
+        "${GITHUB_WORKSPACE}/bin/bazel" test //...
 
     - name: Build
       run: |
