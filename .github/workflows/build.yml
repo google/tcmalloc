@@ -13,6 +13,12 @@ jobs:
         - name: Checkout repository
           uses: actions/checkout@v2
 
+        - name: Setup cache
+          uses: actions/cache@v2
+          with:
+            path: "/home/runner/.cache/bazel"
+            key: bazel
+
         - name: Setup bazel
           uses: jwlawson/actions-setup-bazel@v1
           with:
