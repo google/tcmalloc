@@ -540,6 +540,7 @@ cc_library(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base",
         "@com_google_googletest//:gtest",
     ],
 )

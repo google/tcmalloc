@@ -14,6 +14,7 @@
 
 #include "tcmalloc/mock_central_freelist.h"
 
+#include "absl/base/internal/spinlock.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
@@ -27,10 +28,12 @@ void MinimalFakeCentralFreeList::FreeBatch(void** batch, int n) {
 }
 
 void MinimalFakeCentralFreeList::InsertRange(void** batch, int n) {
+  absl::base_internal::SpinLockHolder h(&lock_);
   FreeBatch(batch, n);
 }
 
 int MinimalFakeCentralFreeList::RemoveRange(void** batch, int n) {
+  absl::base_internal::SpinLockHolder h(&lock_);
   AllocateBatch(batch, n);
   return n;
 }

@@ -18,6 +18,7 @@
 #include <stddef.h>
 
 #include "gmock/gmock.h"
+#include "absl/base/internal/spinlock.h"
 
 namespace tcmalloc {
 
@@ -60,6 +61,9 @@ class MinimalFakeCentralFreeList : public FakeCentralFreeListBase {
 
   void AllocateBatch(void** batch, int n);
   void FreeBatch(void** batch, int n);
+
+ private:
+  absl::base_internal::SpinLock lock_;
 };
 
 // CentralFreeList implementation that allows intercepting specific calls.  By
