@@ -191,6 +191,9 @@ thread being interrupted, or the sequence is restarted if the thread was
 interrupted (for example, by a context switch that enables a different thread to
 run on that CPU).
 
+Additional information about the design choices and implementation are discussed
+in a specific [design doc](rseq.md) for it.
+
 ### Legacy Per-Thread mode
 
 In per-thread mode, TCMalloc assigns each thread a thread-local cache. Small
