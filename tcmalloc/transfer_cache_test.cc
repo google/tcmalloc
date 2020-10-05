@@ -107,9 +107,24 @@ TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
 }
 
+TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
+  const int batch_size = TypeParam::kBatchSize;
+
+  TypeParam env;
+  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
+
+  while (env.transfer_cache().HasSpareCapacity()) {
+    env.Insert(batch_size);
+  }
+  for (int i = 0; i < 100; ++i) {
+    env.Remove(batch_size);
+    env.Insert(batch_size);
+  }
+}
+
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke,
                             FetchesFromFreelist, EvictsOtherCaches,
-                            PushesToFreelist);
+                            PushesToFreelist, WrappingWorks);
 template <typename Env>
 using TransferCacheFuzzTest = ::testing::Test;
 TYPED_TEST_SUITE_P(TransferCacheFuzzTest);
@@ -173,6 +188,7 @@ REGISTER_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedRemove, MultiThreadedBiasedGrow,
                             MultiThreadedBiasedShrink);
 
+namespace unit_tests {
 using LegacyEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MockCentralFreeList, MockTransferCacheManager>>;
@@ -181,33 +197,23 @@ using LockFreeEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
         MockCentralFreeList, MockTransferCacheManager>>;
 
-// We keep these as separate lists of types to allow folks that are
-// experimenting with alternate implementations to disable the fuzz testing for
-// types they are not modifying more easily.  Also, Legacy env doesn't support
-// quite the right interface for fuzz testing in a mock environment at the
-// moment.
 using TransferCacheTypes = ::testing::Types<LegacyEnv, LockFreeEnv>;
-using TransferCacheFuzzTypes = ::testing::Types<LockFreeEnv>;
-
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheTest, TransferCacheTest,
                                TransferCacheTypes);
+}  // namespace unit_tests
+
+namespace fuzz_tests {
+// Use the FakeCentralFreeList instead of the MockCentralFreeList for fuzz tests
+// as it avoids the overheads of mocks and allows more iterations of the fuzzing
+// itself.
+using LockFreeEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
+        FakeCentralFreeList, MockTransferCacheManager>>;
+
+using TransferCacheFuzzTypes = ::testing::Types<LockFreeEnv>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
                                TransferCacheFuzzTypes);
-
-TEST(TransferCacheTest, WrappingWorks) {
-  const int batch_size = LockFreeEnv::kBatchSize;
-
-  LockFreeEnv env;
-  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
-
-  while (env.transfer_cache().HasSpareCapacity()) {
-    env.Insert(batch_size);
-  }
-  for (int i = 0; i < 100; ++i) {
-    env.Remove(batch_size);
-    env.Insert(batch_size);
-  }
-}
+}  // namespace fuzz_tests
 
 }  // namespace
 }  // namespace tcmalloc
