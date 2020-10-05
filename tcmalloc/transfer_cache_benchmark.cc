@@ -35,7 +35,7 @@ using LockFreeEnv =
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
 
 template <typename Env>
-void BM_CrossThreadDraining(benchmark::State& state) {
+void BM_CrossThread(benchmark::State& state) {
   using Manager = typename Env::Manager;
   using Cache = typename Env::TransferCache;
   const int kBatchSize = Env::kBatchSize;
@@ -134,9 +134,8 @@ void BM_RemoveRange(benchmark::State& state) {
   }
 }
 
-BENCHMARK_TEMPLATE(BM_CrossThreadDraining, TransferCacheEnv)
-    ->ThreadRange(2, 128);
-BENCHMARK_TEMPLATE(BM_CrossThreadDraining, LockFreeEnv)->ThreadRange(2, 128);
+BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
+BENCHMARK_TEMPLATE(BM_CrossThread, LockFreeEnv)->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_InsertRange, LockFreeEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
