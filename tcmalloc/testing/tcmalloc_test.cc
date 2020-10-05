@@ -794,6 +794,54 @@ TEST(TCMallocTest, AlignedNewArray) {
   }
 }
 
+TEST(TCMallocTest, NothrowAlignedNew) {
+  absl::BitGen rand;
+  for (int i = 1; i < 100; ++i) {
+    size_t size = kMaxSize - i;
+    std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
+    // Convince the compiler that size may change, as to suppress
+    // optimization/warnings around the size being too large.
+    benchmark::DoNotOptimize(size);
+    void* p = ::operator new(size, alignment, std::nothrow);
+    ASSERT_EQ(p, nullptr);
+  }
+  for (int i = 1; i < 100; ++i) {
+    size_t size = absl::LogUniform(rand, 0, 1 << 20);
+    std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
+    void* ptr = ::operator new(size, alignment, std::nothrow);
+    ASSERT_NE(ptr, nullptr);
+    ASSERT_EQ(
+        0, reinterpret_cast<uintptr_t>(ptr) % static_cast<size_t>(alignment));
+    ::operator delete(ptr, alignment, std::nothrow);
+  }
+}
+
+TEST(TCMallocTest, NothrowAlignedNewArray) {
+  absl::BitGen rand;
+  for (int i = 1; i < 100; ++i) {
+    size_t size = kMaxSize - i;
+    std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
+    // Convince the compiler that size may change, as to suppress
+    // optimization/warnings around the size being too large.
+    benchmark::DoNotOptimize(size);
+    void* p = ::operator new[](size, alignment, std::nothrow);
+    ASSERT_EQ(p, nullptr);
+  }
+  for (int i = 1; i < 100; ++i) {
+    size_t size = absl::LogUniform(rand, 0, 1 << 20);
+    std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
+    void* ptr = ::operator new[](size, alignment, std::nothrow);
+    ASSERT_NE(ptr, nullptr);
+    ASSERT_EQ(
+        0, reinterpret_cast<uintptr_t>(ptr) % static_cast<size_t>(alignment));
+    ::operator delete[](ptr, alignment, std::nothrow);
+  }
+}
+
 void CheckSizedDelete() {
   absl::BitGen rand;
 

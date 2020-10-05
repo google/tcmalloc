@@ -1941,14 +1941,19 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAligned(
   return fast_alloc(CppPolicy().AlignAs(alignment), size);
 }
 
+#ifdef TCMALLOC_ALIAS
 extern "C" void* TCMallocInternalNewAligned_nothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
 // Note: we use malloc rather than new, as we are allowed to return nullptr.
 // The latter crashes in that case.
-#ifdef TCMALLOC_ALIAS
     TCMALLOC_ALIAS(TCMallocInternalMalloc_aligned);
 #else
-{
+extern "C" ABSL_ATTRIBUTE_SECTION(
+    google_malloc) void* TCMallocInternalNewAligned_nothrow(size_t size,
+                                                            std::align_val_t
+                                                                alignment,
+                                                            const std::nothrow_t&
+                                                                nt) noexcept {
   return fast_alloc(CppPolicy().Nothrow().AlignAs(alignment), size);
 }
 #endif  // TCMALLOC_ALIAS
@@ -2133,12 +2138,17 @@ extern "C" void TCMallocInternalDeleteNothrow(void* p,
 }
 #endif  // TCMALLOC_ALIAS
 
+#if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
 extern "C" void TCMallocInternalDeleteAligned_nothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
-#if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
     TCMALLOC_ALIAS(TCMallocInternalDelete);
 #else
-{
+extern "C" ABSL_ATTRIBUTE_SECTION(
+    google_malloc) void TCMallocInternalDeleteAligned_nothrow(void* p,
+                                                              std::align_val_t
+                                                                  alignment,
+                                                              const std::nothrow_t&
+                                                                  nt) noexcept {
   ASSERT(CorrectAlignment(p, alignment));
   return TCMallocInternalDelete(p);
 }
@@ -2180,14 +2190,19 @@ extern "C" void* TCMallocInternalNewArrayNothrow(size_t size,
 }
 #endif  // TCMALLOC_ALIAS
 
-extern "C" void* TCMallocInternalNewArrayAligned_nothrow(
-    size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
 // Note: we use malloc rather than new, as we are allowed to return nullptr.
 // The latter crashes in that case.
 #if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
+extern "C" void* TCMallocInternalNewArrayAligned_nothrow(
+    size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMalloc_aligned);
 #else
-{
+extern "C" ABSL_ATTRIBUTE_SECTION(
+    google_malloc) void* TCMallocInternalNewArrayAligned_nothrow(size_t size,
+                                                                 std::align_val_t
+                                                                     alignment,
+                                                                 const std::
+                                                                     nothrow_t&) noexcept {
   return TCMallocInternalMalloc_aligned(size, alignment);
 }
 #endif
@@ -2222,12 +2237,17 @@ extern "C" void TCMallocInternalDeleteArrayNothrow(
 }
 #endif  // TCMALLOC_ALIAS
 
+#if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
 extern "C" void TCMallocInternalDeleteArrayAligned_nothrow(
     void* p, std::align_val_t alignment, const std::nothrow_t&) noexcept
-#if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
     TCMALLOC_ALIAS(TCMallocInternalDelete);
 #else
-{
+extern "C" ABSL_ATTRIBUTE_SECTION(
+    google_malloc) void TCMallocInternalDeleteArrayAligned_nothrow(void* p,
+                                                                   std::align_val_t
+                                                                       alignment,
+                                                                   const std::
+                                                                       nothrow_t&) noexcept {
   ASSERT(CorrectAlignment(p, alignment));
   return TCMallocInternalDelete(p);
 }
