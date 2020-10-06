@@ -37,13 +37,14 @@ struct AllocatorStats {
 template <class T>
 class PageHeapAllocator {
  public:
+  constexpr PageHeapAllocator()
+      : arena_(nullptr), free_list_(nullptr), stats_{0, 0} {}
+
   // We use an explicit Init function because these variables are statically
   // allocated and their constructors might not have run by the time some
   // other static variable tries to allocate memory.
   void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     arena_ = arena;
-    stats_ = {0, 0};
-    free_list_ = nullptr;
     // Reserve some space at the beginning to avoid fragmentation.
     Delete(New());
   }
