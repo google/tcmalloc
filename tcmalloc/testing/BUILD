@@ -509,6 +509,20 @@ cc_library(
     ],
 )
 
+cc_binary(
+    name = "empirical_benchmark",
+    testonly = 1,
+    srcs = ["empirical_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    deps = [
+        ":empirical",
+        ":testutil",
+        "@com_github_google_benchmark//:benchmark_main",
+    ],
+)
+
 cc_test(
     name = "empirical_test",
     srcs = ["empirical_test.cc"],
