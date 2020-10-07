@@ -28,6 +28,7 @@
 #include "absl/strings/str_cat.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -113,6 +114,13 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
     t.join();
   }
   const int64_t end_size = MemoryUsageSlow(getpid());
+
+  // Flush the page heap.  Our allocations may have been retained.
+  if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval != nullptr) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
+        absl::ZeroDuration());
+  }
+  MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
 
   // This will detect a leak rate of 12 bytes per thread, which is well under 1%
   // of the allocation done.

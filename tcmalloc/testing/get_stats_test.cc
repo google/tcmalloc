@@ -68,7 +68,8 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
 }
 
 TEST_F(GetStatsTest, Parameters) {

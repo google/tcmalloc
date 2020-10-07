@@ -318,6 +318,10 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(true);
 
+  const absl::Duration old_skip_subrelease =
+      Parameters::filler_skip_subrelease_interval();
+  Parameters::set_filler_skip_subrelease_interval(absl::ZeroDuration());
+
   std::vector<Span *> live, dead;
   static const size_t N = kPagesPerHugePage.raw_num() * 128;
   for (int i = 0; i < N; ++i) {
@@ -336,6 +340,7 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
   }
 
   Parameters::set_hpaa_subrelease(old_subrelease);
+  Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease);
 }
 
 TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
