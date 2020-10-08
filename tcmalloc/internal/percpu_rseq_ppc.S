@@ -66,11 +66,11 @@
     MASK_CPU(dst, dst)
 
 // This is part of the upstream rseq ABI.  The 4 bytes prior to the abort IP
-// must match PERCPU_RSEQ_SIGNATURE (as configured by our rseq syscall's
-// signature parameter).  This signature is used to annotate valid abort IPs
-// (since rseq_cs could live in a user-writable segment).
+// must match TCMALLOC_PERCPU_RSEQ_SIGNATURE (as configured by our rseq
+// syscall's signature parameter).  This signature is used to annotate valid
+// abort IPs (since rseq_cs could live in a user-writable segment).
 #define SIGN_ABORT()           \
-  .long PERCPU_RSEQ_SIGNATURE;
+  .long TCMALLOC_PERCPU_RSEQ_SIGNATURE;
 
 // DEFINE_UPSTREAM_CS triggers the generation of rseq_cs table (the triple of
 // start, commit, abort IPs) and a trampoline function.
@@ -109,11 +109,11 @@
 //     expected to be infrequent.
 // 2.  The upstream restartable sequence implementation expects the trailing 4
 //     bytes of the abort PC to be "signed" (to prevent manipulation of the PC
-//     to an arbitrary choice).  For us, this is PERCPU_RSEQ_SIGNATURE.  This
-//     value is passed to the kernel during configuration of the rseq syscall.
-//     This would either need to be encoded as a nop* at the start of every
-//     restartable sequence, increasing instruction cache pressure, or placed
-//     directly before the entry point.
+//     to an arbitrary choice).  For us, this is
+//     TCMALLOC_PERCPU_RSEQ_SIGNATURE.  This value is passed to the kernel
+//     during configuration of the rseq syscall.  This would either need to be
+//     encoded as a nop* at the start of every restartable sequence, increasing
+//     instruction cache pressure, or placed directly before the entry point.
 //
 //     * The upstream rseq protocol appears to be converging on using a trap
 //     instruction (twui), so we cannot allow it to appear anywhere in our
@@ -133,32 +133,32 @@
 
 // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
 // relocations, but could be read-only for non-PIE builds.
-#define DEFINE_UPSTREAM_CS(label)                                \
-  .pushsection __rseq_cs, "aw";                                  \
-  .balign 32;                                                    \
-  .protected __rseq_cs_##label;                                  \
-  .type __rseq_cs_##label,@object;                               \
-  .size __rseq_cs_##label,32;                                    \
-  __rseq_cs_##label:                                             \
-  .long PERCPU_RSEQ_VERSION, PERCPU_RSEQ_FLAGS;                  \
-  .quad .L##label##_critical_start;                              \
-  .quad .L##label##_critical_limit - .L##label##_critical_start; \
-  .quad label##_trampoline;                                      \
-  PINSECTION(.L##label##array);                                  \
-  .popsection;                                                   \
-  .pushsection __rseq_cs_ptr_array, "aw";                        \
-  .L##label##array:                                              \
-  .quad __rseq_cs_##label;                                       \
-  .popsection;                                                   \
-  .pushsection rseq_trampoline, "ax";                            \
-  SIGN_ABORT();                                                  \
-  .globl label##_trampoline;                                     \
-  .type  label##_trampoline, @function;                          \
-label##_trampoline:                                              \
-  .cfi_startproc;                                                \
-  b .L##label##_critical_abort;                                  \
-  .cfi_endproc;                                                  \
-  .size label##_trampoline, . - label##_trampoline;              \
+#define DEFINE_UPSTREAM_CS(label)                                 \
+  .pushsection __rseq_cs, "aw";                                   \
+  .balign 32;                                                     \
+  .protected __rseq_cs_##label;                                   \
+  .type __rseq_cs_##label,@object;                                \
+  .size __rseq_cs_##label,32;                                     \
+  __rseq_cs_##label:                                              \
+  .long TCMALLOC_PERCPU_RSEQ_VERSION, TCMALLOC_PERCPU_RSEQ_FLAGS; \
+  .quad .L##label##_critical_start;                               \
+  .quad .L##label##_critical_limit - .L##label##_critical_start;  \
+  .quad label##_trampoline;                                       \
+  PINSECTION(.L##label##array);                                   \
+  .popsection;                                                    \
+  .pushsection __rseq_cs_ptr_array, "aw";                         \
+  .L##label##array:                                               \
+  .quad __rseq_cs_##label;                                        \
+  .popsection;                                                    \
+  .pushsection rseq_trampoline, "ax";                             \
+  SIGN_ABORT();                                                   \
+  .globl label##_trampoline;                                      \
+  .type  label##_trampoline, @function;                           \
+label##_trampoline:                                               \
+  .cfi_startproc;                                                 \
+  b .L##label##_critical_abort;                                   \
+  .cfi_endproc;                                                   \
+  .size label##_trampoline, . - label##_trampoline;               \
   .popsection
 
 // With PIE:  We have initial-exec TLS, even in the presence of position
@@ -349,7 +349,7 @@ TcmallocSlab_Push_FixedShift:
                           // Mask upper 52 bits of %r7 and shift left in single
                           // operation. Removes the need to have a separate
                           // MASK operation on the critical path.
-  clrlsldi %r8, %r7, 52, PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+  clrlsldi %r8, %r7, 52, TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
   add %r8, %r3, %r8       // r8 = start of this CPU region
   rldicr %r9, %r4, 3, 60  // r9 = start of header
   add %r9, %r8, %r9       // r9 = slab header addr
@@ -442,7 +442,8 @@ TcmallocSlab_Pop_FixedShift:
 
   GET_CPU_UNMASKED(%r6)  // r6 = current CPU
                          // Following instruction combines mask and shift
-  clrlsldi %r7, %r6, 52, PERCPU_TCMALLOC_FIXED_SLAB_SHIFT  // r7 = header offset
+  clrlsldi %r7, %r6, 52, TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+			 // r7 = header offset
   add %r7, %r3, %r7       // r7 = start of this CPU region
   rldicr %r8, %r4, 3, 60  // r8 = offset of size class
   add %r8, %r7, %r8       // r8 = slab header addr
@@ -487,7 +488,7 @@ TcmallocSlab_PushBatch_FixedShift:
   START_RSEQ(TcmallocSlab_PushBatch_FixedShift)
 
   GET_CPU_UNMASKED(%r7)
-  clrlsldi %r8, %r7, 52, PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+  clrlsldi %r8, %r7, 52, TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
   add %r8, %r3, %r8    // r8 - start of this CPU region
   sldi %r9, %r4, 3
   add %r9, %r8, %r9    // r9 - slab header addr
@@ -548,7 +549,7 @@ TcmallocSlab_PopBatch_FixedShift:
   START_RSEQ(TcmallocSlab_PopBatch_FixedShift)
 
   GET_CPU_UNMASKED(%r7)
-  clrlsldi %r7, %r7, 52, PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+  clrlsldi %r7, %r7, 52, TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
   add %r7, %r3, %r7    // r7 - start of this CPU region
   sldi %r8, %r4, 3
   add %r8, %r7, %r8    // r8 - slab header addr

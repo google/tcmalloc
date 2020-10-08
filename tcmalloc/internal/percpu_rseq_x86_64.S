@@ -41,7 +41,7 @@
  *     expected to be infrequent.
  * 2.  The upstream restartable sequence implementation expects the trailing 4
  *     bytes of the abort PC to be "signed" (to prevent manipulation of the PC
- *     to an arbitrary choice).  For us, this is PERCPU_RSEQ_SIGNATURE.  This
+ *     to an arbitrary choice).  For us, this is TCMALLOC_PERCPU_RSEQ_SIGNATURE.  This
  *     value is passed to the kernel during configuration of the rseq syscall.
  *     This would either need to be encoded as a nop (SIGN_ABORT) at the start
  *     of every restartable sequence, increasing instruction cache pressure, or
@@ -77,36 +77,36 @@
 //
 // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
 // relocations, but could be read-only for non-PIE builds.
-#define DEFINE_UPSTREAM_CS(label)                   \
-  .pushsection __rseq_cs, "aw";                     \
-  .balign 32;                                       \
-  .protected __rseq_cs_##label;                     \
-  .type __rseq_cs_##label,@object;                  \
-  .size __rseq_cs_##label,32;                       \
-  __rseq_cs_##label:                                \
-  .long PERCPU_RSEQ_VERSION, PERCPU_RSEQ_FLAGS;     \
-  .quad .L##label##_start;                          \
-  .quad .L##label##_commit - .L##label##_start;     \
-  .quad label##_trampoline;                         \
-  PINSECTION(.L##label##array);                     \
-  .popsection;                                      \
-  .pushsection __rseq_cs_ptr_array, "aw";           \
-  .L##label##array:                                 \
-  .quad __rseq_cs_##label;                          \
-  .popsection;                                      \
-  SIGN_ABORT();                                     \
-  .globl label##_trampoline;                        \
-  .type  label##_trampoline, @function;             \
-label##_trampoline:                                 \
-  .cfi_startproc;                                   \
-  jmp .L##label##_abort;                            \
-  .cfi_endproc;                                     \
+#define DEFINE_UPSTREAM_CS(label)                                 \
+  .pushsection __rseq_cs, "aw";                                   \
+  .balign 32;                                                     \
+  .protected __rseq_cs_##label;                                   \
+  .type __rseq_cs_##label,@object;                                \
+  .size __rseq_cs_##label,32;                                     \
+  __rseq_cs_##label:                                              \
+  .long TCMALLOC_PERCPU_RSEQ_VERSION, TCMALLOC_PERCPU_RSEQ_FLAGS; \
+  .quad .L##label##_start;                                        \
+  .quad .L##label##_commit - .L##label##_start;                   \
+  .quad label##_trampoline;                                       \
+  PINSECTION(.L##label##array);                                   \
+  .popsection;                                                    \
+  .pushsection __rseq_cs_ptr_array, "aw";                         \
+  .L##label##array:                                               \
+  .quad __rseq_cs_##label;                                        \
+  .popsection;                                                    \
+  SIGN_ABORT();                                                   \
+  .globl label##_trampoline;                                      \
+  .type  label##_trampoline, @function;                           \
+label##_trampoline:                                               \
+  .cfi_startproc;                                                 \
+  jmp .L##label##_abort;                                          \
+  .cfi_endproc;                                                   \
   .size label##_trampoline, . - label##_trampoline;
 
 // This is part of the upstream rseq ABI.  The 4 bytes prior to the abort IP
-// must match PERCPU_RSEQ_SIGNATURE (as configured by our rseq syscall's
-// signature parameter).  This signature is used to annotate valid abort IPs
-// (since rseq_cs could live in a user-writable segment).
+// must match TCMALLOC_PERCPU_RSEQ_SIGNATURE (as configured by our rseq
+// syscall's signature parameter).  This signature is used to annotate valid
+// abort IPs (since rseq_cs could live in a user-writable segment).
 //
 // To allow this to be safely executed as a valid instruction, we encode the
 // value with a nop.  This is decoded as:
@@ -115,7 +115,7 @@ label##_trampoline:                                 \
 //
 #define SIGN_ABORT()           \
   .byte 0x0f, 0x1f, 0x05;      \
-  .long PERCPU_RSEQ_SIGNATURE;
+  .long TCMALLOC_PERCPU_RSEQ_SIGNATURE;
 
 /*
  * Provide a directive to specify the size of symbol "label", relative to the
@@ -302,7 +302,8 @@ TcmallocSlab_PushBatch_FixedShift:
 .LTcmallocSlab_PushBatch_FixedShift_region0:
   START_RSEQ(TcmallocSlab_PushBatch_FixedShift);
   FETCH_CPU(%r8d);
-  shl $PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8; /* multiply cpu by 256k */
+  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8;
+  	/* multiply cpu by 256k */
   lea (%rdi, %r8), %r8;
   movzwq (%r8, %rsi, 8), %r9; /* current */
   movzwq 6(%r8, %rsi, 8), %r10; /* end */
@@ -342,7 +343,8 @@ TcmallocSlab_PushBatch_FixedShift_VCPU:
 .LTcmallocSlab_PushBatch_FixedShift_VCPU_region0:
   START_RSEQ(TcmallocSlab_PushBatch_FixedShift_VCPU);
   FETCH_VCPU(%r8d);
-  shl $PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8; /* multiply cpu by 256k */
+  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8;
+  	/* multiply cpu by 256k */
   lea (%rdi, %r8), %r8;
   movzwq (%r8, %rsi, 8), %r9; /* current */
   movzwq 6(%r8, %rsi, 8), %r10; /* end */
@@ -405,7 +407,8 @@ TcmallocSlab_PopBatch_FixedShift:
 .LTcmallocSlab_PopBatch_FixedShift_region0:
   START_RSEQ(TcmallocSlab_PopBatch_FixedShift);
   FETCH_CPU(%r8d);
-  shl $PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8; /* multiply cpu by 256k */
+  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8;
+  	/* multiply cpu by 256k */
   lea (%rdi, %r8), %r8;
   movzwq (%r8, %rsi, 8), %r9; /* current */
   movzwq 4(%r8, %rsi, 8), %r10; /* begin */
@@ -443,7 +446,8 @@ TcmallocSlab_PopBatch_FixedShift_VCPU:
 .LTcmallocSlab_PopBatch_FixedShift_VCPU_region0:
   START_RSEQ(TcmallocSlab_PopBatch_FixedShift_VCPU);
   FETCH_VCPU(%r8d);
-  shl $PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8; /* multiply cpu by 256k */
+  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r8;
+  	/* multiply cpu by 256k */
   lea (%rdi, %r8), %r8;
   movzwq (%r8, %rsi, 8), %r9; /* current */
   movzwq 4(%r8, %rsi, 8), %r10; /* begin */

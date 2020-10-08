@@ -18,7 +18,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 
-#if !PERCPU_RSEQ_SUPPORTED_PLATFORM
+#if !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 
 namespace tcmalloc {
 namespace subtle {
@@ -78,4 +78,4 @@ int PerCpuReadCycleCounter(int64_t *cycles) {
 }  // namespace subtle
 }  // namespace tcmalloc
 
-#endif  // !PERCPU_RSEQ_SUPPORTED_PLATFORM
+#endif  // !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM

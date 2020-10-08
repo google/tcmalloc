@@ -25,9 +25,9 @@
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
 
-#if defined(PERCPU_USE_RSEQ)
+#if defined(TCMALLOC_PERCPU_USE_RSEQ)
 #if !defined(__clang__)
-#define PERCPU_USE_RSEQ_ASM_GOTO 1
+#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 1
 #elif __clang_major__ >= 9 && !__has_feature(speculative_load_hardening)
 // asm goto requires the use of Clang 9 or newer:
 // https://releases.llvm.org/9.0.0/tools/clang/docs/ReleaseNotes.html#c-language-changes-in-clang
@@ -35,16 +35,16 @@
 // SLH (Speculative Load Hardening) builds do not support asm goto.  We can
 // detect these compilation modes since
 // https://github.com/llvm/llvm-project/commit/379e68a763097bed55556c6dc7453e4b732e3d68.
-#define PERCPU_USE_RSEQ_ASM_GOTO 1
+#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 1
 #if __clang_major__ >= 11
-#define PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
+#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
 #endif
 
 #else
-#define PERCPU_USE_RSEQ_ASM_GOTO 0
+#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 #else
-#define PERCPU_USE_RSEQ_ASM_GOTO 0
+#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 
 namespace tcmalloc {
@@ -68,7 +68,7 @@ namespace percpu {
 //
 // The template parameter Shift indicates the number of bits to shift the
 // the CPU id in order to get the location of the per-cpu slab. If this
-// parameter matches PERCPU_TCMALLOC_FIXED_SLAB_SHIFT as set in
+// parameter matches TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT as set in
 // percpu_intenal.h then the assembly language versions of push/pop batch
 // can be used; otherwise batch operations are emulated.
 template <size_t Shift, size_t NumClasses>
@@ -243,15 +243,15 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
   }
 }
 
-#define PERCPU_XSTRINGIFY(s) #s
-#define PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
+#define TCMALLOC_PERCPU_XSTRINGIFY(s) #s
+#define TCMALLOC_PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
 
 #if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f) {
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
   bool overflow;
@@ -315,7 +315,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "movzwq (%%r10, %[cl], 8), %%r11\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
       "cmp 6(%%r10, %[cl], 8), %%r11w\n"
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       "jae %l[overflow_label]\n"
 #else
       "jae 5f\n"
@@ -328,20 +328,20 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // Commit
       "5:\n"
       :
-#ifndef PERCPU_USE_RSEQ_ASM_GOTO
+#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       [overflow] "=@ccae"(overflow)
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
-        [rseq_sig] "in"(PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
+        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
   );
-#ifndef PERCPU_USE_RSEQ_ASM_GOTO
+#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
@@ -363,7 +363,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
 #if defined(__x86_64__)
   return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f) >= 0;
 #else
-  if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Push_FixedShift(slabs_, cl, item, f) >= 0;
   } else {
     return TcmallocSlab_Push(slabs_, cl, item, Shift, f) >= 0;
@@ -379,7 +379,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
   void* result;
   void* scratch;
   uintptr_t current;
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
   bool underflow;
@@ -434,7 +434,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           "movzwq (%[scratch], %[cl], 8), %[current]\n"
           // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
           "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "jbe %l[underflow_path]\n"
 #else
           "jbe 5f\n"
@@ -455,21 +455,21 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           // Commit
           "5:\n"
           : [result] "=&r"(result),
-#ifndef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
             [underflow] "=@ccbe"(underflow),
 #endif
             [scratch] "=&r"(scratch), [current] "=&r"(current)
           : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
-            [rseq_sig] "n"(PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
+            [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
             [slabs] "r"(slabs), [cl] "r"(cl)
           : "cc", "memory"
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
       );
-#ifndef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
   }
@@ -477,7 +477,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
 
   return result;
 underflow_path:
-#ifdef PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
@@ -495,8 +495,8 @@ underflow_path:
 }
 #endif  // defined(__x86_64__)
 
-#undef PERCPU_STRINGIFY
-#undef PERCPU_XSTRINGIFY
+#undef TCMALLOC_PERCPU_STRINGIFY
+#undef TCMALLOC_PERCPU_XSTRINGIFY
 
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
@@ -504,7 +504,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
 #if defined(__x86_64__)
   return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f);
 #else
-  if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Pop_FixedShift(slabs_, cl, f);
   } else {
     return TcmallocSlab_Pop(slabs_, cl, f, Shift);
@@ -521,8 +521,8 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
                                                          void** batch,
                                                          size_t len) {
   ASSERT(len != 0);
-  if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-#if PERCPU_USE_RSEQ
+  if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+#if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PushBatch_FixedShift needs to be
     // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
     // avoid needing to dispatch on two separate versions of the same function
@@ -537,9 +537,9 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
       default:
         __builtin_unreachable();
     }
-#else  // !PERCPU_USE_RSEQ
+#else  // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
-#endif  // !PERCPU_USE_RSEQ
+#endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
     size_t n = 0;
     // Push items until either all done or a push fails
@@ -555,8 +555,8 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
                                                         size_t len) {
   ASSERT(len != 0);
   size_t n = 0;
-  if (Shift == PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-#if PERCPU_USE_RSEQ
+  if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+#if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PopBatch_FixedShift needs to be
     // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
     // avoid needing to dispatch on two separate versions of the same function
@@ -577,9 +577,9 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
-#else  // !PERCPU_USE_RSEQ
+#else  // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
-#endif  // !PERCPU_USE_RSEQ
+#endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
     // Pop items until either all done or a pop fails
     while (n < len && (batch[n] = Pop(cl, NoopUnderflow))) {

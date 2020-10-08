@@ -95,7 +95,7 @@ static bool InitThreadPerCpu() {
 
 #ifdef __NR_rseq
   auto ret = syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
-                     PERCPU_RSEQ_SIGNATURE);
+                     TCMALLOC_PERCPU_RSEQ_SIGNATURE);
   if (ret == 0) {
     return true;
   } else {
@@ -118,13 +118,13 @@ static void InitPerCpu() {
   if (InitThreadPerCpu()) {
     init_status = kFastMode;
 
-#if PERCPU_USE_RSEQ
+#if TCMALLOC_PERCPU_USE_RSEQ
 #ifdef __x86_64__
     if (UsingFlatVirtualCpus()) {
       tcmalloc_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
     }
 #endif  // __x86_64__
-#endif  // PERCPU_USE_RSEQ
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
   }
 }
 

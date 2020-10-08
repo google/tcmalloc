@@ -105,7 +105,7 @@ class ScopedUnregisterRseq {
     CHECK_CONDITION(IsFast());
 
     syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), kRseqUnregister,
-            PERCPU_RSEQ_SIGNATURE);
+            TCMALLOC_PERCPU_RSEQ_SIGNATURE);
 
     // Clear __rseq_refcount.  Otherwise, when we reinitialize the TLS, we
     // will believe that the thread is already registered.

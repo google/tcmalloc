@@ -15,25 +15,25 @@
 #ifndef TCMALLOC_INTERNAL_PERCPU_H_
 #define TCMALLOC_INTERNAL_PERCPU_H_
 
-#define PERCPU_TCMALLOC_FIXED_SLAB_SHIFT 18
+#define TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT 18
 
-// PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
+// TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
 #if defined(__linux__) && (defined(__x86_64__) || defined(__PPC64__))
-#define PERCPU_RSEQ_SUPPORTED_PLATFORM 1
+#define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
-#define PERCPU_RSEQ_SUPPORTED_PLATFORM 0
+#define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
 #endif
 
-#define PERCPU_RSEQ_VERSION 0x0
-#define PERCPU_RSEQ_FLAGS 0x0
+#define TCMALLOC_PERCPU_RSEQ_VERSION 0x0
+#define TCMALLOC_PERCPU_RSEQ_FLAGS 0x0
 #if defined(__x86_64__)
-#define PERCPU_RSEQ_SIGNATURE 0x53053053
+#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x53053053
 #elif defined(__ppc__)
-#define PERCPU_RSEQ_SIGNATURE 0x0FE5000B
+#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0FE5000B
 #else
 // Rather than error, allow us to build, but with an invalid signature.
-#define PERCPU_RSEQ_SIGNATURE 0x0
+#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0
 #endif
 
 // The constants above this line must be macros since they are shared with the
@@ -57,16 +57,16 @@
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 
-// PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ on the target
-// architecture exists. We currently only provide RSEQ for 64-bit x86 and PPC
-// binaries.
-#if !defined(PERCPU_USE_RSEQ)
-#if (ABSL_PER_THREAD_TLS == 1) && (PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
-#define PERCPU_USE_RSEQ 1
+// TCMALLOC_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ on the
+// target architecture exists. We currently only provide RSEQ for 64-bit x86 and
+// PPC binaries.
+#if !defined(TCMALLOC_PERCPU_USE_RSEQ)
+#if (ABSL_PER_THREAD_TLS == 1) && (TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
+#define TCMALLOC_PERCPU_USE_RSEQ 1
 #else
-#define PERCPU_USE_RSEQ 0
+#define TCMALLOC_PERCPU_USE_RSEQ 0
 #endif
-#endif  // !defined(PERCPU_USE_RSEQ)
+#endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
 
 namespace tcmalloc {
 namespace subtle {
@@ -79,7 +79,7 @@ inline constexpr int kCpuIdUnsupported = -2;
 inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
-#if PERCPU_USE_RSEQ
+#if TCMALLOC_PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile uint32_t __rseq_refcount;
 
@@ -99,7 +99,7 @@ static inline int VirtualRseqCpuId() {
   return RseqCpuId();
 #endif
 }
-#else  // !PERCPU_USE_RSEQ
+#else  // !TCMALLOC_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 
 static inline int VirtualRseqCpuId() { return kCpuIdUnsupported; }
@@ -124,12 +124,12 @@ void *TcmallocSlab_Pop_FixedShift(void *ptr, size_t cl, UnderflowHandler f);
 #endif  // __x86_64__
 
 // Push a batch for a slab which the Shift equal to
-// PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+// TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
 size_t TcmallocSlab_PushBatch_FixedShift(void *ptr, size_t cl, void **batch,
                                          size_t len);
 
 // Pop a batch for a slab which the Shift equal to
-// PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
+// TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
 size_t TcmallocSlab_PopBatch_FixedShift(void *ptr, size_t cl, void **batch,
                                         size_t len);
 
@@ -229,7 +229,7 @@ inline int GetCurrentVirtualCpu() {
 bool InitFastPerCpu();
 
 inline bool IsFast() {
-  if (!PERCPU_USE_RSEQ) {
+  if (!TCMALLOC_PERCPU_USE_RSEQ) {
     return false;
   }
 
@@ -249,7 +249,7 @@ inline bool IsFast() {
 // As IsFast(), but if this thread isn't already initialized, will not
 // attempt to do so.
 inline bool IsFastNoInit() {
-  if (!PERCPU_USE_RSEQ) {
+  if (!TCMALLOC_PERCPU_USE_RSEQ) {
     return false;
   }
   int cpu = RseqCpuId();
@@ -300,7 +300,7 @@ inline void TSANMemoryBarrierOn(void *p) {
 inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
                                 intptr_t old_val, intptr_t new_val) {
   TSANMemoryBarrierOn(p);
-#if PERCPU_USE_RSEQ
+#if TCMALLOC_PERCPU_USE_RSEQ
   switch (tcmalloc_virtual_cpu_id_offset) {
     case offsetof(kernel_rseq, cpu_id):
       return TcmallocSlab_PerCpuCmpxchg64(
@@ -315,9 +315,9 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
     default:
       __builtin_unreachable();
   }
-#else  // !PERCPU_USE_RSEQ
+#else  // !TCMALLOC_PERCPU_USE_RSEQ
   __builtin_unreachable();
-#endif  // !PERCPU_USE_RSEQ
+#endif  // !TCMALLOC_PERCPU_USE_RSEQ
 }
 
 void FenceCpu(int cpu);
