@@ -59,15 +59,6 @@
 
 ABSL_FLAG(std::string, tracefile, "", "file to pull trace from");
 ABSL_FLAG(uint64_t, limit, 0, "");
-ABSL_FLAG(uint64_t, growth_bytes, 1024 * 1024 * 1024,
-          "total size of growth for grow/shrink benchmark");
-
-ABSL_FLAG(double, shrink_factor, 25,
-          "ratio of peak to valley in growth benchmark");
-
-ABSL_FLAG(bool, dump_stats, false,
-          "dump detailed HPAA stats in growth benchmark");
-
 ABSL_FLAG(bool, always_check_usage, false, "enable expensive memory checks");
 
 namespace tcmalloc {
