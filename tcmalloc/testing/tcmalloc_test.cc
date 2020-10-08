@@ -122,8 +122,6 @@ int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   SetTestResourceLimit();
 
-  benchmark::RunSpecifiedBenchmarks();
-
   return RUN_ALL_TESTS();
 }
 
