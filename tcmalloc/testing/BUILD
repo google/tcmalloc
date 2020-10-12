@@ -99,6 +99,23 @@ cc_test(
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
+cc_binary(
+    name = "tcmalloc_benchmark",
+    testonly = 1,
+    srcs = ["tcmalloc_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [
+        "//visibility:private",
+    ],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:declarations",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/random",
+    ],
+)
+
 cc_test(
     name = "tcmalloc_test_small_but_slow",
     srcs = ["tcmalloc_test.cc"],
