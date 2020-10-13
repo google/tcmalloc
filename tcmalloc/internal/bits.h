@@ -44,11 +44,19 @@ class Bits {
 
   static constexpr int Log2Ceiling(uint32_t n) {
     int floor = Log2Floor(n);
-    if ((n & (n - 1)) == 0)  // zero or a power of two
+    if (IsZeroOrPow2(n))
       return floor;
     else
       return floor + 1;
   }
+
+  static constexpr int RoundUpToPow2(uint32_t n) {
+    if (n == 0) return 1;
+    return 1 << Log2Ceiling(n);
+  }
+
+  // Returns true if a value is zero or a power of two.
+  static constexpr bool IsZeroOrPow2(uint32_t n) { return (n & (n - 1)) == 0; }
 };
 
 }  // namespace tcmalloc_internal

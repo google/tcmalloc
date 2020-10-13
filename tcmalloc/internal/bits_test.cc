@@ -14,6 +14,8 @@
 
 #include "tcmalloc/internal/bits.h"
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 
 #include "gmock/gmock.h"
@@ -55,6 +57,29 @@ TEST(BitsTest, Log2Random) {
     }
     EXPECT_EQ(maxbit, Bits::Log2Floor(n));
   }
+}
+
+TEST(BitsTest, IsZeroOrPow2) {
+  EXPECT_TRUE(Bits::IsZeroOrPow2(0));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(1));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(2));
+  EXPECT_FALSE(Bits::IsZeroOrPow2(3));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(4));
+  EXPECT_FALSE(Bits::IsZeroOrPow2(1337));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(65536));
+  EXPECT_FALSE(Bits::IsZeroOrPow2(std::numeric_limits<uint32_t>::max()));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(uint32_t{1} << 31));
+}
+
+TEST(BitsTest, RoundUpToPow2) {
+  EXPECT_EQ(Bits::RoundUpToPow2(0), 1);
+  EXPECT_EQ(Bits::RoundUpToPow2(1), 1);
+  EXPECT_EQ(Bits::RoundUpToPow2(2), 2);
+  EXPECT_EQ(Bits::RoundUpToPow2(3), 4);
+  EXPECT_EQ(Bits::RoundUpToPow2(4), 4);
+  EXPECT_EQ(Bits::RoundUpToPow2(1337), 2048);
+  EXPECT_EQ(Bits::RoundUpToPow2(65536), 65536);
+  EXPECT_EQ(Bits::RoundUpToPow2(65536 - 1337), 65536);
 }
 
 }  // namespace

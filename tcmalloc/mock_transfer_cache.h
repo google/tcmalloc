@@ -34,6 +34,7 @@ class FakeTransferCacheManagerBase {
  public:
   constexpr static size_t class_to_size(int size_class) { return kClassSize; }
   constexpr static size_t num_objects_to_move(int size_class) {
+    // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
   void* Alloc(size_t size) {

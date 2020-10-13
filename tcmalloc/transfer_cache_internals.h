@@ -561,10 +561,17 @@ class LockFreeTransferCache {
           max_capacity_,
           std::max<size_t>(batch_size_, (1024 * 1024) / (bytes * batch_size_) *
                                             batch_size_));
+      if (tcmalloc_internal::Bits::IsZeroOrPow2(max_capacity_)) {
+        --max_capacity_;
+        slots_mask_ = max_capacity_;
+      } else {
+        slots_mask_ = tcmalloc_internal::Bits::RoundUpToPow2(max_capacity_) - 1;
+      }
+
       capacity = std::min(capacity, max_capacity_);
       capacity_.store(capacity, std::memory_order_relaxed);
       slots_ = reinterpret_cast<void **>(
-          owner_->Alloc(slots_size() * sizeof(void *)));
+          owner_->Alloc((slots_mask_ + 1) * sizeof(void *)));
     }
   }
 
@@ -613,10 +620,12 @@ class LockFreeTransferCache {
                          tail_committed_.load(std::memory_order_relaxed));
   }
 
-  int32_t size_from_pos(int32_t h, int32_t t) const {
-    int32_t s = h - t;
-    if (s < 0) s += slots_size();
-    return s;
+  uint32_t size_from_pos(uint32_t h, uint32_t t) const {
+    // Switch to a larger signed space so that we handle the case of wrapping
+    // smoothly, the buffer is circular after all.
+    int64_t s = int64_t{h} - int64_t{t};
+    if (ABSL_PREDICT_FALSE(s < 0)) s += slots_mask_ + 1;
+    return static_cast<uint32_t>(s);
   }
 
   // Returns the number of spans allocated and deallocated from the CFL
@@ -641,10 +650,10 @@ class LockFreeTransferCache {
   // Ensures that `size_needed` of total capacity is available.  If the cache is
   // full it will try to expand this cache at the cost of some other cache size.
   // Return false on failure.
-  bool HasCacheSpace(int32_t size_needed) const {
+  bool HasCacheSpace(uint32_t size_needed) const {
     return size_needed <= capacity_.load(std::memory_order_relaxed);
   }
-  bool EnsureCacheSpace(int32_t size_needed) {
+  bool EnsureCacheSpace(uint32_t size_needed) {
     while (!HasCacheSpace(size_needed)) {
       if (size_needed > max_capacity_) return false;
       int to_evict = owner_->DetermineSizeClassToEvict();
@@ -671,8 +680,8 @@ class LockFreeTransferCache {
 
   // Tries to grow the cache. Returns false if it failed.
   bool GrowCache() {
-    int new_c;
-    int old_c = capacity_.load(std::memory_order_relaxed);
+    uint32_t new_c;
+    uint32_t old_c = capacity_.load(std::memory_order_relaxed);
     do {
       new_c = old_c + batch_size_;
       if (new_c > max_capacity_) return false;
@@ -683,8 +692,8 @@ class LockFreeTransferCache {
 
   // Tries to shrink the Cache.  Return false if it failed.
   bool ShrinkCache() {
-    int new_c;
-    int32_t old_c = capacity_.load(std::memory_order_relaxed);
+    uint32_t new_c;
+    uint32_t old_c = capacity_.load(std::memory_order_relaxed);
     do {
       if (old_c < batch_size_) return false;
       new_c = old_c - batch_size_;
@@ -711,24 +720,19 @@ class LockFreeTransferCache {
 
  private:
   struct Range {
-    int32_t start;
-    int32_t end;
+    uint32_t start;
+    uint32_t end;
   };
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
-  int32_t AdvancePos(int32_t pos, int32_t n) const {
-    pos += n;
-    if (ABSL_PREDICT_FALSE(pos >= slots_size())) pos -= slots_size();
-    return pos;
-  }
-
-  ABSL_ATTRIBUTE_ALWAYS_INLINE
   void CopyIntoSlots(void **batch, Range r) {
+    r.start &= slots_mask_;
+    r.end &= slots_mask_;
     if (ABSL_PREDICT_TRUE(r.start < r.end)) {
       void **entry = GetSlot(r.start);
       memcpy(entry, batch, sizeof(void *) * (r.end - r.start));
     } else {
-      int32_t overhang = slots_size() - r.start;
+      int32_t overhang = slots_mask_ + 1 - r.start;
       void **entry = GetSlot(r.start);
       memcpy(entry, batch, sizeof(void *) * overhang);
       batch += overhang;
@@ -739,11 +743,13 @@ class LockFreeTransferCache {
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   void CopyFromSlots(void **batch, Range r) {
+    r.start &= slots_mask_;
+    r.end &= slots_mask_;
     if (ABSL_PREDICT_TRUE(r.start < r.end)) {
       void **entry = GetSlot(r.start);
       memcpy(batch, entry, sizeof(void *) * (r.end - r.start));
     } else {
-      int32_t overhang = slots_size() - r.start;
+      int32_t overhang = slots_mask_ + 1 - r.start;
       void **entry = GetSlot(r.start);
       memcpy(batch, entry, sizeof(void *) * overhang);
       batch += overhang;
@@ -754,10 +760,10 @@ class LockFreeTransferCache {
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   absl::optional<Range> ClaimInsert(int n) {
-    int32_t old_h = head_.load(std::memory_order_relaxed);
-    int32_t new_h = AdvancePos(old_h, n);
-    int32_t tail = tail_committed_.load(std::memory_order_acquire);
-    int32_t size_needed = size_from_pos(old_h, tail) + n;
+    uint32_t old_h = head_.load(std::memory_order_relaxed);
+    uint32_t new_h = old_h + n;
+    uint32_t tail = tail_committed_.load(std::memory_order_acquire);
+    uint32_t size_needed = size_from_pos(old_h, tail) + n;
     if (HasCacheSpace(size_needed) &&
         head_.compare_exchange_strong(old_h, new_h, std::memory_order_relaxed,
                                       std::memory_order_relaxed)) {
@@ -769,11 +775,11 @@ class LockFreeTransferCache {
   ABSL_ATTRIBUTE_NOINLINE
   absl::optional<Range> ClaimInsertSlow(int n) {
   CLAIM_INSERT_SLOW:
-    int32_t new_h;
-    int32_t old_h = head_.load(std::memory_order_relaxed);
+    uint32_t new_h;
+    uint32_t old_h = head_.load(std::memory_order_relaxed);
     do {
-      int32_t tail = tail_committed_.load(std::memory_order_acquire);
-      int32_t s = size_from_pos(old_h, tail);
+      uint32_t tail = tail_committed_.load(std::memory_order_acquire);
+      uint32_t s = size_from_pos(old_h, tail);
       if (!EnsureCacheSpace(s + n)) {
         if (tail != tail_.load(std::memory_order_relaxed)) {
           // If we have pending removes, wait for some to resolve and try again.
@@ -785,7 +791,7 @@ class LockFreeTransferCache {
         return absl::nullopt;
       }
 
-      new_h = AdvancePos(old_h, n);
+      new_h = old_h + n;
     } while (!head_.compare_exchange_weak(
         old_h, new_h, std::memory_order_relaxed, std::memory_order_relaxed));
     return Range{old_h, new_h};
@@ -793,10 +799,10 @@ class LockFreeTransferCache {
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   absl::optional<Range> ClaimRemove(int n) {
-    int32_t old_t = tail_.load(std::memory_order_relaxed);
-    int32_t head = head_committed_.load(std::memory_order_acquire);
-    int32_t size = size_from_pos(head, old_t);
-    int32_t new_t = AdvancePos(old_t, n);
+    uint32_t old_t = tail_.load(std::memory_order_relaxed);
+    uint32_t head = head_committed_.load(std::memory_order_acquire);
+    uint32_t size = size_from_pos(head, old_t);
+    uint32_t new_t = old_t + n;
     if (n <= size &&
         tail_.compare_exchange_strong(old_t, new_t, std::memory_order_relaxed,
                                       std::memory_order_relaxed)) {
@@ -808,11 +814,11 @@ class LockFreeTransferCache {
   ABSL_ATTRIBUTE_NOINLINE
   absl::optional<Range> ClaimRemoveSlow(int n) {
   CLAIM_REMOVE_SLOW:
-    int32_t new_t;
-    int32_t old_t = tail_.load(std::memory_order_relaxed);
+    uint32_t new_t;
+    uint32_t old_t = tail_.load(std::memory_order_relaxed);
     do {
-      int32_t head = head_committed_.load(std::memory_order_acquire);
-      int32_t s = size_from_pos(head, old_t);
+      uint32_t head = head_committed_.load(std::memory_order_acquire);
+      uint32_t s = size_from_pos(head, old_t);
       if (s < n) {
         if (head != head_.load(std::memory_order_relaxed)) {
           // If we have pending inserts, wait for some to resolve and try again.
@@ -823,16 +829,16 @@ class LockFreeTransferCache {
         }
         return absl::nullopt;
       }
-      new_t = AdvancePos(old_t, n);
+      new_t = old_t + n;
     } while (!tail_.compare_exchange_weak(
         old_t, new_t, std::memory_order_relaxed, std::memory_order_relaxed));
     return Range{old_t, new_t};
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
-  void AdvanceCommitLine(std::atomic<int32_t> &commit, int32_t from,
-                         int32_t to) {
-    int32_t temp_pos;
+  void AdvanceCommitLine(std::atomic<uint32_t> &commit, uint32_t from,
+                         uint32_t to) {
+    uint32_t temp_pos;
     if (!commit.compare_exchange_strong(temp_pos = from, to,
                                         std::memory_order_release,
                                         std::memory_order_relaxed)) {
@@ -844,8 +850,8 @@ class LockFreeTransferCache {
   }
 
   ABSL_ATTRIBUTE_NOINLINE
-  void AwaitEqual(std::atomic<int32_t> &v, int32_t expected) const {
-    int32_t cur;
+  void AwaitEqual(std::atomic<uint32_t> &v, uint32_t expected) const {
+    uint32_t cur;
     do {
       for (int i = 1024; i > 0; --i) {
         cur = v.load(std::memory_order_relaxed);
@@ -859,8 +865,8 @@ class LockFreeTransferCache {
   }
 
   ABSL_ATTRIBUTE_NOINLINE
-  void AwaitChange(std::atomic<int32_t> &v, int32_t actual) const {
-    int32_t cur;
+  void AwaitChange(std::atomic<uint32_t> &v, uint32_t actual) const {
+    uint32_t cur;
     do {
       for (int i = 1024; i > 0; --i) {
         cur = v.load(std::memory_order_relaxed);
@@ -877,8 +883,6 @@ class LockFreeTransferCache {
   // Returns first object of the i-th slot.
   void **GetSlot(size_t i) { return slots_ + i; }
 
-  int32_t slots_size() const { return max_capacity_ + 1; }
-
   size_t size_class() const { return freelist_.size_class(); }
 
   Manager *const owner_;
@@ -890,16 +894,17 @@ class LockFreeTransferCache {
   // Init())
   int32_t max_capacity_;
   int32_t batch_size_;
+  uint32_t slots_mask_;
 
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> capacity_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> capacity_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> head_;
   std::atomic<size_t> insert_hits_;
   std::atomic<size_t> insert_misses_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> head_committed_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> head_committed_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> tail_;
   std::atomic<size_t> remove_hits_;
   std::atomic<size_t> remove_misses_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<int32_t> tail_committed_;
+  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> tail_committed_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::internal_transfer_cache
