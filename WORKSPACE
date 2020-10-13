@@ -13,38 +13,39 @@
 # limitations under the License.
 
 workspace(name = "com_google_tcmalloc")
+
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Abseil
 http_archive(
     name = "com_google_absl",
-    urls = ["https://github.com/abseil/abseil-cpp/archive/38db52adb2eabc0969195b33b30763e0a1285ef9.zip"],
-    strip_prefix = "abseil-cpp-38db52adb2eabc0969195b33b30763e0a1285ef9",
-    sha256 = "64d326dbce25dd05d43482f7029fe91c0412ea0af54b7c3b04b185d076b073cb",
+    sha256 = "c456717814edbba06b60d5239cff3cdc6755ad4863305a9acd80730a3e865c29",
+    strip_prefix = "abseil-cpp-4b2fbb4adba905eede6c61b4494acfdb660a3bb7",
+    urls = ["https://github.com/abseil/abseil-cpp/archive/4b2fbb4adba905eede6c61b4494acfdb660a3bb7.zip"],
 )
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 http_archive(
     name = "com_google_googletest",
-    urls = ["https://github.com/google/googletest/archive/13a433a94dd9c7e55907d7a9b75f44ff82f309eb.zip"],
-    strip_prefix = "googletest-13a433a94dd9c7e55907d7a9b75f44ff82f309eb",
     sha256 = "205ddbea89a0dff059cd681f3ec9b0a6c12de7036a04cd57f0254105257593d9",
+    strip_prefix = "googletest-13a433a94dd9c7e55907d7a9b75f44ff82f309eb",
+    urls = ["https://github.com/google/googletest/archive/13a433a94dd9c7e55907d7a9b75f44ff82f309eb.zip"],
 )
 
 # Google benchmark.
 http_archive(
     name = "com_github_google_benchmark",
-    urls = ["https://github.com/google/benchmark/archive/16703ff83c1ae6d53e5155df3bb3ab0bc96083be.zip"],
-    strip_prefix = "benchmark-16703ff83c1ae6d53e5155df3bb3ab0bc96083be",
     sha256 = "59f918c8ccd4d74b6ac43484467b500f1d64b40cc1010daa055375b322a43ba3",
+    strip_prefix = "benchmark-16703ff83c1ae6d53e5155df3bb3ab0bc96083be",
+    urls = ["https://github.com/google/benchmark/archive/16703ff83c1ae6d53e5155df3bb3ab0bc96083be.zip"],
 )
 
 # C++ rules for Bazel.
 http_archive(
     name = "rules_cc",
+    sha256 = "682a0ce1ccdac678d07df56a5f8cf0880fd7d9e08302b8f677b92db22e72052e",
+    strip_prefix = "rules_cc-7e650b11fe6d49f70f2ca7a1c4cb8bcc4a1fe239",
     urls = [
         "https://github.com/bazelbuild/rules_cc/archive/7e650b11fe6d49f70f2ca7a1c4cb8bcc4a1fe239.zip",
     ],
-    strip_prefix = "rules_cc-7e650b11fe6d49f70f2ca7a1c4cb8bcc4a1fe239",
-    sha256 = "682a0ce1ccdac678d07df56a5f8cf0880fd7d9e08302b8f677b92db22e72052e",
 )
