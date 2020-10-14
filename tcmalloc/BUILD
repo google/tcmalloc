@@ -262,6 +262,7 @@ common_deps = [
     "@com_google_absl//absl/debugging:debugging_internal",
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
+    "@com_google_absl//absl/synchronization",
     "@com_google_absl//absl/hash:hash",
     "@com_google_absl//absl/memory",
     "@com_google_absl//absl/strings",

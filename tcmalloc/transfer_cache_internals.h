@@ -19,6 +19,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <limits>
+
 #ifdef __x86_64__
 #include <emmintrin.h>
 #include <xmmintrin.h>
@@ -30,11 +32,13 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/synchronization/internal/futex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
@@ -590,7 +594,7 @@ class LockFreeTransferCache {
     tracking::Report(kTCInsertHit, size_class(), 1);
     insert_hits_.fetch_add(1, std::memory_order_relaxed);
     CopyIntoSlots(batch.data(), *r);
-    AdvanceCommitLine(head_committed_, r->start, r->end);
+    head_committed_.AdvanceCommitLine(*r, batch_size_);
   }
 
   // Returns the actual number of fetched elements and stores elements in the
@@ -607,7 +611,7 @@ class LockFreeTransferCache {
     tracking::Report(kTCRemoveHit, size_class(), 1);
     remove_hits_.fetch_add(1, std::memory_order_relaxed);
     CopyFromSlots(batch, *r);
-    AdvanceCommitLine(tail_committed_, r->start, r->end);
+    tail_committed_.AdvanceCommitLine(*r, batch_size_);
     return n;
   }
 
@@ -724,6 +728,97 @@ class LockFreeTransferCache {
     uint32_t end;
   };
 
+  // A `uint32_t` like value that exposes extra operations around awaiting
+  // specific values.
+  //
+  // Internally uses a Futex after an initial spinning period.  `quanta`
+  // parameters are used for computing a Futex mask and *MUST* be the same as
+  // all calls to both `AdvanceCommitLine` and `AwaitEqual`.
+  class SpinValue {
+   public:
+    constexpr SpinValue() : v_(0), sleepers_(0) {}
+
+    // Fetches the current value.
+    ABSL_ATTRIBUTE_ALWAYS_INLINE
+    uint32_t load(std::memory_order order) const {
+      return absl::bit_cast<uint32_t>(v_.load(order));
+    }
+
+    // Advances the value from `r.start` to `r.end`, waiting for the value to
+    // reach `r.start` if it is not there already.
+    ABSL_ATTRIBUTE_ALWAYS_INLINE
+    void AdvanceCommitLine(Range r, int32_t quanta) {
+      const int32_t start = absl::bit_cast<int32_t>(r.start);
+      const int32_t end = absl::bit_cast<int32_t>(r.end);
+      int32_t temp_pos;
+      if (ABSL_PREDICT_FALSE(!v_.compare_exchange_strong(
+              temp_pos = start, end, std::memory_order_release,
+              std::memory_order_relaxed))) {
+        AwaitEqual(r.start, quanta);
+        temp_pos = v_.exchange(end, std::memory_order_release);
+        ASSERT(temp_pos == r.start);
+      }
+      if (ABSL_PREDICT_FALSE(sleepers_.load(std::memory_order_relaxed))) {
+        absl::synchronization_internal::Futex::WakeBitset(
+            &v_, std::numeric_limits<int32_t>::max(),
+            ComputeFutexBits(r.end, quanta));
+      }
+    }
+
+    // Waits for the value to be equal to `e`.  `quanta` is used for computing a
+    // Futex mask and *MUST* be the same as all calls to quanta passed to
+    // AdvanceCommitLine.
+    ABSL_ATTRIBUTE_NOINLINE
+    void AwaitEqual(uint32_t e, int32_t quanta) {
+      const int32_t expected = absl::bit_cast<int32_t>(e);
+      int32_t cur;
+      do {
+        for (int i = 1024; i > 0; --i) {
+          cur = v_.load(std::memory_order_relaxed);
+          if (cur == expected) return;
+#ifdef __x86_64__
+          _mm_pause();
+#endif
+        }
+        sleepers_.fetch_add(1, std::memory_order_relaxed);
+        absl::synchronization_internal::Futex::WaitBitsetAbsoluteTimeout(
+            &v_, cur, ComputeFutexBits(e, quanta), nullptr);
+        sleepers_.fetch_sub(1, std::memory_order_relaxed);
+      } while (cur != expected);
+    }
+
+    // Waits for the value to change from `a` in any way.
+    ABSL_ATTRIBUTE_NOINLINE
+    void AwaitChange(uint32_t a) {
+      const int32_t actual = absl::bit_cast<int32_t>(a);
+      int32_t cur;
+      do {
+        for (int i = 1024; i > 0; --i) {
+          cur = v_.load(std::memory_order_relaxed);
+          if (cur != actual) return;
+#ifdef __x86_64__
+          _mm_pause();
+#endif
+        }
+
+        sleepers_.fetch_add(1, std::memory_order_relaxed);
+        absl::synchronization_internal::Futex::WaitBitsetAbsoluteTimeout(
+            &v_, cur, FUTEX_BITSET_MATCH_ANY, nullptr);
+        sleepers_.fetch_sub(1, std::memory_order_relaxed);
+      } while (cur == actual);
+    }
+
+   private:
+    // Futex requires an `int32_t` but treats it like an opaque bag of 4 bytes,
+    // so we keep this as an `int32_t` here but have our public interfaces in
+    // terms of the preferred type `uint32_t`.
+    std::atomic<int32_t> v_;
+
+    // Tracks the number of threads currently sleeping on the futex so that we
+    // can avoid the syscall to Wake in the fast path.
+    std::atomic<int32_t> sleepers_;
+  };
+
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   void CopyIntoSlots(void **batch, Range r) {
     r.start &= slots_mask_;
@@ -785,7 +880,7 @@ class LockFreeTransferCache {
           // If we have pending removes, wait for some to resolve and try again.
           // - retest capacity in case the pending inserts were too small.
           // - use goto instead of tail call to keep stack bounded in non-opt.
-          AwaitChange(tail_committed_, tail);
+          tail_committed_.AwaitChange(tail);
           goto CLAIM_INSERT_SLOW;
         }
         return absl::nullopt;
@@ -824,7 +919,7 @@ class LockFreeTransferCache {
           // If we have pending inserts, wait for some to resolve and try again.
           // - retest size in case the pending inserts were too small.
           // - use goto instead of tail call to keep stack bounded in non-opt.
-          AwaitChange(head_committed_, head);
+          head_committed_.AwaitChange(head);
           goto CLAIM_REMOVE_SLOW;
         }
         return absl::nullopt;
@@ -836,48 +931,16 @@ class LockFreeTransferCache {
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
-  void AdvanceCommitLine(std::atomic<uint32_t> &commit, uint32_t from,
-                         uint32_t to) {
-    uint32_t temp_pos;
-    if (!commit.compare_exchange_strong(temp_pos = from, to,
-                                        std::memory_order_release,
-                                        std::memory_order_relaxed)) {
-      AwaitEqual(commit, from);
-      temp_pos = commit.exchange(to, std::memory_order_release);
-      ASSERT(temp_pos == from);
-    }
-    // TODO(kfm): wake here if futex below
-  }
-
-  ABSL_ATTRIBUTE_NOINLINE
-  void AwaitEqual(std::atomic<uint32_t> &v, uint32_t expected) const {
-    uint32_t cur;
-    do {
-      for (int i = 1024; i > 0; --i) {
-        cur = v.load(std::memory_order_relaxed);
-        if (cur == expected) return;
-#ifdef __x86_64__
-        _mm_pause();
-#endif
-      }
-      // TODO(kfm): sched-yield or futex here
-    } while (cur != expected);
-  }
-
-  ABSL_ATTRIBUTE_NOINLINE
-  void AwaitChange(std::atomic<uint32_t> &v, uint32_t actual) const {
-    uint32_t cur;
-    do {
-      for (int i = 1024; i > 0; --i) {
-        cur = v.load(std::memory_order_relaxed);
-        if (cur != actual) return;
-#ifdef __x86_64__
-        _mm_pause();
-#endif
-      }
-
-      // TODO(kfm): sched-yield or futex here
-    } while (cur == actual);
+  static int32_t ComputeFutexBits(uint32_t pos, int32_t quanta) {
+    // We want to bins values according to our quanta so that each of the
+    // nearest increment sets a different bit:
+    //
+    // Value: [0, n), [n, 2*n), ... [k*n, (k+1)*n)
+    // Bits:  1 << 0, 1 << 1,       1 << k
+    //
+    // to avoid overflow, we then do all of this mod 32.
+    int32_t shift = ((pos + quanta - 1) / quanta) % 32;
+    return absl::bit_cast<int32_t>(uint32_t{1} << shift);
   }
 
   // Returns first object of the i-th slot.
@@ -900,11 +963,11 @@ class LockFreeTransferCache {
   alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> head_;
   std::atomic<size_t> insert_hits_;
   std::atomic<size_t> insert_misses_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> head_committed_;
+  alignas(ABSL_CACHELINE_SIZE) SpinValue head_committed_;
   alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> tail_;
   std::atomic<size_t> remove_hits_;
   std::atomic<size_t> remove_misses_;
-  alignas(ABSL_CACHELINE_SIZE) std::atomic<uint32_t> tail_committed_;
+  alignas(ABSL_CACHELINE_SIZE) SpinValue tail_committed_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::internal_transfer_cache
