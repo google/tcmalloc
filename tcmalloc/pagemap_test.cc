@@ -50,7 +50,7 @@ class PageMapTest : public ::testing::TestWithParam<int> {
     map = new (storage) Map();
   }
 
-  ~PageMapTest() {
+  ~PageMapTest() override {
     for (void* ptr : *ptrs()) {
       ::operator delete(ptr);
     }

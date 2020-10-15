@@ -121,7 +121,7 @@ class LargeAllocationTest : public ::testing::Test {
     small_ = ::operator new(4 << 20);
   }
 
-  ~LargeAllocationTest() {
+  ~LargeAllocationTest() override {
     ::operator delete(small_);
 
     auto* current = MallocExtension::GetRegionFactory();
