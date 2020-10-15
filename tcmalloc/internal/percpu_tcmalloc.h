@@ -251,7 +251,7 @@ template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f) {
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
   bool overflow;
@@ -315,7 +315,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "movzwq (%%r10, %[cl], 8), %%r11\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
       "cmp 6(%%r10, %[cl], 8), %%r11w\n"
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       "jae %l[overflow_label]\n"
 #else
       "jae 5f\n"
@@ -328,7 +328,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // Commit
       "5:\n"
       :
-#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       [overflow] "=@ccae"(overflow)
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
@@ -337,11 +337,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
   );
-#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
@@ -379,7 +379,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
   void* result;
   void* scratch;
   uintptr_t current;
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
   bool underflow;
@@ -434,7 +434,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           "movzwq (%[scratch], %[cl], 8), %[current]\n"
           // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
           "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "jbe %l[underflow_path]\n"
 #else
           "jbe 5f\n"
@@ -455,7 +455,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           // Commit
           "5:\n"
           : [result] "=&r"(result),
-#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
             [underflow] "=@ccbe"(underflow),
 #endif
             [scratch] "=&r"(scratch), [current] "=&r"(current)
@@ -465,11 +465,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
             [slabs] "r"(slabs), [cl] "r"(cl)
           : "cc", "memory"
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
       );
-#ifndef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
   }
@@ -477,7 +477,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
 
   return result;
 underflow_path:
-#ifdef TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
