@@ -625,11 +625,9 @@ class LockFreeTransferCache {
   }
 
   uint32_t size_from_pos(uint32_t h, uint32_t t) const {
-    // Switch to a larger signed space so that we handle the case of wrapping
-    // smoothly, the buffer is circular after all.
-    int64_t s = int64_t{h} - int64_t{t};
-    if (ABSL_PREDICT_FALSE(s < 0)) s += slots_mask_ + 1;
-    return static_cast<uint32_t>(s);
+    uint32_t s = h - t;
+    if (ABSL_PREDICT_FALSE(h < t)) s += slots_mask_ + 1;
+    return s;
   }
 
   // Returns the number of spans allocated and deallocated from the CFL
