@@ -27,6 +27,30 @@
 
 namespace tcmalloc {
 
+#if defined __x86_64__
+// All current and planned x86_64 processors only look at the lower 48 bits
+// in virtual to physical address translation.  The top 16 are thus unused.
+// TODO(b/134686025): Under what operating systems can we increase it safely to
+// 17? This lets us use smaller page maps.  On first allocation, a 36-bit page
+// map uses only 96 KB instead of the 4.5 MB used by a 52-bit page map.
+inline constexpr int kAddressBits =
+    (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
+#elif defined __powerpc64__ && defined __linux__
+// Linux(4.12 and above) on powerpc64 supports 128TB user virtual address space
+// by default, and up to 512TB if user space opts in by specifing hint in mmap.
+// See comments in arch/powerpc/include/asm/processor.h
+// and arch/powerpc/mm/mmap.c.
+inline constexpr int kAddressBits =
+    (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 49);
+#elif defined __aarch64__ && defined __linux__
+// According to Documentation/arm64/memory.txt of kernel 3.16,
+// AARCH64 kernel supports 48-bit virtual addresses for both user and kernel.
+inline constexpr int kAddressBits =
+    (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
+#else
+inline constexpr int kAddressBits = 8 * sizeof(void*);
+#endif
+
 #if defined(__x86_64__)
 // x86 has 2 MiB huge pages
 static constexpr size_t kHugePageShift = 21;
