@@ -124,8 +124,11 @@ class AddressRegion {
 class AddressRegionFactory {
  public:
   enum class UsageHint {
-    kNormal,      // Normal usage.
-    kInfrequent,  // Used less frequently than normal regions.
+    kNormal,                // Normal usage.
+    kInfrequentAllocation,  // TCMalloc allocates from these regions less
+                            // frequently than normal regions.
+    kInfrequent ABSL_DEPRECATED("Use kInfrequentAllocation") =
+        kInfrequentAllocation,
   };
 
   AddressRegionFactory() {}

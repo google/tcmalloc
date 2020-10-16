@@ -227,8 +227,9 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
     alignment = std::max(alignment, preferred_alignment);
     void* ptr = MmapAligned(size, alignment, tagged);
     if (!ptr) return {nullptr, 0};
-    auto region_type = tagged ? AddressRegionFactory::UsageHint::kInfrequent
-                              : AddressRegionFactory::UsageHint::kNormal;
+    auto region_type =
+        tagged ? AddressRegionFactory::UsageHint::kInfrequentAllocation
+               : AddressRegionFactory::UsageHint::kNormal;
     AddressRegion* region = region_factory->Create(ptr, size, region_type);
     if (!region) {
       munmap(ptr, size);
@@ -260,8 +261,9 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
   // Reserve new region and try allocation again.
   void* ptr = MmapAligned(kMinMmapAlloc, kMinMmapAlloc, tagged);
   if (!ptr) return {nullptr, 0};
-  auto region_type = tagged ? AddressRegionFactory::UsageHint::kInfrequent
-                            : AddressRegionFactory::UsageHint::kNormal;
+  auto region_type =
+      tagged ? AddressRegionFactory::UsageHint::kInfrequentAllocation
+             : AddressRegionFactory::UsageHint::kNormal;
   region = region_factory->Create(ptr, kMinMmapAlloc, region_type);
   if (!region) {
     munmap(ptr, kMinMmapAlloc);
