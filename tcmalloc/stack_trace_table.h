@@ -28,7 +28,7 @@
 
 namespace tcmalloc {
 
-class StackTraceTable : public tcmalloc_internal::ProfileBase {
+class StackTraceTable final : public tcmalloc_internal::ProfileBase {
  public:
   // If merge is true, traces with identical size and stack are merged
   // together.  Else they are kept distinct.

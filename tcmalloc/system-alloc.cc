@@ -110,7 +110,7 @@ size_t RoundUpPowerOf2(size_t size) {
   return 0;
 }
 
-class MmapRegion : public AddressRegion {
+class MmapRegion final : public AddressRegion {
  public:
   MmapRegion(uintptr_t start, size_t size) : start_(start), free_size_(size) {}
   std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
@@ -120,7 +120,7 @@ class MmapRegion : public AddressRegion {
   size_t free_size_;
 };
 
-class MmapRegionFactory : public AddressRegionFactory {
+class MmapRegionFactory final : public AddressRegionFactory {
  public:
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override;
   size_t GetStats(absl::Span<char> buffer) override;

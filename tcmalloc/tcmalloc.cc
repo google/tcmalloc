@@ -694,7 +694,7 @@ DumpHeapProfile(bool unsample) {
 
 class AllocationSampleList;
 
-class AllocationSample
+class AllocationSample final
     : public tcmalloc::tcmalloc_internal::AllocationProfilingTokenBase {
  public:
   AllocationSample();

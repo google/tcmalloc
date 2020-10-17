@@ -23,7 +23,7 @@
 namespace tcmalloc {
 
 // Class that implements the call into the OS provided mincore() function.
-class OsMInCore : public MInCoreInterface {
+class OsMInCore final : public MInCoreInterface {
   int mincore(void* addr, size_t length, unsigned char* result) final {
     return ::mincore(addr, length, result);
   }

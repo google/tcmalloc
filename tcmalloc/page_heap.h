@@ -33,7 +33,7 @@ namespace tcmalloc {
 // contiguous runs of pages (called a "span").
 // -------------------------------------------------------------------------
 
-class PageHeap : public PageAllocatorInterface {
+class PageHeap final : public PageAllocatorInterface {
  public:
   explicit PageHeap(bool tagged);
   // for testing

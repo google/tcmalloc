@@ -39,7 +39,7 @@ bool decide_subrelease();
 // An implementation of the PageAllocator interface that is hugepage-efficent.
 // Attempts to pack allocations into full hugepages wherever possible,
 // and aggressively returns empty ones to the system.
-class HugePageAwareAllocator : public PageAllocatorInterface {
+class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
   explicit HugePageAwareAllocator(bool tagged);
 
