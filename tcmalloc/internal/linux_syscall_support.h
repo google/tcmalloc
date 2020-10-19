@@ -56,7 +56,7 @@ static_assert(sizeof(kernel_rseq_cs) == (4 * sizeof(unsigned long long)),
 #if defined(__x86_64__)
 #define __NR_rseq 334
 #elif defined(__aarch64__)
-#define __NR_rseq 398
+#define __NR_rseq 293
 #elif defined(__PPC__)
 #define __NR_rseq 387
 #endif
