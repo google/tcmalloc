@@ -23,9 +23,13 @@
 #include "gtest/gtest.h"
 #include "absl/container/node_hash_set.h"
 #include "absl/random/random.h"
+#include "tcmalloc/internal/mock_span.h"
 
 namespace tcmalloc {
 namespace {
+
+using tcmalloc_internal::MockSpan;
+using tcmalloc_internal::MockSpanList;
 
 class LinkedListTest : public ::testing::Test {
  protected:
@@ -110,22 +114,6 @@ TEST_F(LinkedListTest, PushPopBatch) {
     free(ptr);
   }
 }
-
-class MockSpan;
-typedef TList<MockSpan> MockSpanList;
-
-class MockSpan : public MockSpanList::Elem {
- public:
-  MockSpan() {}
-
-  static MockSpan* New(int idx = 0) {
-    MockSpan* ret = new MockSpan();
-    ret->index_ = idx;
-    return ret;
-  }
-
-  int index_;
-};
 
 class TListTest : public ::testing::Test {
  protected:

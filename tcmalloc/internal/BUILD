@@ -113,6 +113,21 @@ cc_library(
     ],
 )
 
+cc_binary(
+    name = "linked_list_benchmark",
+    testonly = 1,
+    srcs = ["linked_list_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":linked_list",
+        ":logging",
+        ":mock_span",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/random",
+    ],
+)
+
 cc_test(
     name = "linked_list_test",
     size = "small",
@@ -121,6 +136,7 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":linked_list",
+        ":mock_span",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:node_hash_set",
         "@com_google_absl//absl/random",
@@ -218,6 +234,16 @@ cc_test(
         ":mincore",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "mock_span",
+    testonly = 1,
+    hdrs = ["mock_span.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":linked_list",
     ],
 )
 
