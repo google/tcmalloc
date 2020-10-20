@@ -127,6 +127,7 @@ using tcmalloc::kLog;
 using tcmalloc::Length;
 using tcmalloc::Log;
 using tcmalloc::MallocPolicy;
+using tcmalloc::MemoryTag;
 using tcmalloc::pageheap_lock;
 using tcmalloc::PageId;
 using tcmalloc::PageIdContaining;
@@ -438,8 +439,9 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
       Static::cpu_cache()->Print(out);
     }
 
-    Static::page_allocator()->Print(out, /*tagged=*/false);
-    Static::page_allocator()->Print(out, /*tagged=*/true);
+    // TODO(ckennelly): Get things into the tcmalloc namespace.
+    Static::page_allocator()->Print(out, tcmalloc::MemoryTag::kNormal);
+    Static::page_allocator()->Print(out, tcmalloc::MemoryTag::kSampled);
     tcmalloc::tracking::Print(out);
     Static::guardedpage_allocator()->Print(out);
 
@@ -558,8 +560,9 @@ namespace {
       Static::cpu_cache()->PrintInPbtxt(&region);
     }
   }
-  Static::page_allocator()->PrintInPbtxt(&region, /*tagged=*/false);
-  Static::page_allocator()->PrintInPbtxt(&region, /*tagged=*/true);
+  Static::page_allocator()->PrintInPbtxt(&region, tcmalloc::MemoryTag::kNormal);
+  Static::page_allocator()->PrintInPbtxt(&region,
+                                         tcmalloc::MemoryTag::kSampled);
   // We do not collect tracking information in pbtxt.
 
   size_t limit_bytes;
@@ -1406,7 +1409,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
     Length num_pages = tcmalloc::BytesToLengthCeil(allocated_size);
     if ((guarded_alloc = TrySampleGuardedAllocation(
              requested_size, requested_alignment, num_pages))) {
-      ASSERT(tcmalloc::IsTaggedMemory(guarded_alloc));
+      ASSERT(tcmalloc::IsSampledMemory(guarded_alloc));
       const PageId p = PageIdContaining(guarded_alloc);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       span = Span::New(p, num_pages);
@@ -1418,7 +1421,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
       // report the requested size for both capacity and GetAllocatedSize().
       if (capacity) allocated_size = requested_size;
     } else if ((span = Static::page_allocator()->New(
-                    num_pages, /*tagged=*/true)) == nullptr) {
+                    num_pages, MemoryTag::kSampled)) == nullptr) {
       if (capacity) *capacity = allocated_size;
       return obj;
     }
@@ -1512,7 +1515,7 @@ inline void* do_malloc_pages(size_t size, size_t alignment) {
       std::max<Length>(tcmalloc::BytesToLengthCeil(size), Length(1));
 
   Span* span = Static::page_allocator()->NewAligned(
-      num_pages, tcmalloc::BytesToLengthCeil(alignment), /*tagged=*/false);
+      num_pages, tcmalloc::BytesToLengthCeil(alignment), MemoryTag::kNormal);
 
   if (span == nullptr) {
     return nullptr;
@@ -1583,7 +1586,7 @@ static void do_free_pages(void* ptr, const PageId p) {
       notify_sampled_alloc = true;
       Static::stacktrace_allocator()->Delete(st);
     }
-    if (tcmalloc::IsTaggedMemory(ptr)) {
+    if (tcmalloc::IsSampledMemory(ptr)) {
       if (Static::guardedpage_allocator()->PointerIsMine(ptr)) {
         // Release lock while calling Deallocate() since it does a system call.
         pageheap_lock.Unlock();
@@ -1592,11 +1595,11 @@ static void do_free_pages(void* ptr, const PageId p) {
         Span::Delete(span);
       } else {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        Static::page_allocator()->Delete(span, /*tagged=*/true);
+        Static::page_allocator()->Delete(span, MemoryTag::kSampled);
       }
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      Static::page_allocator()->Delete(span, /*tagged=*/false);
+      Static::page_allocator()->Delete(span, MemoryTag::kNormal);
     }
   }
 
@@ -1692,7 +1695,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   //
   // The optimized path doesn't work with sampled objects, whose deletions
   // trigger more operations and require to visit metadata.
-  if (ABSL_PREDICT_FALSE(tcmalloc::IsTaggedMemory(ptr))) {
+  if (ABSL_PREDICT_FALSE(tcmalloc::IsSampledMemory(ptr))) {
     // we don't know true class size of the ptr
     if (ptr == nullptr) return;
     return FreePages(ptr);

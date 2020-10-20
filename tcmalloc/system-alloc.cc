@@ -134,21 +134,22 @@ std::aligned_storage<sizeof(MmapRegionFactory),
 
 class RegionManager {
  public:
-  std::pair<void*, size_t> Alloc(size_t size, size_t alignment, bool tagged);
+  std::pair<void*, size_t> Alloc(size_t size, size_t alignment, MemoryTag tag);
 
   void DiscardMappedRegions() {
-    untagged_region_ = nullptr;
-    tagged_region_ = nullptr;
+    normal_region_ = nullptr;
+    sampled_region_ = nullptr;
   }
 
  private:
   // Checks that there is sufficient space available in the reserved region
   // for the next allocation, if not allocate a new region.
   // Then returns a pointer to the new memory.
-  std::pair<void*, size_t> Allocate(size_t size, size_t alignment, bool tagged);
+  std::pair<void*, size_t> Allocate(size_t size, size_t alignment,
+                                    MemoryTag tag);
 
-  AddressRegion* untagged_region_{nullptr};
-  AddressRegion* tagged_region_{nullptr};
+  AddressRegion* normal_region_{nullptr};
+  AddressRegion* sampled_region_{nullptr};
 };
 std::aligned_storage<sizeof(RegionManager), alignof(RegionManager)>::type
     region_manager_space;
@@ -210,11 +211,29 @@ size_t MmapRegionFactory::GetStatsInPbtxt(absl::Span<char> buffer) {
   return printer.SpaceRequired();
 }
 
+static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
+  using UsageHint = AddressRegionFactory::UsageHint;
+  switch (tag) {
+    case MemoryTag::kNormal:
+      return UsageHint::kNormal;
+      break;
+    case MemoryTag::kSampled:
+      return UsageHint::kInfrequentAllocation;
+      break;
+    default:
+      ASSUME(false);
+      __builtin_unreachable();
+  }
+}
+
 std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
-                                              size_t alignment, bool tagged) {
-  // We do not support size or alignment larger than kTagMask.
+                                              size_t alignment,
+                                              const MemoryTag tag) {
+  constexpr uintptr_t kTagFree = uintptr_t{1} << kTagShift;
+
+  // We do not support size or alignment larger than kTagFree.
   // TODO(b/141325493): Handle these large allocations.
-  if (request_size > kTagMask || alignment > kTagMask) return {nullptr, 0};
+  if (request_size > kTagFree || alignment > kTagFree) return {nullptr, 0};
 
   // If we are dealing with large sizes, or large alignments we do not
   // want to throw away the existing reserved region, so instead we
@@ -225,11 +244,10 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
     size_t size = RoundUp(request_size, kMinSystemAlloc);
     if (size < request_size) return {nullptr, 0};
     alignment = std::max(alignment, preferred_alignment);
-    void* ptr = MmapAligned(size, alignment, tagged);
+    void* ptr = MmapAligned(size, alignment, tag);
     if (!ptr) return {nullptr, 0};
-    auto region_type =
-        tagged ? AddressRegionFactory::UsageHint::kInfrequentAllocation
-               : AddressRegionFactory::UsageHint::kNormal;
+
+    const auto region_type = TagToHint(tag);
     AddressRegion* region = region_factory->Create(ptr, size, region_type);
     if (!region) {
       munmap(ptr, size);
@@ -244,12 +262,22 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
     }
     return result;
   }
-  return Allocate(request_size, alignment, tagged);
+  return Allocate(request_size, alignment, tag);
 }
 
 std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
-                                                 bool tagged) {
-  AddressRegion*& region = tagged ? tagged_region_ : untagged_region_;
+                                                 const MemoryTag tag) {
+  AddressRegion*& region = *[&]() {
+    switch (tag) {
+      case MemoryTag::kNormal:
+        return &normal_region_;
+      case MemoryTag::kSampled:
+        return &sampled_region_;
+      default:
+        ASSUME(false);
+        __builtin_unreachable();
+    }
+  }();
   // For sizes that fit in our reserved range first of all check if we can
   // satisfy the request from what we have available.
   if (region) {
@@ -259,11 +287,10 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
 
   // Allocation failed so we need to reserve more memory.
   // Reserve new region and try allocation again.
-  void* ptr = MmapAligned(kMinMmapAlloc, kMinMmapAlloc, tagged);
+  void* ptr = MmapAligned(kMinMmapAlloc, kMinMmapAlloc, tag);
   if (!ptr) return {nullptr, 0};
-  auto region_type =
-      tagged ? AddressRegionFactory::UsageHint::kInfrequentAllocation
-             : AddressRegionFactory::UsageHint::kNormal;
+
+  const auto region_type = TagToHint(tag);
   region = region_factory->Create(ptr, kMinMmapAlloc, region_type);
   if (!region) {
     munmap(ptr, kMinMmapAlloc);
@@ -289,7 +316,7 @@ ABSL_CONST_INIT std::atomic<int> system_release_errors = ATOMIC_VAR_INIT(0);
 }  // namespace
 
 void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
-                  bool tagged) {
+                  const MemoryTag tag) {
   // If default alignment is set request the minimum alignment provided by
   // the system.
   alignment = std::max(alignment, pagesize);
@@ -307,12 +334,12 @@ void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
 
   void* result = nullptr;
   std::tie(result, *actual_bytes) =
-      region_manager->Alloc(bytes, alignment, tagged);
+      region_manager->Alloc(bytes, alignment, tag);
 
   if (result != nullptr) {
     CheckAddressBits<kAddressBits>(reinterpret_cast<uintptr_t>(result) +
                                    *actual_bytes - 1);
-    ASSERT(tcmalloc::IsTaggedMemory(result) == tagged);
+    ASSERT(tcmalloc::GetMemoryTag(result) == tag);
   }
   return result;
 }
@@ -435,7 +462,8 @@ void SetRegionFactory(AddressRegionFactory* factory) {
   region_factory = factory;
 }
 
-static uintptr_t RandomMmapHint(size_t size, size_t alignment, bool tagged) {
+static uintptr_t RandomMmapHint(size_t size, size_t alignment,
+                                const MemoryTag tag) {
   // Rely on kernel's mmap randomization to seed our RNG.
   static uintptr_t rnd = []() {
     void* seed =
@@ -468,27 +496,38 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment, bool tagged) {
 
   rnd = Sampler::NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;
-  if (!tagged) {
-    addr |= kTagMask;
-  }
+  addr |= static_cast<uintptr_t>(tag) << kTagShift;
+  ASSERT(GetMemoryTag(reinterpret_cast<const void*>(addr)) == tag);
   return addr;
 }
 
-void* MmapAligned(size_t size, size_t alignment, bool tagged) {
+void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   ASSERT(size <= kTagMask);
   ASSERT(alignment <= kTagMask);
 
-  static uintptr_t next_untagged_addr = 0;
-  static uintptr_t next_tagged_addr = 0;
+  static uintptr_t next_sampled_addr = 0;
+  static uintptr_t next_normal_addr = 0;
 
-  uintptr_t& next_addr = tagged ? next_tagged_addr : next_untagged_addr;
+  uintptr_t& next_addr = *[&]() {
+    switch (tag) {
+      case MemoryTag::kSampled:
+        return &next_sampled_addr;
+      case MemoryTag::kNormal:
+        return &next_normal_addr;
+      default:
+        ASSUME(false);
+        __builtin_unreachable();
+    }
+  }();
+
   if (!next_addr || next_addr & (alignment - 1) ||
-      IsTaggedMemory(reinterpret_cast<void*>(next_addr)) != tagged ||
-      IsTaggedMemory(reinterpret_cast<void*>(next_addr + size - 1)) != tagged) {
-    next_addr = RandomMmapHint(size, alignment, tagged);
+      GetMemoryTag(reinterpret_cast<void*>(next_addr)) != tag ||
+      GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
+    next_addr = RandomMmapHint(size, alignment, tag);
   }
   for (int i = 0; i < 1000; ++i) {
     void* hint = reinterpret_cast<void*>(next_addr);
+    ASSERT(GetMemoryTag(hint) == tag);
     // TODO(b/140190055): Use MAP_FIXED_NOREPLACE once available.
     void* result =
         mmap(hint, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -497,6 +536,8 @@ void* MmapAligned(size_t size, size_t alignment, bool tagged) {
       next_addr += size;
       CHECK_CONDITION(kAddressBits == std::numeric_limits<uintptr_t>::digits ||
                       next_addr <= uintptr_t{1} << kAddressBits);
+
+      ASSERT((reinterpret_cast<uintptr_t>(result) & (alignment - 1)) == 0);
       return result;
     }
     if (result == MAP_FAILED) {
@@ -509,7 +550,7 @@ void* MmapAligned(size_t size, size_t alignment, bool tagged) {
       Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed");
       ASSERT(err == 0);
     }
-    next_addr = RandomMmapHint(size, alignment, tagged);
+    next_addr = RandomMmapHint(size, alignment, tag);
   }
 
   Log(kLogWithStack, __FILE__, __LINE__,

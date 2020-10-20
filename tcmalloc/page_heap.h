@@ -35,9 +35,9 @@ namespace tcmalloc {
 
 class PageHeap final : public PageAllocatorInterface {
  public:
-  explicit PageHeap(bool tagged);
+  explicit PageHeap(MemoryTag tag);
   // for testing
-  PageHeap(PageMap* map, bool tagged);
+  PageHeap(PageMap* map, MemoryTag tag);
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have

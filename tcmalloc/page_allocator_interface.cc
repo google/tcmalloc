@@ -31,11 +31,20 @@ namespace tcmalloc {
 using tcmalloc::tcmalloc_internal::signal_safe_open;
 using tcmalloc::tcmalloc_internal::thread_safe_getenv;
 
-static int OpenLog(bool tagged) {
-  const char *fname = tagged
-                          ? thread_safe_getenv("TCMALLOC_TAGGED_PAGE_LOG_FILE")
-                          : thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
-  if (!fname) return -1;
+static int OpenLog(MemoryTag tag) {
+  const char *fname = [&]() {
+    switch (tag) {
+      case MemoryTag::kNormal:
+        return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
+      case MemoryTag::kSampled:
+        return thread_safe_getenv("TCMALLOC_SAMPLED_PAGE_LOG_FILE");
+      default:
+        ASSUME(false);
+        __builtin_unreachable();
+    }
+  }();
+
+  if (ABSL_PREDICT_TRUE(!fname)) return -1;
 
   if (getuid() != geteuid() || getgid() != getegid()) {
     Log(kLog, __FILE__, __LINE__, "Cannot take a pagetrace from setuid binary");
@@ -61,12 +70,12 @@ static int OpenLog(bool tagged) {
   return fd;
 }
 
-PageAllocatorInterface::PageAllocatorInterface(const char *label, bool tagged)
-    : PageAllocatorInterface(label, Static::pagemap(), tagged) {}
+PageAllocatorInterface::PageAllocatorInterface(const char *label, MemoryTag tag)
+    : PageAllocatorInterface(label, Static::pagemap(), tag) {}
 
 PageAllocatorInterface::PageAllocatorInterface(const char *label, PageMap *map,
-                                               bool tagged)
-    : info_(label, OpenLog(tagged)), pagemap_(map), tagged_(tagged) {}
+                                               MemoryTag tag)
+    : info_(label, OpenLog(tag)), pagemap_(map), tag_(tag) {}
 
 PageAllocatorInterface::~PageAllocatorInterface() {
   // This is part of tcmalloc statics - they must be immortal.

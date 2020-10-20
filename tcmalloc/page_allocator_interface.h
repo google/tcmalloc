@@ -32,9 +32,9 @@ class PageMap;
 
 class PageAllocatorInterface {
  public:
-  PageAllocatorInterface(const char* label, bool tagged);
+  PageAllocatorInterface(const char* label, MemoryTag tag);
   // For testing: use a non-default pagemap.
-  PageAllocatorInterface(const char* label, PageMap* map, bool tagged);
+  PageAllocatorInterface(const char* label, PageMap* map, MemoryTag tag);
   virtual ~PageAllocatorInterface();
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
@@ -86,7 +86,7 @@ class PageAllocatorInterface {
   PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
   PageMap* pagemap_;
 
-  bool tagged_;  // Whether this heap manages tagged or untagged memory.
+  MemoryTag tag_;  // The type of tagged memory this heap manages
 };
 
 }  // namespace tcmalloc

@@ -98,11 +98,23 @@ namespace tcmalloc {
 // - pick the right one for a given allocation
 // - provide enough data to figure out what we picked last time!
 
-HugePageAwareAllocator::HugePageAwareAllocator(bool tagged)
-    : PageAllocatorInterface("HugePageAware", tagged),
+HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
+    : PageAllocatorInterface("HugePageAware", tag),
       filler_(decide_partial_rerelease()),
-      alloc_(tagged ? AllocAndReport<true> : AllocAndReport<false>,
-             MetaDataAlloc),
+      alloc_(
+          [](MemoryTag tag) {
+            // TODO(ckennelly): Remove the template parameter.
+            switch (tag) {
+              case MemoryTag::kNormal:
+                return AllocAndReport<MemoryTag::kNormal>;
+              case MemoryTag::kSampled:
+                return AllocAndReport<MemoryTag::kSampled>;
+              default:
+                ASSUME(false);
+                __builtin_unreachable();
+            }
+          }(tag),
+          MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}) {
   tracker_allocator_.Init(Static::arena());
   region_allocator_.Init(Static::arena());
@@ -273,7 +285,7 @@ Span *HugePageAwareAllocator::New(Length n) {
   bool from_released;
   Span *s = LockAndAlloc(n, &from_released);
   if (s && from_released) BackSpan(s);
-  ASSERT(!s || IsTaggedMemory(s->start_address()) == tagged_);
+  ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
 
@@ -312,7 +324,7 @@ Span *HugePageAwareAllocator::NewAligned(Length n, Length align) {
     s = AllocRawHugepages(n, &from_released);
   }
   if (s && from_released) BackSpan(s);
-  ASSERT(!s || IsTaggedMemory(s->start_address()) == tagged_);
+  ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
 
@@ -335,7 +347,7 @@ bool HugePageAwareAllocator::AddRegion() {
 }
 
 void HugePageAwareAllocator::Delete(Span *span) {
-  ASSERT(!span || IsTaggedMemory(span->start_address()) == tagged_);
+  ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
@@ -604,10 +616,10 @@ void HugePageAwareAllocator::PrintInPbtxt(PbtxtRegion *region) {
   }
 }
 
-template <bool tagged>
+template <MemoryTag tag>
 void *HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t *actual,
                                              size_t align) {
-  void *p = SystemAlloc(bytes, actual, align, tagged);
+  void *p = SystemAlloc(bytes, actual, align, tag);
   if (p == nullptr) return p;
   const PageId page = PageIdContaining(p);
   const Length page_len = BytesToLengthFloor(*actual);

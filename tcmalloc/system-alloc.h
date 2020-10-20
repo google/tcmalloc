@@ -20,6 +20,7 @@
 
 #include <stddef.h>
 
+#include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/span.h"
 
@@ -38,11 +39,11 @@ namespace tcmalloc {
 // ABSL_CACHELINE_ALIGNED, the return pointer will always be cacheline
 // aligned.
 //
-// The returned pointer is guaranteed to satisfy IsTagged(ptr) == "tagged".
+// The returned pointer is guaranteed to satisfy GetMemoryTag(ptr) == "tag".
 //
 // Returns nullptr when out of memory.
 void *SystemAlloc(size_t bytes, size_t *actual_bytes, size_t alignment,
-                  bool tagged);
+                  MemoryTag tag);
 
 // Returns the number of times we failed to give pages back to the OS after a
 // call to SystemRelease.
@@ -73,12 +74,11 @@ AddressRegionFactory *GetRegionFactory();
 void SetRegionFactory(AddressRegionFactory *factory);
 
 // Reserves using mmap() a region of memory of the requested size and alignment,
-// with the bits specified by kTagMask set to 0 if tagged is true and 1
-// otherwise.
+// with the bits specified by kTagMask set according to tag.
 //
 // REQUIRES: pagesize <= alignment <= kTagMask
 // REQUIRES: size <= kTagMask
-void *MmapAligned(size_t size, size_t alignment, bool tagged);
+void *MmapAligned(size_t size, size_t alignment, MemoryTag tag);
 
 }  // namespace tcmalloc
 

@@ -212,7 +212,7 @@ void GuardedPageAllocator::MapPages() {
   ASSERT(page_size_ % getpagesize() == 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
   auto base_addr = reinterpret_cast<uintptr_t>(
-      MmapAligned(len, page_size_, /*tagged=*/true));
+      MmapAligned(len, page_size_, MemoryTag::kSampled));
   ASSERT(base_addr);
   if (!base_addr) return;
 

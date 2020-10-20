@@ -41,7 +41,7 @@ bool decide_subrelease();
 // and aggressively returns empty ones to the system.
 class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
-  explicit HugePageAwareAllocator(bool tagged);
+  explicit HugePageAwareAllocator(MemoryTag tag);
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
@@ -115,7 +115,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   void SetTracker(HugePage p, FillerType::Tracker* pt);
 
-  template <bool tagged>
+  template <MemoryTag tag>
   static void* AllocAndReport(size_t bytes, size_t* actual, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void* MetaDataAlloc(size_t bytes);

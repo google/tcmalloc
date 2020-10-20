@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "gtest/gtest.h"
+#include "absl/strings/str_format.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -34,30 +35,34 @@ namespace {
 class MmapAlignedTest : public testing::TestWithParam<size_t> {
  protected:
   void MmapAndCheck(size_t size, size_t alignment) {
-    for (bool tagged : {true, false}) {
-      void* p = tcmalloc::MmapAligned(size, alignment, tagged);
+    SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
+
+    for (MemoryTag tag : {MemoryTag::kNormal, MemoryTag::kSampled}) {
+      SCOPED_TRACE(static_cast<unsigned int>(tag));
+
+      void* p = tcmalloc::MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
-      EXPECT_EQ(tcmalloc::IsTaggedMemory(p), tagged);
-      EXPECT_EQ(tcmalloc::IsTaggedMemory(static_cast<char*>(p) + size - 1),
-                tagged);
+      EXPECT_EQ(tcmalloc::IsTaggedMemory(p), tag == MemoryTag::kSampled);
+      EXPECT_EQ(tcmalloc::GetMemoryTag(p), tag);
+      EXPECT_EQ(tcmalloc::GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
       EXPECT_EQ(munmap(p, size), 0);
     }
   }
 };
 INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,
-                         testing::Values(kPageSize, tcmalloc::kMinSystemAlloc,
-                                         tcmalloc::kMinMmapAlloc,
-                                         tcmalloc::kTagMask));
+                         testing::Values(kPageSize, kMinSystemAlloc,
+                                         kMinMmapAlloc,
+                                         uintptr_t{1} << kTagShift));
 
 TEST_P(MmapAlignedTest, CorrectAlignmentAndTag) {
-  MmapAndCheck(tcmalloc::kMinSystemAlloc, GetParam());
+  MmapAndCheck(kMinSystemAlloc, GetParam());
 }
 
 // Ensure mmap sizes near kTagMask still have the correct tag at the beginning
 // and end of the mapping.
 TEST_F(MmapAlignedTest, LargeSizeSmallAlignment) {
-  MmapAndCheck(tcmalloc::kTagMask, kPageSize);
+  MmapAndCheck(uintptr_t{1} << kTagShift, kPageSize);
 }
 
 // Was SimpleRegion::Alloc invoked at least once?

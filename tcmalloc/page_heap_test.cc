@@ -74,8 +74,8 @@ class PageHeapTest : public ::testing::Test {
 TEST_F(PageHeapTest, Stats) {
   auto pagemap = absl::make_unique<tcmalloc::PageMap>();
   void* memory = calloc(1, sizeof(tcmalloc::PageHeap));
-  tcmalloc::PageHeap* ph = new (memory) tcmalloc::PageHeap(pagemap.get(),
-                                                           /*tagged=*/false);
+  tcmalloc::PageHeap* ph =
+      new (memory) tcmalloc::PageHeap(pagemap.get(), MemoryTag::kNormal);
 
   // Empty page heap
   CheckStats(ph, Length(0), Length(0), Length(0));

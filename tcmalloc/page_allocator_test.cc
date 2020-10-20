@@ -62,13 +62,13 @@ class PageAllocatorTest : public testing::Test {
     free(allocator_);
   }
 
-  Span *New(Length n) { return allocator_->New(n, /*tagged=*/false); }
+  Span *New(Length n) { return allocator_->New(n, MemoryTag::kNormal); }
   Span *NewAligned(Length n, Length align) {
-    return allocator_->NewAligned(n, align, /*tagged=*/false);
+    return allocator_->NewAligned(n, align, MemoryTag::kNormal);
   }
   void Delete(Span *s) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocator_->Delete(s, /*tagged=*/false);
+    allocator_->Delete(s, MemoryTag::kNormal);
   }
 
   Length Release(Length n) {
@@ -79,7 +79,7 @@ class PageAllocatorTest : public testing::Test {
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
     TCMalloc_Printer out(&buf[0], buf.size());
-    allocator_->Print(&out, /*tagged=*/false);
+    allocator_->Print(&out, MemoryTag::kNormal);
 
     return std::string(&buf[0]);
   }
@@ -106,7 +106,7 @@ TEST_F(PageAllocatorTest, Record) {
   }
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    auto info = allocator_->info(/*tagged=*/false);
+    auto info = allocator_->info(MemoryTag::kNormal);
 
     CHECK_CONDITION(15 == info.counts_for(Length(1)).nalloc);
     CHECK_CONDITION(15 == info.counts_for(Length(1)).nfree);

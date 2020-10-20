@@ -76,7 +76,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void *p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(/*tagged=*/false);
+    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal);
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -749,7 +749,7 @@ class StatTest : public testing::Test {
     memset(buf, 0, sizeof(buf));
     MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
     SetRegionFactory(&replacement_region_factory_);
-    alloc = new (buf) HugePageAwareAllocator(/*tagged=*/false);
+    alloc = new (buf) HugePageAwareAllocator(MemoryTag::kNormal);
   }
 
   ~StatTest() override {

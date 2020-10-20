@@ -85,9 +85,10 @@ void CentralFreeList::InsertRange(void** batch, int N) {
   if (free_count) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     for (int i = 0; i < free_count; ++i) {
-      ASSERT(!IsTaggedMemory(free_spans[i]->start_address()));
-      Static::pagemap()->UnregisterSizeClass(free_spans[i]);
-      Static::page_allocator()->Delete(free_spans[i], /*tagged=*/false);
+      Span* const free_span = free_spans[i];
+      ASSERT(!IsSampledMemory(free_span->start_address()));
+      Static::pagemap()->UnregisterSizeClass(free_span);
+      Static::page_allocator()->Delete(free_span, MemoryTag::kNormal);
     }
   }
 }
@@ -118,7 +119,8 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
 
-  Span* span = Static::page_allocator()->New(pages_per_span_, /*tagged=*/false);
+  Span* span =
+      Static::page_allocator()->New(pages_per_span_, MemoryTag::kNormal);
   if (span == nullptr) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());

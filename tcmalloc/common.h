@@ -24,6 +24,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -183,8 +184,37 @@ inline constexpr int kMaxOverages = 3;
 inline constexpr int kMaxDynamicFreeListLength = 8192;
 
 namespace tcmalloc {
-inline constexpr uintptr_t kTagMask = uintptr_t{1}
-                                      << std::min(kAddressBits - 4, 42);
+
+enum class MemoryTag : uint8_t {
+  kSampled = 0x0,  // Sampled, infrequently allocated
+  kNormal = 0x1,   // Not sampled
+};
+
+inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
+inline constexpr uintptr_t kTagMask = uintptr_t{0x1} << kTagShift;
+
+// Returns true if ptr is tagged.
+ABSL_DEPRECATED("Replace with specific tests")
+inline bool IsTaggedMemory(const void* ptr) {
+  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) == 0;
+}
+
+inline bool IsSampledMemory(const void* ptr) {
+  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
+         (static_cast<uintptr_t>(MemoryTag::kSampled) << kTagShift);
+}
+
+inline bool IsNormalMemory(const void* ptr) {
+  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
+         (static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift);
+}
+
+inline MemoryTag GetMemoryTag(const void* ptr) {
+  return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
+                                kTagShift);
+}
+
+absl::string_view MemoryTagToLabel(MemoryTag tag);
 
 #if !defined(TCMALLOC_SMALL_BUT_SLOW) && __WORDSIZE != 32
 // Always allocate at least a huge page
@@ -202,11 +232,6 @@ inline constexpr size_t kMinMmapAlloc = 32 << 20;
 static_assert(kMinMmapAlloc % kMinSystemAlloc == 0,
               "Minimum mmap allocation size is not a multiple of"
               " minimum system allocation size");
-
-// Returns true if ptr is tagged.
-inline bool IsTaggedMemory(const void* ptr) {
-  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) == 0;
-}
 
 // Size-class information + mapping
 class SizeMap {

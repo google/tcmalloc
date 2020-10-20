@@ -832,7 +832,7 @@ cc_test(
         ":malloc_extension",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
     ],
 )

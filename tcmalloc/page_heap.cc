@@ -39,10 +39,10 @@ void PageHeap::RecordSpan(Span* span) {
   }
 }
 
-PageHeap::PageHeap(bool tagged) : PageHeap(Static::pagemap(), tagged) {}
+PageHeap::PageHeap(MemoryTag tag) : PageHeap(Static::pagemap(), tag) {}
 
-PageHeap::PageHeap(PageMap* map, bool tagged)
-    : PageAllocatorInterface("PageHeap", map, tagged),
+PageHeap::PageHeap(PageMap* map, MemoryTag tag)
+    : PageAllocatorInterface("PageHeap", map, tag),
       // Start scavenging at kMaxPages list
       release_index_(kMaxPages.raw_num()) {}
 
@@ -103,7 +103,7 @@ Span* PageHeap::New(Length n) {
     SystemBack(result->start_address(), result->bytes_in_span());
   }
 
-  ASSERT(!result || IsTaggedMemory(result->start_address()) == tagged_);
+  ASSERT(!result || GetMemoryTag(result->start_address()) == tag_);
   return result;
 }
 
@@ -181,7 +181,7 @@ Span* PageHeap::NewAligned(Length n, Length align) {
     SystemBack(span->start_address(), span->bytes_in_span());
   }
 
-  ASSERT(!span || IsTaggedMemory(span->start_address()) == tagged_);
+  ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   return span;
 }
 
@@ -257,7 +257,7 @@ Span* PageHeap::Carve(Span* span, Length n) {
 }
 
 void PageHeap::Delete(Span* span) {
-  ASSERT(IsTaggedMemory(span->start_address()) == tagged_);
+  ASSERT(GetMemoryTag(span->start_address()) == tag_);
   info_.RecordFree(span->first_page(), span->num_pages());
   ASSERT(Check());
   ASSERT(span->location() == Span::IN_USE);
@@ -423,7 +423,7 @@ void PageHeap::GetLargeSpanStats(LargeSpanStats* result) {
 bool PageHeap::GrowHeap(Length n) {
   if (n > Length::max()) return false;
   size_t actual_size;
-  void* ptr = SystemAlloc(n.in_bytes(), &actual_size, kPageSize, tagged_);
+  void* ptr = SystemAlloc(n.in_bytes(), &actual_size, kPageSize, tag_);
   if (ptr == nullptr) return false;
   n = BytesToLengthFloor(actual_size);
 

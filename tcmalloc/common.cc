@@ -20,6 +20,17 @@
 
 namespace tcmalloc {
 
+absl::string_view MemoryTagToLabel(MemoryTag tag) {
+  switch (tag) {
+    case MemoryTag::kNormal:
+      return "NORMAL";
+    case MemoryTag::kSampled:
+      return "SAMPLED";
+    default:
+      ASSUME(false);
+  }
+}
+
 // Load sizes classes from environment variable if present
 // and valid, then returns True. If not found or valid, returns
 // False.
