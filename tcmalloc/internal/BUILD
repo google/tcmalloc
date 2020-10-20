@@ -224,6 +224,20 @@ cc_library(
     ],
 )
 
+cc_binary(
+    name = "mincore_benchmark",
+    testonly = 1,
+    srcs = ["mincore_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":logging",
+        ":mincore",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/memory",
+    ],
+)
+
 cc_test(
     name = "mincore_test",
     srcs = ["mincore_test.cc"],
