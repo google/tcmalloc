@@ -36,6 +36,7 @@
 #define TCMALLOC_ALIAS(tc_fn) \
   __attribute__((alias(#tc_fn), visibility("default")))
 
+#ifndef TCMALLOC_NO_NEW_DELETE_OVERRIDES
 void* operator new(size_t size) noexcept(false)
     TCMALLOC_ALIAS(TCMallocInternalNew);
 void operator delete(void* p) noexcept TCMALLOC_ALIAS(TCMallocInternalDelete);
@@ -81,7 +82,9 @@ void operator delete[](void* p, std::align_val_t alignment,
 void operator delete[](void* p, size_t size,
                        std::align_val_t alignemnt) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDeleteArraySizedAligned);
+#endif // \TCMALLOC_NO_NEW_DELETE_OVERRIDES
 
+#ifndef TCMALLOC_NO_C_ALLOC_OVERRIDES
 extern "C" {
 void* malloc(size_t size) noexcept TCMALLOC_ALIAS(TCMallocInternalMalloc);
 void free(void* ptr) noexcept TCMALLOC_ALIAS(TCMallocInternalFree);
@@ -109,5 +112,6 @@ size_t malloc_size(void* p) noexcept TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 size_t malloc_usable_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 }   // extern "C"
+#endif // \TCMALLOC_NO_C_ALLOC_OVERRIDES
 
 #endif  // TCMALLOC_LIBC_OVERRIDE_GCC_AND_WEAK_INL_H_
