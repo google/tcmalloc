@@ -90,11 +90,12 @@ specified (or is larger than 8 bytes), we use standard 16 byte alignments for
 object with a lower alignment, as no object with a larger alignment requirement
 can be allocated in the space.
 
-When an object of a given size is requested, that request is
-[mapped to a request of a particular class-size](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h),
-and the returned memory is from that size-class. This means that the returned
-memory is at least as large as the requested size. These class-sized allocations
-are handled by the front-end.
+When an object of a given size is requested, that request is mapped to a request
+of a particular class-size using the [`SizeMap::GetSizeClass()` function]
+(https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h), and the
+returned memory is from that size-class. This means that the returned memory is
+at least as large as the requested size. These class-sized allocations are
+handled by the front-end.
 
 Objects of size greater than the limit defined by
 [`kMaxSize`](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h)
