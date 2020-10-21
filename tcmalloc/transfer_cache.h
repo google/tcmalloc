@@ -60,7 +60,11 @@ class TransferCacheManager {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     use_lock_free_cache_ =
-        IsExperimentActive(Experiment::TCMALLOC_LOCK_FREE_TRANSFER_CACHE_V2);
+#if defined(__x86_64__)
+        IsExperimentActive(Experiment::TCMALLOC_LOCK_FREE_TRANSFER_CACHE_V2) ||
+#endif
+        false;
+
     for (int i = 0; i < kNumClasses; ++i) {
       if (use_lock_free_cache_) {
         auto *c = &cache_[i].lock_free;
