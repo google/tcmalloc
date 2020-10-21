@@ -59,13 +59,13 @@ StackTrace* Span::Unsample() {
 }
 
 double Span::Fragmentation() const {
-  const size_t cl = Static::pagemap()->sizeclass(first_page_);
+  const size_t cl = Static::pagemap().sizeclass(first_page_);
   if (cl == 0) {
     // Avoid crashes in production mode code, but report in tests.
     ASSERT(cl != 0);
     return 0;
   }
-  const size_t obj_size = Static::sizemap()->class_to_size(cl);
+  const size_t obj_size = Static::sizemap().class_to_size(cl);
   const size_t span_objects = bytes_in_span() / obj_size;
   const size_t live = allocated_;
   if (live == 0) {

@@ -32,13 +32,13 @@ namespace tcmalloc {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
 size_t TransferCacheManager::class_to_size(int size_class) {
-  return Static::sizemap()->class_to_size(size_class);
+  return Static::sizemap().class_to_size(size_class);
 }
 size_t TransferCacheManager::num_objects_to_move(int size_class) {
-  return Static::sizemap()->num_objects_to_move(size_class);
+  return Static::sizemap().num_objects_to_move(size_class);
 }
 void* TransferCacheManager::Alloc(size_t size) {
-  return Static::arena()->Alloc(size);
+  return Static::arena().Alloc(size);
 }
 
 int TransferCacheManager::DetermineSizeClassToEvict() {

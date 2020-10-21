@@ -285,7 +285,7 @@ class ThreadCache {
 };
 
 inline AllocatorStats ThreadCache::HeapStats() {
-  return Static::threadcache_allocator()->stats();
+  return Static::threadcache_allocator().stats();
 }
 
 #ifndef ABSL_HAVE_TLS
@@ -294,7 +294,7 @@ inline Sampler* ThreadCache::GetSampler() { return &sampler_; }
 
 template <void* OOMHandler(size_t)>
 inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Allocate(size_t cl) {
-  const size_t allocated_size = Static::sizemap()->class_to_size(cl);
+  const size_t allocated_size = Static::sizemap().class_to_size(cl);
 
   FreeList* list = &list_[cl];
   void* ret;
@@ -310,7 +310,7 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Allocate(size_t cl) {
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Deallocate(void* ptr,
                                                                  size_t cl) {
   FreeList* list = &list_[cl];
-  size_ += Static::sizemap()->class_to_size(cl);
+  size_ += Static::sizemap().class_to_size(cl);
   ssize_t size_headroom = max_size_ - size_ - 1;
 
   list->Push(ptr);

@@ -71,7 +71,7 @@ static int OpenLog(MemoryTag tag) {
 }
 
 PageAllocatorInterface::PageAllocatorInterface(const char *label, MemoryTag tag)
-    : PageAllocatorInterface(label, Static::pagemap(), tag) {}
+    : PageAllocatorInterface(label, &Static::pagemap(), tag) {}
 
 PageAllocatorInterface::PageAllocatorInterface(const char *label, PageMap *map,
                                                MemoryTag tag)

@@ -147,7 +147,7 @@ std::vector<size_t> InterestingSizes() {
   std::vector<size_t> ret;
 
   for (size_t cl = 1; cl < kNumClasses; cl++) {
-    size_t size = tcmalloc::Static::sizemap()->class_to_size(cl);
+    size_t size = tcmalloc::Static::sizemap().class_to_size(cl);
     ret.push_back(size);
   }
   // Add one size not covered by sizeclasses

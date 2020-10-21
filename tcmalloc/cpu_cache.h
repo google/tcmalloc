@@ -200,9 +200,9 @@ inline void *ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
       tracking::Report(kMallocMiss, cl, 1);
-      void *ret = Static::cpu_cache()->Refill(cpu, cl);
+      void *ret = Static::cpu_cache().Refill(cpu, cl);
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
-        size_t size = Static::sizemap()->class_to_size(cl);
+        size_t size = Static::sizemap().class_to_size(cl);
         return OOMHandler(size);
       }
       return ret;
@@ -222,7 +222,7 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void *ptr,
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
       tracking::Report(kFreeMiss, cl, 1);
-      return Static::cpu_cache()->Overflow(ptr, cl, cpu);
+      return Static::cpu_cache().Overflow(ptr, cl, cpu);
     }
   };
   freelist_.Push(cl, ptr, Helper::Overflow);

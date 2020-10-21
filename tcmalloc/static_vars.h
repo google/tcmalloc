@@ -58,37 +58,37 @@ class Static {
   // We have a separate lock per free-list to reduce contention.
   static TransferCacheManager& transfer_cache() { return transfer_cache_; }
 
-  static SizeMap* sizemap() { return &sizemap_; }
+  static SizeMap& sizemap() { return sizemap_; }
 
-  static CPUCache* cpu_cache() { return &cpu_cache_; }
+  static CPUCache& cpu_cache() { return cpu_cache_; }
 
-  static PeakHeapTracker* peak_heap_tracker() { return &peak_heap_tracker_; }
+  static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
 
   //////////////////////////////////////////////////////////////////////
   // In addition to the explicit initialization comment, the variables below
   // must be protected by pageheap_lock.
 
-  static Arena* arena() { return &arena_; }
+  static Arena& arena() { return arena_; }
 
   // Page-level allocator.
-  static PageAllocator* page_allocator() {
-    return reinterpret_cast<PageAllocator*>(page_allocator_.memory);
+  static PageAllocator& page_allocator() {
+    return *reinterpret_cast<PageAllocator*>(page_allocator_.memory);
   }
 
-  static PageMap* pagemap() { return &pagemap_; }
+  static PageMap& pagemap() { return pagemap_; }
 
-  static GuardedPageAllocator* guardedpage_allocator() {
-    return &guardedpage_allocator_;
+  static GuardedPageAllocator& guardedpage_allocator() {
+    return guardedpage_allocator_;
   }
 
-  static PageHeapAllocator<Span>* span_allocator() { return &span_allocator_; }
+  static PageHeapAllocator<Span>& span_allocator() { return span_allocator_; }
 
-  static PageHeapAllocator<StackTrace>* stacktrace_allocator() {
-    return &stacktrace_allocator_;
+  static PageHeapAllocator<StackTrace>& stacktrace_allocator() {
+    return stacktrace_allocator_;
   }
 
-  static PageHeapAllocator<ThreadCache>* threadcache_allocator() {
-    return &threadcache_allocator_;
+  static PageHeapAllocator<ThreadCache>& threadcache_allocator() {
+    return threadcache_allocator_;
   }
 
   // State kept for sampled allocations (/heapz support). The StatsCounter is
@@ -96,8 +96,8 @@ class Static {
   // LossyAdd and reads do not require locking.
   static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
-  static PageHeapAllocator<StackTraceTable::Bucket>* bucket_allocator() {
-    return &bucket_allocator_;
+  static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
+    return bucket_allocator_;
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCacheActive() {
@@ -180,7 +180,7 @@ inline void Static::InitIfNecessary() {
 // TODO(b/134687001): move span_allocator to Span, getting rid of the need for
 // this.
 inline Span* Span::New(PageId p, Length len) {
-  Span* result = Static::span_allocator()->New();
+  Span* result = Static::span_allocator().New();
   result->Init(p, len);
   return result;
 }
@@ -190,7 +190,7 @@ inline void Span::Delete(Span* span) {
   // In debug mode, trash the contents of deleted Spans
   memset(static_cast<void*>(span), 0x3f, sizeof(*span));
 #endif
-  Static::span_allocator()->Delete(span);
+  Static::span_allocator().Delete(span);
 }
 
 }  // namespace tcmalloc

@@ -42,7 +42,7 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
-  std::tie(amount, is_hard) = Static::page_allocator()->limit();
+  std::tie(amount, is_hard) = Static::page_allocator().limit();
   if (!is_hard) {
     amount = 0;
   }
@@ -176,10 +176,10 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
     active = true;
   }
 
-  bool currently_hard = tcmalloc::Static::page_allocator()->limit().second;
+  bool currently_hard = tcmalloc::Static::page_allocator().limit().second;
   if (active || currently_hard) {
     // Avoid resetting limit when current limit is soft.
-    tcmalloc::Static::page_allocator()->set_limit(limit, active /* is_hard */);
+    tcmalloc::Static::page_allocator().set_limit(limit, active /* is_hard */);
     Log(tcmalloc::kLog, __FILE__, __LINE__,
         "[tcmalloc] set page heap hard limit to", limit, "bytes");
   }

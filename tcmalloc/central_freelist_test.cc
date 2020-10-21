@@ -36,9 +36,9 @@ class CFLTest : public testing::TestWithParam<size_t> {
  private:
   void SetUp() override {
     cl_ = GetParam();
-    size_t object_size = Static::sizemap()->class_to_size(cl_);
-    auto pages_per_span = Length(Static::sizemap()->class_to_pages(cl_));
-    batch_size_ = Static::sizemap()->num_objects_to_move(cl_);
+    size_t object_size = Static::sizemap().class_to_size(cl_);
+    auto pages_per_span = Length(Static::sizemap().class_to_pages(cl_));
+    batch_size_ = Static::sizemap().num_objects_to_move(cl_);
     objects_per_span_ = pages_per_span.in_bytes() / object_size;
     cfl_.Init(cl_);
   }

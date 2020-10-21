@@ -111,7 +111,7 @@ static size_t MaxCapacity(size_t cl) {
 
 static void *SlabAlloc(size_t size)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  return Static::arena()->Alloc(size);
+  return Static::arena().Alloc(size);
 }
 
 void CPUCache::Activate(ActivationMode mode) {
@@ -121,7 +121,7 @@ void CPUCache::Activate(ActivationMode mode) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
 
   resize_ = reinterpret_cast<ResizeInfo *>(
-      Static::arena()->Alloc(sizeof(ResizeInfo) * num_cpus));
+      Static::arena().Alloc(sizeof(ResizeInfo) * num_cpus));
   lazy_slabs_ = Parameters::lazy_per_cpu_caches();
 
   auto max_cache_size = Parameters::max_per_cpu_cache_size();
@@ -151,7 +151,7 @@ void CPUCache::Activate(ActivationMode mode) {
 // it must be safe to find ourselves migrated (at which point we atomically
 // return memory to the correct CPU.)
 void *CPUCache::Refill(int cpu, size_t cl) {
-  const size_t batch_length = Static::sizemap()->num_objects_to_move(cl);
+  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
 
   // UpdateCapacity can evict objects from other size classes as it tries to
   // increase capacity of this size class. The objects are returned in
@@ -288,7 +288,7 @@ size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
 
 void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
                     ObjectClass *to_return, size_t *returned) {
-  const size_t size = Static::sizemap()->class_to_size(cl);
+  const size_t size = Static::sizemap().class_to_size(cl);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes;
 
@@ -351,8 +351,8 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
     }
     const size_t length = freelist_.Length(cpu, source_cl);
     const size_t batch_length =
-        Static::sizemap()->num_objects_to_move(source_cl);
-    size_t size = Static::sizemap()->class_to_size(source_cl);
+        Static::sizemap().num_objects_to_move(source_cl);
+    size_t size = Static::sizemap().class_to_size(source_cl);
 
     // Clock-like algorithm to prioritize size classes for shrinking.
     //
@@ -424,7 +424,7 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
 }
 
 int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
-  const size_t batch_length = Static::sizemap()->num_objects_to_move(cl);
+  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
   const size_t target =
       UpdateCapacity(cpu, cl, batch_length, true, nullptr, nullptr);
   // Return target objects in batch_length batches.
@@ -458,7 +458,7 @@ uint64_t CPUCache::UsedBytes(int target_cpu) const {
 
   uint64_t total = 0;
   for (int cl = 1; cl < kNumClasses; cl++) {
-    int size = Static::sizemap()->class_to_size(cl);
+    int size = Static::sizemap().class_to_size(cl);
     total += size * freelist_.Length(target_cpu, cl);
   }
   return total;
@@ -512,8 +512,8 @@ struct DrainContext {
 static void DrainHandler(void *arg, size_t cl, void **batch, size_t count,
                          size_t cap) {
   DrainContext *ctx = static_cast<DrainContext *>(arg);
-  const size_t size = Static::sizemap()->class_to_size(cl);
-  const size_t batch_length = Static::sizemap()->num_objects_to_move(cl);
+  const size_t size = Static::sizemap().class_to_size(cl);
+  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
   ctx->bytes += count * size;
   // Drain resets capacity to 0, so return the allocated capacity to that
   // CPU's slack.
@@ -543,7 +543,7 @@ uint64_t CPUCache::Reclaim(int cpu) {
 void CPUCache::Print(TCMalloc_Printer *out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
-              Static::cpu_cache()->CacheLimit());
+              Static::cpu_cache().CacheLimit());
   out->printf("------------------------------------------------\n");
 
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
@@ -623,7 +623,7 @@ static void ActivatePerCPUCaches() {
   }
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
-    Static::cpu_cache()->Activate(CPUCache::ActivationMode::FastPathOn);
+    Static::cpu_cache().Activate(CPUCache::ActivationMode::FastPathOn);
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:

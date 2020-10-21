@@ -116,13 +116,13 @@ HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
           }(tag),
           MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}) {
-  tracker_allocator_.Init(Static::arena());
-  region_allocator_.Init(Static::arena());
+  tracker_allocator_.Init(&Static::arena());
+  region_allocator_.Init(&Static::arena());
 }
 
 HugePageAwareAllocator::FillerType::Tracker *HugePageAwareAllocator::GetTracker(
     HugePage p) {
-  void *v = Static::pagemap()->GetHugepage(p.first_page());
+  void *v = Static::pagemap().GetHugepage(p.first_page());
   FillerType::Tracker *pt = reinterpret_cast<FillerType::Tracker *>(v);
   ASSERT(pt == nullptr || pt->location() == p);
   return pt;
@@ -130,7 +130,7 @@ HugePageAwareAllocator::FillerType::Tracker *HugePageAwareAllocator::GetTracker(
 
 void HugePageAwareAllocator::SetTracker(
     HugePage p, HugePageAwareAllocator::FillerType::Tracker *pt) {
-  Static::pagemap()->SetHugepage(p.first_page(), pt);
+  Static::pagemap().SetHugepage(p.first_page(), pt);
 }
 
 PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
@@ -157,7 +157,7 @@ PageId HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
   // pages. Otherwise, we're nearly guaranteed to release r (if n
   // isn't very large), and the next allocation will just repeat this
   // process.
-  Static::page_allocator()->ShrinkToUsageLimit();
+  Static::page_allocator().ShrinkToUsageLimit();
   return AllocAndContribute(r.start(), n, /*donated=*/false);
 }
 
@@ -165,10 +165,10 @@ Span *HugePageAwareAllocator::Finalize(Length n, PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   if (page == PageId{0}) return nullptr;
   Span *ret = Span::New(page, n);
-  Static::pagemap()->Set(page, ret);
+  Static::pagemap().Set(page, ret);
   ASSERT(!ret->sampled());
   info_.RecordAlloc(page, n);
-  Static::page_allocator()->ShrinkToUsageLimit();
+  Static::page_allocator().ShrinkToUsageLimit();
   return ret;
 }
 
@@ -623,13 +623,13 @@ void *HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t *actual,
   if (p == nullptr) return p;
   const PageId page = PageIdContaining(p);
   const Length page_len = BytesToLengthFloor(*actual);
-  Static::pagemap()->Ensure(page, page_len);
+  Static::pagemap().Ensure(page, page_len);
   return p;
 }
 
 void *HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  return Static::arena()->Alloc(bytes);
+  return Static::arena().Alloc(bytes);
 }
 
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {

@@ -219,14 +219,14 @@ void GuardedPageAllocator::MapPages() {
   // Tell TCMalloc's PageMap about the memory we own.
   const PageId page = PageIdContaining(reinterpret_cast<void *>(base_addr));
   const Length page_len = BytesToLengthFloor(len);
-  if (!Static::pagemap()->Ensure(page, page_len)) {
+  if (!Static::pagemap().Ensure(page, page_len)) {
     ASSERT(false && "Failed to notify page map of page-guarded memory.");
     return;
   }
 
   // Allocate memory for slot metadata.
   data_ = reinterpret_cast<SlotMetadata *>(
-      Static::arena()->Alloc(sizeof(*data_) * total_pages_));
+      Static::arena().Alloc(sizeof(*data_) * total_pages_));
   for (size_t i = 0; i < total_pages_; ++i) {
     new (&data_[i]) SlotMetadata;
   }
@@ -449,17 +449,17 @@ static void PrintStackTraceFromSignalHandler(void *context) {
 static void SegvHandler(int signo, siginfo_t *info, void *context) {
   if (signo != SIGSEGV) return;
   void *fault = info->si_addr;
-  if (!Static::guardedpage_allocator()->PointerIsMine(fault)) return;
+  if (!Static::guardedpage_allocator().PointerIsMine(fault)) return;
   GuardedPageAllocator::GpaStackTrace alloc_trace, dealloc_trace;
   GuardedPageAllocator::ErrorType error =
-      Static::guardedpage_allocator()->GetStackTraces(fault, &alloc_trace,
-                                                      &dealloc_trace);
+      Static::guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
+                                                     &dealloc_trace);
   if (error == GuardedPageAllocator::ErrorType::kUnknown) return;
   pid_t current_thread = absl::base_internal::GetTID();
   off_t offset;
   size_t size;
   std::tie(offset, size) =
-      Static::guardedpage_allocator()->GetAllocationOffsetAndSize(fault);
+      Static::guardedpage_allocator().GetAllocationOffsetAndSize(fault);
 
   Log(kLog, __FILE__, __LINE__,
       "*** GWP-ASan has detected a memory error ***");
@@ -546,7 +546,7 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &action, &old_sa);
-    Static::guardedpage_allocator()->AllowAllocations();
+    Static::guardedpage_allocator().AllowAllocations();
   });
 }
 

@@ -47,7 +47,7 @@ class GuardedAllocAlignmentTest : public testing::Test {
     // Eat up unsampled bytes remaining to flush the new sample rates.
     while (true) {
       void *p = ::operator new(kPageSize);
-      if (tcmalloc::Static::guardedpage_allocator()->PointerIsMine(p)) {
+      if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(p)) {
         ::operator delete(p);
         break;
       }
@@ -56,8 +56,7 @@ class GuardedAllocAlignmentTest : public testing::Test {
 
     // Ensure subsequent allocations are guarded.
     void *p = ::operator new(1);
-    CHECK_CONDITION(
-        tcmalloc::Static::guardedpage_allocator()->PointerIsMine(p));
+    CHECK_CONDITION(tcmalloc::Static::guardedpage_allocator().PointerIsMine(p));
     ::operator delete(p);
   }
 
@@ -143,7 +142,7 @@ TEST_F(TcMallocTest, UnderflowReadDetected) {
       benchmark::DoNotOptimize(buf);
       // TCMalloc may crash without a GWP-ASan report if we underflow a regular
       // allocation.  Make sure we have a guarded allocation.
-      if (tcmalloc::Static::guardedpage_allocator()->PointerIsMine(buf.get())) {
+      if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(buf.get())) {
         volatile char sink = buf[-1];
         benchmark::DoNotOptimize(sink);
       }
@@ -160,7 +159,7 @@ TEST_F(TcMallocTest, OverflowReadDetected) {
       benchmark::DoNotOptimize(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
-      if (tcmalloc::Static::guardedpage_allocator()->PointerIsMine(buf.get())) {
+      if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(buf.get())) {
         volatile char sink = buf[kPageSize / 2];
         benchmark::DoNotOptimize(sink);
       }
@@ -194,7 +193,7 @@ TEST_F(TcMallocTest, DoubleFreeDetected) {
       ::operator delete(buf);
       // TCMalloc often SEGVs on double free (without GWP-ASan report). Make
       // sure we have a guarded allocation before double-freeing.
-      if (tcmalloc::Static::guardedpage_allocator()->PointerIsMine(buf)) {
+      if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(buf)) {
         ::operator delete(buf);
       }
     }
@@ -237,7 +236,7 @@ TEST_F(TcMallocTest, OffsetAndLength) {
       ::operator delete(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
-      if (tcmalloc::Static::guardedpage_allocator()->PointerIsMine(buf)) {
+      if (tcmalloc::Static::guardedpage_allocator().PointerIsMine(buf)) {
         volatile char sink = static_cast<char *>(buf)[access_offset];
         benchmark::DoNotOptimize(sink);
       }

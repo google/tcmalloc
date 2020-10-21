@@ -53,13 +53,13 @@ void PeakHeapTracker::MaybeSaveSample() {
   StackTrace *t = peak_sampled_span_stacks_, *next = nullptr;
   while (t != nullptr) {
     next = reinterpret_cast<StackTrace*>(t->stack[kMaxStackDepth - 1]);
-    Static::stacktrace_allocator()->Delete(t);
+    Static::stacktrace_allocator().Delete(t);
     t = next;
   }
 
   next = nullptr;
   for (Span* s : Static::sampled_objects_) {
-    t = Static::stacktrace_allocator()->New();
+    t = Static::stacktrace_allocator().New();
     if (t == nullptr) {
       Log(kLog, __FILE__, __LINE__, "tcmalloc: could not allocate stack trace",
           sizeof(*t));

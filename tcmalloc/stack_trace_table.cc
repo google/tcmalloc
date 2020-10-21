@@ -71,7 +71,7 @@ StackTraceTable::~StackTraceTable() {
       Bucket* b = table_[i];
       while (b != nullptr) {
         Bucket* next = b->next;
-        Static::bucket_allocator()->Delete(b);
+        Static::bucket_allocator().Delete(b);
         b = next;
       }
     }
@@ -99,7 +99,7 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
   } else {
     depth_total_ += t.depth;
     bucket_total_++;
-    b = Static::bucket_allocator()->New();
+    b = Static::bucket_allocator().New();
     if (b == nullptr) {
       Log(kLog, __FILE__, __LINE__, "tcmalloc: could not allocate bucket",
           sizeof(*b));

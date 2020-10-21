@@ -75,7 +75,7 @@ size_t Static::metadata_bytes() {
       sizeof(peak_heap_tracker_) + sizeof(guarded_page_lock) +
       sizeof(guardedpage_allocator_);
 
-  const size_t allocated = arena()->bytes_allocated() +
+  const size_t allocated = arena().bytes_allocated() +
                            AddressRegionFactory::InternalBytesAllocated();
   return allocated + static_var_size;
 }

@@ -33,7 +33,7 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = absl::base_internal::NumCPUs();
 
-  CPUCache& cache = *Static::cpu_cache();
+  CPUCache& cache = Static::cpu_cache();
   // Since this test allocates memory, avoid activating the real fast path to
   // minimize allocations against the per-CPU cache.
   cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
@@ -60,7 +60,7 @@ TEST(CpuCacheTest, Metadata) {
 
   int allowed_cpu_id;
   const size_t kSizeClass = 3;
-  const size_t num_to_move = Static::sizemap()->num_objects_to_move(kSizeClass);
+  const size_t num_to_move = Static::sizemap().num_objects_to_move(kSizeClass);
   void* ptr;
   {
     // Restrict this thread to a single core while allocating and processing the

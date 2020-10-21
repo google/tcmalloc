@@ -28,14 +28,14 @@ namespace tcmalloc {
 // Like a constructor and hence we disable thread safety analysis.
 void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
-  object_size_ = Static::sizemap()->class_to_size(cl);
-  pages_per_span_ = Length(Static::sizemap()->class_to_pages(cl));
+  object_size_ = Static::sizemap().class_to_size(cl);
+  pages_per_span_ = Length(Static::sizemap().class_to_pages(cl));
   objects_per_span_ = pages_per_span_.in_bytes() / (cl ? object_size_ : 1);
 }
 
 static Span* MapObjectToSpan(void* object) {
   const PageId p = PageIdContaining(object);
-  Span* span = Static::pagemap()->GetExistingDescriptor(p);
+  Span* span = Static::pagemap().GetExistingDescriptor(p);
   return span;
 }
 
@@ -87,8 +87,8 @@ void CentralFreeList::InsertRange(void** batch, int N) {
     for (int i = 0; i < free_count; ++i) {
       Span* const free_span = free_spans[i];
       ASSERT(!IsSampledMemory(free_span->start_address()));
-      Static::pagemap()->UnregisterSizeClass(free_span);
-      Static::page_allocator()->Delete(free_span, MemoryTag::kNormal);
+      Static::pagemap().UnregisterSizeClass(free_span);
+      Static::page_allocator().Delete(free_span, MemoryTag::kNormal);
     }
   }
 }
@@ -120,7 +120,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   lock_.Unlock();
 
   Span* span =
-      Static::page_allocator()->New(pages_per_span_, MemoryTag::kNormal);
+      Static::page_allocator().New(pages_per_span_, MemoryTag::kNormal);
   if (span == nullptr) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());
@@ -129,7 +129,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
   ASSERT(span->num_pages() == pages_per_span_);
 
-  Static::pagemap()->RegisterSizeClass(span, size_class_);
+  Static::pagemap().RegisterSizeClass(span, size_class_);
   span->BuildFreelist(object_size_, objects_per_span_);
 
   // Add span to list of non-empty spans

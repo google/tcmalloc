@@ -73,7 +73,7 @@ void ThreadCache::Cleanup() {
 void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
   FreeList* list = &list_[cl];
   ASSERT(list->empty());
-  const int batch_size = Static::sizemap()->num_objects_to_move(cl);
+  const int batch_size = Static::sizemap().num_objects_to_move(cl);
 
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
   void* batch[kMaxObjectsToMove];
@@ -110,7 +110,7 @@ void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
 }
 
 void ThreadCache::ListTooLong(FreeList* list, size_t cl) {
-  const int batch_size = Static::sizemap()->num_objects_to_move(cl);
+  const int batch_size = Static::sizemap().num_objects_to_move(cl);
   ReleaseToCentralCache(list, cl, batch_size);
 
   // If the list is too long, we need to transfer some number of
@@ -137,11 +137,11 @@ void ThreadCache::ListTooLong(FreeList* list, size_t cl) {
 void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t cl, int N) {
   ASSERT(src == &list_[cl]);
   if (N > src->length()) N = src->length();
-  size_t delta_bytes = N * Static::sizemap()->class_to_size(cl);
+  size_t delta_bytes = N * Static::sizemap().class_to_size(cl);
 
   // We return prepackaged chains of the correct size to the central cache.
   void* batch[kMaxObjectsToMove];
-  int batch_size = Static::sizemap()->num_objects_to_move(cl);
+  int batch_size = Static::sizemap().num_objects_to_move(cl);
   while (N > batch_size) {
     src->PopBatch(batch_size, batch);
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
@@ -179,7 +179,7 @@ void ThreadCache::Scavenge() {
       // go through the slow-start behavior again.  The slow-start is useful
       // mainly for threads that stay relatively idle for their entire
       // lifetime.
-      const int batch_size = Static::sizemap()->num_objects_to_move(cl);
+      const int batch_size = Static::sizemap().num_objects_to_move(cl);
       if (list->max_length() > batch_size) {
         list->set_max_length(
             std::max<int>(list->max_length() - batch_size, batch_size));
@@ -300,7 +300,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
 
 ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   // Create the heap and add it to the linked list
-  ThreadCache *heap = Static::threadcache_allocator()->New();
+  ThreadCache* heap = Static::threadcache_allocator().New();
   heap->Init(tid);
   heap->next_ = thread_heaps_;
   heap->prev_ = nullptr;
@@ -366,7 +366,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
   if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;
   unclaimed_cache_space_ += heap->max_size_;
 
-  Static::threadcache_allocator()->Delete(heap);
+  Static::threadcache_allocator().Delete(heap);
 }
 
 void ThreadCache::RecomputePerThreadCacheSize() {
