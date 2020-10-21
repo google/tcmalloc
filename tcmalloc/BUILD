@@ -1017,6 +1017,7 @@ cc_test(
         ":common",
         ":malloc_extension",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],

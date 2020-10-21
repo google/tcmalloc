@@ -74,7 +74,7 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
-    Parameters::peak_sampling_heap_growth_fraction_(1.25);
+    Parameters::peak_sampling_heap_growth_fraction_(1.1);
 ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 #if defined(TCMALLOC_DEPRECATED_PERTHREAD)
     false

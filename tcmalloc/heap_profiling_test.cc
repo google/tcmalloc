@@ -20,6 +20,7 @@
 
 #include "gtest/gtest.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 
@@ -34,7 +35,27 @@ int64_t ProfileSize(ProfileType type) {
   return total;
 }
 
+class ScopedPeakGrowthFraction {
+ public:
+  explicit ScopedPeakGrowthFraction(double temporary_value)
+      : previous_(TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction()) {
+    TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(temporary_value);
+  }
+
+  ~ScopedPeakGrowthFraction() {
+    TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(previous_);
+  }
+
+ private:
+  double previous_;
+};
+
 TEST(HeapProfilingTest, PeakHeapTracking) {
+  // Adjust high watermark threshold for our scenario, to be independent of
+  // changes to the default.  As we use a random value for choosing our next
+  // sampling point, we may overweight some allocations above their true size.
+  ScopedPeakGrowthFraction s(1.25);
+
   int64_t start_peak_sz = ProfileSize(ProfileType::kPeakHeap);
 
   // make a large allocation to force a new peak heap sample
