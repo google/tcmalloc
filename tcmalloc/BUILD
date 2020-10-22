@@ -1050,6 +1050,22 @@ create_tcmalloc_testsuite(
     ],
 )
 
+cc_binary(
+    name = "span_benchmark",
+    testonly = 1,
+    srcs = ["span_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    malloc = ":tcmalloc",
+    deps = [
+        ":common",
+        "//tcmalloc/internal:logging",
+        "@com_github_google_benchmark//:benchmark_main",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/random",
+    ],
+)
+
 cc_test(
     name = "stats_test",
     srcs = ["stats_test.cc"],
