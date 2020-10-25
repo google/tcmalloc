@@ -176,8 +176,8 @@ class MallocExtension final {
   // Gets a human readable description of the current state of the malloc data
   // structures.
   //
-  // See https://github.com/google/tcmalloc/tree/master/docs/stats.md for how to interpret these
-  // statistics.
+  // See https://github.com/google/tcmalloc/tree/master/docs/stats.md for how to
+  // interpret these statistics.
   static std::string GetStats();
 
   // -------------------------------------------------------------------
@@ -362,11 +362,7 @@ class MallocExtension final {
   // new, or new[], and must refer to memory that is currently allocated (so,
   // for instance, you should not pass in a pointer after having called free()
   // on it).
-  enum class Ownership {
-    kUnknown = 0,
-    kOwned,
-    kNotOwned
-  };
+  enum class Ownership { kUnknown = 0, kOwned, kNotOwned };
   static Ownership GetOwnership(const void* p);
 
   // Type used by GetProperties.  See comment on GetProperties.

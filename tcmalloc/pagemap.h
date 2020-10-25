@@ -72,7 +72,7 @@ class PageMap2 {
     void* hugepage[kLeafHugepages];
   };
 
-  Leaf* root_[kRootLength];             // Top-level node
+  Leaf* root_[kRootLength];  // Top-level node
   size_t bytes_used_;
 
  public:
@@ -153,7 +153,7 @@ class PageMap2 {
 
   bool Ensure(Number start, size_t n) {
     ASSERT(n > 0);
-    for (Number key = start; key <= start + n - 1; ) {
+    for (Number key = start; key <= start + n - 1;) {
       const Number i1 = key >> kLeafBits;
 
       // Check for overflow

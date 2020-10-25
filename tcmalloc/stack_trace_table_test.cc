@@ -18,14 +18,14 @@
 
 #include <algorithm>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
 

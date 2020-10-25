@@ -38,7 +38,7 @@ ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
 static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;
-static char stats_buffer[kStatsBufferSize] = { 0 };
+static char stats_buffer[kStatsBufferSize] = {0};
 
 namespace tcmalloc {
 
@@ -67,14 +67,9 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
   Logger state;
   state.p_ = state.buf_;
   state.end_ = state.buf_ + sizeof(state.buf_);
-  state.AddStr(filename, strlen(filename))
-      && state.AddStr(":", 1)
-      && state.AddNum(line, 10)
-      && state.AddStr("]", 1)
-      && state.Add(a)
-      && state.Add(b)
-      && state.Add(c)
-      && state.Add(d);
+  state.AddStr(filename, strlen(filename)) && state.AddStr(":", 1) &&
+      state.AddNum(line, 10) && state.AddStr("]", 1) && state.Add(a) &&
+      state.Add(b) && state.Add(c) && state.Add(d);
 
   if (with_stack) {
     state.trace.depth =

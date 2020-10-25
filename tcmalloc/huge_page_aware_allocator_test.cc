@@ -29,9 +29,6 @@
 #include <utility>
 #include <vector>
 
-#include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
@@ -45,6 +42,9 @@
 #include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
+#include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
@@ -169,7 +169,8 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     // TODO(b/128521238): scalable RNG
     absl::base_internal::SpinLockHolder h(&lock_);
     if (absl::Bernoulli(rng_, 1.0 / 1000)) {
-      Length n = Length(1024) * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 8) - 1));
+      Length n =
+          Length(1024) * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 8) - 1));
       n += Length(absl::Uniform<int32_t>(rng_, 0, 1024));
       return n;
     }

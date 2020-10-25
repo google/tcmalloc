@@ -24,8 +24,8 @@
 #include <new>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "absl/random/random.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 
 // Note: we leak memory every time a map is constructed, so do not
@@ -35,9 +35,7 @@ namespace tcmalloc {
 namespace {
 
 // Pick span pointer to use for page numbered i
-void* span(intptr_t i) {
-  return reinterpret_cast<void*>(i+1);
-}
+void* span(intptr_t i) { return reinterpret_cast<void*>(i + 1); }
 
 // Pick sizeclass to use for page numbered i
 uint8_t sc(intptr_t i) { return i % 16; }

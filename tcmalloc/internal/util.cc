@@ -62,10 +62,8 @@ ssize_t signal_safe_write(int fd, const char *buf, size_t count,
 
   do {
     rc = write(fd, buf + total_bytes, count - total_bytes);
-    if (rc > 0)
-      total_bytes += rc;
-  } while ((rc > 0 && count > total_bytes ) ||
-           (rc == -1 && errno == EINTR));
+    if (rc > 0) total_bytes += rc;
+  } while ((rc > 0 && count > total_bytes) || (rc == -1 && errno == EINTR));
 
   if (bytes_written != nullptr) *bytes_written = total_bytes;
 
@@ -84,7 +82,8 @@ int signal_safe_poll(struct pollfd *fds, int nfds, absl::Duration timeout) {
     if (elapsed > absl::ZeroDuration())
       ::absl::SleepFor(::absl::Milliseconds(1));
     elapsed += absl::Milliseconds(1);
-    while ((rc = poll(fds, nfds, 0)) == -1 && errno == EINTR) {}
+    while ((rc = poll(fds, nfds, 0)) == -1 && errno == EINTR) {
+    }
   }
 
   return rc;
@@ -105,19 +104,16 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read) {
 
   do {
     rc = read(fd, buf + total_bytes, count - total_bytes);
-    if (rc > 0)
-      total_bytes += rc;
+    if (rc > 0) total_bytes += rc;
 
-    if (rc == 0)
-      break;  // EOF
+    if (rc == 0) break;  // EOF
     // try again if there's space to fill, no (non-interrupt) error,
     // and data is available.
   } while (total_bytes < count && (rc > 0 || errno == EINTR) &&
            (signal_safe_poll(&pfd, 1, absl::ZeroDuration()) == 1 ||
             total_bytes == 0));
 
-  if (bytes_read)
-    *bytes_read = total_bytes;
+  if (bytes_read) *bytes_read = total_bytes;
 
   if (rc != -1 || errno == EINTR)
     rc = total_bytes;  // return the cumulative bytes read

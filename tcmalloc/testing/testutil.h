@@ -37,7 +37,7 @@ inline void sized_delete(void* ptr, size_t size) {
 // Get the TCMalloc stats in textproto format.
 std::string GetStatsInPbTxt();
 extern "C" ABSL_ATTRIBUTE_WEAK int MallocExtension_Internal_GetStatsInPbtxt(
-    char *buffer, int buffer_length);
+    char* buffer, int buffer_length);
 
 class ScopedProfileSamplingRate {
  public:

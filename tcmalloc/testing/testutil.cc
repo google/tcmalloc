@@ -28,7 +28,6 @@
 // limiting the address-space size we get sufficient coverage without blowing
 // out job limits.
 void SetTestResourceLimit() {
-
   // The actual resource we need to set varies depending on which flavour of
   // unix.  On Linux we need RLIMIT_AS because that covers the use of mmap.
   // Otherwise hopefully RLIMIT_RSS is good enough.  (Unfortunately 64-bit
@@ -50,7 +49,7 @@ void SetTestResourceLimit() {
   if (getrlimit(USE_RESOURCE, &rlim) == 0) {
     if (rlim.rlim_cur == RLIM_INFINITY || rlim.rlim_cur > kMaxMem) {
       rlim.rlim_cur = kMaxMem;
-      setrlimit(USE_RESOURCE, &rlim); // ignore result
+      setrlimit(USE_RESOURCE, &rlim);  // ignore result
     }
   }
 }

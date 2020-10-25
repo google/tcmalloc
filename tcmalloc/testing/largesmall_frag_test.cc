@@ -15,8 +15,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"
@@ -93,7 +93,7 @@ TEST(LargeSmallFrag, Test) {
         sized_delete(objects[i], kSmall);
       }
     }
-    allowed += 2*kSmall;
+    allowed += 2 * kSmall;
 
     MallocExtension::ReleaseMemoryToSystem(
         std::numeric_limits<size_t>::max());  // Simulate scavenging

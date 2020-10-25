@@ -27,13 +27,13 @@
 #include <string>
 #include <vector>
 
-#include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/debugging/symbolize.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/optional.h"
+#include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
@@ -67,7 +67,7 @@ size_t CountMatchingBytes(const char *target, Profile profile) {
 }
 
 ABSL_ATTRIBUTE_NOINLINE static void *AllocateAllocate(bool align) {
-  void* p;
+  void *p;
   if (align) {
     // A 10000 byte allocation aligned to 2K will use a 10K size class
     // and get 'charged' identically to malloc(10000).

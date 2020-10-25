@@ -28,9 +28,6 @@
 #include <utility>
 #include <vector>
 
-#include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/thread_annotations.h"
@@ -46,6 +43,9 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
@@ -684,9 +684,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     ResetClock();
   }
 
-  ~FillerTest() override {
-    EXPECT_EQ(NHugePages(0), filler_.size());
-  }
+  ~FillerTest() override { EXPECT_EQ(NHugePages(0), filler_.size()); }
 
   struct PAlloc {
     FakeTracker *pt;

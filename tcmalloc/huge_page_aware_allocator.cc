@@ -215,7 +215,8 @@ Span *HugePageAwareAllocator::AllocLarge(Length n, bool *from_released) {
   // typically faster and usually more space efficient, but it's sometimes
   // catastrophic.
   //
-  // See https://github.com/google/tcmalloc/tree/master/docs/regions-are-not-optional.md
+  // See
+  // https://github.com/google/tcmalloc/tree/master/docs/regions-are-not-optional.md
   //
   // So test directly if we're in the bad case--almost no binaries are.
   // If not, just fall back to direct allocation (and hope we do hit that case!)

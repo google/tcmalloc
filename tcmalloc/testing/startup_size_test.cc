@@ -29,8 +29,8 @@
 #include <string>
 #include <utility>
 
-#include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -49,7 +49,6 @@ static size_t Property(const PropertyMap& map, const char* name) {
 }
 
 TEST(StartupSizeTest, Basic) {
-
   static const size_t MiB = 1024 * 1024;
   PropertyMap map = MallocExtension::GetProperties();
   ASSERT_NE(map.count("tcmalloc.metadata_bytes"), 0)

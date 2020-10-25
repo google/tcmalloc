@@ -40,23 +40,19 @@ namespace percpu {
 // Restartable Sequence (RSEQ)
 
 extern "C" {
-  // We provide a per-thread value (defined in percpu_.c) which both tracks
-  // thread-local initialization state and (with RSEQ) provides an atomic
-  // in-memory reference for this thread's execution CPU.  This value is only
-  // valid when the thread is currently executing
-  // Possible values:
-  //   Unavailable/uninitialized:
-  //     { kCpuIdUnsupported, kCpuIdUninitialized }
-  //   Initialized, available:
-  //     [0, NumCpus())    (Always updated at context-switch)
+// We provide a per-thread value (defined in percpu_.c) which both tracks
+// thread-local initialization state and (with RSEQ) provides an atomic
+// in-memory reference for this thread's execution CPU.  This value is only
+// valid when the thread is currently executing
+// Possible values:
+//   Unavailable/uninitialized:
+//     { kCpuIdUnsupported, kCpuIdUninitialized }
+//   Initialized, available:
+//     [0, NumCpus())    (Always updated at context-switch)
 ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
     __rseq_abi = {
-        0,
-        static_cast<unsigned>(kCpuIdUninitialized),
-        0,
-        0,
-        {0, 0},
-        {{kCpuIdUninitialized, kCpuIdUninitialized}},
+        0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
+        {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
 ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t
@@ -105,9 +101,7 @@ static bool InitThreadPerCpu() {
   return false;
 }
 
-bool UsingFlatVirtualCpus() {
-  return false;
-}
+bool UsingFlatVirtualCpus() { return false; }
 
 static void InitPerCpu() {
   CHECK_CONDITION(absl::base_internal::NumCPUs() <=

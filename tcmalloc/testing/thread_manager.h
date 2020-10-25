@@ -19,8 +19,8 @@
 #include <thread>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "absl/synchronization/blocking_counter.h"
+#include "gtest/gtest.h"
 
 namespace tcmalloc {
 

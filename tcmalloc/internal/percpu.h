@@ -318,7 +318,7 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
     default:
       __builtin_unreachable();
   }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
   __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
 }

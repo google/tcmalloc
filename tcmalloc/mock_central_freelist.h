@@ -17,8 +17,8 @@
 
 #include <stddef.h>
 
-#include "gmock/gmock.h"
 #include "absl/base/internal/spinlock.h"
+#include "gmock/gmock.h"
 
 namespace tcmalloc {
 

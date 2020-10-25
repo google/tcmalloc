@@ -329,13 +329,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "5:\n"
       :
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
-      [overflow] "=@ccae"(overflow)
+      [ overflow ] "=@ccae"(overflow)
 #endif
-      : [rseq_abi] "r"(&__rseq_abi),
-        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
-        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
-        [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
+      : [ rseq_abi ] "r"(&__rseq_abi),
+        [ rseq_cs_offset ] "n"(offsetof(kernel_rseq, rseq_cs)),
+        [ rseq_cpu_offset ] "r"(tcmalloc_virtual_cpu_id_offset),
+        [ rseq_sig ] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+        [ shift ] "in"(Shift), [ slabs ] "r"(slabs), [ cl ] "r"(cl),
+        [ item ] "r"(item)
       : "cc", "memory", "r10", "r11"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
@@ -454,16 +455,16 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           "mov %w[current], (%[scratch], %[cl], 8)\n"
           // Commit
           "5:\n"
-          : [result] "=&r"(result),
+          : [ result ] "=&r"(result),
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [underflow] "=@ccbe"(underflow),
+            [ underflow ] "=@ccbe"(underflow),
 #endif
-            [scratch] "=&r"(scratch), [current] "=&r"(current)
-          : [rseq_abi] "r"(&__rseq_abi),
-            [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-            [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
-            [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
-            [slabs] "r"(slabs), [cl] "r"(cl)
+            [ scratch ] "=&r"(scratch), [ current ] "=&r"(current)
+          : [ rseq_abi ] "r"(&__rseq_abi),
+            [ rseq_cs_offset ] "n"(offsetof(kernel_rseq, rseq_cs)),
+            [ rseq_cpu_offset ] "r"(tcmalloc_virtual_cpu_id_offset),
+            [ rseq_sig ] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+            [ shift ] "n"(Shift), [ slabs ] "r"(slabs), [ cl ] "r"(cl)
           : "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
@@ -537,7 +538,7 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
       default:
         __builtin_unreachable();
     }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
@@ -577,7 +578,7 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {

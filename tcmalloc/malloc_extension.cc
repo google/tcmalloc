@@ -239,7 +239,7 @@ void MallocExtension::SetProfileSamplingRate(int64_t rate) {
     MallocExtension_Internal_SetProfileSamplingRate(rate);
   }
 #endif
-  (void) rate;
+  (void)rate;
 }
 
 int64_t MallocExtension::GetGuardedSamplingRate() {
@@ -262,7 +262,7 @@ void MallocExtension::SetGuardedSamplingRate(int64_t rate) {
 
   MallocExtension_Internal_SetGuardedSamplingRate(rate);
 #else
-  (void) rate;
+  (void)rate;
 #endif
 }
 
@@ -306,7 +306,7 @@ void MallocExtension::SetMaxPerCpuCacheSize(int32_t value) {
 
   MallocExtension_Internal_SetMaxPerCpuCacheSize(value);
 #else
-  (void) value;
+  (void)value;
 #endif
 }
 
@@ -330,7 +330,7 @@ void MallocExtension::SetMaxTotalThreadCacheBytes(int64_t value) {
 
   MallocExtension_Internal_SetMaxTotalThreadCacheBytes(value);
 #else
-  (void) value;
+  (void)value;
 #endif
 }
 

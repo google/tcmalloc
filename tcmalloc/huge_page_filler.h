@@ -1871,7 +1871,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   hpaa->PrintI64(
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(hugepage_frac() *
-                          static_cast<double>(allocated_.in_bytes())));
+                            static_cast<double>(allocated_.in_bytes())));
   hpaa->PrintI64("filler_num_pages_subreleased",
                  subrelease_stats_.total_pages_subreleased.raw_num());
   hpaa->PrintI64("filler_num_hugepages_broken",

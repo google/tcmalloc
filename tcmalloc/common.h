@@ -337,7 +337,7 @@ class SizeMap {
  public:
   // Constructor should do nothing since we rely on explicit Init()
   // call, which may or may not be called before the constructor runs.
-  SizeMap() { }
+  SizeMap() {}
 
   // Initialize the mapping arrays
   void Init();

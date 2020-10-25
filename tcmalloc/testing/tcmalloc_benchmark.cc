@@ -156,7 +156,7 @@ static void BM_random_new_delete(benchmark::State& state) {
     random_request_size[i] =
         absl::Uniform<int32_t>(rand, 0, kMaxRequestSize) + 1;
   }
-  void *v[kMaxOnHeap];
+  void* v[kMaxOnHeap];
   memset(v, 0, sizeof(v));
 
   int r = 0;

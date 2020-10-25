@@ -23,14 +23,14 @@
 #include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/stats.h"
@@ -514,7 +514,6 @@ TEST_F(HugeCacheTest, Usage) {
 }
 
 class MinMaxTrackerTest : public testing::Test {
-
  protected:
   void Advance(absl::Duration d) {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();

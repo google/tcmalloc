@@ -19,10 +19,10 @@
 #include <utility>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"

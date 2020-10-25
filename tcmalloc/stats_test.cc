@@ -17,10 +17,10 @@
 #include <limits>
 #include <string>
 
-#include "gtest/gtest.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/huge_pages.h"
 
 namespace tcmalloc {

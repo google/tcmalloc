@@ -19,6 +19,4 @@
 
 extern pthread_t *Func();
 
-int main() {
-  Func();
-}
+int main() { Func(); }

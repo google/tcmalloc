@@ -18,19 +18,19 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
+
 #include <vector>
 
 namespace {
 
 struct Foo {
   int x;
-  Foo() : x(42) { }
+  Foo() : x(42) {}
 };
 
-static void *fn(void *)
-{
+static void *fn(void *) {
   while (true) {
-    std::vector<Foo*> v;
+    std::vector<Foo *> v;
     v.reserve(1000);
     for (int i = 0; i < 1000; ++i) {
       v.push_back(new Foo);

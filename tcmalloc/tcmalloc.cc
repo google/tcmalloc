@@ -13,8 +13,8 @@
 // limitations under the License.
 //
 // tcmalloc is a fast malloc implementation.  See
-// https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
-// how this malloc works.
+// https://github.com/google/tcmalloc/tree/master/docs/design.md for a
+// high-level description of how this malloc works.
 //
 // SYNCHRONIZATION
 //  1. The thread-/cpu-specific lists are accessed without acquiring any locks.
@@ -142,20 +142,20 @@ using tcmalloc::ThreadCache;
 
 // Extract interesting stats
 struct TCMallocStats {
-  uint64_t thread_bytes;            // Bytes in thread caches
-  uint64_t central_bytes;           // Bytes in central cache
-  uint64_t transfer_bytes;          // Bytes in central transfer cache
-  uint64_t metadata_bytes;          // Bytes alloced for metadata
-  uint64_t per_cpu_bytes;           // Bytes in per-CPU cache
-  uint64_t pagemap_root_bytes_res;  // Resident bytes of pagemap root node
+  uint64_t thread_bytes;               // Bytes in thread caches
+  uint64_t central_bytes;              // Bytes in central cache
+  uint64_t transfer_bytes;             // Bytes in central transfer cache
+  uint64_t metadata_bytes;             // Bytes alloced for metadata
+  uint64_t per_cpu_bytes;              // Bytes in per-CPU cache
+  uint64_t pagemap_root_bytes_res;     // Resident bytes of pagemap root node
   uint64_t percpu_metadata_bytes_res;  // Resident bytes of the per-CPU metadata
-  AllocatorStats tc_stats;          // ThreadCache objects
-  AllocatorStats span_stats;        // Span objects
-  AllocatorStats stack_stats;       // StackTrace objects
-  AllocatorStats bucket_stats;      // StackTraceTable::Bucket objects
-  size_t pagemap_bytes;             // included in metadata bytes
-  size_t percpu_metadata_bytes;     // included in metadata bytes
-  tcmalloc::BackingStats pageheap;  // Stats from page heap
+  AllocatorStats tc_stats;             // ThreadCache objects
+  AllocatorStats span_stats;           // Span objects
+  AllocatorStats stack_stats;          // StackTrace objects
+  AllocatorStats bucket_stats;         // StackTraceTable::Bucket objects
+  size_t pagemap_bytes;                // included in metadata bytes
+  size_t percpu_metadata_bytes;        // included in metadata bytes
+  tcmalloc::BackingStats pageheap;     // Stats from page heap
 };
 
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
@@ -198,7 +198,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 
   // Add stats from per-thread heaps
   r->thread_bytes = 0;
-  { // scope
+  {  // scope
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
     r->tc_stats = ThreadCache::HeapStats();
@@ -260,12 +260,9 @@ static uint64_t StatSub(uint64_t a, uint64_t b) {
 // Return approximate number of bytes in use by app.
 static uint64_t InUseByApp(const TCMallocStats& stats) {
   return StatSub(stats.pageheap.system_bytes,
-                 stats.thread_bytes +
-                 stats.central_bytes +
-                 stats.transfer_bytes +
-                 stats.per_cpu_bytes +
-                 stats.pageheap.free_bytes +
-                 stats.pageheap.unmapped_bytes);
+                 stats.thread_bytes + stats.central_bytes +
+                     stats.transfer_bytes + stats.per_cpu_bytes +
+                     stats.pageheap.free_bytes + stats.pageheap.unmapped_bytes);
 }
 
 static uint64_t VirtualMemoryUsed(const TCMallocStats& stats) {
@@ -298,7 +295,8 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   static const double MiB = 1048576.0;
 
   out->printf(
-      "See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an explanation of "
+      "See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an "
+      "explanation of "
       "this page\n");
 
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
@@ -306,8 +304,7 @@ static void DumpStats(TCMalloc_Printer* out, int level) {
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
 
 #ifdef TCMALLOC_SMALL_BUT_SLOW
-  out->printf(
-      "NOTE:  SMALL MEMORY MODEL IS IN USE, PERFORMANCE MAY SUFFER.\n");
+  out->printf("NOTE:  SMALL MEMORY MODEL IS IN USE, PERFORMANCE MAY SUFFER.\n");
 #endif
   // clang-format off
   // Avoid clang-format complaining about the way that this text is laid out.
@@ -1769,12 +1766,10 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
 
 // Helpers for use by exported routines below or inside debugallocation.cc:
 
-inline void do_malloc_stats() {
-  PrintStats(1);
-}
+inline void do_malloc_stats() { PrintStats(1); }
 
 inline int do_mallopt(int cmd, int value) {
-  return 1;     // Indicates error
+  return 1;  // Indicates error
 }
 
 #ifdef HAVE_STRUCT_MALLINFO
@@ -1788,13 +1783,12 @@ inline struct mallinfo do_mallinfo() {
 
   // Unfortunately, the struct contains "int" field, so some of the
   // size values will be truncated.
-  info.arena     = static_cast<int>(stats.pageheap.system_bytes);
-  info.fsmblks   = static_cast<int>(stats.thread_bytes
-                                    + stats.central_bytes
-                                    + stats.transfer_bytes);
-  info.fordblks  = static_cast<int>(stats.pageheap.free_bytes +
-                                    stats.pageheap.unmapped_bytes);
-  info.uordblks  = static_cast<int>(InUseByApp(stats));
+  info.arena = static_cast<int>(stats.pageheap.system_bytes);
+  info.fsmblks = static_cast<int>(stats.thread_bytes + stats.central_bytes +
+                                  stats.transfer_bytes);
+  info.fordblks = static_cast<int>(stats.pageheap.free_bytes +
+                                   stats.pageheap.unmapped_bytes);
+  info.uordblks = static_cast<int>(InUseByApp(stats));
 
   return info;
 }
@@ -1877,7 +1871,7 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU cache should be ready.
   ret = Static::cpu_cache().Allocate<Policy::handle_oom>(cl);
-#else  // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
+#else   // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
   // The ThreadCache should be ready.
   ASSERT(cache != nullptr);
   ret = cache->Allocate<Policy::handle_oom>(cl);
@@ -1946,8 +1940,8 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAligned(
 #ifdef TCMALLOC_ALIAS
 extern "C" void* TCMallocInternalNewAligned_nothrow(
     size_t size, std::align_val_t alignment, const std::nothrow_t& nt) noexcept
-// Note: we use malloc rather than new, as we are allowed to return nullptr.
-// The latter crashes in that case.
+    // Note: we use malloc rather than new, as we are allowed to return nullptr.
+    // The latter crashes in that case.
     TCMALLOC_ALIAS(TCMallocInternalMalloc_aligned);
 #else
 extern "C" ABSL_ATTRIBUTE_SECTION(
@@ -2279,8 +2273,7 @@ extern "C" void* TCMallocInternalAlignedAlloc(size_t align,
 
 extern "C" int TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
                                              size_t size) noexcept {
-  if (((align % sizeof(void*)) != 0) ||
-      ((align & (align - 1)) != 0) ||
+  if (((align % sizeof(void*)) != 0) || ((align & (align - 1)) != 0) ||
       (align == 0)) {
     return EINVAL;
   }
@@ -2304,8 +2297,8 @@ extern "C" void* TCMallocInternalValloc(size_t size) noexcept {
 extern "C" void* TCMallocInternalPvalloc(size_t size) noexcept {
   // Round up size to a multiple of pagesize
   if (pagesize == 0) pagesize = getpagesize();
-  if (size == 0) {     // pvalloc(0) should allocate one page, according to
-    size = pagesize;   // http://man.free4web.biz/man3/libmpatrol.3.html
+  if (size == 0) {    // pvalloc(0) should allocate one page, according to
+    size = pagesize;  // http://man.free4web.biz/man3/libmpatrol.3.html
   }
   size = (size + pagesize - 1) & ~(pagesize - 1);
   return fast_alloc(MallocPolicy().Nothrow().AlignAs(pagesize), size);

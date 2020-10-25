@@ -43,7 +43,6 @@ static constexpr int kMaxStackDepth = 64;
 // size/depth are made the same size as a pointer so that some generic
 // code below can conveniently cast them back and forth to void*.
 struct StackTrace {
-
   // For small sampled objects, we allocate a full span to hold the
   // sampled object.  However to avoid disturbing fragmentation
   // profiles, in such cases we also allocate a small proxy object
@@ -74,8 +73,8 @@ struct StackTrace {
 };
 
 enum LogMode {
-  kLog,                       // Just print the message
-  kLogWithStack,              // Print the message and a stack trace
+  kLog,           // Just print the message
+  kLogWithStack,  // Print the message and a stack trace
 };
 
 class Logger;
@@ -83,25 +82,19 @@ class Logger;
 // A LogItem holds any of the argument types that can be passed to Log()
 class LogItem {
  public:
-  LogItem()                     : tag_(kEnd)      { }
-  LogItem(const char* v)        : tag_(kStr)      { u_.str = v; }
-  LogItem(int v)                : tag_(kSigned)   { u_.snum = v; }
-  LogItem(long v)               : tag_(kSigned)   { u_.snum = v; }
-  LogItem(long long v)          : tag_(kSigned)   { u_.snum = v; }
-  LogItem(unsigned int v)       : tag_(kUnsigned) { u_.unum = v; }
-  LogItem(unsigned long v)      : tag_(kUnsigned) { u_.unum = v; }
+  LogItem() : tag_(kEnd) {}
+  LogItem(const char* v) : tag_(kStr) { u_.str = v; }
+  LogItem(int v) : tag_(kSigned) { u_.snum = v; }
+  LogItem(long v) : tag_(kSigned) { u_.snum = v; }
+  LogItem(long long v) : tag_(kSigned) { u_.snum = v; }
+  LogItem(unsigned int v) : tag_(kUnsigned) { u_.unum = v; }
+  LogItem(unsigned long v) : tag_(kUnsigned) { u_.unum = v; }
   LogItem(unsigned long long v) : tag_(kUnsigned) { u_.unum = v; }
-  LogItem(const void* v)        : tag_(kPtr)      { u_.ptr = v; }
+  LogItem(const void* v) : tag_(kPtr) { u_.ptr = v; }
 
  private:
   friend class Logger;
-  enum Tag {
-    kStr,
-    kSigned,
-    kUnsigned,
-    kPtr,
-    kEnd
-  };
+  enum Tag { kStr, kSigned, kUnsigned, kPtr, kEnd };
   Tag tag_;
   union {
     const char* str;
@@ -111,9 +104,9 @@ class LogItem {
   } u_;
 };
 
-extern void Log(LogMode mode, const char* filename, int line,
-                LogItem a, LogItem b = LogItem(),
-                LogItem c = LogItem(), LogItem d = LogItem());
+extern void Log(LogMode mode, const char* filename, int line, LogItem a,
+                LogItem b = LogItem(), LogItem c = LogItem(),
+                LogItem d = LogItem());
 
 enum CrashMode {
   kCrash,          // Print the message and crash
@@ -141,7 +134,7 @@ extern void (*log_message_writer)(const char* msg, int length);
 #ifndef NDEBUG
 #define ASSERT(cond) CHECK_CONDITION(cond)
 #else
-#define ASSERT(cond) ((void) 0)
+#define ASSERT(cond) ((void)0)
 #endif
 
 // Our wrapper for __builtin_assume, allowing us to check the assumption on
@@ -164,8 +157,8 @@ extern void (*log_message_writer)(const char* msg, int length);
 // Print into buffer
 class TCMalloc_Printer {
  private:
-  char* buf_;           // Where should we write next
-  int   left_;          // Space left in buffer (including space for \0)
+  char* buf_;     // Where should we write next
+  int left_;      // Space left in buffer (including space for \0)
   int required_;  // Space we needed to complete all printf calls up to this
                   // point
 

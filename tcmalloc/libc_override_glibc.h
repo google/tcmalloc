@@ -23,7 +23,7 @@
 #include "tcmalloc/tcmalloc.h"
 
 #ifndef __GLIBC__
-# error libc_override_glibc.h is for glibc distributions only.
+#error libc_override_glibc.h is for glibc distributions only.
 #endif
 
 // In glibc, the memory-allocation methods are weak symbols, so we can
@@ -40,7 +40,7 @@
 // If we get here, we're a gcc system, so do all the overriding we do
 // with gcc.  This does the overriding of all the 'normal' memory
 // allocation.
-# include "libc_override_gcc_and_weak.h"
+#include "libc_override_gcc_and_weak.h"
 
 // We also have to do some glibc-specific overriding.  Some library
 // routines on RedHat 9 allocate memory using malloc() and free it
@@ -68,10 +68,9 @@ void* __libc_pvalloc(size_t size) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPvalloc);
 int __posix_memalign(void** r, size_t a, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
-}   // extern "C"
+}  // extern "C"
 
 #endif  // #if defined(__GNUC__) && !defined(__MACH__)
-
 
 // We also have to hook libc malloc.  While our work with weak symbols
 // should make sure libc malloc is never called in most situations, it
@@ -80,18 +79,18 @@ int __posix_memalign(void** r, size_t a, size_t s) noexcept
 // routines even in that situation.  In other situations, this hook
 // should never be called.
 extern "C" {
-static void* glibc_override_malloc(size_t size, const void *caller) {
+static void* glibc_override_malloc(size_t size, const void* caller) {
   return TCMallocInternalMalloc(size);
 }
-static void* glibc_override_realloc(void *ptr, size_t size,
-                                    const void *caller) {
+static void* glibc_override_realloc(void* ptr, size_t size,
+                                    const void* caller) {
   return TCMallocInternalRealloc(ptr, size);
 }
-static void glibc_override_free(void *ptr, const void *caller) {
+static void glibc_override_free(void* ptr, const void* caller) {
   TCMallocInternalFree(ptr);
 }
 static void* glibc_override_memalign(size_t align, size_t size,
-                                     const void *caller) {
+                                     const void* caller) {
   return TCMallocInternalMemalign(align, size);
 }
 
@@ -104,18 +103,18 @@ static void* glibc_override_memalign(size_t align, size_t size,
 
 // Glibc-2.14 and above make __malloc_hook and friends volatile
 #ifndef __MALLOC_HOOK_VOLATILE
-#define __MALLOC_HOOK_VOLATILE  /**/
+#define __MALLOC_HOOK_VOLATILE /**/
 #endif
 
-void* (* __MALLOC_HOOK_VOLATILE __malloc_hook)(size_t, const void*) =
+void* (*__MALLOC_HOOK_VOLATILE __malloc_hook)(size_t, const void*) =
     &glibc_override_malloc;
-void* (* __MALLOC_HOOK_VOLATILE __realloc_hook)(void*, size_t, const void*) =
+void* (*__MALLOC_HOOK_VOLATILE __realloc_hook)(void*, size_t, const void*) =
     &glibc_override_realloc;
-void (* __MALLOC_HOOK_VOLATILE __free_hook)(void*, const void*) =
-    &glibc_override_free;
-void* (* __MALLOC_HOOK_VOLATILE __memalign_hook)(size_t,size_t, const void*) =
+void (*__MALLOC_HOOK_VOLATILE __free_hook)(void*,
+                                           const void*) = &glibc_override_free;
+void* (*__MALLOC_HOOK_VOLATILE __memalign_hook)(size_t, size_t, const void*) =
     &glibc_override_memalign;
 
-}   // extern "C"
+}  // extern "C"
 
 #endif  // TCMALLOC_LIBC_OVERRIDE_GLIBC_INL_H_

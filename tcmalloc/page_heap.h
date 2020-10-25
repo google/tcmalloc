@@ -82,7 +82,6 @@ class PageHeap final : public PageAllocatorInterface {
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
  private:
-
   // We segregate spans of a given size into two circular linked
   // lists: one for normal spans, and one for spans whose memory
   // has been returned to the system.

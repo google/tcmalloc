@@ -20,9 +20,9 @@
 #include <memory>
 #include <new>
 
-#include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/memory/memory.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/static_vars.h"

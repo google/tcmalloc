@@ -19,10 +19,10 @@
 #include <string>
 #include <tuple>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/testing/testutil.h"
 
 // Koenig lookup

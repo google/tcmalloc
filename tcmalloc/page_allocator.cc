@@ -110,8 +110,7 @@ void PageAllocator::ShrinkToUsageLimit() {
         kCrash, __FILE__, __LINE__,
         "Hit hard tcmalloc heap limit (e.g. --tcmalloc_heap_size_hard_limit). "
         "Aborting.\nIt was most likely set to catch "
-        "allocations that would crash the process anyway. "
-    );
+        "allocations that would crash the process anyway. ");
   }
 
   // Print logs once.

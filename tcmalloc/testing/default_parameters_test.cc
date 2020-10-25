@@ -30,12 +30,9 @@ constexpr int64_t kDefaultProfileSamplingRate =
 constexpr int64_t kDefaultGuardedSamplingRate =
     50 * kDefaultProfileSamplingRate;
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
-constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
-    0
-};
+constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{0};
 
 bool TestProfileSamplingRate() {
-
   auto extension_value = MallocExtension::GetProfileSamplingRate();
   if (extension_value != kDefaultProfileSamplingRate) {
     absl::FPrintF(stderr, "ProfileSamplingRate: got %d, want %d\n",
@@ -47,7 +44,6 @@ bool TestProfileSamplingRate() {
 }
 
 bool TestGuardedSamplingRate() {
-
   auto extension_value = MallocExtension::GetGuardedSamplingRate();
   if (extension_value != kDefaultGuardedSamplingRate) {
     absl::FPrintF(stderr, "GuardedSamplingRate: got %d, want %d\n",
@@ -59,7 +55,6 @@ bool TestGuardedSamplingRate() {
 }
 
 bool TestBackgroundReleaseRate() {
-
   auto extension_value = MallocExtension::GetBackgroundReleaseRate();
   if (extension_value != kDefaultBackgroundReleaseRate) {
     absl::FPrintF(stderr, "BackgroundReleaseRate: got %d, want %d\n",

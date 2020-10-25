@@ -18,9 +18,9 @@
 #include <limits>
 #include <memory>
 
+#include "absl/random/random.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/random/random.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

@@ -18,12 +18,12 @@
 #include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/fixed_array.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 namespace tcmalloc {
 namespace {

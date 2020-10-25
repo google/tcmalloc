@@ -34,7 +34,6 @@
 
 namespace tcmalloc {
 
-
 class CPUCache {
  public:
   enum class ActivationMode {
@@ -258,5 +257,5 @@ inline bool UsePerCpuCache() {
   return false;
 }
 
-};  // namespace tcmalloc
+};      // namespace tcmalloc
 #endif  // TCMALLOC_CPU_CACHE_H_

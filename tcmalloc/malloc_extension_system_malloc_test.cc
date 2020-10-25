@@ -15,9 +15,9 @@
 // These tests assume TCMalloc is not linked in, and therefore the features
 // exposed by MallocExtension should be no-ops, but otherwise safe to call.
 
+#include "absl/random/random.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/random/random.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -38,7 +38,8 @@ TEST(MallocExtension, SnapshotCurrentIsEmpty) {
   // All of the profiles should be empty.
   ProfileType types[] = {
       ProfileType::kHeap,
-      ProfileType::kFragmentation, ProfileType::kPeakHeap,
+      ProfileType::kFragmentation,
+      ProfileType::kPeakHeap,
       ProfileType::kAllocations,
   };
 

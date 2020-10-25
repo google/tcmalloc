@@ -633,9 +633,7 @@ static void ActivatePerCPUCaches() {
 
 class PerCPUInitializer {
  public:
-  PerCPUInitializer() {
-   ActivatePerCPUCaches();
-  }
+  PerCPUInitializer() { ActivatePerCPUCaches(); }
 };
 static PerCPUInitializer module_enter_exit;
 

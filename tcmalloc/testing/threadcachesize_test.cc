@@ -21,11 +21,11 @@
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 

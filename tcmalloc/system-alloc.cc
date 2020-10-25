@@ -40,7 +40,7 @@
 // On systems (like freebsd) that don't define MAP_ANONYMOUS, use the old
 // form of the name instead.
 #ifndef MAP_ANONYMOUS
-# define MAP_ANONYMOUS MAP_ANON
+#define MAP_ANONYMOUS MAP_ANON
 #endif
 
 // Solaris has a bug where it doesn't declare madvise() for C++.
@@ -69,7 +69,7 @@ static_assert(kAddressBits <= 8 * sizeof(void*),
 
 // Structure for discovering alignment
 union MemoryAligner {
-  void*  p;
+  void* p;
   double d;
   size_t s;
 } ABSL_CACHELINE_ALIGNED;

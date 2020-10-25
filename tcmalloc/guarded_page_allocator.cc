@@ -426,7 +426,6 @@ static void RecordTestFailure(absl::string_view error) {
 //
 // error contains the type of error to record.
 static void RecordCrash(absl::string_view error) {
-
   RecordBazelWarning(error);
   RecordTestFailure(error);
 }
@@ -461,8 +460,7 @@ static void SegvHandler(int signo, siginfo_t *info, void *context) {
   std::tie(offset, size) =
       Static::guardedpage_allocator().GetAllocationOffsetAndSize(fault);
 
-  Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan has detected a memory error ***");
+  Log(kLog, __FILE__, __LINE__, "*** GWP-ASan has detected a memory error ***");
   Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
       "into buffer of length", size);
   Log(kLog, __FILE__, __LINE__,

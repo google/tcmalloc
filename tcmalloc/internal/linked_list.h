@@ -28,11 +28,11 @@
 namespace tcmalloc {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void *SLL_Next(void *t) {
-  return *(reinterpret_cast<void**>(t));
+  return *(reinterpret_cast<void **>(t));
 }
 
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_SetNext(void *t, void *n) {
-  *(reinterpret_cast<void**>(t)) = n;
+  *(reinterpret_cast<void **>(t)) = n;
 }
 
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_Push(void **list, void *element) {

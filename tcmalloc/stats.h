@@ -67,9 +67,9 @@ inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
 
 // Stats for free large spans (i.e., spans with more than kMaxPages pages).
 struct LargeSpanStats {
-  size_t spans = 0;           // Number of such spans
-  Length normal_pages;        // Combined page length of normal large spans
-  Length returned_pages;      // Combined page length of unmapped spans
+  size_t spans = 0;       // Number of such spans
+  Length normal_pages;    // Combined page length of normal large spans
+  Length returned_pages;  // Combined page length of unmapped spans
 
   LargeSpanStats &operator+=(LargeSpanStats rhs) {
     spans += rhs.spans;

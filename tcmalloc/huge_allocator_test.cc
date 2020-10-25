@@ -23,11 +23,11 @@
 #include <utility>
 #include <vector>
 
-#include "gtest/gtest.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/random/random.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 

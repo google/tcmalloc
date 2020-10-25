@@ -19,8 +19,8 @@
 
 #include <thread>  // NOLINT(build/c++11)
 
-#include "gtest/gtest.h"
 #include "absl/flags/flag.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -30,7 +30,7 @@ namespace {
 static void TestAllocation() {
   static const int kNum = 1000;
   void* ptr[kNum];
-  for (int size = 8; size <= 65536; size*=2) {
+  for (int size = 8; size <= 65536; size *= 2) {
     for (int i = 0; i < kNum; i++) {
       ptr[i] = malloc(size);
     }

@@ -32,8 +32,8 @@
 // "This function will never throw an exception."  It's an optional
 // optimization tool, but we may need to use it to match glibc prototypes.
 #include <sys/cdefs.h>
-#ifndef __THROW    // I guess we're not on a glibc system
-# define __THROW   // __THROW is just an optimization, so ok to make it ""
+#ifndef __THROW  // I guess we're not on a glibc system
+#define __THROW  // __THROW is just an optimization, so ok to make it ""
 #endif
 
 #ifdef __cplusplus
@@ -69,7 +69,7 @@ void TCMallocInternalMallocStats(void) __THROW
 int TCMallocInternalMallOpt(int cmd, int value) __THROW
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if !defined(OS_FREEBSD) && !defined(OS_MACOSX)
-    // struct mallinfo isn't defined on these platforms
+// struct mallinfo isn't defined on these platforms
 struct mallinfo TCMallocInternalMallocInfo(void) __THROW
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif

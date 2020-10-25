@@ -144,7 +144,7 @@ enum SearchDirection {
 };
 
 template <size_t N, bool Goal, SearchDirection Dir>
-ABSL_ATTRIBUTE_NOINLINE size_t ExamineDoFind(Bitmap<N> *map, size_t index) {
+ABSL_ATTRIBUTE_NOINLINE size_t ExamineDoFind(Bitmap<N>* map, size_t index) {
   if (Dir == Forward) {
     if (Goal) {
       return map->FindSet(index);

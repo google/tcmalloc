@@ -23,7 +23,6 @@ namespace tcmalloc {
 namespace {
 
 TEST(MallocExtension, BackgroundReleaseRate) {
-
   // Mutate via MallocExtension.
   MallocExtension::SetBackgroundReleaseRate(
       MallocExtension::BytesPerSecond{100 << 20});

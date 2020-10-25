@@ -19,9 +19,9 @@
 
 #include <random>
 
-#include "gmock/gmock.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "gmock/gmock.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
 
@@ -117,9 +117,7 @@ class FakeTransferCacheEnvironment {
     cache_.Init(1);
   }
 
-  ~FakeTransferCacheEnvironment() {
-    Drain();
-  }
+  ~FakeTransferCacheEnvironment() { Drain(); }
 
   void Shrink() { cache_.ShrinkCache(); }
   void Grow() { cache_.GrowCache(); }

@@ -30,7 +30,7 @@ namespace tcmalloc_internal {
 // from thread_safe_getenv() may be safely queried in a multi-threaded context.
 // If you have explicit synchronization with changes environment variables then
 // any copies of the returned pointer must be invalidated across modification.
-const char* thread_safe_getenv(const char *env_var);
+const char* thread_safe_getenv(const char* env_var);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

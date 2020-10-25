@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/guarded_page_allocator.h"
-
 #include <unistd.h>
 
-#include "benchmark/benchmark.h"
 #include "absl/base/internal/spinlock.h"
+#include "benchmark/benchmark.h"
+#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {

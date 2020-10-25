@@ -21,10 +21,10 @@
 #include <cstddef>
 #include <new>
 
-#include "benchmark/benchmark.h"
-#include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
+#include "benchmark/benchmark.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/bits.h"
@@ -40,8 +40,8 @@ class GuardedAllocAlignmentTest : public testing::Test {
   GuardedAllocAlignmentTest() {
     profile_sampling_rate_ = MallocExtension::GetProfileSamplingRate();
     guarded_sample_rate_ = MallocExtension::GetGuardedSamplingRate();
-    MallocExtension::SetProfileSamplingRate(1);     // Always do heapz samples.
-    MallocExtension::SetGuardedSamplingRate(0);     // Guard every heapz sample.
+    MallocExtension::SetProfileSamplingRate(1);  // Always do heapz samples.
+    MallocExtension::SetGuardedSamplingRate(0);  // Guard every heapz sample.
     MallocExtension::ActivateGuardedSampling();
 
     // Eat up unsampled bytes remaining to flush the new sample rates.

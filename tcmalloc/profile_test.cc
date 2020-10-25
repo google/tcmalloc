@@ -24,10 +24,10 @@
 #include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/blocking_counter.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
