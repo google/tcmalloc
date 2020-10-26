@@ -150,11 +150,11 @@ void SizeMap::Init() {
   static_assert(kAlignment <= 16, "kAlignment is too large");
 
   if (IsExperimentActive(Experiment::TCMALLOC_SANS_56_SIZECLASS)) {
-    SetSizeClasses(kNumClasses, kExperimentalSizeClasses);
+    SetSizeClasses(kExperimentalSizeClassesCount, kExperimentalSizeClasses);
   } else if (IsExperimentActive(Experiment::TCMALLOC_4K_SIZE_CLASS)) {
-    SetSizeClasses(kNumClasses, kExperimental4kSizeClasses);
+    SetSizeClasses(kExperimental4kSizeClassesCount, kExperimental4kSizeClasses);
   } else {
-    SetSizeClasses(kNumClasses, kSizeClasses);
+    SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
   MaybeRunTimeSizeClasses();
 
