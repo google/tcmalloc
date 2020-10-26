@@ -33,7 +33,10 @@ namespace tcmalloc {
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 86;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -124,7 +127,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 78;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -207,7 +213,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 89;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -301,7 +310,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 46;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
@@ -356,7 +368,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 #else
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 86;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -447,7 +462,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 78;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -530,7 +548,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 89;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -624,7 +645,10 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-const SizeClassInfo SizeMap::kExperimentalSizeClasses[] = {
+static const int kCount = 46;
+static_assert(kCount <= kNumClasses);
+const int SizeMap::kExperimentalSizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%

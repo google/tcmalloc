@@ -326,13 +326,16 @@ class SizeMap {
   bool ValidSizeClasses(int num_classes, const SizeClassInfo* parsed);
 
   // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kSizeClasses[kNumClasses];
+  static const SizeClassInfo kSizeClasses[];
+  static const int kSizeClassesCount;
 
   // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kExperimentalSizeClasses[kNumClasses];
+  static const SizeClassInfo kExperimentalSizeClasses[];
+  static const int kExperimentalSizeClassesCount;
 
   // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kExperimental4kSizeClasses[kNumClasses];
+  static const SizeClassInfo kExperimental4kSizeClasses[];
+  static const int kExperimental4kSizeClassesCount;
 
  public:
   // Constructor should do nothing since we rely on explicit Init()

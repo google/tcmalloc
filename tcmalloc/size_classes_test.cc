@@ -129,6 +129,7 @@ class TestingSizeMap : public SizeMap {
   }
 
   const SizeClassInfo* DefaultSizeClasses() const { return kSizeClasses; }
+  const int DefaultSizeClassesCount() const { return kSizeClassesCount; }
 };
 
 class RunTimeSizeClassesTest : public ::testing::Test {
@@ -221,7 +222,8 @@ TEST_F(RunTimeSizeClassesTest, ValidatePageSize) {
 
 TEST_F(RunTimeSizeClassesTest, ValidateDefaultSizeClasses) {
   // The default size classes also need to be valid.
-  EXPECT_TRUE(m_.ValidSizeClasses(kNumClasses, m_.DefaultSizeClasses()));
+  EXPECT_TRUE(m_.ValidSizeClasses(m_.DefaultSizeClassesCount(),
+                                  m_.DefaultSizeClasses()));
 }
 
 TEST_F(RunTimeSizeClassesTest, EnvVariableNotExamined) {
