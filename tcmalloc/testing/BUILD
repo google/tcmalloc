@@ -81,21 +81,18 @@ cc_library(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "tcmalloc_test",
     timeout = "long",
     srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc",
     tags = [
         "noasan",
         "nomsan",
         "notsan",
     ],
-    visibility = [
-        "//visibility:private",
-    ],
+    visibility = ["//visibility:private"],
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
@@ -114,57 +111,6 @@ cc_binary(
         "@com_github_google_benchmark//:benchmark_main",
         "@com_google_absl//absl/random",
     ],
-)
-
-cc_test(
-    name = "tcmalloc_test_small_but_slow",
-    srcs = ["tcmalloc_test.cc"],
-    copts = [
-        "-DTCMALLOC_SMALL_BUT_SLOW",
-    ] + REGTEST_OPTS,
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc:tcmalloc_small_but_slow",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
-    deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
-)
-
-cc_test(
-    name = "tcmalloc_test_large_page",
-    timeout = "long",
-    srcs = ["tcmalloc_test.cc"],
-    copts = [
-        "-DTCMALLOC_LARGE_PAGES",
-    ] + REGTEST_OPTS,
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc:tcmalloc_large_pages",
-    shard_count = 2,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
-    deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
-)
-
-cc_test(
-    name = "tcmalloc_test_256k_pages",
-    timeout = "long",
-    srcs = ["tcmalloc_test.cc"],
-    copts = [
-        "-DTCMALLOC_256K_PAGES",
-    ] + REGTEST_OPTS,
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc:tcmalloc_256k_pages",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
-    deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
 cc_test(
