@@ -356,9 +356,7 @@ cc_library(
     srcs = ["runtime_size_classes.cc"],
     hdrs = ["runtime_size_classes.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//visibility:private",
-    ],
+    visibility = ["//visibility:private"],
     deps = [
         ":size_class_info",
         "//tcmalloc/internal:environment",
