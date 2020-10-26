@@ -66,6 +66,10 @@ class SpanTest : public testing::TestWithParam<size_t> {
   void SetUp() override {
     cl_ = GetParam();
     size_ = Static::sizemap().class_to_size(cl_);
+    if (size_ == 0) {
+      GTEST_SKIP() << "Skipping empty size class.";
+    }
+
     npages_ = Static::sizemap().class_to_pages(cl_);
     batch_size_ = Static::sizemap().num_objects_to_move(cl_);
     objects_per_span_ = npages_ * kPageSize / size_;

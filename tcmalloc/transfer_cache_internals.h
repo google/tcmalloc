@@ -108,11 +108,11 @@ class TransferCache {
     max_capacity_ = 0;
     SizeInfo info = {0, 0};
 
-    if (cl > 0) {
+    size_t bytes = Manager::class_to_size(cl);
+    if (cl > 0 && bytes > 0) {
       // Limit the maximum size of the cache based on the size class.  If this
       // is not done, large size class objects will consume a lot of memory if
       // they just sit in the transfer cache.
-      size_t bytes = Manager::class_to_size(cl);
       size_t objs_to_move = Manager::num_objects_to_move(cl);
       ASSERT(objs_to_move > 0 && bytes > 0);
 
@@ -541,11 +541,11 @@ class LockFreeTransferCache {
     max_capacity_ = 0;
     int32_t capacity = 0;
 
-    if (cl > 0) {
+    size_t bytes = Manager::class_to_size(cl);
+    if (cl > 0 && bytes > 0) {
       // Limit the maximum size of the cache based on the size class.  If this
       // is not done, large size class objects will consume a lot of memory if
       // they just sit in the transfer cache.
-      size_t bytes = Manager::class_to_size(cl);
       batch_size_ = Manager::num_objects_to_move(cl);
       ASSERT(batch_size_ > 0 && bytes > 0);
 

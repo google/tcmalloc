@@ -30,7 +30,8 @@ void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
   object_size_ = Static::sizemap().class_to_size(cl);
   pages_per_span_ = Length(Static::sizemap().class_to_pages(cl));
-  objects_per_span_ = pages_per_span_.in_bytes() / (cl ? object_size_ : 1);
+  objects_per_span_ =
+      pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
 }
 
 static Span* MapObjectToSpan(void* object) {
@@ -139,7 +140,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 }
 
 size_t CentralFreeList::OverheadBytes() {
-  if (size_class_ == 0) {  // 0 holds the 0-sized allocations
+  if (object_size_ == 0) {
     return 0;
   }
   const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
@@ -148,7 +149,7 @@ size_t CentralFreeList::OverheadBytes() {
 
 SpanStats CentralFreeList::GetSpanStats() const {
   SpanStats stats;
-  if (size_class_ == 0) {  // 0 holds the 0-sized allocations
+  if (objects_per_span_ == 0) {
     return stats;
   }
   stats.num_spans_requested = static_cast<size_t>(num_spans_requested_.value());

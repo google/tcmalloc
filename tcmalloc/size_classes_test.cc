@@ -56,6 +56,9 @@ TEST_F(SizeClassesTest, SmallClassesSinglePage) {
     if (max_size_in_class >= SizeMap::kMultiPageSize) {
       continue;
     }
+    if (max_size_in_class == 0) {
+      continue;
+    }
     EXPECT_EQ(m_.class_to_pages(c), 1) << max_size_in_class;
   }
 }
@@ -79,6 +82,9 @@ TEST_F(SizeClassesTest, Distinguishable) {
   // finer (otherwise they would map to the same entry in the lookup table).
   for (int c = 1; c < kNumClasses; c++) {
     const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == 0) {
+      continue;
+    }
     const int class_index = m_.SizeClass(max_size_in_class);
 
     EXPECT_EQ(c, class_index) << max_size_in_class;
@@ -138,6 +144,14 @@ class RunTimeSizeClassesTest : public ::testing::Test {
 
   TestingSizeMap m_;
 };
+
+TEST_F(RunTimeSizeClassesTest, ExpandedSizeClasses) {
+  // Verify that none of the default size classes are considered expanded size
+  // classes.
+  for (int i = 0; i < kNumClasses; i++) {
+    EXPECT_EQ(i < m_.DefaultSizeClassesCount(), !IsExpandedSizeClass(i)) << i;
+  }
+}
 
 TEST_F(RunTimeSizeClassesTest, ValidateClassSizeIncreases) {
   SizeClassInfo parsed[] = {

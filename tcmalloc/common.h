@@ -99,6 +99,7 @@
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
 inline constexpr size_t kNumClasses = 46;
+inline constexpr bool kHasExpandedClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
 inline constexpr size_t kMaxThreadCacheSize = 64 * 1024;
@@ -109,7 +110,8 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 19;
 inline constexpr size_t kMinPages = 2;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
-inline constexpr size_t kNumClasses = 78;
+inline constexpr size_t kNumClasses = 2 * 78;
+inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -121,7 +123,8 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
-inline constexpr size_t kNumClasses = 89;
+inline constexpr size_t kNumClasses = 2 * 89;
+inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -133,7 +136,8 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
-inline constexpr size_t kNumClasses = 86;
+inline constexpr size_t kNumClasses = 2 * 86;
+inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
@@ -215,6 +219,10 @@ inline MemoryTag GetMemoryTag(const void* ptr) {
 }
 
 absl::string_view MemoryTagToLabel(MemoryTag tag);
+
+inline constexpr bool IsExpandedSizeClass(unsigned cl) {
+  return kHasExpandedClasses && (cl >= kNumClasses / 2);
+}
 
 #if !defined(TCMALLOC_SMALL_BUT_SLOW) && __WORDSIZE != 32
 // Always allocate at least a huge page

@@ -32,6 +32,7 @@ class TestingSizeMap : public SizeMap {
   TestingSizeMap() {}
 
   const SizeClassInfo* DefaultSizeClasses() const { return kSizeClasses; }
+  int DefaultSizeClassesCount() const { return kSizeClassesCount; }
 };
 
 class RunTimeSizeClassesTest : public ::testing::Test {
@@ -61,7 +62,7 @@ std::string ModifiedSizeClassesString(int num_classes,
   // Set a valid runtime size class environment variable, which
   // is a modified version of the default class sizes.
   SizeClassInfo parsed[kNumClasses];
-  for (int c = 0; c < kNumClasses; c++) {
+  for (int c = 0; c < num_classes; c++) {
     parsed[c] = source[c];
   }
   // Change num_to_move to a different valid value so that
@@ -72,8 +73,8 @@ std::string ModifiedSizeClassesString(int num_classes,
 }
 
 TEST_F(RunTimeSizeClassesTest, EnvVariableExamined) {
-  std::string e =
-      ModifiedSizeClassesString(kNumClasses, m_.DefaultSizeClasses());
+  std::string e = ModifiedSizeClassesString(m_.DefaultSizeClassesCount(),
+                                            m_.DefaultSizeClasses());
   setenv("TCMALLOC_SIZE_CLASSES", e.c_str(), 1);
   m_.Init();
 
@@ -84,8 +85,8 @@ TEST_F(RunTimeSizeClassesTest, EnvVariableExamined) {
 // TODO(b/122839049) - Remove this test after bug is fixed.
 TEST_F(RunTimeSizeClassesTest, ReducingSizeClassCountNotAllowed) {
   // Try reducing the mumber of size classes by 1, which is expected to fail.
-  std::string e =
-      ModifiedSizeClassesString(kNumClasses - 1, m_.DefaultSizeClasses());
+  std::string e = ModifiedSizeClassesString(m_.DefaultSizeClassesCount() - 1,
+                                            m_.DefaultSizeClasses());
   setenv("TCMALLOC_SIZE_CLASSES", e.c_str(), 1);
   m_.Init();
 
@@ -98,17 +99,23 @@ TEST_F(RunTimeSizeClassesTest, ReducingSizeClassCountNotAllowed) {
 // results. Note, if the environement variable was not read, this test
 // would still pass.
 TEST_F(RunTimeSizeClassesTest, EnvRealClasses) {
-  std::string e = SizeClassesToString(kNumClasses, m_.DefaultSizeClasses());
+  const int count = m_.DefaultSizeClassesCount();
+  std::string e = SizeClassesToString(count, m_.DefaultSizeClasses());
   setenv("TCMALLOC_SIZE_CLASSES", e.c_str(), 1);
   m_.Init();
   // With the runtime_size_classes library linked, the environment variable
   // will be parsed.
 
-  for (int c = 0; c < kNumClasses; c++) {
+  for (int c = 0; c < count; c++) {
     EXPECT_EQ(m_.class_to_size(c), m_.DefaultSizeClasses()[c].size);
     EXPECT_EQ(m_.class_to_pages(c), m_.DefaultSizeClasses()[c].pages);
     EXPECT_EQ(m_.num_objects_to_move(c),
               m_.DefaultSizeClasses()[c].num_to_move);
+  }
+  for (int c = count; c < kNumClasses; c++) {
+    EXPECT_EQ(m_.class_to_size(c), 0);
+    EXPECT_EQ(m_.class_to_pages(c), 0);
+    EXPECT_EQ(m_.num_objects_to_move(c), 0);
   }
 }
 

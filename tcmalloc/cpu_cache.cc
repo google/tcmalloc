@@ -67,8 +67,7 @@ static size_t MaxCapacity(size_t cl) {
   // The number of size classes that are commonly used and thus should be
   // allocated more slots in the per-cpu cache.
   static constexpr size_t kNumSmall = 10;
-  // The remaining size classes, excluding size class 0.
-  static constexpr size_t kNumLarge = kNumClasses - 1 - kNumSmall;
+
   // The memory used for each per-CPU slab is the sum of:
   //   sizeof(std::atomic<size_t>) * kNumClasses
   //   sizeof(void*) * (kSmallObjectDepth + 1) * kNumSmall
@@ -94,12 +93,12 @@ static size_t MaxCapacity(size_t cl) {
   static const size_t kSmallObjectDepth = 2048;
   static const size_t kLargeObjectDepth = 152;
 #endif
-  static_assert(sizeof(std::atomic<size_t>) * kNumClasses +
-                        sizeof(void *) * (kSmallObjectDepth + 1) * kNumSmall +
-                        sizeof(void *) * (kLargeObjectDepth + 1) * kNumLarge <=
-                    (1 << CPUCache::kPerCpuShift),
-                "per-CPU memory exceeded");
   if (cl == 0 || cl >= kNumClasses) return 0;
+
+  if (Static::sizemap().class_to_size(cl) == 0) {
+    return 0;
+  }
+
   if (cl <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
     // good performance (well over 90% of malloc calls are for cl <= 10.)
@@ -117,6 +116,20 @@ static void *SlabAlloc(size_t size)
 void CPUCache::Activate(ActivationMode mode) {
   ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
+
+  const size_t kBytesAvailable = (1 << CPUCache::kPerCpuShift);
+  size_t kBytesRequired = sizeof(std::atomic<size_t>) * kNumClasses;
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    kBytesRequired += sizeof(void *) * MaxCapacity(cl);
+  }
+
+  // As we may make certain size classes no-ops by selecting "0" at runtime,
+  // using a compile-time calculation overestimates the worst-case memory usage.
+  if (ABSL_PREDICT_FALSE(kBytesRequired > kBytesAvailable)) {
+    Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+          kBytesAvailable, " need ", kBytesRequired);
+  }
 
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
 

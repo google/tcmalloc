@@ -41,11 +41,11 @@ bool SizeMap::MaybeRunTimeSizeClasses() {
     return false;
   }
 
-  if (num_classes != kNumClasses) {
-    // TODO(b/122839049) - Add tests for num_classes < kNumClasses before
+  if (num_classes != kSizeClassesCount) {
+    // TODO(b/122839049) - Add tests for num_classes < kSizeClassesCount before
     // allowing that case.
     Log(kLog, __FILE__, __LINE__, "Can't change the number of size classes",
-        num_classes, kNumClasses);
+        num_classes, kSizeClassesCount);
     return false;
   }
 
@@ -65,16 +65,11 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
     num_objects_to_move_[c] = parsed[c].num_to_move;
   }
 
-  // Fill any unspecified size classes with the largest size
-  // from the static definitions.
+  // Fill any unspecified size classes with 0.
   for (int x = num_classes; x < kNumClasses; x++) {
-    class_to_size_[x] = kSizeClasses[kNumClasses - 1].size;
-    class_to_pages_[x] = kSizeClasses[kNumClasses - 1].pages;
-    auto num_to_move = kSizeClasses[kNumClasses - 1].num_to_move;
-    if (IsExperimentActive(Experiment::TCMALLOC_LARGE_NUM_TO_MOVE)) {
-      num_to_move = std::min(kMaxObjectsToMove, 4 * num_to_move);
-    }
-    num_objects_to_move_[x] = num_to_move;
+    class_to_size_[x] = 0;
+    class_to_pages_[x] = 0;
+    num_objects_to_move_[x] = 0;
   }
 }
 
