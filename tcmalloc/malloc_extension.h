@@ -362,11 +362,7 @@ class MallocExtension final {
   // new, or new[], and must refer to memory that is currently allocated (so,
   // for instance, you should not pass in a pointer after having called free()
   // on it).
-  enum class Ownership {
-    kUnknown = 0,
-    kOwned,
-    kNotOwned
-  };
+  enum class Ownership { kUnknown = 0, kOwned, kNotOwned };
   static Ownership GetOwnership(const void* p);
 
   // Type used by GetProperties.  See comment on GetProperties.

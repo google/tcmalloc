@@ -54,7 +54,7 @@ class ProcMapsIterator {
   char* etext_;     // end of text
   char* nextline_;  // start of next line
   char* ebuf_;      // end of buffer (1 char for a nul)
-  int fd_;  // filehandle on /proc/*/maps
+  int fd_;          // filehandle on /proc/*/maps
   pid_t pid_;
   char flags_[10];
   Buffer* dynamic_buffer_;  // dynamically-allocated Buffer

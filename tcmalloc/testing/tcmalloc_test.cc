@@ -80,9 +80,9 @@
 // Windows doesn't define pvalloc and a few other obsolete unix
 // functions; nor does it define posix_memalign (which is not obsolete).
 #if defined(_WIN32)
-# define cfree free
-# define valloc malloc
-# define pvalloc malloc
+#define cfree free
+#define valloc malloc
+#define pvalloc malloc
 static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
   tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
                   "posix_memalign not supported on windows");
@@ -112,7 +112,7 @@ const int kLogMaxMemalign = 18;
 
 static const int kSizeBits = 8 * sizeof(size_t);
 static const size_t kMaxSize = ~static_cast<size_t>(0);
-static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits-1)) - 1);
+static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
 namespace tcmalloc {
 extern bool want_hpaa();
@@ -570,15 +570,15 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
 
   // Use up the extra MB/4 bytes from 'a' and also release 'b'.
   MallocExtension::ReleaseMemoryToSystem(MB / 2);
-  EXPECT_EQ(starting_bytes + 2*MB, GetUnmappedBytes());
+  EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
 
   // Should do nothing since the previous call released too much.
   MallocExtension::ReleaseMemoryToSystem(MB / 2);
-  EXPECT_EQ(starting_bytes + 2*MB, GetUnmappedBytes());
+  EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
 
   // Nothing else to release.
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
-  EXPECT_EQ(starting_bytes + 2*MB, GetUnmappedBytes());
+  EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
 
   a = ::operator new(MB);
   ::operator delete(a);
@@ -586,7 +586,7 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
 
   // Releasing less than a page should still trigger a release.
   MallocExtension::ReleaseMemoryToSystem(1);
-  EXPECT_EQ(starting_bytes + 2*MB, GetUnmappedBytes());
+  EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
 }
 
 TEST(TCMallocTest, NothrowSizedDelete) {
@@ -843,7 +843,7 @@ TEST(TCMallocTest, NothrowAlignedNewArray) {
 void CheckSizedDelete() {
   absl::BitGen rand;
 
-  std::vector<std::pair<void*, size_t> > allocated;
+  std::vector<std::pair<void*, size_t>> allocated;
   for (int i = 1; i < 100; ++i) {
     size_t alloc_size = absl::LogUniform<int32_t>(rand, 0, (1 << 20) - 1);
     void* p1 = ::operator new(alloc_size);
@@ -857,9 +857,7 @@ void CheckSizedDelete() {
   }
 }
 
-TEST(TCMallocTest, SizedDelete) {
-  CheckSizedDelete();
-}
+TEST(TCMallocTest, SizedDelete) { CheckSizedDelete(); }
 
 TEST(TCMallocTest, SizedDeleteSampled) {
   ScopedProfileSamplingRate s(1);  // Try to sample more.
@@ -872,7 +870,7 @@ TEST(TCMallocTest, SampleAllocatedSize) {
 
   // Do 64 megabytes of allocation; this should (nearly) guarantee we
   // get a sample.
-  for (int i = 0; i < 1024*1024; ++i) {
+  for (int i = 0; i < 1024 * 1024; ++i) {
     void* ptr = malloc(64);
     ASSERT_EQ(64, MallocExtension::GetAllocatedSize(ptr));
     free(ptr);

@@ -89,9 +89,7 @@ void RunOnSingleCpuWithRemoteCpu(std::function<bool(int, int)> test) {
 // Equivalent to RunOnSingleCpuWithRemoteCpu, except that only the CPU the
 // functor is executing on is passed.
 void RunOnSingleCpu(std::function<bool(int)> test) {
-  auto wrapper = [&test] (int this_cpu, int unused) {
-    return test(this_cpu);
-  };
+  auto wrapper = [&test](int this_cpu, int unused) { return test(this_cpu); };
   RunOnSingleCpuWithRemoteCpu(wrapper);
 }
 
@@ -322,8 +320,7 @@ TEST_P(TcmallocSlabTest, Unit) {
       // This is imperfect but the window between operations below is small.  We
       // can make this more precise around individual operations if we see
       // measurable flakiness as a result.
-      if (aff.Tampered())
-        break;
+      if (aff.Tampered()) break;
 #endif
 
       // Check new slab state.
@@ -752,32 +749,32 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
   const kernel_rseq_cs** cs_array_start = nullptr;
   const kernel_rseq_cs** cs_array_end = nullptr;
 
-  absl::debugging_internal::ForEachSection(fd, [&](const absl::string_view name,
-                                                   const ElfW(Shdr) & hdr) {
-    uintptr_t start = relocation + reinterpret_cast<uintptr_t>(hdr.sh_addr);
-    uintptr_t end =
-        relocation + reinterpret_cast<uintptr_t>(hdr.sh_addr + hdr.sh_size);
+  absl::debugging_internal::ForEachSection(
+      fd, [&](const absl::string_view name, const ElfW(Shdr) & hdr) {
+        uintptr_t start = relocation + reinterpret_cast<uintptr_t>(hdr.sh_addr);
+        uintptr_t end =
+            relocation + reinterpret_cast<uintptr_t>(hdr.sh_addr + hdr.sh_size);
 
-    if (name == "__rseq_cs") {
-      EXPECT_EQ(cs_start, nullptr);
-      EXPECT_EQ(start % alignof(kernel_rseq_cs), 0);
-      EXPECT_EQ(end % alignof(kernel_rseq_cs), 0);
-      EXPECT_LT(start, end) << "__rseq_cs must not be empty";
+        if (name == "__rseq_cs") {
+          EXPECT_EQ(cs_start, nullptr);
+          EXPECT_EQ(start % alignof(kernel_rseq_cs), 0);
+          EXPECT_EQ(end % alignof(kernel_rseq_cs), 0);
+          EXPECT_LT(start, end) << "__rseq_cs must not be empty";
 
-      cs_start = reinterpret_cast<const kernel_rseq_cs*>(start);
-      cs_end = reinterpret_cast<const kernel_rseq_cs*>(end);
-    } else if (name == "__rseq_cs_ptr_array") {
-      EXPECT_EQ(cs_array_start, nullptr);
-      EXPECT_EQ(start % alignof(kernel_rseq_cs*), 0);
-      EXPECT_EQ(end % alignof(kernel_rseq_cs*), 0);
-      EXPECT_LT(start, end) << "__rseq_cs_ptr_array must not be empty";
+          cs_start = reinterpret_cast<const kernel_rseq_cs*>(start);
+          cs_end = reinterpret_cast<const kernel_rseq_cs*>(end);
+        } else if (name == "__rseq_cs_ptr_array") {
+          EXPECT_EQ(cs_array_start, nullptr);
+          EXPECT_EQ(start % alignof(kernel_rseq_cs*), 0);
+          EXPECT_EQ(end % alignof(kernel_rseq_cs*), 0);
+          EXPECT_LT(start, end) << "__rseq_cs_ptr_array must not be empty";
 
-      cs_array_start = reinterpret_cast<const kernel_rseq_cs**>(start);
-      cs_array_end = reinterpret_cast<const kernel_rseq_cs**>(end);
-    }
+          cs_array_start = reinterpret_cast<const kernel_rseq_cs**>(start);
+          cs_array_end = reinterpret_cast<const kernel_rseq_cs**>(end);
+        }
 
-    return true;
-  });
+        return true;
+      });
 
   close(fd);
 
@@ -805,7 +802,7 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 
 static void BM_PushPop(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
-  RunOnSingleCpu([&] (int this_cpu) {
+  RunOnSingleCpu([&](int this_cpu) {
     const int kBatchSize = 32;
     TcmallocSlab slab;
     slab.Init(
@@ -832,7 +829,7 @@ BENCHMARK(BM_PushPop);
 
 static void BM_PushPopBatch(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
-  RunOnSingleCpu([&] (int this_cpu) {
+  RunOnSingleCpu([&](int this_cpu) {
     const int kBatchSize = 32;
     TcmallocSlab slab;
     slab.Init(

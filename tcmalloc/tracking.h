@@ -64,8 +64,8 @@ enum TrackingStat {
   kMallocMiss = 1,  // malloc that didn't
   kFreeHit = 2,     // ibid. for free
   kFreeMiss = 3,
-  kFreeScavenges = 4,      // # of frees that leads to scavenge
-  kFreeTruncations = 5,    // # of frees that leads to list truncation
+  kFreeScavenges = 4,    // # of frees that leads to scavenge
+  kFreeTruncations = 5,  // # of frees that leads to list truncation
   kTCInsertHit = 6,  // # of times the returned object list hits transfer cache.
   kTCInsertMiss = 7,  // # of times the object list misses the transfer cache.
   kTCRemoveHit = 8,   // # of times object list fetching hits transfer cache.
@@ -80,7 +80,7 @@ void Report(TrackingStat stat, size_t cl, ssize_t count);
 
 // Dump all tracking data to <out>.  We could support various other
 // mechanisms for data delivery without too much trouble...
-void Print(TCMalloc_Printer *out);
+void Print(TCMalloc_Printer* out);
 
 // Call before a thread will die (ideally after its last malloc call!)
 // so we don't lose its statistics.
@@ -97,7 +97,7 @@ void GetProperties(std::map<std::string, MallocExtension::Property>* result);
 // no tracking, these are all no-ops
 inline void Report(TrackingStat stat, size_t cl, ssize_t count) {}
 inline void RegisterNewThreadIfNecessary() {}
-inline void Print(TCMalloc_Printer *out) {}
+inline void Print(TCMalloc_Printer* out) {}
 inline void ReportThreadDeath() {}
 inline void Init() {}
 inline void GetProperties(

@@ -52,7 +52,7 @@ class HugeCacheTest : public testing::Test {
   }
 
   // Use a tiny fraction of actual size so we can test aggressively.
-  static void *AllocateFake(size_t bytes, size_t *actual, size_t align) {
+  static void* AllocateFake(size_t bytes, size_t* actual, size_t align) {
     if (bytes % kHugePageSize != 0) {
       tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned",
                       bytes, kHugePageSize);
@@ -70,7 +70,7 @@ class HugeCacheTest : public testing::Test {
       index += (align - (index & align));
     }
     backing.resize(index + bytes);
-    void *ptr = reinterpret_cast<void *>(index * kHugePageSize);
+    void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
     return ptr;
   }
   // This isn't super good form but we'll never have more than one HAT
@@ -79,28 +79,28 @@ class HugeCacheTest : public testing::Test {
 
   // We use actual malloc for metadata allocations, but we track them so they
   // can be deleted.  (TODO make this an arena if we care, which I doubt)
-  static void *MallocMetadata(size_t size) {
+  static void* MallocMetadata(size_t size) {
     metadata_bytes += size;
-    void *ptr = calloc(size, 1);
+    void* ptr = calloc(size, 1);
     metadata_allocs.push_back(ptr);
     return ptr;
   }
-  static std::vector<void *> metadata_allocs;
+  static std::vector<void*> metadata_allocs;
   static size_t metadata_bytes;
 
   // This is wordy, but necessary for mocking:
   class BackingInterface {
    public:
-    virtual void Unback(void *p, size_t len) = 0;
+    virtual void Unback(void* p, size_t len) = 0;
     virtual ~BackingInterface() {}
   };
 
   class MockBackingInterface : public BackingInterface {
    public:
-    MOCK_METHOD2(Unback, void(void *p, size_t len));
+    MOCK_METHOD2(Unback, void(void* p, size_t len));
   };
 
-  static void MockUnback(void *p, size_t len) { mock_->Unback(p, len); }
+  static void MockUnback(void* p, size_t len) { mock_->Unback(p, len); }
 
  protected:
   static std::unique_ptr<testing::NiceMock<MockBackingInterface>> mock_;
@@ -118,7 +118,7 @@ class HugeCacheTest : public testing::Test {
   }
 
   ~HugeCacheTest() override {
-    for (void *p : metadata_allocs) {
+    for (void* p : metadata_allocs) {
       free(p);
     }
     metadata_allocs.clear();
@@ -128,7 +128,7 @@ class HugeCacheTest : public testing::Test {
     clock_offset_ = 0;
   }
 
-  size_t *GetActual(HugePage p) {
+  size_t* GetActual(HugePage p) {
     size_t index = reinterpret_cast<size_t>(p.start_addr()) / kHugePageSize;
     return &backing[index];
   }
@@ -155,7 +155,7 @@ class HugeCacheTest : public testing::Test {
 };
 
 std::vector<size_t> HugeCacheTest::backing;
-std::vector<void *> HugeCacheTest::metadata_allocs;
+std::vector<void*> HugeCacheTest::metadata_allocs;
 size_t HugeCacheTest::metadata_bytes;
 std::unique_ptr<testing::NiceMock<HugeCacheTest::MockBackingInterface>>
     HugeCacheTest::mock_;
@@ -265,14 +265,14 @@ TEST_F(HugeCacheTest, Stats) {
   ASSERT_EQ(false, from);
 
   struct Helper {
-    static void Stat(const HugeCache &cache, size_t *spans,
-                     Length *pages_backed, Length *pages_unbacked,
-                     double *avg_age) {
+    static void Stat(const HugeCache& cache, size_t* spans,
+                     Length* pages_backed, Length* pages_unbacked,
+                     double* avg_age) {
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
       LargeSpanStats large;
       cache.AddSpanStats(nullptr, &large, &ages);
 
-      const PageAgeHistograms::Histogram *hist = ages.GetTotalHistogram(false);
+      const PageAgeHistograms::Histogram* hist = ages.GetTotalHistogram(false);
       *spans = large.spans;
       *pages_backed = large.normal_pages;
       *pages_unbacked = large.returned_pages;
@@ -323,7 +323,7 @@ TEST_F(HugeCacheTest, Growth) {
   std::vector<HugeRange> keep;
   std::vector<HugeRange> drop;
   for (int i = 0; i < 1000; ++i) {
-    auto &l = std::bernoulli_distribution()(rng) ? keep : drop;
+    auto& l = std::bernoulli_distribution()(rng) ? keep : drop;
     l.push_back(cache_.Get(NHugePages(sizes(rng)), &released));
   }
 
@@ -514,7 +514,6 @@ TEST_F(HugeCacheTest, Usage) {
 }
 
 class MinMaxTrackerTest : public testing::Test {
-
  protected:
   void Advance(absl::Duration d) {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();

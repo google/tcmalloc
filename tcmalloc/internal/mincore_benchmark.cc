@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/internal/mincore.h"
-
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -25,6 +23,7 @@
 #include "absl/memory/memory.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/mincore.h"
 
 namespace tcmalloc {
 namespace {

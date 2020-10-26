@@ -48,7 +48,7 @@ void ExpectValid(unsigned char* buffer, int n) {
 // Return the next interesting size/delta to check.  Returns -1 if no more.
 int NextSize(int size) {
   if (size < 100) {
-    return size+1;
+    return size + 1;
   } else if (size < 100000) {
     // Find next power of two
     int power = 1;
@@ -57,13 +57,13 @@ int NextSize(int size) {
     }
 
     // Yield (power-1, power, power+1)
-    if (size < power-1) {
-      return power-1;
-    } else if (size == power-1) {
+    if (size < power - 1) {
+      return power - 1;
+    } else if (size == power - 1) {
       return power;
     } else {
       assert(size == power);
-      return power+1;
+      return power + 1;
     }
   } else {
     return -1;

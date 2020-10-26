@@ -42,7 +42,7 @@ namespace {
 // Return the next interesting size/delta to check.  Returns -1 if no more.
 int NextSize(int size) {
   if (size < 100) {
-    return size+1;
+    return size + 1;
   } else if (size < 1048576) {
     // Find next power of two
     int power = 1;
@@ -51,13 +51,13 @@ int NextSize(int size) {
     }
 
     // Yield (power-1, power, power+1)
-    if (size < power-1) {
-      return power-1;
-    } else if (size == power-1) {
+    if (size < power - 1) {
+      return power - 1;
+    } else if (size == power - 1) {
       return power;
     } else {
       assert(size == power);
-      return power+1;
+      return power + 1;
     }
   } else {
     return -1;
@@ -202,15 +202,15 @@ TEST(MemalignTest, Memalign) {
 
   {
     // Check various corner cases
-    void* p1 = memalign(1<<20, 1<<19);
-    void* p2 = memalign(1<<19, 1<<19);
-    void* p3 = memalign(1<<21, 1<<19);
-    CheckAlignment(p1, 1<<20);
-    CheckAlignment(p2, 1<<19);
-    CheckAlignment(p3, 1<<21);
-    Fill(p1, 1<<19, 'a');
-    Fill(p2, 1<<19, 'b');
-    Fill(p3, 1<<19, 'c');
+    void* p1 = memalign(1 << 20, 1 << 19);
+    void* p2 = memalign(1 << 19, 1 << 19);
+    void* p3 = memalign(1 << 21, 1 << 19);
+    CheckAlignment(p1, 1 << 20);
+    CheckAlignment(p2, 1 << 19);
+    CheckAlignment(p3, 1 << 21);
+    Fill(p1, 1 << 19, 'a');
+    Fill(p2, 1 << 19, 'b');
+    Fill(p3, 1 << 19, 'c');
     ASSERT_TRUE(Valid(p1, 1 << 19, 'a'));
     ASSERT_TRUE(Valid(p2, 1 << 19, 'b'));
     ASSERT_TRUE(Valid(p3, 1 << 19, 'c'));

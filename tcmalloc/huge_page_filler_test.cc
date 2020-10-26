@@ -156,7 +156,7 @@ class PageTrackerTest : public testing::Test {
  protected:
   PageTrackerTest()
       :  // an unlikely magic page
-        huge_(HugePageContaining(reinterpret_cast<void *>(0x1abcde200000))),
+        huge_(HugePageContaining(reinterpret_cast<void*>(0x1abcde200000))),
         tracker_(huge_, absl::base_internal::CycleClock::Now()) {}
 
   ~PageTrackerTest() override { mock_.VerifyAndClear(); }
@@ -178,13 +178,13 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface {
    public:
-    void Unback(void *p, size_t len) {
+    void Unback(void* p, size_t len) {
       CHECK_CONDITION(actual_index_ < kMaxCalls);
       actual_[actual_index_] = {p, len};
       ++actual_index_;
     }
 
-    void Expect(void *p, size_t len) {
+    void Expect(void* p, size_t len) {
       CHECK_CONDITION(expected_index_ < kMaxCalls);
       expected_[expected_index_] = {p, len};
       ++expected_index_;
@@ -204,7 +204,7 @@ class PageTrackerTest : public testing::Test {
 
    private:
     struct CallArgs {
-      void *ptr{nullptr};
+      void* ptr{nullptr};
       size_t len{0};
     };
 
@@ -215,7 +215,7 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  static void MockUnback(void *p, size_t len);
+  static void MockUnback(void* p, size_t len);
 
   typedef PageTracker<MockUnback> TestPageTracker;
 
@@ -236,7 +236,7 @@ class PageTrackerTest : public testing::Test {
   TestPageTracker tracker_;
 
   void ExpectPages(PAlloc a) {
-    void *ptr = a.p.start_addr();
+    void* ptr = a.p.start_addr();
     size_t bytes = a.n.in_bytes();
     mock_.Expect(ptr, bytes);
   }
@@ -263,7 +263,7 @@ class PageTrackerTest : public testing::Test {
   }
 };
 
-void PageTrackerTest::MockUnback(void *p, size_t len) { mock_.Unback(p, len); }
+void PageTrackerTest::MockUnback(void* p, size_t len) { mock_.Unback(p, len); }
 
 PageTrackerTest::MockUnbackInterface PageTrackerTest::mock_;
 
@@ -452,10 +452,10 @@ TEST_F(PageTrackerTest, Defrag) {
 
 TEST_F(PageTrackerTest, Stats) {
   struct Helper {
-    static void Stat(const TestPageTracker &tracker,
-                     std::vector<Length> *small_backed,
-                     std::vector<Length> *small_unbacked, LargeSpanStats *large,
-                     double *avg_age_backed, double *avg_age_unbacked) {
+    static void Stat(const TestPageTracker& tracker,
+                     std::vector<Length>* small_backed,
+                     std::vector<Length>* small_unbacked, LargeSpanStats* large,
+                     double* avg_age_backed, double* avg_age_unbacked) {
       SmallSpanStats small;
       *large = LargeSpanStats();
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
@@ -588,7 +588,7 @@ TEST_F(PageTrackerTest, b151915873) {
   }
 
   std::sort(allocs.begin(), allocs.end(),
-            [](const PAlloc &a, const PAlloc &b) { return a.p < b.p; });
+            [](const PAlloc& a, const PAlloc& b) { return a.p < b.p; });
 
   Put(allocs.back());
   allocs.erase(allocs.begin() + allocs.size() - 1);
@@ -609,7 +609,7 @@ TEST_F(PageTrackerTest, b151915873) {
 
 class BlockingUnback {
  public:
-  static void Unback(void *p, size_t len) {
+  static void Unback(void* p, size_t len) {
     if (!mu_) {
       return;
     }
@@ -622,16 +622,16 @@ class BlockingUnback {
     mu_->Unlock();
   }
 
-  static void set_lock(absl::Mutex *mu) { mu_ = mu; }
+  static void set_lock(absl::Mutex* mu) { mu_ = mu; }
 
-  static absl::BlockingCounter *counter;
+  static absl::BlockingCounter* counter;
 
  private:
-  static thread_local absl::Mutex *mu_;
+  static thread_local absl::Mutex* mu_;
 };
 
-thread_local absl::Mutex *BlockingUnback::mu_ = nullptr;
-absl::BlockingCounter *BlockingUnback::counter = nullptr;
+thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
+absl::BlockingCounter* BlockingUnback::counter = nullptr;
 
 class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
@@ -645,7 +645,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   }
   static void ResetClock() { clock_ = 1234; }
 
-  static void Unback(void *p, size_t len) {}
+  static void Unback(void* p, size_t len) {}
 
   // Our templating approach lets us directly override certain functions
   // and have mocks without virtualization.  It's a bit funky but works.
@@ -659,10 +659,10 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     backing_.resize(i + kPagesPerHugePage.raw_num());
     intptr_t addr = i << kPageShift;
     CHECK_CONDITION(addr % kHugePageSize == 0);
-    return HugePageContaining(reinterpret_cast<void *>(addr));
+    return HugePageContaining(reinterpret_cast<void*>(addr));
   }
 
-  size_t *GetFakePage(PageId p) { return &backing_[p.index()]; }
+  size_t* GetFakePage(PageId p) { return &backing_[p.index()]; }
 
   void MarkRange(PageId p, Length n, size_t mark) {
     for (auto i = Length(0); i < n; ++i) {
@@ -684,20 +684,18 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     ResetClock();
   }
 
-  ~FillerTest() override {
-    EXPECT_EQ(NHugePages(0), filler_.size());
-  }
+  ~FillerTest() override { EXPECT_EQ(NHugePages(0), filler_.size()); }
 
   struct PAlloc {
-    FakeTracker *pt;
+    FakeTracker* pt;
     PageId p;
     Length n;
     size_t mark;
   };
 
-  void Mark(const PAlloc &alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
+  void Mark(const PAlloc& alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
 
-  void Check(const PAlloc &alloc) { CheckRange(alloc.p, alloc.n, alloc.mark); }
+  void Check(const PAlloc& alloc) { CheckRange(alloc.p, alloc.n, alloc.mark); }
 
   size_t next_mark_{0};
 
@@ -749,8 +747,8 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   }
 
   // Returns true iff the filler returned an empty hugepage.
-  bool DeleteRaw(const PAlloc &p) {
-    FakeTracker *pt;
+  bool DeleteRaw(const PAlloc& p) {
+    FakeTracker* pt;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
       pt = filler_.Put(p.pt, p.p, p.n);
@@ -768,7 +766,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   }
 
   // Returns true iff the filler returned an empty hugepage
-  bool Delete(const PAlloc &p) {
+  bool Delete(const PAlloc& p) {
     Check(p);
     bool r = DeleteRaw(p);
     CheckStats();
@@ -1218,12 +1216,12 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
     regular.push_back(Allocate(i));
   }
 
-  for (const PAlloc &alloc : donated) {
+  for (const PAlloc& alloc : donated) {
     // All the donated huge pages should be freeable.
     EXPECT_TRUE(Delete(alloc));
   }
 
-  for (const PAlloc &alloc : regular) {
+  for (const PAlloc& alloc : regular) {
     Delete(alloc);
   }
 }
@@ -1941,7 +1939,7 @@ HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were s
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
 HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
 )"));
-  for (const auto &alloc : allocs) {
+  for (const auto& alloc : allocs) {
     Delete(alloc);
   }
 }
@@ -3487,7 +3485,7 @@ TEST_P(FillerTest, PrintInPbtxt) {
     }
   }
 )"));
-  for (const auto &alloc : allocs) {
+  for (const auto& alloc : allocs) {
     Delete(alloc);
   }
 }
@@ -3572,7 +3570,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
                           "HugePageFiller: Subrelease stats last 10 min: total "
                           "21 pages subreleased, 3 hugepages broken\n"));
 
-  for (const auto &alloc : result) {
+  for (const auto& alloc : result) {
     Delete(alloc);
   }
 }
@@ -3599,7 +3597,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
   ASSERT_EQ(filler_.size(), kHugePages);
 
   for (int i = 0; i < 2; ++i) {
-    for (auto &a : dead) {
+    for (auto& a : dead) {
       Delete(a);
     }
     ReleasePages(filler_.free_pages());
@@ -3634,7 +3632,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
   }
 
   // Clean up
-  for (auto &a : alloc_small) {
+  for (auto& a : alloc_small) {
     Delete(a);
   }
 }
@@ -3684,7 +3682,7 @@ TEST_P(FillerTest, ReleasePriority) {
   std::vector<PAlloc> dead;
   dead.reserve(kHugePages.raw_num());
 
-  absl::flat_hash_set<FakeTracker *> unique_pages;
+  absl::flat_hash_set<FakeTracker*> unique_pages;
   unique_pages.reserve(kHugePages.raw_num());
 
   for (HugeLength i; i < kHugePages; ++i) {
@@ -3698,14 +3696,14 @@ TEST_P(FillerTest, ReleasePriority) {
 
   ASSERT_EQ(filler_.size(), kHugePages);
 
-  for (auto &a : dead) {
+  for (auto& a : dead) {
     Delete(a);
   }
 
   // As of 5/2020, our release priority is to subrelease huge pages with the
   // fewest used pages.  Bucket unique_pages by that used_pages().
-  std::vector<std::vector<FakeTracker *>> ordered(kPagesPerHugePage.raw_num());
-  for (auto *pt : unique_pages) {
+  std::vector<std::vector<FakeTracker*>> ordered(kPagesPerHugePage.raw_num());
+  for (auto* pt : unique_pages) {
     // None of these should be released yet.
     EXPECT_FALSE(pt->released());
     ordered[pt->used_pages().raw_num()].push_back(pt);
@@ -3727,7 +3725,7 @@ TEST_P(FillerTest, ReleasePriority) {
       bool any_released = false;
       bool all_released = true;
 
-      for (auto *pt : ordered[l.raw_num()]) {
+      for (auto* pt : ordered[l.raw_num()]) {
         bool released = pt->released();
 
         any_released |= released;
@@ -3740,14 +3738,14 @@ TEST_P(FillerTest, ReleasePriority) {
           std::vector<bool> before;
           if (l > Length(0)) {
             before.reserve(ordered[l.raw_num() - 1].size());
-            for (auto *pt : ordered[l.raw_num() - 1]) {
+            for (auto* pt : ordered[l.raw_num() - 1]) {
               before.push_back(pt->released());
             }
           }
 
           std::vector<bool> after;
           after.reserve(ordered[l.raw_num()].size());
-          for (auto *pt : ordered[l.raw_num()]) {
+          for (auto* pt : ordered[l.raw_num()]) {
             after.push_back(pt->released());
           }
 
@@ -3761,11 +3759,11 @@ TEST_P(FillerTest, ReleasePriority) {
   }
 
   // All huge pages should be released.
-  for (auto *pt : unique_pages) {
+  for (auto* pt : unique_pages) {
     EXPECT_TRUE(pt->released());
   }
 
-  for (auto &a : alloc) {
+  for (auto& a : alloc) {
     Delete(a);
   }
 }

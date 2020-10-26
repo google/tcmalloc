@@ -18,17 +18,17 @@
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
+
 #include <vector>
 
 namespace {
 
 struct Foo {
   int x;
-  Foo() : x(42) { }
+  Foo() : x(42) {}
 };
 
-static void *fn(void *)
-{
+static void* fn(void*) {
   while (true) {
     std::vector<Foo*> v;
     v.reserve(1000);
@@ -50,7 +50,7 @@ static void *fn(void *)
 static pthread_t Init() {
   pthread_t tid[NTHR];
   for (uintptr_t i = 0; i < NTHR; ++i) {
-    pthread_create(&tid[i], nullptr, fn, (void *)i);
+    pthread_create(&tid[i], nullptr, fn, (void*)i);
   }
   return tid[0];
 }
@@ -61,4 +61,4 @@ pthread_t ignored_init_result = Init();
 
 // This is used to pull in this object from archive
 // (when built with --dynamic_mode=off).
-pthread_t *Func() { return &ignored_init_result; }
+pthread_t* Func() { return &ignored_init_result; }

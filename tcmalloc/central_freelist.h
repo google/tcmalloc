@@ -65,9 +65,7 @@ class CentralFreeList {
   size_t OverheadBytes();
 
   // My size class.
-  size_t size_class() const {
-    return size_class_;
-  }
+  size_t size_class() const { return size_class_; }
 
   SpanStats GetSpanStats() const;
 

@@ -17,8 +17,6 @@
 
 #include <pthread.h>
 
-extern pthread_t *Func();
+extern pthread_t* Func();
 
-int main() {
-  Func();
-}
+int main() { Func(); }

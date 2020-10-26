@@ -70,7 +70,7 @@ class ThreadCache {
   static ThreadCache* GetCache();
   static ThreadCache* GetCacheIfPresent();
   static ThreadCache* CreateCacheIfNecessary();
-  static void         BecomeIdle();
+  static void BecomeIdle();
 
   // returns stats on total thread caches created/used
   static inline AllocatorStats HeapStats()
@@ -131,24 +131,16 @@ class ThreadCache {
     }
 
     // Return the maximum length of the list.
-    size_t max_length() const {
-      return max_length_;
-    }
+    size_t max_length() const { return max_length_; }
 
     // Set the maximum length of the list.  If 'new_max' > length(), the
     // client is responsible for removing objects from the list.
-    void set_max_length(size_t new_max) {
-      max_length_ = new_max;
-    }
+    void set_max_length(size_t new_max) { max_length_ = new_max; }
 
     // Return the number of times that length() has gone over max_length().
-    size_t length_overages() const {
-      return length_overages_;
-    }
+    size_t length_overages() const { return length_overages_; }
 
-    void set_length_overages(size_t new_count) {
-      length_overages_ = new_count;
-    }
+    void set_length_overages(size_t new_count) { length_overages_ = new_count; }
 
     // Low-water mark management
     int lowwatermark() const { return lowater_; }
@@ -247,8 +239,8 @@ class ThreadCache {
 
   FreeList list_[kNumClasses];  // Array indexed by size-class
 
-  size_t        size_;                  // Combined size of data
-  size_t        max_size_;              // size_ > max_size_ --> Scavenge()
+  size_t size_;      // Combined size of data
+  size_t max_size_;  // size_ > max_size_ --> Scavenge()
 
 #ifndef ABSL_HAVE_TLS
   // We sample allocations, biased by the size of the allocation.

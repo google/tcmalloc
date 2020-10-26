@@ -69,7 +69,7 @@ TEST(SampleSizeClassTest, Main) {
   // Pick kRequestSize so that it changes significantly when it is
   // rounded up by tcmalloc.  If this changes, you may want to pick a
   // new kRequestSize.
-  const size_t kRequestSize  = 17;
+  const size_t kRequestSize = 17;
   const size_t kActualSize = 32;
   void* p = malloc(kRequestSize);
   EXPECT_EQ(kActualSize, MallocExtension::GetAllocatedSize(p));
@@ -82,7 +82,7 @@ TEST(SampleSizeClassTest, Main) {
   size_t allocated = 0;
   LinkedList objs;
   objs.Init();
-  while (allocated < 128*1024*1024) {
+  while (allocated < 128 * 1024 * 1024) {
     // We must use the return value from malloc, otherwise the compiler may
     // optimize out the call altogether!
     void* ptr = malloc(kRequestSize);

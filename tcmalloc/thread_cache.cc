@@ -169,7 +169,7 @@ void ThreadCache::Scavenge() {
     FreeList* list = &list_[cl];
     const int lowmark = list->lowwatermark();
     if (lowmark > 0) {
-      const int drop = (lowmark > 1) ? lowmark/2 : 1;
+      const int drop = (lowmark > 1) ? lowmark / 2 : 1;
       ReleaseToCentralCache(list, cl, drop);
 
       // Shrink the max length if it isn't used.  Only shrink down to
@@ -219,8 +219,7 @@ void ThreadCache::IncreaseCacheLimitLocked() {
   // threads before giving up.  The i < 10 condition also prevents an
   // infinite loop in case none of the existing thread heaps are
   // suitable places to steal from.
-  for (int i = 0; i < 10;
-       ++i, next_memory_steal_ = next_memory_steal_->next_) {
+  for (int i = 0; i < 10; ++i, next_memory_steal_ = next_memory_steal_->next_) {
     // Reached the end of the linked list.  Start at the beginning.
     if (next_memory_steal_ == nullptr) {
       ASSERT(thread_heaps_ != nullptr);

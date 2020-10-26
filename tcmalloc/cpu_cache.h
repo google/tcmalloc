@@ -34,7 +34,6 @@
 
 namespace tcmalloc {
 
-
 class CPUCache {
  public:
   enum class ActivationMode {
@@ -55,11 +54,11 @@ class CPUCache {
   // new_handler or anything else). "Passing" OOOHandler in this way
   // allows Allocate to be used in tail-call position in fast-path,
   // making Allocate use jump (tail-call) to slow path code.
-  template <void *OOMHandler(size_t)>
-  void *Allocate(size_t cl);
+  template <void* OOMHandler(size_t)>
+  void* Allocate(size_t cl);
 
   // Free an object of the given class.
-  void Deallocate(void *ptr, size_t cl);
+  void Deallocate(void* ptr, size_t cl);
 
   // Give the number of bytes in <cpu>'s cache
   uint64_t UsedBytes(int cpu) const;
@@ -97,8 +96,8 @@ class CPUCache {
 #endif
 
   // Report statistics
-  void Print(TCMalloc_Printer *out) const;
-  void PrintInPbtxt(PbtxtRegion *region) const;
+  void Print(TCMalloc_Printer* out) const;
+  void PrintInPbtxt(PbtxtRegion* region) const;
 
  private:
   // Per-size-class freelist resizing info.
@@ -110,7 +109,7 @@ class CPUCache {
     // <grow> is caller approximation of whether we want to grow capacity.
     // <successive> will contain number of successive overflows/underflows.
     // Returns if capacity needs to be grown aggressively (i.e. by batch size).
-    bool Update(bool overflow, bool grow, uint32_t *successive);
+    bool Update(bool overflow, bool grow, uint32_t* successive);
     uint32_t Tick();
 
    private:
@@ -149,58 +148,58 @@ class CPUCache {
              sizeof(ResizeInfoUnpadded) % ABSL_CACHELINE_SIZE];
   };
   // Tracking data for each CPU's cache resizing efforts.
-  ResizeInfo *resize_;
+  ResizeInfo* resize_;
   // Track whether we are lazily initializing slabs.  We cannot use the latest
   // value in Parameters, as it can change after initialization.
   bool lazy_slabs_;
 
   struct ObjectClass {
     size_t cl;
-    void *obj;
+    void* obj;
   };
 
-  void *Refill(int cpu, size_t cl);
+  void* Refill(int cpu, size_t cl);
 
   // This is called after finding a full freelist when attempting to push <ptr>
   // on the freelist for sizeclass <cl>.  The last arg should indicate which
   // CPU's list was full.  Returns 1.
-  int Overflow(void *ptr, size_t cl, int cpu);
+  int Overflow(void* ptr, size_t cl, int cpu);
 
   // Called on <cl> freelist overflow/underflow on <cpu> to balance cache
   // capacity between size classes. Returns number of objects to return/request
   // from transfer cache. <to_return>[0...*returned) will contain objects that
   // need to be freed.
   size_t UpdateCapacity(int cpu, size_t cl, size_t batch_length, bool overflow,
-                        ObjectClass *to_return, size_t *returned);
+                        ObjectClass* to_return, size_t* returned);
 
   // Tries to obtain up to <desired_increase> bytes of freelist space on <cpu>
   // for <cl> from other <cls>. <to_return>[0...*returned) will contain objects
   // that need to be freed.
-  void Grow(int cpu, size_t cl, size_t desired_increase, ObjectClass *to_return,
-            size_t *returned);
+  void Grow(int cpu, size_t cl, size_t desired_increase, ObjectClass* to_return,
+            size_t* returned);
 
   // Tries to steal <bytes> for <cl> on <cpu> from other size classes on that
   // CPU. Returns acquired bytes. <to_return>[0...*returned) will contain
   // objects that need to be freed.
-  size_t Steal(int cpu, size_t cl, size_t bytes, ObjectClass *to_return,
-               size_t *returned);
+  size_t Steal(int cpu, size_t cl, size_t bytes, ObjectClass* to_return,
+               size_t* returned);
 
-  static void *NoopUnderflow(int cpu, size_t cl) { return nullptr; }
-  static int NoopOverflow(int cpu, size_t cl, void *item) { return -1; }
+  static void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }
+  static int NoopOverflow(int cpu, size_t cl, void* item) { return -1; }
 };
 
-template <void *OOMHandler(size_t)>
-inline void *ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
+template <void* OOMHandler(size_t)>
+inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
   ASSERT(cl > 0);
 
   tracking::Report(kMallocHit, cl, 1);
   struct Helper {
-    static void *ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl) {
+    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl) {
       // we've optimistically reported hit in Allocate, lets undo it and
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
       tracking::Report(kMallocMiss, cl, 1);
-      void *ret = Static::cpu_cache().Refill(cpu, cl);
+      void* ret = Static::cpu_cache().Refill(cpu, cl);
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
         size_t size = Static::sizemap().class_to_size(cl);
         return OOMHandler(size);
@@ -211,13 +210,13 @@ inline void *ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
   return freelist_.Pop(cl, &Helper::Underflow);
 }
 
-inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void *ptr,
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void* ptr,
                                                               size_t cl) {
   ASSERT(cl > 0);
   tracking::Report(kFreeHit, cl, 1);  // Be optimistic; correct later if needed.
 
   struct Helper {
-    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void *ptr) {
+    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void* ptr) {
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
@@ -258,5 +257,5 @@ inline bool UsePerCpuCache() {
   return false;
 }
 
-};  // namespace tcmalloc
+}  // namespace tcmalloc
 #endif  // TCMALLOC_CPU_CACHE_H_

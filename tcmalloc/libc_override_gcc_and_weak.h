@@ -28,7 +28,7 @@
 #include "tcmalloc/tcmalloc.h"
 
 #ifndef __GNUC__
-# error libc_override_gcc_and_weak.h is for gcc distributions only.
+#error libc_override_gcc_and_weak.h is for gcc distributions only.
 #endif
 
 // visibility("default") ensures that these symbols are always exported, even
@@ -108,6 +108,6 @@ struct mallinfo mallinfo(void) noexcept
 size_t malloc_size(void* p) noexcept TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 size_t malloc_usable_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);
-}   // extern "C"
+}  // extern "C"
 
 #endif  // TCMALLOC_LIBC_OVERRIDE_GCC_AND_WEAK_INL_H_

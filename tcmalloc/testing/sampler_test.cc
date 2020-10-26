@@ -73,12 +73,18 @@ TEST(Sampler, TestGetSamplePeriod) {
 // the limit as n-> infinity. For finite n, apply the error fix below.
 double AndersonDarlingInf(double z) {
   if (z < 2) {
-    return exp(-1.2337141 / z) / sqrt(z) * (2.00012 + (0.247105 -
-                (0.0649821 - (0.0347962 - (0.011672 - 0.00168691
-                * z) * z) * z) * z) * z);
+    return exp(-1.2337141 / z) / sqrt(z) *
+           (2.00012 +
+            (0.247105 -
+             (0.0649821 - (0.0347962 - (0.011672 - 0.00168691 * z) * z) * z) *
+                 z) *
+                z);
   }
-  return exp( - exp(1.0776 - (2.30695 - (0.43424 - (0.082433 -
-                    (0.008056 - 0.0003146 * z) * z) * z) * z) * z));
+  return exp(
+      -exp(1.0776 -
+           (2.30695 -
+            (0.43424 - (0.082433 - (0.008056 - 0.0003146 * z) * z) * z) * z) *
+               z));
 }
 
 // Corrects the approximation error in AndersonDarlingInf for small values of n
@@ -86,8 +92,11 @@ double AndersonDarlingInf(double z) {
 // (from Marsaglia)
 double AndersonDarlingErrFix(int n, double x) {
   if (x > 0.8) {
-    return (-130.2137 + (745.2337 - (1705.091 - (1950.646 -
-            (1116.360 - 255.7844 * x) * x) * x) * x) * x) / n;
+    return (-130.2137 +
+            (745.2337 -
+             (1705.091 - (1950.646 - (1116.360 - 255.7844 * x) * x) * x) * x) *
+                x) /
+           n;
   }
   double cutoff = 0.01265 + 0.1757 / n;
   double t;
@@ -97,8 +106,9 @@ double AndersonDarlingErrFix(int n, double x) {
     return t * (0.0037 / (n * n) + 0.00078 / n + 0.00006) / n;
   } else {
     t = (x - cutoff) / (0.8 - cutoff);
-    t = -0.00022633 + (6.54034 - (14.6538 - (14.458 - (8.259 - 1.91864
-          * t) * t) * t) * t) * t;
+    t = -0.00022633 +
+        (6.54034 - (14.6538 - (14.458 - (8.259 - 1.91864 * t) * t) * t) * t) *
+            t;
     return t * (0.04213 + 0.01365 / n) / n;
   }
 }
@@ -117,7 +127,7 @@ double AndersonDarlingStatistic(const std::vector<double>& random_sample) {
     ad_sum += (2 * i + 1) *
               std::log(random_sample[i] * (1 - random_sample[n - 1 - i]));
   }
-  double ad_statistic = - n - 1/static_cast<double>(n) * ad_sum;
+  double ad_statistic = -n - 1 / static_cast<double>(n) * ad_sum;
   return ad_statistic;
 }
 
@@ -140,7 +150,7 @@ void TestNextRandom(int n) {
   SamplerTest::Init(&sampler, 1);
   uint64_t x = 1;
   // This assumes that the prng returns 48 bit numbers
-  uint64_t max_prng_value = static_cast<uint64_t>(1)<<48;
+  uint64_t max_prng_value = static_cast<uint64_t>(1) << 48;
   // Initialize
   for (int i = 1; i <= 20; i++) {  // 20 mimics sampler.Init()
     x = sampler.NextRandom(x);
@@ -156,7 +166,8 @@ void TestNextRandom(int n) {
   std::vector<double> random_sample(n);
   // Convert them to uniform randoms (in the range [0,1])
   for (int i = 0; i < n; i++) {
-    random_sample[i] = static_cast<double>(int_random_sample[i])/max_prng_value;
+    random_sample[i] =
+        static_cast<double>(int_random_sample[i]) / max_prng_value;
   }
   // Now compute the Anderson-Darling statistic
   double ad_pvalue = AndersonDarlingTest(random_sample);
@@ -243,13 +254,12 @@ TEST(Sampler, TestPickNextGuardedSample_MultipleValues) {
 
 // Further tests
 
-double StandardDeviationsErrorInSample(
-              int total_samples, int picked_samples,
-              int alloc_size, int sampling_interval) {
+double StandardDeviationsErrorInSample(int total_samples, int picked_samples,
+                                       int alloc_size, int sampling_interval) {
   double p = 1 - exp(-(static_cast<double>(alloc_size) / sampling_interval));
   double expected_samples = total_samples * p;
-  double sd = pow(p*(1-p)*total_samples, 0.5);
-  return((picked_samples - expected_samples) / sd);
+  double sd = pow(p * (1 - p) * total_samples, 0.5);
+  return ((picked_samples - expected_samples) / sd);
 }
 
 TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
@@ -257,9 +267,9 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
   SamplerTest::Init(&sampler, 1);
   int counter_big = 0;
   int counter_small = 0;
-  int size_big = 129*8*1024+1;
-  int size_small = 1024*8;
-  int num_iters = 128*4*8;
+  int size_big = 129 * 8 * 1024 + 1;
+  int size_small = 1024 * 8;
+  int num_iters = 128 * 4 * 8;
   // Allocate in mixed chunks
   for (int i = 0; i < num_iters; i++) {
     if (sampler.RecordAllocation(size_big)) {
@@ -272,12 +282,10 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
     }
   }
   // Now test that there are the right number of each
-  double large_allocs_sds =
-     StandardDeviationsErrorInSample(num_iters, counter_big,
-                                     size_big, kSamplingInterval);
-  double small_allocs_sds =
-     StandardDeviationsErrorInSample(num_iters*129, counter_small,
-                                     size_small, kSamplingInterval);
+  double large_allocs_sds = StandardDeviationsErrorInSample(
+      num_iters, counter_big, size_big, kSamplingInterval);
+  double small_allocs_sds = StandardDeviationsErrorInSample(
+      num_iters * 129, counter_small, size_small, kSamplingInterval);
   ASSERT_LE(fabs(large_allocs_sds), kSigmas) << large_allocs_sds;
   ASSERT_LE(fabs(small_allocs_sds), kSigmas) << small_allocs_sds;
 }
@@ -351,7 +359,7 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
     const uint64_t prng_mod_power = 48;  // Number of bits in prng
 
     // First, check the largest_prng value
-    uint64_t largest_prng_value = (static_cast<uint64_t>(1)<<48) - 1;
+    uint64_t largest_prng_value = (static_cast<uint64_t>(1) << 48) - 1;
     double q = (largest_prng_value >> (prng_mod_power - 26)) + 1.0;
     uint64_t smallest_sample_step =
         1 + static_cast<uint64_t>((std::log2(q) - 26) * sample_scaling);
@@ -370,7 +378,6 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
   }
 }
 
-
 // Test that NextRand is in the right range.  Unfortunately, this is a
 // stochastic test which could miss problems.
 TEST(Sampler, NextRand_range) {
@@ -380,8 +387,8 @@ TEST(Sampler, NextRand_range) {
   // The next number should be (one << 48) - 1
   uint64_t max_value = (one << 48) - 1;
   uint64_t x = (one << 55);
-  int n = 22;  // 27;
-  for (int i = 1; i <= (1<<n); i++) {  // 20 mimics sampler.Init()
+  int n = 22;                            // 27;
+  for (int i = 1; i <= (1 << n); i++) {  // 20 mimics sampler.Init()
     x = sampler.NextRandom(x);
     ASSERT_LE(x, max_value);
   }

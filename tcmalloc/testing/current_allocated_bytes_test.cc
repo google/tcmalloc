@@ -48,13 +48,13 @@ int main() {
 
   // Do a lot of different allocs in a lot of different size classes,
   // then free them all, to make sure that the logic is correct.
-  void* ptrs[1000];   // how many pointers to allocate in one run
+  void* ptrs[1000];  // how many pointers to allocate in one run
   for (int size = 1; size < 1000000; size = max(size + 1, size * 2 - 100)) {
     for (int cycles = 0; cycles < 2; ++cycles) {
-      for (int repeat = 0; repeat < sizeof(ptrs)/sizeof(*ptrs); ++repeat) {
+      for (int repeat = 0; repeat < sizeof(ptrs) / sizeof(*ptrs); ++repeat) {
         ptrs[repeat] = malloc(size);
       }
-      for (int repeat = 0; repeat < sizeof(ptrs)/sizeof(*ptrs); ++repeat) {
+      for (int repeat = 0; repeat < sizeof(ptrs) / sizeof(*ptrs); ++repeat) {
         free(ptrs[repeat]);
       }
     }

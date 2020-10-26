@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/guarded_page_allocator.h"
-
 #include <unistd.h>
 
-#include "benchmark/benchmark.h"
 #include "absl/base/internal/spinlock.h"
+#include "benchmark/benchmark.h"
+#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
@@ -33,8 +32,8 @@ static size_t PageSize() {
   return page_size;
 }
 
-void BM_AllocDealloc(benchmark::State &state) {
-  static tcmalloc::GuardedPageAllocator *gpa = []() {
+void BM_AllocDealloc(benchmark::State& state) {
+  static tcmalloc::GuardedPageAllocator* gpa = []() {
     auto gpa = new tcmalloc::GuardedPageAllocator;
     absl::base_internal::SpinLockHolder h(&tcmalloc::pageheap_lock);
     gpa->Init(kMaxGpaPages, kMaxGpaPages);
@@ -43,7 +42,7 @@ void BM_AllocDealloc(benchmark::State &state) {
   }();
   size_t alloc_size = state.range(0);
   for (auto _ : state) {
-    char *ptr = reinterpret_cast<char *>(gpa->Allocate(alloc_size, 0));
+    char* ptr = reinterpret_cast<char*>(gpa->Allocate(alloc_size, 0));
     CHECK_CONDITION(ptr != nullptr);
     ptr[0] = 'X';               // Page fault first page.
     ptr[alloc_size - 1] = 'X';  // Page fault last page.

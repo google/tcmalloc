@@ -32,7 +32,7 @@ struct BackingStats {
   uint64_t free_bytes;      // Total bytes on normal freelists
   uint64_t unmapped_bytes;  // Total bytes on returned freelists
 
-  BackingStats &operator+=(BackingStats rhs) {
+  BackingStats& operator+=(BackingStats rhs) {
     system_bytes += rhs.system_bytes;
     free_bytes += rhs.free_bytes;
     unmapped_bytes += rhs.unmapped_bytes;
@@ -52,7 +52,7 @@ struct SmallSpanStats {
   int64_t normal_length[kMaxPages.raw_num()] = {0};
   int64_t returned_length[kMaxPages.raw_num()] = {0};
 
-  SmallSpanStats &operator+=(SmallSpanStats rhs) {
+  SmallSpanStats& operator+=(SmallSpanStats rhs) {
     for (size_t i = 0; i < kMaxPages.raw_num(); ++i) {
       normal_length[i] += rhs.normal_length[i];
       returned_length[i] += rhs.returned_length[i];
@@ -67,11 +67,11 @@ inline SmallSpanStats operator+(SmallSpanStats lhs, SmallSpanStats rhs) {
 
 // Stats for free large spans (i.e., spans with more than kMaxPages pages).
 struct LargeSpanStats {
-  size_t spans = 0;           // Number of such spans
-  Length normal_pages;        // Combined page length of normal large spans
-  Length returned_pages;      // Combined page length of unmapped spans
+  size_t spans = 0;       // Number of such spans
+  Length normal_pages;    // Combined page length of normal large spans
+  Length returned_pages;  // Combined page length of unmapped spans
 
-  LargeSpanStats &operator+=(LargeSpanStats rhs) {
+  LargeSpanStats& operator+=(LargeSpanStats rhs) {
     spans += rhs.spans;
     normal_pages += rhs.normal_pages;
     returned_pages += rhs.returned_pages;
@@ -83,9 +83,9 @@ inline LargeSpanStats operator+(LargeSpanStats lhs, LargeSpanStats rhs) {
   return lhs += rhs;
 }
 
-void PrintStats(const char *label, TCMalloc_Printer *out,
-                const BackingStats &backing, const SmallSpanStats &small,
-                const LargeSpanStats &large, bool everything);
+void PrintStats(const char* label, TCMalloc_Printer* out,
+                const BackingStats& backing, const SmallSpanStats& small,
+                const LargeSpanStats& large, bool everything);
 
 class PageAgeHistograms {
  public:
@@ -97,7 +97,7 @@ class PageAgeHistograms {
   // changed.
   void RecordRange(Length pages, bool released, int64_t when);
 
-  void Print(const char *label, TCMalloc_Printer *out) const;
+  void Print(const char* label, TCMalloc_Printer* out) const;
 
   static constexpr size_t kNumBuckets = 7;
   static constexpr size_t kNumSizes = 64;
@@ -106,7 +106,7 @@ class PageAgeHistograms {
   class Histogram {
    public:
     void Record(Length pages, double age);
-    void Print(TCMalloc_Printer *out) const;
+    void Print(TCMalloc_Printer* out) const;
 
     uint32_t pages_in_bucket(size_t i) const { return buckets_[i]; }
 
@@ -129,7 +129,7 @@ class PageAgeHistograms {
     double total_age_ = 0;
   };
 
-  const Histogram *GetSmallHistogram(bool released, Length n) const {
+  const Histogram* GetSmallHistogram(bool released, Length n) const {
     if (released) {
       return returned_.GetSmall(n);
     } else {
@@ -137,7 +137,7 @@ class PageAgeHistograms {
     }
   }
 
-  const Histogram *GetLargeHistogram(bool released) const {
+  const Histogram* GetLargeHistogram(bool released) const {
     if (released) {
       return returned_.GetLarge();
     } else {
@@ -145,7 +145,7 @@ class PageAgeHistograms {
     }
   }
 
-  const Histogram *GetTotalHistogram(bool released) {
+  const Histogram* GetTotalHistogram(bool released) {
     if (released) {
       return returned_.GetTotal();
     } else {
@@ -156,21 +156,21 @@ class PageAgeHistograms {
  private:
   struct PerSizeHistograms {
     void Record(Length pages, double age);
-    void Print(const char *kind, TCMalloc_Printer *out) const;
+    void Print(const char* kind, TCMalloc_Printer* out) const;
 
-    Histogram *GetSmall(Length n) {
+    Histogram* GetSmall(Length n) {
       CHECK_CONDITION(n.raw_num() < kNumSizes);
       return &small[n.raw_num() - 1];
     }
-    const Histogram *GetSmall(Length n) const {
+    const Histogram* GetSmall(Length n) const {
       CHECK_CONDITION(n.raw_num() < kNumSizes);
       return &small[n.raw_num() - 1];
     }
 
-    Histogram *GetLarge() { return &large; }
-    const Histogram *GetLarge() const { return &large; }
+    Histogram* GetLarge() { return &large; }
+    const Histogram* GetLarge() const { return &large; }
 
-    Histogram *GetTotal() { return &total; }
+    Histogram* GetTotal() { return &total; }
 
     Histogram small[kNumSizes - 1];
     Histogram large;
@@ -184,9 +184,9 @@ class PageAgeHistograms {
   PerSizeHistograms returned_;
 };
 
-void PrintStatsInPbtxt(PbtxtRegion *region, const SmallSpanStats &small,
-                       const LargeSpanStats &large,
-                       const PageAgeHistograms &ages);
+void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
+                       const LargeSpanStats& large,
+                       const PageAgeHistograms& ages);
 
 class PageAllocInfo {
  private:
@@ -194,7 +194,7 @@ class PageAllocInfo {
 
  public:
   // If log_fd >= 0, dump a page trace to it as record events come in.
-  PageAllocInfo(const char *label, int log_fd);
+  PageAllocInfo(const char* label, int log_fd);
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
@@ -202,8 +202,8 @@ class PageAllocInfo {
   void RecordFree(PageId p, Length n);
   void RecordRelease(Length n, Length got);
   // And invoking this in their Print() implementation.
-  void Print(TCMalloc_Printer *out) const;
-  void PrintInPbtxt(PbtxtRegion *region, absl::string_view stat_name) const;
+  void Print(TCMalloc_Printer* out) const;
+  void PrintInPbtxt(PbtxtRegion* region, absl::string_view stat_name) const;
 
   // Total size of allocations < 1 MiB
   Length small() const { return total_small_; }
@@ -214,7 +214,7 @@ class PageAllocInfo {
   // Return the total slack of all non-small allocations.
   Length slack() const { return total_slack_; }
 
-  const Counts &counts_for(Length n) const;
+  const Counts& counts_for(Length n) const;
 
   // Returns (approximate) CycleClock ticks since class instantiation.
   int64_t TimeTicks() const;
@@ -247,7 +247,7 @@ class PageAllocInfo {
   Counts small_[kMaxPages.raw_num()];
   // Indexed by power-of-two-buckets
   Counts large_[kAddressBits - kPageShift];
-  const char *label_;
+  const char* label_;
 
   const int64_t baseline_ticks_{absl::base_internal::CycleClock::Now()};
   const double freq_{absl::base_internal::CycleClock::Frequency()};

@@ -93,7 +93,7 @@ TEST(LargeSmallFrag, Test) {
         sized_delete(objects[i], kSmall);
       }
     }
-    allowed += 2*kSmall;
+    allowed += 2 * kSmall;
 
     MallocExtension::ReleaseMemoryToSystem(
         std::numeric_limits<size_t>::max());  // Simulate scavenging

@@ -30,7 +30,7 @@ namespace {
 static void TestAllocation() {
   static const int kNum = 1000;
   void* ptr[kNum];
-  for (int size = 8; size <= 65536; size*=2) {
+  for (int size = 8; size <= 65536; size *= 2) {
     for (int i = 0; i < kNum; i++) {
       ptr[i] = malloc(size);
     }

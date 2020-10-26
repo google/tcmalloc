@@ -117,9 +117,7 @@ class FakeTransferCacheEnvironment {
     cache_.Init(1);
   }
 
-  ~FakeTransferCacheEnvironment() {
-    Drain();
-  }
+  ~FakeTransferCacheEnvironment() { Drain(); }
 
   void Shrink() { cache_.ShrinkCache(); }
   void Grow() { cache_.GrowCache(); }

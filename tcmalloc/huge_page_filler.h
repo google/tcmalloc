@@ -48,7 +48,7 @@ class SkippedSubreleaseCorrectnessTracker {
     explicit SkippedSubreleaseDecision(Length pages, size_t count)
         : pages(pages), count(count) {}
 
-    SkippedSubreleaseDecision &operator+=(SkippedSubreleaseDecision rhs) {
+    SkippedSubreleaseDecision& operator+=(SkippedSubreleaseDecision rhs) {
       pages += rhs.pages;
       count += rhs.count;
       return *this;
@@ -68,9 +68,9 @@ class SkippedSubreleaseCorrectnessTracker {
 
   // Not copyable or movable
   SkippedSubreleaseCorrectnessTracker(
-      const SkippedSubreleaseCorrectnessTracker &) = delete;
-  SkippedSubreleaseCorrectnessTracker &operator=(
-      const SkippedSubreleaseCorrectnessTracker &) = delete;
+      const SkippedSubreleaseCorrectnessTracker&) = delete;
+  SkippedSubreleaseCorrectnessTracker& operator=(
+      const SkippedSubreleaseCorrectnessTracker&) = delete;
 
   void ReportSkippedSubreleasePages(
       Length skipped_pages, Length peak_pages,
@@ -102,7 +102,7 @@ class SkippedSubreleaseCorrectnessTracker {
     Length largest_peak_already_confirmed = last_confirmed_peak_;
 
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SkippedSubreleaseEntry &e) {
+        [&](size_t offset, int64_t ts, const SkippedSubreleaseEntry& e) {
           // Do not clear any decisions in the current epoch.
           if (offset == 0) {
             return;
@@ -264,8 +264,8 @@ class FillerStatsTracker {
         skipped_subrelease_correctness_(clock, w) {}
 
   // Not copyable or movable
-  FillerStatsTracker(const FillerStatsTracker &) = delete;
-  FillerStatsTracker &operator=(const FillerStatsTracker &) = delete;
+  FillerStatsTracker(const FillerStatsTracker&) = delete;
+  FillerStatsTracker& operator=(const FillerStatsTracker&) = delete;
 
   void Report(const FillerStats stats) {
     if (ABSL_PREDICT_FALSE(tracker_.Report(stats))) {
@@ -279,8 +279,8 @@ class FillerStatsTracker {
     }
   }
 
-  void Print(TCMalloc_Printer *out) const;
-  void PrintInPbtxt(PbtxtRegion *hpaa) const;
+  void Print(TCMalloc_Printer* out) const;
+  void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
   // Calculates recent peaks for skipping subrelease decisions. If our allocated
   // memory is below the demand peak within the last peak_interval, we stop
@@ -293,7 +293,7 @@ class FillerStatsTracker {
 
     int64_t num_epochs = peak_interval / epoch_length_;
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+        [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
           if (!e.empty()) {
             // Identify the maximum number of demand pages we have seen within
             // the time interval.
@@ -349,7 +349,7 @@ class FillerStatsTracker {
                                     static_cast<int64_t>(kEpochs));
 
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+        [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
           if (!e.empty()) {
             mins.free = std::min(mins.free, e.min_free_pages);
             mins.free_backed =
@@ -452,7 +452,7 @@ inline double safe_div(Length a, Length b) {
 }
 
 template <size_t kEpochs>
-void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
+void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer* out) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
   out->printf("HugePageFiller: time series over %d min interval\n\n",
               absl::ToInt64Minutes(summary_interval_));
@@ -463,7 +463,7 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   FillerStatsEntry at_peak_hps;
 
   tracker_.IterBackwards(
-      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+      [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
         if (!e.empty()) {
           if (at_peak_demand.empty() ||
               at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
@@ -534,7 +534,7 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
   Length total_subreleased;
   HugeLength total_broken = NHugePages(0);
   tracker_.Iter(
-      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+      [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
         total_subreleased += e.num_pages_subreleased;
         total_broken += e.num_hugepages_broken;
       },
@@ -547,7 +547,7 @@ void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
 }
 
 template <size_t kEpochs>
-void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   {
     auto skip_subrelease = hpaa->CreateSubRegion("filler_skipped_subrelease");
     skip_subrelease.PrintI64("skipped_subrelease_interval_ms",
@@ -576,12 +576,12 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   filler_stats.PrintI64("min_free_backed_pages",
                         free_pages.free_backed.raw_num());
 
-  static const char *labels[kNumStatsTypes] = {
+  static const char* labels[kNumStatsTypes] = {
       "at_minimum_demand", "at_maximum_demand", "at_minimum_huge_pages",
       "at_maximum_huge_pages"};
 
   tracker_.Iter(
-      [&](size_t offset, int64_t ts, const FillerStatsEntry &e) {
+      [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
         auto region = filler_stats.CreateSubRegion("measurements");
         region.PrintI64("epoch", offset);
         region.PrintI64("timestamp_ms",
@@ -620,7 +620,7 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
 template <MemoryModifyFunction Unback>
 class PageTracker : public TList<PageTracker<Unback>>::Elem {
  public:
-  static void UnbackImpl(void *p, size_t size) { Unback(p, size); }
+  static void UnbackImpl(void* p, size_t size) { Unback(p, size); }
 
   constexpr PageTracker(HugePage p, int64_t when)
       : location_(p),
@@ -699,8 +699,8 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
     ReleasePagesWithoutLock(p, n);
   }
 
-  void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                    PageAgeHistograms *ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                    PageAgeHistograms* ages) const;
 
  private:
   HugePage location_;
@@ -732,7 +732,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   bool unbroken_;
 
   void ReleasePages(PageId p, Length n) {
-    void *ptr = p.start_addr();
+    void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
     Unback(ptr, byte_len);
     unbroken_ = false;
@@ -742,7 +742,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
 
-    void *ptr = p.start_addr();
+    void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
     Unback(ptr, byte_len);
 
@@ -781,20 +781,20 @@ class HugePageFiller {
   // allocate new hugepages if needed.  This simplifies using it in a
   // few different contexts (and improves the testing story - no
   // dependencies.)
-  bool TryGet(Length n, TrackerType **hugepage, PageId *p)
+  bool TryGet(Length n, TrackerType** hugepage, PageId* p)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, p, n} was the result of a previous TryGet.
-  TrackerType *Put(TrackerType *pt, PageId p, Length n)
+  TrackerType* Put(TrackerType* pt, PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
   // marked as having come from the tail of a multi-hugepage allocation, which
   // causes it to be treated slightly differently.
-  void Contribute(TrackerType *pt, bool donated);
+  void Contribute(TrackerType* pt, bool donated);
 
   HugeLength size() const { return size_; }
 
@@ -832,13 +832,13 @@ class HugePageFiller {
                       bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                    PageAgeHistograms *ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                    PageAgeHistograms* ages) const;
 
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
-  void Print(TCMalloc_Printer *out, bool everything) const;
-  void PrintInPbtxt(PbtxtRegion *hpaa) const;
+  void Print(TCMalloc_Printer* out, bool everything) const;
+  void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
  private:
   typedef TList<TrackerType> TrackerList;
@@ -852,14 +852,14 @@ class HugePageFiller {
 
     // Removes a TrackerType from the first non-empty freelist with index at
     // least n and returns it. Returns nullptr if there is none.
-    TrackerType *GetLeast(const size_t n) {
+    TrackerType* GetLeast(const size_t n) {
       ASSERT(n < N);
       size_t i = nonempty_.FindSet(n);
       if (i == N) {
         return nullptr;
       }
       ASSERT(!lists_[i].empty());
-      TrackerType *pt = lists_[i].first();
+      TrackerType* pt = lists_[i].first();
       CHECK_CONDITION(pt != nullptr);
       if (lists_[i].remove(pt)) {
         nonempty_.ClearBit(i);
@@ -867,14 +867,14 @@ class HugePageFiller {
       --size_;
       return pt;
     }
-    void Add(TrackerType *pt, const size_t i) {
+    void Add(TrackerType* pt, const size_t i) {
       ASSERT(i < N);
       ASSERT(pt != nullptr);
       lists_[i].prepend(pt);
       nonempty_.SetBit(i);
       ++size_;
     }
-    void Remove(TrackerType *pt, const size_t i) {
+    void Remove(TrackerType* pt, const size_t i) {
       ASSERT(i < N);
       ASSERT(pt != nullptr);
       if (lists_[i].remove(pt)) {
@@ -882,11 +882,11 @@ class HugePageFiller {
       }
       --size_;
     }
-    TrackerList &operator[](const size_t n) {
+    TrackerList& operator[](const size_t n) {
       ASSERT(n < N);
       return lists_[n];
     }
-    const TrackerList &operator[](const size_t n) const {
+    const TrackerList& operator[](const size_t n) const {
       ASSERT(n < N);
       return lists_[n];
     }
@@ -896,12 +896,12 @@ class HugePageFiller {
     // This method is const but the Functor gets passed a non-const pointer.
     // This quirk is inherited from TrackerList.
     template <typename Functor>
-    void Iter(const Functor &func, size_t start) const {
+    void Iter(const Functor& func, size_t start) const {
       size_t i = nonempty_.FindSet(start);
       while (i < N) {
-        auto &list = lists_[i];
+        auto& list = lists_[i];
         ASSERT(!list.empty());
-        for (TrackerType *pt : list) {
+        for (TrackerType* pt : list) {
           func(pt);
         }
         i++;
@@ -923,7 +923,7 @@ class HugePageFiller {
   // Which chunk should this hugepage be in?
   // This returns the largest possible value kChunks-1 iff pt has a single
   // allocation.
-  size_t IndexFor(TrackerType *pt);
+  size_t IndexFor(TrackerType* pt);
   // Returns index for regular_alloc_.
   static size_t ListFor(Length longest, size_t chunk);
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
@@ -952,16 +952,16 @@ class HugePageFiller {
   HintedTrackerLists<kNumLists> regular_alloc_released_;
 
   // RemoveFromFillerList pt from the appropriate HintedTrackerList.
-  void RemoveFromFillerList(TrackerType *pt);
+  void RemoveFromFillerList(TrackerType* pt);
   // Put pt in the appropriate HintedTrackerList.
-  void AddToFillerList(TrackerType *pt);
+  void AddToFillerList(TrackerType* pt);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
-  void DonateToFillerList(TrackerType *pt);
+  void DonateToFillerList(TrackerType* pt);
 
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
-  static bool CompareForSubrelease(TrackerType *a, TrackerType *b) {
+  static bool CompareForSubrelease(TrackerType* a, TrackerType* b) {
     ASSERT(a != nullptr);
     ASSERT(b != nullptr);
 
@@ -974,14 +974,14 @@ class HugePageFiller {
   // To support gathering candidates from multiple tracker lists,
   // current_candidates is nonzero.
   template <size_t N>
-  static int SelectCandidates(absl::Span<TrackerType *> candidates,
+  static int SelectCandidates(absl::Span<TrackerType*> candidates,
                               int current_candidates,
-                              const HintedTrackerLists<N> &tracker_list,
+                              const HintedTrackerLists<N>& tracker_list,
                               size_t tracker_start);
 
   // Release desired pages from the page trackers in candidates.  Returns the
   // number of pages released.
-  Length ReleaseCandidates(absl::Span<TrackerType *> candidates, Length desired)
+  Length ReleaseCandidates(absl::Span<TrackerType*> candidates, Length desired)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size_;
@@ -1084,9 +1084,9 @@ inline Length PageTracker<Unback>::ReleaseFree() {
 }
 
 template <MemoryModifyFunction Unback>
-inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats *small,
-                                              LargeSpanStats *large,
-                                              PageAgeHistograms *ages) const {
+inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats* small,
+                                              LargeSpanStats* large,
+                                              PageAgeHistograms* ages) const {
   size_t index = 0, n;
 
   int64_t w = when_;
@@ -1163,8 +1163,8 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 
 template <class TrackerType>
 inline bool HugePageFiller<TrackerType>::TryGet(Length n,
-                                                TrackerType **hugepage,
-                                                PageId *p) {
+                                                TrackerType** hugepage,
+                                                PageId* p) {
   ASSERT(n > Length(0));
 
   // How do we choose which hugepage to allocate from (among those with
@@ -1232,7 +1232,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   // HintedTrackerList that *could* support our allocation, and it will be our
   // best choice. If there is none we repeat with the donated HintedTrackerList.
   if (n >= kPagesPerHugePage) return false;
-  TrackerType *pt;
+  TrackerType* pt;
 
   bool was_released = false;
   do {
@@ -1289,7 +1289,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
 // REQUIRES: pt is owned by this object (has been Contribute()), and
 // {pt, p, n} was the result of a previous TryGet.
 template <class TrackerType>
-inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageId p,
+inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
                                                      Length n) {
   // Consider releasing [p, p+n).  We do this here:
   // * To unback the memory before we mark it as free.  When partially
@@ -1352,7 +1352,7 @@ inline TrackerType *HugePageFiller<TrackerType>::Put(TrackerType *pt, PageId p,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
+inline void HugePageFiller<TrackerType>::Contribute(TrackerType* pt,
                                                     bool donated) {
   // A contributed huge page should not yet be subreleased.
   ASSERT(pt->released_pages() == Length(0));
@@ -1370,9 +1370,9 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType *pt,
 template <class TrackerType>
 template <size_t N>
 inline int HugePageFiller<TrackerType>::SelectCandidates(
-    absl::Span<TrackerType *> candidates, int current_candidates,
-    const HintedTrackerLists<N> &tracker_list, size_t tracker_start) {
-  auto PushCandidate = [&](TrackerType *pt) {
+    absl::Span<TrackerType*> candidates, int current_candidates,
+    const HintedTrackerLists<N>& tracker_list, size_t tracker_start) {
+  auto PushCandidate = [&](TrackerType* pt) {
     // If we have few candidates, we can avoid creating a heap.
     //
     // In ReleaseCandidates(), we unconditionally sort the list and linearly
@@ -1409,7 +1409,7 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
-    absl::Span<TrackerType *> candidates, Length target) {
+    absl::Span<TrackerType*> candidates, Length target) {
   absl::c_sort(candidates, CompareForSubrelease);
 
   Length total_released;
@@ -1418,7 +1418,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
   Length last;
 #endif
   for (int i = 0; i < candidates.size() && total_released < target; i++) {
-    TrackerType *best = candidates[i];
+    TrackerType* best = candidates[i];
     ASSERT(best != nullptr);
 
 #ifndef NDEBUG
@@ -1532,7 +1532,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
   // over many parts of the filler).  Since we hold pageheap_lock, we cannot
   // allocate here.
   constexpr size_t kCandidates = kPagesPerHugePage.raw_num();
-  using CandidateArray = std::array<TrackerType *, kCandidates>;
+  using CandidateArray = std::array<TrackerType*, kCandidates>;
 
   if (partial_rerelease_ == FillerPartialRerelease::Retain) {
     while (total_released < desired) {
@@ -1581,9 +1581,9 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddSpanStats(
-    SmallSpanStats *small, LargeSpanStats *large,
-    PageAgeHistograms *ages) const {
-  auto loop = [&](const TrackerType *pt) {
+    SmallSpanStats* small, LargeSpanStats* large,
+    PageAgeHistograms* ages) const {
+  auto loop = [&](const TrackerType* pt) {
     pt->AddSpanStats(small, large, ages);
   };
   // We can skip the first kChunks lists as they are known to be 100% full.
@@ -1648,7 +1648,7 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  void Record(const TrackerType *pt, Type which) {
+  void Record(const TrackerType* pt, Type which) {
     const Length free = kPagesPerHugePage - pt->used_pages();
     const Length lf = pt->longest_free_range();
     const size_t nalloc = pt->nallocs();
@@ -1659,7 +1659,7 @@ class UsageInfo {
     nalloc_histo_[which][BucketNum(nalloc - 1)]++;
   }
 
-  void Print(TCMalloc_Printer *out) {
+  void Print(TCMalloc_Printer* out) {
     PrintHisto(out, free_page_histo_[kRegular],
                "# of regular hps with a<= # of free pages <b", 0);
     PrintHisto(out, free_page_histo_[kDonated],
@@ -1684,7 +1684,7 @@ class UsageInfo {
                "# of released hps with a<= # of allocations <b", 1);
   }
 
-  void Print(PbtxtRegion *hpaa) {
+  void Print(PbtxtRegion* hpaa) {
     static constexpr absl::string_view kTrackerTypes[kNumTypes] = {
         "REGULAR", "DONATED", "PARTIAL", "RELEASED"};
     for (int i = 0; i < kNumTypes; ++i) {
@@ -1709,7 +1709,7 @@ class UsageInfo {
     return it - bucket_bounds_ - 1;
   }
 
-  void PrintHisto(TCMalloc_Printer *out, Histo h, const char blurb[],
+  void PrintHisto(TCMalloc_Printer* out, Histo h, const char blurb[],
                   size_t offset) {
     out->printf("\nHugePageFiller: %s", blurb);
     for (size_t i = 0; i < buckets_size_; ++i) {
@@ -1721,7 +1721,7 @@ class UsageInfo {
     out->printf("\n");
   }
 
-  void PrintHisto(PbtxtRegion *hpaa, Histo h, const char key[], size_t offset) {
+  void PrintHisto(PbtxtRegion* hpaa, Histo h, const char key[], size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
       auto hist = hpaa->CreateSubRegion(key);
       hist.PrintI64("lower_bound", bucket_bounds_[i] + offset);
@@ -1743,7 +1743,7 @@ class UsageInfo {
 }  // namespace internal
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
+inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer* out,
                                                bool everything) const {
   out->printf("HugePageFiller: densely pack small requests into hugepages\n");
 
@@ -1808,12 +1808,12 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
   using ::tcmalloc::internal::UsageInfo;
   UsageInfo usage;
   regular_alloc_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
   if (partial_rerelease_ == FillerPartialRerelease::Retain) {
     regular_alloc_partial_released_.Iter(
-        [&](const TrackerType *pt) {
+        [&](const TrackerType* pt) {
           usage.Record(pt, UsageInfo::kPartialReleased);
         },
         0);
@@ -1822,7 +1822,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
     ASSERT(n_used_partial_released_.raw_num() == 0);
   }
   regular_alloc_released_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kReleased); },
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
 
   out->printf("\n");
@@ -1834,7 +1834,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer *out,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   HugeLength nrel =
       regular_alloc_released_.size() + regular_alloc_partial_released_.size();
   HugeLength nfull = NHugePages(0);
@@ -1871,7 +1871,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   hpaa->PrintI64(
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(hugepage_frac() *
-                          static_cast<double>(allocated_.in_bytes())));
+                            static_cast<double>(allocated_.in_bytes())));
   hpaa->PrintI64("filler_num_pages_subreleased",
                  subrelease_stats_.total_pages_subreleased.raw_num());
   hpaa->PrintI64("filler_num_hugepages_broken",
@@ -1886,12 +1886,12 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   using ::tcmalloc::internal::UsageInfo;
   UsageInfo usage;
   regular_alloc_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
   if (partial_rerelease_ == FillerPartialRerelease::Retain) {
     regular_alloc_partial_released_.Iter(
-        [&](const TrackerType *pt) {
+        [&](const TrackerType* pt) {
           usage.Record(pt, UsageInfo::kPartialReleased);
         },
         0);
@@ -1900,7 +1900,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion *hpaa) const {
     ASSERT(n_used_partial_released_ == Length(0));
   }
   regular_alloc_released_.Iter(
-      [&](const TrackerType *pt) { usage.Record(pt, UsageInfo::kReleased); },
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
 
   usage.Print(hpaa);
@@ -1929,7 +1929,7 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType *pt) {
+inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) {
   ASSERT(!pt->empty());
   // Prefer to allocate from hugepages with many allocations already present;
   // spaced logarithmically.
@@ -1956,7 +1956,7 @@ inline size_t HugePageFiller<TrackerType>::ListFor(const Length longest,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 
@@ -1981,7 +1981,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType *pt) {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   size_t chunk = IndexFor(pt);
   Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
@@ -2007,7 +2007,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType *pt) {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType *pt) {
+inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
   ASSERT(longest < kPagesPerHugePage);
 

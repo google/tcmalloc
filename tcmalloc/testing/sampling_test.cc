@@ -41,7 +41,7 @@
 namespace tcmalloc {
 namespace {
 
-bool StackMatches(const char *target, const void *const *stack, size_t len) {
+bool StackMatches(const char* target, const void* const* stack, size_t len) {
   char buf[256];
 
   for (size_t i = 0; i < len; ++i) {
@@ -53,9 +53,9 @@ bool StackMatches(const char *target, const void *const *stack, size_t len) {
 }
 
 template <bool CheckSize>
-size_t CountMatchingBytes(const char *target, Profile profile) {
+size_t CountMatchingBytes(const char* target, Profile profile) {
   size_t sum = 0;
-  profile.Iterate([&](const Profile::Sample &e) {
+  profile.Iterate([&](const Profile::Sample& e) {
     if (e.requested_size == 10000 || !CheckSize) {
       if (StackMatches(target, e.stack, e.depth)) {
         sum += static_cast<size_t>(e.sum);
@@ -66,7 +66,7 @@ size_t CountMatchingBytes(const char *target, Profile profile) {
   return sum;
 }
 
-ABSL_ATTRIBUTE_NOINLINE static void *AllocateAllocate(bool align) {
+ABSL_ATTRIBUTE_NOINLINE static void* AllocateAllocate(bool align) {
   void* p;
   if (align) {
     // A 10000 byte allocation aligned to 2K will use a 10K size class
@@ -83,7 +83,7 @@ class SamplingTest : public testing::TestWithParam<int64_t> {};
 
 TEST_P(SamplingTest, ParamChange) {
   static const size_t kIters = 80 * 1000;
-  std::vector<void *> allocs;
+  std::vector<void*> allocs;
   allocs.reserve(kIters * 2);
 
   ScopedGuardedSamplingRate gs(-1);
@@ -134,8 +134,8 @@ INSTANTIATE_TEST_SUITE_P(SampleParameters, SamplingTest,
                          testing::Values(0, 100000),
                          testing::PrintToStringParamName());
 
-ABSL_ATTRIBUTE_NOINLINE static void *AllocateZeroByte() {
-  void *p = ::operator new(0);
+ABSL_ATTRIBUTE_NOINLINE static void* AllocateZeroByte() {
+  void* p = ::operator new(0);
   ::benchmark::DoNotOptimize(p);
   return p;
 }
@@ -145,7 +145,7 @@ TEST(Sampling, AlwaysSampling) {
   ScopedProfileSamplingRate s(1);
 
   static const size_t kIters = 80 * 1000;
-  std::vector<void *> allocs;
+  std::vector<void*> allocs;
   allocs.reserve(kIters);
   for (int i = 0; i < kIters; ++i) {
     allocs.push_back(AllocateZeroByte());
@@ -159,7 +159,7 @@ TEST(Sampling, AlwaysSampling) {
       "AllocateZeroByte", MallocExtension::SnapshotCurrent(ProfileType::kHeap));
   EXPECT_EQ(*alloc_size * kIters, bytes);
 
-  for (void *p : allocs) {
+  for (void* p : allocs) {
     ::operator delete(p);
   }
 }

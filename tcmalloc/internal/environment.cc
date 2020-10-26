@@ -23,11 +23,11 @@ namespace tcmalloc_internal {
 // the environment is changed (which is inherently unsafe) so it's safe to
 // return a const pointer into it.
 // e.g. { "SHELL=/bin/bash", "MY_ENV_VAR=1", "" }
-extern "C" char **environ;
-const char* thread_safe_getenv(const char *env_var) {
+extern "C" char** environ;
+const char* thread_safe_getenv(const char* env_var) {
   int var_len = strlen(env_var);
 
-  char **envv = environ;
+  char** envv = environ;
   if (!envv) {
     return nullptr;
   }

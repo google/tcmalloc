@@ -40,23 +40,19 @@ namespace percpu {
 // Restartable Sequence (RSEQ)
 
 extern "C" {
-  // We provide a per-thread value (defined in percpu_.c) which both tracks
-  // thread-local initialization state and (with RSEQ) provides an atomic
-  // in-memory reference for this thread's execution CPU.  This value is only
-  // valid when the thread is currently executing
-  // Possible values:
-  //   Unavailable/uninitialized:
-  //     { kCpuIdUnsupported, kCpuIdUninitialized }
-  //   Initialized, available:
-  //     [0, NumCpus())    (Always updated at context-switch)
+// We provide a per-thread value (defined in percpu_.c) which both tracks
+// thread-local initialization state and (with RSEQ) provides an atomic
+// in-memory reference for this thread's execution CPU.  This value is only
+// valid when the thread is currently executing
+// Possible values:
+//   Unavailable/uninitialized:
+//     { kCpuIdUnsupported, kCpuIdUninitialized }
+//   Initialized, available:
+//     [0, NumCpus())    (Always updated at context-switch)
 ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
     __rseq_abi = {
-        0,
-        static_cast<unsigned>(kCpuIdUninitialized),
-        0,
-        0,
-        {0, 0},
-        {{kCpuIdUninitialized, kCpuIdUninitialized}},
+        0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
+        {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
 ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t
@@ -70,8 +66,8 @@ ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t
 // * For non-initial-exec TLS, access is far more involved.  We call this helper
 //   function from percpu_rseq_ppc.S to leave the initialization and access to
 //   the compiler.
-ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void *tcmalloc_tls_fetch_pic() {
-  return const_cast<kernel_rseq *>(&__rseq_abi);
+ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void* tcmalloc_tls_fetch_pic() {
+  return const_cast<kernel_rseq*>(&__rseq_abi);
 }
 #endif
 
@@ -168,12 +164,12 @@ static bool SetAffinityOneCpu(int cpu) {
 
 // We're being asked to fence against the mask <cpus>, but a NULL mask
 // means every CPU.  Do we need <cpu>?
-static bool NeedCpu(int cpu, const cpu_set_t *cpus) {
+static bool NeedCpu(int cpu, const cpu_set_t* cpus) {
   if (cpus == nullptr) return true;
   return CPU_ISSET(cpu, cpus);
 }
 
-static void SlowFence(const cpu_set_t *cpus) {
+static void SlowFence(const cpu_set_t* cpus) {
   // Necessary, so the point in time mentioned below has visibility
   // of our writes.
   std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -268,7 +264,7 @@ static void SlowFence(const cpu_set_t *cpus) {
 // Interrupt every concurrently running sibling thread on any cpu in
 // "cpus", and guarantee our writes up til now are visible to every
 // other CPU. (cpus == NULL is equivalent to all CPUs.)
-static void FenceInterruptCPUs(const cpu_set_t *cpus) {
+static void FenceInterruptCPUs(const cpu_set_t* cpus) {
   CHECK_CONDITION(IsFast());
 
   // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
