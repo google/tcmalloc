@@ -30,7 +30,7 @@ exports_files(["LICENSE"])
 config_setting(
     name = "llvm",
     flag_values = {
-        "@bazel_tools//tools/cpp:compiler": "llvm",
+        "@bazel_tools//tools/cpp:compiler": "clang",
     },
     visibility = ["//visibility:private"],
 )
