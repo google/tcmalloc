@@ -481,13 +481,15 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   // next top bit to significantly reduce collisions with mappings that tend to
   // be placed in the upper half of the address space (e.g., stack, executable,
   // kernel-placed mmaps).  See b/139357826.
+  //
+  // TODO(b/124707070): Remove this #ifdef
 #if defined(MEMORY_SANITIZER) || defined(THREAD_SANITIZER)
   // MSan and TSan use up all of the lower address space, so we allow use of
   // mid-upper address space when they're active.  This only matters for
   // TCMalloc-internal tests, since sanitizers install their own malloc/free.
   constexpr uintptr_t kAddrMask = (uintptr_t{3} << (kAddressBits - 3)) - 1;
 #else
-  constexpr uintptr_t kAddrMask = (uintptr_t{1} << (kAddressBits - 2)) - 1;
+  constexpr uintptr_t kAddrMask = (uintptr_t{3} << (kAddressBits - 3)) - 1;
 #endif
 
   // Ensure alignment >= size so we're guaranteed the full mapping has the same
