@@ -102,13 +102,15 @@ class PageAllocator {
   ABSL_ATTRIBUTE_RETURNS_NONNULL PageAllocatorInterface* impl(
       MemoryTag tag) const;
 
+  static constexpr size_t kNumHeaps = 2;
+
   union Choices {
     Choices() : dummy(0) {}
     ~Choices() {}
     int dummy;
     PageHeap ph;
     HugePageAwareAllocator hpaa;
-  } choices_[2];
+  } choices_[kNumHeaps];
   PageAllocatorInterface* normal_impl_;
   PageAllocatorInterface* sampled_impl_;
   Algorithm alg_;

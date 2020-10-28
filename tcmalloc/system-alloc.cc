@@ -112,12 +112,14 @@ size_t RoundUpPowerOf2(size_t size) {
 
 class MmapRegion final : public AddressRegion {
  public:
-  MmapRegion(uintptr_t start, size_t size) : start_(start), free_size_(size) {}
+  MmapRegion(uintptr_t start, size_t size, AddressRegionFactory::UsageHint hint)
+      : start_(start), free_size_(size), hint_(hint) {}
   std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
 
  private:
   const uintptr_t start_;
   size_t free_size_;
+  const AddressRegionFactory::UsageHint hint_;
 };
 
 class MmapRegionFactory final : public AddressRegionFactory {
@@ -180,6 +182,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
         strerror(errno));
     return {nullptr, 0};
   }
+  (void)hint_;
   free_size_ -= actual_size;
   return {result_ptr, actual_size};
 }
@@ -190,7 +193,7 @@ AddressRegion* MmapRegionFactory::Create(void* start, size_t size,
   if (!region_space) return nullptr;
   bytes_reserved_.fetch_add(size, std::memory_order_relaxed);
   return new (region_space)
-      MmapRegion(reinterpret_cast<uintptr_t>(start), size);
+      MmapRegion(reinterpret_cast<uintptr_t>(start), size, hint);
 }
 
 size_t MmapRegionFactory::GetStats(absl::Span<char> buffer) {
