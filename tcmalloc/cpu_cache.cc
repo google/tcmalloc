@@ -171,10 +171,9 @@ void *CPUCache::Refill(int cpu, size_t cl) {
   // to_return, we insert them into transfer cache at the end of function
   // (to increase possibility that we stay on the current CPU as we are
   // refilling the list).
-  size_t returned = 0;
-  ObjectClass to_return[kNumClasses];
+  ObjectsToReturn to_return;
   const size_t target =
-      UpdateCapacity(cpu, cl, batch_length, false, to_return, &returned);
+      UpdateCapacity(cpu, cl, batch_length, false, &to_return);
 
   // Refill target objects in batch_length batches.
   size_t total = 0;
@@ -205,18 +204,16 @@ void *CPUCache::Refill(int cpu, size_t cl) {
   } while (got == batch_length && i == 0 && total < target &&
            cpu == GetCurrentVirtualCpuUnsafe());
 
-  for (size_t i = 0; i < returned; ++i) {
-    ObjectClass *ret = &to_return[i];
-    Static::transfer_cache().InsertRange(ret->cl,
-                                         absl::Span<void *>(&ret->obj, 1), 1);
+  for (int i = 0, n = to_return.count; i < n; ++i) {
+    Static::transfer_cache().InsertRange(
+        to_return.cl[i], absl::Span<void *>(&(to_return.obj[i]), 1), 1);
   }
 
   return result;
 }
 
 size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
-                                bool overflow, ObjectClass *to_return,
-                                size_t *returned) {
+                                bool overflow, ObjectsToReturn *to_return) {
   // Freelist size balancing strategy:
   //  - We grow a size class only on overflow/underflow.
   //  - We shrink size classes in Steal as it scans all size classes.
@@ -267,7 +264,7 @@ size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
-    Grow(cpu, cl, increase, to_return, returned);
+    Grow(cpu, cl, increase, to_return);
     capacity = freelist_.Capacity(cpu, cl);
   }
   // Calculate number of objects to return/request from transfer cache.
@@ -300,7 +297,7 @@ size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
 }
 
 void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
-                    ObjectClass *to_return, size_t *returned) {
+                    ObjectsToReturn *to_return) {
   const size_t size = Static::sizemap().class_to_size(cl);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes;
@@ -315,8 +312,7 @@ void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
       before, after, std::memory_order_relaxed, std::memory_order_relaxed));
 
   if (acquired_bytes < desired_bytes) {
-    acquired_bytes +=
-        Steal(cpu, cl, desired_bytes - acquired_bytes, to_return, returned);
+    acquired_bytes += Steal(cpu, cl, desired_bytes - acquired_bytes, to_return);
   }
 
   // We have all the memory we could reserve.  Time to actually do the growth.
@@ -337,7 +333,7 @@ void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
 
 // There are rather a lot of policy knobs we could tweak here.
 size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
-                       ObjectClass *to_return, size_t *returned) {
+                       ObjectsToReturn *to_return) {
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
   size_t acquired = 0;
@@ -410,10 +406,10 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
       }
       void *obj = freelist_.Pop(source_cl, NoopUnderflow);
       if (obj) {
-        ObjectClass *ret = &to_return[*returned];
-        ++(*returned);
-        ret->cl = source_cl;
-        ret->obj = obj;
+        const int n = to_return->count;
+        to_return->cl[n] = source_cl;
+        to_return->obj[n] = obj;
+        to_return->count = n + 1;
       }
     }
 
@@ -438,8 +434,7 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
 
 int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
   const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
-  const size_t target =
-      UpdateCapacity(cpu, cl, batch_length, true, nullptr, nullptr);
+  const size_t target = UpdateCapacity(cpu, cl, batch_length, true, nullptr);
   // Return target objects in batch_length batches.
   size_t total = 0;
   size_t count = 1;

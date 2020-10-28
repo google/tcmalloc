@@ -153,9 +153,13 @@ class CPUCache {
   // value in Parameters, as it can change after initialization.
   bool lazy_slabs_;
 
-  struct ObjectClass {
-    size_t cl;
-    void* obj;
+  struct ObjectsToReturn {
+    int count = 0;
+    // The size class of the returned object. kNumClasses is the
+    // largest value that needs to be stored in cl.
+    static_assert(kNumClasses <= std::numeric_limits<unsigned char>::max());
+    unsigned char cl[kNumClasses];
+    void* obj[kNumClasses];
   };
 
   void* Refill(int cpu, size_t cl);
@@ -167,22 +171,21 @@ class CPUCache {
 
   // Called on <cl> freelist overflow/underflow on <cpu> to balance cache
   // capacity between size classes. Returns number of objects to return/request
-  // from transfer cache. <to_return>[0...*returned) will contain objects that
-  // need to be freed.
+  // from transfer cache. <to_return> will contain objects that need to be
+  // freed.
   size_t UpdateCapacity(int cpu, size_t cl, size_t batch_length, bool overflow,
-                        ObjectClass* to_return, size_t* returned);
+                        ObjectsToReturn* to_return);
 
   // Tries to obtain up to <desired_increase> bytes of freelist space on <cpu>
-  // for <cl> from other <cls>. <to_return>[0...*returned) will contain objects
-  // that need to be freed.
-  void Grow(int cpu, size_t cl, size_t desired_increase, ObjectClass* to_return,
-            size_t* returned);
+  // for <cl> from other <cls>. <to_return> will contain objects that need to be
+  // freed.
+  void Grow(int cpu, size_t cl, size_t desired_increase,
+            ObjectsToReturn* to_return);
 
   // Tries to steal <bytes> for <cl> on <cpu> from other size classes on that
-  // CPU. Returns acquired bytes. <to_return>[0...*returned) will contain
-  // objects that need to be freed.
-  size_t Steal(int cpu, size_t cl, size_t bytes, ObjectClass* to_return,
-               size_t* returned);
+  // CPU. Returns acquired bytes. <to_return> will contain objects that need to
+  // be freed.
+  size_t Steal(int cpu, size_t cl, size_t bytes, ObjectsToReturn* to_return);
 
   static void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }
   static int NoopOverflow(int cpu, size_t cl, void* item) { return -1; }
