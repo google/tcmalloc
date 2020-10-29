@@ -67,6 +67,7 @@ tcmalloc_deps = [
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/memory",
     "@com_google_absl//absl/strings",
+    "//tcmalloc/internal:bits",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",

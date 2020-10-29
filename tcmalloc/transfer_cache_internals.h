@@ -565,11 +565,14 @@ class LockFreeTransferCache {
           max_capacity_,
           std::max<size_t>(batch_size_, (1024 * 1024) / (bytes * batch_size_) *
                                             batch_size_));
-      if (tcmalloc_internal::Bits::IsZeroOrPow2(max_capacity_)) {
+      if (tcmalloc_internal::Bits::IsZeroOrPow2(
+              static_cast<size_t>(max_capacity_))) {
         --max_capacity_;
         slots_mask_ = max_capacity_;
       } else {
-        slots_mask_ = tcmalloc_internal::Bits::RoundUpToPow2(max_capacity_) - 1;
+        slots_mask_ = tcmalloc_internal::Bits::RoundUpToPow2(
+                          static_cast<size_t>(max_capacity_)) -
+                      1;
       }
 
       capacity = std::min(capacity, max_capacity_);

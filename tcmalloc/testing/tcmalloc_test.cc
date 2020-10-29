@@ -70,6 +70,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/utility/utility.h"
+#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
@@ -500,7 +501,7 @@ TEST(TCMallocTest, EnormousAllocations) {
     size_t alignment = sizeof(p) << absl::Uniform(rand, 1, kLogMaxMemalign);
     ASSERT_NE(0, alignment);
     ASSERT_EQ(0, alignment % sizeof(void*));
-    ASSERT_EQ(0, (alignment & (alignment - 1)));
+    ASSERT_TRUE(tcmalloc_internal::Bits::IsPow2(alignment)) << alignment;
     int err = PosixMemalign(&p, alignment, size);
     ASSERT_EQ(ENOMEM, err);
   }

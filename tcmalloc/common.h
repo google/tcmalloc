@@ -383,8 +383,7 @@ class SizeMap {
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(size_t size,
                                                         size_t align,
                                                         uint32_t* cl) {
-    ASSERT(align > 0);
-    ASSERT((align & (align - 1)) == 0);
+    ASSERT(tcmalloc_internal::Bits::IsPow2(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
       return false;

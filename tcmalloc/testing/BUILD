@@ -37,6 +37,7 @@ REGTEST_DEPS = [
     "@com_google_absl//absl/strings:str_format",
     "@com_google_absl//absl/synchronization",
     "@com_google_absl//absl/utility",
+    "//tcmalloc/internal:bits",
     "//tcmalloc/internal:declarations",
     "//tcmalloc:malloc_extension",
 ]

@@ -89,6 +89,7 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
@@ -1759,7 +1760,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
 // Checks that an asserted object <ptr> has <align> alignment.
 bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
-  ASSERT((align & (align - 1)) == 0);
+  ASSERT(tcmalloc::tcmalloc_internal::Bits::IsPow2(align));
   return ((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) == 0);
 }
 
@@ -2249,8 +2250,7 @@ extern "C" ABSL_ATTRIBUTE_SECTION(
 #endif
 
 extern "C" void* TCMallocInternalMemalign(size_t align, size_t size) noexcept {
-  ASSERT(align != 0);
-  ASSERT((align & (align - 1)) == 0);
+  ASSERT(tcmalloc::tcmalloc_internal::Bits::IsPow2(align));
   return fast_alloc(MallocPolicy().AlignAs(align), size);
 }
 
@@ -2272,8 +2272,8 @@ extern "C" void* TCMallocInternalAlignedAlloc(size_t align,
 
 extern "C" int TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
                                              size_t size) noexcept {
-  if (((align % sizeof(void*)) != 0) || ((align & (align - 1)) != 0) ||
-      (align == 0)) {
+  if (((align % sizeof(void*)) != 0) ||
+      !tcmalloc::tcmalloc_internal::Bits::IsPow2(align)) {
     return EINVAL;
   }
   void* result = fast_alloc(MallocPolicy().Nothrow().AlignAs(align), size);

@@ -79,7 +79,7 @@ void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
 
   ASSERT(size <= page_size_);
   ASSERT(alignment <= page_size_);
-  ASSERT((alignment & (alignment - 1)) == 0);
+  ASSERT(tcmalloc_internal::Bits::IsZeroOrPow2(alignment));
   void *result = reinterpret_cast<void *>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");

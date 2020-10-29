@@ -90,24 +90,13 @@ AddressRegionFactory* region_factory = nullptr;
 // Rounds size down to a multiple of alignment.
 size_t RoundDown(const size_t size, const size_t alignment) {
   // Checks that the alignment has only one bit set.
-  ASSERT(alignment != 0 && (alignment & (alignment - 1)) == 0);
+  ASSERT(tcmalloc_internal::Bits::IsPow2(alignment));
   return (size) & ~(alignment - 1);
 }
 
 // Rounds size up to a multiple of alignment.
 size_t RoundUp(const size_t size, const size_t alignment) {
   return RoundDown(size + alignment - 1, alignment);
-}
-
-// Rounds size up to the nearest power of 2.
-// Requires: size <= (SIZE_MAX / 2) + 1.
-size_t RoundUpPowerOf2(size_t size) {
-  for (size_t i = 0; i < sizeof(size_t) * 8; ++i) {
-    size_t pow2 = size_t{1} << i;
-    if (pow2 >= size) return pow2;
-  }
-  CHECK_CONDITION(false && "size too big to round up");
-  return 0;
 }
 
 class MmapRegion final : public AddressRegion {
@@ -497,7 +486,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
 
   // Ensure alignment >= size so we're guaranteed the full mapping has the same
   // tag.
-  alignment = RoundUpPowerOf2(std::max(alignment, size));
+  alignment = tcmalloc_internal::Bits::RoundUpToPow2(std::max(alignment, size));
 
   rnd = Sampler::NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;

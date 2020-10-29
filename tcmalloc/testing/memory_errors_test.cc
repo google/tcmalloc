@@ -106,8 +106,8 @@ TEST_F(GuardedAllocAlignmentTest, New) {
       // for operator new is never larger than the size rounded up to the next
       // power of 2.  GuardedPageAllocator uses this fact to minimize alignment
       // padding between the end of small allocations and their guard pages.
-      int lg_size =
-          std::max(tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(size), 0);
+      int lg_size = std::max<int>(
+          tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(size), 0);
       size_t expected_align = std::min(size_t{1} << lg_size, kAlignment);
 
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % expected_align, 0);

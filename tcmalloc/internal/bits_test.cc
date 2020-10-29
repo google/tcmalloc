@@ -27,8 +27,8 @@ namespace tcmalloc_internal {
 namespace {
 
 TEST(BitsTest, Log2EdgeCases) {
-  EXPECT_EQ(-1, Bits::Log2Floor(0));
-  EXPECT_EQ(-1, Bits::Log2Ceiling(0));
+  EXPECT_EQ(-1, Bits::Log2Floor(0u));
+  EXPECT_EQ(-1, Bits::Log2Ceiling(0u));
 
   for (int i = 0; i < 32; i++) {
     uint32_t n = 1U << i;
@@ -41,6 +41,9 @@ TEST(BitsTest, Log2EdgeCases) {
       EXPECT_EQ(i + 1, Bits::Log2Ceiling(n + 1));
     }
   }
+
+  EXPECT_EQ(Bits::Log2Ceiling(uint64_t{0x40000000000}), 42);
+  EXPECT_EQ(Bits::Log2Floor(uint64_t{0x40000000000}), 42);
 }
 
 TEST(BitsTest, Log2Random) {
@@ -60,26 +63,40 @@ TEST(BitsTest, Log2Random) {
 }
 
 TEST(BitsTest, IsZeroOrPow2) {
-  EXPECT_TRUE(Bits::IsZeroOrPow2(0));
-  EXPECT_TRUE(Bits::IsZeroOrPow2(1));
-  EXPECT_TRUE(Bits::IsZeroOrPow2(2));
-  EXPECT_FALSE(Bits::IsZeroOrPow2(3));
-  EXPECT_TRUE(Bits::IsZeroOrPow2(4));
-  EXPECT_FALSE(Bits::IsZeroOrPow2(1337));
-  EXPECT_TRUE(Bits::IsZeroOrPow2(65536));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(0u));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(1u));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(2u));
+  EXPECT_FALSE(Bits::IsZeroOrPow2(3u));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(4u));
+  EXPECT_FALSE(Bits::IsZeroOrPow2(1337u));
+  EXPECT_TRUE(Bits::IsZeroOrPow2(65536u));
   EXPECT_FALSE(Bits::IsZeroOrPow2(std::numeric_limits<uint32_t>::max()));
   EXPECT_TRUE(Bits::IsZeroOrPow2(uint32_t{1} << 31));
 }
 
+TEST(BitsTest, IsPow2) {
+  EXPECT_FALSE(Bits::IsPow2(0u));
+  EXPECT_TRUE(Bits::IsPow2(1u));
+  EXPECT_TRUE(Bits::IsPow2(2u));
+  EXPECT_FALSE(Bits::IsPow2(3u));
+  EXPECT_TRUE(Bits::IsPow2(4u));
+  EXPECT_FALSE(Bits::IsPow2(1337u));
+  EXPECT_TRUE(Bits::IsPow2(65536u));
+  EXPECT_FALSE(Bits::IsPow2(std::numeric_limits<uint32_t>::max()));
+  EXPECT_TRUE(Bits::IsPow2(uint32_t{1} << 31));
+}
+
 TEST(BitsTest, RoundUpToPow2) {
-  EXPECT_EQ(Bits::RoundUpToPow2(0), 1);
-  EXPECT_EQ(Bits::RoundUpToPow2(1), 1);
-  EXPECT_EQ(Bits::RoundUpToPow2(2), 2);
-  EXPECT_EQ(Bits::RoundUpToPow2(3), 4);
-  EXPECT_EQ(Bits::RoundUpToPow2(4), 4);
-  EXPECT_EQ(Bits::RoundUpToPow2(1337), 2048);
-  EXPECT_EQ(Bits::RoundUpToPow2(65536), 65536);
-  EXPECT_EQ(Bits::RoundUpToPow2(65536 - 1337), 65536);
+  EXPECT_EQ(Bits::RoundUpToPow2(0u), 1);
+  EXPECT_EQ(Bits::RoundUpToPow2(1u), 1);
+  EXPECT_EQ(Bits::RoundUpToPow2(2u), 2);
+  EXPECT_EQ(Bits::RoundUpToPow2(3u), 4);
+  EXPECT_EQ(Bits::RoundUpToPow2(4u), 4);
+  EXPECT_EQ(Bits::RoundUpToPow2(1337u), 2048);
+  EXPECT_EQ(Bits::RoundUpToPow2(65536u), 65536);
+  EXPECT_EQ(Bits::RoundUpToPow2(65536u - 1337u), 65536);
+  EXPECT_EQ(Bits::RoundUpToPow2(uint64_t{0x40000000000}),
+            uint64_t{0x40000000000});
 }
 
 }  // namespace

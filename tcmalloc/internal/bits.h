@@ -15,6 +15,9 @@
 #ifndef TCMALLOC_INTERNAL_BITS_H_
 #define TCMALLOC_INTERNAL_BITS_H_
 
+#include <cstdint>
+#include <type_traits>
+
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
@@ -22,41 +25,55 @@ namespace tcmalloc_internal {
 
 class Bits {
  public:
-  static constexpr int Log2Floor(uint32_t n) {
-#if defined(__GNUC__)
-    return n == 0 ? -1 : 31 ^ __builtin_clz(n);
-#else
-    if (n == 0) return -1;
-    int log = 0;
-    uint32_t value = n;
-    for (int i = 4; i >= 0; --i) {
-      int shift = (1 << i);
-      uint32_t x = value >> shift;
-      if (x != 0) {
-        value = x;
-        log += shift;
-      }
-    }
-    ASSERT(value == 1);
-    return log;
-#endif
+  // Returns true if a value is zero or a power of two.
+  template <typename T>
+  static constexpr
+      typename std::enable_if<std::is_unsigned<T>::value, bool>::type
+      IsZeroOrPow2(T n) {
+    return (n & (n - 1)) == 0;
   }
 
-  static constexpr int Log2Ceiling(uint32_t n) {
-    int floor = Log2Floor(n);
+  // Returns true if a value is a power of two.
+  template <typename T>
+  static constexpr
+      typename std::enable_if<std::is_unsigned<T>::value, bool>::type
+      IsPow2(T n) {
+    return n != 0 && (n & (n - 1)) == 0;
+  }
+
+  template <typename T>
+  static constexpr typename std::enable_if<std::is_unsigned<T>::value, T>::type
+  Log2Floor(T n) {
+    if (n == 0) {
+      return -1;
+    }
+
+    if (sizeof(T) <= sizeof(unsigned int)) {
+      return std::numeric_limits<T>::digits - 1 - __builtin_clz(n);
+    } else if (sizeof(T) <= sizeof(unsigned long)) {
+      return std::numeric_limits<T>::digits - 1 - __builtin_clzl(n);
+    } else {
+      static_assert(sizeof(T) <= sizeof(unsigned long long));
+      return std::numeric_limits<T>::digits - 1 - __builtin_clzll(n);
+    }
+  }
+
+  template <typename T>
+  static constexpr typename std::enable_if<std::is_unsigned<T>::value, T>::type
+  Log2Ceiling(T n) {
+    T floor = Log2Floor(n);
     if (IsZeroOrPow2(n))
       return floor;
     else
       return floor + 1;
   }
 
-  static constexpr int RoundUpToPow2(uint32_t n) {
+  template <typename T>
+  static constexpr typename std::enable_if<std::is_unsigned<T>::value, T>::type
+  RoundUpToPow2(T n) {
     if (n == 0) return 1;
-    return 1 << Log2Ceiling(n);
+    return T{1} << Log2Ceiling(n);
   }
-
-  // Returns true if a value is zero or a power of two.
-  static constexpr bool IsZeroOrPow2(uint32_t n) { return (n & (n - 1)) == 0; }
 };
 
 }  // namespace tcmalloc_internal
