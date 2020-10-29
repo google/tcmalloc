@@ -631,6 +631,7 @@ cc_binary(
     srcs = ["transfer_cache_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    malloc = "//tcmalloc",
     deps = [
         ":common",
         ":mock_central_freelist",

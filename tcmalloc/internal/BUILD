@@ -119,6 +119,7 @@ cc_binary(
     srcs = ["linked_list_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    malloc = "//tcmalloc",
     deps = [
         ":linked_list",
         ":logging",
@@ -381,6 +382,7 @@ cc_binary(
     srcs = ["range_tracker_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    malloc = "//tcmalloc",
     deps = [
         ":range_tracker",
         "@com_github_google_benchmark//:benchmark_main",

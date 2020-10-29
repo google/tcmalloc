@@ -102,6 +102,7 @@ cc_binary(
     srcs = ["tcmalloc_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    malloc = "//tcmalloc",
     visibility = [
         "//visibility:private",
     ],
@@ -520,6 +521,7 @@ cc_binary(
     name = "empirical_distributions_benchmark",
     testonly = 1,
     srcs = ["empirical_distributions_benchmark.cc"],
+    malloc = "//tcmalloc",
     deps = [
         ":empirical_distributions",
         ":testutil",
