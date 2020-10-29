@@ -351,6 +351,19 @@ cc_library(
     alwayslink = 1,
 )
 
+# TEMPORARY. WILL BE REMOVED.
+# Add a dep to this if you want your binary to use old span sizes.
+cc_library(
+    name = "want_legacy_spans",
+    srcs = ["want_legacy_spans.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
+    alwayslink = 1,
+)
+
 cc_library(
     name = "runtime_size_classes",
     srcs = ["runtime_size_classes.cc"],

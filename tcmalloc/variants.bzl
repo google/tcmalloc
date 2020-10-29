@@ -39,6 +39,15 @@ variants = [
         "deps": ["//tcmalloc:common_small_but_slow"],
         "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
     },
+    {
+        "name": "legacy_spans",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common",
+            "//tcmalloc:want_legacy_spans",
+        ],
+        "copts": [],
+    },
 ]
 
 # Declare an individual test.
