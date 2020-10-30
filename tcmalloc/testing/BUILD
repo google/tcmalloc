@@ -261,7 +261,7 @@ cc_library(
     name = "thread_manager",
     testonly = 1,
     hdrs = ["thread_manager.h"],
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = ["//tcmalloc:tcmalloc_tests"],
     deps = [
         "@com_google_absl//absl/synchronization",
         "@com_google_googletest//:gtest",

@@ -498,7 +498,7 @@ cc_library(
 package_group(
     name = "tcmalloc_tests",
     packages = [
-        "//tcmalloc/testing/...",
+        "//tcmalloc/...",
     ],
 )
 
@@ -566,6 +566,7 @@ cc_library(
     ],
     hdrs = ["page_allocator_test_util.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
     deps = [
         ":common",
         ":malloc_extension",
