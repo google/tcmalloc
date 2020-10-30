@@ -16,6 +16,7 @@
 #include <stdlib.h>
 
 #include "gtest/gtest.h"
+#include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
@@ -60,6 +61,17 @@ TEST_F(SizeClassesTest, SmallClassesSinglePage) {
       continue;
     }
     EXPECT_EQ(m_.class_to_pages(c), 1) << max_size_in_class;
+  }
+}
+
+TEST_F(SizeClassesTest, SpanPages) {
+  for (int c = 1; c < kNumClasses; c++) {
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == 0) {
+      continue;
+    }
+    // A span of class_to_pages(c) must be able to hold at least one object.
+    EXPECT_GE(Length(m_.class_to_pages(c)).in_bytes(), max_size_in_class);
   }
 }
 
@@ -123,6 +135,18 @@ TEST_F(SizeClassesTest, DoubleCheckedConsistency) {
     const size_t s = m_.class_to_size(sc);
     EXPECT_LE(size, s);
     EXPECT_NE(s, 0) << size;
+  }
+}
+
+TEST_F(SizeClassesTest, NumToMove) {
+  for (int c = 1; c < kNumClasses; c++) {
+    // For non-empty size classes, we should move at least 1 object to/from each
+    // layer of the caches.
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == 0) {
+      continue;
+    }
+    EXPECT_GT(m_.num_objects_to_move(c), 0) << max_size_in_class;
   }
 }
 
@@ -247,6 +271,122 @@ TEST_F(RunTimeSizeClassesTest, EnvVariableNotExamined) {
   // Without runtime_size_classes library linked, the environment variable
   // should have no affect.
   EXPECT_NE(m_.class_to_size(1), 256);
+}
+
+TEST(SizeMapTest, GetSizeClass) {
+  absl::BitGen rng;
+  constexpr int kTrials = 1000;
+
+  SizeMap m;
+  // Before m.Init(), SizeClass should always return 0.
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform(rng, 0, 4 << 20);
+    uint32_t cl;
+    if (m.GetSizeClass(size, &cl)) {
+      EXPECT_EQ(cl, 0) << size;
+    } else {
+      // We should only fail to lookup the size class when size is outside of
+      // the size classes.
+      ASSERT_GT(size, kMaxSize);
+    }
+  }
+
+  // After m.Init(), GetSizeClass should return a size class.
+  m.Init();
+
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform(rng, 0, 4 << 20);
+    uint32_t cl;
+    if (m.GetSizeClass(size, &cl)) {
+      const size_t mapped_size = m.class_to_size(cl);
+      // The size class needs to hold size.
+      ASSERT_GE(mapped_size, size);
+    } else {
+      // We should only fail to lookup the size class when size is outside of
+      // the size classes.
+      ASSERT_GT(size, kMaxSize);
+    }
+  }
+}
+
+TEST(SizeMapTest, GetSizeClassWithAlignment) {
+  absl::BitGen rng;
+  constexpr int kTrials = 1000;
+
+  SizeMap m;
+  // Before m.Init(), SizeClass should always return 0.
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform(rng, 0, 4 << 20);
+    const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
+    uint32_t cl;
+    if (m.GetSizeClass(size, alignment, &cl)) {
+      EXPECT_EQ(cl, 0) << size << " " << alignment;
+    } else if (alignment < kPageSize) {
+      // When alignment > kPageSize, we do not produce a size class.
+      // TODO(b/172060547): alignment == kPageSize could fit into the size
+      // classes too.
+      //
+      // We should only fail to lookup the size class when size is large.
+      ASSERT_GT(size, kMaxSize) << alignment;
+    }
+  }
+
+  // After m.Init(), GetSizeClass should return a size class.
+  m.Init();
+
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform(rng, 0, 4 << 20);
+    const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
+    uint32_t cl;
+    if (m.GetSizeClass(size, alignment, &cl)) {
+      const size_t mapped_size = m.class_to_size(cl);
+      // The size class needs to hold size.
+      ASSERT_GE(mapped_size, size);
+      // The size needs to be a multiple of alignment.
+      ASSERT_EQ(mapped_size % alignment, 0);
+    } else if (alignment < kPageSize) {
+      // When alignment > kPageSize, we do not produce a size class.
+      // TODO(b/172060547): alignment == kPageSize could fit into the size
+      // classes too.
+      //
+      // We should only fail to lookup the size class when size is large.
+      ASSERT_GT(size, kMaxSize) << alignment;
+    }
+  }
+}
+
+TEST(SizeMapTest, SizeClass) {
+  absl::BitGen rng;
+  constexpr int kTrials = 1000;
+
+  SizeMap m;
+  // Before m.Init(), SizeClass should always return 0.
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
+    EXPECT_EQ(m.SizeClass(size), 0) << size;
+  }
+
+  // After m.Init(), SizeClass should return a size class.
+  m.Init();
+
+  for (int i = 0; i < kTrials; ++i) {
+    const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
+    uint32_t cl = m.SizeClass(size);
+
+    const size_t mapped_size = m.class_to_size(cl);
+    // The size class needs to hold size.
+    ASSERT_GE(mapped_size, size);
+  }
+}
+
+TEST(SizeMapTest, Preinit) {
+  ABSL_CONST_INIT static SizeMap m;
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    EXPECT_EQ(m.class_to_size(cl), 0) << cl;
+    EXPECT_EQ(m.class_to_pages(cl), 0) << cl;
+    EXPECT_EQ(m.num_objects_to_move(cl), 0) << cl;
+  }
 }
 
 }  // namespace

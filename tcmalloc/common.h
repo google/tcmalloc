@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include "absl/base/attributes.h"
+#include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/strings/string_view.h"
@@ -286,14 +287,14 @@ class SizeMap {
   // first member so that it inherits the overall alignment of a SizeMap
   // instance.  In particular, if we create a SizeMap instance that's cache-line
   // aligned, this member is also aligned to the width of a cache line.
-  unsigned char class_array_[kClassArraySize];
+  unsigned char class_array_[kClassArraySize] = {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  BatchSize num_objects_to_move_[kNumClasses];
+  BatchSize num_objects_to_move_[kNumClasses] = {0};
 
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
@@ -317,10 +318,10 @@ class SizeMap {
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  unsigned char class_to_pages_[kNumClasses];
+  unsigned char class_to_pages_[kNumClasses] = {0};
 
   // Mapping from size class to max size storable in that class
-  uint32_t class_to_size_[kNumClasses];
+  uint32_t class_to_size_[kNumClasses] = {0};
 
   // If environment variable defined, use it to override sizes classes.
   // Returns true if all classes defined correctly.
@@ -346,9 +347,9 @@ class SizeMap {
   static const int kExperimental4kSizeClassesCount;
 
  public:
-  // Constructor should do nothing since we rely on explicit Init()
-  // call, which may or may not be called before the constructor runs.
-  SizeMap() {}
+  // constexpr constructor to guarantee zero-initialization at compile-time.  We
+  // rely on Init() to populate things.
+  constexpr SizeMap() = default;
 
   // Initialize the mapping arrays
   void Init();
@@ -358,6 +359,9 @@ class SizeMap {
   // class value `kMaxSize'.
   // Important: this function may return true with *cl == 0 if this
   // SizeMap instance has not (yet) been initialized.
+  //
+  // TODO(b/171978365): Replace the output parameter with returning
+  // absl::optional<uint32_t>.
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(size_t size,
                                                         uint32_t* cl) {
     uint32_t idx;
@@ -386,9 +390,12 @@ class SizeMap {
     ASSERT(tcmalloc_internal::Bits::IsPow2(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
+      // TODO(b/172060547): Consider changing this to align > kPageSize.
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
     if (ABSL_PREDICT_FALSE(!GetSizeClass(size, cl))) {
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
 
@@ -401,6 +408,7 @@ class SizeMap {
       }
     } while (++*cl < kNumClasses);
 
+    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
     return false;
   }
 

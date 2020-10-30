@@ -995,6 +995,7 @@ create_tcmalloc_testsuite(
     deps = [
         ":size_class_info",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
 )
