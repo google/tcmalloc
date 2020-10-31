@@ -196,8 +196,10 @@ class PageTrackerTest : public testing::Test {
         EXPECT_EQ(expected_[i].ptr, actual_[i].ptr);
         EXPECT_EQ(expected_[i].len, actual_[i].len);
       }
-      memset(expected_, 0, sizeof(expected_));
-      memset(actual_, 0, sizeof(actual_));
+      for (auto i = 0ul; i < kMaxCalls; i ++) {
+        expected_[i] = {};
+        actual_[i] = {};
+      }
       expected_index_ = 0;
       actual_index_ = 0;
     }
