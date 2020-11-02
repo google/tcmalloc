@@ -112,7 +112,7 @@ static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
 const int kLogMaxMemalign = 18;
 
 static const int kSizeBits = 8 * sizeof(size_t);
-static const size_t kMaxSize = ~static_cast<size_t>(0);
+static const size_t kMaxTestSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
 namespace tcmalloc {
@@ -166,9 +166,9 @@ TEST(TcmallocTest, Calloc) {
       {1 << 20, 2, true},
       {2, 1 << 20, true},
       {1000, 1000, true},
-      {kMaxSize, 2, false},
-      {2, kMaxSize, false},
-      {kMaxSize, kMaxSize, false},
+      {kMaxTestSize, 2, false},
+      {2, kMaxTestSize, false},
+      {kMaxTestSize, kMaxTestSize, false},
       {kMaxSignedSize, 3, false},
       {3, kMaxSignedSize, false},
       {kMaxSignedSize, kMaxSignedSize, false},
@@ -344,7 +344,7 @@ class AllocatorHarness {
     const double coin = absl::Uniform(state.rng, 0., 1.);
     if (coin < 0.45) {
       // Allocate
-      size_t size = absl::LogUniform<size_t>(state.rng, 1, kMaxSize);
+      size_t size = absl::LogUniform<size_t>(state.rng, 1, kMaxTestSize);
 
       bool success = false;
       {
@@ -438,7 +438,7 @@ class AllocatorHarness {
     }
   }
 
-  static constexpr size_t kMaxSize = 1 << 16;
+  static constexpr size_t kMaxTestSize = 1 << 16;
   static constexpr size_t kSizePerThread = 4 << 20;
 
   int nthreads_;
@@ -483,7 +483,7 @@ TEST(TCMallocTest, EnormousAllocations) {
   // Check that asking for stuff tiny bit smaller than largest possible
   // size returns NULL.
   for (size_t i = 0; i < 70000; i += absl::Uniform(rand, 1, 20)) {
-    size_t size = kMaxSize - i;
+    size_t size = kMaxTestSize - i;
     // Convince the compiler that size may change, as to suppress
     // optimization/warnings around the size being too large.
     benchmark::DoNotOptimize(size);
@@ -796,7 +796,7 @@ TEST(TCMallocTest, AlignedNewArray) {
 TEST(TCMallocTest, NothrowAlignedNew) {
   absl::BitGen rand;
   for (int i = 1; i < 100; ++i) {
-    size_t size = kMaxSize - i;
+    size_t size = kMaxTestSize - i;
     std::align_val_t alignment =
         static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
     // Convince the compiler that size may change, as to suppress
@@ -820,7 +820,7 @@ TEST(TCMallocTest, NothrowAlignedNew) {
 TEST(TCMallocTest, NothrowAlignedNewArray) {
   absl::BitGen rand;
   for (int i = 1; i < 100; ++i) {
-    size_t size = kMaxSize - i;
+    size_t size = kMaxTestSize - i;
     std::align_val_t alignment =
         static_cast<std::align_val_t>(1 << absl::Uniform(rand, 0, 6));
     // Convince the compiler that size may change, as to suppress
