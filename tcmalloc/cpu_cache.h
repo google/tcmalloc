@@ -153,13 +153,16 @@ class CPUCache {
   // value in Parameters, as it can change after initialization.
   bool lazy_slabs_;
 
+  // Return a set of objects to be returned to the Transfer Cache.
+  static constexpr int kMaxToReturn = 16;
   struct ObjectsToReturn {
-    int count = 0;
+    // The number of slots available for storing objects.
+    int count = kMaxToReturn;
     // The size class of the returned object. kNumClasses is the
     // largest value that needs to be stored in cl.
     static_assert(kNumClasses <= std::numeric_limits<unsigned char>::max());
-    unsigned char cl[kNumClasses];
-    void* obj[kNumClasses];
+    unsigned char cl[kMaxToReturn];
+    void* obj[kMaxToReturn];
   };
 
   void* Refill(int cpu, size_t cl);

@@ -204,7 +204,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
   } while (got == batch_length && i == 0 && total < target &&
            cpu == GetCurrentVirtualCpuUnsafe());
 
-  for (int i = 0, n = to_return.count; i < n; ++i) {
+  for (int i = to_return.count; i < kMaxToReturn; ++i) {
     Static::transfer_cache().InsertRange(
         to_return.cl[i], absl::Span<void *>(&(to_return.obj[i]), 1), 1);
   }
@@ -404,12 +404,15 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
       if (to_return == nullptr) {
         continue;
       }
+      if (to_return->count == 0) {
+        // Can't steal any more because the to_return set is full.
+        break;
+      }
       void *obj = freelist_.Pop(source_cl, NoopUnderflow);
       if (obj) {
-        const int n = to_return->count;
-        to_return->cl[n] = source_cl;
-        to_return->obj[n] = obj;
-        to_return->count = n + 1;
+        --to_return->count;
+        to_return->cl[to_return->count] = source_cl;
+        to_return->obj[to_return->count] = obj;
       }
     }
 
