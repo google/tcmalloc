@@ -192,12 +192,11 @@ class PageTrackerTest : public testing::Test {
 
     void VerifyAndClear() {
       EXPECT_EQ(expected_index_, actual_index_);
-      for (size_t i = 0; i < expected_index_; ++i) {
+      for (size_t i = 0, n = std::min(expected_index_, actual_index_); i < n;
+           ++i) {
         EXPECT_EQ(expected_[i].ptr, actual_[i].ptr);
         EXPECT_EQ(expected_[i].len, actual_[i].len);
       }
-      memset(expected_, 0, sizeof(expected_));
-      memset(actual_, 0, sizeof(actual_));
       expected_index_ = 0;
       actual_index_ = 0;
     }
