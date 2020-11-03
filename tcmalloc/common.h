@@ -287,7 +287,8 @@ class SizeMap {
   // first member so that it inherits the overall alignment of a SizeMap
   // instance.  In particular, if we create a SizeMap instance that's cache-line
   // aligned, this member is also aligned to the width of a cache line.
-  unsigned char class_array_[kClassArraySize] = {0};
+  unsigned char class_array_[kClassArraySize * (kHasExpandedClasses ? 2 : 1)] =
+      {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can

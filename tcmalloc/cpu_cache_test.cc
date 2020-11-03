@@ -110,7 +110,7 @@ TEST(CpuCacheTest, Metadata) {
         EXPECT_GE(r.resident_size, 4096);
         break;
       case 18:
-        EXPECT_GE(r.resident_size, 135168);
+        EXPECT_GE(r.resident_size, 110592);
         break;
       default:
         ASSUME(false);

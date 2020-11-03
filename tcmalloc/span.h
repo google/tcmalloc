@@ -167,10 +167,11 @@ class Span : public SpanList::Elem {
   // Prefetch cacheline containing most important span information.
   void Prefetch();
 
+  static constexpr size_t kCacheSize = 4;
+
  private:
   // See the comment on freelist organization in cc file.
   typedef uint16_t ObjIdx;
-  static constexpr size_t kCacheSize = 4;
   static constexpr ObjIdx kListEnd = -1;
 
   // Use uint16_t or uint8_t for 16 bit and 8 bit fields instead of bitfields.

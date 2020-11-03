@@ -1505,19 +1505,24 @@ inline size_t ShouldSampleAllocation(size_t size) {
   return GetThreadSampler()->RecordAllocation(size);
 }
 
-inline void* do_malloc_pages(size_t size, size_t alignment) {
+inline void* do_malloc_pages(size_t size,
+                             size_t alignment
+) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages =
       std::max<Length>(tcmalloc::BytesToLengthCeil(size), Length(1));
 
+  MemoryTag tag = MemoryTag::kNormal;
   Span* span = Static::page_allocator().NewAligned(
-      num_pages, tcmalloc::BytesToLengthCeil(alignment), MemoryTag::kNormal);
+      num_pages, tcmalloc::BytesToLengthCeil(alignment), tag);
 
   if (span == nullptr) {
     return nullptr;
   }
 
   void* result = span->start_address();
+  ASSERT(
+      tag == tcmalloc::GetMemoryTag(span->start_address()));
 
   if (size_t weight = ShouldSampleAllocation(size)) {
     CHECK_CONDITION(result == SampleifyAllocation(size, weight, alignment, 0,
@@ -1603,7 +1608,8 @@ static void do_free_pages(void* ptr, const PageId p) {
   }
 
   if (proxy) {
-    FreeSmall<Hooks::NO>(proxy, Static::sizemap().SizeClass(size));
+    const size_t cl = Static::sizemap().SizeClass(size);
+    FreeSmall<Hooks::NO>(proxy, cl);
   }
 }
 
@@ -1692,9 +1698,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // The optimized path doesn't work with sampled objects, whose deletions
   // trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(tcmalloc::IsSampledMemory(ptr))) {
-    // we don't know true class size of the ptr
-    if (ptr == nullptr) return;
-    return FreePages(ptr);
+      // we don't know true class size of the ptr
+      if (ptr == nullptr) return;
+      return FreePages(ptr);
   }
 
   // At this point, since ptr's tag bit is 1, it means that it
@@ -1752,7 +1758,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
     size = tcmalloc::BytesToLengthCeil(size).in_bytes();
   }
   size_t actual = GetSize(ptr);
-  if (actual == size) return true;
+  if (ABSL_PREDICT_TRUE(actual == size)) return true;
   Log(kLog, __FILE__, __LINE__, "size check failed", actual, size, cl);
   return false;
 }
@@ -1810,11 +1816,15 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   GetThreadSampler()->UpdateFastPathState();
   void* p;
   uint32_t cl;
-  bool is_small = Static::sizemap().GetSizeClass(size, policy.align(), &cl);
+  bool is_small =
+      Static::sizemap().GetSizeClass(size, policy.align(),
+                                     &cl);
   if (ABSL_PREDICT_TRUE(is_small)) {
     p = AllocSmall(policy, cl, size, capacity);
   } else {
-    p = do_malloc_pages(size, policy.align());
+    p = do_malloc_pages(size,
+                        policy.align()
+    );
     // Set capacity to the exact size for a page allocation.
     // This needs to be revisited if we introduce gwp-asan
     // sampling / guarded allocations to do_malloc_pages().
@@ -1837,7 +1847,9 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
   uint32_t cl;
-  bool is_small = Static::sizemap().GetSizeClass(size, policy.align(), &cl);
+  bool is_small =
+      Static::sizemap().GetSizeClass(size, policy.align(),
+                                     &cl);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     return slow_alloc(policy, size, capacity);
   }

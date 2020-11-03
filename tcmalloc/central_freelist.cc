@@ -25,6 +25,10 @@
 
 namespace tcmalloc {
 
+static MemoryTag MemoryTagFromSizeClass(size_t cl) {
+  return MemoryTag::kNormal;
+}
+
 // Like a constructor and hence we disable thread safety analysis.
 void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = cl;
@@ -84,12 +88,15 @@ void CentralFreeList::InsertRange(void** batch, int N) {
 
   // Then, release all free spans into page heap under its mutex.
   if (free_count) {
+    const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     for (int i = 0; i < free_count; ++i) {
       Span* const free_span = free_spans[i];
-      ASSERT(!IsSampledMemory(free_span->start_address()));
+      ASSERT(IsNormalMemory(free_span->start_address())
+      );
       Static::pagemap().UnregisterSizeClass(free_span);
-      Static::page_allocator().Delete(free_span, MemoryTag::kNormal);
+      ASSERT(tag == GetMemoryTag(free_span->start_address()));
+      Static::page_allocator().Delete(free_span, tag);
     }
   }
 }
@@ -120,8 +127,9 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   lock_.Unlock();
 
-  Span* span =
-      Static::page_allocator().New(pages_per_span_, MemoryTag::kNormal);
+  const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
+  Span* span = Static::page_allocator().New(pages_per_span_, tag);
+  ASSERT(tag == GetMemoryTag(span->start_address()));
   if (span == nullptr) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());

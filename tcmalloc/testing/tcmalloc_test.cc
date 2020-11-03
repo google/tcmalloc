@@ -1043,8 +1043,8 @@ TEST(TCMallocTest, ReclaimWorks) {
   std::string before, after;
   // Allocate strings, so that they (probably) don't need to be reallocated
   // below, and so don't perturb what we're trying to measure.
-  before.reserve(1 << 17);
-  after.reserve(1 << 17);
+  before.reserve(1 << 18);
+  after.reserve(1 << 18);
 
   // Generate some traffic to fill up caches.
   const int kThreads = 10;

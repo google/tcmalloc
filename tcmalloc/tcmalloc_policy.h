@@ -159,7 +159,8 @@ class TCMallocPolicy {
   }
 
   // Returns this policy with NewAllocHook invocations disabled.
-  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, NoHooksPolicy> WithoutHooks()
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, NoHooksPolicy>
+  WithoutHooks()
       const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, NoHooksPolicy>(align_);
   }
