@@ -121,7 +121,7 @@ label##_trampoline:                                               \
  */
 #define ENCODE_SIZE(label) .size label, . - label
 /* We are assuming small memory model.  */
-#if __clang_major__ >= 9 && !defined(__AARCH64_CMODEL_SMALL__)
+#if __clang_major__ >= 11 && !defined(__AARCH64_CMODEL_SMALL__)
 #error "Memory model not supported!"
 #endif
 
