@@ -775,7 +775,7 @@ class LockFreeTransferCache {
       int32_t cur;
       do {
         for (int i = 1024; i > 0; --i) {
-          cur = v_.load(std::memory_order_relaxed);
+          cur = v_.load(std::memory_order_acquire);
           if (cur == expected) return;
 #ifdef __x86_64__
           _mm_pause();
