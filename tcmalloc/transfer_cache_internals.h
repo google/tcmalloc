@@ -501,6 +501,10 @@ class LockFreeTransferCache {
   using FreeList = CentralFreeList;
   static constexpr int kMaxCapacityInBatches = 64;
   static constexpr int kInitialCapacityInBatches = 16;
+  // Initialize the queue sequence at a number close to where it will overflow.
+  // There's no cost to doing this and it ensures tests cover the overflow case.
+  static constexpr uint32_t kInitSequenceNumber =
+      std::numeric_limits<uint32_t>::max() - kMaxObjectsToMove;
 
   constexpr explicit LockFreeTransferCache(Manager *owner)
       : LockFreeTransferCache(owner, 0) {}
@@ -517,14 +521,14 @@ class LockFreeTransferCache {
         freelist_(),
         max_capacity_(0),
         capacity_(),
-        head_(),
+        head_(kInitSequenceNumber),
         insert_hits_(0),
         insert_misses_(0),
-        head_committed_(),
-        tail_(),
+        head_committed_(kInitSequenceNumber),
+        tail_(kInitSequenceNumber),
         remove_hits_(0),
         remove_misses_(0),
-        tail_committed_() {}
+        tail_committed_(kInitSequenceNumber) {}
 
   LockFreeTransferCache(const LockFreeTransferCache &) = delete;
   LockFreeTransferCache &operator=(const LockFreeTransferCache &) = delete;
@@ -627,11 +631,7 @@ class LockFreeTransferCache {
                          tail_committed_.load(std::memory_order_relaxed));
   }
 
-  uint32_t size_from_pos(uint32_t h, uint32_t t) const {
-    uint32_t s = h - t;
-    if (ABSL_PREDICT_FALSE(h < t)) s += slots_mask_ + 1;
-    return s;
-  }
+  uint32_t size_from_pos(uint32_t h, uint32_t t) const { return h - t; }
 
   // Returns the number of spans allocated and deallocated from the CFL
   SpanStats GetSpanStats() const { return freelist_.GetSpanStats(); }
@@ -738,6 +738,8 @@ class LockFreeTransferCache {
   class SpinValue {
    public:
     constexpr SpinValue() : v_(0), sleepers_(0) {}
+    explicit constexpr SpinValue(uint32_t v)
+        : v_(absl::bit_cast<int32_t>(v)), sleepers_(0) {}
 
     // Fetches the current value.
     ABSL_ATTRIBUTE_ALWAYS_INLINE
