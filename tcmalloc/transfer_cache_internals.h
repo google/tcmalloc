@@ -752,8 +752,11 @@ class LockFreeTransferCache {
       const int32_t start = absl::bit_cast<int32_t>(r.start);
       const int32_t end = absl::bit_cast<int32_t>(r.end);
       int32_t temp_pos;
+      // Acquire release here so that a thread that acquires what we see will
+      // also see any values that we implicitly saw when we succeeded on the
+      // exchange.
       if (ABSL_PREDICT_FALSE(!v_.compare_exchange_strong(
-              temp_pos = start, end, std::memory_order_release,
+              temp_pos = start, end, std::memory_order_acq_rel,
               std::memory_order_relaxed))) {
         AwaitEqual(r.start, quanta);
         temp_pos = v_.exchange(end, std::memory_order_release);
@@ -768,7 +771,8 @@ class LockFreeTransferCache {
 
     // Waits for the value to be equal to `e`.  `quanta` is used for computing a
     // Futex mask and *MUST* be the same as all calls to quanta passed to
-    // AdvanceCommitLine.
+    // AdvanceCommitLine.  Provides an acquire memory order on any release that
+    // set the `this->value()` to `e`.
     ABSL_ATTRIBUTE_NOINLINE
     void AwaitEqual(uint32_t e, int32_t quanta) {
       const int32_t expected = absl::bit_cast<int32_t>(e);
