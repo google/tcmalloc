@@ -15,9 +15,11 @@
 #include "tcmalloc/transfer_cache.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <random>
 #include <thread>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -119,6 +121,82 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   for (int i = 0; i < 100; ++i) {
     env.Remove(batch_size);
     env.Insert(batch_size);
+  }
+}
+
+// PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
+// coprime with 2^32.  We choose the largest possible batch size within that
+// constraint to minimize the number of iterations of insert/remove required.
+static size_t PickCoprimeBatchSize(size_t max_batch_size) {
+  while (max_batch_size > 1) {
+    if ((size_t{1} << 32) % max_batch_size != 0) {
+      return max_batch_size;
+    }
+    max_batch_size--;
+  }
+
+  return max_batch_size;
+}
+
+TEST(LockTransferCacheTest, b172283201) {
+  // This test is designed to exercise the wraparound behavior for the
+  // LockFreeTransferCache, which manages its indices in uint32_t's.
+
+  // For performance reasons, limit to optimized builds.
+#if !defined(NDEBUG)
+  GTEST_SKIP() << "skipping long running test on debug build";
+#elif defined(THREAD_SANITIZER)
+  // This test is single threaded, so thread sanitizer will not be useful.
+  GTEST_SKIP() << "skipping under thread sanitizer, which slows test execution";
+#endif
+
+  using EnvType = FakeTransferCacheEnvironment<
+      internal_transfer_cache::LockFreeTransferCache<MockCentralFreeList,
+                                                     MockTransferCacheManager>>;
+  EnvType env;
+
+  // We pick the largest value <= EnvType::kBatchSize to use as a batch size,
+  // such that it is prime relative to 2^32.  This ensures that when we
+  // encounter a wraparound, the last operation actually spans both ends of the
+  // buffer.
+  const size_t batch_size = PickCoprimeBatchSize(EnvType::kBatchSize);
+  ASSERT_GT(batch_size, 0);
+  ASSERT_NE((size_t{1} << 32) % batch_size, 0) << batch_size;
+  const size_t kObjects =
+      static_cast<size_t>(std::numeric_limits<uint32_t>::max()) +
+      2 * batch_size;
+
+  // For ease of comparison, allocate a buffer of char's.  We will use these to
+  // generate unique addresses.  Since we assert that we will never miss in the
+  // TransferCache and go to the CentralFreeList, these do not need to be valid
+  // objects for deallocation.
+  std::vector<char> buffer(batch_size);
+  std::vector<void*> pointers;
+  pointers.reserve(batch_size);
+  for (size_t i = 0; i < batch_size; i++) {
+    pointers.push_back(&buffer[i]);
+  }
+
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
+
+  for (size_t i = 0; i < kObjects; i += batch_size) {
+    env.transfer_cache().InsertRange(absl::MakeSpan(pointers), batch_size);
+
+    ASSERT_EQ(env.transfer_cache().tc_length(), batch_size);
+
+    void* out[kMaxObjectsToMove];
+    int out_count = env.transfer_cache().RemoveRange(out, batch_size);
+    ASSERT_EQ(out_count, batch_size);
+
+    std::sort(out, out + out_count);
+    // Provide an optimized fast path for checking the returned pointers match
+    // the inserted pointers.  As discussed in b/172507506, this optimization
+    // reduces the runtime of this test by a factor of 10x.
+    if (memcmp(out, &pointers[0], sizeof(*out) * out_count) != 0) {
+      ASSERT_THAT(pointers, testing::ElementsAreArray(out, out + out_count));
+    }
+    ASSERT_EQ(env.transfer_cache().tc_length(), 0);
   }
 }
 

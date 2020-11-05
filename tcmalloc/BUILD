@@ -620,7 +620,7 @@ cc_library(
 
 cc_test(
     name = "transfer_cache_test",
-    timeout = "short",
+    timeout = "moderate",
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
