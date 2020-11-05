@@ -284,11 +284,15 @@ namespace fuzz_tests {
 // Use the FakeCentralFreeList instead of the MockCentralFreeList for fuzz tests
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
+using LegacyEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
+
 using LockFreeEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
         FakeCentralFreeList, MockTransferCacheManager>>;
 
-using TransferCacheFuzzTypes = ::testing::Types<LockFreeEnv>;
+using TransferCacheFuzzTypes = ::testing::Types<LegacyEnv, LockFreeEnv>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
                                TransferCacheFuzzTypes);
 }  // namespace fuzz_tests

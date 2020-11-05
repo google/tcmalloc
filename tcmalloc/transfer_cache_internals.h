@@ -321,9 +321,11 @@ class TransferCache {
     return info.capacity - info.used >= n;
   }
 
-  bool GrowCache() {
-    CHECK_CONDITION(false && "unused");
-    return true;
+  // Takes lock_ and invokes MakeCacheSpace() on this cache.  Returns true if it
+  // succeeded at growing the cache by a btach size.
+  bool GrowCache() ABSL_LOCKS_EXCLUDED(lock_) {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    return MakeCacheSpace();
   }
 
   // REQUIRES: lock_ is *not* held.
