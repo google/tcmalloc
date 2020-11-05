@@ -123,21 +123,23 @@ class FakeTransferCacheEnvironment {
   void Grow() { cache_.GrowCache(); }
 
   void Insert(int n) {
-    void* bufs[kMaxObjectsToMove];
+    std::vector<void*> bufs;
     while (n > 0) {
       int b = std::min(n, kBatchSize);
-      central_freelist().AllocateBatch(bufs, b);
-      cache_.InsertRange(bufs, b);
+      bufs.resize(b);
+      central_freelist().AllocateBatch(&bufs[0], b);
+      cache_.InsertRange(absl::MakeSpan(bufs), b);
       n -= b;
     }
   }
 
   void Remove(int n) {
-    void* bufs[kMaxObjectsToMove];
+    std::vector<void*> bufs;
     while (n > 0) {
       int b = std::min(n, kBatchSize);
-      cache_.RemoveRange(bufs, b);
-      central_freelist().FreeBatch(bufs, b);
+      bufs.resize(b);
+      cache_.RemoveRange(&bufs[0], b);
+      central_freelist().FreeBatch(&bufs[0], b);
       n -= b;
     }
   }
