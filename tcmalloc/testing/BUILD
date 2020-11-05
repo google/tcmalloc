@@ -227,8 +227,7 @@ cc_test(
         "notsan",
     ],
     deps = [
-        "//tcmalloc",
-        "//tcmalloc:headers_for_tests",
+        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -334,7 +333,6 @@ create_tcmalloc_testsuite(
         "notsan",
     ],
     deps = [
-        "//tcmalloc:headers_for_tests",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
@@ -360,8 +358,7 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc",
-        "//tcmalloc:headers_for_tests",
+        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
@@ -398,7 +395,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
-        "//tcmalloc:headers_for_tests",
+        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -439,7 +436,6 @@ cc_test(
         "notsan",
     ],
     deps = [
-        "//tcmalloc",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:logging",
@@ -601,7 +597,7 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:headers_for_tests",
+        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_no_hpaa",
         "//tcmalloc/internal:logging",
@@ -628,7 +624,7 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:headers_for_tests",
+        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_hpaa",
         "//tcmalloc/internal:logging",

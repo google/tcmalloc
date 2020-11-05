@@ -116,7 +116,7 @@ static const size_t kMaxTestSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
 namespace tcmalloc {
-extern bool want_hpaa();
+extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
 }
 
 int main(int argc, char** argv) {
@@ -539,7 +539,7 @@ static size_t GetUnmappedBytes() {
 TEST(TCMallocTest, ReleaseMemoryToSystem) {
   // Similarly, the hugepage-aware allocator doesn't agree with PH about
   // where release is called for.
-  if (tcmalloc::want_hpaa()) {
+  if (&tcmalloc::want_hpaa == nullptr || tcmalloc::want_hpaa()) {
     return;
   }
 
