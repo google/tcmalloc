@@ -29,6 +29,7 @@ namespace {
 
 const char kDelimiter = ',';
 const char kExperiments[] = "BORG_EXPERIMENTS";
+const char kEnableAll[] = "enable-all-known-experiments";
 const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 const char kDisableAll[] = "all";
 
@@ -80,6 +81,10 @@ namespace internal {
 const bool* SelectExperiments(bool* buffer, absl::string_view active,
                               absl::string_view disabled) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
+
+  if (active == kEnableAll) {
+    std::fill(buffer, buffer + kNumExperiments, true);
+  }
 
   ParseExperiments(active, [buffer](absl::string_view token) {
     Experiment id;
