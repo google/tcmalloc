@@ -147,6 +147,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t1.depth = static_cast<uintptr_t>(2);
   t1.stack[0] = reinterpret_cast<void*>(1);
   t1.stack[1] = reinterpret_cast<void*>(2);
+  t1.weight = 1;
 
   const AllocationEntry k1 = {
       1024,
@@ -165,6 +166,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t2.depth = static_cast<uintptr_t>(2);
   t2.stack[0] = reinterpret_cast<void*>(2);
   t2.stack[1] = reinterpret_cast<void*>(1);
+  t2.weight = 1;
 
   const AllocationEntry k2 = {
       512,
@@ -233,6 +235,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t3.depth = static_cast<uintptr_t>(2);
   t3.stack[0] = reinterpret_cast<void*>(1);
   t3.stack[1] = reinterpret_cast<void*>(2);
+  t3.weight = 1;
 
   const AllocationEntry k3 = {
       17,
@@ -265,6 +268,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t4.depth = static_cast<uintptr_t>(2);
   t4.stack[0] = reinterpret_cast<void*>(1);
   t4.stack[1] = reinterpret_cast<void*>(2);
+  t4.weight = 1;
 
   const AllocationEntry k4 = {
       1024,
