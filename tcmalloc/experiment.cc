@@ -18,6 +18,7 @@
 
 #include "absl/base/macros.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 
@@ -29,9 +30,9 @@ namespace {
 
 const char kDelimiter = ',';
 const char kExperiments[] = "BORG_EXPERIMENTS";
-const char kEnableAll[] = "enable-all-known-experiments";
 const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
-const char kDisableAll[] = "all";
+constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
+constexpr absl::string_view kDisableAll = "all";
 
 bool LookupExperimentID(absl::string_view label, Experiment* exp) {
   for (auto config : experiments) {
