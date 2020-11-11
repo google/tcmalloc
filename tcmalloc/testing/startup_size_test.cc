@@ -56,9 +56,9 @@ TEST(StartupSizeTest, Basic) {
       << "couldn't run - no tcmalloc data. Check your malloc configuration.";
   size_t percpu = Property(map, "tcmalloc.cpu_free");
 #ifdef __powerpc64__
-  size_t metadata_limit = 35 * MiB;
+  size_t metadata_limit = 36.5 * MiB;
 #else
-  size_t metadata_limit = 10.1 * MiB;
+  size_t metadata_limit = 10.9 * MiB;
 #endif
   // Check whether per-cpu is active
   if (percpu > 0) {
