@@ -73,6 +73,24 @@ TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
 }
 
+TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(e.central_freelist(), RemoveRange)
+      .Times(2)
+      .WillOnce([&](void** batch, int n) {
+        int returned = static_cast<FakeCentralFreeList&>(e.central_freelist())
+                           .RemoveRange(batch, std::min(batch_size / 2, n));
+        // Overwrite the elements of batch that were not populated by
+        // RemoveRange.
+        memset(batch + returned, 0x3f, sizeof(*batch) * (n - returned));
+        return returned;
+      });
+  e.Remove(batch_size);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 2);
+}
+
 TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
@@ -201,8 +219,8 @@ TEST(LockTransferCacheTest, b172283201) {
 }
 
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke,
-                            FetchesFromFreelist, EvictsOtherCaches,
-                            PushesToFreelist, WrappingWorks);
+                            FetchesFromFreelist, PartialFetchFromFreelist,
+                            EvictsOtherCaches, PushesToFreelist, WrappingWorks);
 template <typename Env>
 using TransferCacheFuzzTest = ::testing::Test;
 TYPED_TEST_SUITE_P(TransferCacheFuzzTest);
