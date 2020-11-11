@@ -35,8 +35,8 @@ namespace tcmalloc {
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -93,13 +93,13 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
     {     3200,       2,          20},  // 2.70%
     {     3456,       3,          18},  // 1.79%
     {     3584,       4,          18},  // 1.74%
-    {     4096,       1,          16},  // 0.29%
+    {     4096,       2,          16},  // 0.29%
     {     4736,       3,          13},  // 3.99%
     {     5376,       2,          12},  // 1.88%
     {     6144,       3,          10},  // 0.20%
     {     6528,       4,          10},  // 0.54%
     {     7168,       7,           9},  // 0.08%
-    {     8192,       1,           8},  // 0.29%
+    {     8192,       2,           8},  // 0.29%
     {     9472,       5,           6},  // 8.23%
     {    10240,       4,           6},  // 6.82%
     {    12288,       3,           5},  // 0.20%
@@ -129,8 +129,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -215,8 +215,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -312,8 +312,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
@@ -370,8 +370,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -422,14 +422,14 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
     {     3200,       2,          20},  // 2.70%
     {     3456,       3,          18},  // 1.79%
     {     3584,       4,          18},  // 1.74%
-    {     4096,       1,          16},  // 0.29%
+    {     4096,       2,          16},  // 0.29%
     {     4736,       3,          13},  // 3.99%
     {     5376,       2,          12},  // 1.88%
     {     6144,       3,          10},  // 0.20%
     {     6528,       4,          10},  // 0.54%
     {     6784,       5,           9},  // 0.75%
     {     7168,       7,           9},  // 0.08%
-    {     8192,       1,           8},  // 0.29%
+    {     8192,       2,           8},  // 0.29%
     {     9472,       5,           6},  // 8.23%
     {    10240,       4,           6},  // 6.82%
     {    12288,       3,           5},  // 0.20%
@@ -464,8 +464,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -550,8 +550,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -647,8 +647,8 @@ const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4k
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimental4kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimental4kSizeClasses[SizeMap::kExperimental4kSizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%

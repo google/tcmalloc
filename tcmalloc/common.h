@@ -344,8 +344,8 @@ class SizeMap {
   static const int kExperimentalSizeClassesCount;
 
   // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kExperimental4kSizeClasses[];
-  static const int kExperimental4kSizeClassesCount;
+  static const SizeClassInfo kLegacySizeClasses[];
+  static const int kLegacySizeClassesCount;
 
  public:
   // constexpr constructor to guarantee zero-initialization at compile-time.  We

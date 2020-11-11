@@ -166,7 +166,7 @@ common_srcs = [
     "cpu_cache.cc",
     "cpu_cache.h",
     "experimental_56_size_class.cc",
-    "experimental_4k_size_class.cc",
+    "legacy_size_classes.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
     "huge_address_map.cc",

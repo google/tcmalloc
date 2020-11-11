@@ -25,7 +25,6 @@ enum class Experiment : int {
   TCMALLOC_SANS_56_SIZECLASS,
   TCMALLOC_ARBITRARY_TRANSFER_CACHE,
   TCMALLOC_LARGE_NUM_TO_MOVE,
-  TCMALLOC_4K_SIZE_CLASS,
   kMaxExperimentID,
 };
 
@@ -40,7 +39,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_SANS_56_SIZECLASS, "TCMALLOC_SANS_56_SIZECLASS"},
     {Experiment::TCMALLOC_ARBITRARY_TRANSFER_CACHE, "TCMALLOC_ARBITRARY_TRANSFER_CACHE"},
     {Experiment::TCMALLOC_LARGE_NUM_TO_MOVE, "TCMALLOC_LARGE_NUM_TO_MOVE"},
-    {Experiment::TCMALLOC_4K_SIZE_CLASS, "TCMALLOC_4K_SIZE_CLASS"},
 };
 // clang-format on
 

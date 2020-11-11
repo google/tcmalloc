@@ -152,15 +152,12 @@ void SizeMap::Init() {
 
   if (IsExperimentActive(Experiment::TCMALLOC_SANS_56_SIZECLASS)) {
     SetSizeClasses(kExperimentalSizeClassesCount, kExperimentalSizeClasses);
-  } else if (IsExperimentActive(Experiment::TCMALLOC_4K_SIZE_CLASS)) {
-    SetSizeClasses(kExperimental4kSizeClassesCount, kExperimental4kSizeClasses);
   } else {
     if (default_want_legacy_spans != nullptr &&
         default_want_legacy_spans() > 0) {
-      SetSizeClasses(kSizeClassesCount, kSizeClasses);
+      SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
     } else {
-      SetSizeClasses(kExperimental4kSizeClassesCount,
-                     kExperimental4kSizeClasses);
+      SetSizeClasses(kSizeClassesCount, kSizeClasses);
     }
   }
   MaybeRunTimeSizeClasses();
