@@ -186,16 +186,19 @@ each size. The columns reported for each class size are:
 *   The total size of those objects in MiB - ie size of each object multiplied
     by the number of objects.
 *   The cumulative size of that class size plus all smaller class sizes.
+*   The number of live pages dedicated to this class size.
+*   The number of returned and requested spans of this class size.
 
 ```
 Total size of freelists for per-thread and per-CPU caches,
-transfer cache, and central cache, by size class
+transfer cache, and central cache, as well as number of
+live pages, returned/requested spans by size class
 ------------------------------------------------
-class   1 [        8 bytes ] :   413460 objs;   3.2 MiB;   3.2 cum MiB
-class   2 [       16 bytes ] :   103410 objs;   1.6 MiB;   4.7 cum MiB
-class   3 [       24 bytes ] :   525973 objs;  12.0 MiB;  16.8 cum MiB
-class   4 [       32 bytes ] :   275250 objs;   8.4 MiB;  25.2 cum MiB
-class   5 [       40 bytes ] :  1047443 objs;  40.0 MiB;  65.1 cum MiB
+class   1 [        8 bytes ] :    45645 objs;   0.3 MiB;   0.3 cum MiB;       73 live pages; spans:     19 ret /     92 req = 0.2065;
+class   2 [       16 bytes ] :    39942 objs;   0.6 MiB;   1.0 cum MiB;      120 live pages; spans:      3 ret /    123 req = 0.0244;
+class   3 [       24 bytes ] :    84130 objs;   1.9 MiB;   2.9 cum MiB;      807 live pages; spans:   1330 ret /   2137 req = 0.6224;
+class   4 [       32 bytes ] :   107271 objs;   3.3 MiB;   6.2 cum MiB;     1048 live pages; spans:    420 ret /   1468 req = 0.2861;
+class   5 [       40 bytes ] :    82230 objs;   3.1 MiB;   9.3 cum MiB;      790 live pages; spans:    962 ret /   1752 req = 0.5491;
 ...
 ```
 
