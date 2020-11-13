@@ -211,16 +211,16 @@ class Span : public SpanList::Elem {
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
   ObjIdx* IdxToPtr(ObjIdx idx, size_t size) const;
 
-  template <unsigned int large>
+  enum Align { SMALL, LARGE };
+
+  template <Align align>
   ObjIdx* IdxToPtrSized(ObjIdx idx, size_t size) const;
 
-  template <unsigned int large>
+  template <Align align>
   size_t FreelistPopBatchSized(void** __restrict batch, size_t N, size_t size);
-
-  enum Align { SMALL, LARGE };
 };
 
-template <unsigned int align>
+template <Span::Align align>
 Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
   ASSERT(idx != kListEnd);
   ASSERT(align == Align::LARGE || align == Align::SMALL);
@@ -234,7 +234,7 @@ Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
   return ptr;
 }
 
-template <unsigned int align>
+template <Span::Align align>
 size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
                                    size_t size) {
   size_t result = 0;
