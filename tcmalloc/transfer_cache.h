@@ -126,7 +126,7 @@ class TransferCacheManager {
  private:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  void *Alloc(size_t size) EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
     if (use_lock_free_cache_)
@@ -163,7 +163,7 @@ class TransferCacheManager {
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
-  void Init() EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
       freelist_[i].Init(i);
     }
