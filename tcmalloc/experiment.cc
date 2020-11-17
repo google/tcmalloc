@@ -48,12 +48,13 @@ bool LookupExperimentID(absl::string_view label, Experiment* exp) {
 const bool* GetSelectedExperiments() {
   static bool by_id[kNumExperiments];
 
-  static const char* active_experiments = thread_safe_getenv(kExperiments);
-  static const char* disabled_experiments =
-      thread_safe_getenv(kDisableExperiments);
-  static const bool* status = internal::SelectExperiments(
-      by_id, active_experiments ? active_experiments : "",
-      disabled_experiments ? disabled_experiments : "");
+  static const bool* status = [&]() {
+    const char* active_experiments = thread_safe_getenv(kExperiments);
+    const char* disabled_experiments = thread_safe_getenv(kDisableExperiments);
+    return internal::SelectExperiments(
+        by_id, active_experiments ? active_experiments : "",
+        disabled_experiments ? disabled_experiments : "");
+  }();
   return status;
 }
 
