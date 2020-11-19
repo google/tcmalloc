@@ -210,7 +210,8 @@ class TransferCache {
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  int RemoveRange(void **batch, int N) ABSL_LOCKS_EXCLUDED(lock_) {
+  ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int N)
+      ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(N > 0);
     const int B = Manager::num_objects_to_move(size_class());
     int fetch = 0;
@@ -608,7 +609,7 @@ class LockFreeTransferCache {
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  int RemoveRange(void **batch, int n) {
+  ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) {
     ASSERT(n > 0);
     absl::optional<Range> r = ClaimRemove(n);
     if (!r.has_value()) {

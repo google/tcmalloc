@@ -21,6 +21,7 @@
 #include <atomic>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
@@ -81,7 +82,7 @@ class TransferCacheManager {
       cache_[size_class].legacy.InsertRange(batch, n);
   }
 
-  int RemoveRange(int size_class, void **batch, int n) {
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
     if (use_lock_free_cache_)
       return cache_[size_class].lock_free.RemoveRange(batch, n);
     else
@@ -173,7 +174,7 @@ class TransferCacheManager {
     freelist_[size_class].InsertRange(batch.data(), n);
   }
 
-  int RemoveRange(int size_class, void **batch, int n) {
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
     return freelist_[size_class].RemoveRange(batch, n);
   }
 

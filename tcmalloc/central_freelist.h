@@ -19,6 +19,7 @@
 
 #include <cstddef>
 
+#include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
@@ -53,7 +54,8 @@ class CentralFreeList {
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.
-  int RemoveRange(void** batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
+  ABSL_MUST_USE_RESULT int RemoveRange(void** batch, int N)
+      ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
   size_t length() { return static_cast<size_t>(counter_.value()); }

@@ -66,7 +66,7 @@ void BM_CrossThread(benchmark::State& state) {
   int dst = (src + 1) % 2;
   for (auto iter : state) {
     benchmark::DoNotOptimize(batch);
-    s->c[src].RemoveRange(batch, kBatchSize);
+    (void)s->c[src].RemoveRange(batch, kBatchSize);
     benchmark::DoNotOptimize(batch);
     s->c[dst].InsertRange(batch, kBatchSize);
     benchmark::DoNotOptimize(batch);
@@ -129,7 +129,7 @@ void BM_RemoveRange(benchmark::State& state) {
     benchmark::DoNotOptimize(e);
     state.ResumeTiming();
 
-    e->transfer_cache().RemoveRange(batch, kBatchSize);
+    (void)e->transfer_cache().RemoveRange(batch, kBatchSize);
     benchmark::DoNotOptimize(batch);
   }
 }
