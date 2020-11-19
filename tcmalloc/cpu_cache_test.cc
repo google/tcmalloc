@@ -17,6 +17,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"

@@ -138,23 +138,6 @@ extern void (*log_message_writer)(const char* msg, int length);
 #define ASSERT(cond) ((void)0)
 #endif
 
-// Our wrapper for __builtin_assume, allowing us to check the assumption on
-// debug builds.
-#ifndef NDEBUG
-#ifdef __clang__
-#define ASSUME(cond) CHECK_CONDITION(cond), __builtin_assume(cond)
-#else
-#define ASSUME(cond) \
-  CHECK_CONDITION(cond), (!(cond) ? __builtin_unreachable() : (void)0)
-#endif
-#else
-#ifdef __clang__
-#define ASSUME(cond) __builtin_assume(cond)
-#else
-#define ASSUME(cond) (!(cond) ? __builtin_unreachable() : (void)0)
-#endif
-#endif
-
 // Print into buffer
 class TCMalloc_Printer {
  private:

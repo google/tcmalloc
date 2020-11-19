@@ -263,6 +263,18 @@ cc_library(
 )
 
 cc_library(
+    name = "optimization",
+    hdrs = ["optimization.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":logging",
+    ],
+)
+
+cc_library(
     name = "parameter_accessors",
     hdrs = ["parameter_accessors.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -373,6 +385,7 @@ cc_library(
     ],
     deps = [
         ":logging",
+        ":optimization",
     ],
 )
 

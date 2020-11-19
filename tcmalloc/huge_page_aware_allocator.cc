@@ -29,6 +29,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"

@@ -34,6 +34,7 @@
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sampler.h"
 

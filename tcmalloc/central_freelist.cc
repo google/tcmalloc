@@ -18,6 +18,7 @@
 
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"

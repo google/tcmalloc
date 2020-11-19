@@ -72,6 +72,7 @@ tcmalloc_deps = [
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:memory_stats",
+    "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:percpu",
 ]
 
@@ -279,6 +280,7 @@ common_deps = [
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
+    "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",
     "//tcmalloc/internal:percpu_tcmalloc",
@@ -1172,6 +1174,7 @@ cc_test(
     malloc = ":tcmalloc_deprecated_perthread",
     deps = [
         ":common_deprecated_perthread",
+        "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:util",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",

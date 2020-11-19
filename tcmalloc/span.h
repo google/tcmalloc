@@ -25,6 +25,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 
 namespace tcmalloc {

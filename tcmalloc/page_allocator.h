@@ -24,6 +24,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pages.h"

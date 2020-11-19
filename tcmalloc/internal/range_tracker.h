@@ -24,6 +24,7 @@
 #include <type_traits>
 
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 
 namespace tcmalloc {
 

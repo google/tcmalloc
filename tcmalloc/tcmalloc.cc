@@ -93,6 +93,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
