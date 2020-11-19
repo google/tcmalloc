@@ -241,6 +241,7 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
 
   // Pop from cache.
   auto csize = cache_size_;
+  ASSUME(csize <= kCacheSize);
   auto cache_reads = csize < N ? csize : N;
   for (; result < cache_reads; result++) {
     batch[result] = IdxToPtrSized<align>(cache_[csize - result - 1], size);
