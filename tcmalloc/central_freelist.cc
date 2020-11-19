@@ -102,7 +102,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
 }
 
 int CentralFreeList::RemoveRange(void** batch, int N) {
-  ASSERT(N > 0);
+  ASSUME(N > 0);
   absl::base_internal::SpinLockHolder h(&lock_);
   if (nonempty_.empty()) {
     Populate();
