@@ -19,7 +19,7 @@
 # how this malloc works.
 
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_testsuite")
+load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_testsuite")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -642,18 +642,16 @@ cc_test(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "transfer_cache_benchmark",
-    testonly = 1,
     srcs = ["transfer_cache_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
         ":common",
         ":mock_central_freelist",
         ":mock_transfer_cache",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/types:optional",
     ],
 )
@@ -758,17 +756,15 @@ cc_test(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "guarded_page_allocator_benchmark",
-    testonly = 1,
     srcs = ["guarded_page_allocator_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
     ],
 )
@@ -1067,17 +1063,15 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_binary(
+create_tcmalloc_benchmark(
     name = "span_benchmark",
-    testonly = 1,
     srcs = ["span_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
     malloc = ":tcmalloc",
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark_main",
+        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
     ],
