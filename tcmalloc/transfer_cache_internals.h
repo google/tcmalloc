@@ -757,17 +757,48 @@ class LockFreeTransferCache {
       const int32_t start = absl::bit_cast<int32_t>(r.start);
       const int32_t end = absl::bit_cast<int32_t>(r.end);
       int32_t temp_pos;
-      // Acquire release here so that a thread that acquires what we see will
-      // also see any values that we implicitly saw when we succeeded on the
-      // exchange.
+
+      // To avoid missed wake-ups, it's important that the access to "v_" and
+      // "sleepers_" use sequential consistency. Consider a thread T1 here and
+      // concurrent thread T2 in Await():
+      //
+      // T1.1: store new value into v_
+      // T1.2: load sleepers_
+      // T1.3: if sleepers is non-zero, wake futex
+      //
+      // T2.1: load v_, see that it's not the expected value
+      // T2.2: increment sleepers_
+      // T2.3: load v_ again (in futex implementation) and sleep
+      //
+      // C++11 sequential consistency guarantees that there is a single total
+      // order of all atomic operations that are so tagged. Taking as an
+      // example the sequence where T1 is transitioning v_=0 -> v_=1,
+      // and T2 is waiting for v_ == 1. A missed wakeup would of the order:
+      //
+      // T1.1: store(v=1)   -> T1.2: load(sleepers) == 0
+      // T2.1: load(v) == 0 -> T2.2: sleepers++ -> T2.3: load(v)==0 and sleep
+      //
+      // Because of the seq_cst, we know the following relationships in addition
+      // to the "program order" ones expressed above:
+      //
+      // T2.1 -> T1.1 (must have come before since T2 didn't see v = 1)
+      // T1.2 -> T2.2 (must have come before since T1 didn't see the increment)
+      // T2.3 -> T1.1 (must have come before since T2 still didn't see v = 1)
+      //
+      // Putting all the relationships together:
+      //   T2.1 -> T1.1 -> T1.2 -> T2.2 -> T2.3 -> T1.1
+      //
+      // This consists of a cycle, which violates the "sequential consistency
+      // provides a total order" guarantee. Hence, the missed wakeup cannot
+      // happen.
       if (ABSL_PREDICT_FALSE(!v_.compare_exchange_strong(
-              temp_pos = start, end, std::memory_order_acq_rel,
+              temp_pos = start, end, std::memory_order_seq_cst,
               std::memory_order_relaxed))) {
         AwaitEqual(r.start, quanta);
-        temp_pos = v_.exchange(end, std::memory_order_release);
+        temp_pos = v_.exchange(end, std::memory_order_seq_cst);
         ASSERT(temp_pos == r.start);
       }
-      if (ABSL_PREDICT_FALSE(sleepers_.load(std::memory_order_relaxed))) {
+      if (ABSL_PREDICT_FALSE(sleepers_.load(std::memory_order_seq_cst))) {
         absl::synchronization_internal::Futex::WakeBitset(
             &v_, std::numeric_limits<int32_t>::max(),
             ComputeFutexBits(r.end, quanta));
@@ -781,44 +812,50 @@ class LockFreeTransferCache {
     ABSL_ATTRIBUTE_NOINLINE
     void AwaitEqual(uint32_t e, int32_t quanta) {
       const int32_t expected = absl::bit_cast<int32_t>(e);
-      int32_t cur;
-      do {
-        for (int i = 1024; i > 0; --i) {
-          cur = v_.load(std::memory_order_acquire);
-          if (cur == expected) return;
-#ifdef __x86_64__
-          _mm_pause();
-#endif
-        }
-        sleepers_.fetch_add(1, std::memory_order_relaxed);
-        absl::synchronization_internal::Futex::WaitBitsetAbsoluteTimeout(
-            &v_, cur, ComputeFutexBits(e, quanta), nullptr);
-        sleepers_.fetch_sub(1, std::memory_order_relaxed);
-      } while (cur != expected);
+      Await([expected](int32_t v) { return v == expected; },
+            ComputeFutexBits(expected, quanta));
     }
 
     // Waits for the value to change from `a` in any way.
     ABSL_ATTRIBUTE_NOINLINE
     void AwaitChange(uint32_t a) {
       const int32_t actual = absl::bit_cast<int32_t>(a);
+      Await([actual](int32_t v) { return v != actual; },
+            FUTEX_BITSET_MATCH_ANY);
+    }
+
+   private:
+    // Wait for `condition(current_value)` to return true. If the condition does
+    // not become true after briefly spinning, uses "futex_bits" to wait on the
+    // futex.
+    template <class Condition>
+    void Await(const Condition &condition, int32_t futex_bits) {
       int32_t cur;
       do {
         for (int i = 1024; i > 0; --i) {
-          cur = v_.load(std::memory_order_relaxed);
-          if (cur != actual) return;
+          cur = v_.load(std::memory_order_seq_cst);
+          if (condition(cur)) return;
 #ifdef __x86_64__
           _mm_pause();
 #endif
         }
-
-        sleepers_.fetch_add(1, std::memory_order_relaxed);
-        absl::synchronization_internal::Futex::WaitBitsetAbsoluteTimeout(
-            &v_, cur, FUTEX_BITSET_MATCH_ANY, nullptr);
+        // Increment with seq_cst memory order to ensure this is serialized
+        // properly against the read of `sleepers_` in `AdvanceCommitLine`.
+        sleepers_.fetch_add(1, std::memory_order_seq_cst);
+        // Do one more load of `v_` with seq_cst memory order. The
+        // implementation of futex already loads `v_` itself before going to
+        // sleep, but futex doesn't participate in the C++11 memory model, so
+        // we'd best be on the safe side here and do a C++11-compliant load. On
+        // x86 this is a simple unlocked load anyway, so cost isn't high and
+        // this path is already expected to be infrequently executed.
+        if (ABSL_PREDICT_TRUE(v_.load(std::memory_order_seq_cst) == cur)) {
+          absl::synchronization_internal::Futex::WaitBitsetAbsoluteTimeout(
+              &v_, cur, futex_bits, nullptr);
+        }
         sleepers_.fetch_sub(1, std::memory_order_relaxed);
-      } while (cur == actual);
+      } while (true);
     }
 
-   private:
     // Futex requires an `int32_t` but treats it like an opaque bag of 4 bytes,
     // so we keep this as an `int32_t` here but have our public interfaces in
     // terms of the preferred type `uint32_t`.
