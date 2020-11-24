@@ -713,6 +713,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
               freelist_bytes);
   }
   PAlloc AllocateRaw(Length n, bool donated = false) {
+    EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
     ret.n = n;
     ret.mark = ++next_mark_;
@@ -913,20 +914,24 @@ TEST_P(FillerTest, PrintFreeRatio) {
 
   // Allocate two huge pages, release one, verify that we do not get an invalid
   // (>1.) ratio of free : non-fulls.
-  PAlloc a1 = Allocate(kPagesPerHugePage);
 
+  // First huge page
+  PAlloc a1 = Allocate(kPagesPerHugePage / 2);
+  PAlloc a2 = Allocate(kPagesPerHugePage / 2);
+
+  // Second huge page
   constexpr Length kQ = kPagesPerHugePage / 4;
 
-  PAlloc a2 = Allocate(kQ);
   PAlloc a3 = Allocate(kQ);
   PAlloc a4 = Allocate(kQ);
   PAlloc a5 = Allocate(kQ);
+  PAlloc a6 = Allocate(kQ);
 
-  Delete(a5);
+  Delete(a6);
 
   ReleasePages(kQ);
 
-  Delete(a4);
+  Delete(a5);
 
   std::string buffer(1024 * 1024, '\0');
   {
@@ -963,6 +968,7 @@ HugePageFiller: 0.6667 of used pages hugepageable)"));
   Delete(a1);
   Delete(a2);
   Delete(a3);
+  Delete(a4);
 }
 
 static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
@@ -1340,9 +1346,14 @@ TEST_P(FillerTest, SkipSubrelease) {
     PAlloc tiny1 = Allocate(N / 4);
     PAlloc tiny2 = Allocate(N / 4);
 
-    PAlloc peak = Allocate(N);
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the peak
+    // would fill into the gap previously occupied by it.
+    PAlloc peak1a = Allocate(3 * N / 4);
+    PAlloc peak1b = Allocate(N / 4);
     EXPECT_EQ(filler_.used_pages(), 2 * N);
-    Delete(peak);
+    Delete(peak1a);
+    Delete(peak1b);
     Advance(a);
 
     Delete(half);
@@ -1352,13 +1363,18 @@ TEST_P(FillerTest, SkipSubrelease) {
 
     Advance(b);
 
-    PAlloc peak2 = Allocate(N);
-    PAlloc peak3 = Allocate(N);
+    PAlloc peak2a = Allocate(3 * N / 4);
+    PAlloc peak2b = Allocate(N / 4);
+
+    PAlloc peak3a = Allocate(3 * N / 4);
+    PAlloc peak3b = Allocate(N / 4);
 
     Delete(tiny1);
     Delete(tiny2);
-    Delete(peak2);
-    Delete(peak3);
+    Delete(peak2a);
+    Delete(peak2b);
+    Delete(peak3a);
+    Delete(peak3b);
 
     EXPECT_EQ(filler_.used_pages(), Length(0));
     EXPECT_EQ(filler_.unmapped_pages(), Length(0));

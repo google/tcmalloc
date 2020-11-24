@@ -1231,7 +1231,10 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   // So all we have to do is find the first nonempty freelist in the regular
   // HintedTrackerList that *could* support our allocation, and it will be our
   // best choice. If there is none we repeat with the donated HintedTrackerList.
-  if (n >= kPagesPerHugePage) return false;
+  //
+  // TODO(b/120560379):  Allow HugePageFiller::TryGet to assume this.
+  ASSERT(n < kPagesPerHugePage);
+  if (ABSL_PREDICT_FALSE(n >= kPagesPerHugePage)) return false;
   TrackerType* pt;
 
   bool was_released = false;
