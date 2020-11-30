@@ -1009,10 +1009,13 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
 
-  size_t unbacked = released_by_page_.CountBits(index, n.raw_num());
-  released_by_page_.ClearRange(index, n.raw_num());
-  ASSERT(released_count_ >= unbacked);
-  released_count_ -= unbacked;
+  size_t unbacked = 0;
+  if (released_count_ > 0) {
+    unbacked = released_by_page_.CountBits(index, n.raw_num());
+    released_by_page_.ClearRange(index, n.raw_num());
+    ASSERT(released_count_ >= unbacked);
+    released_count_ -= unbacked;
+  }
 
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
