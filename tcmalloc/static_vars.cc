@@ -44,7 +44,7 @@ ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
 ABSL_CONST_INIT Arena Static::arena_;
 ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 ABSL_CONST_INIT TransferCacheManager Static::transfer_cache_;
-CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
+ABSL_CONST_INIT CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
@@ -54,9 +54,9 @@ ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
 ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::Bucket>
     Static::bucket_allocator_;
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
-bool Static::cpu_cache_active_;
-Static::PageAllocatorStorage Static::page_allocator_;
-PageMap Static::pagemap_;
+ABSL_CONST_INIT bool Static::cpu_cache_active_ = false;
+ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
+ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;

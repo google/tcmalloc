@@ -155,6 +155,8 @@ class Static {
   // we can't depend on initialization order, so pageheap is new'd
   // into this buffer.
   union PageAllocatorStorage {
+    constexpr PageAllocatorStorage() : extra(0) {}
+
     char memory[sizeof(PageAllocator)];
     uintptr_t extra;  // To force alignment
   };

@@ -74,7 +74,7 @@ namespace percpu {
 template <size_t Shift, size_t NumClasses>
 class TcmallocSlab {
  public:
-  TcmallocSlab() {}
+  constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
   // <alloc> is memory allocation callback (e.g. malloc).
@@ -174,7 +174,7 @@ class TcmallocSlab {
   static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
                 "bad Header size");
 
-  Slabs* slabs_;
+  Slabs* slabs_ = nullptr;
 
   Slabs* CpuMemoryStart(int cpu) const;
   std::atomic<int64_t>* GetHeader(int cpu, size_t cl) const;

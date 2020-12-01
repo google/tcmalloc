@@ -36,6 +36,8 @@ namespace tcmalloc {
 
 class CPUCache {
  public:
+  constexpr CPUCache() = default;
+
   enum class ActivationMode {
     FastPathOn,
     FastPathOffTestOnly,
@@ -148,10 +150,10 @@ class CPUCache {
              sizeof(ResizeInfoUnpadded) % ABSL_CACHELINE_SIZE];
   };
   // Tracking data for each CPU's cache resizing efforts.
-  ResizeInfo* resize_;
+  ResizeInfo* resize_ = nullptr;
   // Track whether we are lazily initializing slabs.  We cannot use the latest
   // value in Parameters, as it can change after initialization.
-  bool lazy_slabs_;
+  bool lazy_slabs_ = false;
 
   // Return a set of objects to be returned to the Transfer Cache.
   static constexpr int kMaxToReturn = 16;
