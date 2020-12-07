@@ -290,6 +290,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "TcmallocSlab_Push_trampoline_%=:\n"
       "2:\n"
       "jmp 3f\n"
+      ".size TcmallocSlab_Push_trampoline_%=, . - "
+      "TcmallocSlab_Push_trampoline_%=;\n"
       ".popsection\n"
       // Prepare
       //
@@ -419,6 +421,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           "TcmallocSlab_Pop_trampoline_%=:\n"
           "2:\n"
           "jmp 3f\n"
+          ".size TcmallocSlab_Pop_trampoline_%=, . - "
+          "TcmallocSlab_Pop_trampoline_%=;\n"
           ".popsection\n"
           // Prepare
           "3:\n"

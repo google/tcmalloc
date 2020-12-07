@@ -205,6 +205,7 @@ tcmalloc_internal_tls_fetch_pic:
   .cfi_def_cfa_offset 8
   ret; /* &__rseq_abi in %rax */
   .cfi_endproc
+ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
 #endif  /* !defined(__PIC__) || defined(__PIE__) */
 
 /* ---------------- end helper macros ---------------- */
