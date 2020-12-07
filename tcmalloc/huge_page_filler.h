@@ -28,6 +28,7 @@
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/span.h"
@@ -1235,10 +1236,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   // So all we have to do is find the first nonempty freelist in the regular
   // HintedTrackerList that *could* support our allocation, and it will be our
   // best choice. If there is none we repeat with the donated HintedTrackerList.
-  //
-  // TODO(b/120560379):  Allow HugePageFiller::TryGet to assume this.
-  ASSERT(n < kPagesPerHugePage);
-  if (ABSL_PREDICT_FALSE(n >= kPagesPerHugePage)) return false;
+  ASSUME(n < kPagesPerHugePage);
   TrackerType* pt;
 
   bool was_released = false;
