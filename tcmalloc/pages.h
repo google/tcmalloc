@@ -23,6 +23,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -142,17 +143,20 @@ class PageId {
   uintptr_t pn_;
 };
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length LengthFromBytes(size_t bytes) {
   return Length(bytes >> kPageShift);
 }
 
 // Convert byte size into pages.  This won't overflow, but may return
 // an unreasonably large value if bytes is huge enough.
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length BytesToLengthCeil(size_t bytes) {
   return Length((bytes >> kPageShift) +
                 ((bytes & (kPageSize - 1)) > 0 ? 1 : 0));
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length BytesToLengthFloor(size_t bytes) {
   return Length(bytes >> kPageShift);
 }
@@ -165,65 +169,82 @@ inline PageId& operator++(PageId& p) {  // NOLINT(runtime/references)
   return p += Length(1);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<(PageId lhs, PageId rhs) {
   return lhs.pn_ < rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>(PageId lhs, PageId rhs) {
   return lhs.pn_ > rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<=(PageId lhs, PageId rhs) {
   return lhs.pn_ <= rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>=(PageId lhs, PageId rhs) {
   return lhs.pn_ >= rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator==(PageId lhs, PageId rhs) {
   return lhs.pn_ == rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator!=(PageId lhs, PageId rhs) {
   return lhs.pn_ != rhs.pn_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr PageId operator+(PageId lhs, Length rhs) { return lhs += rhs; }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr PageId operator+(Length lhs, PageId rhs) { return rhs += lhs; }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr PageId operator-(PageId lhs, Length rhs) { return lhs -= rhs; }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator-(PageId lhs, PageId rhs) {
   ASSERT(lhs.pn_ >= rhs.pn_);
   return Length(lhs.pn_ - rhs.pn_);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline PageId PageIdContaining(const void* p) {
   return PageId(reinterpret_cast<uintptr_t>(p) >> kPageShift);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<(Length lhs, Length rhs) {
   return lhs.n_ < rhs.n_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>(Length lhs, Length rhs) {
   return lhs.n_ > rhs.n_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator<=(Length lhs, Length rhs) {
   return lhs.n_ <= rhs.n_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator>=(Length lhs, Length rhs) {
   return lhs.n_ >= rhs.n_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator==(Length lhs, Length rhs) {
   return lhs.n_ == rhs.n_;
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr bool operator!=(Length lhs, Length rhs) {
   return lhs.n_ != rhs.n_;
 }
@@ -232,31 +253,38 @@ inline Length& operator++(Length& l) { return l += Length(1); }
 
 inline Length& operator--(Length& l) { return l -= Length(1); }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator+(Length lhs, Length rhs) {
   return Length(lhs.raw_num() + rhs.raw_num());
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator-(Length lhs, Length rhs) {
   return Length(lhs.raw_num() - rhs.raw_num());
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator*(Length lhs, size_t rhs) {
   return Length(lhs.raw_num() * rhs);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator*(size_t lhs, Length rhs) {
   return Length(lhs * rhs.raw_num());
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr size_t operator/(Length lhs, Length rhs) {
   return lhs.raw_num() / rhs.raw_num();
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator/(Length lhs, size_t rhs) {
   ASSERT(rhs != 0);
   return Length(lhs.raw_num() / rhs);
 }
 
+TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator%(Length lhs, Length rhs) {
   ASSERT(rhs.raw_num() != 0);
   return Length(lhs.raw_num() % rhs.raw_num());
