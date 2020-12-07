@@ -146,8 +146,9 @@ TEST_P(SamplingMemoryTest, Overhead) {
 std::vector<size_t> InterestingSizes() {
   std::vector<size_t> ret;
 
-  for (size_t cl = 1; cl < kNumClasses; cl++) {
-    size_t size = tcmalloc::Static::sizemap().class_to_size(cl);
+  for (size_t cl = 1; cl < tcmalloc_internal::kNumClasses; cl++) {
+    size_t size =
+        tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(cl);
     if (size == 0) {
       continue;
     }

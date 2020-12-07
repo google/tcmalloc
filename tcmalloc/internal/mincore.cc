@@ -21,6 +21,7 @@
 #include <cstdint>
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Class that implements the call into the OS provided mincore() function.
 class OsMInCore final : public MInCoreInterface {
@@ -117,4 +118,5 @@ size_t MInCore::residence(void* addr, size_t size) {
   return residence_impl(addr, size, &mc);
 }
 
+}  // namespace tcmalloc_internal
 }  // End namespace tcmalloc

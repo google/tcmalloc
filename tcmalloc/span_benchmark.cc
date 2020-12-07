@@ -26,6 +26,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 class RawSpan {
@@ -205,4 +206,5 @@ BENCHMARK(BM_multiple_spans)
     ->Arg(kNumClasses - 1);
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

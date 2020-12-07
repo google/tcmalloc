@@ -35,6 +35,10 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::kPageShift;
+using tcmalloc_internal::kPageSize;
+using tcmalloc_internal::Static;
+
 class GuardedAllocAlignmentTest : public testing::Test {
  protected:
   GuardedAllocAlignmentTest() {
@@ -108,7 +112,8 @@ TEST_F(GuardedAllocAlignmentTest, New) {
       // padding between the end of small allocations and their guard pages.
       int lg_size = std::max<int>(
           tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(size), 0);
-      size_t expected_align = std::min(size_t{1} << lg_size, kAlignment);
+      size_t expected_align =
+          std::min(size_t{1} << lg_size, tcmalloc_internal::kAlignment);
 
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % expected_align, 0);
       ::operator delete(p);

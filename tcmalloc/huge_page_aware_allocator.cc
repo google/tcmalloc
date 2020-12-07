@@ -37,6 +37,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 bool decide_want_hpaa();
 ABSL_ATTRIBUTE_WEAK int default_subrelease();
@@ -47,8 +48,7 @@ bool decide_subrelease() {
     return false;
   }
 
-  const char *e =
-      tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
+  const char *e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
     if (e[0] == '0') return false;
     if (e[0] == '1') return false;
@@ -72,8 +72,7 @@ bool decide_subrelease() {
 }
 
 FillerPartialRerelease decide_partial_rerelease() {
-  const char *e = tcmalloc::tcmalloc_internal::thread_safe_getenv(
-      "TCMALLOC_PARTIAL_RELEASE_CONTROL");
+  const char *e = thread_safe_getenv("TCMALLOC_PARTIAL_RELEASE_CONTROL");
   if (e) {
     if (e[0] == '0') {
       return FillerPartialRerelease::Return;
@@ -86,10 +85,6 @@ FillerPartialRerelease decide_partial_rerelease() {
 
   return FillerPartialRerelease::Retain;
 }
-
-}  // namespace tcmalloc
-
-namespace tcmalloc {
 
 // Some notes: locking discipline here is a bit funny, because
 // we want to *not* hold the pageheap lock while backing memory.
@@ -496,7 +491,7 @@ static double BytesToMiB(size_t bytes) {
   return bytes / MiB;
 }
 
-static void BreakdownStats(TCMalloc_Printer *out, const BackingStats &s,
+static void BreakdownStats(Printer *out, const BackingStats &s,
                            const char *label) {
   out->printf("%s %6.1f MiB used, %6.1f MiB free, %6.1f MiB unmapped\n", label,
               BytesToMiB(s.system_bytes - s.free_bytes - s.unmapped_bytes),
@@ -512,9 +507,9 @@ static void BreakdownStatsInPbtxt(PbtxtRegion *hpaa, const BackingStats &s,
 }
 
 // public
-void HugePageAwareAllocator::Print(TCMalloc_Printer *out) { Print(out, true); }
+void HugePageAwareAllocator::Print(Printer *out) { Print(out, true); }
 
-void HugePageAwareAllocator::Print(TCMalloc_Printer *out, bool everything) {
+void HugePageAwareAllocator::Print(Printer *out, bool everything) {
   SmallSpanStats small;
   LargeSpanStats large;
   BackingStats bstats;
@@ -645,4 +640,5 @@ void HugePageAwareAllocator::UnbackWithoutLock(void *start, size_t length) {
   pageheap_lock.Lock();
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

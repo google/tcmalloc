@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/util.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 
@@ -71,7 +72,7 @@ ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void* tcmalloc_tls_fetch_pic() {
 }
 #endif
 
-ABSL_CONST_INIT size_t tcmalloc_virtual_cpu_id_offset =
+ABSL_CONST_INIT size_t tcmalloc_internal_virtual_cpu_id_offset =
     offsetof(kernel_rseq, cpu_id);
 
 }  // extern "C"
@@ -117,7 +118,7 @@ static void InitPerCpu() {
 #if TCMALLOC_PERCPU_USE_RSEQ
 #ifdef __x86_64__
     if (UsingFlatVirtualCpus()) {
-      tcmalloc_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
+      tcmalloc_internal_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
     }
 #endif  // __x86_64__
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
@@ -308,4 +309,5 @@ void FenceCpu(int cpu) {
 
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

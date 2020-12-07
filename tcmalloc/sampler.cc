@@ -24,6 +24,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 ssize_t Sampler::GetSamplePeriod() {
   return Parameters::profile_sampling_rate();
@@ -199,4 +200,5 @@ double AllocatedBytes(const StackTrace& stack, bool unsample) {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -22,6 +22,7 @@
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class PeakHeapTracker {
  public:
@@ -34,7 +35,7 @@ class PeakHeapTracker {
   void MaybeSaveSample() ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Return the saved high-water-mark heap profile, if any.
-  std::unique_ptr<tcmalloc_internal::ProfileBase> DumpSample() const
+  std::unique_ptr<ProfileBase> DumpSample() const
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   size_t CurrentPeakSize() const { return peak_sampled_heap_size_.value(); }
@@ -47,11 +48,12 @@ class PeakHeapTracker {
 
   // Sampled heap size last time peak_sampled_span_stacks_ was saved. Only
   // written under pageheap_lock; may be read without it.
-  tcmalloc_internal::StatsCounter peak_sampled_heap_size_;
+  StatsCounter peak_sampled_heap_size_;
 
   bool IsNewPeak();
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PEAK_HEAP_TRACKER_H_

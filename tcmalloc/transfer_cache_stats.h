@@ -18,6 +18,7 @@
 #include <stddef.h>
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 struct TransferCacheStats {
   size_t insert_hits;
@@ -26,6 +27,7 @@ struct TransferCacheStats {
   size_t remove_misses;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TRANSFER_CACHE_STATS_H_

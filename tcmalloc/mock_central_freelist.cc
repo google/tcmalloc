@@ -18,6 +18,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 void MinimalFakeCentralFreeList::AllocateBatch(void** batch, int n) {
   for (int i = 0; i < n; ++i) batch[i] = &batch[i];
@@ -59,4 +60,5 @@ int FakeCentralFreeList::RemoveRange(void** batch, int n) {
   return n;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

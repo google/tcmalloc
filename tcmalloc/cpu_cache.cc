@@ -34,6 +34,7 @@
 #include "tcmalloc/transfer_cache.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 using subtle::percpu::GetCurrentVirtualCpuUnsafe;
 
@@ -44,7 +45,7 @@ static cpu_set_t FillActiveCpuMask() {
   }
 
 #ifdef PERCPU_USE_RSEQ
-  const bool real_cpus = !tcmalloc::subtle::percpu::UsingFlatVirtualCpus();
+  const bool real_cpus = !subtle::percpu::UsingFlatVirtualCpus();
 #else
   const bool real_cpus = true;
 #endif
@@ -551,7 +552,7 @@ uint64_t CPUCache::Reclaim(int cpu) {
   return ctx.bytes;
 }
 
-void CPUCache::Print(TCMalloc_Printer *out) const {
+void CPUCache::Print(Printer *out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
               Static::cpu_cache().CacheLimit());
@@ -650,16 +651,17 @@ class PerCPUInitializer {
 };
 static PerCPUInitializer module_enter_exit;
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 extern "C" bool MallocExtension_Internal_GetPerCpuCachesActive() {
-  return tcmalloc::Static::CPUCacheActive();
+  return tcmalloc::tcmalloc_internal::Static::CPUCacheActive();
 }
 
 extern "C" int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize() {
-  return tcmalloc::Parameters::max_per_cpu_cache_size();
+  return tcmalloc::tcmalloc_internal::Parameters::max_per_cpu_cache_size();
 }
 
 extern "C" void MallocExtension_Internal_SetMaxPerCpuCacheSize(int32_t value) {
-  tcmalloc::Parameters::set_max_per_cpu_cache_size(value);
+  tcmalloc::tcmalloc_internal::Parameters::set_max_per_cpu_cache_size(value);
 }

@@ -24,7 +24,7 @@
 #include "tcmalloc/span.h"
 
 namespace tcmalloc {
-
+namespace tcmalloc_internal {
 namespace {
 
 class TestingSizeMap : public SizeMap {
@@ -120,4 +120,5 @@ TEST_F(RunTimeSizeClassesTest, EnvRealClasses) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

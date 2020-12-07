@@ -31,6 +31,8 @@
 #include "tcmalloc/malloc_extension.h"
 
 using std::max;
+using tcmalloc::tcmalloc_internal::Crash;
+using tcmalloc::tcmalloc_internal::kCrash;
 
 const char kCurrent[] = "generic.current_allocated_bytes";
 
@@ -42,8 +44,8 @@ int main() {
 
   size_t after_bytes = *tcmalloc::MallocExtension::GetNumericProperty(kCurrent);
   if (before_bytes != after_bytes) {
-    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "before != after",
-                    before_bytes, after_bytes);
+    Crash(kCrash, __FILE__, __LINE__, "before != after", before_bytes,
+          after_bytes);
   }
 
   // Do a lot of different allocs in a lot of different size classes,
@@ -62,8 +64,8 @@ int main() {
 
   after_bytes = *tcmalloc::MallocExtension::GetNumericProperty(kCurrent);
   if (before_bytes != after_bytes) {
-    tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "before != after",
-                    before_bytes, after_bytes);
+    Crash(kCrash, __FILE__, __LINE__, "before != after", before_bytes,
+          after_bytes);
   }
 
   printf("PASS\n");

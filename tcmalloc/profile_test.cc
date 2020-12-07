@@ -136,7 +136,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
         obj = operator new(s.size);
       }
       if (s.keep) {
-        tcmalloc::SLL_Push(&list, obj);
+        tcmalloc_internal::SLL_Push(&list, obj);
       } else {
         operator delete(obj);
       }
@@ -178,7 +178,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   EXPECT_LE(kTotalPerSize, (max_bytes * 4) / 3);
   // Remove the objects we left alive
   while (list != nullptr) {
-    void *obj = tcmalloc::SLL_Pop(&list);
+    void *obj = tcmalloc_internal::SLL_Pop(&list);
     operator delete(obj);
   }
 }

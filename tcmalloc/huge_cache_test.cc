@@ -36,6 +36,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 class HugeCacheTest : public testing::Test {
@@ -54,12 +55,10 @@ class HugeCacheTest : public testing::Test {
   // Use a tiny fraction of actual size so we can test aggressively.
   static void* AllocateFake(size_t bytes, size_t* actual, size_t align) {
     if (bytes % kHugePageSize != 0) {
-      tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned",
-                      bytes, kHugePageSize);
+      Crash(kCrash, __FILE__, __LINE__, "not aligned", bytes, kHugePageSize);
     }
     if (align % kHugePageSize != 0) {
-      tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__, "not aligned",
-                      align, kHugePageSize);
+      Crash(kCrash, __FILE__, __LINE__, "not aligned", align, kHugePageSize);
     }
     *actual = bytes;
     // we'll actually provide hidden backing, one word per hugepage.
@@ -149,7 +148,7 @@ class HugeCacheTest : public testing::Test {
     clock_offset_ += absl::ToInt64Nanoseconds(d);
   }
 
-  tcmalloc::HugeAllocator alloc_{AllocateFake, MallocMetadata};
+  HugeAllocator alloc_{AllocateFake, MallocMetadata};
   HugeCache cache_{&alloc_, MallocMetadata, MockUnback,
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
@@ -235,7 +234,7 @@ TEST_F(HugeCacheTest, Regret) {
   absl::Duration d = absl::Seconds(20);
   Advance(d);
   char buf[512];
-  TCMalloc_Printer out(buf, 512);
+  Printer out(buf, 512);
   cache_.Print(&out);  // To update the regret
   uint64_t expected_regret = absl::ToInt64Nanoseconds(d) * cached.raw_num();
   // Not exactly accurate since the mock clock advances with real time, and
@@ -533,7 +532,7 @@ int64_t MinMaxTrackerTest::clock_{0};
 
 TEST_F(MinMaxTrackerTest, Works) {
   const absl::Duration kDuration = absl::Seconds(2);
-  tcmalloc::MinMaxTracker<> tracker{
+  MinMaxTracker<> tracker{
       Clock{.now = FakeClock, .freq = GetFakeClockFrequency}, kDuration};
 
   tracker.Report(NHugePages(0));
@@ -581,4 +580,5 @@ TEST_F(MinMaxTrackerTest, Works) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

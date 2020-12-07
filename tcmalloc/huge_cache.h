@@ -33,6 +33,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 typedef void (*MemoryModifyFunction)(void *start, size_t len);
 
@@ -45,7 +46,7 @@ class MinMaxTracker {
       : kEpochLength(w / kEpochs), timeseries_(clock, w) {}
 
   void Report(HugeLength val);
-  void Print(TCMalloc_Printer *out) const;
+  void Print(Printer *out) const;
   void PrintInPbtxt(PbtxtRegion *hpaa) const;
 
   // If t < kEpochLength, these functions return statistics for last epoch. The
@@ -149,7 +150,7 @@ class HugeCache {
     return s;
   }
 
-  void Print(TCMalloc_Printer *out);
+  void Print(Printer *out);
   void PrintInPbtxt(PbtxtRegion *hpaa);
 
  private:
@@ -219,6 +220,7 @@ class HugeCache {
   MemoryModifyFunction unback_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_HUGE_CACHE_H_

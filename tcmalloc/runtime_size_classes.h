@@ -20,7 +20,8 @@
 #include "tcmalloc/size_class_info.h"
 
 namespace tcmalloc {
-namespace internal {
+namespace tcmalloc_internal {
+namespace runtime_size_classes_internal {
 
 // Set size classes from a string.
 // Format: "size,pages,num_to_move;"
@@ -31,7 +32,7 @@ namespace internal {
 int ParseSizeClasses(absl::string_view env, int max_size, int max_classes,
                      SizeClassInfo* parsed);
 
-}  // namespace internal
+}  // namespace runtime_size_classes_internal
 
 // If the environment variable TCMALLOC_SIZE_CLASSES is defined, its value is
 // parsed using ParseSizeClasses and ApplySizeClassDefaults into parsed. The
@@ -40,6 +41,7 @@ int ParseSizeClasses(absl::string_view env, int max_size, int max_classes,
 int MaybeSizeClassesFromEnv(int max_size, int max_classes,
                             SizeClassInfo* parsed);
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_RUNTIME_SIZE_CLASSES_H_

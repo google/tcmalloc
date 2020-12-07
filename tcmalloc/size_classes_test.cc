@@ -22,7 +22,7 @@
 #include "tcmalloc/span.h"
 
 namespace tcmalloc {
-
+namespace tcmalloc_internal {
 namespace {
 
 size_t Alignment(size_t size) {
@@ -390,4 +390,5 @@ TEST(SizeMapTest, Preinit) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

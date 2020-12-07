@@ -24,10 +24,8 @@
 #include "tcmalloc/internal/mock_span.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
-
-using tcmalloc_internal::MockSpan;
-using tcmalloc_internal::MockSpanList;
 
 void BM_PushPop(benchmark::State& state) {
   const int pointers = state.range(0);
@@ -142,4 +140,5 @@ static void BM_AppendRemove(benchmark::State& state) {
 BENCHMARK(BM_AppendRemove)->Range(32, 32 * 1024);
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

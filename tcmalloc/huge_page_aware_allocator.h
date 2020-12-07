@@ -33,6 +33,7 @@
 #include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 bool decide_subrelease();
 
@@ -80,12 +81,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Print stats to *out, excluding long/likely uninteresting things
   // unless <everything> is true.
-  void Print(TCMalloc_Printer* out, bool everything)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Print(Printer* out, bool everything) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
@@ -166,6 +166,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   Span* Finalize(Length n, PageId page);
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_

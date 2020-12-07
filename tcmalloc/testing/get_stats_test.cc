@@ -29,6 +29,7 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::Parameters;
 using ::testing::AnyOf;
 using ::testing::ContainsRegex;
 using ::testing::HasSubstr;

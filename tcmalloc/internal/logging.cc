@@ -31,6 +31,9 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
+namespace tcmalloc {
+namespace tcmalloc_internal {
+
 // Variables for storing crash output.  Allocated statically since we
 // may not be able to heap-allocate while crashing.
 ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
@@ -39,8 +42,6 @@ static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;
 static char stats_buffer[kStatsBufferSize] = {0};
-
-namespace tcmalloc {
 
 static void WriteMessage(const char* msg, int length) {
   (void)::write(STDERR_FILENO, msg, length);
@@ -80,7 +81,7 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
 
   if (with_stack) {
     state.trace.depth =
-        absl::GetStackTrace(state.trace.stack, tcmalloc::kMaxStackDepth, 1);
+        absl::GetStackTrace(state.trace.stack, kMaxStackDepth, 1);
     state.Add(LogItem("@"));
     for (int i = 0; i < state.trace.depth; i++) {
       state.Add(LogItem(state.trace.stack[i]));
@@ -208,10 +209,7 @@ bool Logger::AddNum(uint64_t num, int base) {
   return AddStr(pos, end - pos);
 }
 
-}  // namespace tcmalloc
-
-PbtxtRegion::PbtxtRegion(TCMalloc_Printer* out, PbtxtRegionType type,
-                         int indent)
+PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type, int indent)
     : out_(out), type_(type), indent_(indent) {
   switch (type_) {
     case kTop:
@@ -276,3 +274,6 @@ PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   PbtxtRegion sub(out_, kNested, indent_);
   return sub;
 }
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc

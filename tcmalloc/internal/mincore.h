@@ -18,6 +18,7 @@
 #include <stddef.h>
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Class to wrap mincore so that we can replace it for testing.
 class MInCoreInterface {
@@ -54,6 +55,7 @@ class MInCore {
   friend class MInCoreTest;
 };
 
-}  // End namespace tcmalloc
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_MINCORE_H_

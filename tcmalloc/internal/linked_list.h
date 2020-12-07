@@ -26,6 +26,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* SLL_Next(void* t) {
   return *(reinterpret_cast<void**>(t));
@@ -243,6 +244,7 @@ class TList {
   Elem head_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_LINKED_LIST_H_

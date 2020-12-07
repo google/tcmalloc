@@ -29,6 +29,7 @@
 #include "tcmalloc/pages.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Information kept for a span (a contiguous run of pages).
 //
@@ -370,6 +371,7 @@ inline void Span::Init(PageId p, Length n) {
   sampled_ = 0;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_SPAN_H_

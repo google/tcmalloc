@@ -38,6 +38,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Two-level radix tree
 typedef void* (*PagemapAllocator)(size_t);
@@ -423,6 +424,7 @@ class PageMap {
 #endif
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PAGEMAP_H_

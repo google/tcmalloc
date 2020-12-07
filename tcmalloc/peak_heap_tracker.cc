@@ -27,6 +27,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 bool PeakHeapTracker::IsNewPeak() {
   return peak_sampled_heap_size_.value() == 0 ||
@@ -77,18 +78,17 @@ void PeakHeapTracker::MaybeSaveSample() {
   peak_sampled_span_stacks_ = t;
 }
 
-std::unique_ptr<tcmalloc_internal::ProfileBase> PeakHeapTracker::DumpSample()
-    const {
+std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() const {
   auto profile = absl::make_unique<StackTraceTable>(
       ProfileType::kPeakHeap, Sampler::GetSamplePeriod(), true, true);
 
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (StackTrace* t = peak_sampled_span_stacks_; t != nullptr;
-       t = reinterpret_cast<StackTrace*>(
-           t->stack[tcmalloc::kMaxStackDepth - 1])) {
+       t = reinterpret_cast<StackTrace*>(t->stack[kMaxStackDepth - 1])) {
     profile->AddTrace(1.0, *t);
   }
   return profile;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

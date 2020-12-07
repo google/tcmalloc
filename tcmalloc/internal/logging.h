@@ -37,6 +37,7 @@
 //   Log(kLog, __FILE__, __LINE__, "error", bytes);
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 static constexpr int kMaxStackDepth = 64;
 
@@ -121,14 +122,13 @@ void Crash(CrashMode mode, const char* filename, int line, LogItem a,
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
-}  // namespace tcmalloc
-
 // Like assert(), but executed even in NDEBUG mode
 #undef CHECK_CONDITION
-#define CHECK_CONDITION(cond) \
-  (ABSL_PREDICT_TRUE(cond)    \
-       ? (void)0              \
-       : (::tcmalloc::Crash(::tcmalloc::kCrash, __FILE__, __LINE__, #cond)))
+#define CHECK_CONDITION(cond)                                           \
+  (ABSL_PREDICT_TRUE(cond) ? (void)0                                    \
+                           : (::tcmalloc::tcmalloc_internal::Crash(     \
+                                 ::tcmalloc::tcmalloc_internal::kCrash, \
+                                 __FILE__, __LINE__, #cond)))
 
 // Our own version of assert() so we can avoid hanging by trying to do
 // all kinds of goofy printing while holding the malloc lock.
@@ -139,7 +139,7 @@ extern void (*log_message_writer)(const char* msg, int length);
 #endif
 
 // Print into buffer
-class TCMalloc_Printer {
+class Printer {
  private:
   char* buf_;     // Where should we write next
   int left_;      // Space left in buffer (including space for \0)
@@ -148,8 +148,7 @@ class TCMalloc_Printer {
 
  public:
   // REQUIRES: "length > 0"
-  TCMalloc_Printer(char* buf, int length)
-      : buf_(buf), left_(length), required_(0) {
+  Printer(char* buf, int length) : buf_(buf), left_(length), required_(0) {
     ASSERT(length > 0);
     buf[0] = '\0';
   }
@@ -186,7 +185,7 @@ enum PbtxtRegionType { kTop, kNested };
 // brackets).
 class PbtxtRegion {
  public:
-  PbtxtRegion(TCMalloc_Printer* out, PbtxtRegionType type, int indent);
+  PbtxtRegion(Printer* out, PbtxtRegionType type, int indent);
   ~PbtxtRegion();
 
   PbtxtRegion(const PbtxtRegion&) = delete;
@@ -206,9 +205,12 @@ class PbtxtRegion {
  private:
   void NewLineAndIndent();
 
-  TCMalloc_Printer* out_;
+  Printer* out_;
   PbtxtRegionType type_;
   int indent_;
 };
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_LOGGING_H_

@@ -26,6 +26,7 @@
 #include "tcmalloc/mock_central_freelist.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
@@ -106,7 +107,8 @@ class FakeTransferCacheEnvironment {
   using Manager = typename TransferCache::Manager;
   using FreeList = typename TransferCache::FreeList;
 
-  static constexpr int kMaxObjectsToMove = ::kMaxObjectsToMove;
+  static constexpr int kMaxObjectsToMove =
+      ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
   static constexpr int kMaxCapacityInBatches =
       TransferCache::kMaxCapacityInBatches;
   static constexpr int kInitialCapacityInBatches =
@@ -177,6 +179,7 @@ class FakeTransferCacheEnvironment {
   TransferCache cache_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_MOCK_TRANSFER_CACHE_H_

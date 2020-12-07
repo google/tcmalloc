@@ -36,6 +36,7 @@
 #include "tcmalloc/pages.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 static double BytesToMiB(size_t bytes) {
   const double MiB = 1048576.0;
@@ -47,9 +48,8 @@ static double PagesToMiB(uint64_t pages) {
 }
 
 // For example, PrintRightAdjustedWithPrefix(out, ">=", 42, 6) prints "  >=42".
-static void PrintRightAdjustedWithPrefix(TCMalloc_Printer *out,
-                                         const char *prefix, Length num,
-                                         int width) {
+static void PrintRightAdjustedWithPrefix(Printer *out, const char *prefix,
+                                         Length num, int width) {
   width -= strlen(prefix);
   int num_tmp = num.raw_num();
   for (int i = 0; i < width - 1; i++) {
@@ -61,9 +61,9 @@ static void PrintRightAdjustedWithPrefix(TCMalloc_Printer *out,
   out->printf("%s%zu", prefix, num.raw_num());
 }
 
-void PrintStats(const char *label, TCMalloc_Printer *out,
-                const BackingStats &backing, const SmallSpanStats &small,
-                const LargeSpanStats &large, bool everything) {
+void PrintStats(const char *label, Printer *out, const BackingStats &backing,
+                const SmallSpanStats &small, const LargeSpanStats &large,
+                bool everything) {
   size_t nonempty_sizes = 0;
   for (int i = 0; i < kMaxPages.raw_num(); ++i) {
     const size_t norm = small.normal_length[i];
@@ -274,7 +274,7 @@ void PageAgeHistograms::Histogram::Record(Length pages, double age) {
   total_age_ += pages.raw_num() * age;
 }
 
-void PageAgeHistograms::Print(const char *label, TCMalloc_Printer *out) const {
+void PageAgeHistograms::Print(const char *label, Printer *out) const {
   out->printf("------------------------------------------------\n");
   out->printf(
       "%s cache entry age (count of pages in spans of "
@@ -294,8 +294,8 @@ void PageAgeHistograms::Print(const char *label, TCMalloc_Printer *out) const {
   returned_.Print("Unmapped span", out);
 }
 
-static void PrintLineHeader(TCMalloc_Printer *out, const char *kind,
-                            const char *prefix, Length num) {
+static void PrintLineHeader(Printer *out, const char *kind, const char *prefix,
+                            Length num) {
   // Print the beginning of the line, e.g. "Live span,   >=128 pages: ".  The
   // span size ("128" in the example) is padded such that it plus the span
   // prefix ("Live") plus the span size prefix (">=") is kHeaderExtraChars wide.
@@ -308,7 +308,7 @@ static void PrintLineHeader(TCMalloc_Printer *out, const char *kind,
 }
 
 void PageAgeHistograms::PerSizeHistograms::Print(const char *kind,
-                                                 TCMalloc_Printer *out) const {
+                                                 Printer *out) const {
   out->printf("%-15s TOTAL PAGES: ", kind);
   total.Print(out);
 
@@ -325,7 +325,7 @@ void PageAgeHistograms::PerSizeHistograms::Print(const char *kind,
   }
 }
 
-void PageAgeHistograms::Histogram::Print(TCMalloc_Printer *out) const {
+void PageAgeHistograms::Histogram::Print(Printer *out) const {
   const double mean = avg_age();
   out->printf(" %7.1f", mean);
   for (int b = 0; b < kNumBuckets; ++b) {
@@ -335,7 +335,7 @@ void PageAgeHistograms::Histogram::Print(TCMalloc_Printer *out) const {
   out->printf("\n");
 }
 
-void PageAllocInfo::Print(TCMalloc_Printer *out) const {
+void PageAllocInfo::Print(Printer *out) const {
   int64_t ticks = TimeTicks();
   double hz = freq_ / ticks;
   out->printf("%s: stats on allocation sizes\n", label_);
@@ -547,4 +547,5 @@ int64_t PageAllocInfo::TimeTicks() const {
   return absl::base_internal::CycleClock::Now() - baseline_ticks_;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

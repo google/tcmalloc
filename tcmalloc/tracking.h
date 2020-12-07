@@ -48,6 +48,7 @@
 // #define TCMALLOC_TRACK_ALLOCS
 #endif
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 #if 1
 #define TCMALLOC_HAVE_TRACKING 0
@@ -80,7 +81,7 @@ void Report(TrackingStat stat, size_t cl, ssize_t count);
 
 // Dump all tracking data to <out>.  We could support various other
 // mechanisms for data delivery without too much trouble...
-void Print(TCMalloc_Printer* out);
+void Print(Printer* out);
 
 // Call before a thread will die (ideally after its last malloc call!)
 // so we don't lose its statistics.
@@ -97,7 +98,7 @@ void GetProperties(std::map<std::string, MallocExtension::Property>* result);
 // no tracking, these are all no-ops
 inline void Report(TrackingStat stat, size_t cl, ssize_t count) {}
 inline void RegisterNewThreadIfNecessary() {}
-inline void Print(TCMalloc_Printer* out) {}
+inline void Print(Printer* out) {}
 inline void ReportThreadDeath() {}
 inline void Init() {}
 inline void GetProperties(
@@ -105,6 +106,7 @@ inline void GetProperties(
 #endif
 
 }  // namespace tracking
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TRACKING_H_

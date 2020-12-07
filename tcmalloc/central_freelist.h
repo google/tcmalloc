@@ -29,6 +29,7 @@
 #include "tcmalloc/span_stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Data kept per size-class in central cache.
 class CentralFreeList {
@@ -117,15 +118,16 @@ class CentralFreeList {
   // guarantees accuracy.
 
   // Num free objects in cache entry
-  tcmalloc_internal::StatsCounter counter_;
+  StatsCounter counter_;
 
-  tcmalloc_internal::StatsCounter num_spans_requested_;
-  tcmalloc_internal::StatsCounter num_spans_returned_;
+  StatsCounter num_spans_requested_;
+  StatsCounter num_spans_returned_;
 
   // Dummy header for non-empty spans
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_CENTRAL_FREELIST_H_

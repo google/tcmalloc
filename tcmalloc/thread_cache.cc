@@ -21,6 +21,7 @@
 #include "tcmalloc/transfer_cache.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 size_t ThreadCache::per_thread_cache_size_ = kMaxThreadCacheSize;
 size_t ThreadCache::overall_thread_cache_size_ = kDefaultOverallThreadCacheSize;
@@ -410,4 +411,5 @@ void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
   RecomputePerThreadCacheSize();
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

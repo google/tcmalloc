@@ -26,6 +26,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 int ABSL_ATTRIBUTE_WEAK default_want_hpaa();
 
@@ -154,4 +155,5 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
   return (pages <= ret);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

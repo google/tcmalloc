@@ -27,6 +27,7 @@
 #include "tcmalloc/internal/optimization.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Helpers for below
 class Bitops {
@@ -526,6 +527,7 @@ inline ssize_t Bitmap<N>::FindValueBackwards(size_t index) const {
   return ret;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_RANGE_TRACKER_H_

@@ -23,6 +23,7 @@
 #include "tcmalloc/internal/range_tracker.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 template <size_t N>
@@ -380,4 +381,5 @@ BENCHMARK_TEMPLATE(BM_ScanChunks, 256);
 BENCHMARK_TEMPLATE(BM_ScanChunks, 256 * 32);
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

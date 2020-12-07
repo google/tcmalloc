@@ -36,6 +36,7 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::kPageSize;
 using ::testing::ContainsRegex;
 using ::testing::HasSubstr;
 

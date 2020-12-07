@@ -23,6 +23,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 // TODO(b/162552708) Mock out the page heap to interact with CFL instead
@@ -114,4 +115,5 @@ TEST_P(CFLTest, MultipleSpans) {
 
 INSTANTIATE_TEST_SUITE_P(All, CFLTest, testing::Range(size_t(1), kNumClasses));
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

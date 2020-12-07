@@ -31,6 +31,7 @@
 #include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Helper function to record span address into pageheap
 void PageHeap::RecordSpan(Span* span) {
@@ -491,7 +492,7 @@ void PageHeap::PrintInPbtxt(PbtxtRegion* region) {
   // We do not collect info_.PrintInPbtxt for now.
 }
 
-void PageHeap::Print(TCMalloc_Printer* out) {
+void PageHeap::Print(Printer* out) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   SmallSpanStats small;
   GetSmallSpanStats(&small);
@@ -521,4 +522,5 @@ void PageHeap::Print(TCMalloc_Printer* out) {
   info_.Print(out);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

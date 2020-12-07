@@ -26,6 +26,7 @@
 #endif
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 #if defined __x86_64__
 // All current and planned x86_64 processors only look at the lower 48 bits
@@ -66,6 +67,7 @@ static constexpr size_t kHugePageShift = 21;
 static constexpr size_t kHugePageSize = static_cast<size_t>(1)
                                         << kHugePageShift;
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_CONFIG_H_

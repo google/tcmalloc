@@ -24,6 +24,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // -------------------------------------------------------------------------
 // Page-level allocator
@@ -76,7 +77,7 @@ class PageHeap final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
@@ -151,6 +152,7 @@ class PageHeap final : public PageAllocatorInterface {
   void RecordSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PAGE_HEAP_H_

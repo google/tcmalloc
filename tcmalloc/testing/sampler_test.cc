@@ -34,6 +34,7 @@
 
 // Back-door so we can access Sampler internals.
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class SamplerTest {
  public:
@@ -56,7 +57,7 @@ static const size_t kGuardedSamplingInterval = 100 * kSamplingInterval;
 // Tests that GetSamplePeriod returns the expected value
 // which is 1<<19
 TEST(Sampler, TestGetSamplePeriod) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t sample_period;
   sample_period = sampler.GetSamplePeriod();
@@ -146,7 +147,7 @@ double AndersonDarlingTest(const std::vector<double>& random_sample) {
 // random numbers.
 // Applies the Anderson-Darling test for uniformity
 void TestNextRandom(int n) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t x = 1;
   // This assumes that the prng returns 48 bit numbers
@@ -208,7 +209,7 @@ void TestSampleAndersonDarling(int sample_period,
 // First converts to uniforms then applied the
 // Anderson-Darling test for uniformity.
 void TestPickNextSample(int n) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   std::vector<uint64_t> int_random_sample(n);
   int sample_period = sampler.GetSamplePeriod();
@@ -232,7 +233,7 @@ TEST(Sampler, TestPickNextSample_MultipleValues) {
 }
 
 void TestPickNextGuardedSample(int n) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   std::vector<uint64_t> int_random_sample(n);
   for (int i = 0; i < n; i++) {
@@ -263,7 +264,7 @@ double StandardDeviationsErrorInSample(int total_samples, int picked_samples,
 }
 
 TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   int counter_big = 0;
   int counter_small = 0;
@@ -293,7 +294,7 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
 TEST(Sampler, TestShouldSampleGuardedAllocation) {
   ScopedGuardedSamplingRate s(kGuardedSamplingInterval);
 
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   int counter = 0;
   int num_iters = 10000;
@@ -320,7 +321,7 @@ void DoCheckMean(size_t mean, int num_samples, Body next_sampling_point) {
 }
 
 void CheckMean(size_t mean, int num_samples, bool guarded) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   DoCheckMean(mean, num_samples, [guarded, &sampler]() {
     if (guarded) {
@@ -343,7 +344,7 @@ TEST(Sampler, IsMeanRight) {
 // This checks that the stated maximum value for the sampling rate never
 // overflows bytes_until_sample_
 TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t one = 1;
   // sample_rate = 0;  // To test the edge case
@@ -381,7 +382,7 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
 // Test that NextRand is in the right range.  Unfortunately, this is a
 // stochastic test which could miss problems.
 TEST(Sampler, NextRand_range) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t one = 1;
   // The next number should be (one << 48) - 1
@@ -397,7 +398,7 @@ TEST(Sampler, NextRand_range) {
 // Tests certain arithmetic operations to make sure they compute what we
 // expect them too (for testing across different platforms)
 TEST(Sampler, arithmetic_1) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t rnd;  // our 48 bit random number, which we don't trust
   const uint64_t prng_mod_power = 48;
@@ -441,7 +442,7 @@ TEST(Sampler, arithmetic_2) {
 
 // It's not really a test, but it's good to know
 TEST(Sampler, size_of_class) {
-  tcmalloc::Sampler sampler;
+  Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   EXPECT_LE(sizeof(sampler), 48);
 }
@@ -451,18 +452,17 @@ TEST(Sampler, stirring) {
   // dealing with Samplers that have same addresses, as we see when thread's TLS
   // areas are reused. b/117296263
 
-  absl::aligned_storage_t<sizeof(tcmalloc::Sampler), alignof(tcmalloc::Sampler)>
-      place;
+  absl::aligned_storage_t<sizeof(Sampler), alignof(Sampler)> place;
 
   DoCheckMean(kSamplingInterval, 1000, [&place]() {
-    tcmalloc::Sampler* sampler = new (&place) tcmalloc::Sampler;
+    Sampler* sampler = new (&place) Sampler;
     // Sampler constructor just 0-initializes
     // everything. RecordAllocation really makes sampler initialize
     // itself.
     sampler->RecordAllocation(1);
     // And then we probe sampler's (second) value.
     size_t retval = sampler->PickNextSamplingPoint();
-    sampler->tcmalloc::Sampler::~Sampler();
+    sampler->Sampler::~Sampler();
     return retval;
   });
 }
@@ -475,7 +475,7 @@ TEST(Sampler, weight_distribution) {
   for (auto size : sizes) {
     SCOPED_TRACE(size);
 
-    tcmalloc::Sampler s;
+    Sampler s;
     SamplerTest::Init(&s, 1);
 
     static constexpr int kSamples = 10000;
@@ -493,4 +493,5 @@ TEST(Sampler, weight_distribution) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

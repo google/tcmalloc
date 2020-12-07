@@ -28,6 +28,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 void Span::Sample(StackTrace* stack) {
   ASSERT(!sampled_ && stack);
@@ -268,4 +269,5 @@ void Span::BuildFreelist(size_t size, size_t count) {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

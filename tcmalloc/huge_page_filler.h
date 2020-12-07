@@ -34,6 +34,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Tracks correctness of skipped subrelease decisions over time.
 template <size_t kEpochs = 16>
@@ -279,7 +280,7 @@ class FillerStatsTracker {
     }
   }
 
-  void Print(TCMalloc_Printer* out) const;
+  void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
   // Calculates recent peaks for skipping subrelease decisions. If our allocated
@@ -452,7 +453,7 @@ inline double safe_div(Length a, Length b) {
 }
 
 template <size_t kEpochs>
-void FillerStatsTracker<kEpochs>::Print(TCMalloc_Printer* out) const {
+void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
   out->printf("HugePageFiller: time series over %d min interval\n\n",
               absl::ToInt64Minutes(summary_interval_));
@@ -837,7 +838,7 @@ class HugePageFiller {
 
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
-  void Print(TCMalloc_Printer* out, bool everything) const;
+  void Print(Printer* out, bool everything) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
  private:
@@ -1614,7 +1615,7 @@ inline BackingStats HugePageFiller<TrackerType>::stats() const {
   return s;
 }
 
-namespace internal {
+namespace huge_page_filler_internal {
 // Computes some histograms of fullness. Because nearly empty/full huge pages
 // are much more interesting, we calculate 4 buckets at each of the beginning
 // and end of size one, and then divide the overall space by 16 to have 16
@@ -1665,7 +1666,7 @@ class UsageInfo {
     nalloc_histo_[which][BucketNum(nalloc - 1)]++;
   }
 
-  void Print(TCMalloc_Printer* out) {
+  void Print(Printer* out) {
     PrintHisto(out, free_page_histo_[kRegular],
                "# of regular hps with a<= # of free pages <b", 0);
     PrintHisto(out, free_page_histo_[kDonated],
@@ -1715,8 +1716,7 @@ class UsageInfo {
     return it - bucket_bounds_ - 1;
   }
 
-  void PrintHisto(TCMalloc_Printer* out, Histo h, const char blurb[],
-                  size_t offset) {
+  void PrintHisto(Printer* out, Histo h, const char blurb[], size_t offset) {
     out->printf("\nHugePageFiller: %s", blurb);
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (i % 6 == 0) {
@@ -1746,10 +1746,10 @@ class UsageInfo {
   size_t bucket_bounds_[kBucketCapacity];
   int buckets_size_ = 0;
 };
-}  // namespace internal
+}  // namespace huge_page_filler_internal
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer* out,
+inline void HugePageFiller<TrackerType>::Print(Printer* out,
                                                bool everything) const {
   out->printf("HugePageFiller: densely pack small requests into hugepages\n");
 
@@ -1811,7 +1811,7 @@ inline void HugePageFiller<TrackerType>::Print(TCMalloc_Printer* out,
   if (!everything) return;
 
   // Compute some histograms of fullness.
-  using ::tcmalloc::internal::UsageInfo;
+  using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
   regular_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
@@ -1889,7 +1889,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       "filler_num_hugepages_broken_due_to_limit",
       subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
   // Compute some histograms of fullness.
-  using ::tcmalloc::internal::UsageInfo;
+  using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
   regular_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
@@ -2053,6 +2053,7 @@ inline Length HugePageFiller<TrackerType>::free_pages() const {
   return size().in_pages() - used_pages() - unmapped_pages();
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_HUGE_PAGE_FILLER_H_

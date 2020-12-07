@@ -33,6 +33,7 @@
 #include "tcmalloc/tracking.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 //-------------------------------------------------------------------
 // Data kept per thread
@@ -336,6 +337,7 @@ inline ThreadCache* ThreadCache::GetCache() {
   return (ABSL_PREDICT_TRUE(tc != nullptr)) ? tc : CreateCacheIfNecessary();
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_THREAD_CACHE_H_

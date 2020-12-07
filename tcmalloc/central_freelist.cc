@@ -25,6 +25,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 static MemoryTag MemoryTagFromSizeClass(size_t cl) {
   return MemoryTag::kNormal;
@@ -167,4 +168,5 @@ SpanStats CentralFreeList::GetSpanStats() const {
   return stats;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

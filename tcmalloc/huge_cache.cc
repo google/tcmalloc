@@ -24,6 +24,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 template <size_t kEpochs>
 void MinMaxTracker<kEpochs>::Report(HugeLength val) {
@@ -51,7 +52,7 @@ HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
 }
 
 template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::Print(TCMalloc_Printer *out) const {
+void MinMaxTracker<kEpochs>::Print(Printer *out) const {
   // Prints timestamp:min_pages:max_pages for each window with records.
   // Timestamp == kEpochs - 1 is the most recent measurement.
   const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
@@ -375,7 +376,7 @@ HugeAddressMap::Node *HugeCache::Find(HugeLength n) {
   return best;
 }
 
-void HugeCache::Print(TCMalloc_Printer *out) {
+void HugeCache::Print(Printer *out) {
   const int64_t millis = absl::ToInt64Milliseconds(kCacheTime);
   out->printf(
       "HugeCache: contains unused, backed hugepage(s) "
@@ -492,4 +493,5 @@ void HugeCache::PrintInPbtxt(PbtxtRegion *hpaa) {
   detailed_tracker_.PrintInPbtxt(hpaa);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -25,6 +25,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Type that can hold the length of a run of pages
 class Length {
@@ -261,6 +262,7 @@ inline constexpr Length operator%(Length lhs, Length rhs) {
   return Length(lhs.raw_num() % rhs.raw_num());
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PAGES_H_

@@ -32,6 +32,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class PageAllocator {
  public:
@@ -74,8 +75,7 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(TCMalloc_Printer* out, MemoryTag tag)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Print(Printer* out, MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
   void PrintInPbtxt(PbtxtRegion* region, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
@@ -175,7 +175,7 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
   return released;
 }
 
-inline void PageAllocator::Print(TCMalloc_Printer* out, MemoryTag tag) {
+inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
   const absl::string_view label = MemoryTagToLabel(tag);
   if (tag != MemoryTag::kNormal) {
     out->printf("\n>>>>>>> Begin %s page allocator <<<<<<<\n", label);
@@ -212,6 +212,7 @@ inline const PageAllocInfo& PageAllocator::info(MemoryTag tag) const {
   return impl(tag)->info();
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PAGE_ALLOCATOR_H_

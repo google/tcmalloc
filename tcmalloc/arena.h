@@ -22,6 +22,7 @@
 #include "tcmalloc/common.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Arena allocation; designed for use by tcmalloc internal data structures like
 // spans, profiles, etc.  Always expands.
@@ -56,6 +57,7 @@ class Arena {
   Arena& operator=(const Arena&) = delete;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_ARENA_H_

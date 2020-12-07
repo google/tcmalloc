@@ -18,6 +18,7 @@
 #include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 void* Arena::Alloc(size_t bytes) {
   char* result;
@@ -48,4 +49,5 @@ void* Arena::Alloc(size_t bytes) {
   return reinterpret_cast<void*>(result);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -33,6 +33,7 @@
 #include "tcmalloc/tracking.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Cacheline-align our SizeMap and CPUCache.  They both have very hot arrays as
 // their first member variables, and aligning them reduces the number of cache
@@ -110,4 +111,5 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

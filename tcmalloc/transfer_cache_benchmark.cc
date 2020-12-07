@@ -24,6 +24,7 @@
 #include "tcmalloc/transfer_cache_stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 using TransferCacheEnv =
@@ -142,4 +143,5 @@ BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, LockFreeEnv);
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

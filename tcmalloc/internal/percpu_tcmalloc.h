@@ -48,6 +48,7 @@
 #endif
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 struct PerCPUMetadataState {
   size_t virtual_size;
@@ -333,7 +334,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
+        [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
@@ -461,7 +462,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
             [scratch] "=&r"(scratch), [current] "=&r"(current)
           : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-            [rseq_cpu_offset] "r"(tcmalloc_virtual_cpu_id_offset),
+            [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
             [slabs] "r"(slabs), [cl] "r"(cl)
           : "cc", "memory"
@@ -524,10 +525,11 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PushBatch_FixedShift needs to be
-    // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
-    // avoid needing to dispatch on two separate versions of the same function
-    // with only minor differences between them.
-    switch (tcmalloc_virtual_cpu_id_offset) {
+    // refactored to take a 5th parameter
+    // (tcmalloc_internal_virtual_cpu_id_offset) to avoid needing to dispatch on
+    // two separate versions of the same function with only minor differences
+    // between them.
+    switch (tcmalloc_internal_virtual_cpu_id_offset) {
       case offsetof(kernel_rseq, cpu_id):
         return TcmallocSlab_PushBatch_FixedShift(slabs_, cl, batch, len);
 #ifdef __x86_64__
@@ -558,10 +560,11 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PopBatch_FixedShift needs to be
-    // refactored to take a 5th parameter (tcmalloc_virtual_cpu_id_offset) to
-    // avoid needing to dispatch on two separate versions of the same function
-    // with only minor differences between them.
-    switch (tcmalloc_virtual_cpu_id_offset) {
+    // refactored to take a 5th parameter
+    // (tcmalloc_internal_virtual_cpu_id_offset) to avoid needing to dispatch on
+    // two separate versions of the same function with only minor differences
+    // between them.
+    switch (tcmalloc_internal_virtual_cpu_id_offset) {
       case offsetof(kernel_rseq, cpu_id):
         n = TcmallocSlab_PopBatch_FixedShift(slabs_, cl, batch, len);
         break;
@@ -905,6 +908,7 @@ PerCPUMetadataState TcmallocSlab<Shift, NumClasses>::MetadataMemoryUsage()
 
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_

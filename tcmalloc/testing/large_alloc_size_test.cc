@@ -33,7 +33,8 @@ TEST(LargeAllocSizeTest, Basic) {
   PropertyMap map = MallocExtension::GetProperties();
   const size_t start_mem = map["generic.physical_memory_used"].value;
   const size_t kTotalToAllocate = 1024 << 20;
-  const size_t kAllocSize = tcmalloc::kMinSystemAlloc + kPageSize;
+  const size_t kAllocSize =
+      tcmalloc_internal::kMinSystemAlloc + tcmalloc_internal::kPageSize;
   const size_t kBlocks = kTotalToAllocate / kAllocSize;
   void* volatile blocks[kBlocks];
   for (size_t i = 0; i < kBlocks; ++i) {

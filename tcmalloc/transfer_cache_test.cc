@@ -37,6 +37,7 @@
 #include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 template <typename Env>
@@ -316,4 +317,5 @@ INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
 }  // namespace fuzz_tests
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

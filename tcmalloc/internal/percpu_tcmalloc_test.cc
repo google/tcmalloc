@@ -43,12 +43,11 @@
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 namespace {
 
-using tcmalloc::tcmalloc_internal::AllowedCpus;
-using tcmalloc::tcmalloc_internal::ScopedAffinityMask;
 using testing::Each;
 using testing::UnorderedElementsAreArray;
 
@@ -852,4 +851,5 @@ BENCHMARK(BM_PushPopBatch);
 }  // namespace
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

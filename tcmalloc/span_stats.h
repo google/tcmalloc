@@ -20,6 +20,7 @@
 #include "absl/base/macros.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 struct SpanStats {
   size_t num_spans_requested = 0;
@@ -40,6 +41,7 @@ struct SpanStats {
   }
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_SPAN_STATS_H_

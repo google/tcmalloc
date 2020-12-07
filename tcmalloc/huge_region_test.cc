@@ -32,6 +32,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 using testing::NiceMock;
@@ -527,10 +528,9 @@ TEST_F(HugeRegionSetTest, Set) {
             });
 
   for (int i = 0; i < regions.size(); i++) {
-    tcmalloc::Log(tcmalloc::kLog, __FILE__, __LINE__, i,
-                  regions[i]->used_pages().raw_num(),
-                  regions[i]->free_pages().raw_num(),
-                  regions[i]->unmapped_pages().raw_num());
+    Log(kLog, __FILE__, __LINE__, i, regions[i]->used_pages().raw_num(),
+        regions[i]->free_pages().raw_num(),
+        regions[i]->unmapped_pages().raw_num());
   }
   // Now first two should be "full" (ish)
   EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
@@ -555,10 +555,11 @@ TEST_F(HugeRegionSetTest, Set) {
 
   // Print out the stats for inspection of formats.
   std::vector<char> buf(64 * 1024);
-  TCMalloc_Printer out(&buf[0], buf.size());
+  Printer out(&buf[0], buf.size());
   set_.Print(&out);
   printf("%s\n", &buf[0]);
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

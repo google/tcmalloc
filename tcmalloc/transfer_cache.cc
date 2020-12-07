@@ -29,6 +29,8 @@
 #include "tcmalloc/tracking.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
+
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
 size_t TransferCacheManager::class_to_size(int size_class) {
@@ -61,4 +63,6 @@ int TransferCacheManager::DetermineSizeClassToEvict() {
 }
 
 #endif
+
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

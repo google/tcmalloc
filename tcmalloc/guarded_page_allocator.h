@@ -28,6 +28,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 ABSL_CONST_INIT extern absl::base_internal::SpinLock guarded_page_lock;
 
@@ -170,7 +171,7 @@ class GuardedPageAllocator {
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
-  void Print(TCMalloc_Printer *out) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
+  void Print(Printer *out) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
   void PrintInPbtxt(PbtxtRegion *gwp_asan) const
       ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
@@ -302,6 +303,7 @@ struct ConstexprCheck {
                 "GuardedPageAllocator must have a constexpr constructor");
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_

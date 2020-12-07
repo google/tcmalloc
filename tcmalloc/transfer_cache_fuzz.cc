@@ -23,9 +23,10 @@ namespace tcmalloc {
 namespace {
 
 using TransferCache =
-    internal_transfer_cache::LockFreeTransferCache<MockCentralFreeList,
-                                                   MockTransferCacheManager>;
-using Env = FakeTransferCacheEnvironment<TransferCache>;
+    tcmalloc_internal::internal_transfer_cache::LockFreeTransferCache<
+        tcmalloc_internal::MockCentralFreeList,
+        tcmalloc_internal::MockTransferCacheManager>;
+using Env = tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
 }  // namespace
 }  // namespace tcmalloc

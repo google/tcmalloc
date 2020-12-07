@@ -36,6 +36,7 @@
 #endif
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
@@ -43,14 +44,13 @@ class TransferCacheManager {
   template <typename CentralFreeList, typename Manager>
   friend class internal_transfer_cache::TransferCache;
   using TransferCache =
-      internal_transfer_cache::TransferCache<CentralFreeList,
+      internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
   template <typename CentralFreeList, typename Manager>
   friend class internal_transfer_cache::LockFreeTransferCache;
-  using LockFreeTransferCache =
-      internal_transfer_cache::LockFreeTransferCache<CentralFreeList,
-                                                     TransferCacheManager>;
+  using LockFreeTransferCache = internal_transfer_cache::LockFreeTransferCache<
+      tcmalloc_internal::CentralFreeList, TransferCacheManager>;
 
  public:
   constexpr TransferCacheManager()
@@ -206,6 +206,8 @@ class TransferCacheManager {
 } ABSL_CACHELINE_ALIGNED;
 
 #endif
+
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TRANSFER_CACHE_H_

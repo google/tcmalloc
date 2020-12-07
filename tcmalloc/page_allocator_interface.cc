@@ -28,9 +28,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
-
-using tcmalloc::tcmalloc_internal::signal_safe_open;
-using tcmalloc::tcmalloc_internal::thread_safe_getenv;
+namespace tcmalloc_internal {
 
 static int OpenLog(MemoryTag tag) {
   const char *fname = [&]() {
@@ -83,4 +81,5 @@ PageAllocatorInterface::~PageAllocatorInterface() {
   Crash(kCrash, __FILE__, __LINE__, "should never destroy this");
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

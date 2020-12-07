@@ -15,6 +15,7 @@
 #include "tcmalloc/common.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // <fixed> is fixed per-size-class overhead due to end-of-span fragmentation
 // and other factors. For instance, if we have a 96 byte size class, and use a
@@ -703,4 +704,5 @@ const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount
 #endif
 // clang-format on
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

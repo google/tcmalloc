@@ -21,6 +21,7 @@
 #if !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 
@@ -76,6 +77,7 @@ int PerCpuReadCycleCounter(int64_t *cycles) {
 
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM

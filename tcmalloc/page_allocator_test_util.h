@@ -24,6 +24,7 @@
 #include "tcmalloc/common.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // AddressRegion that adds some padding on either side of each
 // allocation.  This prevents multiple PageAllocators in the system
@@ -70,6 +71,7 @@ class ExtraRegionFactory : public AddressRegionFactory {
   AddressRegionFactory *under_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_TEST_UTIL_H_

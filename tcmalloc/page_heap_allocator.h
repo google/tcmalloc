@@ -24,6 +24,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 struct AllocatorStats {
   // Number of allocated but unfreed objects
@@ -81,6 +82,7 @@ class PageHeapAllocator {
   AllocatorStats stats_ ABSL_GUARDED_BY(pageheap_lock);
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PAGE_HEAP_ALLOCATOR_H_

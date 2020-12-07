@@ -56,6 +56,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // NullOomPolicy: returns nullptr
 struct NullOomPolicy {
@@ -176,6 +177,7 @@ class TCMallocPolicy {
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;
 using MallocPolicy = TCMallocPolicy<MallocOomPolicy, MallocAlignPolicy>;
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TCMALLOC_POLICY_H_

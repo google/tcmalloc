@@ -21,6 +21,7 @@
 #include "absl/base/internal/spinlock.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class FakeCentralFreeListBase {
  public:
@@ -87,6 +88,7 @@ class RawMockCentralFreeList : public FakeCentralFreeList {
 
 using MockCentralFreeList = testing::NiceMock<RawMockCentralFreeList>;
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_MOCK_CENTRAL_FREELIST_H_

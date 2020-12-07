@@ -27,8 +27,9 @@
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
-class StackTraceTable final : public tcmalloc_internal::ProfileBase {
+class StackTraceTable final : public ProfileBase {
  public:
   // If merge is true, traces with identical size and stack are merged
   // together.  Else they are kept distinct.
@@ -88,6 +89,7 @@ class StackTraceTable final : public tcmalloc_internal::ProfileBase {
   int num_buckets() const { return bucket_mask_ + 1; }
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_STACK_TRACE_TABLE_H_

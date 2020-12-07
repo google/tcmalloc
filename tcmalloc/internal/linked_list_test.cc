@@ -26,10 +26,8 @@
 #include "tcmalloc/internal/mock_span.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
-
-using tcmalloc_internal::MockSpan;
-using tcmalloc_internal::MockSpanList;
 
 class LinkedListTest : public ::testing::Test {
  protected:
@@ -236,4 +234,5 @@ TEST_F(TListTest, AppendRandomRemove) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

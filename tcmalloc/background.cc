@@ -24,6 +24,7 @@
 #include "tcmalloc/parameters.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 // Called by MallocExtension_Internal_ProcessBackgroundActions.
@@ -81,6 +82,7 @@ void ReleasePerCpuMemoryToOS() {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 // Release memory to the system at a constant rate.
@@ -88,20 +90,21 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   tcmalloc::MallocExtension::MarkThreadIdle();
 
   // Initialize storage for ReleasePerCpuMemoryToOS().
-  CPU_ZERO(&tcmalloc::prev_allowed_cpus);
+  CPU_ZERO(&tcmalloc::tcmalloc_internal::prev_allowed_cpus);
 
   absl::Time prev_time = absl::Now();
   constexpr absl::Duration kSleepTime = absl::Seconds(1);
   while (true) {
     absl::Time now = absl::Now();
     const ssize_t bytes_to_release =
-        static_cast<size_t>(tcmalloc::Parameters::background_release_rate()) *
+        static_cast<size_t>(tcmalloc::tcmalloc_internal::Parameters::
+                                background_release_rate()) *
         absl::ToDoubleSeconds(now - prev_time);
     if (bytes_to_release > 0) {  // may be negative if time goes backwards
       tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
     }
 
-    tcmalloc::ReleasePerCpuMemoryToOS();
+    tcmalloc::tcmalloc_internal::ReleasePerCpuMemoryToOS();
 
     prev_time = now;
     absl::SleepFor(kSleepTime);

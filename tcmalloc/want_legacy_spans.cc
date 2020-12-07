@@ -15,9 +15,11 @@
 #include "absl/base/attributes.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // This -if linked into a binary - overrides common.cc and
 // forces old span sizes.
 ABSL_ATTRIBUTE_UNUSED int default_want_legacy_spans() { return 1; }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

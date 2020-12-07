@@ -31,6 +31,7 @@
 #include "tcmalloc/pages.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 inline constexpr Length kPagesPerHugePage =
     Length(1 << (kHugePageShift - kPageShift));
@@ -308,5 +309,6 @@ inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 #endif  // TCMALLOC_HUGE_PAGES_H_

@@ -17,6 +17,7 @@
 #include "tcmalloc/size_class_info.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Default implementation doesn't load runtime size classes.
 // To enable runtime size classes, link with :runtime_size_classes.
@@ -26,4 +27,5 @@ ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE int MaybeSizeClassesFromEnv(
   return -1;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

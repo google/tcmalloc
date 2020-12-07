@@ -62,6 +62,7 @@ ABSL_FLAG(uint64_t, limit, 0, "");
 ABSL_FLAG(bool, always_check_usage, false, "enable expensive memory checks");
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 using testing::HasSubstr;
@@ -186,7 +187,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     std::string ret;
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
-    TCMalloc_Printer p(&ret[0], kSize);
+    Printer p(&ret[0], kSize);
     allocator_->Print(&p);
     ret.erase(p.SpaceRequired());
     return ret;
@@ -196,7 +197,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     std::string ret;
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
-    TCMalloc_Printer p(&ret[0], kSize);
+    Printer p(&ret[0], kSize);
     {
       PbtxtRegion region(&p, kNested, 0);
       allocator_->PrintInPbtxt(&region);
@@ -480,7 +481,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
 
   constexpr size_t kBufferSize = 1024 * 1024;
   char buffer[kBufferSize];
-  TCMalloc_Printer printer(buffer, kBufferSize);
+  Printer printer(buffer, kBufferSize);
   allocator_->Print(&printer);
   // Verify that we have less free memory than we allocated in total. We have
   // to account for bytes tied up in the cache.
@@ -970,4 +971,5 @@ TEST_F(HugePageAwareAllocatorTest, ParallelRelease) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

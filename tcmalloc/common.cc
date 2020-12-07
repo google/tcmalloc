@@ -20,6 +20,7 @@
 #include "tcmalloc/sampler.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 absl::string_view MemoryTagToLabel(MemoryTag tag) {
   switch (tag) {
@@ -177,4 +178,5 @@ void SizeMap::Init() {
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

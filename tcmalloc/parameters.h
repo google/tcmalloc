@@ -26,6 +26,7 @@
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class Parameters {
  public:
@@ -130,6 +131,7 @@ class Parameters {
   static std::atomic<int64_t> profile_sampling_rate_;
 };
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_PARAMETERS_H_

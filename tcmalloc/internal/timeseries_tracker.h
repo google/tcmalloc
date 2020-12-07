@@ -28,6 +28,7 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Represents an abstract clock to underpin a time-based tracker. The now and
 // freq functions are analogous to CycleClock::Now and CycleClock::Frequency,
@@ -173,6 +174,7 @@ bool TimeSeriesTracker<T, S, kEpochs>::Report(S val) {
   return updated_clock;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_INTERNAL_TIMESERIES_TRACKER_H_

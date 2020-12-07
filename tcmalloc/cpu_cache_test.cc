@@ -23,6 +23,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 void* OOMHandler(size_t) { return nullptr; }
@@ -166,4 +167,5 @@ TEST(CpuCacheTest, Metadata) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

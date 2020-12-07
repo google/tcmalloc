@@ -31,6 +31,9 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
 
+namespace tcmalloc {
+namespace tcmalloc_internal {
+
 //-------------------------------------------------------------------
 // Configuration
 //-------------------------------------------------------------------
@@ -187,8 +190,6 @@ inline constexpr int kMaxOverages = 3;
 // should not hurt to make this list somewhat big because the
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr int kMaxDynamicFreeListLength = 8192;
-
-namespace tcmalloc {
 
 enum class MemoryTag : uint8_t {
   kSampled = 0x0,  // Sampled, infrequently allocated
@@ -448,6 +449,7 @@ class SizeMap {
 // Linker initialized, so this lock can be accessed at any time.
 extern absl::base_internal::SpinLock pageheap_lock;
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_COMMON_H_

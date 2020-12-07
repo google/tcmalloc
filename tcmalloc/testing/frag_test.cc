@@ -30,7 +30,8 @@ namespace {
 
 TEST(Fragmentation, Slack) {
   // Make kAllocSize one page larger than the maximum small object size.
-  static const int kAllocSize = kMaxSize + kPageSize;
+  static const int kAllocSize =
+      tcmalloc_internal::kMaxSize + tcmalloc_internal::kPageSize;
   // Allocate 400MB in total.
   static const int kTotalAlloc = 400 << 20;
   static const int kAllocIterations = kTotalAlloc / kAllocSize;

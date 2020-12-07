@@ -52,6 +52,7 @@ extern "C" int madvise(caddr_t, size_t, int);
 #endif
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 namespace {
 
@@ -187,7 +188,7 @@ AddressRegion* MmapRegionFactory::Create(void* start, size_t size,
 }
 
 size_t MmapRegionFactory::GetStats(absl::Span<char> buffer) {
-  TCMalloc_Printer printer(buffer.data(), buffer.size());
+  Printer printer(buffer.data(), buffer.size());
   size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
   constexpr double MiB = 1048576.0;
   printer.printf("MmapSysAllocator: %zu bytes (%.1f MiB) reserved\n", allocated,
@@ -197,7 +198,7 @@ size_t MmapRegionFactory::GetStats(absl::Span<char> buffer) {
 }
 
 size_t MmapRegionFactory::GetStatsInPbtxt(absl::Span<char> buffer) {
-  TCMalloc_Printer printer(buffer.data(), buffer.size());
+  Printer printer(buffer.data(), buffer.size());
   size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
   printer.printf("mmap_sys_allocator: %lld\n", allocated);
 
@@ -332,7 +333,7 @@ void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
   if (result != nullptr) {
     CheckAddressBits<kAddressBits>(reinterpret_cast<uintptr_t>(result) +
                                    *actual_bytes - 1);
-    ASSERT(tcmalloc::GetMemoryTag(result) == tag);
+    ASSERT(GetMemoryTag(result) == tag);
   }
   return result;
 }
@@ -553,4 +554,5 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   return nullptr;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

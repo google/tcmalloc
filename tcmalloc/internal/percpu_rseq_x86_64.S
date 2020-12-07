@@ -155,11 +155,11 @@ label##_trampoline:                                               \
   movl 4(%rax), dest;  /* cpuid is 32-bits */
 #define FETCH_VCPU(dest) \
   movzwl 30(%rax), dest; /* vcpu_id is 16-bits */
-#define START_RSEQ(src)                \
-  .L##src##_abort:                     \
-  call tcmalloc_tls_fetch_pic@PLT;     \
-  leaq __rseq_cs_##src(%rip), %r11;    \
-  movq %r11, 8(%rax);                  \
+#define START_RSEQ(src)                     \
+  .L##src##_abort:                          \
+  call tcmalloc_internal_tls_fetch_pic@PLT; \
+  leaq __rseq_cs_##src(%rip), %r11;    	    \
+  movq %r11, 8(%rax);                       \
    .L##src##_start:
 
 /*
@@ -167,9 +167,9 @@ label##_trampoline:                                               \
  * generates a thread-local address which will not change across a missed
  * restart.  This must precede the construction of any preparatory state.
  */
-  .globl tcmalloc_tls_fetch_pic
-  .type tcmalloc_tls_fetch_pic, @function
-tcmalloc_tls_fetch_pic:
+  .local tcmalloc_internal_tls_fetch_pic
+  .type tcmalloc_internal_tls_fetch_pic, @function
+tcmalloc_internal_tls_fetch_pic:
   .cfi_startproc
   push %rbp
   .cfi_def_cfa_offset 16

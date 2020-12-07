@@ -41,6 +41,7 @@
 #include "tcmalloc/transfer_cache.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class CPUCache;
 class PageMap;
@@ -195,6 +196,7 @@ inline void Span::Delete(Span* span) {
   Static::span_allocator().Delete(span);
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_STATIC_VARS_H_

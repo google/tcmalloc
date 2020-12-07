@@ -26,6 +26,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 bool StackTraceTable::Bucket::KeyEqual(uintptr_t h, const StackTrace& t) const {
   // Do not merge entries with different sizes so that profiling tools
@@ -150,4 +151,5 @@ void StackTraceTable::Iterate(
   }
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

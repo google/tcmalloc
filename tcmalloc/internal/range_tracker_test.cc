@@ -26,6 +26,7 @@
 #include "absl/random/random.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 using testing::ElementsAre;
@@ -266,4 +267,5 @@ TEST_F(RangeTrackerTest, Trivial) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

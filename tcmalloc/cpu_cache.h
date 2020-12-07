@@ -33,6 +33,7 @@
 #include "tcmalloc/tracking.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 class CPUCache {
  public:
@@ -98,7 +99,7 @@ class CPUCache {
 #endif
 
   // Report statistics
-  void Print(TCMalloc_Printer* out) const;
+  void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region) const;
 
  private:
@@ -242,7 +243,7 @@ inline bool UsePerCpuCache() {
     return false;
   }
 
-  if (ABSL_PREDICT_TRUE(tcmalloc::subtle::percpu::IsFastNoInit())) {
+  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFastNoInit())) {
     return true;
   }
 
@@ -257,7 +258,7 @@ inline bool UsePerCpuCache() {
   // If the per-CPU cache for a thread is not initialized, we push ourselves
   // onto the slow path (if !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this
   // occurs.  See fast_alloc's use of TryRecordAllocationFast.
-  if (ABSL_PREDICT_TRUE(tcmalloc::subtle::percpu::IsFast())) {
+  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFast())) {
     ThreadCache::BecomeIdle();
     return true;
   }
@@ -265,5 +266,6 @@ inline bool UsePerCpuCache() {
   return false;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 #endif  // TCMALLOC_CPU_CACHE_H_

@@ -31,6 +31,7 @@
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace {
 
 // Alloc a size that should always fail.
@@ -198,4 +199,5 @@ TEST_F(LargeAllocationTest, NearMaxAddressBits) {
 }
 
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

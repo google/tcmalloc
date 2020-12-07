@@ -41,6 +41,7 @@
 #include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 const size_t GuardedPageAllocator::kMagicSize;  // NOLINT
 
@@ -79,7 +80,7 @@ void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
 
   ASSERT(size <= page_size_);
   ASSERT(alignment <= page_size_);
-  ASSERT(tcmalloc_internal::Bits::IsZeroOrPow2(alignment));
+  ASSERT(Bits::IsZeroOrPow2(alignment));
   void *result = reinterpret_cast<void *>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");
@@ -172,7 +173,7 @@ static int GetChainedRate() {
   }
 }
 
-void GuardedPageAllocator::Print(TCMalloc_Printer *out) {
+void GuardedPageAllocator::Print(Printer *out) {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock);
   out->printf(
       "\n"
@@ -359,8 +360,8 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
   // rounded up to the next power of 2.  We use this fact to minimize alignment
   // padding between the end of small allocations and their guard pages.  For
   // allocations larger than kAlignment, we're safe aligning to kAlignment.
-  size_t default_alignment = std::min(
-      size_t{1} << tcmalloc_internal::Bits::Log2Ceiling(size), kAlignment);
+  size_t default_alignment =
+      std::min(size_t{1} << Bits::Log2Ceiling(size), kAlignment);
 
   // Ensure valid alignment.
   alignment = std::max(alignment, default_alignment);
@@ -377,8 +378,7 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
 // If this failure occurs during "bazel test", writes a warning for Bazel to
 // display.
 static void RecordBazelWarning(absl::string_view error) {
-  const char *warning_file = tcmalloc::tcmalloc_internal::thread_safe_getenv(
-      "TEST_WARNINGS_OUTPUT_FILE");
+  const char *warning_file = thread_safe_getenv("TEST_WARNINGS_OUTPUT_FILE");
   if (!warning_file) return;  // Not a bazel test.
 
   constexpr char warning[] = "GWP-ASan error detected: ";
@@ -396,8 +396,7 @@ static void RecordBazelWarning(absl::string_view error) {
 // do here).  So we write directly to the XML file instead.
 //
 static void RecordTestFailure(absl::string_view error) {
-  const char *xml_file =
-      tcmalloc::tcmalloc_internal::thread_safe_getenv("XML_OUTPUT_FILE");
+  const char *xml_file = thread_safe_getenv("XML_OUTPUT_FILE");
   if (!xml_file) return;  // Not a gUnit test.
 
   // Record test failure for Sponge.
@@ -550,4 +549,5 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
   });
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

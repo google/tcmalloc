@@ -72,6 +72,7 @@
 #endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 namespace subtle {
 namespace percpu {
 
@@ -87,18 +88,21 @@ extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile uint32_t __rseq_refcount;
 
 // This is in units of bytes.
-extern "C" size_t tcmalloc_virtual_cpu_id_offset;
+extern "C" size_t tcmalloc_internal_virtual_cpu_id_offset;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
 static inline int VirtualRseqCpuId() {
 #ifdef __x86_64__
-  ASSERT(tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
-         tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
+  ASSERT(tcmalloc_internal_virtual_cpu_id_offset ==
+             offsetof(kernel_rseq, cpu_id) ||
+         tcmalloc_internal_virtual_cpu_id_offset ==
+             offsetof(kernel_rseq, vcpu_id));
   return *reinterpret_cast<short *>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                                    tcmalloc_virtual_cpu_id_offset);
+                                    tcmalloc_internal_virtual_cpu_id_offset);
 #else
-  ASSERT(tcmalloc_virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
+  ASSERT(tcmalloc_internal_virtual_cpu_id_offset ==
+         offsetof(kernel_rseq, cpu_id));
   return RseqCpuId();
 #endif
 }
@@ -113,6 +117,8 @@ typedef void *(*UnderflowHandler)(int cpu, size_t cl);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
+//
+// TODO(b/144422746):  Add "Internal" to these names.
 extern "C" {
 int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,
                                  intptr_t new_val);
@@ -304,7 +310,7 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
                                 intptr_t old_val, intptr_t new_val) {
   TSANMemoryBarrierOn(p);
 #if TCMALLOC_PERCPU_USE_RSEQ
-  switch (tcmalloc_virtual_cpu_id_offset) {
+  switch (tcmalloc_internal_virtual_cpu_id_offset) {
     case offsetof(kernel_rseq, cpu_id):
       return TcmallocSlab_PerCpuCmpxchg64(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
@@ -327,6 +333,7 @@ void FenceCpu(int cpu);
 
 }  // namespace percpu
 }  // namespace subtle
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // !__ASSEMBLER__

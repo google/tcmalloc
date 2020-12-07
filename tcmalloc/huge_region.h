@@ -28,6 +28,7 @@
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Track allocations from a fixed-size multiple huge page region.
 // Similar to PageTracker but a few important differences:
@@ -79,7 +80,7 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
 
   HugeLength backed() const;
 
-  void Print(TCMalloc_Printer *out) const;
+  void Print(Printer *out) const;
   void PrintInPbtxt(PbtxtRegion *detail) const;
 
   BackingStats stats() const;
@@ -147,7 +148,7 @@ class HugeRegionSet {
   // we managed to release.
   HugeLength Release();
 
-  void Print(TCMalloc_Printer *out) const;
+  void Print(Printer *out) const;
   void PrintInPbtxt(PbtxtRegion *hpaa) const;
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
                     PageAgeHistograms *ages) const;
@@ -342,7 +343,7 @@ inline HugeLength HugeRegion<Unback>::backed() const {
 }
 
 template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::Print(TCMalloc_Printer *out) const {
+inline void HugeRegion<Unback>::Print(Printer *out) const {
   const size_t kib_used = used_pages().in_bytes() / 1024;
   const size_t kib_free = free_pages().in_bytes() / 1024;
   const size_t kib_longest_free = longest_free().in_bytes() / 1024;
@@ -498,7 +499,7 @@ inline HugeLength HugeRegionSet<Region>::Release() {
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::Print(TCMalloc_Printer *out) const {
+inline void HugeRegionSet<Region>::Print(Printer *out) const {
   out->printf("HugeRegionSet: 1 MiB+ allocations best-fit into %zu MiB slabs\n",
               Region::size().in_bytes() / 1024 / 1024);
   out->printf("HugeRegionSet: %zu total regions\n", n_);
@@ -551,6 +552,7 @@ inline BackingStats HugeRegionSet<Region>::stats() const {
   return stats;
 }
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_HUGE_REGION_H_

@@ -62,7 +62,7 @@ TEST(LargeSmallFrag, Test) {
   // Chew up all possible memory that could be used to allocate
   // small objects.
   const int64_t vsize = VirtualProcessSize() / 1024 / 1024;
-  LinkedList small;
+  tcmalloc_internal::LinkedList small;
   small.Init();
   while (VirtualProcessSize() / 1024 / 1024 == vsize) {
     small.Push(::operator new(kSmall));

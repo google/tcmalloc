@@ -26,6 +26,7 @@
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
 
 //-------------------------------------------------------------------
 // Sampler to decide when to create a sample trace for an allocation
@@ -289,6 +290,7 @@ inline void Sampler::UpdateFastPathState() {
 // If unsample is false, the caller will handle unsampling.
 double AllocatedBytes(const StackTrace &stack, bool unsample);
 
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_SAMPLER_H_
