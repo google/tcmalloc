@@ -625,6 +625,7 @@ cc_test(
     timeout = "moderate",
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    shard_count = 3,
     tags = [
     ],
     deps = [
