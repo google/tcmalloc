@@ -155,6 +155,12 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample &e) {
+    // Skip unexpected sizes.  They may have been triggered by a background
+    // thread.
+    if (sizes_expected.find(e.allocated_size) == sizes_expected.end()) {
+      return;
+    }
+
     // Don't check stack traces until we have evidence that's broken, it's
     // tedious and done fairly well elsewhere.
     m[e.allocated_size] += e.sum;
@@ -164,8 +170,6 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   size_t max_bytes = 0, min_bytes = std::numeric_limits<size_t>::max();
   EXPECT_EQ(m.size(), sizes_expected.size());
   for (auto seen : m) {
-    size_t size = seen.first;
-    EXPECT_TRUE(sizes_expected.find(size) != sizes_expected.end()) << size;
     size_t bytes = seen.second;
     min_bytes = std::min(min_bytes, bytes);
     max_bytes = std::max(max_bytes, bytes);
