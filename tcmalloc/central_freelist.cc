@@ -47,11 +47,11 @@ static Span* MapObjectToSpan(void* object) {
 }
 
 Span* CentralFreeList::ReleaseToSpans(void* object, Span* span) {
-  if (span->FreelistEmpty()) {
+  if (ABSL_PREDICT_FALSE(span->FreelistEmpty())) {
     nonempty_.prepend(span);
   }
 
-  if (span->FreelistPush(object, object_size_)) {
+  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size_))) {
     return nullptr;
   }
   span->RemoveFromList();  // from nonempty_
@@ -79,7 +79,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
     absl::base_internal::SpinLockHolder h(&lock_);
     for (int i = 0; i < N; ++i) {
       Span* span = ReleaseToSpans(batch[i], spans[i]);
-      if (span) {
+      if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
       }
@@ -89,7 +89,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
   }
 
   // Then, release all free spans into page heap under its mutex.
-  if (free_count) {
+  if (ABSL_PREDICT_FALSE(free_count)) {
     const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     for (int i = 0; i < free_count; ++i) {
@@ -106,7 +106,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
 int CentralFreeList::RemoveRange(void** batch, int N) {
   ASSUME(N > 0);
   absl::base_internal::SpinLockHolder h(&lock_);
-  if (nonempty_.empty()) {
+  if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
     Populate();
   }
 
@@ -132,7 +132,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
   Span* span = Static::page_allocator().New(pages_per_span_, tag);
   ASSERT(tag == GetMemoryTag(span->start_address()));
-  if (span == nullptr) {
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());
     lock_.Lock();
@@ -150,7 +150,7 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 }
 
 size_t CentralFreeList::OverheadBytes() {
-  if (object_size_ == 0) {
+  if (ABSL_PREDICT_FALSE(object_size_ == 0)) {
     return 0;
   }
   const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
@@ -159,7 +159,7 @@ size_t CentralFreeList::OverheadBytes() {
 
 SpanStats CentralFreeList::GetSpanStats() const {
   SpanStats stats;
-  if (objects_per_span_ == 0) {
+  if (ABSL_PREDICT_FALSE(objects_per_span_ == 0)) {
     return stats;
   }
   stats.num_spans_requested = static_cast<size_t>(num_spans_requested_.value());
