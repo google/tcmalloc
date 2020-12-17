@@ -90,13 +90,17 @@ void CentralFreeList::InsertRange(void** batch, int N) {
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
-    const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    // Unregister size class doesn't require holding any locks.
     for (int i = 0; i < free_count; ++i) {
       Span* const free_span = free_spans[i];
       ASSERT(IsNormalMemory(free_span->start_address())
       );
       Static::pagemap().UnregisterSizeClass(free_span);
+    }
+    const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    for (int i = 0; i < free_count; ++i) {
+      Span* const free_span = free_spans[i];
       ASSERT(tag == GetMemoryTag(free_span->start_address()));
       Static::page_allocator().Delete(free_span, tag);
     }
