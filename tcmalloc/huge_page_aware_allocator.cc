@@ -40,6 +40,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 bool decide_want_hpaa();
+ABSL_ATTRIBUTE_WEAK int default_want_hpaa();
 ABSL_ATTRIBUTE_WEAK int default_subrelease();
 
 bool decide_subrelease() {
@@ -50,11 +51,33 @@ bool decide_subrelease() {
 
   const char *e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
-    if (e[0] == '0') return false;
-    if (e[0] == '1') return false;
-    if (e[0] == '2') return true;
-    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-    return false;
+    switch (e[0]) {
+      case '0':
+        // TODO(b/137017688): Eliminate this opt-out.
+        if (kPageShift <= 13) {
+          return false;
+        }
+
+        if (default_want_hpaa != nullptr) {
+          int default_hpaa = default_want_hpaa();
+          if (default_hpaa < 0) {
+            return false;
+          }
+        }
+
+        Log(kLog, __FILE__, __LINE__,
+            "Runtime opt-out from HPAA requires building with "
+            "//tcmalloc:want_no_hpaa."
+        );
+        break;
+      case '1':
+        return false;
+      case '2':
+        return true;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
   }
 
   if (default_subrelease != nullptr) {

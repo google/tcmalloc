@@ -43,11 +43,33 @@ bool decide_want_hpaa() {
   const char *e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
-    if (e[0] == '0') return false;
-    if (e[0] == '1') return true;
-    if (e[0] == '2') return true;
-    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-    return false;
+    switch (e[0]) {
+      case '0':
+        // TODO(b/137017688): Eliminate this opt-out.
+        if (kPageShift <= 13) {
+          return false;
+        }
+
+        if (default_want_hpaa != nullptr) {
+          int default_hpaa = default_want_hpaa();
+          if (default_hpaa < 0) {
+            return false;
+          }
+        }
+
+        Log(kLog, __FILE__, __LINE__,
+            "Runtime opt-out from HPAA requires building with "
+            "//tcmalloc:want_no_hpaa."
+        );
+        break;
+      case '1':
+        return true;
+      case '2':
+        return true;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
   }
 
   if (default_want_hpaa != nullptr) {
