@@ -36,7 +36,7 @@ namespace tcmalloc_internal {
 namespace {
 
 // Pick span pointer to use for page numbered i
-void* span(intptr_t i) { return reinterpret_cast<void*>(i + 1); }
+Span* span(intptr_t i) { return reinterpret_cast<Span*>(i + 1); }
 
 // Pick sizeclass to use for page numbered i
 uint8_t sc(intptr_t i) { return i % 16; }
