@@ -54,8 +54,8 @@ class TimeSeriesTracker {
   explicit constexpr TimeSeriesTracker(Clock clock, absl::Duration w)
       : window_(w),
         epoch_length_(window_ / kEpochs),
-        epoch_ticks_(static_cast<int64_t>(absl::ToDoubleSeconds(epoch_length_) *
-                                          clock.freq())),
+        epoch_ticks_(static_cast<uint64_t>(
+            absl::ToDoubleSeconds(epoch_length_) * clock.freq())),
         clock_(clock) {}
 
   bool Report(S val);
@@ -85,7 +85,10 @@ class TimeSeriesTracker {
   bool UpdateClock();
 
   // Returns the current epoch based on the clock.
-  int64_t GetCurrentEpoch() { return clock_.now() / epoch_ticks_; }
+  int64_t GetCurrentEpoch() {
+    // Ensure division occurs in the unsigned space.
+    return static_cast<uint64_t>(clock_.now()) / epoch_ticks_;
+  }
 
   const absl::Duration window_;
   const absl::Duration epoch_length_;
@@ -93,7 +96,7 @@ class TimeSeriesTracker {
   T entries_[kEpochs]{};
   size_t last_epoch_{0};
   size_t current_epoch_{0};
-  int64_t epoch_ticks_;
+  uint64_t epoch_ticks_;
 
   Clock clock_;
 };
