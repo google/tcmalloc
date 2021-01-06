@@ -81,3 +81,10 @@ Since GWP-ASan finds bugs with very low probability, QoD is generally not a
 concern. Even if there is a reliable way to trigger a bug, GWP-ASan will only
 detect it and crash on a tiny fraction of actual occurrences, allowing the other
 99.9% to continue without crashing.
+
+## Other versions of GWP-ASan
+
+Separate implementations of GWP-ASan exist for Chromium and Android. For
+GWP-ASan for Chromium see
+[here](https://chromium.googlesource.com/chromium/src/+/lkgr/docs/gwp_asan.md).
+For Android, see [here](https://developer.android.com/ndk/guides/gwp-asan).
