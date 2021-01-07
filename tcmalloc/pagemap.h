@@ -139,10 +139,9 @@ class PageMap2 {
     ASSERT(k >> BITS == 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
-    if ((k >> BITS) > 0 || root_[i1] == nullptr) {
-      return nullptr;
-    }
-    return root_[i1]->hugepage[i2 >> (kLeafBits - kLeafHugeBits)];
+    const Leaf* leaf = root_[i1];
+    ASSERT(leaf != nullptr);
+    return leaf->hugepage[i2 >> (kLeafBits - kLeafHugeBits)];
   }
 
   void set_hugepage(Number k, void* v) {
@@ -302,11 +301,11 @@ class PageMap3 {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    if ((k >> BITS) > 0 || root_[i1] == nullptr ||
-        root_[i1]->leafs[i2] == nullptr) {
-      return nullptr;
-    }
-    return root_[i1]->leafs[i2]->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
+    const Node* node = root_[i1];
+    ASSERT(node != nullptr);
+    const Leaf* leaf = node->leafs[i2];
+    ASSERT(leaf != nullptr);
+    return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
   }
 
   void set_hugepage(Number k, void* v) {
