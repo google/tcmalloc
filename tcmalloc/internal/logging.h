@@ -192,7 +192,6 @@ class PbtxtRegion {
   PbtxtRegion(PbtxtRegion&&) = default;
 
   // Prints 'key: value'.
-  void PrintU64(absl::string_view key, uint64_t value);
   void PrintI64(absl::string_view key, int64_t value);
   void PrintDouble(absl::string_view key, double value);
   void PrintBool(absl::string_view key, bool value);

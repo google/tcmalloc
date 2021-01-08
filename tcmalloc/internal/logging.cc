@@ -243,11 +243,6 @@ void PbtxtRegion::NewLineAndIndent() {
   }
 }
 
-void PbtxtRegion::PrintU64(absl::string_view key, uint64_t value) {
-  NewLineAndIndent();
-  out_->printf("%s: %" PRIu64, key, value);
-}
-
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
   NewLineAndIndent();
   out_->printf("%s: %" PRIi64, key, value);
