@@ -41,31 +41,6 @@ cc_library(
 )
 
 cc_library(
-    name = "bits",
-    hdrs = ["bits.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
-    deps = [
-        ":logging",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-)
-
-cc_test(
-    name = "bits_test",
-    srcs = ["bits_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":bits",
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/random",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_library(
     name = "config",
     hdrs = ["config.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

@@ -81,6 +81,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/memory/memory.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/strip.h"
@@ -89,7 +90,6 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
@@ -1727,7 +1727,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
 // Checks that an asserted object <ptr> has <align> alignment.
 bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
-  ASSERT(tcmalloc::tcmalloc_internal::Bits::IsPow2(align));
+  ASSERT(absl::has_single_bit(align));
   return ((reinterpret_cast<uintptr_t>(ptr) & (align - 1)) == 0);
 }
 
@@ -2253,7 +2253,7 @@ extern "C" ABSL_ATTRIBUTE_SECTION(
 #endif
 
 extern "C" void* TCMallocInternalMemalign(size_t align, size_t size) noexcept {
-  ASSERT(tcmalloc::tcmalloc_internal::Bits::IsPow2(align));
+  ASSERT(absl::has_single_bit(align));
   return fast_alloc(MallocPolicy().AlignAs(align), size);
 }
 
@@ -2275,8 +2275,7 @@ extern "C" void* TCMallocInternalAlignedAlloc(size_t align,
 
 extern "C" int TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
                                              size_t size) noexcept {
-  if (((align % sizeof(void*)) != 0) ||
-      !tcmalloc::tcmalloc_internal::Bits::IsPow2(align)) {
+  if (((align % sizeof(void*)) != 0) || !absl::has_single_bit(align)) {
     return EINVAL;
   }
   void* result = fast_alloc(MallocPolicy().Nothrow().AlignAs(align), size);

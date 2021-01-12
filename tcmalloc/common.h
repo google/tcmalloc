@@ -25,8 +25,8 @@
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
@@ -177,8 +177,7 @@ static_assert((kMaxSize / kPageSize) >= kMinPages || kPageShift >= 18,
 
 inline constexpr size_t kAlignment = 8;
 // log2 (kAlignment)
-inline constexpr size_t kAlignmentShift =
-    tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(kAlignment);
+inline constexpr size_t kAlignmentShift = absl::bit_width(kAlignment - 1u);
 
 // The number of times that a deallocation can cause a freelist to
 // go over its max_length() before shrinking max_length().
@@ -252,7 +251,7 @@ class SizeMap {
   static constexpr size_t kMultiPageAlignment = 64;
   // log2 (kMultiPageAlignment)
   static constexpr size_t kMultiPageAlignmentShift =
-      tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(kMultiPageAlignment);
+      absl::bit_width(kMultiPageAlignment - 1u);
 
  private:
   //-------------------------------------------------------------------
@@ -389,7 +388,7 @@ class SizeMap {
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(size_t size,
                                                         size_t align,
                                                         uint32_t* cl) {
-    ASSERT(tcmalloc_internal::Bits::IsPow2(align));
+    ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
       // TODO(b/172060547): Consider changing this to align > kPageSize.

@@ -20,8 +20,8 @@
 
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
@@ -131,7 +131,7 @@ static bool IsSpanBetter(Span* span, Span* best, Length n) {
 // don't bother.
 Span* PageHeap::NewAligned(Length n, Length align) {
   ASSERT(n > Length(0));
-  ASSERT(tcmalloc_internal::Bits::IsPow2(align.raw_num()));
+  ASSERT(absl::has_single_bit(align.raw_num()));
 
   if (align <= Length(1)) {
     return New(n);

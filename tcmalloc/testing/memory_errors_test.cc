@@ -25,9 +25,9 @@
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
@@ -111,7 +111,7 @@ TEST_F(GuardedAllocAlignmentTest, New) {
       // power of 2.  GuardedPageAllocator uses this fact to minimize alignment
       // padding between the end of small allocations and their guard pages.
       int lg_size = std::max<int>(
-          tcmalloc::tcmalloc_internal::Bits::Log2Ceiling(size), 0);
+          absl::bit_width(size) - (absl::has_single_bit(size) ? 1 : 0), 0);
       size_t expected_align =
           std::min(size_t{1} << lg_size, tcmalloc_internal::kAlignment);
 

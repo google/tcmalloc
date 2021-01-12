@@ -26,11 +26,11 @@
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/macros.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/pages.h"
@@ -442,7 +442,7 @@ void PageAllocInfo::RecordAlloc(PageId p, Length n) {
   } else {
     Length slack = RoundUp(n, kPagesPerHugePage) - n;
     total_slack_ += slack;
-    size_t i = tcmalloc_internal::Bits::Log2Ceiling(n.raw_num());
+    size_t i = absl::bit_width(n.raw_num() - 1);
     large_[i].Alloc(n);
   }
 }
@@ -459,7 +459,7 @@ void PageAllocInfo::RecordFree(PageId p, Length n) {
   } else {
     Length slack = RoundUp(n, kPagesPerHugePage) - n;
     total_slack_ -= slack;
-    size_t i = tcmalloc_internal::Bits::Log2Ceiling(n.raw_num());
+    size_t i = absl::bit_width(n.raw_num() - 1);
     large_[i].Free(n);
   }
 }
@@ -475,7 +475,7 @@ const PageAllocInfo::Counts &PageAllocInfo::counts_for(Length n) const {
   if (n <= kMaxPages) {
     return small_[n.raw_num() - 1];
   }
-  size_t i = tcmalloc_internal::Bits::Log2Ceiling(n.raw_num());
+  size_t i = absl::bit_width(n.raw_num() - 1);
   return large_[i];
 }
 

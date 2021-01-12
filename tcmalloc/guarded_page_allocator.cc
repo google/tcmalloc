@@ -29,9 +29,9 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/bits.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -80,7 +80,7 @@ void *GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
 
   ASSERT(size <= page_size_);
   ASSERT(alignment <= page_size_);
-  ASSERT(Bits::IsZeroOrPow2(alignment));
+  ASSERT(alignment == 0 || absl::has_single_bit(alignment));
   void *result = reinterpret_cast<void *>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");
@@ -360,8 +360,7 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
   // rounded up to the next power of 2.  We use this fact to minimize alignment
   // padding between the end of small allocations and their guard pages.  For
   // allocations larger than kAlignment, we're safe aligning to kAlignment.
-  size_t default_alignment =
-      std::min(size_t{1} << Bits::Log2Ceiling(size), kAlignment);
+  size_t default_alignment = std::min(absl::bit_ceil(size), kAlignment);
 
   // Ensure valid alignment.
   alignment = std::max(alignment, default_alignment);

@@ -92,7 +92,7 @@ AddressRegionFactory* region_factory = nullptr;
 // Rounds size down to a multiple of alignment.
 size_t RoundDown(const size_t size, const size_t alignment) {
   // Checks that the alignment has only one bit set.
-  ASSERT(tcmalloc_internal::Bits::IsPow2(alignment));
+  ASSERT(absl::has_single_bit(alignment));
   return (size) & ~(alignment - 1);
 }
 
@@ -488,7 +488,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
 
   // Ensure alignment >= size so we're guaranteed the full mapping has the same
   // tag.
-  alignment = tcmalloc_internal::Bits::RoundUpToPow2(std::max(alignment, size));
+  alignment = absl::bit_ceil(std::max(alignment, size));
 
   rnd = Sampler::NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;
