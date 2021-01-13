@@ -155,7 +155,7 @@ class Span : public SpanList::Elem {
   // Pushes ptr onto freelist unless the freelist becomes full,
   // in which case just return false.
   bool FreelistPush(void* ptr, size_t size) {
-    if (size <= SizeMap::kMultiPageSize) {
+    if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
       return FreelistPushSized<Align::SMALL>(ptr, size);
     } else {
       return FreelistPushSized<Align::LARGE>(ptr, size);
@@ -340,7 +340,7 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
 template <Span::Align align>
 bool Span::FreelistPushSized(void* ptr, size_t size) {
   ASSERT(allocated_ > 0);
-  if (allocated_ == 1) {
+  if (ABSL_PREDICT_FALSE(allocated_ == 1)) {
     return false;
   }
   allocated_--;
@@ -350,9 +350,9 @@ bool Span::FreelistPushSized(void* ptr, size_t size) {
     // Have empty space in the cache, push there.
     cache_[cache_size_] = idx;
     cache_size_++;
-  } else if (freelist_ != kListEnd &&
+  } else if (ABSL_PREDICT_TRUE(freelist_ != kListEnd) &&
              // -1 because the first slot is used by freelist link.
-             embed_count_ != size / sizeof(ObjIdx) - 1) {
+             ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
     // Push onto the first object on freelist.
     ObjIdx* host;
     if (align == Align::SMALL) {

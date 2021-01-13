@@ -171,7 +171,7 @@ Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size) const {
 }
 
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
-  if (size <= SizeMap::kMultiPageSize) {
+  if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
     return FreelistPopBatchSized<Align::SMALL>(batch, N, size);
   } else {
     return FreelistPopBatchSized<Align::LARGE>(batch, N, size);
