@@ -154,7 +154,13 @@ class Span : public SpanList::Elem {
 
   // Pushes ptr onto freelist unless the freelist becomes full,
   // in which case just return false.
-  bool FreelistPush(void* ptr, size_t size);
+  bool FreelistPush(void* ptr, size_t size) {
+    if (size <= SizeMap::kMultiPageSize) {
+      return FreelistPushSized<Align::SMALL>(ptr, size);
+    } else {
+      return FreelistPushSized<Align::LARGE>(ptr, size);
+    }
+  }
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
@@ -219,13 +225,19 @@ class Span : public SpanList::Elem {
   ObjIdx* IdxToPtrSized(ObjIdx idx, size_t size) const;
 
   template <Align align>
+  ObjIdx PtrToIdxSized(void* ptr, size_t size) const;
+
+  template <Align align>
   size_t FreelistPopBatchSized(void** __restrict batch, size_t N, size_t size);
+
+  template <Align align>
+  bool FreelistPushSized(void* ptr, size_t size);
 };
 
 template <Span::Align align>
 Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
   ASSERT(idx != kListEnd);
-  ASSERT(align == Align::LARGE || align == Align::SMALL);
+  static_assert(align == Align::LARGE || align == Align::SMALL);
   uintptr_t off =
       first_page_.start_uintptr() +
       (static_cast<uintptr_t>(idx)
@@ -234,6 +246,38 @@ Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
   ASSERT(PtrToIdx(ptr, size) == idx);
   return ptr;
+}
+
+template <Span::Align align>
+Span::ObjIdx Span::PtrToIdxSized(void* ptr, size_t size) const {
+  // Object index is an offset from span start divided by a power-of-two.
+  // The divisors are choosen so that
+  // (1) objects are aligned on the divisor,
+  // (2) index fits into 16 bits and
+  // (3) the index of the beginning of all objects is strictly less than
+  //     kListEnd (note that we have 256K pages and multi-page spans).
+  // For example with 1M spans we need kMultiPageAlignment >= 16.
+  // An ASSERT in BuildFreelist() verifies a condition which implies (3).
+  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+  uintptr_t off;
+  if (align == Align::SMALL) {
+    // Generally we need to load first_page_ to compute the offset.
+    // But first_page_ can be in a different cache line then the fields that
+    // we use in FreelistPush otherwise (cache_, cache_size_, freelist_).
+    // So we avoid loading first_page_ for smaller sizes that have one page per
+    // span, instead we compute the offset by taking low kPageShift bits of the
+    // pointer.
+    ASSERT(PageIdContaining(ptr) == first_page_);
+    ASSERT(num_pages_ == Length(1));
+    off = (p & (kPageSize - 1)) / kAlignment;
+  } else {
+    off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
+  }
+  ObjIdx idx = static_cast<ObjIdx>(off);
+  ASSERT(idx != kListEnd);
+  ASSERT(idx == off);
+  ASSERT(IdxToPtr(idx, size) == ptr);
+  return idx;
 }
 
 template <Span::Align align>
@@ -291,6 +335,45 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
   }
   allocated_ += result;
   return result;
+}
+
+template <Span::Align align>
+bool Span::FreelistPushSized(void* ptr, size_t size) {
+  ASSERT(allocated_ > 0);
+  if (allocated_ == 1) {
+    return false;
+  }
+  allocated_--;
+
+  ObjIdx idx = PtrToIdxSized<align>(ptr, size);
+  if (cache_size_ != kCacheSize) {
+    // Have empty space in the cache, push there.
+    cache_[cache_size_] = idx;
+    cache_size_++;
+  } else if (freelist_ != kListEnd &&
+             // -1 because the first slot is used by freelist link.
+             embed_count_ != size / sizeof(ObjIdx) - 1) {
+    // Push onto the first object on freelist.
+    ObjIdx* host;
+    if (align == Align::SMALL) {
+      // Avoid loading first_page_ in this case (see the comment in PtrToIdx).
+      ASSERT(num_pages_ == Length(1));
+      host = reinterpret_cast<ObjIdx*>(
+          (reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1)) +
+          static_cast<uintptr_t>(freelist_) * kAlignment);
+      ASSERT(PtrToIdx(host, size) == freelist_);
+    } else {
+      host = IdxToPtrSized<align>(freelist_, size);
+    }
+    embed_count_++;
+    host[embed_count_] = idx;
+  } else {
+    // Push onto freelist.
+    *reinterpret_cast<ObjIdx*>(ptr) = freelist_;
+    freelist_ = idx;
+    embed_count_ = 0;
+  }
+  return true;
 }
 
 inline Span::Location Span::location() const {

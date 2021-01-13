@@ -170,44 +170,6 @@ Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size) const {
   return ptr;
 }
 
-bool Span::FreelistPush(void* ptr, size_t size) {
-  ASSERT(allocated_ > 0);
-  if (allocated_ == 1) {
-    return false;
-  }
-  allocated_--;
-
-  ObjIdx idx = PtrToIdx(ptr, size);
-  if (cache_size_ != kCacheSize) {
-    // Have empty space in the cache, push there.
-    cache_[cache_size_] = idx;
-    cache_size_++;
-  } else if (freelist_ != kListEnd &&
-             // -1 because the first slot is used by freelist link.
-             embed_count_ != size / sizeof(ObjIdx) - 1) {
-    // Push onto the first object on freelist.
-    ObjIdx* host;
-    if (size <= SizeMap::kMultiPageSize) {
-      // Avoid loading first_page_ in this case (see the comment in PtrToIdx).
-      ASSERT(num_pages_ == Length(1));
-      host = reinterpret_cast<ObjIdx*>(
-          (reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1)) +
-          static_cast<uintptr_t>(freelist_) * kAlignment);
-      ASSERT(PtrToIdx(host, size) == freelist_);
-    } else {
-      host = IdxToPtr(freelist_, size);
-    }
-    embed_count_++;
-    host[embed_count_] = idx;
-  } else {
-    // Push onto freelist.
-    *reinterpret_cast<ObjIdx*>(ptr) = freelist_;
-    freelist_ = idx;
-    embed_count_ = 0;
-  }
-  return true;
-}
-
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
   if (size <= SizeMap::kMultiPageSize) {
     return FreelistPopBatchSized<Align::SMALL>(batch, N, size);
