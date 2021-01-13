@@ -264,6 +264,15 @@ static uint64_t RequiredBytes(const TCMallocStats& stats) {
   return StatSub(PhysicalMemoryUsed(stats), stats.pageheap.free_bytes);
 }
 
+static int CountAllowedCpus() {
+  cpu_set_t allowed_cpus;
+  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
+    return 0;
+  }
+
+  return CPU_COUNT(&allowed_cpus);
+}
+
 // WRITE stats to "out"
 static void DumpStats(Printer* out, int level) {
   TCMallocStats stats;
@@ -320,7 +329,8 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab bytes used\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab resident bytes\n"
       "MALLOC:   %12" PRIu64 "               Tcmalloc page size\n"
-      "MALLOC:   %12" PRIu64 "               Tcmalloc hugepage size\n",
+      "MALLOC:   %12" PRIu64 "               Tcmalloc hugepage size\n"
+      "MALLOC:   %12" PRIu64 "               CPUs Allowed in Mask\n",
       bytes_in_use_by_app, bytes_in_use_by_app / MiB,
       stats.pageheap.free_bytes, stats.pageheap.free_bytes / MiB,
       stats.central_bytes, stats.central_bytes / MiB,
@@ -350,7 +360,8 @@ static void DumpStats(Printer* out, int level) {
       stats.percpu_metadata_bytes / MiB,
       stats.percpu_metadata_bytes_res, stats.percpu_metadata_bytes_res / MiB,
       uint64_t(kPageSize),
-      uint64_t(kHugePageSize));
+      uint64_t(kHugePageSize),
+      CountAllowedCpus());
   // clang-format on
 
   PrintExperiments(out);
@@ -494,6 +505,7 @@ namespace {
   region.PrintI64("percpu_slab_residence", stats.percpu_metadata_bytes_res);
   region.PrintI64("tcmalloc_page_size", uint64_t(kPageSize));
   region.PrintI64("tcmalloc_huge_page_size", uint64_t(kHugePageSize));
+  region.PrintI64("cpus_allowed", CountAllowedCpus());
 
   {
     auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
