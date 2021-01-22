@@ -626,11 +626,46 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
   constexpr PageTracker(HugePage p, int64_t when)
       : location_(p),
-        free_{},
         when_(when),
         released_count_(0),
         donated_(false),
-        unbroken_(true) {}
+        unbroken_(true),
+        free_{} {
+#ifndef __ppc64__
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+    // Verify fields are structured so commonly accessed members (as part of
+    // Put) are on the first two cache lines.  This allows the CentralFreeList
+    // to accelerate deallocations by prefetching PageTracker instances before
+    // taking the pageheap_lock.
+    //
+    // On PPC64, kHugePageSize / kPageSize is typically ~2K (16MB / 8KB),
+    // requiring 512 bytes for representing free_.  While its cache line size is
+    // larger, the entirety of free_ will not fit on two cache lines.
+    static_assert(
+        offsetof(PageTracker<Unback>, location_) + sizeof(location_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "location_ should fall within the first two cachelines of "
+        "PageTracker.");
+    static_assert(
+        offsetof(PageTracker<Unback>, when_) + sizeof(when_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "when_ should fall within the first two cachelines of PageTracker.");
+    static_assert(
+        offsetof(PageTracker<Unback>, donated_) + sizeof(donated_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "donated_ should fall within the first two cachelines of PageTracker.");
+    static_assert(
+        offsetof(PageTracker<Unback>, free_) + sizeof(free_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "free_ should fall within the first two cachelines of PageTracker.");
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+#endif  // __ppc64__
+  }
 
   struct PageAllocation {
     PageId page;
@@ -706,6 +741,16 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
  private:
   HugePage location_;
+  // TODO(b/134691947): optimize computing this; it's on the fast path.
+  int64_t when_;
+
+  // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
+  //
+  // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
+  uint16_t released_count_;
+  bool donated_;
+  bool unbroken_;
+
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
   // Bitmap of pages based on them being released to the OS.
   // * Not yet released pages are unset (considered "free")
@@ -720,18 +765,9 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
   Bitmap<kPagesPerHugePage.raw_num()> released_by_page_;
 
-  // TODO(b/134691947): optimize computing this; it's on the fast path.
-  int64_t when_;
   static_assert(kPagesPerHugePage.raw_num() <
                     std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
-
-  // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
-  //
-  // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
-  uint16_t released_count_;
-  bool donated_;
-  bool unbroken_;
 
   void ReleasePages(PageId p, Length n) {
     void* ptr = p.start_addr();

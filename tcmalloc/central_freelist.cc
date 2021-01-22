@@ -96,7 +96,28 @@ void CentralFreeList::InsertRange(void** batch, int N) {
       ASSERT(IsNormalMemory(free_span->start_address())
       );
       Static::pagemap().UnregisterSizeClass(free_span);
+
+      // Before taking pageheap_lock, prefetch the PageTrackers these spans are
+      // on.
+      //
+      // Small-but-slow does not use the HugePageAwareAllocator (by default), so
+      // do not prefetch on this config.
+#ifndef TCMALLOC_SMALL_BUT_SLOW
+      const PageId p = free_span->first_page();
+
+      // In huge_page_filler.h, we static_assert that PageTracker's key elements
+      // for deallocation are within the first two cachelines.
+      void* pt = Static::pagemap().GetHugepage(p);
+      // Prefetch for writing, as we will issue stores to the PageTracker
+      // instance.
+      __builtin_prefetch(pt, 1, 3);
+      __builtin_prefetch(
+          reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
+                                  ABSL_CACHELINE_SIZE),
+          1, 3);
+#endif  // TCMALLOC_SMALL_BUT_SLOW
     }
+
     const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     for (int i = 0; i < free_count; ++i) {
