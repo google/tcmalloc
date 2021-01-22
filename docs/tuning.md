@@ -91,7 +91,7 @@ each CPU, so the total amount of memory for application could be much larger
 than this. Memory on CPUs where the application is no longer able to run can be
 freed by calling `tcmalloc::MallocExtension::ReleaseCpuMemory`.
 
-Releasing memory held by unuable CPU caches is handled by
+Releasing memory held by unusable CPU caches is handled by
 `tcmalloc::MallocExtension::ProcessBackgroundActions`.
 
 In contrast `tcmalloc::MallocExtension::SetMaxTotalThreadCacheBytes` controls
