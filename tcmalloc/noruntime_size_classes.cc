@@ -16,6 +16,7 @@
 #include "tcmalloc/runtime_size_classes.h"
 #include "tcmalloc/size_class_info.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -29,3 +30,4 @@ ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE int MaybeSizeClassesFromEnv(
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

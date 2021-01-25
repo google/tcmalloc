@@ -26,6 +26,7 @@ cc_library(
     hdrs = ["atomic_danger.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:private"],
+    deps = [":config"],
 )
 
 cc_library(
@@ -36,6 +37,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
@@ -63,6 +65,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
+    deps = [":config"],
 )
 
 cc_test(
@@ -136,6 +139,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":parameter_accessors",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base",
@@ -169,9 +173,9 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":logging",
         ":util",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -197,6 +201,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
+    deps = [":config"],
 )
 
 create_tcmalloc_benchmark(
@@ -342,6 +347,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
@@ -437,6 +443,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

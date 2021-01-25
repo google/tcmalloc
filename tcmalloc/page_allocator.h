@@ -31,6 +31,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -214,5 +215,6 @@ inline const PageAllocInfo& PageAllocator::info(MemoryTag tag) const {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PAGE_ALLOCATOR_H_

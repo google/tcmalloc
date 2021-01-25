@@ -21,6 +21,7 @@
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -59,5 +60,6 @@ class Arena {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_ARENA_H_

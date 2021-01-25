@@ -22,6 +22,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/range_tracker.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -383,3 +384,4 @@ BENCHMARK_TEMPLATE(BM_ScanChunks, 256 * 32);
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

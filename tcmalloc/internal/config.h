@@ -25,6 +25,19 @@
 #undef TCMALLOC_HAVE_SCHED_GETCPU
 #endif
 
+// When possible, name the text section as google_malloc.  This macro should not
+// be added to header files as that may move unrelated code to google_malloc
+// section.
+#if defined(__clang__) && defined(__linux__)
+#define GOOGLE_MALLOC_SECTION_BEGIN \
+  _Pragma("clang section text = \"google_malloc\"")
+#define GOOGLE_MALLOC_SECTION_END _Pragma("clang section text = \"\"")
+#else
+#define GOOGLE_MALLOC_SECTION_BEGIN
+#define GOOGLE_MALLOC_SECTION_END
+#endif
+
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -69,5 +82,6 @@ static constexpr size_t kHugePageSize = static_cast<size_t>(1)
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_CONFIG_H_

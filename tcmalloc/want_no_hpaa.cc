@@ -13,7 +13,9 @@
 // limitations under the License.
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/config.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -25,3 +27,4 @@ ABSL_ATTRIBUTE_UNUSED int default_subrelease() { return -1; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

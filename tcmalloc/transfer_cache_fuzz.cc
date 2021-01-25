@@ -19,6 +19,7 @@
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace {
 
@@ -30,6 +31,7 @@ using Env = tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
 }  // namespace
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   tcmalloc::Env env;

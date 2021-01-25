@@ -20,6 +20,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -150,5 +151,6 @@ inline const HugeAddressMap::Node *HugeAddressMap::root() const {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_HUGE_ADDRESS_MAP_H_

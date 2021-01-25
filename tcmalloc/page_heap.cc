@@ -30,6 +30,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -524,3 +525,4 @@ void PageHeap::Print(Printer* out) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

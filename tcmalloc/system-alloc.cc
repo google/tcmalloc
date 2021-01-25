@@ -51,6 +51,7 @@
 extern "C" int madvise(caddr_t, size_t, int);
 #endif
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -106,6 +107,7 @@ class MmapRegion final : public AddressRegion {
   MmapRegion(uintptr_t start, size_t size, AddressRegionFactory::UsageHint hint)
       : start_(start), free_size_(size), hint_(hint) {}
   std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
+  ~MmapRegion() override = default;
 
  private:
   const uintptr_t start_;
@@ -118,6 +120,7 @@ class MmapRegionFactory final : public AddressRegionFactory {
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override;
   size_t GetStats(absl::Span<char> buffer) override;
   size_t GetStatsInPbtxt(absl::Span<char> buffer) override;
+  ~MmapRegionFactory() override = default;
 
  private:
   std::atomic<size_t> bytes_reserved_{0};
@@ -556,3 +559,4 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

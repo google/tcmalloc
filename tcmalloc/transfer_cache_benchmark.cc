@@ -23,6 +23,7 @@
 #include "tcmalloc/transfer_cache_internals.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -145,3 +146,4 @@ BENCHMARK_TEMPLATE(BM_RemoveRange, LockFreeEnv);
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

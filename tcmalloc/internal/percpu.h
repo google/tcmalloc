@@ -71,6 +71,7 @@
 #endif
 #endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace subtle {
@@ -335,6 +336,7 @@ void FenceCpu(int cpu);
 }  // namespace subtle
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // !__ASSEMBLER__
 #endif  // TCMALLOC_INTERNAL_PERCPU_H_

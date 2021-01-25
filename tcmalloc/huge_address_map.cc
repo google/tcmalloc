@@ -22,6 +22,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -370,3 +371,4 @@ HugeAddressMap::Node::Node(HugeRange r, int prio)
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

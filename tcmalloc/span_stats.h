@@ -18,7 +18,9 @@
 #include <stddef.h>
 
 #include "absl/base/macros.h"
+#include "tcmalloc/internal/config.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -43,5 +45,6 @@ struct SpanStats {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SPAN_STATS_H_

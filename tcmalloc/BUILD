@@ -68,6 +68,7 @@ tcmalloc_deps = [
     "@com_google_absl//absl/memory",
     "@com_google_absl//absl/strings",
     "@com_google_absl//absl/numeric:bits",
+    "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
@@ -319,6 +320,7 @@ cc_library(
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:public"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -333,6 +335,7 @@ cc_library(
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:public"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -349,6 +352,7 @@ cc_library(
         "//tcmalloc/testing:__pkg__",
     ],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -362,6 +366,7 @@ cc_library(
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//visibility:public"],
     deps = [
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,
@@ -1115,6 +1120,7 @@ cc_library(
         "//visibility:public",
     ],
     deps = [
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:parameter_accessors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",

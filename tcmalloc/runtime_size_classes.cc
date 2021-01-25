@@ -20,6 +20,7 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace runtime_size_classes_internal {
@@ -77,3 +78,4 @@ int ABSL_ATTRIBUTE_NOINLINE MaybeSizeClassesFromEnv(int max_size,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

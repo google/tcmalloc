@@ -25,6 +25,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -292,5 +293,6 @@ double AllocatedBytes(const StackTrace &stack, bool unsample);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SAMPLER_H_

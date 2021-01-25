@@ -21,6 +21,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -55,5 +56,6 @@ class PeakHeapTracker {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PEAK_HEAP_TRACKER_H_

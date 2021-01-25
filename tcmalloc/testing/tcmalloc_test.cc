@@ -117,7 +117,7 @@ static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
 namespace tcmalloc {
 extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
-}
+}  // namespace tcmalloc
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);

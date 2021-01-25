@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/pages.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -549,3 +550,4 @@ int64_t PageAllocInfo::TimeTicks() const {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

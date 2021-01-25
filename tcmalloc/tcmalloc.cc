@@ -122,6 +122,7 @@
 #define HAVE_STRUCT_MALLINFO
 #endif
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -143,6 +144,9 @@ struct TCMallocStats {
   size_t pagemap_bytes;                // included in metadata bytes
   size_t percpu_metadata_bytes;        // included in metadata bytes
   BackingStats pageheap;               // Stats from page heap
+
+  // Explicitly declare the ctor to put it in the google_malloc section.
+  TCMallocStats() = default;
 };
 
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
@@ -1776,6 +1780,7 @@ inline struct mallinfo do_mallinfo() {
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::AllocSmall;
 using tcmalloc::tcmalloc_internal::CppPolicy;
@@ -2336,6 +2341,7 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -2361,3 +2367,4 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

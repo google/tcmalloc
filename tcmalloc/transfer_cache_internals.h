@@ -21,6 +21,8 @@
 
 #include <limits>
 
+#include "tcmalloc/internal/config.h"
+
 #ifdef __x86_64__
 #include <emmintrin.h>
 #include <xmmintrin.h>
@@ -48,6 +50,7 @@
 #include "tcmalloc/tracking.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal::internal_transfer_cache {
 
 struct alignas(8) SizeInfo {
@@ -1016,5 +1019,6 @@ class LockFreeTransferCache {
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_TRANSFER_CACHE_INTERNAL_H_

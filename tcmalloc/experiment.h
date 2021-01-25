@@ -38,6 +38,7 @@
 //     BORG_DISABLE_EXPERIMENTS=all *or*
 //     BORG_DISABLE_EXPERIMENTS=BAD_EXPERIMENT_LABEL
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -65,5 +66,6 @@ bool IsExperimentActive(Experiment exp);
 absl::optional<Experiment> FindExperimentByName(absl::string_view name);
 
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_EXPERIMENT_H_

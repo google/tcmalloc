@@ -28,6 +28,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -129,5 +130,6 @@ class CentralFreeList {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_CENTRAL_FREELIST_H_

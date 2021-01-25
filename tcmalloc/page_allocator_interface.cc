@@ -27,6 +27,7 @@
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -83,3 +84,4 @@ PageAllocatorInterface::~PageAllocatorInterface() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

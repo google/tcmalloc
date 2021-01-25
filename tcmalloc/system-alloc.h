@@ -23,6 +23,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -82,5 +83,6 @@ void *MmapAligned(size_t size, size_t alignment, MemoryTag tag);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SYSTEM_ALLOC_H_

@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal_malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 
 MallocExtension::AllocationProfilingToken::AllocationProfilingToken(
@@ -416,6 +417,7 @@ void MallocExtension::SetBackgroundReleaseRate(BytesPerSecond rate) {
 }
 
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 // Default implementation just returns size. The expectation is that
 // the linked-in malloc implementation might provide an override of

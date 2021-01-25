@@ -20,6 +20,7 @@
 
 #if !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace subtle {
@@ -79,5 +80,6 @@ int PerCpuReadCycleCounter(int64_t *cycles) {
 }  // namespace subtle
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM

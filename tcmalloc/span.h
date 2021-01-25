@@ -28,6 +28,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -456,5 +457,6 @@ inline void Span::Init(PageId p, Length n) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_SPAN_H_

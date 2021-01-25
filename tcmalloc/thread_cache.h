@@ -32,6 +32,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tracking.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -339,5 +340,6 @@ inline ThreadCache* ThreadCache::GetCache() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_THREAD_CACHE_H_

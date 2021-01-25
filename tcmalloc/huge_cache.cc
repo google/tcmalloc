@@ -23,6 +23,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -495,3 +496,4 @@ void HugeCache::PrintInPbtxt(PbtxtRegion *hpaa) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

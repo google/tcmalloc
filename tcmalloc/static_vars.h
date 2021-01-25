@@ -40,6 +40,7 @@
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/transfer_cache.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -198,5 +199,6 @@ inline void Span::Delete(Span* span) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_STATIC_VARS_H_

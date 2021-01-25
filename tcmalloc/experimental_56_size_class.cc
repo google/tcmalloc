@@ -14,6 +14,7 @@
 
 #include "tcmalloc/common.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 
 namespace tcmalloc_internal {
@@ -707,3 +708,4 @@ const SizeClassInfo SizeMap::kExperimentalSizeClasses[SizeMap::kExperimentalSize
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

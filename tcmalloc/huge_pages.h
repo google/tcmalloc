@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -338,4 +339,5 @@ inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 #endif  // TCMALLOC_HUGE_PAGES_H_

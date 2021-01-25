@@ -47,6 +47,7 @@
 #ifndef TCMALLOC_TRACK_ALLOCS
 // #define TCMALLOC_TRACK_ALLOCS
 #endif
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -108,5 +109,6 @@ inline void GetProperties(
 }  // namespace tracking
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_TRACKING_H_

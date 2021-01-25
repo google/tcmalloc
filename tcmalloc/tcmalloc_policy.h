@@ -55,6 +55,7 @@
 
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -179,5 +180,6 @@ using MallocPolicy = TCMallocPolicy<MallocOomPolicy, MallocAlignPolicy>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_TCMALLOC_POLICY_H_

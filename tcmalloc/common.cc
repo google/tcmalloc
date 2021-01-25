@@ -19,6 +19,7 @@
 #include "tcmalloc/runtime_size_classes.h"
 #include "tcmalloc/sampler.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -180,3 +181,4 @@ void SizeMap::Init() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

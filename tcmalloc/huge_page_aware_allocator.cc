@@ -36,6 +36,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -665,3 +666,4 @@ void HugePageAwareAllocator::UnbackWithoutLock(void *start, size_t length) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

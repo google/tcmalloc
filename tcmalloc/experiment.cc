@@ -22,6 +22,7 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -158,3 +159,4 @@ absl::optional<Experiment> FindExperimentByName(absl::string_view name) {
 }
 
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

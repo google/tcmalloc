@@ -27,6 +27,7 @@
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -233,3 +234,4 @@ void Span::BuildFreelist(size_t size, size_t count) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

@@ -47,6 +47,7 @@
 #define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -914,5 +915,6 @@ PerCPUMetadataState TcmallocSlab<Shift, NumClasses>::MetadataMemoryUsage()
 }  // namespace subtle
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_

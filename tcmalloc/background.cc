@@ -23,6 +23,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -84,6 +85,7 @@ void ReleasePerCpuMemoryToOS() {
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {

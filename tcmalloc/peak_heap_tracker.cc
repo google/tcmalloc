@@ -26,6 +26,7 @@
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -92,3 +93,4 @@ std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() const {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

@@ -24,6 +24,7 @@
 #include "absl/base/optimization.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/config.h"
 
 //-------------------------------------------------------------------
 // Utility routines
@@ -36,6 +37,7 @@
 // Example:
 //   Log(kLog, __FILE__, __LINE__, "error", bytes);
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -211,5 +213,6 @@ class PbtxtRegion {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_LOGGING_H_

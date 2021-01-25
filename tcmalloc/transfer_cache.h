@@ -35,6 +35,7 @@
 #include "tcmalloc/transfer_cache_internals.h"
 #endif
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -209,5 +210,6 @@ class TransferCacheManager {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_TRANSFER_CACHE_H_

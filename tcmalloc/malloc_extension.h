@@ -40,7 +40,9 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/config.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 class AllocationProfilingTokenAccessor;
@@ -295,6 +297,9 @@ class MallocExtension final {
     // Note:  limit=SIZE_T_MAX implies no limit.
     size_t limit = std::numeric_limits<size_t>::max();
     bool hard = false;
+
+    // Explicitly declare the ctor to put it in the google_malloc section.
+    MemoryLimit() = default;
   };
 
   static MemoryLimit GetMemoryLimit();
@@ -447,6 +452,7 @@ class MallocExtension final {
 };
 
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 // The nallocx function allocates no memory, but it performs the same size
 // computation as the malloc function, and returns the real size of the
@@ -463,6 +469,7 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept;
 // uses the size to improve deallocation performance.
 extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 
 // Pointer / capacity information as returned by
@@ -474,6 +481,7 @@ struct sized_ptr_t {
 };
 
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 // Allocates memory of at least the requested size.
 //
@@ -527,6 +535,7 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
 #define MALLOCX_LG_ALIGN(la) (la)
 #endif
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -538,6 +547,9 @@ namespace tcmalloc_internal {
 // while allowing the library to compile and link.
 class AllocationProfilingTokenBase {
  public:
+  // Explicitly declare the ctor to put it in the google_malloc section.
+  AllocationProfilingTokenBase() = default;
+
   virtual ~AllocationProfilingTokenBase() = default;
 
   // Finish recording started during construction of this object.
@@ -570,5 +582,6 @@ class ProfileBase {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_MALLOC_EXTENSION_H_

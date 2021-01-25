@@ -32,6 +32,7 @@
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/tracking.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -268,4 +269,5 @@ inline bool UsePerCpuCache() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 #endif  // TCMALLOC_CPU_CACHE_H_

@@ -17,6 +17,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/system-alloc.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -51,3 +52,4 @@ void* Arena::Alloc(size_t bytes) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

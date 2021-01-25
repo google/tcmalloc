@@ -22,9 +22,11 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -133,5 +135,6 @@ class Parameters {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PARAMETERS_H_

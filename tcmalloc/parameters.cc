@@ -22,6 +22,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -94,6 +95,7 @@ absl::Duration Parameters::filler_skip_subrelease_interval() {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::kLog;
 using tcmalloc::tcmalloc_internal::Log;

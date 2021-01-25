@@ -33,6 +33,7 @@
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -653,6 +654,7 @@ static PerCPUInitializer module_enter_exit;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 extern "C" bool MallocExtension_Internal_GetPerCpuCachesActive() {
   return tcmalloc::tcmalloc_internal::Static::CPUCacheActive();

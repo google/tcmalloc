@@ -27,6 +27,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -554,5 +555,6 @@ inline BackingStats HugeRegionSet<Region>::stats() const {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_HUGE_REGION_H_

@@ -25,6 +25,7 @@
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_heap_allocator.h"
@@ -32,6 +33,7 @@
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -43,6 +45,7 @@ bool decide_subrelease();
 class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
   explicit HugePageAwareAllocator(MemoryTag tag);
+  ~HugePageAwareAllocator() override = default;
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
@@ -168,5 +171,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_H_

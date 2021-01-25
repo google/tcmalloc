@@ -26,6 +26,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -91,5 +92,6 @@ class PageAllocatorInterface {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PAGE_ALLOCATOR_INTERFACE_H_

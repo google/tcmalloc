@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -450,5 +451,6 @@ extern absl::base_internal::SpinLock pageheap_lock;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_COMMON_H_

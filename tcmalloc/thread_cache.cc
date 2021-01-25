@@ -20,6 +20,7 @@
 #include "absl/base/macros.h"
 #include "tcmalloc/transfer_cache.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -413,3 +414,4 @@ void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

@@ -27,6 +27,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -305,5 +306,6 @@ struct ConstexprCheck {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_

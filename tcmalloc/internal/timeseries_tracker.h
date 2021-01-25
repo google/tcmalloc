@@ -27,6 +27,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -179,5 +180,6 @@ bool TimeSeriesTracker<T, S, kEpochs>::Report(S val) {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_TIMESERIES_TRACKER_H_

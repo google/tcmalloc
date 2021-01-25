@@ -23,6 +23,7 @@
 // TODO(b/116000878): Remove dependency on common.h if it causes ODR issues.
 #include "tcmalloc/common.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -73,5 +74,6 @@ class ExtraRegionFactory : public AddressRegionFactory {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_TEST_UTIL_H_

@@ -23,6 +23,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -39,6 +40,7 @@ class PageHeap final : public PageAllocatorInterface {
   explicit PageHeap(MemoryTag tag);
   // for testing
   PageHeap(PageMap* map, MemoryTag tag);
+  ~PageHeap() override = default;
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
@@ -154,5 +156,6 @@ class PageHeap final : public PageAllocatorInterface {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_PAGE_HEAP_H_

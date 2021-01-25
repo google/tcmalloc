@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace subtle {
@@ -311,3 +312,4 @@ void FenceCpu(int cpu) {
 }  // namespace subtle
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

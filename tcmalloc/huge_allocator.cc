@@ -19,6 +19,7 @@
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/internal/logging.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -171,3 +172,4 @@ void HugeAllocator::AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END

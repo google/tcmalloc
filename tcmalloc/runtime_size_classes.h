@@ -19,6 +19,7 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/size_class_info.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace runtime_size_classes_internal {
@@ -43,5 +44,6 @@ int MaybeSizeClassesFromEnv(int max_size, int max_classes,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_RUNTIME_SIZE_CLASSES_H_
