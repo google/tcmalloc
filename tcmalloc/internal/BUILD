@@ -47,6 +47,9 @@ cc_library(
     hdrs = ["config.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/base:config",
+    ],
 )
 
 cc_library(

@@ -17,6 +17,8 @@
 
 #include <stddef.h>
 
+#include "absl/base/policy_checks.h"
+
 // TCMALLOC_HAVE_SCHED_GETCPU is defined when the system implements
 // sched_getcpu(3) as by glibc and it's imitators.
 #if defined(__linux__) || defined(__ros__)
