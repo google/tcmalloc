@@ -18,6 +18,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <syscall.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -85,6 +86,9 @@ enum PerCpuInitStatus {
 
 ABSL_CONST_INIT static PerCpuInitStatus init_status = kSlowMode;
 ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
+#if TCMALLOC_PERCPU_USE_RSEQ
+ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
 
 static bool InitThreadPerCpu() {
   if (__rseq_refcount++ > 0) {
@@ -117,6 +121,12 @@ static void InitPerCpu() {
     init_status = kFastMode;
 
 #if TCMALLOC_PERCPU_USE_RSEQ
+    constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
+    // It is safe to make the syscall below multiple times.
+    using_upstream_fence.store(
+            0 == syscall(__NR_membarrier,
+                         kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
+        std::memory_order_relaxed);
 #ifdef __x86_64__
     if (UsingFlatVirtualCpus()) {
       tcmalloc_internal_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
@@ -263,6 +273,22 @@ static void SlowFence(const cpu_set_t* cpus) {
   }
 }
 
+#if TCMALLOC_PERCPU_USE_RSEQ
+static void UpstreamRseqFenceCpu(int cpu) {
+  ABSL_RAW_CHECK(using_upstream_fence.load(std::memory_order_relaxed),
+                 "upstream fence unavailable.");
+
+  constexpr int kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ = (1 << 7);
+  constexpr int kMEMBARRIER_CMD_FLAG_CPU = (1 << 0);
+
+  int64_t res = syscall(__NR_membarrier, kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
+                        kMEMBARRIER_CMD_FLAG_CPU, cpu);
+
+  ABSL_RAW_CHECK(res == 0 || res == -ENXIO /* missing CPU */,
+                 "Upstream fence failed.");
+}
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
+
 // Interrupt every concurrently running sibling thread on any cpu in
 // "cpus", and guarantee our writes up til now are visible to every
 // other CPU. (cpus == NULL is equivalent to all CPUs.)
@@ -280,6 +306,13 @@ void Fence() {
   // Other operations (or all in RSEQ mode) might just be running on another
   // CPU.  Do something about that: use RSEQ::Fence() to just send interrupts
   // and restart any such operation.
+#if TCMALLOC_PERCPU_USE_RSEQ
+  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+    UpstreamRseqFenceCpu(-1);
+    return;
+  }
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
+
   FenceInterruptCPUs(nullptr);
 }
 
@@ -298,9 +331,22 @@ void FenceCpu(int cpu) {
   if (UsingFlatVirtualCpus()) {
     // With virtual CPUs, we cannot identify the true physical core we need to
     // interrupt.
+#if TCMALLOC_PERCPU_USE_RSEQ
+    if (using_upstream_fence.load(std::memory_order_relaxed)) {
+      UpstreamRseqFenceCpu(-1);
+      return;
+    }
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
     FenceInterruptCPUs(nullptr);
     return;
   }
+
+#if TCMALLOC_PERCPU_USE_RSEQ
+  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+    UpstreamRseqFenceCpu(cpu);
+    return;
+  }
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
 
   cpu_set_t set;
   CPU_ZERO(&set);
