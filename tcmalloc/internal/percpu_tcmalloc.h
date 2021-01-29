@@ -358,7 +358,7 @@ overflow_label:
   int cpu = VirtualRseqCpuId();
   return f(cpu, cl, item);
 }
-#endif // defined(__x86_64__)
+#endif  // defined(__x86_64__)
 
 #if defined(__aarch64__)
 
@@ -456,7 +456,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
         [region_start] "=&r"(region_start)
 
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
-        , [overflow] "=@ccae"(overflow)
+            ,
+        [overflow] "=@ccae"(overflow)
 #endif
       : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
         [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3), [item] "r"(item),
@@ -727,11 +728,12 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           [result] "=&r"(result),
           // Temps
           [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
-          [begin] "=&r"(begin), [current] "=&r"(current), [new_current] "=&r" (new_current),
-          [begin_ptr] "=&r"(begin_ptr)
+          [begin] "=&r"(begin), [current] "=&r"(current),
+          [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
           // Real inputs
           : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
-            [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3), [rseq_abi] "r"(&__rseq_abi),
+            [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3),
+            [rseq_abi] "r"(&__rseq_abi),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift)
