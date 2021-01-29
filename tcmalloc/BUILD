@@ -32,7 +32,10 @@ config_setting(
     flag_values = {
         "@bazel_tools//tools/cpp:compiler": "clang",
     },
-    visibility = ["//visibility:private"],
+    visibility = [
+        "//tcmalloc/internal:__subpackages__",
+        "//tcmalloc/testing:__subpackages__",
+    ],
 )
 
 cc_library(
