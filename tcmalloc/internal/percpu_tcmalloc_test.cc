@@ -116,13 +116,42 @@ class ScopedUnregisterRseq {
     CHECK_CONDITION(__rseq_abi.cpu_id == kCpuIdUninitialized);
   }
 
+  // REQUIRES: __rseq_abi.cpu_id == kCpuIdUninitialized
   ~ScopedUnregisterRseq() {
-    // Since we have manipulated __rseq_abi.cpu_id, restore the value to
-    // uninitialized so that we will successfully re-register.
-    __rseq_abi.cpu_id = kCpuIdUninitialized;
     CHECK_CONDITION(IsFast());
   }
 };
+
+#if !defined(__ppc__)
+
+// An RAII object that injects a fake CPU ID into the percpu library for as long
+// as it exists.
+class ScopedFakeCpuId {
+ public:
+  explicit ScopedFakeCpuId(const int cpu_id) {
+    // Now that our unregister_rseq_ member has prevented the kernel from
+    // modifying __rseq_abi, we can inject our own CPU ID.
+    __rseq_abi.cpu_id = cpu_id;
+  }
+
+  ~ScopedFakeCpuId() {
+    // Undo the modification we made in the constructor, as required by
+    // ~ScopedFakeCpuId.
+    __rseq_abi.cpu_id = kCpuIdUninitialized;
+  }
+
+ private:
+
+  const ScopedUnregisterRseq unregister_rseq_;
+};
+
+#else
+
+// On PPC we can't inject a CPU ID because we get the CPU ID directly from a
+// register. Instead change the scheduling affinity for the process.
+using ScopedFakeCpuId = ScopedAffinityMask;
+
+#endif
 
 constexpr size_t kStressSlabs = 4;
 constexpr size_t kStressCapacity = 4;
@@ -286,12 +315,6 @@ TEST_P(TcmallocSlabTest, Unit) {
     return;
   }
 
-#ifndef __ppc__
-  // On platforms other than PPC, we use __rseq_abi.cpu_id to retrieve the CPU.
-  // On PPC, we use a special purpose register, so we cannot fake the CPU.
-  ScopedUnregisterRseq rseq;
-#endif
-
   // Decide if we should expect a push or pop to be the first action on the CPU
   // slab to trigger initialization.
   absl::FixedArray<bool, 0> initialized(absl::base_internal::NumCPUs(),
@@ -299,11 +322,11 @@ TEST_P(TcmallocSlabTest, Unit) {
 
   for (auto cpu : AllowedCpus()) {
     SCOPED_TRACE(cpu);
-#ifdef __ppc__
-    ScopedAffinityMask aff(cpu);
-#else
-    __rseq_abi.cpu_id = cpu;
 
+    // Temporarily fake being on the given CPU.
+    ScopedFakeCpuId fake_cpu_id(cpu);
+
+#if !defined(__ppc__)
     if (UsingFlatVirtualCpus()) {
       __rseq_abi.vcpu_id = cpu ^ 1;
       cpu = cpu ^ 1;
@@ -319,7 +342,7 @@ TEST_P(TcmallocSlabTest, Unit) {
       // This is imperfect but the window between operations below is small.  We
       // can make this more precise around individual operations if we see
       // measurable flakiness as a result.
-      if (aff.Tampered()) break;
+      if (fake_cpu_id.Tampered()) break;
 #endif
 
       // Check new slab state.
