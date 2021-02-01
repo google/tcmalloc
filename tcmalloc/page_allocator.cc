@@ -46,8 +46,7 @@ bool decide_want_hpaa() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/137017688): Eliminate this opt-out.
-        if (kPageShift <= 13) {
+        if (kPageShift <= 12) {
           return false;
         }
 
