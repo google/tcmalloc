@@ -59,6 +59,7 @@ struct StackTrace {
   uintptr_t requested_size;
   uintptr_t requested_alignment;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
+
   uintptr_t depth;           // Number of PC values stored in array below
   void* stack[kMaxStackDepth];
 
@@ -72,7 +73,8 @@ struct StackTrace {
     // produce a hasher for the fields used as keys.
     return H::combine(H::combine_contiguous(std::move(h), t.stack, t.depth),
                       t.depth, t.requested_size, t.requested_alignment,
-                      t.allocated_size);
+                      t.allocated_size
+    );
   }
 };
 
