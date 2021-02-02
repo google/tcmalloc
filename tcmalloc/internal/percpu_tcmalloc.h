@@ -358,13 +358,145 @@ overflow_label:
   int cpu = VirtualRseqCpuId();
   return f(cpu, cl, item);
 }
-#endif  // defined(__x86_64__)
+#endif // defined(__x86_64__)
+
+#if defined(__aarch64__)
+
+template <size_t Shift, size_t NumClasses>
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
+    typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
+    void* item, OverflowHandler f) {
+  void* region_start;
+  uint64_t cpu_id;
+  void* end_ptr;
+  uintptr_t current;
+  uintptr_t end;
+  // Multiply cl by the bytesize of each header
+  size_t cl_lsl3 = cl * 8;
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+  asm goto(
+#else
+  bool overflow;
+  asm volatile(
+#endif
+      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
+      // relocations, but could be read-only for non-PIE builds.
+      ".pushsection __rseq_cs, \"aw?\"\n"
+      ".balign 32\n"
+      ".local __rseq_cs_TcmallocSlab_Push_%=\n"
+      ".type __rseq_cs_TcmallocSlab_Push_%=,@object\n"
+      ".size __rseq_cs_TcmallocSlab_Push_%=,32\n"
+      "__rseq_cs_TcmallocSlab_Push_%=:\n"
+      ".long 0x0\n"
+      ".long 0x0\n"
+      ".quad 4f\n"
+      ".quad 5f - 4f\n"
+      ".quad 2f\n"
+      ".popsection\n"
+#if !defined(__clang_major__) || __clang_major__ >= 9
+      ".reloc 0, R_AARCH64_NONE, 1f\n"
+#endif
+      ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
+      "1:\n"
+      ".balign 8;"
+      ".quad __rseq_cs_TcmallocSlab_Push_%=\n"
+      // Force this section to be retained.  It is for debugging, but is
+      // otherwise not referenced.
+      ".popsection\n"
+      ".pushsection .text.unlikely, \"ax?\"\n"
+      ".long %c[rseq_sig]\n"
+      ".local TcmallocSlab_Push_trampoline_%=\n"
+      ".type TcmallocSlab_Push_trampoline_%=,@function\n"
+      "TcmallocSlab_Push_trampoline_%=:\n"
+      "2:\n"
+      "b 3f\n"
+      ".popsection\n"
+      // Prepare
+      //
+      // TODO(b/151503411):  Pending widespread availability of LLVM's asm
+      // goto with output contraints
+      // (https://github.com/llvm/llvm-project/commit/23c2a5ce33f0), we can
+      // return the register allocations to the compiler rather than using
+      // explicit clobbers.  Prior to this, blocks which use asm goto cannot
+      // also specify outputs.
+      "3:\n"
+      // Use current as scratch here to hold address of this function's
+      // critical section
+      "adrp %[current], __rseq_cs_TcmallocSlab_Push_%=\n"
+      "add  %[current], %[current], :lo12:__rseq_cs_TcmallocSlab_Push_%=\n"
+      "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
+      // Start
+      "4:\n"
+      // cpu_id = __rseq_abi.cpu_id;
+      "ldr %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
+      // region_start = Start of cpu region
+      "add %[region_start], %[slabs], %[cpu_id], LSL %c[shift]\n"
+      // end_ptr = &(slab_headers[0]->end)
+      "add %[end_ptr], %[region_start], #6\n"
+      // current = slab_headers[cl]->current (current index)
+      "ldrh %w[current], [%[region_start], %[cl_lsl3]]\n"
+      // end = slab_headers[cl]->end (end index)
+      "ldrh %w[end], [%[end_ptr], %[cl_lsl3]]\n"
+      // if (ABSL_PREDICT_FALSE(current >= end)) { goto overflow; }
+      "cmp %[end], %[current]\n"
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+      "b.le %l[overflow_label]\n"
+#else
+      "b.le 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccae)
+  // If so, the above code needs to explicitly set a ccae return value.
+#endif
+      "str %[item], [%[region_start], %[current], LSL #3]\n"
+      "add %w[current], %w[current], #1\n"
+      "strh %w[current], [%[region_start], %[cl_lsl3]]\n"
+      // Commit
+      "5:\n"
+      : [end_ptr] "=&r"(end_ptr), [cpu_id] "=&r"(cpu_id),
+        [current] "=&r"(current), [end] "=&r"(end),
+        [region_start] "=&r"(region_start)
+
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+        , [overflow] "=@ccae"(overflow)
+#endif
+      : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
+        [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3), [item] "r"(item),
+        [rseq_abi] "r"(&__rseq_abi),
+        // Constants
+        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
+        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift)
+      : "cc", "memory"
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+      : overflow_label
+#endif
+  );
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+  if (ABSL_PREDICT_FALSE(overflow)) {
+    goto overflow_label;
+  }
+#endif
+  return 0;
+overflow_label:
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
+  // values for the fallthrough path.  The values on the taken branches are
+  // undefined.
+  int cpu = VirtualRseqCpuId();
+#else
+  // With asm goto--without output constraints--the value of scratch is
+  // well-defined by the compiler and our implementation.  As an optimization on
+  // this case, we can avoid looking up cpu_id again, by undoing the
+  // transformation of cpu_id to the value of scratch.
+  int cpu = cpu_id;
+#endif
+  return f(cpu, cl, item);
+}
+#endif  // defined (__aarch64__)
 
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
     size_t cl, void* item, OverflowHandler f) {
   ASSERT(item != nullptr);
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f) >= 0;
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
@@ -501,13 +633,144 @@ underflow_path:
 }
 #endif  // defined(__x86_64__)
 
+#if defined(__aarch64__)
+template <size_t Shift, size_t NumClasses>
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
+    typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
+    UnderflowHandler f) {
+  void* result;
+  void* region_start;
+  uint64_t cpu_id;
+  void* begin_ptr;
+  uintptr_t current;
+  uintptr_t new_current;
+  uintptr_t begin;
+  // Multiply cl by the bytesize of each header
+  size_t cl_lsl3 = cl * 8;
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  asm goto
+#else
+  bool underflow;
+  asm
+#endif
+      (
+          // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow
+          // for relocations, but could be read-only for non-PIE builds.
+          ".pushsection __rseq_cs, \"aw?\"\n"
+          ".balign 32\n"
+          ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
+          ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
+          ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
+          "__rseq_cs_TcmallocSlab_Pop_%=:\n"
+          ".long 0x0\n"
+          ".long 0x0\n"
+          ".quad 4f\n"
+          ".quad 5f - 4f\n"
+          ".quad 2f\n"
+          ".popsection\n"
+#if !defined(__clang_major__) || __clang_major__ >= 9
+          ".reloc 0, R_AARCH64_NONE, 1f\n"
+#endif
+          ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
+          "1:\n"
+          ".balign 8;"
+          ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
+          // Force this section to be retained.  It is for debugging, but is
+          // otherwise not referenced.
+          ".popsection\n"
+          ".pushsection .text.unlikely, \"ax?\"\n"
+          ".long %c[rseq_sig]\n"
+          ".local TcmallocSlab_Pop_trampoline_%=\n"
+          ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
+          "TcmallocSlab_Pop_trampoline_%=:\n"
+          "2:\n"
+          "b 3f\n"
+          ".popsection\n"
+          // Prepare
+          "3:\n"
+          // Use current as scratch here to hold address of this function's
+          // critical section
+          "adrp %[current], __rseq_cs_TcmallocSlab_Pop_%=\n"
+          "add  %[current], %[current], :lo12:__rseq_cs_TcmallocSlab_Pop_%=\n"
+          "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
+          // Start
+          "4:\n"
+          // cpu_id = __rseq_abi.cpu_id;
+          "ldr %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
+          // region_start = Start of cpu region
+          "add %[region_start], %[slabs], %[cpu_id], LSL %c[shift]\n"
+          // begin_ptr = &(slab_headers[0]->begin)
+          "add %[begin_ptr], %[region_start], #4\n"
+          // current = slab_headers[cl]->current (current index)
+          "ldrh %w[current], [%[region_start], %[cl_lsl3]]\n"
+          // begin = slab_headers[cl]->begin (begin index)
+          "ldrh %w[begin], [%[begin_ptr], %[cl_lsl3]]\n"
+          // if (ABSL_PREDICT_FALSE(begin >= current)) { goto overflow; }
+          "cmp %w[begin], %w[current]\n"
+          "sub %w[new_current], %w[current], #1\n"
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          "b.ge %l[underflow_path]\n"
+#else
+          "b.ge 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccbe)
+  // If so, the above code needs to explicitly set a ccbe return value.
+#endif
+          // current--
+          "ldr %[result], [%[region_start], %[new_current], LSL #3]\n"
+          "strh %w[new_current], [%[region_start], %[cl_lsl3]]\n"
+          // Commit
+          "5:\n"
+          :
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          [underflow] "=@ccbe"(underflow),
+#endif
+          [result] "=&r"(result),
+          // Temps
+          [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
+          [begin] "=&r"(begin), [current] "=&r"(current), [new_current] "=&r" (new_current),
+          [begin_ptr] "=&r"(begin_ptr)
+          // Real inputs
+          : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
+            [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3), [rseq_abi] "r"(&__rseq_abi),
+            // constants
+            [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
+            [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift)
+          : "cc", "memory"
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          : underflow_path
+#endif
+      );
+#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  if (ABSL_PREDICT_FALSE(underflow)) {
+    goto underflow_path;
+  }
+#endif
+
+  return result;
+underflow_path:
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
+  // values for the fallthrough path.  The values on the taken branches are
+  // undefined.
+  int cpu = VirtualRseqCpuId();
+#else
+  // With asm goto--without output constraints--the value of scratch is
+  // well-defined by the compiler and our implementation.  As an optimization on
+  // this case, we can avoid looking up cpu_id again, by undoing the
+  // transformation of cpu_id to the value of scratch.
+  int cpu = cpu_id;
+#endif
+  return f(cpu, cl);
+}
+#endif  // defined(__aarch64__)
+
 #undef TCMALLOC_PERCPU_STRINGIFY
 #undef TCMALLOC_PERCPU_XSTRINGIFY
 
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
     size_t cl, UnderflowHandler f) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f);
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
