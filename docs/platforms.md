@@ -50,3 +50,26 @@ Architecture, Specific Compiler, and Standard Library implementation.
 
 \* We test on gcc 9.2, though gcc versions (which support C++17) prior to that
 release should also work.
+
+**Best Effort**
+
+<table width="80%">
+  <col width="360">
+  <col width="120">
+  <tbody>
+    <tr>
+      <th>Operating System</th>
+      <th>Endianness/Word Size</th>
+      <th>Processor Architectures</th>
+      <th>Compilers*</th>
+      <th>Standard Libraries</th>
+    </tr>
+    <tr>
+      <td>Linux</td>
+      <td>little-endian, 64-bit</td>
+      <td>AArch64</td>
+      <td>gcc 9.2+<br/>clang 9.0+</td>
+      <td>libstdc++<br/>libc++</td>
+    </tr>
+  </tbody>
+</table>
