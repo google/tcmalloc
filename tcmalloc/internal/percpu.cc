@@ -28,6 +28,7 @@
 #include "absl/base/internal/sysinfo.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -127,11 +128,6 @@ static void InitPerCpu() {
             0 == syscall(__NR_membarrier,
                          kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
         std::memory_order_relaxed);
-#ifdef __x86_64__
-    if (UsingFlatVirtualCpus()) {
-      tcmalloc_internal_virtual_cpu_id_offset = offsetof(kernel_rseq, vcpu_id);
-    }
-#endif  // __x86_64__
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
   }
 }
@@ -316,7 +312,7 @@ void Fence() {
   FenceInterruptCPUs(nullptr);
 }
 
-void FenceCpu(int cpu) {
+void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   // Prevent compiler re-ordering of code below. In particular, the call to
   // GetCurrentCpu must not appear in assembly program order until after any
   // code that comes before FenceCpu in C++ program order.
@@ -324,11 +320,15 @@ void FenceCpu(int cpu) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (GetCurrentVirtualCpu() == cpu) {
+  if (GetCurrentVirtualCpu(virtual_cpu_id_offset) == cpu) {
     return;
   }
 
-  if (UsingFlatVirtualCpus()) {
+  if (virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id)) {
+    // tcmalloc:oss-insert-begin
+    // ASSUME(false);
+    // tcmalloc:oss-insert-end
+
     // With virtual CPUs, we cannot identify the true physical core we need to
     // interrupt.
 #if TCMALLOC_PERCPU_USE_RSEQ

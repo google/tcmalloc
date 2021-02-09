@@ -289,6 +289,7 @@ cc_library(
         ":config",
         ":linux_syscall_support",
         ":logging",
+        ":optimization",
         ":util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

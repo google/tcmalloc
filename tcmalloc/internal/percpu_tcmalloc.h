@@ -153,6 +153,10 @@ class TcmallocSlab {
   };
   static_assert(sizeof(Slabs) == (1ul << Shift), "Slabs has unexpected size");
 
+  inline int GetCurrentVirtualCpuUnsafe() {
+    return VirtualRseqCpuId(virtual_cpu_id_offset_);
+  }
+
  private:
   // Slab header (packed, atomically updated 64-bit).
   struct Header {
@@ -177,13 +181,16 @@ class TcmallocSlab {
                 "bad Header size");
 
   Slabs* slabs_ = nullptr;
+  // This is in units of bytes.
+  size_t virtual_cpu_id_offset_ = offsetof(kernel_rseq, cpu_id);
 
   Slabs* CpuMemoryStart(int cpu) const;
   std::atomic<int64_t>* GetHeader(int cpu, size_t cl) const;
   static Header LoadHeader(std::atomic<int64_t>* hdrp);
   static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
   static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
-                                  Header old, Header hdr);
+                                  Header old, Header hdr,
+                                  size_t virtual_cpu_id_offset);
 };
 
 template <size_t Shift, size_t NumClasses>
@@ -204,6 +211,7 @@ template <size_t Shift, size_t NumClasses>
 inline size_t TcmallocSlab<Shift, NumClasses>::Grow(int cpu, size_t cl,
                                                     size_t len,
                                                     size_t max_cap) {
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   std::atomic<int64_t>* hdrp = GetHeader(cpu, cl);
   for (;;) {
     Header old = LoadHeader(hdrp);
@@ -214,7 +222,8 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Grow(int cpu, size_t cl,
     Header hdr = old;
     hdr.end += n;
     hdr.end_copy += n;
-    const int ret = CompareAndSwapHeader(cpu, hdrp, old, hdr);
+    const int ret =
+        CompareAndSwapHeader(cpu, hdrp, old, hdr, virtual_cpu_id_offset);
     if (ret == cpu) {
       return n;
     } else if (ret >= 0) {
@@ -226,6 +235,7 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Grow(int cpu, size_t cl,
 template <size_t Shift, size_t NumClasses>
 inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
                                                       size_t len) {
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   std::atomic<int64_t>* hdrp = GetHeader(cpu, cl);
   for (;;) {
     Header old = LoadHeader(hdrp);
@@ -236,7 +246,8 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
     Header hdr = old;
     hdr.end -= n;
     hdr.end_copy -= n;
-    const int ret = CompareAndSwapHeader(cpu, hdrp, old, hdr);
+    const int ret =
+        CompareAndSwapHeader(cpu, hdrp, old, hdr, virtual_cpu_id_offset);
     if (ret == cpu) {
       return n;
     } else if (ret >= 0) {
@@ -252,7 +263,7 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
-    void* item, OverflowHandler f) {
+    void* item, OverflowHandler f, const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
@@ -337,7 +348,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
+        [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift),
         [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
@@ -355,7 +366,7 @@ overflow_label:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
-  int cpu = VirtualRseqCpuId();
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
   return f(cpu, cl, item);
 }
 #endif  // defined(__x86_64__)
@@ -365,7 +376,7 @@ overflow_label:
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
-    void* item, OverflowHandler f) {
+    void* item, OverflowHandler f, const size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
   void* end_ptr;
@@ -459,9 +470,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
             ,
         [overflow] "=@ccae"(overflow)
 #endif
-      : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
-        [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3), [item] "r"(item),
-        [rseq_abi] "r"(&__rseq_abi),
+      : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
+        [cl_lsl3] "r"(cl_lsl3), [item] "r"(item), [rseq_abi] "r"(&__rseq_abi),
         // Constants
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift)
@@ -481,7 +491,7 @@ overflow_label:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
-  int cpu = VirtualRseqCpuId();
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
 #else
   // With asm goto--without output constraints--the value of scratch is
   // well-defined by the compiler and our implementation.  As an optimization on
@@ -498,7 +508,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
     size_t cl, void* item, OverflowHandler f) {
   ASSERT(item != nullptr);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f) >= 0;
+  return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f,
+                                              virtual_cpu_id_offset_) >= 0;
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Push_FixedShift(slabs_, cl, item, f) >= 0;
@@ -512,7 +523,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
-    UnderflowHandler f) {
+    UnderflowHandler f, const size_t virtual_cpu_id_offset) {
   void* result;
   void* scratch;
   uintptr_t current;
@@ -600,7 +611,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
             [scratch] "=&r"(scratch), [current] "=&r"(current)
           : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-            [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
+            [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "n"(Shift),
             [slabs] "r"(slabs), [cl] "r"(cl)
           : "cc", "memory"
@@ -620,7 +631,7 @@ underflow_path:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
-  int cpu = VirtualRseqCpuId();
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
 #else
   // With asm goto--without output constraints--the value of scratch is
   // well-defined by the compiler and our implementation.  As an optimization on
@@ -638,7 +649,7 @@ underflow_path:
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
-    UnderflowHandler f) {
+    UnderflowHandler f, const size_t virtual_cpu_id_offset) {
   void* result;
   void* region_start;
   uint64_t cpu_id;
@@ -731,9 +742,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           [begin] "=&r"(begin), [current] "=&r"(current),
           [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
           // Real inputs
-          : [rseq_cpu_offset] "r"(tcmalloc_internal_virtual_cpu_id_offset),
-            [slabs] "r"(slabs), [cl_lsl3] "r"(cl_lsl3),
-            [rseq_abi] "r"(&__rseq_abi),
+          : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
+            [cl_lsl3] "r"(cl_lsl3), [rseq_abi] "r"(&__rseq_abi),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "in"(Shift)
@@ -754,7 +764,7 @@ underflow_path:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
-  int cpu = VirtualRseqCpuId();
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
 #else
   // With asm goto--without output constraints--the value of scratch is
   // well-defined by the compiler and our implementation.  As an optimization on
@@ -773,7 +783,8 @@ template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
     size_t cl, UnderflowHandler f) {
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f);
+  return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f,
+                                             virtual_cpu_id_offset_);
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Pop_FixedShift(slabs_, cl, f);
@@ -795,11 +806,10 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PushBatch_FixedShift needs to be
-    // refactored to take a 5th parameter
-    // (tcmalloc_internal_virtual_cpu_id_offset) to avoid needing to dispatch on
-    // two separate versions of the same function with only minor differences
-    // between them.
-    switch (tcmalloc_internal_virtual_cpu_id_offset) {
+    // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
+    // needing to dispatch on two separate versions of the same function with
+    // only minor differences between them.
+    switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
         return TcmallocSlab_PushBatch_FixedShift(slabs_, cl, batch, len);
 #ifdef __x86_64__
@@ -830,11 +840,10 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_PopBatch_FixedShift needs to be
-    // refactored to take a 5th parameter
-    // (tcmalloc_internal_virtual_cpu_id_offset) to avoid needing to dispatch on
-    // two separate versions of the same function with only minor differences
-    // between them.
-    switch (tcmalloc_internal_virtual_cpu_id_offset) {
+    // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
+    // needing to dispatch on two separate versions of the same function with
+    // only minor differences between them.
+    switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
         n = TcmallocSlab_PopBatch_FixedShift(slabs_, cl, batch, len);
         break;
@@ -893,13 +902,15 @@ inline void TcmallocSlab<Shift, NumClasses>::StoreHeader(
 
 template <size_t Shift, size_t NumClasses>
 inline int TcmallocSlab<Shift, NumClasses>::CompareAndSwapHeader(
-    int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr) {
+    int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
+    const size_t virtual_cpu_id_offset) {
 #if __WORDSIZE == 64
   uint64_t old_raw, new_raw;
   memcpy(&old_raw, &old, sizeof(old_raw));
   memcpy(&new_raw, &hdr, sizeof(new_raw));
   return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
-                              static_cast<intptr_t>(new_raw));
+                              static_cast<intptr_t>(new_raw),
+                              virtual_cpu_id_offset);
 #else
   Crash(kCrash, __FILE__, __LINE__, "This architecture is not supported.");
 #endif
@@ -929,6 +940,10 @@ template <size_t Shift, size_t NumClasses>
 void TcmallocSlab<Shift, NumClasses>::Init(void*(alloc)(size_t size),
                                            size_t (*capacity)(size_t cl),
                                            bool lazy) {
+  if (UsingFlatVirtualCpus()) {
+    virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
+  }
+
   size_t mem_size = absl::base_internal::NumCPUs() * (1ul << Shift);
   void* backing = alloc(mem_size);
   // MSan does not see writes in assembly.
@@ -995,6 +1010,8 @@ void TcmallocSlab<Shift, NumClasses>::Init(void*(alloc)(size_t size),
 template <size_t Shift, size_t NumClasses>
 void TcmallocSlab<Shift, NumClasses>::InitCPU(int cpu,
                                               size_t (*capacity)(size_t cl)) {
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+
   // TODO(ckennelly): Consolidate this logic with Drain.
   // Phase 1: verify no header is locked
   for (size_t cl = 0; cl < NumClasses; ++cl) {
@@ -1012,7 +1029,7 @@ void TcmallocSlab<Shift, NumClasses>::InitCPU(int cpu,
       // of different sizes.
       reinterpret_cast<Header*>(GetHeader(cpu, cl))->Lock();
     }
-    FenceCpu(cpu);
+    FenceCpu(cpu, virtual_cpu_id_offset);
     done = true;
     for (size_t cl = 0; cl < NumClasses; ++cl) {
       Header hdr = LoadHeader(GetHeader(cpu, cl));
@@ -1059,7 +1076,7 @@ void TcmallocSlab<Shift, NumClasses>::InitCPU(int cpu,
     hdr.current = begin[cl];
     StoreHeader(hdrp, hdr);
   }
-  FenceCpu(cpu);
+  FenceCpu(cpu, virtual_cpu_id_offset);
 
   // Phase 5: Allow access to this cache.
   for (size_t cl = 0; cl < NumClasses; ++cl) {
@@ -1083,6 +1100,7 @@ void TcmallocSlab<Shift, NumClasses>::Drain(int cpu, void* ctx,
                                             DrainHandler f) {
   CHECK_CONDITION(cpu >= 0);
   CHECK_CONDITION(cpu < absl::base_internal::NumCPUs());
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // Push/Pop/Grow/Shrink can be executed concurrently with Drain.
   // That's not an expected case, but it must be handled for correctness.
@@ -1112,7 +1130,7 @@ void TcmallocSlab<Shift, NumClasses>::Drain(int cpu, void* ctx,
       // of different sizes.
       reinterpret_cast<Header*>(GetHeader(cpu, cl))->Lock();
     }
-    FenceCpu(cpu);
+    FenceCpu(cpu, virtual_cpu_id_offset);
     done = true;
     for (size_t cl = 0; cl < NumClasses; ++cl) {
       Header hdr = LoadHeader(GetHeader(cpu, cl));
@@ -1155,7 +1173,7 @@ void TcmallocSlab<Shift, NumClasses>::Drain(int cpu, void* ctx,
 
   // Phase 5: fence and reset the remaining fields to beginning of the region.
   // This allows concurrent mutations again.
-  FenceCpu(cpu);
+  FenceCpu(cpu, virtual_cpu_id_offset);
   for (size_t cl = 0; cl < NumClasses; ++cl) {
     std::atomic<int64_t>* hdrp = GetHeader(cpu, cl);
     Header hdr;

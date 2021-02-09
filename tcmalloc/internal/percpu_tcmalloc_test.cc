@@ -607,14 +607,14 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
         }
       }
       if (n != 0) {
-        size_t res =
-            slab->Grow(GetCurrentVirtualCpuUnsafe(), cl, n, kStressCapacity);
+        size_t res = slab->Grow(slab->GetCurrentVirtualCpuUnsafe(), cl, n,
+                                kStressCapacity);
         EXPECT_LE(res, n);
         capacity->fetch_add(n - res);
       }
     } else if (what < 60) {
       size_t n =
-          slab->Shrink(GetCurrentVirtualCpuUnsafe(), cl,
+          slab->Shrink(slab->GetCurrentVirtualCpuUnsafe(), cl,
                        absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1);
       capacity->fetch_add(n);
     } else if (what < 70) {

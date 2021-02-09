@@ -204,7 +204,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
-           cpu == GetCurrentVirtualCpuUnsafe());
+           cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
     Static::transfer_cache().InsertRange(
@@ -427,7 +427,7 @@ size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
       acquired += size;
     }
 
-    if (cpu != GetCurrentVirtualCpuUnsafe() || acquired >= bytes) {
+    if (cpu != freelist_.GetCurrentVirtualCpuUnsafe() || acquired >= bytes) {
       // can't steal any more or don't need to
       break;
     }
@@ -458,7 +458,7 @@ int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
     Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch), count);
     if (count != batch_length) break;
     count = 0;
-  } while (total < target && cpu == GetCurrentVirtualCpuUnsafe());
+  } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
   tracking::Report(kFreeTruncations, cl, 1);
   return 1;
 }
