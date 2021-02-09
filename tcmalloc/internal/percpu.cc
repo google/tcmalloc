@@ -325,9 +325,7 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   }
 
   if (virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id)) {
-    // tcmalloc:oss-insert-begin
-    // ASSUME(false);
-    // tcmalloc:oss-insert-end
+    ASSUME(false);
 
     // With virtual CPUs, we cannot identify the true physical core we need to
     // interrupt.

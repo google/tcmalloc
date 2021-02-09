@@ -63,10 +63,9 @@ TEST(CpuCacheTest, Metadata) {
   int allowed_cpu_id;
   const size_t kSizeClass = 3;
   const size_t num_to_move = Static::sizemap().num_objects_to_move(kSizeClass);
-  const size_t virtual_cpu_id_offset =
-      base::subtle::percpu::UsingFlatVirtualCpus()
-          ? offsetof(kernel_rseq, vcpu_id)
-          : offsetof(kernel_rseq, cpu_id);
+  const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
+                                           ? offsetof(kernel_rseq, vcpu_id)
+                                           : offsetof(kernel_rseq, cpu_id);
   void* ptr;
   {
     // Restrict this thread to a single core while allocating and processing the
