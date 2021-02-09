@@ -940,9 +940,11 @@ template <size_t Shift, size_t NumClasses>
 void TcmallocSlab<Shift, NumClasses>::Init(void*(alloc)(size_t size),
                                            size_t (*capacity)(size_t cl),
                                            bool lazy) {
+#ifdef __x86_64__
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
+#endif  // __x86_64__
 
   size_t mem_size = absl::base_internal::NumCPUs() * (1ul << Shift);
   void* backing = alloc(mem_size);
