@@ -114,38 +114,40 @@ typedef void *(*UnderflowHandler)(int cpu, size_t cl);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
-//
-// TODO(b/144422746):  Add "Internal" to these names.
 extern "C" {
-int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,
-                                 intptr_t new_val);
+int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t *p,
+                                          intptr_t old_val, intptr_t new_val);
 
 #ifndef __x86_64__
-int TcmallocSlab_Push(void *ptr, size_t cl, void *item, size_t shift,
-                      OverflowHandler f);
-int TcmallocSlab_Push_FixedShift(void *ptr, size_t cl, void *item,
-                                 OverflowHandler f);
-void *TcmallocSlab_Pop(void *ptr, size_t cl, UnderflowHandler f, size_t shift);
-void *TcmallocSlab_Pop_FixedShift(void *ptr, size_t cl, UnderflowHandler f);
+int TcmallocSlab_Internal_Push(void *ptr, size_t cl, void *item, size_t shift,
+                               OverflowHandler f);
+int TcmallocSlab_Internal_Push_FixedShift(void *ptr, size_t cl, void *item,
+                                          OverflowHandler f);
+void *TcmallocSlab_Internal_Pop(void *ptr, size_t cl, UnderflowHandler f,
+                                size_t shift);
+void *TcmallocSlab_Internal_Pop_FixedShift(void *ptr, size_t cl,
+                                           UnderflowHandler f);
 #endif  // __x86_64__
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_PushBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                         size_t len);
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void *ptr, size_t cl,
+                                                  void **batch, size_t len);
 
 // Pop a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_PopBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                        size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void *ptr, size_t cl,
+                                                 void **batch, size_t len);
 
 #ifdef __x86_64__
-int TcmallocSlab_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t *p,
-                                      intptr_t old_val, intptr_t new_val);
-size_t TcmallocSlab_PushBatch_FixedShift_VCPU(void *ptr, size_t cl,
-                                              void **batch, size_t len);
-size_t TcmallocSlab_PopBatch_FixedShift_VCPU(void *ptr, size_t cl, void **batch,
-                                             size_t len);
+int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t *p,
+                                               intptr_t old_val,
+                                               intptr_t new_val);
+size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void *ptr, size_t cl,
+                                                       void **batch,
+                                                       size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void *ptr, size_t cl,
+                                                      void **batch, size_t len);
 #endif
 }
 
@@ -312,12 +314,12 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
 #if TCMALLOC_PERCPU_USE_RSEQ
   switch (virtual_cpu_id_offset) {
     case offsetof(kernel_rseq, cpu_id):
-      return TcmallocSlab_PerCpuCmpxchg64(
+      return TcmallocSlab_Internal_PerCpuCmpxchg64(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
 #ifdef __x86_64__
     case offsetof(kernel_rseq, vcpu_id):
-      return TcmallocSlab_PerCpuCmpxchg64_VCPU(
+      return TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
 #endif  // __x86_64__

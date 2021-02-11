@@ -261,7 +261,7 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
 
 #if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f, const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
@@ -274,10 +274,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // relocations, but could be read-only for non-PIE builds.
       ".pushsection __rseq_cs, \"aw?\"\n"
       ".balign 32\n"
-      ".local __rseq_cs_TcmallocSlab_Push_%=\n"
-      ".type __rseq_cs_TcmallocSlab_Push_%=,@object\n"
-      ".size __rseq_cs_TcmallocSlab_Push_%=,32\n"
-      "__rseq_cs_TcmallocSlab_Push_%=:\n"
+      ".local __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
+      ".type __rseq_cs_TcmallocSlab_Internal_Push_%=,@object\n"
+      ".size __rseq_cs_TcmallocSlab_Internal_Push_%=,32\n"
+      "__rseq_cs_TcmallocSlab_Internal_Push_%=:\n"
       ".long 0x0\n"
       ".long 0x0\n"
       ".quad 4f\n"
@@ -290,20 +290,20 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
       "1:\n"
       ".balign 8;"
-      ".quad __rseq_cs_TcmallocSlab_Push_%=\n"
+      ".quad __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
       // Force this section to be retained.  It is for debugging, but is
       // otherwise not referenced.
       ".popsection\n"
       ".pushsection .text.unlikely, \"ax?\"\n"
       ".byte 0x0f, 0x1f, 0x05\n"
       ".long %c[rseq_sig]\n"
-      ".local TcmallocSlab_Push_trampoline_%=\n"
-      ".type TcmallocSlab_Push_trampoline_%=,@function\n"
-      "TcmallocSlab_Push_trampoline_%=:\n"
+      ".local TcmallocSlab_Internal_Push_trampoline_%=\n"
+      ".type TcmallocSlab_Internal_Push_trampoline_%=,@function\n"
+      "TcmallocSlab_Internal_Push_trampoline_%=:\n"
       "2:\n"
       "jmp 3f\n"
-      ".size TcmallocSlab_Push_trampoline_%=, . - "
-      "TcmallocSlab_Push_trampoline_%=;\n"
+      ".size TcmallocSlab_Internal_Push_trampoline_%=, . - "
+      "TcmallocSlab_Internal_Push_trampoline_%=;\n"
       ".popsection\n"
       // Prepare
       //
@@ -317,7 +317,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // r10: Scratch
       // r11: Current
       "3:\n"
-      "lea __rseq_cs_TcmallocSlab_Push_%=(%%rip), %%r10\n"
+      "lea __rseq_cs_TcmallocSlab_Internal_Push_%=(%%rip), %%r10\n"
       "mov %%r10, %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
@@ -374,7 +374,7 @@ overflow_label:
 #if defined(__aarch64__)
 
 template <size_t Shift, size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     void* item, OverflowHandler f, const size_t virtual_cpu_id_offset) {
   void* region_start;
@@ -394,10 +394,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       // relocations, but could be read-only for non-PIE builds.
       ".pushsection __rseq_cs, \"aw?\"\n"
       ".balign 32\n"
-      ".local __rseq_cs_TcmallocSlab_Push_%=\n"
-      ".type __rseq_cs_TcmallocSlab_Push_%=,@object\n"
-      ".size __rseq_cs_TcmallocSlab_Push_%=,32\n"
-      "__rseq_cs_TcmallocSlab_Push_%=:\n"
+      ".local __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
+      ".type __rseq_cs_TcmallocSlab_Internal_Push_%=,@object\n"
+      ".size __rseq_cs_TcmallocSlab_Internal_Push_%=,32\n"
+      "__rseq_cs_TcmallocSlab_Internal_Push_%=:\n"
       ".long 0x0\n"
       ".long 0x0\n"
       ".quad 4f\n"
@@ -410,15 +410,15 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
       "1:\n"
       ".balign 8;"
-      ".quad __rseq_cs_TcmallocSlab_Push_%=\n"
+      ".quad __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
       // Force this section to be retained.  It is for debugging, but is
       // otherwise not referenced.
       ".popsection\n"
       ".pushsection .text.unlikely, \"ax?\"\n"
       ".long %c[rseq_sig]\n"
-      ".local TcmallocSlab_Push_trampoline_%=\n"
-      ".type TcmallocSlab_Push_trampoline_%=,@function\n"
-      "TcmallocSlab_Push_trampoline_%=:\n"
+      ".local TcmallocSlab_Internal_Push_trampoline_%=\n"
+      ".type TcmallocSlab_Internal_Push_trampoline_%=,@function\n"
+      "TcmallocSlab_Internal_Push_trampoline_%=:\n"
       "2:\n"
       "b 3f\n"
       ".popsection\n"
@@ -433,8 +433,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Push(
       "3:\n"
       // Use current as scratch here to hold address of this function's
       // critical section
-      "adrp %[current], __rseq_cs_TcmallocSlab_Push_%=\n"
-      "add  %[current], %[current], :lo12:__rseq_cs_TcmallocSlab_Push_%=\n"
+      "adrp %[current], __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
+      "add  %[current], %[current], "
+      ":lo12:__rseq_cs_TcmallocSlab_Internal_Push_%=\n"
       "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
       // Start
       "4:\n"
@@ -508,20 +509,20 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<Shift, NumClasses>::Push(
     size_t cl, void* item, OverflowHandler f) {
   ASSERT(item != nullptr);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Push<Shift, NumClasses>(slabs_, cl, item, f,
-                                              virtual_cpu_id_offset_) >= 0;
+  return TcmallocSlab_Internal_Push<Shift, NumClasses>(
+             slabs_, cl, item, f, virtual_cpu_id_offset_) >= 0;
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Push_FixedShift(slabs_, cl, item, f) >= 0;
+    return TcmallocSlab_Internal_Push_FixedShift(slabs_, cl, item, f) >= 0;
   } else {
-    return TcmallocSlab_Push(slabs_, cl, item, Shift, f) >= 0;
+    return TcmallocSlab_Internal_Push(slabs_, cl, item, Shift, f) >= 0;
   }
 #endif
 }
 
 #if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     UnderflowHandler f, const size_t virtual_cpu_id_offset) {
   void* result;
@@ -538,10 +539,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           // for relocations, but could be read-only for non-PIE builds.
           ".pushsection __rseq_cs, \"aw?\"\n"
           ".balign 32\n"
-          ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
-          ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
-          ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
-          "__rseq_cs_TcmallocSlab_Pop_%=:\n"
+          ".local __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
+          ".type __rseq_cs_TcmallocSlab_Internal_Pop_%=,@object\n"
+          ".size __rseq_cs_TcmallocSlab_Internal_Pop_%=,32\n"
+          "__rseq_cs_TcmallocSlab_Internal_Pop_%=:\n"
           ".long 0x0\n"
           ".long 0x0\n"
           ".quad 4f\n"
@@ -554,24 +555,24 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
           "1:\n"
           ".balign 8;"
-          ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
+          ".quad __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
           // Force this section to be retained.  It is for debugging, but is
           // otherwise not referenced.
           ".popsection\n"
           ".pushsection .text.unlikely, \"ax?\"\n"
           ".byte 0x0f, 0x1f, 0x05\n"
           ".long %c[rseq_sig]\n"
-          ".local TcmallocSlab_Pop_trampoline_%=\n"
-          ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
-          "TcmallocSlab_Pop_trampoline_%=:\n"
+          ".local TcmallocSlab_Internal_Pop_trampoline_%=\n"
+          ".type TcmallocSlab_Internal_Pop_trampoline_%=,@function\n"
+          "TcmallocSlab_Internal_Pop_trampoline_%=:\n"
           "2:\n"
           "jmp 3f\n"
-          ".size TcmallocSlab_Pop_trampoline_%=, . - "
-          "TcmallocSlab_Pop_trampoline_%=;\n"
+          ".size TcmallocSlab_Internal_Pop_trampoline_%=, . - "
+          "TcmallocSlab_Internal_Pop_trampoline_%=;\n"
           ".popsection\n"
           // Prepare
           "3:\n"
-          "lea __rseq_cs_TcmallocSlab_Pop_%=(%%rip), %[scratch];\n"
+          "lea __rseq_cs_TcmallocSlab_Internal_Pop_%=(%%rip), %[scratch];\n"
           "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
           // Start
           "4:\n"
@@ -647,7 +648,7 @@ underflow_path:
 
 #if defined(__aarch64__)
 template <size_t Shift, size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<Shift, NumClasses>::Slabs* slabs, size_t cl,
     UnderflowHandler f, const size_t virtual_cpu_id_offset) {
   void* result;
@@ -670,10 +671,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           // for relocations, but could be read-only for non-PIE builds.
           ".pushsection __rseq_cs, \"aw?\"\n"
           ".balign 32\n"
-          ".local __rseq_cs_TcmallocSlab_Pop_%=\n"
-          ".type __rseq_cs_TcmallocSlab_Pop_%=,@object\n"
-          ".size __rseq_cs_TcmallocSlab_Pop_%=,32\n"
-          "__rseq_cs_TcmallocSlab_Pop_%=:\n"
+          ".local __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
+          ".type __rseq_cs_TcmallocSlab_Internal_Pop_%=,@object\n"
+          ".size __rseq_cs_TcmallocSlab_Internal_Pop_%=,32\n"
+          "__rseq_cs_TcmallocSlab_Internal_Pop_%=:\n"
           ".long 0x0\n"
           ".long 0x0\n"
           ".quad 4f\n"
@@ -686,15 +687,15 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           ".pushsection __rseq_cs_ptr_array, \"aw?\"\n"
           "1:\n"
           ".balign 8;"
-          ".quad __rseq_cs_TcmallocSlab_Pop_%=\n"
+          ".quad __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
           // Force this section to be retained.  It is for debugging, but is
           // otherwise not referenced.
           ".popsection\n"
           ".pushsection .text.unlikely, \"ax?\"\n"
           ".long %c[rseq_sig]\n"
-          ".local TcmallocSlab_Pop_trampoline_%=\n"
-          ".type TcmallocSlab_Pop_trampoline_%=,@function\n"
-          "TcmallocSlab_Pop_trampoline_%=:\n"
+          ".local TcmallocSlab_Internal_Pop_trampoline_%=\n"
+          ".type TcmallocSlab_Internal_Pop_trampoline_%=,@function\n"
+          "TcmallocSlab_Internal_Pop_trampoline_%=:\n"
           "2:\n"
           "b 3f\n"
           ".popsection\n"
@@ -702,8 +703,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Pop(
           "3:\n"
           // Use current as scratch here to hold address of this function's
           // critical section
-          "adrp %[current], __rseq_cs_TcmallocSlab_Pop_%=\n"
-          "add  %[current], %[current], :lo12:__rseq_cs_TcmallocSlab_Pop_%=\n"
+          "adrp %[current], __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
+          "add  %[current], %[current], "
+          ":lo12:__rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
           "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
           // Start
           "4:\n"
@@ -783,13 +785,13 @@ template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
     size_t cl, UnderflowHandler f) {
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Pop<Shift, NumClasses>(slabs_, cl, f,
-                                             virtual_cpu_id_offset_);
+  return TcmallocSlab_Internal_Pop<Shift, NumClasses>(slabs_, cl, f,
+                                                      virtual_cpu_id_offset_);
 #else
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Pop_FixedShift(slabs_, cl, f);
+    return TcmallocSlab_Internal_Pop_FixedShift(slabs_, cl, f);
   } else {
-    return TcmallocSlab_Pop(slabs_, cl, f, Shift);
+    return TcmallocSlab_Internal_Pop(slabs_, cl, f, Shift);
   }
 #endif
 }
@@ -805,16 +807,18 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PushBatch(size_t cl,
   ASSERT(len != 0);
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
-    // TODO(b/159923407): TcmallocSlab_PushBatch_FixedShift needs to be
+    // TODO(b/159923407): TcmallocSlab_Internal_PushBatch_FixedShift needs to be
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
     // needing to dispatch on two separate versions of the same function with
     // only minor differences between them.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
-        return TcmallocSlab_PushBatch_FixedShift(slabs_, cl, batch, len);
+        return TcmallocSlab_Internal_PushBatch_FixedShift(slabs_, cl, batch,
+                                                          len);
 #ifdef __x86_64__
       case offsetof(kernel_rseq, vcpu_id):
-        return TcmallocSlab_PushBatch_FixedShift_VCPU(slabs_, cl, batch, len);
+        return TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(slabs_, cl,
+                                                               batch, len);
 #endif  // __x86_64__
       default:
         __builtin_unreachable();
@@ -839,17 +843,18 @@ inline size_t TcmallocSlab<Shift, NumClasses>::PopBatch(size_t cl, void** batch,
   size_t n = 0;
   if (Shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
-    // TODO(b/159923407): TcmallocSlab_PopBatch_FixedShift needs to be
+    // TODO(b/159923407): TcmallocSlab_Internal_PopBatch_FixedShift needs to be
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
     // needing to dispatch on two separate versions of the same function with
     // only minor differences between them.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
-        n = TcmallocSlab_PopBatch_FixedShift(slabs_, cl, batch, len);
+        n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs_, cl, batch, len);
         break;
 #ifdef __x86_64__
       case offsetof(kernel_rseq, vcpu_id):
-        n = TcmallocSlab_PopBatch_FixedShift_VCPU(slabs_, cl, batch, len);
+        n = TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(slabs_, cl, batch,
+                                                           len);
         break;
 #endif  // __x86_64__
       default:

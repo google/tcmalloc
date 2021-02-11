@@ -31,42 +31,44 @@ static void Unsupported() {
         "RSEQ function called on unsupported platform.");
 }
 
-int TcmallocSlab_PerCpuCmpxchg64(int target_cpu, intptr_t *p, intptr_t old_val,
-                                 intptr_t new_val) {
+int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t *p,
+                                          intptr_t old_val, intptr_t new_val) {
   Unsupported();
   return -1;
 }
 
-int TcmallocSlab_Push(void *ptr, size_t cl, void *item, size_t shift,
-                      OverflowHandler f) {
+int TcmallocSlab_Internal_Push(void *ptr, size_t cl, void *item, size_t shift,
+                               OverflowHandler f) {
   Unsupported();
   return -1;
 }
 
-int TcmallocSlab_Push_FixedShift(void *ptr, size_t cl, void *item,
-                                 OverflowHandler f) {
+int TcmallocSlab_Internal_Push_FixedShift(void *ptr, size_t cl, void *item,
+                                          OverflowHandler f) {
   Unsupported();
   return -1;
 }
 
-void *TcmallocSlab_Pop(void *ptr, size_t cl, UnderflowHandler f, size_t shift) {
+void *TcmallocSlab_Internal_Pop(void *ptr, size_t cl, UnderflowHandler f,
+                                size_t shift) {
   Unsupported();
   return nullptr;
 }
 
-void *TcmallocSlab_Pop_FixedShift(void *ptr, size_t cl, UnderflowHandler f) {
+void *TcmallocSlab_Internal_Pop_FixedShift(void *ptr, size_t cl,
+                                           UnderflowHandler f) {
   Unsupported();
   return nullptr;
 }
 
-size_t TcmallocSlab_PushBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                         size_t len) {
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void *ptr, size_t cl,
+                                                  void **batch, size_t len) {
   Unsupported();
   return 0;
 }
 
-size_t TcmallocSlab_PopBatch_FixedShift(void *ptr, size_t cl, void **batch,
-                                        size_t len) {
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void *ptr, size_t cl,
+                                                 void **batch, size_t len) {
   Unsupported();
   return 0;
 }
