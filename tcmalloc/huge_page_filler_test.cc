@@ -719,13 +719,15 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
     ret.n = n;
+    ret.pt = nullptr;
     ret.mark = ++next_mark_;
-    bool success = false;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      success = filler_.TryGet(n, &ret.pt, &ret.p);
+      auto [pt, page] = filler_.TryGet(n);
+      ret.pt = pt;
+      ret.p = page;
     }
-    if (!success) {
+    if (ret.pt == nullptr) {
       ret.pt =
           new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {

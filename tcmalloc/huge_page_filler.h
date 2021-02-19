@@ -815,13 +815,18 @@ class HugePageFiller {
 
   typedef TrackerType Tracker;
 
-  // Our API is simple, but note that it does not include an
-  // unconditional allocation, only a "try"; we expect callers to
-  // allocate new hugepages if needed.  This simplifies using it in a
-  // few different contexts (and improves the testing story - no
-  // dependencies.)
-  bool TryGet(Length n, TrackerType** hugepage, PageId* p)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  struct TryGetResult {
+    TrackerType* pt;
+    PageId page;
+  };
+
+  // Our API is simple, but note that it does not include an unconditional
+  // allocation, only a "try"; we expect callers to allocate new hugepages if
+  // needed.  This simplifies using it in a few different contexts (and improves
+  // the testing story - no dependencies.)
+  //
+  // On failure, returns nullptr/PageId{0}.
+  TryGetResult TryGet(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
@@ -1204,9 +1209,8 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)) {}
 
 template <class TrackerType>
-inline bool HugePageFiller<TrackerType>::TryGet(Length n,
-                                                TrackerType** hugepage,
-                                                PageId* p) {
+inline typename HugePageFiller<TrackerType>::TryGetResult
+HugePageFiller<TrackerType>::TryGet(Length n) {
   ASSERT(n > Length(0));
 
   // How do we choose which hugepage to allocate from (among those with
@@ -1306,12 +1310,11 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
       break;
     }
 
-    return false;
+    return {nullptr, PageId{0}};
   } while (false);
+  ASSUME(pt != nullptr);
   ASSERT(pt->longest_free_range() >= n);
-  *hugepage = pt;
-  auto page_allocation = pt->Get(n);
-  *p = page_allocation.page;
+  const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
   allocated_ += n;
 
@@ -1323,7 +1326,7 @@ inline bool HugePageFiller<TrackerType>::TryGet(Length n,
   // donated by this point.
   ASSERT(!pt->donated());
   UpdateFillerStatsTracker();
-  return true;
+  return {pt, page_allocation.page};
 }
 
 // Marks [p, p + n) as usable by new allocations into *pt; returns pt

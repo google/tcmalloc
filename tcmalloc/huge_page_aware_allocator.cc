@@ -194,9 +194,8 @@ Span *HugePageAwareAllocator::Finalize(Length n, PageId page)
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
 Span *HugePageAwareAllocator::AllocSmall(Length n, bool *from_released) {
-  PageId page;
-  FillerType::Tracker *pt;
-  if (filler_.TryGet(n, &pt, &page)) {
+  auto [pt, page] = filler_.TryGet(n);
+  if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     *from_released = false;
     return Finalize(n, page);
   }
@@ -215,8 +214,8 @@ Span *HugePageAwareAllocator::AllocLarge(Length n, bool *from_released) {
   PageId page;
   // If we fit in a single hugepage, try the Filler first.
   if (n < kPagesPerHugePage) {
-    FillerType::Tracker *pt;
-    if (filler_.TryGet(n, &pt, &page)) {
+    auto [pt, page] = filler_.TryGet(n);
+    if (ABSL_PREDICT_TRUE(pt != nullptr)) {
       *from_released = false;
       return Finalize(n, page);
     }
