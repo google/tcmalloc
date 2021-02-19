@@ -182,7 +182,7 @@ PageId HugePageAwareAllocator::RefillFiller(Length n, bool *from_released) {
 
 Span *HugePageAwareAllocator::Finalize(Length n, PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  if (page == PageId{0}) return nullptr;
+  ASSERT(page != PageId{0});
   Span *ret = Span::New(page, n);
   Static::pagemap().Set(page, ret);
   ASSERT(!ret->sampled());
