@@ -35,7 +35,8 @@ void* Arena::Alloc(size_t bytes) {
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       Crash(kCrash, __FILE__, __LINE__,
             "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
-            "data (bytes, object-size)",
+            "data (bytes, object-size); is something preventing mmap from "
+            "succeeding (sandbox, VSS limitations)?",
             kAllocIncrement, bytes);
     }
     SystemBack(free_area_, actual_size);
