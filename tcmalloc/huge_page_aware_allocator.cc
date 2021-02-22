@@ -201,6 +201,9 @@ Span *HugePageAwareAllocator::AllocSmall(Length n, bool *from_released) {
   }
 
   page = RefillFiller(n, from_released);
+  if (ABSL_PREDICT_FALSE(page == PageId{0})) {
+    return nullptr;
+  }
   return Finalize(n, page);
 }
 

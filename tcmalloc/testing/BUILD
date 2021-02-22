@@ -277,6 +277,8 @@ cc_test(
     ],
     deps = [
         ":testutil",
+        "//tcmalloc/internal:config",
+        "//tcmalloc/internal:linked_list",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],

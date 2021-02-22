@@ -21,6 +21,8 @@
 #include <new>
 
 #include "gtest/gtest.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -44,6 +46,31 @@ TEST_F(OutOfMemoryTest, TestUntilFailure) {
     ::operator delete(large_object);
   }
   ASSERT_TRUE(false) << "Did not run out of memory";
+}
+
+TEST_F(OutOfMemoryTest, SmallAllocs) {
+  // Check that large allocations fail with NULL instead of crashing.
+  static constexpr size_t kSize = tcmalloc_internal::kHugePageSize / 2 - 1;
+  void* list = nullptr;
+  bool found = false;
+
+  for (int i = 0; i < 8000; i++) {
+    void* obj = ::operator new(kSize, std::nothrow);
+    if (obj == nullptr) {
+      found = true;
+      break;
+    }
+
+    tcmalloc_internal::SLL_Push(&list, obj);
+  }
+
+  // Cleanup
+  while (list != nullptr) {
+    void* obj = tcmalloc_internal::SLL_Pop(&list);
+    operator delete(obj);
+  }
+
+  ASSERT_TRUE(found) << "Did not run out of memory";
 }
 
 }  // namespace
