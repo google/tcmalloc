@@ -1367,7 +1367,6 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
   void* proxy = nullptr;
   void* guarded_alloc = nullptr;
   size_t allocated_size;
-  bool success = false;
 
   // requested_alignment = 1 means 'small size table alignment was used'
   // Historically this is reported as requested_alignment = 0
@@ -1434,24 +1433,12 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     // Allocate stack trace
     StackTrace* stack = Static::stacktrace_allocator().New();
-    if (stack != nullptr) {
-      allocation_samples_.ReportMalloc(tmp);
-      *stack = tmp;
-      span->Sample(stack);
-      // lets flag success and release the pageheap_lock
-      success = true;
-    }
+    allocation_samples_.ReportMalloc(tmp);
+    *stack = tmp;
+    span->Sample(stack);
   }
 
-  if (success) {
-    Static::peak_heap_tracker().MaybeSaveSample();
-  }
-
-  if (!success) {
-    // We couldn't allocate a stack trace. We have a perfectly good
-    // span.  Use it (getting rid of any proxy/small object.)
-    if (proxy != nullptr) obj = proxy;
-  }
+  Static::peak_heap_tracker().MaybeSaveSample();
 
   if (obj != nullptr) {
 #if TCMALLOC_HAVE_TRACKING

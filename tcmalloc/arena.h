@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 
@@ -34,7 +35,8 @@ class Arena {
 
   // Return a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.
-  void* Alloc(size_t bytes) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(size_t bytes)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns the total number of bytes allocated from this arena.  Requires
   // pageheap_lock is held.

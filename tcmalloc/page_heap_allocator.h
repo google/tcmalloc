@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
@@ -51,7 +52,8 @@ class PageHeapAllocator {
     Delete(New());
   }
 
-  T* New() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* New()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     // Consult free list
     T* result = free_list_;
     stats_.in_use++;
@@ -63,7 +65,8 @@ class PageHeapAllocator {
     return result;
   }
 
-  void Delete(T* p) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Delete(T* p) ABSL_ATTRIBUTE_NONNULL()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     *(reinterpret_cast<void**>(p)) = free_list_;
     free_list_ = p;
     stats_.in_use--;
