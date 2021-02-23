@@ -71,7 +71,8 @@ TEST_P(CFLTest, MultipleSpans) {
   const int num_objects_to_fetch = num_spans * objects_per_span_;
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
-    int got = cfl_.RemoveRange(batch, batch_size_);
+    size_t n = num_objects_to_fetch - total_fetched;
+    int got = cfl_.RemoveRange(batch, std::min(n, batch_size_));
     for (int i = 0; i < got; ++i) {
       all_objects.push_back(batch[i]);
     }
