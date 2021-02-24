@@ -524,8 +524,9 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
     next_addr = RandomMmapHint(size, alignment, tag);
   }
+  void* hint;
   for (int i = 0; i < 1000; ++i) {
-    void* hint = reinterpret_cast<void*>(next_addr);
+    hint = reinterpret_cast<void*>(next_addr);
     ASSERT(GetMemoryTag(hint) == tag);
     // TODO(b/140190055): Use MAP_FIXED_NOREPLACE once available.
     void* result =
@@ -553,7 +554,9 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   }
 
   Log(kLogWithStack, __FILE__, __LINE__,
-      "MmapAligned() failed (size, alignment)", size, alignment);
+      "MmapAligned() failed - unable to allocate with tag (hint, size, "
+      "alignment) - is something limiting address placement?",
+      hint, size, alignment);
   return nullptr;
 }
 
