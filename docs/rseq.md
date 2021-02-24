@@ -163,10 +163,10 @@ in program order.
 
 ### Restart Handling
 
-The `abort` label is distinct from `restart`.  The `rseq` API provided by the
-kernel requires a "signature" (typically an intentionally invalid opcode) in the
-4 bytes prior to the restart handler, we form a small trampoline - properly
-signed - to jump back to `abort`.
+The `abort` label is distinct from `restart`. The `rseq` API provided by the
+kernel (see below) requires a "signature" (typically an intentionally invalid
+opcode) in the 4 bytes prior to the restart handler, we form a small
+trampoline - properly signed - to jump back to `abort`.
 
 In x86 assembly, this looks like:
 
@@ -242,3 +242,130 @@ When the cache under or overflows, we populate or remove a full batch of objects
 obtained from inner caches.  This amortizes some of the lock acquisition/logic
 for those caches.  Using a similar approach to push and pop, we update a batch
 of `N` items and we update `current to commit the update.
+
+## Kernel API and implementation
+
+This section contains notes on the rseq API provided by the kernel, which is not
+well documented, and code pointers for how it is implemented.
+
+The `rseq` syscall is implemented by
+[`sys_rseq`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L304-L366).
+It starts by
+[handling](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L312-L328)
+the case where the thread wants to unregister, implementing that by clearing the
+[rseq information](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/linux/sched.h#L1188-L1189)
+out of the `task_struct` for the thread runnong
+[on the current CPU](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/arch/x86/include/asm/current.h#L11-L18).
+It then moves on to
+[return an error](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L333-L345)
+if the thread is already registered for rseq. Then it
+[validates](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L347-L355)
+and
+[saves](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L356-L357)
+the input from the user, and
+[sets](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L358-L363)
+the
+[`TIF_NOTIFY_RESUME` flag](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/linux/sched.h#L2044-L2048)
+for the thread.
+
+### Restarts
+
+Among other things, the user's input to the `rseq` syscall is used by
+`rseq_ip_fixup` to
+[decide](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L232-L238)
+whether we're in a critical section and if so
+[restart](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L247)
+at the abort point. That function is
+[called](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L271)
+by `__rseq_handle_notify_resume`, which is
+[documented](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L251-L261)
+as needing to be called after preemption or signal delivery before returning to
+the user. That in turn is called by
+[`rseq_handle_notify_resume`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/linux/sched.h#L2052-L2057),
+a simple wrapper that bails if rseq is not enabled for the thread.
+
+Here is one path that causes us to wind up here on x86:
+
+*   [`rseq_signal_deliver`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/linux/sched.h#L2065)
+*   [`setup_rt_frame`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/arch/x86/kernel/signal.c#L690-L691)
+*   [`handle_signal`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/arch/x86/kernel/signal.c#L746)
+*   [`arch_do_signal_or_restart`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/arch/x86/kernel/signal.c#L812-L813)
+*   [`handle_signal_work`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/entry/common.c#L147)
+*   [`exit_to_user_mode_loop`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/entry/common.c#L171)
+*   [`exit_to_user_mode_prepare`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/entry/common.c#L208)
+
+So the choke point is the code that returns to user space. Here are some notes
+on how the restart logic varies based on user input:
+
+*   `rseq_ip_fixup`
+    [calls](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L228)
+    `rseq_get_rseq_cs` every time. That means it
+    [reads](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L123-L124)
+    the
+    [pointer](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/uapi/linux/rseq.h#L91-L124)
+    to `struct rseq_cs` and then
+    [indirects](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L131-L133)
+    through it fresh from user memory each time. It
+    [checks](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L135-L145)
+    for invalid cases (which
+    [cause](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L278-L280)
+    a segfault for the user process) and then does
+    [validation](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L147-L157)
+    of the abort IP signature discussed below.
+
+*   Signature validation: from
+    [the code](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L147-L157)
+    linked above we can see that the requirement is that the abort handler
+    specified by `rseq_cs::abort_ip` be preceded by a 32-bit magic integer that
+    [matches](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L152)
+    the one originally provided to and
+    [saved by](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L357)
+    the `rseq` syscall.
+
+    The intent is to avoid turning buffer overflows into arbitrary code
+    execution: if you an attacker can write into memory then they can control
+    `rseq_cs::abort_ip`, which is kind of like writing a jump instruction into
+    memory, which can be seen as breaking W^X protections. Instead the kernel
+    has the caller pre-register a magic value from the executable memory that
+    they want to run, under the assumption that an attacker is unlikely to be
+    able to find other usable "gadgets" in executable memory that happen to be
+    preceded by that value.
+
+It's also worth noting that signals and preemption always
+[result in](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L238-L242)
+[clearing](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L197-L210)
+`rseq::rseq_cs::ptr64` from user space memory on the way out, except in error
+cases that cause a segfault.
+
+### CPU IDs
+
+The other thing `rseq.c` takes care of is writing CPU IDs to user space memory
+to user space memory.
+
+There are two fields in user space that get this information:
+[`rseq::cpu_id_start`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/uapi/linux/rseq.h#L63-L75)
+and
+[`rseq::cpu_id`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/uapi/linux/rseq.h#L76-L90).
+The difference between the two is that `cpu_id_start` is always in range,
+whereas `cpu_id` may contain error values. The kernel provides both in order to
+support computation of values derived from the CPU ID that happens before
+entering the critical section. We could do this with one CPU ID, but it would
+require an extra branch to distinguish "not initialized" from "CPU ID changed
+after fetching it". On the other hand if (like tcmalloc) you only fetch the CPU
+Id within a critical section, then you need only one field because you have only
+one branch: am I initialized. There is no such thing as a CPU mismatch because
+instead you are just restarted when the CPU ID changes.
+
+The two CPU ID fields are maintained as follows:
+
+*   [`rseq_update_cpu_id`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L84-L94)
+    writes a CPU ID into each. This is
+    [called](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L274-L275)
+    by `__rseq_handle_notify_resume`, which is discussed above.
+
+*   [`rseq_reset_rseq_cpu_id`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L96-L113)
+    sets the `cpu_id_start` field to zero and the `cpu_id` field to
+    [`RSEQ_CPU_ID_UNINITIALIZED`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/uapi/linux/rseq.h#L17)
+    (an out of range value). It is
+    [called](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L322)
+    in the unregister path discussed above.
