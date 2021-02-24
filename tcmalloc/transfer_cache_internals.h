@@ -88,8 +88,7 @@ class TransferCache {
         remove_misses_(0),
         slot_info_{},
         slots_(nullptr),
-        freelist_do_not_access_directly_(),
-        arbitrary_transfer_(false) {}
+        freelist_do_not_access_directly_() {}
 
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
@@ -102,10 +101,6 @@ class TransferCache {
 
     // We need at least 2 slots to store list head and tail.
     ASSERT(kMinObjectsToMove >= 2);
-
-    // Cache this value, for performance.
-    arbitrary_transfer_ =
-        IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER_CACHE);
 
     slots_ = nullptr;
     max_capacity_ = 0;
@@ -165,46 +160,6 @@ class TransferCache {
         insert_hits_++;
         return;
       }
-    } else if (arbitrary_transfer_) {
-      absl::base_internal::SpinLockHolder h(&lock_);
-      MakeCacheSpace();
-      // MakeCacheSpace can drop the lock, so refetch
-      info = slot_info_.load(std::memory_order_relaxed);
-      int unused = info.capacity - info.used;
-      if (N < unused) {
-        info.used += N;
-        SetSlotInfo(info);
-        void **entry = GetSlot(info.used - N);
-        memcpy(entry, batch.data(), sizeof(void *) * N);
-        tracking::Report(kTCInsertHit, size_class(), 1);
-        insert_hits_++;
-        return;
-      }
-      // We could not fit the entire batch into the transfer cache
-      // so send the batch to the freelist and also take some elements from
-      // the transfer cache so that we amortise the cost of accessing spans
-      // in the freelist. Only do this if caller has sufficient space in
-      // batch.
-      // First of all fill up the rest of the batch with elements from the
-      // transfer cache.
-      int extra = B - N;
-      if (N > 1 && extra > 0 && info.used > 0 && batch.size() >= B) {
-        // Take at most all the objects present
-        extra = std::min(extra, info.used);
-        ASSERT(extra + N <= kMaxObjectsToMove);
-        info.used -= extra;
-        SetSlotInfo(info);
-
-        void **entry = GetSlot(info.used);
-        memcpy(batch.data() + N, entry, sizeof(void *) * extra);
-        N += extra;
-#ifndef NDEBUG
-        int rest = batch.size() - N - 1;
-        if (rest > 0) {
-          memset(batch.data() + N, 0x3f, rest * sizeof(void *));
-        }
-#endif
-      }
     }
     insert_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCInsertMiss, size_class(), 1);
@@ -232,19 +187,6 @@ class TransferCache {
         remove_hits_++;
         return N;
       }
-    } else if (arbitrary_transfer_ && info.used >= 0) {
-      absl::base_internal::SpinLockHolder h(&lock_);
-      // Refetch with the lock
-      info = slot_info_.load(std::memory_order_relaxed);
-
-      fetch = std::min(N, info.used);
-      info.used -= fetch;
-      SetSlotInfo(info);
-      void **entry = GetSlot(info.used);
-      memcpy(batch, entry, sizeof(void *) * fetch);
-      tracking::Report(kTCRemoveHit, size_class(), 1);
-      remove_hits_++;
-      if (fetch == N) return N;
     }
     remove_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCRemoveMiss, size_class(), 1);
@@ -344,7 +286,7 @@ class TransferCache {
       absl::base_internal::SpinLockHolder h(&lock_);
       auto info = slot_info_.load(std::memory_order_relaxed);
       if (info.capacity == 0) return false;
-      if (!arbitrary_transfer_ && info.capacity < N) return false;
+      if (info.capacity < N) return false;
 
       N = std::min(N, info.capacity);
       int unused = info.capacity - info.used;
@@ -422,9 +364,6 @@ class TransferCache {
   }
 
   FreeList freelist_do_not_access_directly_;
-
-  // Cached value of IsExperimentActive(Experiment::TCMALLOC_ARBITRARY_TRANSFER)
-  bool arbitrary_transfer_;
 } ABSL_CACHELINE_ALIGNED;
 
 // Lock free transfer cache based on LMAX disruptor pattern.
