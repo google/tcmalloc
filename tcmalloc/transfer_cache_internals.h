@@ -138,6 +138,8 @@ class TransferCache {
     SetSlotInfo(info);
   }
 
+  bool IsFlexible() { return false; }
+
   // These methods all do internal locking.
 
   // Insert the specified batch into the transfer cache.  N is the number of
@@ -528,6 +530,8 @@ class LockFreeTransferCache {
           owner_->Alloc((slots_mask_ + 1) * sizeof(void *)));
     }
   }
+
+  bool IsFlexible() { return true; }
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.

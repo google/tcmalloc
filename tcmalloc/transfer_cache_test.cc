@@ -65,6 +65,24 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
 }
 
+TYPED_TEST_P(TransferCacheTest, SingleItemSmoke) {
+  const int batch_size = TypeParam::kBatchSize;
+  if (batch_size == 1) {
+    GTEST_SKIP() << "skipping trivial batch size";
+  }
+  TypeParam e;
+  const int actions = e.transfer_cache().IsFlexible() ? 2 : 0;
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(2 - actions);
+  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(2 - actions);
+
+  e.Insert(1);
+  e.Insert(1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, actions);
+  e.Remove(1);
+  e.Remove(1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, actions);
+}
+
 TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
@@ -110,6 +128,62 @@ TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
 }
 
+TYPED_TEST_P(TransferCacheTest, EvictsOtherCachesFlex) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
+
+  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillRepeatedly([]() {
+    return true;
+  });
+  if (e.transfer_cache().IsFlexible()) {
+    EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  } else {
+    EXPECT_CALL(e.central_freelist(), InsertRange).Times(batch_size - 1);
+  }
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+
+  int total = 0;
+  for (int i = 1; i <= batch_size; i++) {
+    e.Insert(i);
+    total += i;
+  }
+
+  if (e.transfer_cache().IsFlexible()) {
+    EXPECT_EQ(e.transfer_cache().tc_length(), total);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, batch_size);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  } else {
+    EXPECT_EQ(e.transfer_cache().tc_length(), 1 * batch_size);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses,
+              batch_size - 1);
+  }
+}
+
+// Similar to EvictsOtherCachesFlex, but with full cache.
+TYPED_TEST_P(TransferCacheTest, FullCacheFlex) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
+
+  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).WillRepeatedly([]() {
+    return true;
+  });
+  if (e.transfer_cache().IsFlexible()) {
+    EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  } else {
+    EXPECT_CALL(e.central_freelist(), InsertRange)
+        .Times(testing::AtLeast(batch_size));
+  }
+
+  while (e.transfer_cache().HasSpareCapacity()) {
+    e.Insert(batch_size);
+  }
+  for (int i = 1; i < batch_size + 2; i++) {
+    e.Insert(i);
+  }
+}
+
 TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
@@ -140,6 +214,27 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   for (int i = 0; i < 100; ++i) {
     env.Remove(batch_size);
     env.Insert(batch_size);
+  }
+}
+
+TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
+  const int batch_size = TypeParam::kBatchSize;
+
+  TypeParam env;
+  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
+  if (env.transfer_cache().IsFlexible()) {
+    EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
+    EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
+  }
+
+  while (env.transfer_cache().HasSpareCapacity()) {
+    env.Insert(batch_size);
+  }
+  for (int i = 0; i < 100; ++i) {
+    for (size_t size = 1; size < batch_size + 2; size++) {
+      env.Remove(size);
+      env.Insert(size);
+    }
   }
 }
 
@@ -221,7 +316,9 @@ TEST(LockTransferCacheTest, b172283201) {
 
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke,
                             FetchesFromFreelist, PartialFetchFromFreelist,
-                            EvictsOtherCaches, PushesToFreelist, WrappingWorks);
+                            EvictsOtherCaches, PushesToFreelist, WrappingWorks,
+                            SingleItemSmoke, EvictsOtherCachesFlex,
+                            FullCacheFlex, WrappingFlex);
 template <typename Env>
 using TransferCacheFuzzTest = ::testing::Test;
 TYPED_TEST_SUITE_P(TransferCacheFuzzTest);
