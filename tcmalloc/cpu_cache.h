@@ -156,6 +156,8 @@ class CPUCache {
   // Track whether we are lazily initializing slabs.  We cannot use the latest
   // value in Parameters, as it can change after initialization.
   bool lazy_slabs_ = false;
+  // The maximum capacity of each size class within the slab.
+  uint16_t max_capacity_[kNumClasses] = {0};
 
   // Return a set of objects to be returned to the Transfer Cache.
   static constexpr int kMaxToReturn = 16;
@@ -168,6 +170,13 @@ class CPUCache {
     unsigned char cl[kMaxToReturn];
     void* obj[kMaxToReturn];
   };
+
+  static size_t MaxCapacityHelper(size_t cl) {
+    CPUCache& cpu_cache = Static::cpu_cache();
+    // Heuristic that the CPUCache has been activated.
+    ASSERT(cpu_cache.resize_ != nullptr);
+    return cpu_cache.max_capacity_[cl];
+  }
 
   void* Refill(int cpu, size_t cl);
 

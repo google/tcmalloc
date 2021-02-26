@@ -85,15 +85,15 @@ static size_t MaxCapacity(size_t cl) {
   // With SMALL_BUT_SLOW we have 4KiB of per-cpu slab and 46 class sizes we
   // allocate:
   //   == 8 * 46 + 8 * ((16 + 1) * 10 + (6 + 1) * 35) = 4038 bytes of 4096
-  static const size_t kSmallObjectDepth = 16;
-  static const size_t kLargeObjectDepth = 6;
+  static const uint16_t kSmallObjectDepth = 16;
+  static const uint16_t kLargeObjectDepth = 6;
 #else
   // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
   // Each 256KiB is a subtle::percpu::TcmallocSlab::Slabs
   // Max(kNumClasses) is 89, so the maximum footprint per CPU is:
   //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78 + 88) = 254 KiB
-  static const size_t kSmallObjectDepth = 2048;
-  static const size_t kLargeObjectDepth = 152;
+  static const uint16_t kSmallObjectDepth = 2048;
+  static const uint16_t kLargeObjectDepth = 152;
 #endif
   if (cl == 0 || cl >= kNumClasses) return 0;
 
@@ -123,7 +123,9 @@ void CPUCache::Activate(ActivationMode mode) {
   size_t kBytesRequired = sizeof(std::atomic<size_t>) * kNumClasses;
 
   for (int cl = 0; cl < kNumClasses; ++cl) {
-    kBytesRequired += sizeof(void *) * MaxCapacity(cl);
+    const uint16_t mc = MaxCapacity(cl);
+    max_capacity_[cl] = mc;
+    kBytesRequired += sizeof(void *) * mc;
   }
 
   // As we may make certain size classes no-ops by selecting "0" at runtime,
@@ -149,7 +151,7 @@ void CPUCache::Activate(ActivationMode mode) {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(SlabAlloc, MaxCapacity, lazy_slabs_);
+  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_);
   if (mode == ActivationMode::FastPathOn) {
     Static::ActivateCPUCache();
   }
@@ -235,7 +237,7 @@ size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
   // it again. Also we will shrink it by 1, but grow by a batch. So we should
   // have lots of time until we need to grow it again.
 
-  const size_t max_capacity = MaxCapacity(cl);
+  const size_t max_capacity = max_capacity_[cl];
   size_t capacity = freelist_.Capacity(cpu, cl);
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
@@ -245,7 +247,7 @@ size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
       [](CPUCache *cache, int cpu) {
         if (cache->lazy_slabs_) {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCPU(cpu, MaxCapacity);
+          cache->freelist_.InitCPU(cpu, MaxCapacityHelper);
         }
 
         // While we could unconditionally store, a lazy slab population
@@ -324,7 +326,7 @@ void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
   size_t actual_increase = acquired_bytes / size;
   actual_increase = std::min(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
-  size_t increase = freelist_.Grow(cpu, cl, actual_increase, MaxCapacity(cl));
+  size_t increase = freelist_.Grow(cpu, cl, actual_increase, max_capacity_[cl]);
   size_t increased_bytes = increase * size;
   if (increased_bytes < acquired_bytes) {
     // return whatever we didn't use to the slack.
