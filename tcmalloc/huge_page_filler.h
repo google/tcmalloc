@@ -1054,7 +1054,12 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
          released_count_);
 
   size_t unbacked = 0;
-  if (released_count_ > 0) {
+  // If release_count_ == 0, CountBits will return 0 and ClearRange will be a
+  // no-op (but will touch cachelines) due to the invariants guaranteed by
+  // CountBits() == released_count_.
+  //
+  // This is a performance optimization, not a logical requirement.
+  if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
     unbacked = released_by_page_.CountBits(index, n.raw_num());
     released_by_page_.ClearRange(index, n.raw_num());
     ASSERT(released_count_ >= unbacked);
