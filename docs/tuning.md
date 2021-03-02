@@ -155,6 +155,14 @@ cause an OOM at some point.
     0
 ```
 
+*   TCMalloc makes assumptions about the availability of virtual address space,
+    so that we can layout allocations in cetain ways.  We build and test with
+
+```
+/proc/sys/vm/overcommit_memory:
+    1
+```
+
 ## Build-Time Optimizations
 
 TCMalloc is built and tested in certain ways. These build-time options can
