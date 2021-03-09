@@ -51,11 +51,11 @@ class CPUCache {
   void Activate(ActivationMode mode);
 
   // Allocate an object of the given size class. When allocation fails
-  // (from this cache and after running Refill), OOOHandler(size) is
+  // (from this cache and after running Refill), OOMHandler(size) is
   // called and its return value is returned from
-  // Allocate. OOOHandler is used to parameterize out-of-memory
+  // Allocate. OOMHandler is used to parameterize out-of-memory
   // handling (raising exception, returning nullptr, calling
-  // new_handler or anything else). "Passing" OOOHandler in this way
+  // new_handler or anything else). "Passing" OOMHandler in this way
   // allows Allocate to be used in tail-call position in fast-path,
   // making Allocate use jump (tail-call) to slow path code.
   template <void* OOMHandler(size_t)>
