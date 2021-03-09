@@ -351,7 +351,7 @@ Span *HugePageAwareAllocator::NewAligned(Length n, Length align) {
 
 void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker *pt,
                                                 PageId p, Length n) {
-  if (filler_.Put(pt, p, n) == nullptr) return;
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n) == nullptr)) return;
   if (pt->donated()) {
     --donated_huge_pages_;
   }
@@ -381,7 +381,7 @@ void HugePageAwareAllocator::Delete(Span *span) {
   FillerType::Tracker *pt = GetTracker(hp);
   // a) We got packed by the filler onto a single hugepage - return our
   //    allocation to that hugepage in the filler.
-  if (pt != nullptr) {
+  if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     ASSERT(hp == HugePageContaining(p + n - Length(1)));
     DeleteFromHugepage(pt, p, n);
     return;
