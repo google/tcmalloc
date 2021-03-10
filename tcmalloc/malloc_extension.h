@@ -35,14 +35,13 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/policy_checks.h"
 #include "absl/base/port.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "tcmalloc/internal/config.h"
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 class AllocationProfilingTokenAccessor;
@@ -452,7 +451,6 @@ class MallocExtension final {
 };
 
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 // The nallocx function allocates no memory, but it performs the same size
 // computation as the malloc function, and returns the real size of the
@@ -469,7 +467,6 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept;
 // uses the size to improve deallocation performance.
 extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 
 // Pointer / capacity information as returned by
@@ -481,7 +478,6 @@ struct sized_ptr_t {
 };
 
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 // Allocates memory of at least the requested size.
 //
@@ -535,7 +531,6 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
 #define MALLOCX_LG_ALIGN(la) (la)
 #endif
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -582,6 +577,5 @@ class ProfileBase {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_MALLOC_EXTENSION_H_

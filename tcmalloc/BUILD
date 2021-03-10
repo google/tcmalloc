@@ -1124,10 +1124,9 @@ cc_library(
         "//visibility:public",
     ],
     deps = [
-        "//tcmalloc/internal:config",
         "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:dynamic_annotations",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/memory",
