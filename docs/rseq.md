@@ -86,12 +86,12 @@ The fields in `Header` are indexed in `sizeof(void*)` strides into the slab.
 For the default value of `Shift=18`, this allows us to cache nearly 32K objects
 per CPU.
 
-We have allocated capacity for `end-begin` objects for a given size class.
+We have allocated capacity for `end-begin` objects for a given size-class.
 `begin` is chosen via static partitioning at initialization time.  `end` is
 chosen dynamically at a higher-level (in `tcmalloc::CPUCache`), as to:
 
-* Avoid running into the next size classes' `begin`
-* Balance cached object capacity across size classes, according to the specified
+* Avoid running into the next size-classes' `begin`
+* Balance cached object capacity across size-classes, according to the specified
   byte limit.
 
 ## Usage: Allocation
@@ -150,7 +150,7 @@ per-sequence restart header at `abort`.
 
 Since the *next* object is frequently allocated soon after the current object,
 so the allocation path prefetches the pointed-to object.  To avoid prefetching a
-wild address, we populate `slabs[cpu][begin]` for each CPU/size class with a
+wild address, we populate `slabs[cpu][begin]` for each CPU/size-class with a
 pointer-to-self.
 
 This sequence terminates with the *single* committing store to `hdr->current`.

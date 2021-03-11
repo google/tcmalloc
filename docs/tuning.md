@@ -68,11 +68,11 @@ worth looking at using large page sizes.
 **Suggestion:** Consider small-but-slow if it is more important to minimise
 memory footprint over performance.
 
-**Note:** Class sizes are determined on a per-page-size basis. So changing the
-page size will implicitly change the class sizes used. Class sizes are selected
-to be memory-efficient for the applications using that page size. If an
+**Note:** Size-classes are determined on a per-page-size basis. So changing the
+page size will implicitly change the size-classes used. Size-classes are
+selected to be memory-efficient for the applications using that page size. If an
 application changes page size, there may be a performance or memory impact from
-the different selection of class sizes.
+the different selection of size-classes.
 
 ### Per-thread/per-cpu Cache Sizes
 

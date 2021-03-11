@@ -77,7 +77,7 @@ Allocations of "small" objects are mapped onto to one of
 [60-80 allocatable size-classes](https://github.com/google/tcmalloc/blob/master/tcmalloc/size_classes.cc).
 For example, an allocation of 12 bytes will get rounded up to the 16 byte
 size-class. The size-classes are designed to minimize the amount of memory that
-is wasted when rounding to the next largest size class.
+is wasted when rounding to the next largest size-class.
 
 When compiled with `__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8`, we use a set of
 sizes aligned to 8 bytes for raw storage allocated with `::operator new`.  This
@@ -91,11 +91,11 @@ object with a lower alignment, as no object with a larger alignment requirement
 can be allocated in the space.
 
 When an object of a given size is requested, that request is mapped to a request
-of a particular class-size using the [`SizeMap::GetSizeClass()` function]
-(https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h), and the
-returned memory is from that size-class. This means that the returned memory is
-at least as large as the requested size. These class-sized allocations are
-handled by the front-end.
+of a particular size-class using the
+[`SizeMap::GetSizeClass()` function](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h),
+and the returned memory is from that size-class. This means that the returned
+memory is at least as large as the requested size. Allocations from size-classes
+are handled by the front-end.
 
 Objects of size greater than the limit defined by
 [`kMaxSize`](https://github.com/google/tcmalloc/blob/master/tcmalloc/common.h)
@@ -130,11 +130,11 @@ segment. The static maximum capacity of each per-size-class array of pointers is
 by the difference between the start of the array for this size-class and the
 start of the array for the next size-class.
 
-At runtime the maximum number of items of a particular class-size that can be
+At runtime the maximum number of items of a particular size-class that can be
 stored in the per-cpu block will vary, but it can never exceed the statically
 determined maximum capacity assigned at start up.
 
-When an object of a particular class-size is requested it is removed from this
+When an object of a particular size-class is requested it is removed from this
 array, when the object is freed it is added to the array. If the array is
 [exhausted](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h)
 the array is refilled using a batch of objects from the middle-end. If the array
@@ -151,23 +151,23 @@ To avoid holding memory on CPUs where the application no longer runs,
 `MallocExtension::ReleaseCpuMemory` frees objects held in a specified CPU's
 caches.
 
-Within a CPU, the distribution of memory is managed across all the size classes
+Within a CPU, the distribution of memory is managed across all the size-classes
 so as to keep the maximum amount of cached memory below the limit. Notice that
 it is managing the maximum amount that can be cached, and not the amount that is
 currently cached. On average the amount actually cached should be about half the
 limit.
 
-The maximum capacity is increased when a class-size
+The maximum capacity is increased when a size-class
 [runs out of objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc),
 as well as fetching more objects it considers
 [increasing the capacity](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
-of the class-size. It can increase the capacity of the size class up until the
-total memory (for all class sizes) that the cache could hold reaches the per-cpu
-limit or until the capacity of that size class reaches the hard-coded size limit
-for that size-class. If the size-class has not reached the hard-coded limit,
-then in order to increase the capacity it can
+of the size-class. It can increase the capacity of the size-class up until the
+total memory (for all size-classes) that the cache could hold reaches the
+per-cpu limit or until the capacity of that size-class reaches the hard-coded
+size limit for that size-class. If the size-class has not reached the hard-coded
+limit, then in order to increase the capacity it can
 [steal](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
-capacity from another size class on the same CPU.
+capacity from another size-class on the same CPU.
 
 ### Restartable Sequences and Per-CPU TCMalloc
 
@@ -202,7 +202,7 @@ allocations are satisfied from this thread-local cache. Objects are moved
 between the middle-end into and out of the thread-local cache as needed.
 
 A thread cache contains one singly linked list of free objects per size-class
-(so if there are N class-sizes, there will be N corresponding linked lists), as
+(so if there are N size-classes, there will be N corresponding linked lists), as
 shown in the following diagram.
 
 ![Structure of per-thread cache](images/per-thread-structure.png "Structure of per-thread cache")
@@ -262,7 +262,7 @@ sizing algorithm.
 The middle-end is responsible for providing memory to the front-end and
 returning memory to the back-end. The middle-end comprises the Transfer cache
 and the Central free list. Although these are often referred to as singular,
-there is one transfer cache and one central free list per class-size. These
+there is one transfer cache and one central free list per size-class. These
 caches are each protected by a mutex lock - so there is a serialization cost to
 accessing them.
 
@@ -311,7 +311,7 @@ sequence of small objects. If the span manages small objects, the size-class of
 the objects is recorded in the span.
 
 The pagemap is used to look up the span to which an object belongs, or to
-identify the class-size for a given object.
+identify the size-class for a given object.
 
 TCMalloc uses a 2-level or 3-level
 [radix tree](https://github.com/google/tcmalloc/blob/master/tcmalloc/pagemap.h)
@@ -346,7 +346,7 @@ capacity in the span itself to
 
 When we have
 [no available objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
-for a class-size we need to fetch a new span from the pageheap and
+for a size-class, we need to fetch a new span from the pageheap and
 [populate](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc)
 it.
 

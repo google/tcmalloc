@@ -171,28 +171,28 @@ TOTAL:  86880677888 (82855.9 MiB) Bytes resident (physical memory used)
 TOTAL:  89124790272 (84996.0 MiB) Bytes mapped (virtual memory used)
 ```
 
-### Per Class Size Information
+### Per Size-Class Information
 
 Requests for memory are rounded to convenient sizes. For example a request for
 15 bytes could be rounded to 16 bytes. These sizes are referred to as class
 sizes. There are various caches in TCMalloc where memory gets held, and the per
-size class section reports how much memory is being used by cached objects of
-each size. The columns reported for each class size are:
+size-class section reports how much memory is being used by cached objects of
+each size. The columns reported for each size-class are:
 
-*   The class size
-*   The size of each object in that class size.
+*   The size
+*   The size of each object in that size-class.
 *   The number of objects of that size currently held in the per-cpu,
     per-thread, transfer, and central caches.
 *   The total size of those objects in MiB - ie size of each object multiplied
     by the number of objects.
-*   The cumulative size of that class size plus all smaller class sizes.
-*   The number of live pages dedicated to this class size.
-*   The number of returned and requested spans of this class size.
+*   The cumulative size of that size-class plus all smaller size-classes.
+*   The number of live pages dedicated to this size-class.
+*   The number of returned and requested spans of this size-class.
 
 ```
 Total size of freelists for per-thread and per-CPU caches,
 transfer cache, and central cache, as well as number of
-live pages, returned/requested spans by size class
+live pages, returned/requested spans by size-class
 ------------------------------------------------
 class   1 [        8 bytes ] :    45645 objs;   0.3 MiB;   0.3 cum MiB;       73 live pages; spans:     19 ret /     92 req = 0.2065;
 class   2 [       16 bytes ] :    39942 objs;   0.6 MiB;   1.0 cum MiB;      120 live pages; spans:      3 ret /    123 req = 0.0244;
@@ -205,11 +205,11 @@ class   5 [       40 bytes ] :    82230 objs;   3.1 MiB;   9.3 cum MiB;      790
 ### Transfer Cache Information
 
 Transfer cache is used by TCMalloc, before going to central free list. For each
-size class we track how often insert or remove requests have been satisfied from
+size-class we track how often insert or remove requests have been satisfied from
 transfer cache.
 
 ```
-Transfer cache insert/remove hits/misses by size class
+Transfer cache insert/remove hits/misses by size-class
 class   1 [        8 bytes ] :    32417 insert hits;     1511 insert misses;    31919 remove hits;        0 remove misses;
 class   2 [       16 bytes ] :   277493 insert hits;     1436 insert misses;   277265 remove hits;        7 remove misses;
 class   3 [       24 bytes ] :   174842 insert hits;     1302 insert misses;   174521 remove hits;        9 remove misses;
@@ -237,13 +237,13 @@ The following columns are reported for each CPU:
 The concept of unallocated bytes needs to be explained because the definition is
 not obvious.
 
-The per-cpu cache is an array of pointers to available memory. Each class size
+The per-cpu cache is an array of pointers to available memory. Each size-class
 has a number of entries that it can use in the array. These entries can be used
 to hold memory, or be empty.
 
 To control the maximum memory that the per-cpu cache can use we sum up the
-number of slots that can be used by a size class multiplied by the size of
-objects in that size class. This gives us the total memory that could be held in
+number of slots that can be used by a size-class multiplied by the size of
+objects in that size-class. This gives us the total memory that could be held in
 the cache. This is not what is reported by unallocated memory.
 
 Unallocated memory is the amount of memory left over from the per cpu limit
