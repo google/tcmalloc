@@ -27,6 +27,8 @@
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/size_class_info.h"
