@@ -25,12 +25,9 @@ licenses(["notice"])  # Apache 2.0
 REGTEST_DEPS = [
     ":testutil",
     ":thread_manager",
-    "//tcmalloc:headers_for_tests",
     "@com_google_googletest//:gtest",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:core_headers",
-    "//tcmalloc/internal:logging",
-    "//tcmalloc/internal:parameter_accessors",
     "@com_google_absl//absl/random",
     "@com_google_absl//absl/random:distributions",
     "@com_google_absl//absl/strings",
@@ -38,7 +35,10 @@ REGTEST_DEPS = [
     "@com_google_absl//absl/synchronization",
     "@com_google_absl//absl/utility",
     "@com_google_absl//absl/numeric:bits",
+    "//tcmalloc:headers_for_tests",
     "//tcmalloc/internal:declarations",
+    "//tcmalloc/internal:logging",
+    "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc:malloc_extension",
 ]
 

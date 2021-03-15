@@ -22,9 +22,9 @@
 #include <memory>
 #include <set>
 
-#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
