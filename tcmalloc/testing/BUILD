@@ -679,6 +679,115 @@ cc_test(
     ],
 )
 
+cc_binary(
+    name = "want_hpaa_test_helper",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_32k",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_large_pages",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_32k_no_hpaa",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_large_pages",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_no_hpaa",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_256k",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_256k_pages",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_256k_no_hpaa",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_256k_pages",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_no_hpaa",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_hpaa",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_hpaa",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_subrelease",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_hpaa_subrelease",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_no_hpaa",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_no_hpaa",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_hpaa_test_helper_small",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_small_but_slow",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
 cc_test(
     name = "get_stats_test",
     srcs = ["get_stats_test.cc"],

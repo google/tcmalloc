@@ -168,6 +168,14 @@ cc_test(
     ],
 )
 
+cc_binary(
+    name = "logging_test_helper",
+    testonly = 1,
+    srcs = ["logging_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+)
+
 cc_library(
     name = "memory_stats",
     srcs = ["memory_stats.cc"],
