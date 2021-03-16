@@ -25,7 +25,7 @@ in Bazel.
 
 The following block diagram shows the rough internal structure of TCMalloc:
 
-![Diagram of TCMalloc internal structure](images/tcmalloc_internals.png "TCMalloc internal structure"){.center}
+![Diagram of TCMalloc internal structure](images/tcmalloc_internals.png "TCMalloc internal structure")
 
 We can break TCMalloc into three components. The front-end, middle-end, and
 back-end. We will discuss these in more details in the following sections. A
@@ -118,7 +118,7 @@ diagram shows how this slab of memory is divided between CPUs and how each CPU
 uses a part of the slab to hold metadata as well as pointers to available
 objects.
 
-![Memory layout of per-cpu data structures](images/per-cpu-cache-internals.png "Memory layout of per-cpu data structures"){.center}
+![Memory layout of per-cpu data structures](images/per-cpu-cache-internals.png "Memory layout of per-cpu data structures")
 
 Each logical CPU is assigned a section of this memory to hold metadata and
 pointers to available objects of particular size-classes. The metadata comprises
@@ -205,7 +205,7 @@ A thread cache contains one singly linked list of free objects per size-class
 (so if there are N size-classes, there will be N corresponding linked lists), as
 shown in the following diagram.
 
-![Structure of per-thread cache](images/per-thread-structure.png "Structure of per-thread cache"){.center}
+![Structure of per-thread cache](images/per-thread-structure.png "Structure of per-thread cache")
 
 On allocation an object is removed from the appropriate size-class of the
 per-thread caches. On deallocation, the object is prepended to the appropriate
@@ -321,7 +321,7 @@ The following diagram shows how a radix-2 pagemap is used to map the address of
 objects onto the spans that control the pages where the objects reside. In the
 diagram **span A** covers two pages, and **span B** covers 3 pages.
 
-![The pagemap maps objects to spans.](images/pagemap.png "The pagemap maps objects to spans."){.center}
+![The pagemap maps objects to spans.](images/pagemap.png "The pagemap maps objects to spans.")
 
 Spans are used in the middle-end to determine where to place returned objects,
 and in the back-end to manage the handling of page ranges.
@@ -408,7 +408,7 @@ contiguous pages of available memory. For `k < 256`, the `k`th entry is a free
 list of runs that consist of `k` TCMalloc pages. The `256`th entry is a free
 list of runs that have length `>= 256` pages:
 
-![Layout of legacy pageheap.](images/legacy_pageheap.png "Layout of legacy pageheap."){.center}
+![Layout of legacy pageheap.](images/legacy_pageheap.png "Layout of legacy pageheap.")
 
 An allocation for `k` pages is satisfied by looking in the `k`th free list. If
 that free list is empty, we look in the next free list, and so forth.
