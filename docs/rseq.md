@@ -47,7 +47,7 @@ Each slab is has a header region of control data (one 8-byte header per-size
 class).  These index into the remainder of the slab, which contains pointers to
 free listed objects.
 
-![Memory layout of per-cpu data structures](images/per-cpu-cache-internals.png "Memory layout of per-cpu data structures")
+![Memory layout of per-cpu data structures](images/per-cpu-cache-internals.png "Memory layout of per-cpu data structures"){.center}
 
 In [C++
 code](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/percpu_tcmalloc.h),
