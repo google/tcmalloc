@@ -574,11 +574,16 @@ class LockFreeTransferCache {
 
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() const {
-    return size_from_pos(head_committed_.load(std::memory_order_relaxed),
-                         tail_committed_.load(std::memory_order_relaxed));
+    auto tail = tail_committed_.load(std::memory_order_acquire);
+    auto head = head_committed_.load(std::memory_order_relaxed);
+    return size_from_pos(head, tail);
   }
 
-  uint32_t size_from_pos(uint32_t h, uint32_t t) const { return h - t; }
+  uint32_t size_from_pos(uint32_t h, uint32_t t) const {
+    uint32_t size = h - t;
+    ASSERT(size < std::numeric_limits<uint32_t>::max() / 2);
+    return size;
+  }
 
   // Returns the number of spans allocated and deallocated from the CFL
   SpanStats GetSpanStats() const { return freelist_.GetSpanStats(); }
@@ -846,9 +851,13 @@ class LockFreeTransferCache {
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   absl::optional<Range> ClaimInsert(int n) {
-    uint32_t old_h = head_.load(std::memory_order_relaxed);
-    uint32_t new_h = old_h + n;
+    // NOTE: The ordering of the following two loads is important: if the
+    // order is reversed, then the size "old_h - tail" may end up negative
+    // and wrap around to a very large 64-bit size_t, resulting in a spurious
+    // attempt to steal space from others.
     uint32_t tail = tail_committed_.load(std::memory_order_acquire);
+    uint32_t old_h = head_.load(std::memory_order_acquire);
+    uint32_t new_h = old_h + n;
     uint32_t size_needed = size_from_pos(old_h, tail) + n;
     if (HasCacheSpace(size_needed) &&
         head_.compare_exchange_strong(old_h, new_h, std::memory_order_relaxed,
@@ -861,10 +870,9 @@ class LockFreeTransferCache {
   ABSL_ATTRIBUTE_NOINLINE
   absl::optional<Range> ClaimInsertSlow(int n) {
   CLAIM_INSERT_SLOW:
-    uint32_t new_h;
-    uint32_t old_h = head_.load(std::memory_order_relaxed);
-    do {
+    while (true) {
       uint32_t tail = tail_committed_.load(std::memory_order_acquire);
+      uint32_t old_h = head_.load(std::memory_order_acquire);
       uint32_t s = size_from_pos(old_h, tail);
       if (!EnsureCacheSpace(s + n)) {
         if (tail != tail_.load(std::memory_order_relaxed)) {
@@ -877,15 +885,21 @@ class LockFreeTransferCache {
         return absl::nullopt;
       }
 
-      new_h = old_h + n;
-    } while (!head_.compare_exchange_weak(
-        old_h, new_h, std::memory_order_relaxed, std::memory_order_relaxed));
-    return Range{old_h, new_h};
+      uint32_t new_h = old_h + n;
+      if (head_.compare_exchange_weak(old_h, new_h, std::memory_order_relaxed,
+                                      std::memory_order_relaxed)) {
+        return Range{old_h, new_h};
+      }
+      // NOTE: It's tempting to use the value of "old_h" replaced by the failed
+      // CAS above. However, that would violate the ordering that for a given
+      // call to size_from_pos(), the head must have been loaded more recently
+      // than the tail.
+    }
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE
   absl::optional<Range> ClaimRemove(int n) {
-    uint32_t old_t = tail_.load(std::memory_order_relaxed);
+    uint32_t old_t = tail_.load(std::memory_order_acquire);
     uint32_t head = head_committed_.load(std::memory_order_acquire);
     uint32_t size = size_from_pos(head, old_t);
     uint32_t new_t = old_t + n;
@@ -901,7 +915,7 @@ class LockFreeTransferCache {
   absl::optional<Range> ClaimRemoveSlow(int n) {
   CLAIM_REMOVE_SLOW:
     uint32_t new_t;
-    uint32_t old_t = tail_.load(std::memory_order_relaxed);
+    uint32_t old_t = tail_.load(std::memory_order_acquire);
     do {
       uint32_t head = head_committed_.load(std::memory_order_acquire);
       uint32_t s = size_from_pos(head, old_t);
@@ -917,7 +931,7 @@ class LockFreeTransferCache {
       }
       new_t = old_t + n;
     } while (!tail_.compare_exchange_weak(
-        old_t, new_t, std::memory_order_relaxed, std::memory_order_relaxed));
+        old_t, new_t, std::memory_order_relaxed, std::memory_order_acquire));
     return Range{old_t, new_t};
   }
 

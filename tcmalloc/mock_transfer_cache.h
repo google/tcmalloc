@@ -161,7 +161,9 @@ class FakeTransferCacheEnvironment {
       Shrink();
     } else if (choice < 0.2) {
       Grow();
-    } else if (choice < 0.6) {
+    } else if (choice < 0.3) {
+      cache_.HasSpareCapacity();
+    } else if (choice < 0.65) {
       Insert(absl::Uniform(gen, 1, kBatchSize));
     } else {
       Remove(absl::Uniform(gen, 1, kBatchSize));
