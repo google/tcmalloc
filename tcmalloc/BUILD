@@ -1195,3 +1195,17 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+create_tcmalloc_benchmark(
+    name = "central_freelist_benchmark",
+    srcs = ["central_freelist_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:optional",
+    ],
+)
