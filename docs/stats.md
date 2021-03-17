@@ -18,6 +18,7 @@ of TCMalloc, but potentially not that useful for most people.
 The most generally useful section is the first few lines:
 
 ```
+See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an explanation of this page
 ------------------------------------------------
 MALLOC:    16709337136 (15935.3 MiB) Bytes in use by application
 MALLOC: +    503480320 (  480.2 MiB) Bytes in page heap freelist
