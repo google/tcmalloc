@@ -156,6 +156,11 @@ class Span : public SpanList::Elem {
   // Pushes ptr onto freelist unless the freelist becomes full,
   // in which case just return false.
   bool FreelistPush(void* ptr, size_t size) {
+    ASSERT(allocated_ > 0);
+    if (ABSL_PREDICT_FALSE(allocated_ == 1)) {
+      return false;
+    }
+    allocated_--;
     if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
       return FreelistPushSized<Align::SMALL>(ptr, size);
     } else {
@@ -340,12 +345,6 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
 
 template <Span::Align align>
 bool Span::FreelistPushSized(void* ptr, size_t size) {
-  ASSERT(allocated_ > 0);
-  if (ABSL_PREDICT_FALSE(allocated_ == 1)) {
-    return false;
-  }
-  allocated_--;
-
   ObjIdx idx = PtrToIdxSized<align>(ptr, size);
   if (cache_size_ != kCacheSize) {
     // Have empty space in the cache, push there.
