@@ -173,9 +173,9 @@ improve performance:
 * Enabling [sized deallocation from
   C++14](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2013/n3778.html)
   reduces deallocation costs when the size can be determined. Sized deallocation
-  is enabled with the `-fsized-deallocation` flag. This behavior is enabled by
-  default in GCC), but as of early 2020, is not enabled by default on Clang even
-  when compiling for C++14/C++17.
+  is enabled with the `-fsized-deallocation` flag. (This behavior is enabled by
+  default in GCC, but as of early 2020, is not enabled by default on Clang even
+  when compiling for C++14/C++17.)
 
   Some standard C++ libraries (such as
   [libc++](https://reviews.llvm.org/rCXX345214)) will take advantage of sized
