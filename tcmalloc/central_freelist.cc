@@ -157,13 +157,13 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
   const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
   Span* span = Static::page_allocator().New(pages_per_span_, tag);
-  ASSERT(tag == GetMemoryTag(span->start_address()));
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());
     lock_.Lock();
     return;
   }
+  ASSERT(tag == GetMemoryTag(span->start_address()));
   ASSERT(span->num_pages() == pages_per_span_);
 
   Static::pagemap().RegisterSizeClass(span, size_class_);
