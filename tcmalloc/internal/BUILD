@@ -90,7 +90,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        "//tcmalloc/internal:logging",
+        ":logging",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
@@ -129,8 +129,6 @@ cc_library(
     name = "linux_syscall_support",
     hdrs = ["linux_syscall_support.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-    ],
 )
 
 cc_library(
@@ -139,6 +137,7 @@ cc_library(
     hdrs = ["logging.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
+        "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
     ],
     deps = [
@@ -210,9 +209,7 @@ cc_library(
     hdrs = ["mincore.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [":config"],
 )
 
@@ -267,9 +264,7 @@ cc_library(
     name = "parameter_accessors",
     hdrs = ["parameter_accessors.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
@@ -328,8 +323,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
-    tags = [
-    ],
     deps = [
         ":config",
         ":logging",

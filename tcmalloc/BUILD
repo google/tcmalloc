@@ -101,7 +101,6 @@ cc_library(
 )
 
 # Provides tcmalloc always; use per-thread mode.
-#
 cc_library(
     name = "tcmalloc_deprecated_perthread",
     srcs = [
@@ -208,7 +207,6 @@ common_srcs = [
     "stats.cc",
     "system-alloc.cc",
     "system-alloc.h",
-    "tcmalloc.h",
     "thread_cache.cc",
     "thread_cache.h",
     "tracking.h",
@@ -247,7 +245,6 @@ common_hdrs = [
     "stats.h",
     "static_vars.h",
     "system-alloc.h",
-    "tcmalloc.h",
     "thread_cache.h",
     "tracking.h",
     "transfer_cache_stats.h",
@@ -351,9 +348,7 @@ cc_library(
     name = "want_no_hpaa",
     srcs = ["want_no_hpaa.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc/testing:__pkg__",
-    ],
+    visibility = ["//tcmalloc/testing:__pkg__"],
     deps = [
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
@@ -504,7 +499,7 @@ cc_library(
     alwayslink = 1,
 )
 
-# Export some header files to tcmalloc/testing/...
+# Export some header files to //tcmalloc/testing/...
 package_group(
     name = "tcmalloc_tests",
     packages = [
@@ -634,8 +629,6 @@ cc_test(
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 3,
-    tags = [
-    ],
     deps = [
         ":common",
         ":mock_central_freelist",
