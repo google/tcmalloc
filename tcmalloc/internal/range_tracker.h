@@ -290,6 +290,7 @@ inline size_t Bitmap<N>::CountWordBits(size_t i, size_t from, size_t to) const {
   ASSERT(0 < n && n <= kWordSize);
   const size_t mask = (all_ones >> (kWordSize - n)) << from;
 
+  ASSUME(i < kWords);
   return Bitops::CountSetBits(bits_[i] & mask);
 }
 
@@ -368,22 +369,28 @@ inline size_t Bitops::CountSetBits(size_t word) {
 
 template <size_t N>
 inline bool Bitmap<N>::GetBit(size_t i) const {
+  ASSERT(i < N);
   size_t word = i / kWordSize;
   size_t offset = i % kWordSize;
+  ASSUME(word < kWords);
   return bits_[word] & (size_t{1} << offset);
 }
 
 template <size_t N>
 inline void Bitmap<N>::SetBit(size_t i) {
+  ASSERT(i < N);
   size_t word = i / kWordSize;
   size_t offset = i % kWordSize;
+  ASSUME(word < kWords);
   bits_[word] |= (size_t{1} << offset);
 }
 
 template <size_t N>
 inline void Bitmap<N>::ClearBit(size_t i) {
+  ASSERT(i < N);
   size_t word = i / kWordSize;
   size_t offset = i % kWordSize;
+  ASSUME(word < kWords);
   bits_[word] &= ~(size_t{1} << offset);
 }
 
@@ -481,9 +488,10 @@ inline void Bitmap<N>::Clear() {
 template <size_t N>
 template <bool Goal>
 inline size_t Bitmap<N>::FindValue(size_t index) const {
+  ASSERT(index < N);
   size_t offset = index % kWordSize;
   size_t word = index / kWordSize;
-  ASSERT(word < kWords);
+  ASSUME(word < kWords);
   size_t here = bits_[word];
   if (!Goal) here = ~here;
   size_t mask = ~static_cast<size_t>(0) << offset;
@@ -508,8 +516,10 @@ inline size_t Bitmap<N>::FindValue(size_t index) const {
 template <size_t N>
 template <bool Goal>
 inline ssize_t Bitmap<N>::FindValueBackwards(size_t index) const {
+  ASSERT(index < N);
   size_t offset = index % kWordSize;
   ssize_t word = index / kWordSize;
+  ASSUME(word < kWords);
   size_t here = bits_[word];
   if (!Goal) here = ~here;
   size_t mask = (static_cast<size_t>(2) << offset) - 1;
