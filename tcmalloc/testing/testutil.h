@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_TESTING_TESTUTIL_H_
 #define TCMALLOC_TESTING_TESTUTIL_H_
 
+#include "benchmark/benchmark.h"
 #include "tcmalloc/malloc_extension.h"
 
 // When compiled 64-bit and run on systems with swap several unittests will end
@@ -46,12 +47,20 @@ class ScopedProfileSamplingRate {
     MallocExtension::SetProfileSamplingRate(temporary_value);
     // Reset the per-thread sampler.  It may have a very large gap if sampling
     // had been disabled.
-    ::operator delete(::operator new(256 * 1024 * 1024));
+    void* ptr = ::operator new(256 * 1024 * 1024);
+    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+    benchmark::DoNotOptimize(ptr);
+    ::operator delete(ptr);
   }
 
   ~ScopedProfileSamplingRate() {
     MallocExtension::SetProfileSamplingRate(previous_);
-    ::operator delete(::operator new(256 * 1024 * 1024));
+    void* ptr = ::operator new(256 * 1024 * 1024);
+    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+    benchmark::DoNotOptimize(ptr);
+    ::operator delete(ptr);
   }
 
  private:

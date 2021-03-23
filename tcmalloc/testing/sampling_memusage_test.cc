@@ -57,7 +57,11 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
     MallocExtension::SetProfileSamplingRate(val);
     // We do this to reset the per-thread sampler - it may have a
     // very large gap put in here if sampling had been disabled.
-    ::operator delete(::operator new(1024 * 1024 * 1024));
+    void* ptr = ::operator new(1024 * 1024 * 1024);
+    // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+    // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+    benchmark::DoNotOptimize(ptr);
+    ::operator delete(ptr);
   }
 
   size_t CurrentHeapSize() {
@@ -90,15 +94,23 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
       std::vector<int> cpus = AllowedCpus();
       ScopedAffinityMask mask(cpus[0]);
 
-      ::operator delete(::operator new(size));
+      void* ptr = ::operator new(size);
+      // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator
+      // new, https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+      benchmark::DoNotOptimize(ptr);
+      ::operator delete(ptr);
 
       const size_t start_memory = CurrentHeapSize();
+
       void* list = nullptr;
       for (size_t alloc = 0; alloc < total; alloc += size) {
         void** object = reinterpret_cast<void**>(::operator new(size));
+        benchmark::DoNotOptimize(object);
+
         *object = list;
         list = object;
       }
+
       const size_t peak_memory = CurrentHeapSize();
 
       while (list != nullptr) {

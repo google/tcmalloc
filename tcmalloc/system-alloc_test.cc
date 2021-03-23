@@ -25,6 +25,7 @@
 
 #include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -106,7 +107,11 @@ TEST(Basic, InvokedTest) {
   MallocExtension::SetRegionFactory(&f);
 
   // An allocation size that is likely to trigger the system allocator.
-  ::operator delete(::operator new(kMinSystemAlloc));
+  void* ptr = ::operator new(kMinSystemAlloc);
+  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+  benchmark::DoNotOptimize(ptr);
+  ::operator delete(ptr);
 
   // Make sure that our allocator was invoked.
   ASSERT_TRUE(simple_region_alloc_invoked);

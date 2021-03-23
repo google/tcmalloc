@@ -28,6 +28,7 @@
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/blocking_counter.h"
+#include "benchmark/benchmark.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
@@ -38,7 +39,11 @@ namespace {
 
 TEST(AllocationSampleTest, TokenAbuse) {
   auto token = MallocExtension::StartAllocationProfiling();
-  ::operator delete(::operator new(512 * 1024 * 1024));
+  void *ptr = ::operator new(512 * 1024 * 1024);
+  // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
+  benchmark::DoNotOptimize(ptr);
+  ::operator delete(ptr);
   // Repeated Claims should happily return null.
   auto profile = std::move(token).Stop();
   int count = 0;
