@@ -54,6 +54,7 @@ class CFLTest : public testing::TestWithParam<size_t> {
 TEST_P(CFLTest, SingleBatch) {
   void* batch[kMaxObjectsToMove];
   int got = cfl_.RemoveRange(batch, batch_size_);
+  ASSERT_GT(got, 0);
   cfl_.InsertRange(batch, got);
   SpanStats stats = cfl_.GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, 1);
