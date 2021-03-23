@@ -548,6 +548,9 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
+    visibility = [
+        "//tcmalloc:__pkg__",
+    ],
     deps = EMPIRICAL_DEPS,
 )
 

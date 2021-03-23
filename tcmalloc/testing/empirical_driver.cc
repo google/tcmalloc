@@ -116,17 +116,20 @@ namespace {
 void *alloc(size_t s) { return ::operator new(s); }
 
 const EmpiricalProfile *ParseProfileChoice(const absl::string_view flag) {
-  std::map<absl::string_view, const EmpiricalProfile> choices = {
-      {"beta", empirical_distributions::Beta()},
-      {"bravo", empirical_distributions::Bravo()},
-      {"charlie", empirical_distributions::Charlie()},
-      {"echo", empirical_distributions::Echo()},
-      {"merced", empirical_distributions::Merced()},
-      {"sierra", empirical_distributions::Sierra()},
-      {"sigma", empirical_distributions::Sigma()},
-      {"uniform", empirical_distributions::Uniform()}};
-  auto i = choices.find(flag);
-  if (i == choices.end()) {
+  static const auto *choices = []() {
+    return new std::map<absl::string_view, const EmpiricalProfile>{
+        {"beta", empirical_distributions::Beta()},
+        {"bravo", empirical_distributions::Bravo()},
+        {"charlie", empirical_distributions::Charlie()},
+        {"echo", empirical_distributions::Echo()},
+        {"merced", empirical_distributions::Merced()},
+        {"sierra", empirical_distributions::Sierra()},
+        {"sigma", empirical_distributions::Sigma()},
+        {"uniform", empirical_distributions::Uniform()}};
+  }();
+
+  auto i = choices->find(flag);
+  if (i == choices->end()) {
     uint64_t bytes;
     // TODO(ckennelly):  Integrate this with AbslParseFlag.
     CHECK_CONDITION(absl::SimpleAtoi(flag, &bytes));
