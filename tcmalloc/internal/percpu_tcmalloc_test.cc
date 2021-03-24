@@ -104,14 +104,6 @@ class ScopedUnregisterRseq {
     syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), kRseqUnregister,
             TCMALLOC_PERCPU_RSEQ_SIGNATURE);
 
-    // Clear __rseq_refcount.  Otherwise, when we reinitialize the TLS, we
-    // will believe that the thread is already registered.
-    //
-    // IsFast -> InitThreadPerCpu() inspects __rseq_refcount and does not
-    // attempt to register __rseq_abi if __rseq_refcount > 0--indiating another
-    // library has already registered this thread's data with the kernel.
-    __rseq_refcount = 0;
-
     // Unregistering stores kCpuIdUninitialized to the cpu_id field.
     CHECK_CONDITION(__rseq_abi.cpu_id == kCpuIdUninitialized);
   }

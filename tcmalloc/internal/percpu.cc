@@ -59,9 +59,6 @@ ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
         {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
-ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile uint32_t
-    __rseq_refcount;
-
 #ifdef __ppc__
 // On PPC, we have two cases for accessing the __rseq_abi TLS variable:
 // * For initial-exec TLS, we write the raw assembly for accessing the memory
@@ -91,19 +88,18 @@ ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
 ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
 
+// Is this thread's __rseq_abi struct currently registered with the kernel?
+static bool ThreadRegistered() { return RseqCpuId() >= kCpuIdInitialized; }
+
 static bool InitThreadPerCpu() {
-  if (__rseq_refcount++ > 0) {
+  // If we're already registered, there's nothing further for us to do.
+  if (ThreadRegistered()) {
     return true;
   }
 
 #ifdef __NR_rseq
-  auto ret = syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
-                     TCMALLOC_PERCPU_RSEQ_SIGNATURE);
-  if (ret == 0) {
-    return true;
-  } else {
-    __rseq_refcount--;
-  }
+  return 0 == syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
+                      TCMALLOC_PERCPU_RSEQ_SIGNATURE);
 #endif  // __NR_rseq
   return false;
 }

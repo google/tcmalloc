@@ -86,7 +86,6 @@ inline constexpr int kCpuIdInitialized = 0;
 
 #if TCMALLOC_PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
-extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile uint32_t __rseq_refcount;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
