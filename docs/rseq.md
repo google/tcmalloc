@@ -339,8 +339,7 @@ cases that cause a segfault.
 
 ### CPU IDs
 
-The other thing `rseq.c` takes care of is writing CPU IDs to user space memory
-to user space memory.
+The other thing `rseq.c` takes care of is writing CPU IDs to user space memory.
 
 There are two fields in user space that get this information:
 [`rseq::cpu_id_start`](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/uapi/linux/rseq.h#L63-L75)
