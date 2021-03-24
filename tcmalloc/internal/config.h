@@ -39,6 +39,23 @@
 #define GOOGLE_MALLOC_SECTION_END
 #endif
 
+#if defined(__GNUC__) && !defined(__clang__)
+#if __GNUC__ < 9 || (__GNUC__ == 9 && __GNUC_MINOR__ < 2)
+#error "GCC 9.2 or higher is required."
+#endif
+#endif
+
+#if defined(__clang__)
+#if __clang_major__ < 9
+#error "Clang 9 or higher is required."
+#endif
+#endif
+
+#if !defined(__x86_64__) && !defined(__ppc64__) && !defined(__arm__) && \
+    !defined(__aarch64__)
+#error "Unsupported architecture."
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
