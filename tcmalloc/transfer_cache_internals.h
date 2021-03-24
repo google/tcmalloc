@@ -174,7 +174,6 @@ class TransferCache {
       ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(N > 0);
     const int B = Manager::num_objects_to_move(size_class());
-    int fetch = 0;
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used >= N) {
       absl::base_internal::SpinLockHolder h(&lock_);
@@ -192,7 +191,7 @@ class TransferCache {
     }
     remove_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCRemoveMiss, size_class(), 1);
-    return freelist().RemoveRange(batch + fetch, N - fetch) + fetch;
+    return freelist().RemoveRange(batch, N);
   }
 
   // Returns the number of free objects in the central cache.
