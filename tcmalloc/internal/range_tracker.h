@@ -62,9 +62,15 @@ class Bitmap {
   // Returns the number of set bits [index, ..., index + n - 1].
   size_t CountBits(size_t index, size_t n) const;
 
+  // Returns whether the bitmap is entirely zero or not.
+  bool IsZero() const;
+
   // Equivalent to SetBit on bits [index, index + 1, ... index + n - 1].
   void SetRange(size_t index, size_t n);
   void ClearRange(size_t index, size_t n);
+
+  // Clears the lowest set bit. Special case is faster than more flexible code.
+  void ClearLowestBit();
 
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
@@ -396,7 +402,7 @@ inline void Bitmap<N>::ClearBit(size_t i) {
 
 template <size_t N>
 inline size_t Bitmap<N>::CountBits(size_t index, size_t n) const {
-  ASSERT(index + n <= N);
+  ASSUME(index + n <= N);
   size_t count = 0;
   if (n == 0) {
     return count;
@@ -418,6 +424,16 @@ inline size_t Bitmap<N>::CountBits(size_t index, size_t n) const {
 }
 
 template <size_t N>
+inline bool Bitmap<N>::IsZero() const {
+  for (int i = 0; i < kWords; ++i) {
+    if (bits_[i] != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+template <size_t N>
 inline void Bitmap<N>::SetRange(size_t index, size_t n) {
   SetRangeValue<true>(index, n);
 }
@@ -425,6 +441,16 @@ inline void Bitmap<N>::SetRange(size_t index, size_t n) {
 template <size_t N>
 inline void Bitmap<N>::ClearRange(size_t index, size_t n) {
   SetRangeValue<false>(index, n);
+}
+
+template <size_t N>
+inline void Bitmap<N>::ClearLowestBit() {
+  for (int i = 0; i < kWords; ++i) {
+    if (bits_[i] != 0) {
+      bits_[i] &= bits_[i] - 1;
+      break;
+    }
+  }
 }
 
 template <size_t N>
