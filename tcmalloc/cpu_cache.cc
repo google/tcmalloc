@@ -37,8 +37,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-using subtle::percpu::GetCurrentVirtualCpuUnsafe;
-
 static cpu_set_t FillActiveCpuMask() {
   cpu_set_t allowed_cpus;
   if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
