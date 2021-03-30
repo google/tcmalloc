@@ -1539,6 +1539,8 @@ static void do_free_pages(void* ptr, const PageId p) {
 
   Span* span = Static::pagemap().GetExistingDescriptor(p);
   ASSERT(span != nullptr);
+  // Prefetch now to avoid a stall accessing *span while under the lock.
+  span->Prefetch();
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     ASSERT(span->first_page() == p);
