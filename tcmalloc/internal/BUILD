@@ -425,6 +425,8 @@ cc_library(
         ":logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/numeric:int128",
         "@com_google_absl//absl/time",
     ],
 )
