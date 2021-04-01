@@ -625,13 +625,14 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
  public:
   static void UnbackImpl(void* p, size_t size) { Unback(p, size); }
 
-  constexpr PageTracker(HugePage p, int64_t when)
+  constexpr PageTracker(HugePage p, uint64_t when)
       : location_(p),
-        when_(when),
         released_count_(0),
         donated_(false),
         unbroken_(true),
         free_{} {
+    init_when(when);
+
 #ifndef __ppc64__
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -650,10 +651,16 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
             2 * ABSL_CACHELINE_SIZE,
         "location_ should fall within the first two cachelines of "
         "PageTracker.");
-    static_assert(
-        offsetof(PageTracker<Unback>, when_) + sizeof(when_) <=
-            2 * ABSL_CACHELINE_SIZE,
-        "when_ should fall within the first two cachelines of PageTracker.");
+    static_assert(offsetof(PageTracker<Unback>, when_numerator_) +
+                          sizeof(when_numerator_) <=
+                      2 * ABSL_CACHELINE_SIZE,
+                  "when_numerator_ should fall within the first two cachelines "
+                  "of PageTracker.");
+    static_assert(offsetof(PageTracker<Unback>, when_denominator_) +
+                          sizeof(when_denominator_) <=
+                      2 * ABSL_CACHELINE_SIZE,
+                  "when_denominator_ should fall within the first two "
+                  "cachelines of PageTracker.");
     static_assert(
         offsetof(PageTracker<Unback>, donated_) + sizeof(donated_) <=
             2 * ABSL_CACHELINE_SIZE,
@@ -741,9 +748,18 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
                     PageAgeHistograms* ages) const;
 
  private:
+  void init_when(uint64_t w) {
+    const Length before = Length(free_.total_free());
+    when_numerator_ = w * before.raw_num();
+    when_denominator_ = before.raw_num();
+  }
+
   HugePage location_;
-  // TODO(b/134691947): optimize computing this; it's on the fast path.
-  int64_t when_;
+  // We keep track of an average time weighted by Length::raw_num. In order to
+  // avoid doing division on fast path, store the numerator and denominator and
+  // only do the division when we need the average.
+  uint64_t when_numerator_;
+  uint64_t when_denominator_;
 
   // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
   //
@@ -1075,13 +1091,10 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
 template <MemoryModifyFunction Unback>
 inline void PageTracker<Unback>::Put(PageId p, Length n) {
   Length index = p - location_.first_page();
-  const Length before = Length(free_.total_free());
   free_.Unmark(index.raw_num(), n.raw_num());
 
-  when_ = static_cast<int64_t>((static_cast<double>(before.raw_num()) * when_ +
-                                static_cast<double>(n.raw_num()) *
-                                    absl::base_internal::CycleClock::Now()) /
-                               (before.raw_num() + n.raw_num()));
+  when_numerator_ += n.raw_num() * absl::base_internal::CycleClock::Now();
+  when_denominator_ += n.raw_num();
 }
 
 template <MemoryModifyFunction Unback>
@@ -1131,7 +1144,7 @@ inline Length PageTracker<Unback>::ReleaseFree() {
   ASSERT(Length(released_count_) <= kPagesPerHugePage);
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
-  when_ = absl::base_internal::CycleClock::Now();
+  init_when(absl::base_internal::CycleClock::Now());
   return Length(count);
 }
 
@@ -1141,7 +1154,8 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats* small,
                                               PageAgeHistograms* ages) const {
   size_t index = 0, n;
 
-  int64_t w = when_;
+  uint64_t w = when_denominator_ == 0 ? when_numerator_
+                                      : when_numerator_ / when_denominator_;
   while (free_.NextFreeRange(index, &index, &n)) {
     bool is_released = released_by_page_.GetBit(index);
     // Find the last bit in the run with the same state (set or cleared) as
