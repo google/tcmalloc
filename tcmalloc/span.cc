@@ -181,8 +181,6 @@ size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
 
 void Span::BuildFreelist(size_t size, size_t count) {
   allocated_ = 0;
-  cache_size_ = 0;
-  embed_count_ = 0;
   freelist_ = kListEnd;
 
   ObjIdx idx = 0;
@@ -203,33 +201,38 @@ void Span::BuildFreelist(size_t size, size_t count) {
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;
   // First, push as much as we can into the cache_.
-  for (; idx < idxEnd && cache_size_ < kCacheSize; idx += idxStep) {
-    cache_[cache_size_] = idx;
-    cache_size_++;
+  int cache_size = 0;
+  for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
+    cache_[cache_size] = idx;
+    cache_size++;
   }
+  cache_size_ = cache_size;
+
   // Now, build freelist and stack other objects onto freelist objects.
   // Note: we take freelist objects from the beginning and stacked objects
   // from the end. This has a nice property of not paging in whole span at once
   // and not draining whole cache.
   ObjIdx* host = nullptr;  // cached first object on freelist
   const size_t max_embed = size / sizeof(ObjIdx) - 1;
+  int embed_count = 0;
   while (idx < idxEnd) {
     // Check the no idx can be confused with kListEnd.
     ASSERT(idx != kListEnd);
-    if (host && embed_count_ != max_embed) {
+    if (host && embed_count != max_embed) {
       // Push onto first object on the freelist.
-      embed_count_++;
+      embed_count++;
       idxEnd -= idxStep;
-      host[embed_count_] = idxEnd;
+      host[embed_count] = idxEnd;
     } else {
       // The first object is full, push new object onto freelist.
       host = IdxToPtr(idx, size);
       host[0] = freelist_;
       freelist_ = idx;
-      embed_count_ = 0;
+      embed_count = 0;
       idx += idxStep;
     }
   }
+  embed_count_ = embed_count;
 }
 
 }  // namespace tcmalloc_internal
