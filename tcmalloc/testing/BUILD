@@ -90,9 +90,7 @@ create_tcmalloc_testsuite(
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     visibility = ["//visibility:private"],
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
@@ -120,11 +118,7 @@ cc_test(
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = REGTEST_DEPS + [
         "@com_github_google_benchmark//:benchmark",
         "//tcmalloc:want_no_hpaa",
@@ -137,11 +131,7 @@ cc_test(
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = REGTEST_DEPS + [
         "@com_github_google_benchmark//:benchmark",
         "//tcmalloc:want_hpaa",
@@ -156,9 +146,7 @@ cc_test(
     linkstatic = 1,  # get the most realistic performance
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
@@ -183,9 +171,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -201,9 +187,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -221,9 +205,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         "//tcmalloc:common",
@@ -239,10 +221,7 @@ create_tcmalloc_testsuite(
     copts = [
         "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
     ] + TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -272,9 +251,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -306,9 +283,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -329,9 +304,7 @@ create_tcmalloc_testsuite(
     srcs = ["sampling_memusage_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -375,11 +348,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -432,9 +401,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -592,9 +559,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -619,9 +584,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -645,11 +608,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS + ["-faligned-new"],
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -667,9 +626,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         "//tcmalloc:common",
@@ -799,9 +756,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
+        "nosan",
     ],
     deps = [
         ":testutil",
@@ -817,11 +772,7 @@ cc_test(
     srcs = ["releasing_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
+    tags = ["nosan"],
     deps = [
         "//tcmalloc:common",
         "//tcmalloc:malloc_extension",

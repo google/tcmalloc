@@ -48,7 +48,12 @@ TEST(AllocationSampleTest, TokenAbuse) {
   auto profile = std::move(token).Stop();
   int count = 0;
   profile.Iterate([&](const Profile::Sample &) { count++; });
+
+#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+  // UBSan does not implement our profiling API, but running the test can
+  // validate the correctness of the new/delete pairs.
   EXPECT_EQ(count, 1);
+#endif
 
   auto profile2 = std::move(token).Stop();  // NOLINT: use-after-move intended
   int count2 = 0;
@@ -112,14 +117,13 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // sizes, delete it as we go--it shouldn't matter for the sample count.
   static const size_t kTotalPerSize = 512 * 1024 * 1024;
 
-  // objects we don't delete as we go
-  void *list = nullptr;
-
   // (object size, object alignment, keep objects)
   struct Requests {
     size_t size;
     size_t alignment;
     bool keep;
+    // objects we don't delete as we go
+    void *list = nullptr;
   };
   std::vector<Requests> sizes = {
       {8, 0, false},          {16, 16, true},        {1024, 0, false},
@@ -132,7 +136,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 
   // We use new/delete to allocate memory, as malloc returns objects aligned to
   // std::max_align_t.
-  for (auto s : sizes) {
+  for (auto &s : sizes) {
     for (size_t bytes = 0; bytes < kTotalPerSize; bytes += s.size) {
       void *obj;
       if (s.alignment > 0) {
@@ -141,7 +145,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
         obj = operator new(s.size);
       }
       if (s.keep) {
-        tcmalloc_internal::SLL_Push(&list, obj);
+        tcmalloc_internal::SLL_Push(&s.list, obj);
+      } else if (s.alignment > 0) {
+        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
       } else {
         operator delete(obj);
       }
@@ -172,6 +178,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     EXPECT_EQ(alignment[e.requested_size], e.requested_alignment);
   });
 
+#if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
+  // UBSan does not implement our profiling API, but running the test can
+  // validate the correctness of the new/delete pairs.
   size_t max_bytes = 0, min_bytes = std::numeric_limits<size_t>::max();
   EXPECT_EQ(m.size(), sizes_expected.size());
   for (auto seen : m) {
@@ -185,10 +194,18 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   EXPECT_GE((min_bytes * 3) / 2, max_bytes);
   EXPECT_LE((min_bytes * 3) / 4, kTotalPerSize);
   EXPECT_LE(kTotalPerSize, (max_bytes * 4) / 3);
+#endif
+
   // Remove the objects we left alive
-  while (list != nullptr) {
-    void *obj = tcmalloc_internal::SLL_Pop(&list);
-    operator delete(obj);
+  for (auto &s : sizes) {
+    while (s.list != nullptr) {
+      void *obj = tcmalloc_internal::SLL_Pop(&s.list);
+      if (s.alignment > 0) {
+        operator delete(obj, static_cast<std::align_val_t>(s.alignment));
+      } else {
+        operator delete(obj);
+      }
+    }
   }
 }
 

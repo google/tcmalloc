@@ -60,6 +60,10 @@ std::string GetStatsInPbTxt() {
   // When huge page telemetry is enabled, the output can become very large.
   const int buffer_length = 3 << 20;
   std::string buf;
+  if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
+    return buf;
+  }
+
   buf.resize(buffer_length);
   int actual_size =
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], buffer_length);
