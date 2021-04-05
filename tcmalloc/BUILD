@@ -18,6 +18,7 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
+load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_testsuite")
 
@@ -606,7 +607,7 @@ cc_library(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "transfer_cache_fuzz",
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
@@ -900,11 +901,12 @@ cc_test(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "malloc_extension_fuzz",
     testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc",
     tags = [
         "noasan",
         "nomsan",
@@ -1131,22 +1133,24 @@ cc_test(
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "experiment_fuzz",
     testonly = 1,
     srcs = ["experiment_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc",
     deps = [
         ":experiment",
         "@com_google_absl//absl/strings",
     ],
 )
 
-cc_library(
+cc_fuzz_test(
     name = "runtime_size_classes_fuzz",
     testonly = 1,
     srcs = ["runtime_size_classes_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc",
     deps = [
         ":common",
         ":runtime_size_classes",
