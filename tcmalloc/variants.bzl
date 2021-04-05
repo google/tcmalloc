@@ -53,14 +53,14 @@ variants = [
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
         "copts": [],
-        "env": "BORG_EXPERIMENTS=TCMALLOC_LOCK_FREE_TRANSFER_CACHE_V2",
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_LOCK_FREE_TRANSFER_CACHE_V2"},
     },
     {
         "name": "8k_pages_sans_56",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
         "copts": [],
-        "env": "BORG_EXPERIMENTS=TCMALLOC_CACHELINE_AWARE_SIZECLASSES",
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_CACHELINE_AWARE_SIZECLASSES"},
     },
 ]
 
@@ -100,6 +100,7 @@ def create_tcmalloc_testsuite(name, srcs, **kwargs):
             malloc = variant.get("malloc"),
             srcs = srcs,
             deps = deps + variant.get("deps", []),
+            env = variant.get("env", {}),
             **kwargs
         )
 
