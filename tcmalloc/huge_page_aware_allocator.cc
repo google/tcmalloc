@@ -305,7 +305,15 @@ Span *HugePageAwareAllocator::New(Length n) {
   CHECK_CONDITION(n > Length(0));
   bool from_released;
   Span *s = LockAndAlloc(n, &from_released);
-  if (s && from_released) BackSpan(s);
+  if (s) {
+    // Prefetch for writing, as we anticipate using the memory soon.
+    //
+    // TODO(b/184170454):  Prefetch the last page of *s, which will likely be
+    // returned by Span::FreelistPopBatch due to how Span::BuildFreelist
+    // constructs its freelist.
+    __builtin_prefetch(s->start_address(), 1, 3);
+    if (from_released) BackSpan(s);
+  }
   ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
