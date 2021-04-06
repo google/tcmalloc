@@ -795,6 +795,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
     ],
 )
 

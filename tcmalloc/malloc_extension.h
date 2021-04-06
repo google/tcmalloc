@@ -39,6 +39,7 @@
 #include "absl/base/port.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 
@@ -333,6 +334,11 @@ class MallocExtension final {
   static int64_t GetMaxTotalThreadCacheBytes();
   // Sets the maximum thread cache size.  This is a whole-process limit.
   static void SetMaxTotalThreadCacheBytes(int64_t value);
+
+  // Gets the delayed subrelease interval (0 if delayed subrelease is disabled)
+  static absl::Duration GetSkipSubreleaseInterval();
+  // Sets the delayed subrelease interval (0 to disable delayed subrelease)
+  static void SetSkipSubreleaseInterval(absl::Duration value);
 
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may

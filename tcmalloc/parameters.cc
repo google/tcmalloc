@@ -128,6 +128,14 @@ void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
   Parameters::set_max_total_thread_cache_bytes(value);
 }
 
+void MallocExtension_Internal_GetSkipSubreleaseInterval(absl::Duration* ret) {
+  *ret = Parameters::filler_skip_subrelease_interval();
+}
+
+void MallocExtension_Internal_SetSkipSubreleaseInterval(absl::Duration value) {
+  Parameters::set_filler_skip_subrelease_interval(value);
+}
+
 tcmalloc::MallocExtension::BytesPerSecond
 MallocExtension_Internal_GetBackgroundReleaseRate() {
   return Parameters::background_release_rate();

@@ -15,6 +15,7 @@
 #include <cstdio>
 
 #include "absl/strings/str_format.h"
+#include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -33,6 +34,7 @@ constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0
 };
+constexpr absl::Duration kDefaultSkipSubreleaseInterval = absl::Seconds(60);
 
 bool TestProfileSamplingRate() {
 
@@ -70,6 +72,19 @@ bool TestBackgroundReleaseRate() {
   return true;
 }
 
+bool TestSkipSubreleaseInterval() {
+
+  auto extension_value = MallocExtension::GetSkipSubreleaseInterval();
+  if (extension_value != kDefaultSkipSubreleaseInterval) {
+    absl::FPrintF(stderr, "Skip Subrelease Interval: got %d, want %d\n",
+                  absl::ToInt64Seconds(extension_value),
+                  absl::ToInt64Seconds(kDefaultSkipSubreleaseInterval));
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace
 }  // namespace tcmalloc
 
@@ -80,6 +95,7 @@ int main() {
   success = success & tcmalloc::TestProfileSamplingRate();
   success = success & tcmalloc::TestGuardedSamplingRate();
   success = success & tcmalloc::TestBackgroundReleaseRate();
+  success = success & tcmalloc::TestSkipSubreleaseInterval();
 
   if (success) {
     fprintf(stderr, "PASS");
