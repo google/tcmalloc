@@ -133,7 +133,11 @@ const EmpiricalProfile *ParseProfileChoice(const absl::string_view flag) {
     uint64_t bytes;
     // TODO(ckennelly):  Integrate this with AbslParseFlag.
     CHECK_CONDITION(absl::SimpleAtoi(flag, &bytes));
-    return new EmpiricalProfile({{bytes, 1, 1}});
+    static EmpiricalData::Entry entry;
+    entry.size = bytes;
+    entry.alloc_rate = 1;
+    entry.num_live = 1;
+    return new EmpiricalProfile(&entry, 1);
   }
   return &i->second;
 }
