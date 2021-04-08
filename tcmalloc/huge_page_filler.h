@@ -920,7 +920,6 @@ class HugePageFiller {
       }
       ASSERT(!lists_[i].empty());
       TrackerType* pt = lists_[i].first();
-      CHECK_CONDITION(pt != nullptr);
       if (lists_[i].remove(pt)) {
         nonempty_.ClearBit(i);
       }

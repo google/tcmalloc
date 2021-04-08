@@ -189,14 +189,16 @@ class TList {
   }
 
   // Returns first element in the list. The list must not be empty.
-  T* first() const {
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* first() const {
     ASSERT(!empty());
+    ASSERT(head_.next_ != nullptr);
     return static_cast<T*>(head_.next_);
   }
 
   // Returns last element in the list. The list must not be empty.
-  T* last() const {
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* last() const {
     ASSERT(!empty());
+    ASSERT(head_.prev_ != nullptr);
     return static_cast<T*>(head_.prev_);
   }
 
