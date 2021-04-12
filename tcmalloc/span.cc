@@ -36,11 +36,13 @@ void Span::Sample(StackTrace* stack) {
   sampled_ = 1;
   sampled_stack_ = stack;
   Static::sampled_objects_.prepend(this);
-  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
+
   // The cast to value matches Unsample.
-  Static::sampled_objects_size_.LossyAdd(
+  tcmalloc_internal::StatsCounter::Value allocated_bytes =
       static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(*stack, true)));
+          AllocatedBytes(*stack, true));
+  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
+  Static::sampled_objects_size_.LossyAdd(allocated_bytes);
 }
 
 StackTrace* Span::Unsample() {
@@ -51,12 +53,13 @@ StackTrace* Span::Unsample() {
   StackTrace* stack = sampled_stack_;
   sampled_stack_ = nullptr;
   RemoveFromList();  // from Static::sampled_objects_
-  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
   // The cast to Value ensures no funny business happens during the negation if
   // sizeof(size_t) != sizeof(Value).
-  Static::sampled_objects_size_.LossyAdd(
+  tcmalloc_internal::StatsCounter::Value neg_allocated_bytes =
       -static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(*stack, true)));
+          AllocatedBytes(*stack, true));
+  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
+  Static::sampled_objects_size_.LossyAdd(neg_allocated_bytes);
   return stack;
 }
 

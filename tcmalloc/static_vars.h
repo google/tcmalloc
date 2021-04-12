@@ -98,6 +98,7 @@ class Static {
   // LossyAdd and reads do not require locking.
   static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
+
   static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
     return bucket_allocator_;
   }
