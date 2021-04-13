@@ -25,6 +25,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/debugging/leak_check.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -118,6 +119,10 @@ TYPED_TEST_P(AlignedNew, SizeCheckSampling) {
   }
 #endif
 
+  // The HeapLeakChecker initializes malloc hooks which we call prior to looking
+  // up the size class (and asserting the correct size was passed to TCMalloc).
+  ASSERT_FALSE(absl::LeakCheckerIsActive());
+
   // Allocate enough objects to ensure we sample one.
   const int allocations =
       32 * MallocExtension::GetProfileSamplingRate() / sizeof(TypeParam);
@@ -151,6 +156,10 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
 
   static_assert(!std::is_trivially_destructible<NonTrivial>::value,
                 "NonTrivial should have a nontrivial destructor.");
+
+  // The HeapLeakChecker initializes malloc hooks which we call prior to looking
+  // up the size class (and asserting the correct size was passed to TCMalloc).
+  ASSERT_FALSE(absl::LeakCheckerIsActive());
 
   // Allocate enough objects to ensure we sample one.
   const int allocations =

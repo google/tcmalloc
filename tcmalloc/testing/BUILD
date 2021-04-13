@@ -28,6 +28,7 @@ REGTEST_DEPS = [
     "@com_google_googletest//:gtest",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:core_headers",
+    "@com_google_absl//absl/debugging:leak_check",
     "@com_google_absl//absl/random",
     "@com_google_absl//absl/random:distributions",
     "@com_google_absl//absl/strings",
@@ -616,6 +617,7 @@ cc_test(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/debugging:leak_check",
         "@com_google_googletest//:gtest_main",
     ],
 )
