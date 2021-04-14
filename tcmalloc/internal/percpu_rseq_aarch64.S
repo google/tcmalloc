@@ -70,6 +70,20 @@
 #define PINSECTION(label)
 #endif
 
+// A function within a guarded memory region must start with a BTI C
+// instruction.
+// So per ABI that includes any externally visible code label.
+// Using hint to make sure we can use this on targets that support BTI and
+// targets that don't. It will behave as a no-op on targets that do not
+// support BTI or outside a guarded memory region.
+#ifdef __ARM_FEATURE_BTI_DEFAULT
+#define BTI_C hint 34
+#define TAILCALL(x) mov x16, x; br x16
+#else
+#define BTI_C
+#define TAILCALL(x) br x
+#endif
+
 // This macro defines:
 // * the rseq_cs instance that we'll use for label's critical section.
 // * a trampoline to return to when we abort.  This label_trampoline is
@@ -101,6 +115,7 @@
   .type  label##_trampoline, @function;                           \
 label##_trampoline:                                               \
   .cfi_startproc;                                                 \
+  BTI_C;                                                          \
   b .L##label##_abort;                                            \
   .cfi_endproc;                                                   \
   .size label##_trampoline, . - label##_trampoline;               \
@@ -154,6 +169,7 @@ label##_trampoline:                                               \
  * we can not guarantee it will we must save and restore the registers used to
  * store the arguments of our functions. The function with most arguments has 5
  * arguments, so we save x0-x4 and lr.
+ * TODO: Add PAC support because we are spiling LR.
  */
 #define START_RSEQ(src)                        \
   .L##src##_abort:                             \
@@ -195,6 +211,7 @@ label##_trampoline:                                               \
   .type  TcmallocSlab_Internal_PerCpuCmpxchg64, @function
 TcmallocSlab_Internal_PerCpuCmpxchg64:
   .cfi_startproc
+  BTI_C
   START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64)
   FETCH_CPU(w4)
   cmp w0, w4 /* check cpu vs current_cpu */
@@ -242,6 +259,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
   .type  TcmallocSlab_Internal_PushBatch_FixedShift, @function
 TcmallocSlab_Internal_PushBatch_FixedShift:
   .cfi_startproc
+  BTI_C
   START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift)
   FETCH_CPU(w8)
   lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
@@ -305,6 +323,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
   .type  TcmallocSlab_Internal_PopBatch_FixedShift, @function
 TcmallocSlab_Internal_PopBatch_FixedShift:
   .cfi_startproc
+  BTI_C
   START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift)
   FETCH_CPU(w8)
   lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
@@ -353,6 +372,7 @@ TcmallocSlab_Internal_Push:
     // Return value: current CPU
     // Available x5-x15
 
+    BTI_C
     START_RSEQ(TcmallocSlab_Internal_Push)
     FETCH_CPU(w8)
     lsl x9, x8, x3
@@ -370,7 +390,7 @@ TcmallocSlab_Internal_Push:
     ret
 .LTcmallocSlab_Internal_Push_no_capacity:
     mov x0, x8
-    br x4
+    TAILCALL(x4)
 .LTcmallocSlab_Internal_Push_region3:
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_Push)
@@ -389,6 +409,7 @@ TcmallocSlab_Internal_Push_FixedShift:
     // Return value: current CPU
     // Available x4-x15
 
+    BTI_C
     START_RSEQ(TcmallocSlab_Internal_Push_FixedShift)
     FETCH_CPU(w8)
     lsl x9, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
@@ -406,7 +427,7 @@ TcmallocSlab_Internal_Push_FixedShift:
     ret
 .LTcmallocSlab_Internal_Push_FixedShift_no_capacity:
     mov x0, x8
-    br x3
+    TAILCALL(x3)
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_Push_FixedShift)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_Push_FixedShift)
@@ -422,6 +443,7 @@ TcmallocSlab_Internal_Pop_FixedShift:
     // Return value: current CPU
     // Available x3-x15
 
+    BTI_C
     START_RSEQ(TcmallocSlab_Internal_Pop_FixedShift)
     FETCH_CPU(w8)               /* r8 = CPU  */
     lsl x9, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
@@ -440,7 +462,7 @@ TcmallocSlab_Internal_Pop_FixedShift:
     ret
 .LTcmallocSlab_Internal_Pop_FixedShift_no_items:
     mov x0, x8                  /* call overflow handler with CPU ID */
-    br x2
+    TAILCALL(x2)
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_Pop_FixedShift)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_Pop_FixedShift)
@@ -457,6 +479,7 @@ TcmallocSlab_Internal_Pop:
     // Return value: Value
     // Available x4-x15
 
+    BTI_C
     START_RSEQ(TcmallocSlab_Internal_Pop)
     FETCH_CPU(w8)               /* r8 = CPU ID */
     lsl x9, x8, x3              /* x9 = CPU shifted by (r3) */
@@ -474,9 +497,28 @@ TcmallocSlab_Internal_Pop:
     ret
 .LTcmallocSlab_Internal_Pop_no_items:
     mov x0, x8                  /* call overflow handler with CPU ID */
-    br x2
+    TAILCALL(x2)
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_Pop)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_Pop)
 
 .section .note.GNU-stack,"",@progbits
+
+/* Add a NT_GNU_PROPERTY_TYPE_0 note.  */
+#define GNU_PROPERTY(type, value)       \
+  .section .note.gnu.property, "a";     \
+  .p2align 3;                           \
+  .word 4;                              \
+  .word 16;                             \
+  .word 5;                              \
+  .asciz "GNU";                         \
+  .word type;                           \
+  .word 4;                              \
+  .word value;                          \
+  .word 0;
+
+/* Add GNU property note if built with branch protection.  */
+
+#if defined(__ARM_FEATURE_BTI_DEFAULT)
+GNU_PROPERTY (0xc0000000, 1)
+#endif
