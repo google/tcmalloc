@@ -2,7 +2,7 @@
 
 Andrew Hunter, [Chris Kennelly](ckennelly@google.com)
 
-_Notes on the name_[^1]_: the french word for "reckless" or "rash" :), and also
+_Notes on the name_[^cutie]_: the french word for "reckless" or "rash" :), and also
 the name of several large and powerful English warships. So: giant and powerful,
 but maybe a little dangerous. :)_
 
@@ -57,7 +57,7 @@ corresponding object we allocated from as free.
 We will sketch the purpose and approach of each important part. Note that we
 have fairly detailed unit tests for each of these; one consequence on the
 implementations is that most components are templated on the
-`tcmalloc::SystemRelease` functions[^2] as we make a strong attempt to be zero
+`tcmalloc::SystemRelease` functions[^templated] as we make a strong attempt to be zero
 initializable where possible (sadly not everywhere).
 
 ### `RangeTracker`
@@ -120,7 +120,7 @@ This may not really be needed, but it's a very minor feature to keep _or_ drop.
 
 `HugePageFiller` takes small requests (less than a hugepage) and attempts to
 pack them efficiently into hugepages. The vast majority of binaries use almost
-entirely small allocations[^3], so this is the dominant consumer of space and
+entirely small allocations[^conditional], so this is the dominant consumer of space and
 the most important component.
 
 Our goal here is to make our live allocations fit within the smallest set of
@@ -144,7 +144,7 @@ Inside each equal-longest-free-range group, we order our heap by the **number of
 allocations** (chunked logarithmically). This helps favor allocating from fuller
 hugepages (of equal fragmented status). Number of allocations handily
 outperforms the total number of allocated pages here; our hypothesis is that
-since allocations of any size are equally likely[^4] to become free at any given
+since allocations of any size are equally likely[^radioactive] to become free at any given
 time, and we need all allocations on a hugepage to become free to make the
 hugepage empty, we’re better off hoping for 1 10-page allocation to become free
 (with some probability P) than 5 1-page allocations (with probability P^5).
@@ -252,11 +252,14 @@ application.
 
 ## Notes
 
-[^1]: Also the name of
+[^cutie]: Also the name of
     [this cutie](https://lh3.googleusercontent.com/VXENOSfqH1L84VMwLVAUA7JIqQh7TYH-IZHLBalvVVuMUeD3w5rOVHPsIp97nYEgmKpQoxsHO-lieGouheNmifA2X6tOPTBleTbQc_WCZIrI_roU2K37iiHg9go6omp2ys0Y7cxYc9c6EWNaCYtKG1dEPyyYLULUarCex4oqwt8KgRl95rd3yKXC6YQeW-TWkDpK786ZaAA3vKJXqT5E-ArPxQccyPH13EAmHrltKatqihC7L4Ym5IfP42u58IJwC5bRnKMczm2WwUfipGDEOvymf63mPNKmGMka50AQV4VGrE7hW_Ateb2roCTGISgZIooBSRwK0PMjqV9hBLP5DmUG4ITSV4FlOI5iWOyMSNZV6Gz5T2FgNez08Wdn98tsEsN4_lPcjdZXyJuHeVRKxAawDwjkbWP3aieXDckHY-bJMt0QfyDhPWzSOpTxTALcZiwoC069K9SrBDVKEKowJ2Zag7OlbpROhqbagM5Wuo_nn6O27yWXpihc8Lptt-Vo_e8kQZ4N2RReby3bxNPdRyv2L8BrDCIWBO-iFk7GcYRd9ox7HSD-7Y0yH1FtMP0FZKD5a2raVmabMQrolhsjc-AfYHgD3xBkNo-uTJ8YnFpqjpTdZz_1=w2170-h1446-no),
     the real reason for the choice.
-[^2]: It will be possible, given recent improvements in constexpr usage, to
+
+[^templated]: It will be possible, given recent improvements in constexpr usage, to
     eliminate this in followups.
-[^3]: Here we mean "requests to the pageheap as filtered through sampling, the
+
+[^conditional]: Here we mean "requests to the pageheap as filtered through sampling, the
     central cache, etc"
-[^4]: Well, no, this is false in our empirical data, but to first order.
+
+[^radioactive]: Well, no, this is false in our empirical data, but to first order.
