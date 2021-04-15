@@ -15,6 +15,7 @@
 #include "tcmalloc/common.h"
 
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/runtime_size_classes.h"
