@@ -297,7 +297,7 @@ available objects in the spans, more spans are requested from the back-end.
 When objects are
 [returned to the central free list](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc),
 each object is mapped to the span to which it belongs (using the
-[pagemap](#pagemap) and then released into that span. If all the objects that
+[pagemap](#pagemap)) and then released into that span. If all the objects that
 reside in a particular span are returned to it, the entire span gets returned to
 the back-end.
 
