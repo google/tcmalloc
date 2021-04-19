@@ -23,6 +23,22 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Moved out of anonymous namespace so that it can be found by friend class in
+// span.h. This allows tests to access span internals so that we can
+// validate that scaling by a reciprocal correctly converts a pointer into
+// an offset within a span.
+class SpanTestPeer {
+ public:
+  static uint16_t CalcReciprocal(size_t size) {
+    return Span::CalcReciprocal(size);
+  }
+  static Span::ObjIdx TestOffsetToIdx(uintptr_t offset, size_t size,
+                                      uint16_t reciprocal) {
+    return Span::TestOffsetToIdx(offset, size, reciprocal);
+  }
+};
+
 namespace {
 
 size_t Alignment(size_t size) {
@@ -72,6 +88,49 @@ TEST_F(SizeClassesTest, SpanPages) {
     }
     // A span of class_to_pages(c) must be able to hold at least one object.
     EXPECT_GE(Length(m_.class_to_pages(c)).in_bytes(), max_size_in_class);
+  }
+}
+
+TEST_F(SizeClassesTest, ValidateSufficientBitmapCapacity) {
+  // Validate that all the objects in a span can fit into a bitmap.
+  // The cut-off for using a bitmap is kBitmapMinObjectSize, so it is
+  // theoretically possible that a span could exceed this threshold
+  // for object size and contain more than 64 objects.
+  for (int c = 1; c < kNumClasses; ++c) {
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class >= kBitmapMinObjectSize) {
+      const size_t objects_per_span =
+          Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
+      // Span can hold at most 64 objects of this size.
+      EXPECT_LE(objects_per_span, 64);
+    }
+  }
+}
+
+TEST_F(SizeClassesTest, ValidateCorrectScalingByReciprocal) {
+  // Validate that multiplying by the reciprocal works for all size classes.
+  // When converting an offset within a span into an index we avoid a
+  // division operation by scaling by the reciprocal. The test ensures
+  // that this approach works for all objects in a span, for all object
+  // sizes.
+  for (int c = 1; c < kNumClasses; ++c) {
+    const size_t max_size_in_class = m_.class_to_size(c);
+    // Only test for sizes where object availability is recorded in a bitmap.
+    if (max_size_in_class < kBitmapMinObjectSize) {
+      continue;
+    }
+    size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);
+    const size_t objects_per_span =
+        Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
+    for (int index = 0; index < objects_per_span; index++) {
+      // Calculate the address of the object.
+      uintptr_t address = index * max_size_in_class;
+      // Calculate the index into the page using the reciprocal method.
+      int idx =
+          SpanTestPeer::TestOffsetToIdx(address, max_size_in_class, reciprocal);
+      // Check that the starting address back is correct.
+      ASSERT_EQ(address, idx * max_size_in_class);
+    }
   }
 }
 

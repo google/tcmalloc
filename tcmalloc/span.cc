@@ -18,6 +18,8 @@
 
 #include <algorithm>
 
+#include "absl/base/optimization.h"  // ABSL_INTERNAL_ASSUME
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/logging.h"
@@ -174,7 +176,45 @@ Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size) const {
   return ptr;
 }
 
+Span::ObjIdx* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
+  uintptr_t off =
+      first_page_.start_uintptr() + (static_cast<uintptr_t>(idx) * size);
+  ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
+  return ptr;
+}
+
+size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
+                                    size_t size) {
+#ifndef NDEBUG
+  size_t before = bitmap_.CountBits(0, 64);
+#endif  // NDEBUG
+
+  size_t count = 0;
+  // Want to fill the batch either with N objects, or the number of objects
+  // remaining in the span.
+  while (!bitmap_.IsZero() && count < N) {
+    size_t offset = bitmap_.FindSet(0);
+    ASSERT(offset < 64);
+    batch[count] = BitmapIdxToPtr(offset, size);
+    bitmap_.ClearLowestBit();
+    count++;
+  }
+
+#ifndef NDEBUG
+  size_t after = bitmap_.CountBits(0, 64);
+  ASSERT(after + count == before);
+  ASSERT(allocated_ + count == embed_count_ - after);
+#endif  // NDEBUG
+  allocated_ += count;
+  return count;
+}
+
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
+  // Handle spans with 64 or fewer objects using a bitmap. We expect spans
+  // to frequently hold smaller objects.
+  if (ABSL_PREDICT_FALSE(size >= kBitmapMinObjectSize)) {
+    return BitmapFreelistPopBatch(batch, N, size);
+  }
   if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
     return FreelistPopBatchSized<Align::SMALL>(batch, N, size);
   } else {
@@ -182,9 +222,46 @@ size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
   }
 }
 
+uint16_t Span::CalcReciprocal(size_t size) {
+  // Calculate scaling factor. We want to avoid dividing by the size of the
+  // object. Instead we'll multiply by a scaled version of the reciprocal.
+  // We divide kBitmapScalingDenominator by the object size, so later we can
+  // multiply by this reciprocal, and then divide this scaling factor out.
+  // TODO(djgove) These divides can be computed once at start up.
+  size_t reciprocal = 0;
+  // The spans hold objects up to kMaxSize, so it's safe to assume.
+  ABSL_INTERNAL_ASSUME(size <= kMaxSize);
+  if (size <= SizeMap::kMultiPageSize) {
+    reciprocal = kBitmapScalingDenominator / (size >> kAlignmentShift);
+  } else {
+    reciprocal =
+        kBitmapScalingDenominator / (size >> SizeMap::kMultiPageAlignmentShift);
+  }
+  ASSERT(reciprocal < 65536);
+  return static_cast<uint16_t>(reciprocal);
+}
+
+void Span::BitmapBuildFreelist(size_t size, size_t count) {
+  // We are using a bitmap to indicate whether objects are used or not. The
+  // maximum capacity for the bitmap is 64 objects.
+  ASSERT(count <= 64);
+#ifndef NDEBUG
+  // For bitmap_ use embed_count_ to record objects per span.
+  embed_count_ = count;
+#endif  // NDEBUG
+  reciprocal_ = CalcReciprocal(size);
+  bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
+  bitmap_.SetRange(0, count);
+  ASSERT(bitmap_.CountBits(0, 64) == count);
+}
+
 void Span::BuildFreelist(size_t size, size_t count) {
   allocated_ = 0;
   freelist_ = kListEnd;
+
+  if (size >= kBitmapMinObjectSize) {
+    return BitmapBuildFreelist(size, count);
+  }
 
   ObjIdx idx = 0;
   ObjIdx idxStep = size / kAlignment;

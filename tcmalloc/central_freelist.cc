@@ -47,12 +47,13 @@ static Span* MapObjectToSpan(void* object) {
   return span;
 }
 
-Span* CentralFreeList::ReleaseToSpans(void* object, Span* span) {
-  if (ABSL_PREDICT_FALSE(span->FreelistEmpty())) {
+Span* CentralFreeList::ReleaseToSpans(void* object, Span* span,
+                                      size_t object_size) {
+  if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
     nonempty_.prepend(span);
   }
 
-  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size_))) {
+  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
     return nullptr;
   }
   span->RemoveFromList();  // from nonempty_
@@ -77,14 +78,17 @@ void CentralFreeList::InsertRange(void** batch, int N) {
   // First, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
+    // Use local copy of variable to ensure that it is not reloaded.
+    size_t object_size = object_size_;
     absl::base_internal::SpinLockHolder h(&lock_);
     for (int i = 0; i < N; ++i) {
-      Span* span = ReleaseToSpans(batch[i], spans[i]);
+      Span* span = ReleaseToSpans(batch[i], spans[i], object_size);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
       }
     }
+
     RecordMultiSpansDeallocated(free_count);
     UpdateObjectCounts(N);
   }
@@ -131,6 +135,8 @@ void CentralFreeList::InsertRange(void** batch, int N) {
 
 int CentralFreeList::RemoveRange(void** batch, int N) {
   ASSUME(N > 0);
+  // Use local copy of variable to ensure that it is not reloaded.
+  size_t object_size = object_size_;
   absl::base_internal::SpinLockHolder h(&lock_);
   if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
     Populate();
@@ -139,9 +145,9 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
   int result = 0;
   while (result < N && !nonempty_.empty()) {
     Span* span = nonempty_.first();
-    int here = span->FreelistPopBatch(batch + result, N - result, object_size_);
+    int here = span->FreelistPopBatch(batch + result, N - result, object_size);
     ASSERT(here > 0);
-    if (span->FreelistEmpty()) {
+    if (span->FreelistEmpty(object_size)) {
       span->RemoveFromList();  // from nonempty_
     }
     result += here;

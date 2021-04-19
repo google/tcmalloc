@@ -22,15 +22,28 @@
 #include <string.h>
 
 #include "absl/base/thread_annotations.h"
+#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// Can fit 64 objects into a bitmap, so determine what the minimum object
+// size needs to be in order for that to work. This makes the assumption that
+// we don't increase the number of pages at a point where the object count
+// ends up exceeding 64.
+inline constexpr size_t kBitmapMinObjectSize = kPageSize / 64;
+
+// Denominator for bitmap scaling factor. The idea is that instead of dividing
+// by N we multiply by M = kBitmapScalingDenominator / N and round the resulting
+// value.
+inline constexpr size_t kBitmapScalingDenominator = 65536;
 
 // Information kept for a span (a contiguous run of pages).
 //
@@ -150,8 +163,14 @@ class Span : public SpanList::Elem {
   // These methods REQUIRE a SMALL_OBJECT span.
   // ---------------------------------------------------------------------------
 
-  // Span freelist is empty?
-  bool FreelistEmpty() const;
+  // Indicates whether the object is considered large or small based on
+  // size > SizeMap::kMultiPageSize.
+  enum class Align { SMALL, LARGE };
+
+  // Indicate whether the Span is empty. Size is used to determine whether
+  // the span is using a compressed linked list of objects, or a bitmap
+  // to hold available objects.
+  bool FreelistEmpty(size_t size) const;
 
   // Pushes ptr onto freelist unless the freelist becomes full,
   // in which case just return false.
@@ -161,6 +180,15 @@ class Span : public SpanList::Elem {
       return false;
     }
     allocated_--;
+    // Bitmaps are used to record object availability when there are fewer than
+    // 64 objects in a span.
+    if (ABSL_PREDICT_FALSE(size >= kBitmapMinObjectSize)) {
+      if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
+        return BitmapFreelistPush<Align::SMALL>(ptr, size);
+      } else {
+        return BitmapFreelistPush<Align::LARGE>(ptr, size);
+      }
+    }
     if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
       return FreelistPushSized<Align::SMALL>(ptr, size);
     } else {
@@ -197,7 +225,15 @@ class Span : public SpanList::Elem {
   // look at b/35680381 and cl/199502226.
   uint16_t allocated_;  // Number of non-free objects
   uint16_t embed_count_;
-  uint16_t freelist_;
+  // For available objects stored as a compressed linked list, the index of
+  // the first object in recorded in freelist_. When a bitmap is used to
+  // represent available objects, the reciprocal of the object size is
+  // stored to enable conversion from the offset of an object within a
+  // span to the index of the object.
+  union {
+    uint16_t freelist_;
+    uint16_t reciprocal_;
+  };
   uint8_t cache_size_;
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   uint8_t sampled_ : 1;   // Sampled object?
@@ -206,6 +242,11 @@ class Span : public SpanList::Elem {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
     // Embed cache of free objects.
     ObjIdx cache_[kCacheSize];
+
+    // Used for spans with in CentralFreeList with fewer than 64 objects.
+    // Each bit is set to one when the object is available, and zero
+    // when the object is used.
+    Bitmap<64> bitmap_{};
 
     // Used only for sampled spans (SAMPLED state).
     StackTrace* sampled_stack_;
@@ -225,7 +266,27 @@ class Span : public SpanList::Elem {
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
   ObjIdx* IdxToPtr(ObjIdx idx, size_t size) const;
 
-  enum Align { SMALL, LARGE };
+  // For bitmap'd spans conversion from an offset to an index is performed
+  // by multiplying by the scaled reciprocal of the object size.
+  static uint16_t CalcReciprocal(size_t size);
+
+  // Convert object pointer <-> freelist index for bitmap managed objects.
+  template <Align align>
+  ObjIdx BitmapPtrToIdx(void* ptr, size_t size) const;
+  ObjIdx* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
+
+  // Helper function for converting a pointer to an index.
+  template <Align align>
+  static ObjIdx OffsetToIdx(uintptr_t offset, size_t size, uint16_t reciprocal);
+  // Helper function for testing round trips between pointers and indexes.
+  static ObjIdx TestOffsetToIdx(uintptr_t ptr, size_t size,
+                                uint16_t reciprocal) {
+    if (size <= SizeMap::kMultiPageSize) {
+      return OffsetToIdx<Align::SMALL>(ptr, size, reciprocal);
+    } else {
+      return OffsetToIdx<Align::LARGE>(ptr, size, reciprocal);
+    }
+  }
 
   template <Align align>
   ObjIdx* IdxToPtrSized(ObjIdx idx, size_t size) const;
@@ -238,6 +299,22 @@ class Span : public SpanList::Elem {
 
   template <Align align>
   bool FreelistPushSized(void* ptr, size_t size);
+
+  // For spans containing 64 or fewer objects, indicate that the object at the
+  // index has been returned. Always returns true.
+  template <Align align>
+  bool BitmapFreelistPush(void* ptr, size_t size);
+
+  // A bitmap is used to indicate object availability for spans containing
+  // 64 or fewer objects.
+  void BitmapBuildFreelist(size_t size, size_t count);
+
+  // For spans with 64 or fewer objects populate batch with up to N objects.
+  // Returns number of objects actually popped.
+  size_t BitmapFreelistPopBatch(void** batch, size_t N, size_t size);
+
+  // Friend class to enable more indepth testing of bitmap code.
+  friend class SpanTestPeer;
 };
 
 template <Span::Align align>
@@ -376,6 +453,51 @@ bool Span::FreelistPushSized(void* ptr, size_t size) {
   return true;
 }
 
+template <Span::Align align>
+Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, size_t size,
+                               uint16_t reciprocal) {
+  if (align == Align::SMALL) {
+    return static_cast<ObjIdx>(
+        // Add kBitmapScalingDenominator / 2 to round to nearest integer.
+        ((offset >> kAlignmentShift) * reciprocal +
+         kBitmapScalingDenominator / 2) /
+        kBitmapScalingDenominator);
+  } else {
+    return static_cast<ObjIdx>(
+        ((offset >> SizeMap::kMultiPageAlignmentShift) * reciprocal +
+         kBitmapScalingDenominator / 2) /
+        kBitmapScalingDenominator);
+  }
+}
+
+template <Span::Align align>
+Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
+  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
+  uintptr_t off = static_cast<uint32_t>(p - first_page_.start_uintptr());
+  ObjIdx idx = OffsetToIdx<align>(off, size, reciprocal_);
+  ASSERT(BitmapIdxToPtr(idx, size) == ptr);
+  return idx;
+}
+
+template <Span::Align align>
+bool Span::BitmapFreelistPush(void* ptr, size_t size) {
+#ifndef NDEBUG
+  size_t before = bitmap_.CountBits(0, 64);
+#endif
+  // TODO(djgove) Conversions to offsets can be computed outside of lock.
+  ObjIdx idx = BitmapPtrToIdx<align>(ptr, size);
+  // Check that the object is not already returned.
+  ASSERT(bitmap_.GetBit(idx) == 0);
+  // Set the bit indicating where the object was returned.
+  bitmap_.SetBit(idx);
+#ifndef NDEBUG
+  size_t after = bitmap_.CountBits(0, 64);
+  ASSERT(before + 1 == after);
+  ASSERT(allocated_ == embed_count_ - after);
+#endif
+  return true;
+}
+
 inline Span::Location Span::location() const {
   return static_cast<Location>(location_);
 }
@@ -415,8 +537,12 @@ inline uint64_t Span::freelist_added_time() const {
   return freelist_added_time_;
 }
 
-inline bool Span::FreelistEmpty() const {
-  return cache_size_ == 0 && freelist_ == kListEnd;
+inline bool Span::FreelistEmpty(size_t size) const {
+  if (size < kBitmapMinObjectSize) {
+    return (cache_size_ == 0 && freelist_ == kListEnd);
+  } else {
+    return (bitmap_.IsZero());
+  }
 }
 
 inline void Span::RemoveFromList() { SpanList::Elem::remove(); }

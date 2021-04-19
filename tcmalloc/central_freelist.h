@@ -76,7 +76,7 @@ class CentralFreeList {
  private:
   // Release an object to spans.
   // Returns object's span if it become completely free.
-  Span* ReleaseToSpans(void* object, Span* span)
+  Span* ReleaseToSpans(void* object, Span* span, size_t object_size)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
