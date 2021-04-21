@@ -370,6 +370,7 @@ cc_library(
     deps = [
         ":logging",
         ":optimization",
+        "@com_google_absl//absl/numeric:bits",
     ],
 )
 

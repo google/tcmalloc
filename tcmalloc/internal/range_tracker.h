@@ -23,29 +23,13 @@
 #include <limits>
 #include <type_traits>
 
+#include "absl/numeric/bits.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-// Helpers for below
-class Bitops {
- public:
-  // Returns the zero-indexed first set bit of a nonzero word.
-  // i.e. FindFirstSet(~0) = FindFirstSet(1) = 0, FindFirstSet(1 << 63) = 63.
-  // REQUIRES: word != 0.
-  static inline size_t FindFirstSet(size_t word);
-
-  // Returns the zero-indexed last set bit of a nonzero word.
-  // i.e. FindLastSet(~0) = FindLastSet(1 << 63) = 63, FindLastSet(1) = 0.
-  // REQUIRES: word != 0.
-  static inline size_t FindLastSet(size_t word);
-
-  // Returns the count of set bits in word.
-  static inline size_t CountSetBits(size_t word);
-};
 
 // Keeps a bitmap of some fixed size (N bits).
 template <size_t N>
@@ -297,7 +281,7 @@ inline size_t Bitmap<N>::CountWordBits(size_t i, size_t from, size_t to) const {
   const size_t mask = (all_ones >> (kWordSize - n)) << from;
 
   ASSUME(i < kWords);
-  return Bitops::CountSetBits(bits_[i] & mask);
+  return absl::popcount(bits_[i] & mask);
 }
 
 // Set the bits [from, to) in the i-th word to Value.
@@ -316,60 +300,6 @@ inline void Bitmap<N>::SetWordBits(size_t i, size_t from, size_t to) {
     bits_[i] |= mask;
   } else {
     bits_[i] &= ~mask;
-  }
-}
-
-inline size_t Bitops::FindFirstSet(size_t word) {
-  static_assert(sizeof(size_t) == sizeof(unsigned int) ||
-                    sizeof(size_t) == sizeof(unsigned long) ||
-                    sizeof(size_t) == sizeof(unsigned long long),
-                "Unexpected size_t size");
-
-  // Previously, we relied on inline assembly to implement this function for
-  // x86.  Relying on the compiler built-ins reduces the amount of architecture
-  // specific code.
-  //
-  // This does leave an false dependency errata
-  // (https://bugs.llvm.org/show_bug.cgi?id=33869#c24), but that is more easily
-  // addressed by the compiler than TCMalloc.
-  ASSUME(word != 0);
-  if (sizeof(size_t) == sizeof(unsigned int)) {
-    return __builtin_ctz(word);
-  } else if (sizeof(size_t) == sizeof(unsigned long)) {  // NOLINT
-    return __builtin_ctzl(word);
-  } else {
-    return __builtin_ctzll(word);
-  }
-}
-
-inline size_t Bitops::FindLastSet(size_t word) {
-  static_assert(sizeof(size_t) == sizeof(unsigned int) ||
-                    sizeof(size_t) == sizeof(unsigned long) ||
-                    sizeof(size_t) == sizeof(unsigned long long),
-                "Unexpected size_t size");
-
-  ASSUME(word != 0);
-  if (sizeof(size_t) == sizeof(unsigned int)) {
-    return (CHAR_BIT * sizeof(word) - 1) - __builtin_clz(word);
-  } else if (sizeof(size_t) == sizeof(unsigned long)) {  // NOLINT
-    return (CHAR_BIT * sizeof(word) - 1) - __builtin_clzl(word);
-  } else {
-    return (CHAR_BIT * sizeof(word) - 1) - __builtin_clzll(word);
-  }
-}
-
-inline size_t Bitops::CountSetBits(size_t word) {
-  static_assert(sizeof(size_t) == sizeof(unsigned int) ||
-                    sizeof(size_t) == sizeof(unsigned long) ||     // NOLINT
-                    sizeof(size_t) == sizeof(unsigned long long),  // NOLINT
-                "Unexpected size_t size");
-
-  if (sizeof(size_t) == sizeof(unsigned int)) {
-    return __builtin_popcount(word);
-  } else if (sizeof(size_t) == sizeof(unsigned long)) {  // NOLINT
-    return __builtin_popcountl(word);
-  } else {
-    return __builtin_popcountll(word);
   }
 }
 
@@ -532,7 +462,8 @@ inline size_t Bitmap<N>::FindValue(size_t index) const {
   }
 
   word *= kWordSize;
-  size_t ret = Bitops::FindFirstSet(here) + word;
+  ASSUME(here != 0);
+  size_t ret = absl::countr_zero(here) + word;
   if (kDeadBits > 0) {
     if (ret > N) ret = N;
   }
@@ -560,7 +491,8 @@ inline ssize_t Bitmap<N>::FindValueBackwards(size_t index) const {
   }
 
   word *= kWordSize;
-  size_t ret = Bitops::FindLastSet(here) + word;
+  ASSUME(here != 0);
+  size_t ret = absl::bit_width(here) - 1 + word;
   return ret;
 }
 
