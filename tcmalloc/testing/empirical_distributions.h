@@ -24,7 +24,9 @@ namespace empirical_distributions {
 absl::Span<const EmpiricalData::Entry> Beta();
 absl::Span<const EmpiricalData::Entry> Bravo();
 absl::Span<const EmpiricalData::Entry> Charlie();
+absl::Span<const EmpiricalData::Entry> Delta();
 absl::Span<const EmpiricalData::Entry> Echo();
+absl::Span<const EmpiricalData::Entry> Foxtrot();
 absl::Span<const EmpiricalData::Entry> Merced();
 absl::Span<const EmpiricalData::Entry> Sierra();
 absl::Span<const EmpiricalData::Entry> Sigma();
