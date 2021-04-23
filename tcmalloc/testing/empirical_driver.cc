@@ -57,9 +57,9 @@
 
 ABSL_FLAG(std::string, profile, "",
           "Which source of profiled allocation to use for the base load. "
-          "This can be beta, bravo, charlie, echo, merced, sierra, sigma, or "
-          "uniform. It can also be a uint64_t N, which means allocate N-byte "
-          "objects exclusively.");
+          "This can be beta, bravo, charlie, delta, echo, foxtrot, merced, "
+          "sierra, sigma, or uniform. It can also be a uint64_t N, which means "
+          "allocate N-byte objects exclusively.");
 
 ABSL_FLAG(uint64_t, threads, 1, "Number of parallel allocators");
 
