@@ -42,7 +42,7 @@ class RawSpan {
     CHECK_CONDITION(res == 0);
     span_.set_first_page(PageIdContaining(mem));
     span_.set_num_pages(npages);
-    span_.BuildFreelist(size, objects_per_span);
+    span_.BuildFreelist(size, objects_per_span, nullptr, 0);
   }
 
   ~RawSpan() { free(span_.start_address()); }

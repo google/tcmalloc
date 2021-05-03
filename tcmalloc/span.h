@@ -204,7 +204,9 @@ class Span : public SpanList::Elem {
   void Init(PageId p, Length n);
 
   // Initialize freelist to contain all objects in the span.
-  void BuildFreelist(size_t size, size_t count);
+  // Pops up to N objects from the freelist and returns them in the batch array.
+  // Returns number of objects actually popped.
+  int BuildFreelist(size_t size, size_t count, void** batch, int N);
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();

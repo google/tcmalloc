@@ -137,28 +137,32 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
   ASSUME(N > 0);
   // Use local copy of variable to ensure that it is not reloaded.
   size_t object_size = object_size_;
+  int result = 0;
   absl::base_internal::SpinLockHolder h(&lock_);
   if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
-    Populate();
-  }
-
-  int result = 0;
-  while (result < N && !nonempty_.empty()) {
-    Span* span = nonempty_.first();
-    int here = span->FreelistPopBatch(batch + result, N - result, object_size);
-    ASSERT(here > 0);
-    if (span->FreelistEmpty(object_size)) {
-      span->RemoveFromList();  // from nonempty_
-    }
-    result += here;
+    result = Populate(batch, N);
+  } else {
+    do {
+      Span* span = nonempty_.first();
+      int here =
+          span->FreelistPopBatch(batch + result, N - result, object_size);
+      ASSERT(here > 0);
+      if (span->FreelistEmpty(object_size)) {
+        span->RemoveFromList();  // from nonempty_
+      }
+      result += here;
+    } while (result < N && !nonempty_.empty());
   }
   UpdateObjectCounts(-result);
   return result;
 }
 
 // Fetch memory from the system and add to the central cache freelist.
-void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+int CentralFreeList::Populate(void** batch,
+                              int N) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
+  // Note, this could result in multiple calls to populate each allocating
+  // a new span and the pushing those partially full spans onto nonempty.
   lock_.Unlock();
 
   const MemoryTag tag = MemoryTagFromSizeClass(size_class_);
@@ -167,18 +171,24 @@ void CentralFreeList::Populate() ABSL_NO_THREAD_SAFETY_ANALYSIS {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());
     lock_.Lock();
-    return;
+    return 0;
   }
   ASSERT(tag == GetMemoryTag(span->start_address()));
   ASSERT(span->num_pages() == pages_per_span_);
 
   Static::pagemap().RegisterSizeClass(span, size_class_);
-  span->BuildFreelist(object_size_, objects_per_span_);
+  size_t objects_per_span = objects_per_span_;
+  int result = span->BuildFreelist(object_size_, objects_per_span, batch, N);
+  ASSERT(result > 0);
+  // This is a cheaper check than using FreelistEmpty().
+  bool span_empty = result == objects_per_span;
 
-  // Add span to list of non-empty spans
   lock_.Lock();
-  nonempty_.prepend(span);
+  if (!span_empty) {
+    nonempty_.prepend(span);
+  }
   RecordSpanAllocated();
+  return result;
 }
 
 size_t CentralFreeList::OverheadBytes() {

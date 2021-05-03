@@ -81,7 +81,9 @@ class CentralFreeList {
 
   // Populate cache by fetching from the page heap.
   // May temporarily release lock_.
-  void Populate() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  // Fill a prefix of batch[0..N-1] with up to N elements removed from central
+  // freelist. Returns the number of elements removed.
+  int Populate(void** batch, int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // This lock protects all the mutable data members.
   absl::base_internal::SpinLock lock_;

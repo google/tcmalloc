@@ -250,25 +250,35 @@ void Span::BitmapBuildFreelist(size_t size, size_t count) {
   embed_count_ = count;
 #endif  // NDEBUG
   reciprocal_ = CalcReciprocal(size);
+  allocated_ = 0;
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
   ASSERT(bitmap_.CountBits(0, 64) == count);
 }
 
-void Span::BuildFreelist(size_t size, size_t count) {
-  allocated_ = 0;
+int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   freelist_ = kListEnd;
 
   if (size >= kBitmapMinObjectSize) {
-    return BitmapBuildFreelist(size, count);
+    BitmapBuildFreelist(size, count);
+    return BitmapFreelistPopBatch(batch, N, size);
   }
 
-  ObjIdx idx = 0;
+  // First, push as much as we can into the batch.
+  char* ptr = static_cast<char*>(start_address());
+  int result = N <= count ? N : count;
+  for (int i = 0; i < result; ++i) {
+    batch[i] = ptr;
+    ptr += size;
+  }
+  allocated_ = result;
+
   ObjIdx idxStep = size / kAlignment;
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.
   if (size > SizeMap::kMultiPageSize) {
     idxStep = size / SizeMap::kMultiPageAlignment;
   }
+  ObjIdx idx = idxStep * result;
 
   // Verify that the end of the useful portion of the span (and the beginning of
   // the span waste) has an index that doesn't overflow or risk confusion with
@@ -280,7 +290,8 @@ void Span::BuildFreelist(size_t size, size_t count) {
 
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;
-  // First, push as much as we can into the cache_.
+
+  // Then, push as much as we can into the cache_.
   int cache_size = 0;
   for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
     cache_[cache_size] = idx;
@@ -313,6 +324,7 @@ void Span::BuildFreelist(size_t size, size_t count) {
     }
   }
   embed_count_ = embed_count;
+  return result;
 }
 
 }  // namespace tcmalloc_internal

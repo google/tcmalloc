@@ -25,6 +25,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/container/node_hash_set.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
@@ -141,7 +142,7 @@ class LargeAllocationTest : public ::testing::Test {
 TEST_F(LargeAllocationTest, UniqueAddresses) {
   constexpr int kZeroTimes = 1024;
 
-  absl::node_hash_set<void*> ptrs;
+  absl::flat_hash_set<void*> ptrs;
   for (int i = 0; i < kZeroTimes; ++i) {
     void* p = malloc(1);
     ASSERT_NE(p, nullptr);
