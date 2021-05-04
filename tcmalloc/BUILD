@@ -363,7 +363,7 @@ cc_library(
     name = "want_legacy_spans",
     srcs = ["want_legacy_spans.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:public"],
+    visibility = ["//tcmalloc/testing:__pkg__"],
     deps = [
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
