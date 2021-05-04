@@ -23,6 +23,7 @@ namespace tcmalloc {
 enum class Experiment : int {
   TCMALLOC_TEMERAIRE,
   TCMALLOC_SANS_56_SIZECLASS,
+  TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE,
   kMaxExperimentID,
 };
 
@@ -35,6 +36,7 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_TEMERAIRE, "TCMALLOC_TEMERAIRE"},
     {Experiment::TCMALLOC_SANS_56_SIZECLASS, "TCMALLOC_SANS_56_SIZECLASS"},
+    {Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE, "TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE"},
 };
 // clang-format on
 

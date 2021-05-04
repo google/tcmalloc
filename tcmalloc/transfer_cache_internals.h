@@ -132,6 +132,13 @@ class TransferCache {
               objs_to_move,
               (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
       info.capacity = std::min(info.capacity, max_capacity_);
+
+      if (IsExperimentActive(
+              Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE)) {
+        info.capacity *= 16;
+        max_capacity_ *= 16;
+      }
+
       slots_ = reinterpret_cast<void **>(
           owner_->Alloc(max_capacity_ * sizeof(void *)));
     }

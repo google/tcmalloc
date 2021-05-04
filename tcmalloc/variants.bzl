@@ -62,6 +62,13 @@ variants = [
         "copts": [],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_CACHELINE_AWARE_SIZECLASSES"},
     },
+    {
+        "name": "8k_pages_16x_transfer_cache",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "copts": [],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE"},
+    },
 ]
 
 # Declare an individual test.
