@@ -159,7 +159,8 @@ void SizeMap::Init() {
     SetSizeClasses(kExperimentalSizeClassesCount, kExperimentalSizeClasses);
   } else {
     if (default_want_legacy_spans != nullptr &&
-        default_want_legacy_spans() > 0) {
+        default_want_legacy_spans() > 0
+    ) {
       SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
     } else {
       SetSizeClasses(kSizeClassesCount, kSizeClasses);
