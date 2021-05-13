@@ -619,11 +619,10 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       EXPECT_LE(cap, kStressCapacity);
     } else {
       struct Context {
-        TcmallocSlab* slab;
         std::vector<void*>* block;
         std::atomic<size_t>* capacity;
       };
-      Context ctx = {slab, block, capacity};
+      Context ctx = {block, capacity};
       int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
       if (mutexes->at(cpu).TryLock()) {
         slab->Drain(

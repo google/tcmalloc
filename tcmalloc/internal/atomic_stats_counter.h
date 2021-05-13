@@ -48,10 +48,6 @@ class StatsCounter {
     this->value_.fetch_add(increment, std::memory_order_relaxed);
   }
 
-  // Clear the counter to zero.  Equivalent to atomically executing
-  // this->Add(-this->value()).
-  void Clear() { this->value_.store(0, std::memory_order_relaxed); }
-
   // Return the current value of the counter.
   Value value() const { return this->value_.load(std::memory_order_relaxed); }
 

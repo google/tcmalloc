@@ -72,9 +72,6 @@ ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void* tcmalloc_tls_fetch_pic() {
 }
 #endif
 
-ABSL_CONST_INIT size_t tcmalloc_internal_virtual_cpu_id_offset =
-    offsetof(kernel_rseq, cpu_id);
-
 }  // extern "C"
 
 enum PerCpuInitStatus {
