@@ -126,6 +126,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
             switch (tag) {
               case MemoryTag::kNormal:
                 return AllocAndReport<MemoryTag::kNormal>;
+              case MemoryTag::kNormalP1:
+                return AllocAndReport<MemoryTag::kNormalP1>;
               case MemoryTag::kSampled:
                 return AllocAndReport<MemoryTag::kSampled>;
               default:

@@ -283,6 +283,7 @@ common_deps = [
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
+    "//tcmalloc/internal:numa",
     "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",
@@ -365,6 +366,24 @@ cc_library(
     srcs = ["want_legacy_spans.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc/testing:__pkg__"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+    alwayslink = 1,
+)
+
+# Add a dep to this if you want your binary to enable NUMA awareness by
+# default.
+cc_library(
+    name = "want_numa_aware",
+    srcs = ["want_numa_aware.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__pkg__",
+        "//tcmalloc/internal:__pkg__",
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = [
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",

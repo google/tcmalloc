@@ -35,6 +35,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/size_class_info.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -162,9 +163,14 @@ inline constexpr size_t kMinPages = 8;
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
 
-// The true number of size classes is a multiple of kNumBaseClasses.
+inline constexpr size_t kNumaPartitions = 1;
+
+// We have copies of kNumBaseClasses size classes for each NUMA node, followed
+// by any expanded classes.
+inline constexpr size_t kExpandedClassesStart =
+    kNumBaseClasses * kNumaPartitions;
 inline constexpr size_t kNumClasses =
-    kNumBaseClasses * (kHasExpandedClasses ? 2 : 1);
+    kExpandedClassesStart + (kHasExpandedClasses ? kNumBaseClasses : 0);
 
 // Size classes are often stored as uint32_t values, but there are some
 // situations where we need to store a size class with as compact a
@@ -215,12 +221,18 @@ inline constexpr int kMaxOverages = 3;
 inline constexpr int kMaxDynamicFreeListLength = 8192;
 
 enum class MemoryTag : uint8_t {
-  kSampled = 0x0,  // Sampled, infrequently allocated
-  kNormal = 0x1,   // Not sampled
+  // Sampled, infrequently allocated
+  kSampled = 0x0,
+  // Not sampled, NUMA partition 0
+  kNormalP0 = 0x1,
+  // Not sampled, NUMA partition 1
+  kNormalP1 = (kNumaPartitions > 1) ? 0x2 : 0xff,
+  // Not sampled
+  kNormal = kNormalP0,
 };
 
 inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
-inline constexpr uintptr_t kTagMask = uintptr_t{0x1} << kTagShift;
+inline constexpr uintptr_t kTagMask = uintptr_t{0x3} << kTagShift;
 
 // Returns true if ptr is tagged.
 ABSL_DEPRECATED("Replace with specific tests")
@@ -229,14 +241,20 @@ inline bool IsTaggedMemory(const void* ptr) {
 }
 
 inline bool IsSampledMemory(const void* ptr) {
-  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
-         (static_cast<uintptr_t>(MemoryTag::kSampled) << kTagShift);
+  constexpr uintptr_t kSampledNormalMask = kNumaPartitions > 1 ? 0x3 : 0x1;
+
+  static_assert(static_cast<uintptr_t>(MemoryTag::kNormalP0) &
+                kSampledNormalMask);
+  static_assert(static_cast<uintptr_t>(MemoryTag::kNormalP1) &
+                kSampledNormalMask);
+
+  const uintptr_t tag =
+      (reinterpret_cast<uintptr_t>(ptr) & kTagMask) >> kTagShift;
+  return (tag & kSampledNormalMask) ==
+         static_cast<uintptr_t>(MemoryTag::kSampled);
 }
 
-inline bool IsNormalMemory(const void* ptr) {
-  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
-         (static_cast<uintptr_t>(MemoryTag::kNormal) << kTagShift);
-}
+inline bool IsNormalMemory(const void* ptr) { return !IsSampledMemory(ptr); }
 
 inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
@@ -246,7 +264,7 @@ inline MemoryTag GetMemoryTag(const void* ptr) {
 absl::string_view MemoryTagToLabel(MemoryTag tag);
 
 inline constexpr bool IsExpandedSizeClass(unsigned cl) {
-  return kHasExpandedClasses && (cl >= kNumBaseClasses);
+  return kHasExpandedClasses && (cl >= kExpandedClassesStart);
 }
 
 #if !defined(TCMALLOC_SMALL_BUT_SLOW) && __WORDSIZE != 32
@@ -265,6 +283,31 @@ inline constexpr size_t kMinMmapAlloc = 32 << 20;
 static_assert(kMinMmapAlloc % kMinSystemAlloc == 0,
               "Minimum mmap allocation size is not a multiple of"
               " minimum system allocation size");
+
+inline MemoryTag NumaNormalTag(size_t numa_partition) {
+  switch (numa_partition) {
+    case 0:
+      return MemoryTag::kNormalP0;
+    case 1:
+      return MemoryTag::kNormalP1;
+    default:
+      ASSUME(false);
+      __builtin_unreachable();
+  }
+}
+
+inline size_t NumaPartitionFromPointer(void* ptr) {
+  if constexpr (kNumaPartitions == 1) {
+    return 0;
+  }
+
+  switch (GetMemoryTag(ptr)) {
+    case MemoryTag::kNormalP1:
+      return 1;
+    default:
+      return 0;
+  }
+}
 
 // Size-class information + mapping
 class SizeMap {
@@ -415,7 +458,7 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
-    *cl = class_array_[idx];
+    *cl = class_array_[idx] + (policy.numa_partition() * kNumBaseClasses);
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
@@ -424,7 +467,7 @@ class SizeMap {
       if (ABSL_PREDICT_TRUE((class_to_size(*cl) & mask) == 0)) {
         return true;
       }
-    } while (++*cl < kNumClasses);
+    } while ((++*cl % kNumBaseClasses) != 0);
 
     ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
     return false;

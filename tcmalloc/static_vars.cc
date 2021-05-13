@@ -26,6 +26,7 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
@@ -62,6 +63,7 @@ ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
+ABSL_CONST_INIT NumaTopology<kNumaPartitions> Static::numa_topology_;
 
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses
@@ -75,7 +77,7 @@ size_t Static::metadata_bytes() {
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(peak_heap_tracker_) + sizeof(guarded_page_lock) +
-      sizeof(guardedpage_allocator_);
+      sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
 
   const size_t allocated = arena().bytes_allocated() +
                            AddressRegionFactory::InternalBytesAllocated();
@@ -95,6 +97,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   if (!inited_.load(std::memory_order_acquire)) {
     tracking::Init();
     sizemap_.Init();
+    numa_topology_.Init();
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
     span_allocator_.New();  // Reduce cache conflicts

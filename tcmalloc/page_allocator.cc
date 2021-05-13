@@ -96,14 +96,22 @@ bool want_hpaa() {
 PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
   if (kUseHPAA) {
-    normal_impl_ =
+    normal_impl_[0] =
         new (&choices_[0].hpaa) HugePageAwareAllocator(MemoryTag::kNormal);
-    sampled_impl_ =
-        new (&choices_[1].hpaa) HugePageAwareAllocator(MemoryTag::kSampled);
+    if (Static::numa_topology().numa_aware()) {
+      normal_impl_[1] =
+          new (&choices_[1].hpaa) HugePageAwareAllocator(MemoryTag::kNormalP1);
+    }
+    sampled_impl_ = new (&choices_[kNumaPartitions + 0].hpaa)
+        HugePageAwareAllocator(MemoryTag::kSampled);
     alg_ = HPAA;
   } else {
-    normal_impl_ = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
-    sampled_impl_ = new (&choices_[1].ph) PageHeap(MemoryTag::kSampled);
+    normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
+    if (Static::numa_topology().numa_aware()) {
+      normal_impl_[1] = new (&choices_[1].ph) PageHeap(MemoryTag::kNormalP1);
+    }
+    sampled_impl_ =
+        new (&choices_[kNumaPartitions + 0].ph) PageHeap(MemoryTag::kSampled);
     alg_ = PAGE_HEAP;
   }
 }
@@ -164,10 +172,12 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
           limit_, "without breaking hugepages - performance will drop");
       warned_hugepages = true;
     }
-    ret += static_cast<HugePageAwareAllocator *>(normal_impl_)
-               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
-    if (ret >= pages) {
-      return true;
+    for (int partition = 0; partition < active_numa_partitions(); partition++) {
+      ret += static_cast<HugePageAwareAllocator *>(normal_impl_[partition])
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
+      if (ret >= pages) {
+        return true;
+      }
     }
 
     ret += static_cast<HugePageAwareAllocator *>(sampled_impl_)
@@ -175,6 +185,10 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
   }
   // Return "true", if we got back under the limit.
   return (pages <= ret);
+}
+
+size_t PageAllocator::active_numa_partitions() const {
+  return Static::numa_topology().active_partitions();
 }
 
 }  // namespace tcmalloc_internal

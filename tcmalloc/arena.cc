@@ -15,6 +15,7 @@
 #include "tcmalloc/arena.h"
 
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -30,8 +31,20 @@ void* Arena::Alloc(size_t bytes) {
     // TODO(b/171081864): Arena allocations should be made relatively
     // infrequently.  Consider tagging this memory with sampled objects which
     // are also infrequently allocated.
-    free_area_ = reinterpret_cast<char*>(
-        SystemAlloc(ask, &actual_size, kPageSize, MemoryTag::kNormal));
+    //
+    // In the meantime it is important that we use the current NUMA partition
+    // rather than always using a particular one because it's possible that any
+    // single partition we choose might only contain nodes that the process is
+    // unable to allocate from due to cgroup restrictions.
+    MemoryTag tag;
+    const auto& numa_topology = Static::numa_topology();
+    if (numa_topology.numa_aware()) {
+      tag = NumaNormalTag(numa_topology.GetCurrentPartition());
+    } else {
+      tag = MemoryTag::kNormal;
+    }
+    free_area_ =
+        reinterpret_cast<char*>(SystemAlloc(ask, &actual_size, kPageSize, tag));
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       Crash(kCrash, __FILE__, __LINE__,
             "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "

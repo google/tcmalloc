@@ -36,6 +36,8 @@ static int OpenLog(MemoryTag tag) {
     switch (tag) {
       case MemoryTag::kNormal:
         return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
+      case MemoryTag::kNormalP1:
+        return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE_P1");
       case MemoryTag::kSampled:
         return thread_safe_getenv("TCMALLOC_SAMPLED_PAGE_LOG_FILE");
       default:

@@ -99,7 +99,7 @@ static size_t MaxCapacity(size_t cl) {
     return 0;
   }
 
-  if (cl <= kNumSmall) {
+  if (!IsExpandedSizeClass(cl) && (cl % kNumBaseClasses) <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
     // good performance (well over 90% of malloc calls are for cl <= 10.)
     return kSmallObjectDepth;
@@ -121,10 +121,28 @@ void CPUCache::Activate(ActivationMode mode) {
   ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
 
-  const size_t kBytesAvailable = (1 << CPUCache::kPerCpuShift);
+  size_t per_cpu_shift = kPerCpuShift;
+  const auto &topology = Static::numa_topology();
+  if (topology.numa_aware()) {
+    per_cpu_shift += absl::bit_ceil(topology.active_partitions() - 1);
+  }
+
+  const size_t kBytesAvailable = (1 << per_cpu_shift);
   size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
+  // Deal with size classes that correspond only to NUMA partitions that are in
+  // use. If NUMA awareness is disabled then we may have a smaller shift than
+  // would suffice for all of the unused size classes.
+  for (int cl = 0;
+       cl < Static::numa_topology().active_partitions() * kNumBaseClasses;
+       ++cl) {
+    const uint16_t mc = MaxCapacity(cl);
+    max_capacity_[cl] = mc;
+    bytes_required += sizeof(void *) * mc;
+  }
+
+  // Deal with expanded size classes.
+  for (int cl = kExpandedClassesStart; cl < kNumClasses; ++cl) {
     const uint16_t mc = MaxCapacity(cl);
     max_capacity_[cl] = mc;
     bytes_required += sizeof(void *) * mc;
@@ -153,7 +171,7 @@ void CPUCache::Activate(ActivationMode mode) {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_, kPerCpuShift);
+  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_, per_cpu_shift);
   if (mode == ActivationMode::FastPathOn) {
     Static::ActivateCPUCache();
   }

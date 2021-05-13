@@ -29,6 +29,8 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
   switch (tag) {
     case MemoryTag::kNormal:
       return "NORMAL";
+    case MemoryTag::kNormalP1:
+      return "NORMAL_P1";
     case MemoryTag::kSampled:
       return "SAMPLED";
     default:

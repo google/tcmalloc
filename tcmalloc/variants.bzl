@@ -90,6 +90,15 @@ variants = [
         "copts": ["-DTCMALLOC_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS"},
     },
+    {
+        "name": "numa_aware",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common",
+            "//tcmalloc:want_numa_aware",
+        ],
+        "copts": [],
+    },
 ]
 
 # Declare an individual test.

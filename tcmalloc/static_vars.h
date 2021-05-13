@@ -31,6 +31,7 @@
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap.h"
@@ -65,6 +66,10 @@ class Static {
   static CPUCache& cpu_cache() { return cpu_cache_; }
 
   static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
+
+  static NumaTopology<kNumaPartitions>& numa_topology() {
+    return numa_topology_;
+  }
 
   //////////////////////////////////////////////////////////////////////
   // In addition to the explicit initialization comment, the variables below
@@ -153,6 +158,7 @@ class Static {
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   static bool cpu_cache_active_;
   ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
+  ABSL_CONST_INIT static NumaTopology<kNumaPartitions> numa_topology_;
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd

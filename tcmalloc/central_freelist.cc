@@ -29,7 +29,10 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 static MemoryTag MemoryTagFromSizeClass(size_t cl) {
-  return MemoryTag::kNormal;
+  if (!Static::numa_topology().numa_aware()) {
+    return MemoryTag::kNormal;
+  }
+  return NumaNormalTag(cl / kNumBaseClasses);
 }
 
 // Like a constructor and hence we disable thread safety analysis.

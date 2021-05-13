@@ -436,6 +436,9 @@ static void DumpStats(Printer* out, int level) {
     }
 
     Static::page_allocator().Print(out, MemoryTag::kNormal);
+    if (Static::numa_topology().active_partitions() > 1) {
+      Static::page_allocator().Print(out, MemoryTag::kNormalP1);
+    }
     Static::page_allocator().Print(out, MemoryTag::kSampled);
     tracking::Print(out);
     Static::guardedpage_allocator().Print(out);
@@ -557,6 +560,9 @@ namespace {
     }
   }
   Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kNormal);
+  if (Static::numa_topology().active_partitions() > 1) {
+    Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kNormalP1);
+  }
   Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
   // We do not collect tracking information in pbtxt.
 
@@ -1479,6 +1485,9 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
+    if (Static::numa_topology().numa_aware()) {
+    tag = NumaNormalTag(policy.numa_partition());
+  }
   const size_t alignment = policy.align();
   Span* span = Static::page_allocator().NewAligned(
       num_pages, BytesToLengthCeil(alignment), tag);
@@ -1551,7 +1560,9 @@ static void do_free_pages(void* ptr, const PageId p) {
       size = st->allocated_size;
       if (proxy == nullptr && size <= kMaxSize) {
         tracking::Report(kFreeMiss,
-                         Static::sizemap().SizeClass(CppPolicy(), size), 1);
+                         Static::sizemap().SizeClass(
+                             CppPolicy().InSameNumaPartitionAs(ptr), size),
+                         1);
       }
       notify_sampled_alloc = true;
       Static::stacktrace_allocator().Delete(st);
@@ -1567,6 +1578,9 @@ static void do_free_pages(void* ptr, const PageId p) {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
         Static::page_allocator().Delete(span, MemoryTag::kSampled);
       }
+    } else if (kNumaPartitions != 1) {
+      ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
+      Static::page_allocator().Delete(span, GetMemoryTag(ptr));
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
       Static::page_allocator().Delete(span, MemoryTag::kNormal);
@@ -1577,7 +1591,8 @@ static void do_free_pages(void* ptr, const PageId p) {
   }
 
   if (proxy) {
-    const size_t cl = Static::sizemap().SizeClass(CppPolicy(), size);
+    const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
+    const size_t cl = Static::sizemap().SizeClass(policy, size);
     FreeSmall<Hooks::NO>(proxy, cl);
   }
 }
@@ -1681,7 +1696,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   uint32_t cl;
   if (ABSL_PREDICT_FALSE(!Static::sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align.align()), size, &cl))) {
+          CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size,
+          &cl))) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");

@@ -250,6 +250,44 @@ cc_library(
 )
 
 cc_library(
+    name = "numa",
+    srcs = ["numa.cc"],
+    hdrs = ["numa.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":environment",
+        ":logging",
+        ":percpu",
+        ":util",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "numa_test",
+    srcs = ["numa_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":logging",
+        ":numa",
+        "//tcmalloc:want_numa_aware",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "optimization",
     hdrs = ["optimization.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
