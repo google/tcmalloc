@@ -906,7 +906,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc",
     tags = [
         "noasan",
         "nomsan",
@@ -1139,7 +1138,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["experiment_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc",
     deps = [
         ":experiment",
         "@com_google_absl//absl/strings",
@@ -1151,7 +1149,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["runtime_size_classes_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc",
     deps = [
         ":common",
         ":runtime_size_classes",
