@@ -891,7 +891,7 @@ inline std::atomic<int64_t>* TcmallocSlab<Shift, NumClasses>::GetHeader(
 template <size_t Shift, size_t NumClasses>
 inline typename TcmallocSlab<Shift, NumClasses>::Header
 TcmallocSlab<Shift, NumClasses>::LoadHeader(std::atomic<int64_t>* hdrp) {
-  uint64_t raw = hdrp->load(std::memory_order_relaxed);
+  int64_t raw = hdrp->load(std::memory_order_relaxed);
   Header hdr;
   memcpy(&hdr, &raw, sizeof(hdr));
   return hdr;
@@ -900,7 +900,7 @@ TcmallocSlab<Shift, NumClasses>::LoadHeader(std::atomic<int64_t>* hdrp) {
 template <size_t Shift, size_t NumClasses>
 inline void TcmallocSlab<Shift, NumClasses>::StoreHeader(
     std::atomic<int64_t>* hdrp, Header hdr) {
-  uint64_t raw;
+  int64_t raw;
   memcpy(&raw, &hdr, sizeof(raw));
   hdrp->store(raw, std::memory_order_relaxed);
 }
@@ -910,7 +910,7 @@ inline int TcmallocSlab<Shift, NumClasses>::CompareAndSwapHeader(
     int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
     const size_t virtual_cpu_id_offset) {
 #if __WORDSIZE == 64
-  uint64_t old_raw, new_raw;
+  int64_t old_raw, new_raw;
   memcpy(&old_raw, &old, sizeof(old_raw));
   memcpy(&new_raw, &hdr, sizeof(new_raw));
   return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
