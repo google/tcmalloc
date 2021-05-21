@@ -69,7 +69,7 @@ static size_t MaxCapacity(size_t cl) {
   static constexpr size_t kNumSmall = 10;
 
   // The memory used for each per-CPU slab is the sum of:
-  //   sizeof(std::atomic<size_t>) * kNumClasses
+  //   sizeof(std::atomic<int64_t>) * kNumClasses
   //   sizeof(void*) * (kSmallObjectDepth + 1) * kNumSmall
   //   sizeof(void*) * (kLargeObjectDepth + 1) * kNumLarge
   //
@@ -118,19 +118,19 @@ void CPUCache::Activate(ActivationMode mode) {
   int num_cpus = absl::base_internal::NumCPUs();
 
   const size_t kBytesAvailable = (1 << CPUCache::kPerCpuShift);
-  size_t kBytesRequired = sizeof(std::atomic<size_t>) * kNumClasses;
+  size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
 
   for (int cl = 0; cl < kNumClasses; ++cl) {
     const uint16_t mc = MaxCapacity(cl);
     max_capacity_[cl] = mc;
-    kBytesRequired += sizeof(void *) * mc;
+    bytes_required += sizeof(void *) * mc;
   }
 
   // As we may make certain size classes no-ops by selecting "0" at runtime,
   // using a compile-time calculation overestimates the worst-case memory usage.
-  if (ABSL_PREDICT_FALSE(kBytesRequired > kBytesAvailable)) {
+  if (ABSL_PREDICT_FALSE(bytes_required > kBytesAvailable)) {
     Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-          kBytesAvailable, " need ", kBytesRequired);
+          kBytesAvailable, " need ", bytes_required);
   }
 
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
