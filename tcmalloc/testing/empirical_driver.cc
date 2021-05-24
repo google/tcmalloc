@@ -331,6 +331,10 @@ class SimThread {
            spike_bytes_allocated_.load(std::memory_order_relaxed);
   }
 
+  size_t load_allocations() {
+    return load_allocations_.load(std::memory_order_relaxed);
+  }
+
   size_t usage() { return load_usage_.load(std::memory_order_relaxed); }
 
   void Run() {
@@ -360,6 +364,8 @@ class SimThread {
       reps.Add(kBatch);
       auto allocated = load.total_bytes_allocated();
       load_bytes_allocated_.store(allocated, std::memory_order_relaxed);
+      auto total_num_allocated = load.total_num_allocated();
+      load_allocations_.store(total_num_allocated, std::memory_order_relaxed);
 
       if (run_release_each_bytes_ != 0 && allocated >= next_release_boundary_) {
         next_release_boundary_ += run_release_each_bytes_;
@@ -455,6 +461,7 @@ class SimThread {
   size_t bytes_, transient_;
   absl::bernoulli_distribution spike_is_local_;
   std::atomic<size_t> load_bytes_allocated_{0};
+  std::atomic<size_t> load_allocations_{0};
   std::atomic<size_t> spike_bytes_allocated_{0};
   std::atomic<size_t> load_usage_{0};
   absl::base_internal::SpinLock lock_;
@@ -519,6 +526,7 @@ void RunSim() {
   absl::Time last = absl::InfinitePast();
   size_t last_spikes_completed = 0;
   size_t last_bytes = 0;
+  size_t last_allocations = 0;
   absl::Time start = absl::Now();
   while (true) {
     absl::SleepFor(absl::Milliseconds(750));
@@ -530,11 +538,13 @@ void RunSim() {
       last_mallocz = t;
     }
     size_t bytes = 0;
+    size_t allocations = 0;
     size_t usage = 0;
     size_t bot = std::numeric_limits<size_t>::max(),
            top = std::numeric_limits<size_t>::min();
     for (const auto &s : state) {
       bytes += s->total_bytes_allocated();
+      allocations += s->load_allocations();
       size_t u = s->usage();
       bot = std::min(u, bot);
       top = std::max(u, top);
@@ -550,11 +560,12 @@ void RunSim() {
         (spikes_completed - last_spikes_completed) / dur_s;
     const double life_spike_rate = spikes_completed / life_s;
     const double byte_rate = (bytes - last_bytes) / dur_s;
+    const double allocations_rate = (allocations - last_allocations) / dur_s;
     absl::PrintF(
         "Time: %zu live spikes (%fiB), %f spikes / s recently (%f / s "
-        "lifetime), %fiB allocated / s\n",
+        "lifetime), %fiB allocated / s, %f allocations / s\n",
         live, BinF(spike_usage.value()), EngF(cur_spike_rate),
-        EngF(life_spike_rate), BinF(byte_rate));
+        EngF(life_spike_rate), BinF(byte_rate), BinF(allocations_rate));
 
     const size_t in_use = GetProp("generic.current_allocated_bytes");
     const size_t local = GetProp("tcmalloc.local_bytes");
@@ -568,6 +579,7 @@ void RunSim() {
     last = t;
     last_bytes = bytes;
     last_spikes_completed = spikes_completed;
+    last_allocations = allocations;
   }
 
   for (auto &t : threads) {
