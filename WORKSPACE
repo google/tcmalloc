@@ -18,36 +18,34 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Abseil
 http_archive(
-    name = "com_google_absl",
-    sha256 = "02cf605a5942437af287c91d854b7e2ec398d97041f44d91e6fb64a652218cd3",
-    strip_prefix = "abseil-cpp-1fdbe1ea1b8c835c11ed6fbec4d4259ad104f765",
-    urls = ["https://github.com/abseil/abseil-cpp/archive/1fdbe1ea1b8c835c11ed6fbec4d4259ad104f765.zip"],
+    name = "com_google_absl",  # 2021-05-20T02:59:16Z
+    urls = ["https://github.com/abseil/abseil-cpp/archive/7971fb358ae376e016d2d4fc9327aad95659b25e.zip"],
+    strip_prefix = "abseil-cpp-7971fb358ae376e016d2d4fc9327aad95659b25e",
+    sha256 = "aeba534f7307e36fe084b452299e49b97420667a8d28102cf9a0daeed340b859",
 )
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 http_archive(
-    name = "com_google_googletest",
-    sha256 = "205ddbea89a0dff059cd681f3ec9b0a6c12de7036a04cd57f0254105257593d9",
-    strip_prefix = "googletest-13a433a94dd9c7e55907d7a9b75f44ff82f309eb",
-    urls = ["https://github.com/google/googletest/archive/13a433a94dd9c7e55907d7a9b75f44ff82f309eb.zip"],
+    name = "com_google_googletest",  # 2021-05-19T20:10:13Z
+    urls = ["https://github.com/google/googletest/archive/aa9b44a18678dfdf57089a5ac22c1edb69f35da5.zip"],
+    strip_prefix = "googletest-aa9b44a18678dfdf57089a5ac22c1edb69f35da5",
+    sha256 = "8cf4eaab3a13b27a95b7e74c58fb4c0788ad94d1f7ec65b20665c4caf1d245e8",
 )
 
 # Google benchmark.
 http_archive(
-    name = "com_github_google_benchmark",
-    sha256 = "59f918c8ccd4d74b6ac43484467b500f1d64b40cc1010daa055375b322a43ba3",
-    strip_prefix = "benchmark-16703ff83c1ae6d53e5155df3bb3ab0bc96083be",
-    urls = ["https://github.com/google/benchmark/archive/16703ff83c1ae6d53e5155df3bb3ab0bc96083be.zip"],
+    name = "com_github_google_benchmark",  # 2021-05-20T16:59:29Z
+    urls = ["https://github.com/google/benchmark/archive/a4bcd937b298fdc2b0c7da9961fa202a5aecd56b.zip"],
+    strip_prefix = "benchmark-a4bcd937b298fdc2b0c7da9961fa202a5aecd56b",
+    sha256 = "a6abcbe9dec091cd570462bf712661d3944f73f964f82501456eaa5f89036b1a",
 )
 
 # C++ rules for Bazel.
 http_archive(
-    name = "rules_cc",
-    sha256 = "682a0ce1ccdac678d07df56a5f8cf0880fd7d9e08302b8f677b92db22e72052e",
-    strip_prefix = "rules_cc-7e650b11fe6d49f70f2ca7a1c4cb8bcc4a1fe239",
-    urls = [
-        "https://github.com/bazelbuild/rules_cc/archive/7e650b11fe6d49f70f2ca7a1c4cb8bcc4a1fe239.zip",
-    ],
+    name = "rules_cc",  # 2021-05-14T14:51:14Z
+    urls = ["https://github.com/bazelbuild/rules_cc/archive/68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9.zip"],
+    strip_prefix = "rules_cc-68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9",
+    sha256 = "1e19e9a3bc3d4ee91d7fcad00653485ee6c798efbbf9588d40b34cbfbded143d",
 )
 
 # Fuzzing
