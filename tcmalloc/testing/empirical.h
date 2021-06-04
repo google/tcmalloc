@@ -128,6 +128,10 @@ class AdjustableSampler {
       // As discussed above, we want to go left with probability left / W.
       const double left = tree_[2 * i + 1];
       if (x <= left) {
+        // TODO(b/189322249): Prevent this loop from being predicated as doing
+        // so significantly reduces performance.
+        asm volatile("");
+
         // Conditioning on this branch, x is now uniform in [0, left).
         i = 2 * i + 1;
       } else {
