@@ -134,7 +134,8 @@ class TransferCache {
       info.capacity = std::min(info.capacity, max_capacity_);
 
       if (IsExperimentActive(
-              Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE)) {
+              Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE) ||
+          IsExperimentActive(Experiment::TCMALLOC_16X_TRANSFER_CACHE_REAL)) {
         info.capacity *= 16;
         max_capacity_ *= 16;
       }

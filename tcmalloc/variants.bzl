@@ -69,6 +69,13 @@ variants = [
         "copts": [],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE"},
     },
+    {
+        "name": "8k_pages_16x_transfer_cache_v2",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "copts": [],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_16X_TRANSFER_CACHE_REAL"},
+    },
 ]
 
 # Declare an individual test.
