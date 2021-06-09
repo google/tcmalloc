@@ -200,7 +200,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch), i);
+        Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch, i));
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
@@ -208,7 +208,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
     Static::transfer_cache().InsertRange(
-        to_return.cl[i], absl::Span<void *>(&(to_return.obj[i]), 1), 1);
+        to_return.cl[i], absl::Span<void *>(&(to_return.obj[i]), 1));
   }
 
   return result;
@@ -455,7 +455,7 @@ int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch), count);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch, count));
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
@@ -533,8 +533,7 @@ static void DrainHandler(void *arg, size_t cl, void **batch, size_t count,
   ctx->available->fetch_add(cap * size, std::memory_order_relaxed);
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch + i, n),
-                                         n);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch + i, n));
   }
 }
 

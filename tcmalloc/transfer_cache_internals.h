@@ -151,7 +151,8 @@ class TransferCache {
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(absl::Span<void *> batch, int N) ABSL_LOCKS_EXCLUDED(lock_) {
+  void InsertRange(absl::Span<void *> batch) ABSL_LOCKS_EXCLUDED(lock_) {
+    const int N = batch.size();
     const int B = Manager::num_objects_to_move(size_class());
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
@@ -539,9 +540,10 @@ class LockFreeTransferCache {
 
   bool IsFlexible() { return true; }
 
-  // Insert the specified batch into the transfer cache.  N is the number of
-  // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(absl::Span<void *> batch, int n) {
+  // Insert the specified batch into the transfer cache. RemoveRange() is the
+  // opposite operation.
+  void InsertRange(absl::Span<void *> batch) {
+    const int n = batch.size();
     ASSERT(0 < n && n <= batch_size_);
     absl::optional<Range> r = ClaimInsert(n);
     if (!r.has_value()) {

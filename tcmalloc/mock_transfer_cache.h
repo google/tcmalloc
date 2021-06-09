@@ -130,7 +130,7 @@ class FakeTransferCacheEnvironment {
       int b = std::min(n, kBatchSize);
       bufs.resize(b);
       central_freelist().AllocateBatch(&bufs[0], b);
-      cache_.InsertRange(absl::MakeSpan(bufs), b);
+      cache_.InsertRange(absl::MakeSpan(bufs));
       n -= b;
     }
   }

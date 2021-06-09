@@ -295,7 +295,7 @@ TEST(LockTransferCacheTest, b172283201) {
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
 
   for (size_t i = 0; i < kObjects; i += batch_size) {
-    env.transfer_cache().InsertRange(absl::MakeSpan(pointers), batch_size);
+    env.transfer_cache().InsertRange(absl::MakeSpan(pointers));
 
     ASSERT_EQ(env.transfer_cache().tc_length(), batch_size);
 

@@ -1312,7 +1312,7 @@ static void FreeSmallSlow(void* ptr, size_t cl) {
   } else {
     // This thread doesn't have thread-cache yet or already. Delete directly
     // into central cache.
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(&ptr, 1), 1);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(&ptr, 1));
   }
 }
 
@@ -1450,7 +1450,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
     // TODO(b/158678747):  As of cl/315283185, we may occasionally see a hit in
     // the TransferCache here.  Prior to that CL, we always forced a miss.  Both
     // of these may artificially skew our tracking data.
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(&obj, 1), 1);
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(&obj, 1));
 #else
     // We are not maintaining precise statistics on malloc hit/miss rates at our
     // cache tiers.  We can deallocate into our ordinary cache.

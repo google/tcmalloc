@@ -59,7 +59,7 @@ void BM_CrossThread(benchmark::State& state) {
     for (int i = 0; i < Env::kInitialCapacityInBatches / 2; ++i) {
       for (Cache& c : s->c) {
         c.freelist().AllocateBatch(batch, kBatchSize);
-        c.InsertRange(batch, kBatchSize);
+        c.InsertRange({batch, kBatchSize});
       }
     }
   }
@@ -70,7 +70,7 @@ void BM_CrossThread(benchmark::State& state) {
     benchmark::DoNotOptimize(batch);
     (void)s->c[src].RemoveRange(batch, kBatchSize);
     benchmark::DoNotOptimize(batch);
-    s->c[dst].InsertRange(batch, kBatchSize);
+    s->c[dst].InsertRange({batch, kBatchSize});
     benchmark::DoNotOptimize(batch);
   }
   if (state.thread_index == 0) {
@@ -111,7 +111,7 @@ void BM_InsertRange(benchmark::State& state) {
     benchmark::DoNotOptimize(batch);
     state.ResumeTiming();
 
-    e->transfer_cache().InsertRange(batch, kBatchSize);
+    e->transfer_cache().InsertRange({batch, kBatchSize});
   }
 }
 

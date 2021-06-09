@@ -76,11 +76,11 @@ class TransferCacheManager {
     }
   }
 
-  void InsertRange(int size_class, absl::Span<void *> batch, int n) {
+  void InsertRange(int size_class, absl::Span<void *> batch) {
     if (use_lock_free_cache_)
-      cache_[size_class].lock_free.InsertRange(batch, n);
+      cache_[size_class].lock_free.InsertRange(batch);
     else
-      cache_[size_class].legacy.InsertRange(batch, n);
+      cache_[size_class].legacy.InsertRange(batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
@@ -171,8 +171,8 @@ class TransferCacheManager {
     }
   }
 
-  void InsertRange(int size_class, absl::Span<void *> batch, int n) {
-    freelist_[size_class].InsertRange(batch.data(), n);
+  void InsertRange(int size_class, absl::Span<void *> batch) {
+    freelist_[size_class].InsertRange(batch.data(), batch.size());
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {

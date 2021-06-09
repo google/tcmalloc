@@ -148,14 +148,14 @@ void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t cl, int N) {
     src->PopBatch(batch_size, batch);
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch),
-                                         batch_size);
+    Static::transfer_cache().InsertRange(cl,
+                                         absl::Span<void*>(batch, batch_size));
     N -= batch_size;
   }
   src->PopBatch(N, batch);
   static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                 "not enough space in batch");
-  Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch), N);
+  Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, N));
   size_ -= delta_bytes;
 }
 
