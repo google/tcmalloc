@@ -60,13 +60,13 @@ class CentralFreeList {
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
-  size_t length() { return static_cast<size_t>(counter_.value()); }
+  size_t length() const { return static_cast<size_t>(counter_.value()); }
 
   // Returns the memory overhead (internal fragmentation) attributable
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
   // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes();
+  size_t OverheadBytes() const;
 
   // My size class.
   size_t size_class() const { return size_class_; }

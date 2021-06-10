@@ -90,21 +90,21 @@ class TransferCacheManager {
       return cache_[size_class].legacy.RemoveRange(batch, n);
   }
 
-  size_t central_length(int size_class) {
+  size_t central_length(int size_class) const {
     if (use_lock_free_cache_)
       return cache_[size_class].lock_free.central_length();
     else
       return cache_[size_class].legacy.central_length();
   }
 
-  size_t tc_length(int size_class) {
+  size_t tc_length(int size_class) const {
     if (use_lock_free_cache_)
       return cache_[size_class].lock_free.tc_length();
     else
       return cache_[size_class].legacy.tc_length();
   }
 
-  size_t OverheadBytes(int size_class) {
+  size_t OverheadBytes(int size_class) const {
     if (use_lock_free_cache_)
       return cache_[size_class].lock_free.OverheadBytes();
     else
@@ -179,11 +179,11 @@ class TransferCacheManager {
     return freelist_[size_class].RemoveRange(batch, n);
   }
 
-  size_t central_length(int size_class) {
+  size_t central_length(int size_class) const {
     return freelist_[size_class].length();
   }
 
-  size_t tc_length(int size_class) { return 0; }
+  static constexpr size_t tc_length(int size_class) { return 0; }
 
   size_t OverheadBytes(int size_class) {
     return freelist_[size_class].OverheadBytes();

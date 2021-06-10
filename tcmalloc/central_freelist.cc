@@ -191,7 +191,7 @@ int CentralFreeList::Populate(void** batch,
   return result;
 }
 
-size_t CentralFreeList::OverheadBytes() {
+size_t CentralFreeList::OverheadBytes() const {
   if (ABSL_PREDICT_FALSE(object_size_ == 0)) {
     return 0;
   }

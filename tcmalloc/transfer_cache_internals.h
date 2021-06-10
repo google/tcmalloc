@@ -204,10 +204,10 @@ class TransferCache {
   }
 
   // Returns the number of free objects in the central cache.
-  size_t central_length() { return freelist().length(); }
+  size_t central_length() const { return freelist().length(); }
 
   // Returns the number of free objects in the transfer cache.
-  size_t tc_length() {
+  size_t tc_length() const {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
 
@@ -231,7 +231,7 @@ class TransferCache {
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
   // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() { return freelist().OverheadBytes(); }
+  size_t OverheadBytes() const { return freelist().OverheadBytes(); }
 
   SizeInfo GetSlotInfo() const {
     return slot_info_.load(std::memory_order_relaxed);
@@ -579,7 +579,7 @@ class LockFreeTransferCache {
   }
 
   // Returns the number of free objects in the central cache.
-  size_t central_length() { return freelist_.length(); }
+  size_t central_length() const { return freelist_.length(); }
 
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() const {
@@ -611,7 +611,7 @@ class LockFreeTransferCache {
   // to the freelist.  This is memory lost when the size of elements
   // in a freelist doesn't exactly divide the page-size (an 8192-byte
   // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() { return freelist_.OverheadBytes(); }
+  size_t OverheadBytes() const { return freelist_.OverheadBytes(); }
 
   // Ensures that `size_needed` of total capacity is available.  If the cache is
   // full it will try to expand this cache at the cost of some other cache size.
