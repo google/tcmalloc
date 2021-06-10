@@ -84,8 +84,8 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   if (num_classes <= 0) {
     return false;
   }
-  if (kHasExpandedClasses && num_classes > kNumClasses / 2) {
-    num_classes = kNumClasses / 2;
+  if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
+    num_classes = kNumBaseClasses;
   }
 
   for (int c = 1; c < num_classes; c++) {

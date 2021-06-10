@@ -76,7 +76,7 @@ namespace tcmalloc_internal {
 // The constants that vary between models are:
 //
 //   kPageShift - Shift amount used to compute the page size.
-//   kNumClasses - Number of size classes serviced by bucket allocators
+//   kNumBaseClasses - Number of size classes serviced by bucket allocators
 //   kMaxSize - Maximum size serviced by bucket allocators (thread/cpu/central)
 //   kMinThreadCacheSize - The minimum size in bytes of each ThreadCache.
 //   kMaxThreadCacheSize - The maximum size in bytes of each ThreadCache.
@@ -106,7 +106,7 @@ namespace tcmalloc_internal {
 
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
-inline constexpr size_t kNumClasses = 46;
+inline constexpr size_t kNumBaseClasses = 46;
 inline constexpr bool kHasExpandedClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
@@ -118,7 +118,7 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 19;
 inline constexpr size_t kMinPages = 2;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
-inline constexpr size_t kNumClasses = 2 * 78;
+inline constexpr size_t kNumBaseClasses = 78;
 inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -131,7 +131,7 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
-inline constexpr size_t kNumClasses = 2 * 89;
+inline constexpr size_t kNumBaseClasses = 89;
 inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -144,7 +144,7 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
-inline constexpr size_t kNumClasses = 2 * 86;
+inline constexpr size_t kNumBaseClasses = 86;
 inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
@@ -158,6 +158,10 @@ inline constexpr size_t kMinPages = 8;
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
+
+// The true number of size classes is a multiple of kNumBaseClasses.
+inline constexpr size_t kNumClasses =
+    kNumBaseClasses * (kHasExpandedClasses ? 2 : 1);
 
 // Minimum/maximum number of batches in TransferCache per size class.
 // Actual numbers depends on a number of factors, see TransferCache::Init
@@ -226,7 +230,7 @@ inline MemoryTag GetMemoryTag(const void* ptr) {
 absl::string_view MemoryTagToLabel(MemoryTag tag);
 
 inline constexpr bool IsExpandedSizeClass(unsigned cl) {
-  return kHasExpandedClasses && (cl >= kNumClasses / 2);
+  return kHasExpandedClasses && (cl >= kNumBaseClasses);
 }
 
 #if !defined(TCMALLOC_SMALL_BUT_SLOW) && __WORDSIZE != 32
