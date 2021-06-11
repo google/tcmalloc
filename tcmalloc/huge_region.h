@@ -43,15 +43,16 @@ namespace tcmalloc_internal {
 // available gaps (1.75 MiB), and lengths that don't fit, but would
 // introduce unacceptable fragmentation (2.1 MiB).
 //
-template <MemoryModifyFunction Unback>
-class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
+class HugeRegion : public TList<HugeRegion>::Elem {
  public:
   // We could template this if there was any need.
-  static constexpr HugeLength size() { return HLFromBytes(1024 * 1024 * 1024); }
-  static constexpr size_t kNumHugePages = size().raw_num();
+  static constexpr HugeLength kRegionSize = HLFromBytes(1024 * 1024 * 1024);
+  static constexpr size_t kNumHugePages = kRegionSize.raw_num();
+  static constexpr HugeLength size() { return kRegionSize; }
 
   // REQUIRES: r.len() == size(); r unbacked.
-  explicit HugeRegion(HugeRange r);
+  HugeRegion(HugeRange r, MemoryModifyFunction unback);
+  HugeRegion() = delete;
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
@@ -96,7 +97,7 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
   void append_it(HugeRegion *other) { this->append(other); }
 
  private:
-  RangeTracker<size().in_pages().raw_num()> tracker_;
+  RangeTracker<kRegionSize.in_pages().raw_num()> tracker_;
 
   HugeRange location_;
 
@@ -125,6 +126,8 @@ class HugeRegion : public TList<HugeRegion<Unback>>::Elem {
   HugeLength nbacked_;
   int64_t whens_[kNumHugePages];
   HugeLength total_unbacked_{NHugePages(0)};
+
+  MemoryModifyFunction unback_;
 };
 
 // Manage a set of regions from which we allocate.
@@ -214,13 +217,13 @@ class HugeRegionSet {
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
-template <MemoryModifyFunction Unback>
-inline HugeRegion<Unback>::HugeRegion(HugeRange r)
+inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction unback)
     : tracker_{},
       location_(r),
       pages_used_{},
       backed_{},
-      nbacked_(NHugePages(0)) {
+      nbacked_(NHugePages(0)),
+      unback_(unback) {
   int64_t now = absl::base_internal::CycleClock::Now();
   for (int i = 0; i < kNumHugePages; ++i) {
     whens_[i] = now;
@@ -230,9 +233,7 @@ inline HugeRegion<Unback>::HugeRegion(HugeRange r)
   }
 }
 
-template <MemoryModifyFunction Unback>
-inline bool HugeRegion<Unback>::MaybeGet(Length n, PageId *p,
-                                         bool *from_released) {
+inline bool HugeRegion::MaybeGet(Length n, PageId *p, bool *from_released) {
   if (n > longest_free()) return false;
   auto index = Length(tracker_.FindAndMark(n.raw_num()));
 
@@ -245,8 +246,7 @@ inline bool HugeRegion<Unback>::MaybeGet(Length n, PageId *p,
 }
 
 // If release=true, release any hugepages made empty as a result.
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::Put(PageId p, Length n, bool release) {
+inline void HugeRegion::Put(PageId p, Length n, bool release) {
   Length index = p - location_.start().first_page();
   tracker_.Unmark(index.raw_num(), n.raw_num());
 
@@ -254,8 +254,7 @@ inline void HugeRegion<Unback>::Put(PageId p, Length n, bool release) {
 }
 
 // Release any hugepages that are unused but backed.
-template <MemoryModifyFunction Unback>
-inline HugeLength HugeRegion<Unback>::Release() {
+inline HugeLength HugeRegion::Release() {
   HugeLength r = NHugePages(0);
   bool should_unback_[kNumHugePages] = {};
   for (size_t i = 0; i < kNumHugePages; ++i) {
@@ -268,10 +267,9 @@ inline HugeLength HugeRegion<Unback>::Release() {
   return r;
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::AddSpanStats(SmallSpanStats *small,
-                                             LargeSpanStats *large,
-                                             PageAgeHistograms *ages) const {
+inline void HugeRegion::AddSpanStats(SmallSpanStats *small,
+                                     LargeSpanStats *large,
+                                     PageAgeHistograms *ages) const {
   size_t index = 0, n;
   Length f, u;
   // This is complicated a bit by the backed/unbacked status of pages.
@@ -331,8 +329,7 @@ inline void HugeRegion<Unback>::AddSpanStats(SmallSpanStats *small,
   CHECK_CONDITION(u == unmapped_pages());
 }
 
-template <MemoryModifyFunction Unback>
-inline HugeLength HugeRegion<Unback>::backed() const {
+inline HugeLength HugeRegion::backed() const {
   HugeLength b;
   for (int i = 0; i < kNumHugePages; ++i) {
     if (backed_[i]) {
@@ -343,8 +340,7 @@ inline HugeLength HugeRegion<Unback>::backed() const {
   return b;
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::Print(Printer *out) const {
+inline void HugeRegion::Print(Printer *out) const {
   const size_t kib_used = used_pages().in_bytes() / 1024;
   const size_t kib_free = free_pages().in_bytes() / 1024;
   const size_t kib_longest_free = longest_free().in_bytes() / 1024;
@@ -358,8 +354,7 @@ inline void HugeRegion<Unback>::Print(Printer *out) const {
       total_unbacked_.in_bytes() / 1024 / 1024);
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::PrintInPbtxt(PbtxtRegion *detail) const {
+inline void HugeRegion::PrintInPbtxt(PbtxtRegion *detail) const {
   detail->PrintI64("used_bytes", used_pages().in_bytes());
   detail->PrintI64("free_bytes", free_pages().in_bytes());
   detail->PrintI64("longest_free_range_bytes", longest_free().in_bytes());
@@ -368,8 +363,7 @@ inline void HugeRegion<Unback>::PrintInPbtxt(PbtxtRegion *detail) const {
   detail->PrintI64("total_unbacked_bytes", total_unbacked_.in_bytes());
 }
 
-template <MemoryModifyFunction Unback>
-inline BackingStats HugeRegion<Unback>::stats() const {
+inline BackingStats HugeRegion::stats() const {
   BackingStats s;
   s.system_bytes = location_.len().in_bytes();
   s.free_bytes = free_pages().in_bytes();
@@ -377,8 +371,7 @@ inline BackingStats HugeRegion<Unback>::stats() const {
   return s;
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::Inc(PageId p, Length n, bool *from_released) {
+inline void HugeRegion::Inc(PageId p, Length n, bool *from_released) {
   bool should_back = false;
   const int64_t now = absl::base_internal::CycleClock::Now();
   while (n > Length(0)) {
@@ -400,8 +393,7 @@ inline void HugeRegion<Unback>::Inc(PageId p, Length n, bool *from_released) {
   *from_released = should_back;
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::Dec(PageId p, Length n, bool release) {
+inline void HugeRegion::Dec(PageId p, Length n, bool release) {
   const int64_t now = absl::base_internal::CycleClock::Now();
   bool should_unback_[kNumHugePages] = {};
   while (n > Length(0)) {
@@ -426,8 +418,7 @@ inline void HugeRegion<Unback>::Dec(PageId p, Length n, bool release) {
   }
 }
 
-template <MemoryModifyFunction Unback>
-inline void HugeRegion<Unback>::UnbackHugepages(bool should[kNumHugePages]) {
+inline void HugeRegion::UnbackHugepages(bool should[kNumHugePages]) {
   const int64_t now = absl::base_internal::CycleClock::Now();
   size_t i = 0;
   while (i < kNumHugePages) {
@@ -445,7 +436,7 @@ inline void HugeRegion<Unback>::UnbackHugepages(bool should[kNumHugePages]) {
     HugeLength hl = NHugePages(j - i);
     nbacked_ -= hl;
     HugePage p = location_.start() + NHugePages(i);
-    Unback(p.start_addr(), hl.in_bytes());
+    unback_(p.start_addr(), hl.in_bytes());
     total_unbacked_ += hl;
     i = j;
   }

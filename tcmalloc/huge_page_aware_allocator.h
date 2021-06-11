@@ -108,11 +108,10 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   static void UnbackWithoutLock(void* start, size_t length)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  typedef HugeRegion<SystemRelease> Region;
-  HugeRegionSet<Region> regions_;
+  HugeRegionSet<HugeRegion> regions_;
 
   PageHeapAllocator<FillerType::Tracker> tracker_allocator_;
-  PageHeapAllocator<Region> region_allocator_;
+  PageHeapAllocator<HugeRegion> region_allocator_;
 
   FillerType::Tracker* GetTracker(HugePage p);
 

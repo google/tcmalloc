@@ -328,7 +328,7 @@ Span *HugePageAwareAllocator::LockAndAlloc(Length n, bool *from_released) {
 
   // For anything too big for the filler, we use either a direct hugepage
   // allocation, or possibly the regions if we are worried about slack.
-  if (n <= Region::size().in_pages()) {
+  if (n <= HugeRegion::size().in_pages()) {
     return AllocLarge(n, from_released);
   }
 
@@ -367,10 +367,10 @@ void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker *pt,
 }
 
 bool HugePageAwareAllocator::AddRegion() {
-  HugeRange r = alloc_.Get(Region::size());
+  HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
-  Region *region = region_allocator_.New();
-  new (region) Region(r);
+  HugeRegion *region = region_allocator_.New();
+  new (region) HugeRegion(r, SystemRelease);
   regions_.Contribute(region);
   return true;
 }
