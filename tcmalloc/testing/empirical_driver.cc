@@ -472,7 +472,8 @@ class SimThread {
 
 void SetContents(std::string filename, std::string contents) {
 
-  int fd = tcmalloc_internal::signal_safe_open(filename.c_str(), O_WRONLY);
+  int fd =
+      tcmalloc_internal::signal_safe_open(filename.c_str(), O_WRONLY | O_CREAT);
   CHECK_CONDITION(fd >= 0);
   CHECK_CONDITION(tcmalloc_internal::signal_safe_write(
                       fd, contents.data(), contents.size(), nullptr) ==
