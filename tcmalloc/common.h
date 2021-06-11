@@ -21,6 +21,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <limits>
+#include <type_traits>
+
 #include "absl/base/attributes.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
@@ -163,6 +166,19 @@ inline constexpr size_t kMinPages = 8;
 inline constexpr size_t kNumClasses =
     kNumBaseClasses * (kHasExpandedClasses ? 2 : 1);
 
+// Size classes are often stored as uint32_t values, but there are some
+// situations where we need to store a size class with as compact a
+// representation as possible (e.g. in PageMap). Here we determine the integer
+// type to use in these situations - i.e. the smallest integer type large
+// enough to store values in the range [0,kNumClasses).
+constexpr size_t kMaxClass = kNumClasses - 1;
+using CompactSizeClass =
+    std::conditional_t<kMaxClass <= std::numeric_limits<uint8_t>::max(),
+                       uint8_t, uint16_t>;
+
+// ~64K classes ought to be enough for anybody, but let's be sure.
+static_assert(kMaxClass <= std::numeric_limits<CompactSizeClass>::max());
+
 // Minimum/maximum number of batches in TransferCache per size class.
 // Actual numbers depends on a number of factors, see TransferCache::Init
 // for details.
@@ -295,8 +311,8 @@ class SizeMap {
   // first member so that it inherits the overall alignment of a SizeMap
   // instance.  In particular, if we create a SizeMap instance that's cache-line
   // aligned, this member is also aligned to the width of a cache line.
-  unsigned char class_array_[kClassArraySize * (kHasExpandedClasses ? 2 : 1)] =
-      {0};
+  CompactSizeClass
+      class_array_[kClassArraySize * (kHasExpandedClasses ? 2 : 1)] = {0};
 
   // Number of objects to move between a per-thread list and a central
   // list in one shot.  We want this to be not too small so we can

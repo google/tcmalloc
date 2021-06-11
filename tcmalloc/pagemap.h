@@ -69,7 +69,7 @@ class PageMap2 {
     // information.  The size class information is kept segregated
     // since small object deallocations are so frequent and do not
     // need the other information kept in a Span.
-    uint8_t sizeclass[kLeafLength];
+    CompactSizeClass sizeclass[kLeafLength];
     Span* span[kLeafLength];
     void* hugepage[kLeafHugepages];
   };
@@ -104,7 +104,7 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  uint8_t ABSL_ATTRIBUTE_ALWAYS_INLINE
+  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
@@ -120,7 +120,7 @@ class PageMap2 {
     root_[i1]->span[i2] = s;
   }
 
-  void set_with_sizeclass(Number k, Span* s, uint8_t sc) {
+  void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
     ASSERT(k >> BITS == 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
@@ -216,7 +216,7 @@ class PageMap3 {
     // information.  The size class information is kept segregated
     // since small object deallocations are so frequent and do not
     // need the other information kept in a Span.
-    uint8_t sizeclass[kLeafLength];
+    CompactSizeClass sizeclass[kLeafLength];
     Span* span[kLeafLength];
     void* hugepage[kLeafHugepages];
   };
@@ -260,7 +260,7 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  uint8_t ABSL_ATTRIBUTE_ALWAYS_INLINE
+  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
@@ -279,7 +279,7 @@ class PageMap3 {
     root_[i1]->leafs[i2]->span[i3] = s;
   }
 
-  void set_with_sizeclass(Number k, Span* s, uint8_t sc) {
+  void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
     ASSERT(k >> BITS == 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
@@ -362,7 +362,7 @@ class PageMap {
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  uint8_t sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  CompactSizeClass sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.sizeclass(p.index());
   }
 

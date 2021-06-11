@@ -166,8 +166,7 @@ class CPUCache {
     int count = kMaxToReturn;
     // The size class of the returned object. kNumClasses is the
     // largest value that needs to be stored in cl.
-    static_assert(kNumClasses <= std::numeric_limits<unsigned char>::max());
-    unsigned char cl[kMaxToReturn];
+    CompactSizeClass cl[kMaxToReturn];
     void* obj[kMaxToReturn];
   };
 
