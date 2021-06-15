@@ -23,6 +23,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/tcmalloc_policy.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -33,7 +34,7 @@ namespace {
 // to minimize the time it takes to free them.
 void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(object_size);
+  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = Static::sizemap().num_objects_to_move(cl);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
@@ -82,7 +83,7 @@ BENCHMARK(BM_Populate)
 // them is usually done spread over many active spans.
 void BM_MixAndReturn(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(object_size);
+  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = Static::sizemap().num_objects_to_move(cl);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
@@ -130,7 +131,7 @@ BENCHMARK(BM_MixAndReturn)
 // code, and avoids timing the pageheap code.
 void BM_SpanReuse(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(object_size);
+  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = Static::sizemap().num_objects_to_move(cl);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;

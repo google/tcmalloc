@@ -1093,7 +1093,8 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   Static::InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
   uint32_t cl;
-  if (ABSL_PREDICT_TRUE(Static::sizemap().GetSizeClass(size, align, &cl))) {
+  if (ABSL_PREDICT_TRUE(Static::sizemap().GetSizeClass(
+          CppPolicy().AlignAs(align), size, &cl))) {
     ASSERT(cl != 0);
     return Static::sizemap().class_to_size(cl);
   } else {
@@ -1111,7 +1112,8 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
     return nallocx_slow(size, flags);
   }
   uint32_t cl;
-  if (ABSL_PREDICT_TRUE(Static::sizemap().GetSizeClass(size, &cl))) {
+  if (ABSL_PREDICT_TRUE(
+          Static::sizemap().GetSizeClass(CppPolicy(), size, &cl))) {
     ASSERT(cl != 0);
     return Static::sizemap().class_to_size(cl);
   } else {
@@ -1548,7 +1550,8 @@ static void do_free_pages(void* ptr, const PageId p) {
       proxy = st->proxy;
       size = st->allocated_size;
       if (proxy == nullptr && size <= kMaxSize) {
-        tracking::Report(kFreeMiss, Static::sizemap().SizeClass(size), 1);
+        tracking::Report(kFreeMiss,
+                         Static::sizemap().SizeClass(CppPolicy(), size), 1);
       }
       notify_sampled_alloc = true;
       Static::stacktrace_allocator().Delete(st);
@@ -1574,7 +1577,7 @@ static void do_free_pages(void* ptr, const PageId p) {
   }
 
   if (proxy) {
-    const size_t cl = Static::sizemap().SizeClass(size);
+    const size_t cl = Static::sizemap().SizeClass(CppPolicy(), size);
     FreeSmall<Hooks::NO>(proxy, cl);
   }
 }
@@ -1677,8 +1680,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   ASSERT(ptr != nullptr);
 
   uint32_t cl;
-  if (ABSL_PREDICT_FALSE(
-          !Static::sizemap().GetSizeClass(size, align.align(), &cl))) {
+  if (ABSL_PREDICT_FALSE(!Static::sizemap().GetSizeClass(
+          CppPolicy().AlignAs(align.align()), size, &cl))) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
@@ -1718,7 +1721,8 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   // Round-up passed in size to how much tcmalloc allocates for that size.
   if (Static::guardedpage_allocator().PointerIsMine(ptr)) {
     size = Static::guardedpage_allocator().GetRequestedSize(ptr);
-  } else if (Static::sizemap().GetSizeClass(size, align.align(), &cl)) {
+  } else if (Static::sizemap().GetSizeClass(CppPolicy().AlignAs(align.align()),
+                                            size, &cl)) {
     size = Static::sizemap().class_to_size(cl);
   } else {
     size = BytesToLengthCeil(size).in_bytes();
@@ -1803,9 +1807,7 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   GetThreadSampler()->UpdateFastPathState();
   void* p;
   uint32_t cl;
-  bool is_small =
-      Static::sizemap().GetSizeClass(size, policy.align(),
-                                     &cl);
+  bool is_small = Static::sizemap().GetSizeClass(policy, size, &cl);
   if (ABSL_PREDICT_TRUE(is_small)) {
     p = AllocSmall(policy, cl, size, capacity);
   } else {
@@ -1834,9 +1836,7 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
   uint32_t cl;
-  bool is_small =
-      Static::sizemap().GetSizeClass(size, policy.align(),
-                                     &cl);
+  bool is_small = Static::sizemap().GetSizeClass(policy, size, &cl);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     return slow_alloc(policy, size, capacity);
   }

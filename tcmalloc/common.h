@@ -379,39 +379,27 @@ class SizeMap {
   // Initialize the mapping arrays
   void Init();
 
-  // Returns the non-zero matching size class for the provided `size`.
-  // Returns true on success, returns false if `size` exceeds the maximum size
-  // class value `kMaxSize'.
-  // Important: this function may return true with *cl == 0 if this
-  // SizeMap instance has not (yet) been initialized.
+  // Returns the size class for size `size` respecting the alignment
+  // requirements of `policy`.
   //
-  // TODO(b/171978365): Replace the output parameter with returning
-  // absl::optional<uint32_t>.
-  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(size_t size,
-                                                        uint32_t* cl) {
-    uint32_t idx;
-    if (ABSL_PREDICT_TRUE(ClassIndexMaybe(size, &idx))) {
-      *cl = class_array_[idx];
-      return true;
-    }
-    return false;
-  }
-
-  // Returns the size class for size `size` aligned at `align`
   // Returns true on success. Returns false if either:
   // - the size exceeds the maximum size class size.
   // - the align size is greater or equal to the default page size
   // - no matching properly aligned size class is available
   //
-  // Requires that align is a non-zero power of 2.
+  // Requires that policy.align() returns a non-zero power of 2.
   //
-  // Specifying align = 1 will result in this method using the default
-  // alignment of the size table. Calling this method with a constexpr
-  // value of align = 1 will be optimized by the compiler, and result in
-  // the inlined code to be identical to calling `GetSizeClass(size, cl)`
-  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(size_t size,
-                                                        size_t align,
+  // When policy.align() = 1 the default alignment of the size table will be
+  // used. If policy.align() is constexpr 1 (e.g. when using
+  // DefaultAlignPolicy) then alignment-related code will optimize away.
+  //
+  // TODO(b/171978365): Replace the output parameter with returning
+  // absl::optional<uint32_t>.
+  template <typename Policy>
+  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(Policy policy,
+                                                        size_t size,
                                                         uint32_t* cl) {
+    const size_t align = policy.align();
     ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
@@ -419,10 +407,13 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
-    if (ABSL_PREDICT_FALSE(!GetSizeClass(size, cl))) {
+
+    uint32_t idx;
+    if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, &idx))) {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
+    *cl = class_array_[idx];
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
@@ -439,10 +430,12 @@ class SizeMap {
 
   // Returns size class for given size, or 0 if this instance has not been
   // initialized yet. REQUIRES: size <= kMaxSize.
-  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE SizeClass(size_t size) {
+  template <typename Policy>
+  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE SizeClass(Policy policy,
+                                                       size_t size) {
     ASSERT(size <= kMaxSize);
     uint32_t ret = 0;
-    GetSizeClass(size, &ret);
+    GetSizeClass(policy, size, &ret);
     return ret;
   }
 

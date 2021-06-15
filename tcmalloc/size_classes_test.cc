@@ -20,6 +20,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/tcmalloc_policy.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -156,7 +157,7 @@ TEST_F(SizeClassesTest, Distinguishable) {
     if (max_size_in_class == 0) {
       continue;
     }
-    const int class_index = m_.SizeClass(max_size_in_class);
+    const int class_index = m_.SizeClass(CppPolicy(), max_size_in_class);
 
     EXPECT_EQ(c, class_index) << max_size_in_class;
   }
@@ -182,7 +183,7 @@ TEST_F(SizeClassesTest, DoubleCheckedConsistency) {
   // Validate that every size on [0, kMaxSize] maps to a size class that is
   // neither too big nor too small.
   for (size_t size = 0; size <= kMaxSize; size++) {
-    const int sc = m_.SizeClass(size);
+    const int sc = m_.SizeClass(CppPolicy(), size);
     EXPECT_GT(sc, 0) << size;
     EXPECT_LT(sc, kNumClasses) << size;
 
@@ -341,7 +342,7 @@ TEST(SizeMapTest, GetSizeClass) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     uint32_t cl;
-    if (m.GetSizeClass(size, &cl)) {
+    if (m.GetSizeClass(CppPolicy(), size, &cl)) {
       EXPECT_EQ(cl, 0) << size;
     } else {
       // We should only fail to lookup the size class when size is outside of
@@ -356,7 +357,7 @@ TEST(SizeMapTest, GetSizeClass) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     uint32_t cl;
-    if (m.GetSizeClass(size, &cl)) {
+    if (m.GetSizeClass(CppPolicy(), size, &cl)) {
       const size_t mapped_size = m.class_to_size(cl);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
@@ -378,7 +379,7 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
     uint32_t cl;
-    if (m.GetSizeClass(size, alignment, &cl)) {
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &cl)) {
       EXPECT_EQ(cl, 0) << size << " " << alignment;
     } else if (alignment < kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
@@ -397,7 +398,7 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
     uint32_t cl;
-    if (m.GetSizeClass(size, alignment, &cl)) {
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &cl)) {
       const size_t mapped_size = m.class_to_size(cl);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
@@ -422,7 +423,7 @@ TEST(SizeMapTest, SizeClass) {
   // Before m.Init(), SizeClass should always return 0.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    EXPECT_EQ(m.SizeClass(size), 0) << size;
+    EXPECT_EQ(m.SizeClass(CppPolicy(), size), 0) << size;
   }
 
   // After m.Init(), SizeClass should return a size class.
@@ -430,7 +431,7 @@ TEST(SizeMapTest, SizeClass) {
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    uint32_t cl = m.SizeClass(size);
+    uint32_t cl = m.SizeClass(CppPolicy(), size);
 
     const size_t mapped_size = m.class_to_size(cl);
     // The size class needs to hold size.
