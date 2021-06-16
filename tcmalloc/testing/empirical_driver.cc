@@ -109,6 +109,10 @@ ABSL_FLAG(bool, print_stats_to_file, true, "Write mallocz stats to a file");
 ABSL_FLAG(int64_t, empirical_malloc_release_bytes_per_sec, 0,
           "Number of bytes to try to release from the page heap per second");
 
+ABSL_FLAG(int64_t, test_iterations, 0,
+          "Exit the benchmark after specified number of iterations.  If "
+          "unspecified benchmark runs forever.");
+
 namespace tcmalloc {
 namespace empirical {
 namespace {
@@ -313,6 +317,7 @@ class SimThread {
             const std::vector<SimThread *> &siblings, size_t bytes,
             size_t transient)
       : n_(n),
+        thread_is_done_(false),
         startup_(startup),
         siblings_(siblings),
         bytes_(bytes),
@@ -324,6 +329,10 @@ class SimThread {
           (absl::GetFlag(FLAGS_simulated_bytes_per_sec) + nthreads - 1) /
           nthreads;
     }
+  }
+
+  void mark_thread_done() {
+    thread_is_done_.store(true, std::memory_order_release);
   }
 
   size_t total_bytes_allocated() {
@@ -351,7 +360,7 @@ class SimThread {
       absl::base_internal::SpinLockHolder h(&lock_);
       next_spike_ = FirstSpike();
     }
-    while (true) {
+    while (!thread_is_done_.load(std::memory_order_acquire)) {
       // Every so often we need to do something else (i.e. spawn a spike) but I
       // don't want to go through the overhead of computing times every
       // iteration.  100 reps means something like 150usec, which is still
@@ -455,6 +464,7 @@ class SimThread {
   }
 
   size_t n_;
+  std::atomic<bool> thread_is_done_;
   absl::Time next_spike_ ABSL_GUARDED_BY(lock_);
   absl::Barrier *startup_;
   const std::vector<SimThread *> &siblings_;
@@ -528,6 +538,7 @@ void RunSim() {
   size_t last_spikes_completed = 0;
   size_t last_bytes = 0;
   size_t last_allocations = 0;
+  uint64_t iterations = 0;
   absl::Time start = absl::Now();
   while (true) {
     absl::SleepFor(absl::Milliseconds(750));
@@ -581,6 +592,14 @@ void RunSim() {
     last_bytes = bytes;
     last_spikes_completed = spikes_completed;
     last_allocations = allocations;
+    ++iterations;
+    if (absl::GetFlag(FLAGS_test_iterations) &&
+        iterations >= absl::GetFlag(FLAGS_test_iterations)) {
+      for (const auto &s : state) {
+        s->mark_thread_done();
+      }
+      break;
+    }
   }
 
   for (auto &t : threads) {
