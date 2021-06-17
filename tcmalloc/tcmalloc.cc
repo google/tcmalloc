@@ -1473,13 +1473,13 @@ inline size_t ShouldSampleAllocation(size_t size) {
   return GetThreadSampler()->RecordAllocation(size);
 }
 
-inline void* do_malloc_pages(size_t size,
-                             size_t alignment
-) {
+template <typename Policy>
+inline void* do_malloc_pages(Policy policy, size_t size) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
+  const size_t alignment = policy.align();
   Span* span = Static::page_allocator().NewAligned(
       num_pages, BytesToLengthCeil(alignment), tag);
 
@@ -1811,9 +1811,7 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   if (ABSL_PREDICT_TRUE(is_small)) {
     p = AllocSmall(policy, cl, size, capacity);
   } else {
-    p = do_malloc_pages(size,
-                        policy.align()
-    );
+    p = do_malloc_pages(policy, size);
     // Set capacity to the exact size for a page allocation.
     // This needs to be revisited if we introduce gwp-asan
     // sampling / guarded allocations to do_malloc_pages().
