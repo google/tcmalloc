@@ -520,6 +520,40 @@ cc_library(
     alwayslink = 1,
 )
 
+# TCMalloc with NUMA awareness compiled in. Note that by default NUMA awareness
+# will still be disabled at runtime - this default can be changed by adding a
+# dependency upon want_numa_aware, or overridden by setting the
+# TCMALLOC_NUMA_AWARE environment variable.
+cc_library(
+    name = "tcmalloc_numa_aware",
+    srcs = [
+        "libc_override.h",
+        "libc_override_gcc_and_weak.h",
+        "libc_override_glibc.h",
+        "libc_override_redefine.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc/testing:__pkg__"],
+    deps = tcmalloc_deps + [
+        ":common_numa_aware",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "common_numa_aware",
+    srcs = common_srcs,
+    hdrs = common_hdrs,
+    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = ["//tcmalloc:tcmalloc_tests"],
+    deps = common_deps,
+    alwayslink = 1,
+)
+
 # Export some header files to //tcmalloc/testing/...
 package_group(
     name = "tcmalloc_tests",

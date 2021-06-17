@@ -163,7 +163,15 @@ inline constexpr size_t kMinPages = 8;
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
 
+// Sanitizers constrain the memory layout which causes problems with the
+// enlarged tags required to represent NUMA partitions. Disable NUMA awareness
+// to avoid failing to mmap memory.
+#if defined(TCMALLOC_NUMA_AWARE) && !defined(MEMORY_SANITIZER) && \
+    !defined(THREAD_SANITIZER)
+inline constexpr size_t kNumaPartitions = 2;
+#else
 inline constexpr size_t kNumaPartitions = 1;
+#endif
 
 // We have copies of kNumBaseClasses size classes for each NUMA node, followed
 // by any expanded classes.

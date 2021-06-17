@@ -92,12 +92,12 @@ variants = [
     },
     {
         "name": "numa_aware",
-        "malloc": "//tcmalloc",
+        "malloc": "//tcmalloc:tcmalloc_numa_aware",
         "deps": [
-            "//tcmalloc:common",
+            "//tcmalloc:common_numa_aware",
             "//tcmalloc:want_numa_aware",
         ],
-        "copts": [],
+        "copts": ["-DTCMALLOC_NUMA_AWARE"],
     },
 ]
 
