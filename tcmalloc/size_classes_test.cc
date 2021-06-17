@@ -152,7 +152,10 @@ TEST_F(SizeClassesTest, Distinguishable) {
   // ClassIndexMaybe provides 8 byte granularity below 1024 bytes and 128 byte
   // granularity for larger sizes, so our chosen size classes cannot be any
   // finer (otherwise they would map to the same entry in the lookup table).
-  for (int c = 1; c < kNumClasses; c++) {
+  //
+  // We only check the first kNumBaseClasses size classes since classes after
+  // that are intentionally duplicated.
+  for (int c = 1; c < kNumBaseClasses; c++) {
     const size_t max_size_in_class = m_.class_to_size(c);
     if (max_size_in_class == 0) {
       continue;

@@ -71,10 +71,20 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   }
 
   // Fill any unspecified size classes with 0.
-  for (int x = num_classes; x < kNumClasses; x++) {
+  for (int x = num_classes; x < kNumBaseClasses; x++) {
     class_to_size_[x] = 0;
     class_to_pages_[x] = 0;
     num_objects_to_move_[x] = 0;
+  }
+
+  // Copy selected size classes into the upper registers.
+  for (int i = 1; i < (kNumClasses / kNumBaseClasses); i++) {
+    std::copy(&class_to_size_[0], &class_to_size_[kNumBaseClasses],
+              &class_to_size_[kNumBaseClasses * i]);
+    std::copy(&class_to_pages_[0], &class_to_pages_[kNumBaseClasses],
+              &class_to_pages_[kNumBaseClasses * i]);
+    std::copy(&num_objects_to_move_[0], &num_objects_to_move_[kNumBaseClasses],
+              &num_objects_to_move_[kNumBaseClasses * i]);
   }
 }
 

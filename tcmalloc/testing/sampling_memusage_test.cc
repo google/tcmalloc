@@ -158,7 +158,9 @@ TEST_P(SamplingMemoryTest, Overhead) {
 std::vector<size_t> InterestingSizes() {
   std::vector<size_t> ret;
 
-  for (size_t cl = 1; cl < tcmalloc_internal::kNumClasses; cl++) {
+  // Only use the first kNumBaseClasses size classes since classes after that
+  // are intentionally duplicated.
+  for (size_t cl = 1; cl < tcmalloc_internal::kNumBaseClasses; cl++) {
     size_t size =
         tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(cl);
     if (size == 0) {
