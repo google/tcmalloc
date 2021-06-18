@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstring>
 
+#include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/sysinfo.h"
 #include "tcmalloc/internal/mincore.h"
@@ -164,8 +165,13 @@ class TcmallocSlab {
     // Copy of end. Updated by Shrink/Grow, but is not overwritten by Drain.
     uint16_t end_copy;
     // Lock updates only begin and end with a 32-bit write.
-    uint16_t begin;
-    uint16_t end;
+    union {
+      struct {
+        uint16_t begin;
+        uint16_t end;
+      };
+      uint32_t lock_update;
+    };
 
     // Lock is used by Drain to stop concurrent mutations of the Header.
     // Lock sets begin to 0xffff and end to 0, which makes Push and Pop fail
@@ -886,18 +892,13 @@ inline std::atomic<int64_t>* TcmallocSlab<NumClasses>::GetHeader(
 template <size_t NumClasses>
 inline typename TcmallocSlab<NumClasses>::Header
 TcmallocSlab<NumClasses>::LoadHeader(std::atomic<int64_t>* hdrp) {
-  int64_t raw = hdrp->load(std::memory_order_relaxed);
-  Header hdr;
-  memcpy(&hdr, &raw, sizeof(hdr));
-  return hdr;
+  return absl::bit_cast<Header>(hdrp->load(std::memory_order_relaxed));
 }
 
 template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::StoreHeader(std::atomic<int64_t>* hdrp,
                                                   Header hdr) {
-  int64_t raw;
-  memcpy(&raw, &hdr, sizeof(raw));
-  hdrp->store(raw, std::memory_order_relaxed);
+  hdrp->store(absl::bit_cast<int64_t>(hdr), std::memory_order_relaxed);
 }
 
 template <size_t NumClasses>
@@ -905,9 +906,8 @@ inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
     int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
     const size_t virtual_cpu_id_offset) {
 #if __WORDSIZE == 64
-  int64_t old_raw, new_raw;
-  memcpy(&old_raw, &old, sizeof(old_raw));
-  memcpy(&new_raw, &hdr, sizeof(new_raw));
+  const int64_t old_raw = absl::bit_cast<int64_t>(old);
+  const int64_t new_raw = absl::bit_cast<int64_t>(hdr);
   return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
                               static_cast<intptr_t>(new_raw),
                               virtual_cpu_id_offset);
@@ -927,13 +927,12 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
   // Note: we write only 4 bytes. The first 4 bytes are left intact.
   // See Drain method for details. tl;dr: C++ does not allow us to legally
   // express this without undefined behavior.
-  std::atomic<int32_t>* p = reinterpret_cast<std::atomic<int32_t>*>(&begin);
+  std::atomic<int32_t>* p =
+      reinterpret_cast<std::atomic<int32_t>*>(&lock_update);
   Header hdr;
   hdr.begin = 0xffffu;
   hdr.end = 0;
-  int32_t raw;
-  memcpy(&raw, &hdr.begin, sizeof(raw));
-  p->store(raw, std::memory_order_relaxed);
+  p->store(absl::bit_cast<int32_t>(hdr.lock_update), std::memory_order_relaxed);
 }
 
 template <size_t NumClasses>
