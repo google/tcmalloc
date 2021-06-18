@@ -314,7 +314,7 @@ absl::Time SpikeTime() {
 class SimThread {
  public:
   SimThread(int n, absl::Barrier *startup,
-            const std::vector<SimThread *> &siblings, size_t bytes,
+            absl::Span<const std::unique_ptr<SimThread>> siblings, size_t bytes,
             size_t transient)
       : n_(n),
         thread_is_done_(false),
@@ -437,7 +437,7 @@ class SimThread {
       }
       size_t i = absl::uniform_int_distribution<size_t>(
           0, siblings_.size() - 1)(*random);
-      SimThread *who = siblings_[i];
+      SimThread *who = siblings_[i].get();
       absl::base_internal::SpinLockHolder h(&who->lock_);
       who->next_spike_ = when;
     } else {
@@ -456,7 +456,7 @@ class SimThread {
     if (!spike_is_local_(*random)) {
       size_t i = absl::uniform_int_distribution<size_t>(
           0, siblings_.size() - 1)(*random);
-      killer = siblings_[i];
+      killer = siblings_[i].get();
     }
 
     absl::base_internal::SpinLockHolder h(&killer->lock_);
@@ -467,7 +467,7 @@ class SimThread {
   std::atomic<bool> thread_is_done_;
   absl::Time next_spike_ ABSL_GUARDED_BY(lock_);
   absl::Barrier *startup_;
-  const std::vector<SimThread *> &siblings_;
+  const absl::Span<const std::unique_ptr<SimThread>> siblings_;
   size_t bytes_, transient_;
   absl::bernoulli_distribution spike_is_local_;
   std::atomic<size_t> load_bytes_allocated_{0};
@@ -505,8 +505,15 @@ using EngF = size_t;
 
 size_t GetProp(absl::string_view name) {
   absl::optional<size_t> x = MallocExtension::GetNumericProperty(name);
+  // If we are running under a sanitizer, we may not get every property exposed
+  // to us.
+#if !(defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+      defined(ABSL_HAVE_MEMORY_SANITIZER) ||  \
+      defined(ABSL_HAVE_THREAD_SANITIZER) ||  \
+      defined(UNDEFINED_BEHAVIOR_SANITIZER))
   CHECK_CONDITION(x.has_value());
-  return *x;
+#endif
+  return x.value_or(0);
 }
 
 }  // namespace
@@ -524,13 +531,13 @@ void RunSim() {
   const bool print_stats = absl::GetFlag(FLAGS_print_stats_to_file);
 
   absl::Barrier b(nthreads + 1);
-  std::vector<SimThread *> state(nthreads, nullptr);
+  std::vector<std::unique_ptr<SimThread>> state(nthreads);
   std::vector<std::thread> threads;
   threads.reserve(nthreads);
   for (size_t i = 0; i < nthreads; ++i) {
-    state[i] =
-        new SimThread(i, &b, state, per_thread_size, per_thread_transient);
-    threads.push_back(std::thread(&SimThread::Run, state[i]));
+    state[i] = absl::make_unique<SimThread>(i, &b, state, per_thread_size,
+                                            per_thread_transient);
+    threads.push_back(std::thread(&SimThread::Run, state[i].get()));
   }
   b.Block();
   absl::Time last_mallocz = absl::InfinitePast();
