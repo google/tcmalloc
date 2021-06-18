@@ -105,6 +105,10 @@ static size_t MaxCapacity(size_t cl) {
     return kSmallObjectDepth;
   }
 
+  if (IsExpandedSizeClass(cl)) {
+    return 0;
+  }
+
   return kLargeObjectDepth;
 }
 
