@@ -149,7 +149,7 @@ void CPUCache::Activate(ActivationMode mode) {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_);
+  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_, kPerCpuShift);
   if (mode == ActivationMode::FastPathOn) {
     Static::ActivateCPUCache();
   }

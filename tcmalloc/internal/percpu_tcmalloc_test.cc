@@ -148,7 +148,8 @@ using ScopedFakeCpuId = ScopedAffinityMask;
 constexpr size_t kStressSlabs = 4;
 constexpr size_t kStressCapacity = 4;
 
-typedef class TcmallocSlab<18ul, kStressSlabs> TcmallocSlab;
+constexpr size_t kShift = 18;
+typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
 enum class SlabInit {
   kEager,
@@ -163,7 +164,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
 
     slab_.Init(
         &ByteCountingMalloc, [](size_t cl) { return kCapacity; },
-        GetParam() == SlabInit::kLazy);
+        GetParam() == SlabInit::kLazy, kShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -666,7 +667,8 @@ TEST(TcmallocSlab, Stress) {
   TcmallocSlab slab;
   slab.Init(
       allocator,
-      [](size_t cl) { return cl < kStressSlabs ? kStressCapacity : 0; }, false);
+      [](size_t cl) { return cl < kStressSlabs ? kStressCapacity : 0; }, false,
+      kShift);
   std::vector<std::thread> threads;
   const int n_threads = 2 * absl::base_internal::NumCPUs();
 
@@ -819,7 +821,8 @@ static void BM_PushPop(benchmark::State& state) {
     const int kBatchSize = 32;
     TcmallocSlab slab;
     slab.Init(
-        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false);
+        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false,
+        kShift);
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
                     kBatchSize);
     void* batch[kBatchSize];
@@ -846,7 +849,8 @@ static void BM_PushPopBatch(benchmark::State& state) {
     const int kBatchSize = 32;
     TcmallocSlab slab;
     slab.Init(
-        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false);
+        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false,
+        kShift);
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
                     kBatchSize);
     void* batch[kBatchSize];

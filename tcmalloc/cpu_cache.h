@@ -131,7 +131,7 @@ class CPUCache {
                   "size mismatch");
   };
 
-  subtle::percpu::TcmallocSlab<kPerCpuShift, kNumClasses> freelist_;
+  subtle::percpu::TcmallocSlab<kNumClasses> freelist_;
 
   struct ResizeInfoUnpadded {
     // cache space on this CPU we're not using.  Modify atomically;
