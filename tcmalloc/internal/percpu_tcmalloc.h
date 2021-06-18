@@ -256,9 +256,6 @@ inline size_t TcmallocSlab<Shift, NumClasses>::Shrink(int cpu, size_t cl,
   }
 }
 
-#define TCMALLOC_PERCPU_XSTRINGIFY(s) #s
-#define TCMALLOC_PERCPU_STRINGIFY(s) PERCPU_XSTRINGIFY(s)
-
 #if defined(__x86_64__)
 template <size_t Shift, size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
@@ -777,9 +774,6 @@ underflow_path:
   return f(cpu, cl);
 }
 #endif  // defined(__aarch64__)
-
-#undef TCMALLOC_PERCPU_STRINGIFY
-#undef TCMALLOC_PERCPU_XSTRINGIFY
 
 template <size_t Shift, size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<Shift, NumClasses>::Pop(
