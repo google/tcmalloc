@@ -165,16 +165,12 @@ void SizeMap::Init() {
 
   static_assert(kAlignment <= 16, "kAlignment is too large");
 
-  if (IsExperimentActive(Experiment::TCMALLOC_SANS_56_SIZECLASS)) {
-    SetSizeClasses(kExperimentalSizeClassesCount, kExperimentalSizeClasses);
+  if (default_want_legacy_spans != nullptr &&
+      default_want_legacy_spans() > 0
+  ) {
+    SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
   } else {
-    if (default_want_legacy_spans != nullptr &&
-        default_want_legacy_spans() > 0
-    ) {
-      SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
-    } else {
-      SetSizeClasses(kSizeClassesCount, kSizeClasses);
-    }
+    SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
   MaybeRunTimeSizeClasses();
 

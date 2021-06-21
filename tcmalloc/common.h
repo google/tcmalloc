@@ -364,10 +364,6 @@ class SizeMap {
   static const int kSizeClassesCount;
 
   // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kExperimentalSizeClasses[];
-  static const int kExperimentalSizeClassesCount;
-
-  // Definition of size class that is set in size_classes.cc
   static const SizeClassInfo kLegacySizeClasses[];
   static const int kLegacySizeClassesCount;
 
