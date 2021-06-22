@@ -252,9 +252,12 @@ static size_t PickCoprimeBatchSize(size_t max_batch_size) {
   return max_batch_size;
 }
 
-TEST(LockTransferCacheTest, b172283201) {
-  // This test is designed to exercise the wraparound behavior for the
-  // LockFreeTransferCache, which manages its indices in uint32_t's.
+TEST(LockTransferCacheTest, DISABLED_b172283201) {
+  // This test is designed to exercise the wraparound behavior for the former
+  // LockFreeTransferCache, which manages its indices in uint32_t's.  Because it
+  // uses a non-standard batch size (kBatchSize) as part of
+  // PickCoprimeBatchSize, it triggers a TransferCache miss to the
+  // CentralFreeList, which is uninteresting for exercising b/172283201.
 
   // For performance reasons, limit to optimized builds.
 #if !defined(NDEBUG)
@@ -264,9 +267,9 @@ TEST(LockTransferCacheTest, b172283201) {
   GTEST_SKIP() << "skipping under thread sanitizer, which slows test execution";
 #endif
 
-  using EnvType = FakeTransferCacheEnvironment<
-      internal_transfer_cache::LockFreeTransferCache<MockCentralFreeList,
-                                                     MockTransferCacheManager>>;
+  using EnvType =
+      FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+          MockCentralFreeList, MockTransferCacheManager>>;
   EnvType env;
 
   // We pick the largest value <= EnvType::kBatchSize to use as a batch size,
@@ -383,15 +386,10 @@ REGISTER_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedShrink);
 
 namespace unit_tests {
-using LegacyEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
+using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+    MockCentralFreeList, MockTransferCacheManager>>;
 
-using LockFreeEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
-
-using TransferCacheTypes = ::testing::Types<LegacyEnv, LockFreeEnv>;
+using TransferCacheTypes = ::testing::Types<Env>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheTest, TransferCacheTest,
                                TransferCacheTypes);
 }  // namespace unit_tests
@@ -400,15 +398,10 @@ namespace fuzz_tests {
 // Use the FakeCentralFreeList instead of the MockCentralFreeList for fuzz tests
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
-using LegacyEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
+using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+    MockCentralFreeList, MockTransferCacheManager>>;
 
-using LockFreeEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
-        FakeCentralFreeList, MockTransferCacheManager>>;
-
-using TransferCacheFuzzTypes = ::testing::Types<LegacyEnv, LockFreeEnv>;
+using TransferCacheFuzzTypes = ::testing::Types<Env>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
                                TransferCacheFuzzTypes);
 }  // namespace fuzz_tests

@@ -32,10 +32,6 @@ using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
 
-using LockFreeEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::LockFreeTransferCache<
-        MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
-
 template <typename Env>
 void BM_CrossThread(benchmark::State& state) {
   using Manager = typename Env::Manager;
@@ -137,11 +133,8 @@ void BM_RemoveRange(benchmark::State& state) {
 }
 
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
-BENCHMARK_TEMPLATE(BM_CrossThread, LockFreeEnv)->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_InsertRange, LockFreeEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_RemoveRange, LockFreeEnv);
 
 }  // namespace
 }  // namespace tcmalloc_internal

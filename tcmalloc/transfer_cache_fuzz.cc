@@ -23,10 +23,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace {
 
-using TransferCache =
-    tcmalloc_internal::internal_transfer_cache::LockFreeTransferCache<
-        tcmalloc_internal::MockCentralFreeList,
-        tcmalloc_internal::MockTransferCacheManager>;
+using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
+    tcmalloc_internal::MockCentralFreeList,
+    tcmalloc_internal::MockTransferCacheManager>;
 using Env = tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
 }  // namespace

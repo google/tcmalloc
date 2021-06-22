@@ -48,81 +48,46 @@ class TransferCacheManager {
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
-  template <typename CentralFreeList, typename Manager>
-  friend class internal_transfer_cache::LockFreeTransferCache;
-  using LockFreeTransferCache = internal_transfer_cache::LockFreeTransferCache<
-      tcmalloc_internal::CentralFreeList, TransferCacheManager>;
-
  public:
-  constexpr TransferCacheManager()
-      : use_lock_free_cache_(false), next_to_evict_(1) {}
+  constexpr TransferCacheManager() : next_to_evict_(1) {}
 
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    use_lock_free_cache_ = false;
-
     for (int i = 0; i < kNumClasses; ++i) {
-      if (use_lock_free_cache_) {
-        auto *c = &cache_[i].lock_free;
-        new (c) LockFreeTransferCache(this, i);
-        c->Init(i);
-      } else {
-        auto *c = &cache_[i].legacy;
-        new (c) TransferCache(this, i);
-        c->Init(i);
-      }
+      auto *c = &cache_[i].tc;
+      new (c) TransferCache(this, i);
+      c->Init(i);
     }
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    if (use_lock_free_cache_)
-      cache_[size_class].lock_free.InsertRange(batch);
-    else
-      cache_[size_class].legacy.InsertRange(batch);
+    cache_[size_class].tc.InsertRange(batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.RemoveRange(batch, n);
-    else
-      return cache_[size_class].legacy.RemoveRange(batch, n);
+    return cache_[size_class].tc.RemoveRange(batch, n);
   }
 
   size_t central_length(int size_class) const {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.central_length();
-    else
-      return cache_[size_class].legacy.central_length();
+    return cache_[size_class].tc.central_length();
   }
 
   size_t tc_length(int size_class) const {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.tc_length();
-    else
-      return cache_[size_class].legacy.tc_length();
+    return cache_[size_class].tc.tc_length();
   }
 
   size_t OverheadBytes(int size_class) const {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.OverheadBytes();
-    else
-      return cache_[size_class].legacy.OverheadBytes();
+    return cache_[size_class].tc.OverheadBytes();
   }
 
   SpanStats GetSpanStats(int size_class) const {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.GetSpanStats();
-    else
-      return cache_[size_class].legacy.GetSpanStats();
+    return cache_[size_class].tc.GetSpanStats();
   }
 
   TransferCacheStats GetHitRateStats(int size_class) {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.GetHitRateStats();
-    else
-      return cache_[size_class].legacy.GetHitRateStats();
+    return cache_[size_class].tc.GetHitRateStats();
   }
 
  private:
@@ -131,26 +96,16 @@ class TransferCacheManager {
   void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.ShrinkCache();
-    else
-      return cache_[size_class].legacy.ShrinkCache();
+    return cache_[size_class].tc.ShrinkCache();
   }
-  bool GrowCache(int size_class) {
-    if (use_lock_free_cache_)
-      return cache_[size_class].lock_free.GrowCache();
-    else
-      return cache_[size_class].legacy.GrowCache();
-  }
+  bool GrowCache(int size_class) { return cache_[size_class].tc.GrowCache(); }
 
-  bool use_lock_free_cache_;
   std::atomic<int32_t> next_to_evict_;
   union Cache {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
-    LockFreeTransferCache lock_free;
-    TransferCache legacy;
+    TransferCache tc;
     bool dummy;
   };
   Cache cache_[kNumClasses];
