@@ -363,6 +363,12 @@ class SizeMap {
   static const SizeClassInfo kSizeClasses[];
   static const int kSizeClassesCount;
 
+  static const SizeClassInfo kExperimentalPow2Below64SizeClasses[];
+  static const int kExperimentalPow2Below64SizeClassesCount;
+  // kExperimentalPowBelow64SizeClassesCount
+  static const SizeClassInfo kExperimentalPow2SizeClasses[];
+  static const int kExperimentalPow2SizeClassesCount;
+
   // Definition of size class that is set in size_classes.cc
   static const SizeClassInfo kLegacySizeClasses[];
   static const int kLegacySizeClassesCount;

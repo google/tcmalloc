@@ -61,8 +61,8 @@ void BM_Populate(benchmark::State& state) {
     state.PauseTiming();
     index = 0;
     while (index < num_objects) {
-      int count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange(&buffer[index], count);
+      uint64_t count = std::min(batch_size, num_objects - index);
+      cfl.InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
@@ -111,8 +111,8 @@ void BM_MixAndReturn(benchmark::State& state) {
 
     index = 0;
     while (index < num_objects) {
-      int count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange(&buffer[index], count);
+      unsigned int count = std::min(batch_size, num_objects - index);
+      cfl.InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
@@ -151,7 +151,7 @@ void BM_SpanReuse(benchmark::State& state) {
   // returned to the pageheap. So future operations will not touch the
   // pageheap.
   for (int index = 0; index < 2 * num_objects; index += 2) {
-    cfl.InsertRange(&held_objects[index], 1);
+    cfl.InsertRange({&held_objects[index], 1});
   }
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -174,8 +174,8 @@ void BM_SpanReuse(benchmark::State& state) {
 
     index = 0;
     while (index < num_objects) {
-      int count = std::min(batch_size, num_objects - index);
-      cfl.InsertRange(&buffer[index], count);
+      uint64_t count = std::min(batch_size, num_objects - index);
+      cfl.InsertRange({&buffer[index], count});
       index += count;
     }
     items_processed += index;
@@ -184,7 +184,7 @@ void BM_SpanReuse(benchmark::State& state) {
 
   // Return the other half of the objects.
   for (int index = 1; index < 2 * num_objects; index += 2) {
-    cfl.InsertRange(&held_objects[index], 1);
+    cfl.InsertRange({&held_objects[index], 1});
   }
 }
 // Want to avoid benchmarking spans where there is a single object per span.

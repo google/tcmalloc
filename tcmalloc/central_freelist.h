@@ -50,9 +50,9 @@ class CentralFreeList {
 
   // These methods all do internal locking.
 
-  // Insert batch[0..N-1] into the central freelist.
-  // REQUIRES: N > 0 && N <= kMaxObjectsToMove.
-  void InsertRange(void** batch, int N) ABSL_LOCKS_EXCLUDED(lock_);
+  // Insert batch into the central freelist.
+  // REQUIRES: batch.size() > 0 && batch.size() <= kMaxObjectsToMove.
+  void InsertRange(absl::Span<void*> batch) ABSL_LOCKS_EXCLUDED(lock_);
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.

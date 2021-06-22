@@ -19,6 +19,7 @@
 
 #include "gmock/gmock.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/types/span.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -44,11 +45,11 @@ class FakeCentralFreeListBase {
 // is important.
 class FakeCentralFreeList : public FakeCentralFreeListBase {
  public:
-  void InsertRange(void** batch, int N);
+  void InsertRange(absl::Span<void*> batch);
   int RemoveRange(void** batch, int N);
 
   void AllocateBatch(void** batch, int n);
-  void FreeBatch(void** batch, int n);
+  void FreeBatch(absl::Span<void*> batch);
 };
 
 // CentralFreeList implementation that does minimal work but no correctness
@@ -57,11 +58,11 @@ class FakeCentralFreeList : public FakeCentralFreeListBase {
 // Useful for benchmarks where you want to avoid unrelated expensive operations.
 class MinimalFakeCentralFreeList : public FakeCentralFreeListBase {
  public:
-  void InsertRange(void** batch, int N);
+  void InsertRange(absl::Span<void*> batch);
   int RemoveRange(void** batch, int N);
 
   void AllocateBatch(void** batch, int n);
-  void FreeBatch(void** batch, int n);
+  void FreeBatch(absl::Span<void*> batch);
 
  private:
   absl::base_internal::SpinLock lock_;
@@ -74,15 +75,15 @@ class MinimalFakeCentralFreeList : public FakeCentralFreeListBase {
 class RawMockCentralFreeList : public FakeCentralFreeList {
  public:
   RawMockCentralFreeList() : FakeCentralFreeList() {
-    ON_CALL(*this, InsertRange).WillByDefault([this](void** batch, int n) {
-      return static_cast<FakeCentralFreeList*>(this)->InsertRange(batch, n);
+    ON_CALL(*this, InsertRange).WillByDefault([this](absl::Span<void*> batch) {
+      return static_cast<FakeCentralFreeList*>(this)->InsertRange(batch);
     });
     ON_CALL(*this, RemoveRange).WillByDefault([this](void** batch, int n) {
       return static_cast<FakeCentralFreeList*>(this)->RemoveRange(batch, n);
     });
   }
 
-  MOCK_METHOD(void, InsertRange, (void** batch, int N));
+  MOCK_METHOD(void, InsertRange, (absl::Span<void*> batch));
   MOCK_METHOD(int, RemoveRange, (void** batch, int N));
 };
 

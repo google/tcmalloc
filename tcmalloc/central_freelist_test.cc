@@ -53,9 +53,9 @@ class CFLTest : public testing::TestWithParam<size_t> {
 
 TEST_P(CFLTest, SingleBatch) {
   void* batch[kMaxObjectsToMove];
-  int got = cfl_.RemoveRange(batch, batch_size_);
+  uint64_t got = cfl_.RemoveRange(batch, batch_size_);
   ASSERT_GT(got, 0);
-  cfl_.InsertRange(batch, got);
+  cfl_.InsertRange({batch, got});
   SpanStats stats = cfl_.GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, 1);
   EXPECT_EQ(stats.num_spans_returned, 1);
@@ -94,13 +94,13 @@ TEST_P(CFLTest, MultipleSpans) {
   int total_returned = 0;
   bool checked_half = false;
   while (total_returned < num_objects_to_fetch) {
-    int size_to_pop =
+    uint64_t size_to_pop =
         std::min(all_objects.size() - total_returned, batch_size_);
     for (int i = 0; i < size_to_pop; ++i) {
       batch[i] = all_objects[i + total_returned];
     }
     total_returned += size_to_pop;
-    cfl_.InsertRange(batch, size_to_pop);
+    cfl_.InsertRange({batch, size_to_pop});
     // sanity check
     if (!checked_half && total_returned >= (num_objects_to_fetch / 2)) {
       stats = cfl_.GetSpanStats();

@@ -76,6 +76,20 @@ variants = [
         "copts": [],
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_16X_TRANSFER_CACHE_REAL"},
     },
+    {
+        "name": "256k_pages_pow2",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
+    },
+    {
+        "name": "256k_pages_pow2_below64",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS"},
+    },
 ]
 
 # Declare an individual test.

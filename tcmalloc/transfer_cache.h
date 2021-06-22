@@ -172,7 +172,7 @@ class TransferCacheManager {
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    freelist_[size_class].InsertRange(batch.data(), batch.size());
+    freelist_[size_class].InsertRange(batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {

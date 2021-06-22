@@ -60,15 +60,15 @@ Span* CentralFreeList::ReleaseToSpans(void* object, Span* span,
   return span;
 }
 
-void CentralFreeList::InsertRange(void** batch, int N) {
-  CHECK_CONDITION(N > 0 && N <= kMaxObjectsToMove);
+void CentralFreeList::InsertRange(absl::Span<void*> batch) {
+  CHECK_CONDITION(!batch.empty() && batch.size() <= kMaxObjectsToMove);
   Span* spans[kMaxObjectsToMove];
   // Safe to store free spans into freed up space in span array.
   Span** free_spans = spans;
   int free_count = 0;
 
   // Prefetch Span objects to reduce cache misses.
-  for (int i = 0; i < N; ++i) {
+  for (int i = 0; i < batch.size(); ++i) {
     Span* span = MapObjectToSpan(batch[i]);
     ASSERT(span != nullptr);
     span->Prefetch();
@@ -81,7 +81,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
     // Use local copy of variable to ensure that it is not reloaded.
     size_t object_size = object_size_;
     absl::base_internal::SpinLockHolder h(&lock_);
-    for (int i = 0; i < N; ++i) {
+    for (int i = 0; i < batch.size(); ++i) {
       Span* span = ReleaseToSpans(batch[i], spans[i], object_size);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
@@ -90,7 +90,7 @@ void CentralFreeList::InsertRange(void** batch, int N) {
     }
 
     RecordMultiSpansDeallocated(free_count);
-    UpdateObjectCounts(N);
+    UpdateObjectCounts(batch.size());
   }
 
   // Then, release all free spans into page heap under its mutex.

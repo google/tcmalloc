@@ -174,7 +174,7 @@ class TransferCache {
     }
     insert_misses_.fetch_add(1, std::memory_order_relaxed);
     tracking::Report(kTCInsertMiss, size_class(), 1);
-    freelist().InsertRange(batch.data(), N);
+    freelist().InsertRange(batch);
   }
 
   // Returns the actual number of fetched elements and stores elements in the
@@ -317,7 +317,7 @@ class TransferCache {
     }
 
     // Access the freelist without holding the lock.
-    freelist().InsertRange(to_free, num_to_free);
+    freelist().InsertRange({to_free, static_cast<uint64_t>(num_to_free)});
     return true;
   }
 
@@ -550,7 +550,7 @@ class LockFreeTransferCache {
     if (!r.has_value()) {
       tracking::Report(kTCInsertMiss, size_class(), 1);
       insert_misses_.fetch_add(1, std::memory_order_relaxed);
-      freelist_.InsertRange(batch.data(), n);
+      freelist_.InsertRange(batch);
       return;
     }
 
@@ -669,8 +669,8 @@ class LockFreeTransferCache {
     // TODO(kfm): decide if we want to do this or not
     // if (tc_length() >= capacity_.load(std::memory_order_relaxed)) {
     //   void *buf[kMaxObjectsToMove];
-    //   int i = RemoveRange(buf, N);
-    //   freelist().InsertRange(buf, i);
+    //   uint64_t i = RemoveRange(buf, N);
+    //   freelist().InsertRange({buf, i});
     // }
     return true;
   }

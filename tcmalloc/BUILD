@@ -170,6 +170,8 @@ common_srcs = [
     "common.h",
     "cpu_cache.cc",
     "cpu_cache.h",
+    "experimental_pow2_below64_size_class.cc",
+    "experimental_pow2_size_class.cc",
     "legacy_size_classes.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
@@ -559,6 +561,7 @@ cc_library(
         ":common",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
     ],
 )

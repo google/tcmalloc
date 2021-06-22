@@ -140,11 +140,11 @@ class FakeTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min(n, kBatchSize);
       bufs.resize(b);
-      int removed = cache_.RemoveRange(&bufs[0], b);
+      unsigned long removed = cache_.RemoveRange(&bufs[0], b);
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
-      central_freelist().FreeBatch(&bufs[0], removed);
+      central_freelist().FreeBatch({&bufs[0], removed});
       n -= removed;
     }
   }
