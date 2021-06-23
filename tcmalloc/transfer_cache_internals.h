@@ -93,57 +93,63 @@ class TransferCache {
   TransferCache(const TransferCache &) = delete;
   TransferCache &operator=(const TransferCache &) = delete;
 
+  struct Capacity {
+    int capacity;
+    int max_capacity;
+  };
+
+  // Compute initial and max capacity that we should configure this cache for.
+  static Capacity CapacityNeeded(size_t cl) {
+    // We need at least 2 slots to store list head and tail.
+    static_assert(kMinObjectsToMove >= 2);
+
+    const size_t bytes = Manager::class_to_size(cl);
+    if (cl <= 0 || bytes <= 0) return {0, 0};
+
+    // Limit the maximum size of the cache based on the size class.  If this
+    // is not done, large size class objects will consume a lot of memory if
+    // they just sit in the transfer cache.
+    const size_t objs_to_move = Manager::num_objects_to_move(cl);
+    ASSERT(objs_to_move > 0);
+
+    // Starting point for the maximum number of entries in the transfer cache.
+    // This actual maximum for a given size class may be lower than this
+    // maximum value.
+    int max_capacity = kMaxCapacityInBatches * objs_to_move;
+    // A transfer cache freelist can have anywhere from 0 to
+    // max_capacity_ slots to put link list chains into.
+    int capacity = kInitialCapacityInBatches * objs_to_move;
+
+    // Limit each size class cache to at most 1MB of objects or one entry,
+    // whichever is greater. Total transfer cache memory used across all
+    // size classes then can't be greater than approximately
+    // 1MB * kMaxNumTransferEntries.
+    max_capacity = std::min<int>(
+        max_capacity,
+        std::max<int>(objs_to_move,
+                      (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
+    capacity = std::min(capacity, max_capacity);
+
+    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE) ||
+        IsExperimentActive(Experiment::TCMALLOC_16X_TRANSFER_CACHE_REAL)) {
+      capacity *= 16;
+      max_capacity *= 16;
+    }
+    return {capacity, max_capacity};
+  }
+
   // We require the pageheap_lock with some templates, but not in tests, so the
   // thread safety analysis breaks pretty hard here.
   void Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     freelist().Init(cl);
+    const Capacity needed = CapacityNeeded(cl);
+
     absl::base_internal::SpinLockHolder h(&lock_);
-
-    // We need at least 2 slots to store list head and tail.
-    ASSERT(kMinObjectsToMove >= 2);
-
-    slots_ = nullptr;
-    max_capacity_ = 0;
-    SizeInfo info = {0, 0};
-
-    size_t bytes = Manager::class_to_size(cl);
-    if (cl > 0 && bytes > 0) {
-      // Limit the maximum size of the cache based on the size class.  If this
-      // is not done, large size class objects will consume a lot of memory if
-      // they just sit in the transfer cache.
-      size_t objs_to_move = Manager::num_objects_to_move(cl);
-      ASSERT(objs_to_move > 0 && bytes > 0);
-
-      // Starting point for the maximum number of entries in the transfer cache.
-      // This actual maximum for a given size class may be lower than this
-      // maximum value.
-      max_capacity_ = kMaxCapacityInBatches * objs_to_move;
-      // A transfer cache freelist can have anywhere from 0 to
-      // max_capacity_ slots to put link list chains into.
-      info.capacity = kInitialCapacityInBatches * objs_to_move;
-
-      // Limit each size class cache to at most 1MB of objects or one entry,
-      // whichever is greater. Total transfer cache memory used across all
-      // size classes then can't be greater than approximately
-      // 1MB * kMaxNumTransferEntries.
-      max_capacity_ = std::min<size_t>(
-          max_capacity_,
-          std::max<size_t>(
-              objs_to_move,
-              (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
-      info.capacity = std::min(info.capacity, max_capacity_);
-
-      if (IsExperimentActive(
-              Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE) ||
-          IsExperimentActive(Experiment::TCMALLOC_16X_TRANSFER_CACHE_REAL)) {
-        info.capacity *= 16;
-        max_capacity_ *= 16;
-      }
-
-      slots_ = reinterpret_cast<void **>(
-          owner_->Alloc(max_capacity_ * sizeof(void *)));
-    }
-    SetSlotInfo(info);
+    max_capacity_ = needed.max_capacity;
+    slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
+                                      max_capacity_ * sizeof(void *)))
+                                : nullptr;
+    SetSlotInfo({0, needed.capacity});
   }
 
   static constexpr bool IsFlexible() { return false; }
