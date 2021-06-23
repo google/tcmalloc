@@ -153,16 +153,19 @@ TEST_F(SizeClassesTest, Distinguishable) {
   // granularity for larger sizes, so our chosen size classes cannot be any
   // finer (otherwise they would map to the same entry in the lookup table).
   //
-  // We only check the first kNumBaseClasses size classes since classes after
-  // that are intentionally duplicated.
-  for (int c = 1; c < kNumBaseClasses; c++) {
-    const size_t max_size_in_class = m_.class_to_size(c);
-    if (max_size_in_class == 0) {
-      continue;
-    }
-    const int class_index = m_.SizeClass(CppPolicy(), max_size_in_class);
+  // We don't check expanded size classes which are intentionally duplicated.
+  for (int partition = 0; partition < kNumaPartitions; partition++) {
+    for (int c = (partition * kNumBaseClasses) + 1;
+         c < (partition + 1) * kNumBaseClasses; c++) {
+      const size_t max_size_in_class = m_.class_to_size(c);
+      if (max_size_in_class == 0) {
+        continue;
+      }
+      const int class_index = m_.SizeClass(
+          CppPolicy().InNumaPartition(partition), max_size_in_class);
 
-    EXPECT_EQ(c, class_index) << max_size_in_class;
+      EXPECT_EQ(c, class_index) << max_size_in_class;
+    }
   }
 }
 
@@ -190,7 +193,7 @@ TEST_F(SizeClassesTest, DoubleCheckedConsistency) {
     EXPECT_GT(sc, 0) << size;
     EXPECT_LT(sc, kNumClasses) << size;
 
-    if (sc > 1) {
+    if ((sc % kNumBaseClasses) > 1) {
       EXPECT_GT(size, m_.class_to_size(sc - 1))
           << "Allocating unnecessarily large class";
     }
@@ -343,12 +346,14 @@ TEST(SizeMapTest, GetSizeClass) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     uint32_t cl;
     if (m.GetSizeClass(CppPolicy(), size, &cl)) {
-      EXPECT_EQ(cl, 0) << size;
+      EXPECT_EQ(cl % kNumBaseClasses, 0) << size;
+      EXPECT_LT(cl, kExpandedClassesStart) << size;
     } else {
       // We should only fail to lookup the size class when size is outside of
       // the size classes.
@@ -379,13 +384,15 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
     uint32_t cl;
     if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &cl)) {
-      EXPECT_EQ(cl, 0) << size << " " << alignment;
+      EXPECT_EQ(cl % kNumBaseClasses, 0) << size << " " << alignment;
+      EXPECT_LT(cl, kExpandedClassesStart) << size << " " << alignment;
     } else if (alignment < kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
       // TODO(b/172060547): alignment == kPageSize could fit into the size
@@ -425,10 +432,13 @@ TEST(SizeMapTest, SizeClass) {
   constexpr int kTrials = 1000;
 
   SizeMap m;
-  // Before m.Init(), SizeClass should always return 0.
+  // Before m.Init(), SizeClass should always return 0 or the equivalent in a
+  // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    EXPECT_EQ(m.SizeClass(CppPolicy(), size), 0) << size;
+    const uint32_t cl = m.SizeClass(CppPolicy(), size);
+    EXPECT_EQ(cl % kNumBaseClasses, 0) << size;
+    EXPECT_LT(cl, kExpandedClassesStart) << size;
   }
 
   // After m.Init(), SizeClass should return a size class.
