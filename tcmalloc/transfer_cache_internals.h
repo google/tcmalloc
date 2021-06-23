@@ -146,7 +146,7 @@ class TransferCache {
     SetSlotInfo(info);
   }
 
-  bool IsFlexible() { return false; }
+  static constexpr bool IsFlexible() { return false; }
 
   // These methods all do internal locking.
 
@@ -159,7 +159,7 @@ class TransferCache {
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used + N <= max_capacity_) {
       absl::base_internal::SpinLockHolder h(&lock_);
-      if (MakeCacheSpace()) {
+      if (MakeCacheSpace(N)) {
         // MakeCacheSpace can drop the lock, so refetch
         info = slot_info_.load(std::memory_order_relaxed);
         info.used += N;
@@ -238,12 +238,10 @@ class TransferCache {
   }
 
   // REQUIRES: lock is held.
-  // Tries to make room for a batch.  If the cache is full it will try to expand
-  // it at the cost of some other cache size.  Return false if there is no
-  // space.
-  bool MakeCacheSpace() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    const int N = Manager::num_objects_to_move(size_class());
-
+  // Tries to make room for N elements. If the cache is full it will try to
+  // expand it at the cost of some other cache size.  Return false if there is
+  // no space.
+  bool MakeCacheSpace(int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     auto info = slot_info_.load(std::memory_order_relaxed);
     // Is there room in the cache?
     if (info.used + N <= info.capacity) return true;
@@ -271,17 +269,17 @@ class TransferCache {
     return true;
   }
 
-  bool HasSpareCapacity() {
+  bool HasSpareCapacity() const {
     int n = Manager::num_objects_to_move(size_class());
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
   }
 
   // Takes lock_ and invokes MakeCacheSpace() on this cache.  Returns true if it
-  // succeeded at growing the cache by a btach size.
+  // succeeded at growing the cache by a batch size.
   bool GrowCache() ABSL_LOCKS_EXCLUDED(lock_) {
     absl::base_internal::SpinLockHolder h(&lock_);
-    return MakeCacheSpace();
+    return MakeCacheSpace(Manager::num_objects_to_move(size_class()));
   }
 
   // REQUIRES: lock_ is *not* held.
