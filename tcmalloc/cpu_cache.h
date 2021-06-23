@@ -99,6 +99,16 @@ class CPUCache {
   static constexpr size_t kPerCpuShift = 18;
 #endif
 
+  struct CpuCacheMissStats {
+    size_t underflows;
+    size_t overflows;
+  };
+
+  // Reports cache malloc or free misses for <cpu>.
+  // <is_malloc> determines whether the reported stat should be for malloc or
+  // free misses.
+  CpuCacheMissStats GetCacheMissStats(const int cpu) const;
+
   // Report statistics
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region) const;
@@ -146,6 +156,10 @@ class CPUCache {
     // For cross-cpu operations.
     absl::base_internal::SpinLock lock;
     PerClassResizeInfo per_class[kNumClasses];
+    // tracks number of underflows on allocate.
+    std::atomic<size_t> underflows;
+    // tracks number of overflows on deallocate.
+    std::atomic<size_t> overflows;
   };
   struct ResizeInfo : ResizeInfoUnpadded {
     char pad[ABSL_CACHELINE_SIZE -
@@ -202,6 +216,12 @@ class CPUCache {
   // be freed.
   size_t Steal(int cpu, size_t cl, size_t bytes, ObjectsToReturn* to_return);
 
+  // Records a cache malloc and free miss on <cpu>, increments malloc or free
+  // miss by 1.
+  // <is_malloc> determines whether the associated count corresponds to a
+  // malloc or a free miss.
+  void RecordCacheMissStat(const int cpu, const bool is_malloc);
+
   static void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }
   static int NoopOverflow(int cpu, size_t cl, void* item) { return -1; }
 };
@@ -217,7 +237,10 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
       tracking::Report(kMallocMiss, cl, 1);
-      void* ret = Static::cpu_cache().Refill(cpu, cl);
+      CPUCache& cache = Static::cpu_cache();
+      cache.RecordCacheMissStat(cpu, true);
+      void* ret = cache.Refill(cpu, cl);
+
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
         size_t size = Static::sizemap().class_to_size(cl);
         return OOMHandler(size);
@@ -239,7 +262,9 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void* ptr,
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
       tracking::Report(kFreeMiss, cl, 1);
-      return Static::cpu_cache().Overflow(ptr, cl, cpu);
+      CPUCache& cache = Static::cpu_cache();
+      cache.RecordCacheMissStat(cpu, false);
+      return cache.Overflow(ptr, cl, cpu);
     }
   };
   freelist_.Push(cl, ptr, Helper::Overflow);

@@ -573,6 +573,21 @@ uint64_t CPUCache::Reclaim(int cpu) {
   freelist_.Drain(cpu, &ctx, DrainHandler);
   return ctx.bytes;
 }
+void CPUCache::RecordCacheMissStat(const int cpu, const bool is_malloc) {
+  CPUCache &cpu_cache = Static::cpu_cache();
+  if (is_malloc) {
+    cpu_cache.resize_[cpu].underflows.fetch_add(1, std::memory_order_relaxed);
+  } else {
+    cpu_cache.resize_[cpu].overflows.fetch_add(1, std::memory_order_relaxed);
+  }
+}
+
+CPUCache::CpuCacheMissStats CPUCache::GetCacheMissStats(const int cpu) const {
+  CpuCacheMissStats stats;
+  stats.underflows = resize_[cpu].underflows.load(std::memory_order_relaxed);
+  stats.overflows = resize_[cpu].overflows.load(std::memory_order_relaxed);
+  return stats;
+}
 
 void CPUCache::Print(Printer *out) const {
   out->printf("------------------------------------------------\n");
@@ -596,6 +611,20 @@ void CPUCache::Print(Printer *out) const {
                 CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
                 populated ? " populated" : "");
   }
+
+  out->printf("------------------------------------------------\n");
+  out->printf("Number of per-CPU cache underflows and overflows\n");
+  out->printf("------------------------------------------------\n");
+  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
+       ++cpu) {
+    CpuCacheMissStats miss_stats = GetCacheMissStats(cpu);
+    out->printf(
+        "cpu %3d:"
+        "%12" PRIu64
+        " underflows,"
+        "%12" PRIu64 " overflows\n",
+        cpu, miss_stats.underflows, miss_stats.overflows);
+  }
 }
 
 void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
@@ -607,11 +636,14 @@ void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
+    CpuCacheMissStats miss_stats = GetCacheMissStats(cpu);
     entry.PrintI64("cpu", uint64_t(cpu));
     entry.PrintI64("used", rbytes);
     entry.PrintI64("unused", unallocated);
     entry.PrintBool("active", CPU_ISSET(cpu, &allowed_cpus));
     entry.PrintBool("populated", populated);
+    entry.PrintI64("underflows", miss_stats.underflows);
+    entry.PrintI64("overflows", miss_stats.overflows);
   }
 }
 

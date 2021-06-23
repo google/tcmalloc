@@ -171,6 +171,84 @@ TEST(CpuCacheTest, Metadata) {
   }
 }
 
+TEST(CpuCacheTest, CacheMissStats) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  const int num_cpus = absl::base_internal::NumCPUs();
+
+  CPUCache& cache = Static::cpu_cache();
+  // Since this test allocates memory, avoid activating the real fast path to
+  // minimize allocations against the per-CPU cache.
+  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+
+  //  The number of underflows and overflows must be zero for all the caches.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
+    EXPECT_EQ(miss_stats.underflows, 0);
+    EXPECT_EQ(miss_stats.overflows, 0);
+  }
+
+  int allowed_cpu_id;
+  const size_t kSizeClass = 3;
+  const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
+                                           ? offsetof(kernel_rseq, vcpu_id)
+                                           : offsetof(kernel_rseq, cpu_id);
+  void* ptr;
+  {
+    // Restrict this thread to a single core while allocating and processing the
+    // slow path.
+    //
+    // TODO(b/151313823):  Without this restriction, we may access--for reading
+    // only--other slabs if we end up being migrated.  These may cause huge
+    // pages to be faulted for those cores, leading to test flakiness.
+    tcmalloc_internal::ScopedAffinityMask mask(
+        tcmalloc_internal::AllowedCpus()[0]);
+    allowed_cpu_id =
+        subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
+
+    ptr = cache.Allocate<OOMHandler>(kSizeClass);
+
+    if (mask.Tampered() ||
+        allowed_cpu_id !=
+            subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset)) {
+      return;
+    }
+  }
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
+    if (cpu == allowed_cpu_id) {
+      EXPECT_EQ(miss_stats.underflows, 1);
+    } else {
+      EXPECT_EQ(miss_stats.overflows, 0);
+    }
+    EXPECT_EQ(miss_stats.overflows, 0);
+  }
+
+  // Tear down.
+  //
+  // TODO(ckennelly):  We're interacting with the real TransferCache.
+  cache.Deallocate(ptr, kSizeClass);
+
+  // Confirm the underflow and overflow stats are unchanged; previous underflow
+  // still persists and no overflow occurs on deallocate.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
+    if (cpu == allowed_cpu_id) {
+      EXPECT_EQ(miss_stats.underflows, 1);
+    } else {
+      EXPECT_EQ(miss_stats.underflows, 0);
+    }
+    EXPECT_EQ(miss_stats.overflows, 0);
+  }
+
+  for (int i = 0; i < num_cpus; i++) {
+    cache.Reclaim(i);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
