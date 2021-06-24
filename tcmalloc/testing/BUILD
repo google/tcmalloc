@@ -411,13 +411,27 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "no_deps_test",
     srcs = ["no_deps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
-    deps = ["@com_github_google_benchmark//:benchmark"],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_github_google_benchmark//:benchmark",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "no_deps_per_cpu_test",
+    srcs = ["no_deps_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    env = {"FORCE_CPU_CACHES": "1"},
+    linkstatic = 1,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_github_google_benchmark//:benchmark",
+    ],
 )
 
 cc_library(

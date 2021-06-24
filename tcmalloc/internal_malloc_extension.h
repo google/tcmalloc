@@ -54,6 +54,8 @@ class ProfileAccessor {
 
 extern "C" {
 
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_ForceCpuCacheActivation();
+
 ABSL_ATTRIBUTE_WEAK tcmalloc::AddressRegionFactory*
 MallocExtension_Internal_GetRegionFactory();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetRegionFactory(

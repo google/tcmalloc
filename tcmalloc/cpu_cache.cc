@@ -680,6 +680,11 @@ uint32_t CPUCache::PerClassResizeInfo::Tick() {
 }
 
 static void ActivatePerCPUCaches() {
+  if (tcmalloc::tcmalloc_internal::Static::CPUCacheActive()) {
+    // Already active.
+    return;
+  }
+
   // RunningOnValgrind is a proxy for "is something intercepting malloc."
   //
   // If Valgrind, et. al., are in use, TCMalloc isn't in use and we shouldn't
@@ -708,6 +713,10 @@ static PerCPUInitializer module_enter_exit;
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+extern "C" void TCMalloc_Internal_ForceCpuCacheActivation() {
+  tcmalloc::tcmalloc_internal::ActivatePerCPUCaches();
+}
 
 extern "C" bool MallocExtension_Internal_GetPerCpuCachesActive() {
   return tcmalloc::tcmalloc_internal::Static::CPUCacheActive();

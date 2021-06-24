@@ -129,7 +129,7 @@ def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
             malloc = variant.get("malloc"),
             srcs = srcs,
             deps = deps + variant.get("deps", []),
-            env = variant.get("env", {}),
+            env = kwargs.pop("env", {}).update(variant.get("env", {})),
             **kwargs
         )
 
