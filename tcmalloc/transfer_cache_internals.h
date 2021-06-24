@@ -70,33 +70,33 @@ class TransferCache {
   static constexpr int kMaxCapacityInBatches = 64;
   static constexpr int kInitialCapacityInBatches = 16;
 
-  constexpr explicit TransferCache(Manager *owner) : TransferCache(owner, 0) {}
-
-  // C++11 has complex rules for direct initialization of an array of aggregate
-  // types that are not copy constructible.  The int parameters allows us to do
-  // two distinct things at the same time:
-  //  - have an implicit constructor (one arg implicit ctors are dangerous)
-  //  - build an array of these in an arg pack expansion without a comma
-  //    operator trick
-  constexpr TransferCache(Manager *owner, int)
-      : owner_(owner),
-        lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        max_capacity_(0),
-        insert_hits_(0),
-        remove_hits_(0),
-        insert_misses_(0),
-        remove_misses_(0),
-        slot_info_{},
-        slots_(nullptr),
-        freelist_do_not_access_directly_() {}
-
-  TransferCache(const TransferCache &) = delete;
-  TransferCache &operator=(const TransferCache &) = delete;
+  TransferCache(Manager *owner, int cl)
+      : TransferCache(owner, cl, CapacityNeeded(cl)) {}
 
   struct Capacity {
     int capacity;
     int max_capacity;
   };
+
+  TransferCache(Manager *owner, int cl, Capacity capacity)
+      : owner_(owner),
+        lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
+        max_capacity_(capacity.max_capacity),
+        insert_hits_(0),
+        remove_hits_(0),
+        insert_misses_(0),
+        remove_misses_(0),
+        slot_info_(SizeInfo({0, capacity.capacity})),
+        slots_(nullptr),
+        freelist_do_not_access_directly_() {
+    freelist().Init(cl);
+    slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
+                                      max_capacity_ * sizeof(void *)))
+                                : nullptr;
+  }
+
+  TransferCache(const TransferCache &) = delete;
+  TransferCache &operator=(const TransferCache &) = delete;
 
   // Compute initial and max capacity that we should configure this cache for.
   static Capacity CapacityNeeded(size_t cl) {
@@ -136,20 +136,6 @@ class TransferCache {
       max_capacity *= 16;
     }
     return {capacity, max_capacity};
-  }
-
-  // We require the pageheap_lock with some templates, but not in tests, so the
-  // thread safety analysis breaks pretty hard here.
-  void Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
-    freelist().Init(cl);
-    const Capacity needed = CapacityNeeded(cl);
-
-    absl::base_internal::SpinLockHolder h(&lock_);
-    max_capacity_ = needed.max_capacity;
-    slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
-                                      max_capacity_ * sizeof(void *)))
-                                : nullptr;
-    SetSlotInfo({0, needed.capacity});
   }
 
   static constexpr bool IsFlexible() { return false; }
@@ -356,8 +342,8 @@ class TransferCache {
   // may be looked at without holding the lock.
   absl::base_internal::SpinLock lock_;
 
-  // Maximum size of the cache for a given size class. (immutable after Init())
-  int32_t max_capacity_;
+  // Maximum size of the cache.
+  const int32_t max_capacity_;
 
   size_t insert_hits_ ABSL_GUARDED_BY(lock_);
   size_t remove_hits_ ABSL_GUARDED_BY(lock_);

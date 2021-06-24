@@ -56,9 +56,7 @@ class TransferCacheManager {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
-      auto *c = &cache_[i].tc;
-      new (c) TransferCache(this, i);
-      c->Init(i);
+      new (&cache_[i].tc) TransferCache(this, i);
     }
   }
 

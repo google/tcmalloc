@@ -41,10 +41,7 @@ void BM_CrossThread(benchmark::State& state) {
   void* batch[kMaxObjectsToMove];
 
   struct CrossThreadState {
-    CrossThreadState() : m{}, c{Cache(&m), Cache(&m)} {
-      c[0].Init(1);
-      c[1].Init(1);
-    }
+    CrossThreadState() : m{}, c{Cache(&m, 1), Cache(&m, 1)} {}
     Manager m;
     Cache c[2];
   };

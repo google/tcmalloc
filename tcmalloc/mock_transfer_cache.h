@@ -115,9 +115,7 @@ class FakeTransferCacheEnvironment {
       TransferCache::kInitialCapacityInBatches;
   static constexpr int kBatchSize = Manager::num_objects_to_move(1);
 
-  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_) {
-    cache_.Init(1);
-  }
+  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) {}
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
