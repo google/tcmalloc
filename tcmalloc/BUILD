@@ -1160,7 +1160,6 @@ cc_library(
         "malloc_extension.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
-    features = ["-no_undefined"],
     visibility = [
         "//visibility:public",
     ],
