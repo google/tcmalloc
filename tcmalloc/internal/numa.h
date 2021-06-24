@@ -47,9 +47,10 @@ enum class NumaBindMode {
 
 // We use the result of RseqCpuId() in GetCurrentPartition() to avoid branching
 // in the fast path, but this means that the CPU number we look up in
-// cpu_to_partition_ might equal kCpuIdUninitialized or kCpuIdUnsupported. We
-// add this fudge factor to the value to compensate, ensuring that our accesses
-// to the cpu_to_partition_ array are always in bounds.
+// cpu_to_scaled_partition_ might equal kCpuIdUninitialized or
+// kCpuIdUnsupported. We add this fudge factor to the value to compensate,
+// ensuring that our accesses to the cpu_to_scaled_partition_ array are always
+// in bounds.
 static constexpr size_t kNumaCpuFudge = -subtle::percpu::kCpuIdUnsupported;
 
 // Provides information about the topology of a NUMA system.
@@ -66,7 +67,7 @@ static constexpr size_t kNumaCpuFudge = -subtle::percpu::kCpuIdUnsupported;
 // If however the system has more nodes than we do partitions then nodes
 // assigned to the same partition will share size classes & thus memory. This
 // may incur a performance hit, but allows us to at least run on any system.
-template <size_t NumPartitions>
+template <size_t NumPartitions, size_t ScaleBy = 1>
 class NumaTopology {
  public:
   // Trivially zero initialize data members.
@@ -105,6 +106,10 @@ class NumaTopology {
   // this thread migrates between CPUs.
   size_t GetCurrentPartition() const;
 
+  // Like GetCurrentPartition(), but returns a partition number multiplied by
+  // ScaleBy.
+  size_t GetCurrentScaledPartition() const;
+
   // Return the NUMA partition number to which `cpu` belongs.
   //
   // It is valid for cpu to equal subtle::percpu::kCpuIdUninitialized or
@@ -112,13 +117,17 @@ class NumaTopology {
   // returned.
   size_t GetCpuPartition(int cpu) const;
 
+  // Like GetCpuPartition(), but returns a partition number multiplied by
+  // ScaleBy.
+  size_t GetCpuScaledPartition(int cpu) const;
+
   // Return a bitmap in which set bits identify the nodes that belong to the
   // specified NUMA `partition`.
   uint64_t GetPartitionNodes(int partition) const;
 
  private:
   // Maps from CPU number (plus kNumaCpuFudge) to NUMA partition.
-  size_t cpu_to_partition_[CPU_SETSIZE + kNumaCpuFudge] = {0};
+  size_t cpu_to_scaled_partition_[CPU_SETSIZE + kNumaCpuFudge] = {0};
   // Maps from NUMA partition to a bitmap of NUMA nodes within the partition.
   uint64_t partition_to_nodes_[NumPartitions] = {0};
   // Indicates whether NUMA awareness is available & enabled.
@@ -153,39 +162,55 @@ cpu_set_t ParseCpulist(
 //
 // Returns true if we're actually NUMA aware; i.e. if we have CPUs mapped to
 // multiple partitions.
-bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
+bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
                       uint64_t *partition_to_nodes, NumaBindMode *bind_mode,
-                      size_t num_partitions,
+                      size_t num_partitions, size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist);
 
-template <size_t NumPartitions>
-inline void NumaTopology<NumPartitions>::Init() {
-  numa_aware_ = InitNumaTopology(cpu_to_partition_, partition_to_nodes_,
-                                 &bind_mode_, NumPartitions, OpenSysfsCpulist);
+template <size_t NumPartitions, size_t ScaleBy>
+inline void NumaTopology<NumPartitions, ScaleBy>::Init() {
+  numa_aware_ =
+      InitNumaTopology(cpu_to_scaled_partition_, partition_to_nodes_,
+                       &bind_mode_, NumPartitions, ScaleBy, OpenSysfsCpulist);
 }
 
-template <size_t NumPartitions>
-inline void NumaTopology<NumPartitions>::InitForTest(
+template <size_t NumPartitions, size_t ScaleBy>
+inline void NumaTopology<NumPartitions, ScaleBy>::InitForTest(
     absl::FunctionRef<int(size_t)> open_node_cpulist) {
-  numa_aware_ = InitNumaTopology(cpu_to_partition_, partition_to_nodes_,
-                                 &bind_mode_, NumPartitions, open_node_cpulist);
+  numa_aware_ =
+      InitNumaTopology(cpu_to_scaled_partition_, partition_to_nodes_,
+                       &bind_mode_, NumPartitions, ScaleBy, open_node_cpulist);
 }
 
-template <size_t NumPartitions>
-inline size_t NumaTopology<NumPartitions>::GetCurrentPartition() const {
+template <size_t NumPartitions, size_t ScaleBy>
+inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentPartition()
+    const {
   if constexpr (NumPartitions == 1) return 0;
   return GetCpuPartition(subtle::percpu::RseqCpuId());
 }
 
-template <size_t NumPartitions>
-inline size_t NumaTopology<NumPartitions>::GetCpuPartition(
-    const int cpu) const {
+template <size_t NumPartitions, size_t ScaleBy>
+inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentScaledPartition()
+    const {
   if constexpr (NumPartitions == 1) return 0;
-  return cpu_to_partition_[cpu + kNumaCpuFudge];
+  return GetCpuScaledPartition(subtle::percpu::RseqCpuId());
 }
 
-template <size_t NumPartitions>
-inline uint64_t NumaTopology<NumPartitions>::GetPartitionNodes(
+template <size_t NumPartitions, size_t ScaleBy>
+inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCpuPartition(
+    const int cpu) const {
+  return GetCpuScaledPartition(cpu) / ScaleBy;
+}
+
+template <size_t NumPartitions, size_t ScaleBy>
+inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCpuScaledPartition(
+    const int cpu) const {
+  if constexpr (NumPartitions == 1) return 0;
+  return cpu_to_scaled_partition_[cpu + kNumaCpuFudge];
+}
+
+template <size_t NumPartitions, size_t ScaleBy>
+inline uint64_t NumaTopology<NumPartitions, ScaleBy>::GetPartitionNodes(
     const int partition) const {
   return partition_to_nodes_[partition];
 }

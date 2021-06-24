@@ -63,7 +63,8 @@ ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
-ABSL_CONST_INIT NumaTopology<kNumaPartitions> Static::numa_topology_;
+ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
+    Static::numa_topology_;
 
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses

@@ -466,7 +466,7 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
-    *cl = class_array_[idx] + (policy.numa_partition() * kNumBaseClasses);
+    *cl = class_array_[idx] + policy.scaled_numa_partition();
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.

@@ -67,7 +67,7 @@ class Static {
 
   static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
 
-  static NumaTopology<kNumaPartitions>& numa_topology() {
+  static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
   }
 
@@ -158,7 +158,8 @@ class Static {
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   static bool cpu_cache_active_;
   ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
-  ABSL_CONST_INIT static NumaTopology<kNumaPartitions> numa_topology_;
+  ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
+      numa_topology_;
 
   // PageHeap uses a constructor for initialization.  Like the members above,
   // we can't depend on initialization order, so pageheap is new'd

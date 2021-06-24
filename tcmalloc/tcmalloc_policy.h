@@ -51,6 +51,11 @@
 //   struct NumaPartitionPolicyTemplate {
 //     // Returns the NUMA partition to allocate from.
 //     size_t partition() const;
+//
+//     // Returns the NUMA partition to allocate from multiplied by
+//     // kNumBaseClasses - i.e. the first size class that corresponds to the
+//     // NUMA partition to allocate from.
+//     size_t scaled_partition() const;
 //   };
 
 #ifndef TCMALLOC_TCMALLOC_POLICY_H_
@@ -146,6 +151,10 @@ class FixedNumaPartitionPolicy {
 
   size_t constexpr partition() const { return partition_; }
 
+  size_t constexpr scaled_partition() const {
+    return partition_ * kNumBaseClasses;
+  }
+
  private:
   size_t partition_;
 };
@@ -157,6 +166,10 @@ struct LocalNumaPartitionPolicy {
   // should not rely upon multiple invocations returning the same partition.
   size_t partition() const {
     return Static::numa_topology().GetCurrentPartition();
+  }
+
+  size_t scaled_partition() const {
+    return Static::numa_topology().GetCurrentScaledPartition();
   }
 };
 
@@ -181,6 +194,11 @@ class TCMallocPolicy {
 
   // NUMA partition
   constexpr size_t numa_partition() const { return numa_.partition(); }
+
+  // NUMA partition multiplied by kNumBaseClasses
+  constexpr size_t scaled_numa_partition() const {
+    return numa_.scaled_partition();
+  }
 
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }

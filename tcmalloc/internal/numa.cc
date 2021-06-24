@@ -113,10 +113,10 @@ cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char *, size_t)> read) {
   return set;
 }
 
-bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
+bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
                       uint64_t *const partition_to_nodes,
                       NumaBindMode *const bind_mode,
-                      const size_t num_partitions,
+                      const size_t num_partitions, const size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist) {
   // Node 0 will always map to partition 0; record it here in case the system
   // doesn't support NUMA or the user opts out of our awareness of it - in
@@ -138,9 +138,9 @@ bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
   // environment.
   //
   // In cases where we don't enable NUMA awareness we simply return. Since the
-  // cpu_to_partition & partition_to_nodes arrays are zero initialized we're
-  // trivially done - CPUs all map to partition 0, which contains only CPU 0
-  // added above.
+  // cpu_to_scaled_partition & partition_to_nodes arrays are zero initialized
+  // we're trivially done - CPUs all map to partition 0, which contains only
+  // CPU 0 added above.
   const char *e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_NUMA_AWARE");
   if (e == nullptr) {
@@ -162,10 +162,11 @@ bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
     Crash(kCrash, __FILE__, __LINE__, "bad TCMALLOC_NUMA_AWARE env var", e);
   }
 
-  // The cpu_to_partition array has a fixed size so that we can statically
-  // allocate it & avoid the need to check whether it has been allocated prior
-  // to lookups. It has CPU_SETSIZE entries which ought to be sufficient, but
-  // sanity check that indexing it by CPU number shouldn't exceed its bounds.
+  // The cpu_to_scaled_partition array has a fixed size so that we can
+  // statically allocate it & avoid the need to check whether it has been
+  // allocated prior to lookups. It has CPU_SETSIZE entries which ought to be
+  // sufficient, but sanity check that indexing it by CPU number shouldn't
+  // exceed its bounds.
   int num_cpus = absl::base_internal::NumCPUs();
   CHECK_CONDITION(num_cpus <= CPU_SETSIZE);
 
@@ -190,8 +191,8 @@ bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
     const size_t partition = NodeToPartition(node, num_partitions);
     partition_to_nodes[partition] |= 1 << node;
 
-    // cpu_to_partition_ entries are default initialized to zero, so skip
-    // redundantly parsing CPU lists for nodes that map to partition 0.
+    // cpu_to_scaled_partition_ entries are default initialized to zero, so
+    // skip redundantly parsing CPU lists for nodes that map to partition 0.
     if (partition == 0) {
       signal_safe_close(fd);
       continue;
@@ -206,7 +207,7 @@ bool InitNumaTopology(size_t cpu_to_partition[CPU_SETSIZE],
     // Assign local CPUs to the appropriate partition.
     for (size_t cpu = 0; cpu < CPU_SETSIZE; cpu++) {
       if (CPU_ISSET(cpu, &node_cpus)) {
-        cpu_to_partition[cpu + kNumaCpuFudge] = partition;
+        cpu_to_scaled_partition[cpu + kNumaCpuFudge] = partition * scale_by;
       }
     }
 
