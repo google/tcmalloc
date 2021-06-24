@@ -101,6 +101,40 @@ variants = [
     },
 ]
 
+def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
+    """ Invokes create_one once per TCMalloc variant
+
+    Args:
+      create_one: A function invoked once per variant with arguments
+        matching those of a cc_binary or cc_test target.
+      name: The base name, suffixed with variant names to form target names.
+      srcs: Source files to be built.
+      **kwargs: Other arguments passed through to create_one.
+
+    Returns:
+      A list of the targets generated; i.e. each name passed to create_one.
+    """
+    copts = kwargs.pop("copts", [])
+    deps = kwargs.pop("deps", [])
+    linkopts = kwargs.pop("linkopts", [])
+
+    variant_targets = []
+    for variant in variants:
+        inner_target_name = name + "_" + variant["name"]
+        variant_targets.append(inner_target_name)
+        create_one(
+            inner_target_name,
+            copts = copts + variant.get("copts", []),
+            linkopts = linkopts + variant.get("linkopts", []),
+            malloc = variant.get("malloc"),
+            srcs = srcs,
+            deps = deps + variant.get("deps", []),
+            env = variant.get("env", {}),
+            **kwargs
+        )
+
+    return variant_targets
+
 # Declare an individual test.
 def create_tcmalloc_test(
         name,
@@ -122,27 +156,15 @@ def create_tcmalloc_test(
 
 # Create test_suite of name containing tests variants.
 def create_tcmalloc_testsuite(name, srcs, **kwargs):
-    copts = kwargs.pop("copts", [])
-    deps = kwargs.pop("deps", [])
-    linkopts = kwargs.pop("linkopts", [])
+    variant_targets = create_tcmalloc_variant_targets(
+        create_tcmalloc_test,
+        name,
+        srcs,
+        **kwargs
+    )
+    native.test_suite(name = name, tests = variant_targets)
 
-    test_suite_targets = []
-    for variant in variants:
-        inner_test_suite_name = name + "_" + variant["name"]
-        test_suite_targets.append(inner_test_suite_name)
-        create_tcmalloc_test(
-            inner_test_suite_name,
-            copts = copts + variant.get("copts", []),
-            linkopts = linkopts + variant.get("linkopts", []),
-            malloc = variant.get("malloc"),
-            srcs = srcs,
-            deps = deps + variant.get("deps", []),
-            env = variant.get("env", {}),
-            **kwargs
-        )
-
-    native.test_suite(name = name, tests = test_suite_targets)
-
+# Declare a single benchmark binary.
 def create_tcmalloc_benchmark(name, srcs, **kwargs):
     deps = kwargs.pop("deps")
     malloc = kwargs.pop("malloc", "//tcmalloc")
@@ -155,4 +177,21 @@ def create_tcmalloc_benchmark(name, srcs, **kwargs):
         linkstatic = 1,
         deps = deps + ["//tcmalloc/testing:benchmark_main"],
         **kwargs
+    )
+
+# Declare a suite of benchmark binaries, one per variant.
+def create_tcmalloc_benchmark_suite(name, srcs, **kwargs):
+    variant_targets = create_tcmalloc_variant_targets(
+        create_tcmalloc_benchmark,
+        name,
+        srcs,
+        **kwargs
+    )
+
+    # The first 'variant' is the default 8k_pages configuration. We alias the
+    # benchmark name without a suffix to that target so that the default
+    # configuration can be invoked without a variant suffix.
+    native.alias(
+        name = name,
+        actual = variant_targets[0],
     )

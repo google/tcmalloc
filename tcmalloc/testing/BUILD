@@ -18,7 +18,7 @@
 # Tests for tcmalloc, including a performance test.
 
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
-load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_testsuite")
+load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmalloc_testsuite")
 
 licenses(["notice"])  # Apache 2.0
 
@@ -97,11 +97,9 @@ create_tcmalloc_testsuite(
     deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
-create_tcmalloc_benchmark(
+create_tcmalloc_benchmark_suite(
     name = "tcmalloc_benchmark",
     srcs = ["tcmalloc_benchmark.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     visibility = [
         "//visibility:private",
     ],
@@ -439,11 +437,9 @@ cc_library(
     ],
 )
 
-create_tcmalloc_benchmark(
+create_tcmalloc_benchmark_suite(
     name = "empirical_benchmark",
     srcs = ["empirical_benchmark.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
         ":empirical",
         ":testutil",
@@ -481,10 +477,9 @@ cc_library(
     ],
 )
 
-create_tcmalloc_benchmark(
+create_tcmalloc_benchmark_suite(
     name = "empirical_distributions_benchmark",
     srcs = ["empirical_distributions_benchmark.cc"],
-    malloc = "//tcmalloc",
     deps = [
         ":empirical_distributions",
         ":testutil",
