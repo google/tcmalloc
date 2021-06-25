@@ -167,6 +167,11 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
                       size_t num_partitions, size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist);
 
+// Returns the NUMA partition to which `node` belongs.
+inline size_t NodeToPartition(const size_t node, const size_t num_partitions) {
+  return node % num_partitions;
+}
+
 template <size_t NumPartitions, size_t ScaleBy>
 inline void NumaTopology<NumPartitions, ScaleBy>::Init() {
   numa_aware_ =

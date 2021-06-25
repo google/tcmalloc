@@ -39,14 +39,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-namespace {
-
-// Returns the NUMA partition to which `node` belongs.
-size_t NodeToPartition(const size_t node, const size_t num_partitions) {
-  return node % num_partitions;
-}
-
-}  // namespace
 
 // Returns true iff NUMA awareness should be enabled by default (i.e. in the
 // absence of the TCMALLOC_NUMA_AWARE environment variable). This weak

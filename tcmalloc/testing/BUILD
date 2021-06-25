@@ -834,3 +834,21 @@ cc_library(
         "@com_github_google_benchmark//:benchmark",
     ],
 )
+
+cc_test(
+    name = "numa_locality_test",
+    srcs = ["numa_locality_test.cc"],
+    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_numa_aware",
+    deps = [
+        ":testutil",
+        "//tcmalloc:common_numa_aware",
+        "//tcmalloc:want_numa_aware",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:util",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
