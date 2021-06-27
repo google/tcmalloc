@@ -92,11 +92,6 @@ bool MinMaxTracker<kEpochs>::Extrema::operator==(const Extrema &other) const {
   return (other.max == max) && (other.min == min);
 }
 
-template <size_t kEpochs>
-bool MinMaxTracker<kEpochs>::Extrema::operator!=(const Extrema &other) const {
-  return !(this->operator==(other));
-}
-
 // Explicit instantiations of template
 template class MinMaxTracker<>;
 template class MinMaxTracker<600>;

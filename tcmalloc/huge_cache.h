@@ -79,7 +79,6 @@ class MinMaxTracker {
     bool empty() const { return (*this == Nil()); }
 
     bool operator==(const Extrema &other) const;
-    bool operator!=(const Extrema &other) const;
   };
 
   TimeSeriesTracker<Extrema, HugeLength, kEpochs> timeseries_;
