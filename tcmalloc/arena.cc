@@ -22,9 +22,10 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void* Arena::Alloc(size_t bytes) {
+void* Arena::Alloc(size_t bytes, int alignment) {
+  ASSERT(alignment > 0);
   char* result;
-  bytes = ((bytes + kAlignment - 1) / kAlignment) * kAlignment;
+  bytes = ((bytes + alignment - 1) / alignment) * alignment;
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
     size_t actual_size;
@@ -56,7 +57,7 @@ void* Arena::Alloc(size_t bytes) {
     free_avail_ = actual_size;
   }
 
-  ASSERT(reinterpret_cast<uintptr_t>(free_area_) % kAlignment == 0);
+  ASSERT(reinterpret_cast<uintptr_t>(free_area_) % alignment == 0);
   result = free_area_;
   free_area_ += bytes;
   free_avail_ -= bytes;

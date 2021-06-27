@@ -35,7 +35,8 @@ class Arena {
 
   // Return a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(size_t bytes)
+  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(size_t bytes,
+                                             int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns the total number of bytes allocated from this arena.  Requires
