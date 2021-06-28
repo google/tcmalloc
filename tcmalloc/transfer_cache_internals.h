@@ -144,14 +144,15 @@ class TransferCache {
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(absl::Span<void *> batch) ABSL_LOCKS_EXCLUDED(lock_) {
+  void InsertRange(int size_class, absl::Span<void *> batch)
+      ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
-    const int B = Manager::num_objects_to_move(size_class());
+    const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used + N <= max_capacity_) {
       absl::base_internal::SpinLockHolder h(&lock_);
-      if (MakeCacheSpace(N)) {
+      if (MakeCacheSpace(size_class, N)) {
         // MakeCacheSpace can drop the lock, so refetch
         info = slot_info_.load(std::memory_order_relaxed);
         info.used += N;
@@ -159,22 +160,22 @@ class TransferCache {
 
         void **entry = GetSlot(info.used - N);
         memcpy(entry, batch.data(), sizeof(void *) * N);
-        tracking::Report(kTCInsertHit, size_class(), 1);
+        tracking::Report(kTCInsertHit, size_class, 1);
         insert_hits_++;
         return;
       }
     }
     insert_misses_.fetch_add(1, std::memory_order_relaxed);
-    tracking::Report(kTCInsertMiss, size_class(), 1);
+    tracking::Report(kTCInsertMiss, size_class, 1);
     freelist().InsertRange(batch);
   }
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int N)
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int N)
       ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(N > 0);
-    const int B = Manager::num_objects_to_move(size_class());
+    const int B = Manager::num_objects_to_move(size_class);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (N == B && info.used >= N) {
       absl::base_internal::SpinLockHolder h(&lock_);
@@ -185,13 +186,13 @@ class TransferCache {
         SetSlotInfo(info);
         void **entry = GetSlot(info.used);
         memcpy(batch, entry, sizeof(void *) * N);
-        tracking::Report(kTCRemoveHit, size_class(), 1);
+        tracking::Report(kTCRemoveHit, size_class, 1);
         remove_hits_++;
         return N;
       }
     }
     remove_misses_.fetch_add(1, std::memory_order_relaxed);
-    tracking::Report(kTCRemoveMiss, size_class(), 1);
+    tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
   }
 
@@ -233,7 +234,8 @@ class TransferCache {
   // Tries to make room for N elements. If the cache is full it will try to
   // expand it at the cost of some other cache size.  Return false if there is
   // no space.
-  bool MakeCacheSpace(int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+  bool MakeCacheSpace(int size_class, int N)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     auto info = slot_info_.load(std::memory_order_relaxed);
     // Is there room in the cache?
     if (info.used + N <= info.capacity) return true;
@@ -241,7 +243,7 @@ class TransferCache {
     if (info.capacity + N > max_capacity_) return false;
 
     int to_evict = owner_->DetermineSizeClassToEvict();
-    if (to_evict == size_class()) return false;
+    if (to_evict == size_class) return false;
 
     // Release the held lock before the other instance tries to grab its lock.
     lock_.Unlock();
@@ -261,24 +263,24 @@ class TransferCache {
     return true;
   }
 
-  bool HasSpareCapacity() const {
-    int n = Manager::num_objects_to_move(size_class());
+  bool HasSpareCapacity(int size_class) const {
+    int n = Manager::num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
   }
 
   // Takes lock_ and invokes MakeCacheSpace() on this cache.  Returns true if it
   // succeeded at growing the cache by a batch size.
-  bool GrowCache() ABSL_LOCKS_EXCLUDED(lock_) {
+  bool GrowCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     absl::base_internal::SpinLockHolder h(&lock_);
-    return MakeCacheSpace(Manager::num_objects_to_move(size_class()));
+    return MakeCacheSpace(size_class, Manager::num_objects_to_move(size_class));
   }
 
   // REQUIRES: lock_ is *not* held.
   // Tries to shrink the Cache.  Return false if it failed to shrink the cache.
   // Decreases cache_slots_ on success.
-  bool ShrinkCache() ABSL_LOCKS_EXCLUDED(lock_) {
-    int N = Manager::num_objects_to_move(size_class());
+  bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    int N = Manager::num_objects_to_move(size_class);
 
     void *to_free[kMaxObjectsToMove];
     int num_to_free;
@@ -358,10 +360,6 @@ class TransferCache {
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
-
-  size_t size_class() const {
-    return freelist_do_not_access_directly_.size_class();
-  }
 
   FreeList freelist_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;

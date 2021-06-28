@@ -50,7 +50,7 @@ int TransferCacheManager::DetermineSizeClassToEvict() {
   next_to_evict_.store(t + 1, std::memory_order_relaxed);
 
   // Ask nicely first.
-  if (cache_[t].tc.HasSpareCapacity()) return t;
+  if (cache_[t].tc.HasSpareCapacity(t)) return t;
 
   // But insist on the second try.
   t = next_to_evict_.load(std::memory_order_relaxed);

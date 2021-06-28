@@ -61,11 +61,11 @@ class TransferCacheManager {
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    cache_[size_class].tc.InsertRange(batch);
+    cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    return cache_[size_class].tc.RemoveRange(batch, n);
+    return cache_[size_class].tc.RemoveRange(size_class, batch, n);
   }
 
   size_t central_length(int size_class) const {
@@ -94,9 +94,11 @@ class TransferCacheManager {
   void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
-    return cache_[size_class].tc.ShrinkCache();
+    return cache_[size_class].tc.ShrinkCache(size_class);
   }
-  bool GrowCache(int size_class) { return cache_[size_class].tc.GrowCache(); }
+  bool GrowCache(int size_class) {
+    return cache_[size_class].tc.GrowCache(size_class);
+  }
 
   std::atomic<int32_t> next_to_evict_;
   union Cache {

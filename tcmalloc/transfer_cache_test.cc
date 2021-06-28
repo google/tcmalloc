@@ -40,6 +40,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+static constexpr int kSizeClass = 0;
+
 template <typename Env>
 using TransferCacheTest = ::testing::Test;
 TYPED_TEST_SUITE_P(TransferCacheTest);
@@ -119,7 +121,7 @@ TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
   });
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
 
-  while (e.transfer_cache().HasSpareCapacity()) {
+  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
     e.Insert(batch_size);
   }
   size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
@@ -176,7 +178,7 @@ TYPED_TEST_P(TransferCacheTest, FullCacheFlex) {
         .Times(testing::AtLeast(batch_size));
   }
 
-  while (e.transfer_cache().HasSpareCapacity()) {
+  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
     e.Insert(batch_size);
   }
   for (int i = 1; i < batch_size + 2; i++) {
@@ -193,7 +195,7 @@ TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   });
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
 
-  while (e.transfer_cache().HasSpareCapacity()) {
+  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
     e.Insert(batch_size);
   }
   size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
@@ -208,7 +210,7 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   TypeParam env;
   EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
 
-  while (env.transfer_cache().HasSpareCapacity()) {
+  while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
     env.Insert(batch_size);
   }
   for (int i = 0; i < 100; ++i) {
@@ -227,7 +229,7 @@ TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
     EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
   }
 
-  while (env.transfer_cache().HasSpareCapacity()) {
+  while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
     env.Insert(batch_size);
   }
   for (int i = 0; i < 100; ++i) {
@@ -298,12 +300,13 @@ TEST(LockTransferCacheTest, DISABLED_b172283201) {
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
 
   for (size_t i = 0; i < kObjects; i += batch_size) {
-    env.transfer_cache().InsertRange(absl::MakeSpan(pointers));
+    env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));
 
     ASSERT_EQ(env.transfer_cache().tc_length(), batch_size);
 
     void* out[kMaxObjectsToMove];
-    int out_count = env.transfer_cache().RemoveRange(out, batch_size);
+    int out_count =
+        env.transfer_cache().RemoveRange(kSizeClass, out, batch_size);
     ASSERT_EQ(out_count, batch_size);
 
     std::sort(out, out + out_count);

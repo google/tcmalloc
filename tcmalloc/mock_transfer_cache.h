@@ -30,6 +30,7 @@ namespace tcmalloc_internal {
 
 inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
+inline constexpr int kSizeClass = 0;
 
 class FakeTransferCacheManagerBase {
  public:
@@ -119,8 +120,8 @@ class FakeTransferCacheEnvironment {
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
-  void Shrink() { cache_.ShrinkCache(); }
-  void Grow() { cache_.GrowCache(); }
+  void Shrink() { cache_.ShrinkCache(kSizeClass); }
+  void Grow() { cache_.GrowCache(kSizeClass); }
 
   void Insert(int n) {
     std::vector<void*> bufs;
@@ -128,7 +129,7 @@ class FakeTransferCacheEnvironment {
       int b = std::min(n, kBatchSize);
       bufs.resize(b);
       central_freelist().AllocateBatch(&bufs[0], b);
-      cache_.InsertRange(absl::MakeSpan(bufs));
+      cache_.InsertRange(kSizeClass, absl::MakeSpan(bufs));
       n -= b;
     }
   }
@@ -138,7 +139,7 @@ class FakeTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min(n, kBatchSize);
       bufs.resize(b);
-      unsigned long removed = cache_.RemoveRange(&bufs[0], b);
+      unsigned long removed = cache_.RemoveRange(kSizeClass, &bufs[0], b);
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
@@ -160,7 +161,7 @@ class FakeTransferCacheEnvironment {
     } else if (choice < 0.2) {
       Grow();
     } else if (choice < 0.3) {
-      cache_.HasSpareCapacity();
+      cache_.HasSpareCapacity(kSizeClass);
     } else if (choice < 0.65) {
       Insert(absl::Uniform(gen, 1, kBatchSize));
     } else {
