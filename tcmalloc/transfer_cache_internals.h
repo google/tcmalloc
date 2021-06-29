@@ -214,8 +214,8 @@ class TransferCache {
       stats.insert_hits = insert_hits_;
       stats.remove_hits = remove_hits_;
     }
-    stats.insert_misses = insert_misses_;
-    stats.remove_misses = remove_misses_;
+    stats.insert_misses = insert_misses_.load(std::memory_order_relaxed);
+    stats.remove_misses = remove_misses_.load(std::memory_order_relaxed);
     return stats;
   }
 
