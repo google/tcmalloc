@@ -46,6 +46,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/tracking.h"
 #include "tcmalloc/transfer_cache_stats.h"
@@ -82,10 +83,6 @@ class TransferCache {
       : owner_(owner),
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(capacity.max_capacity),
-        insert_hits_(0),
-        remove_hits_(0),
-        insert_misses_(0),
-        remove_misses_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
         freelist_do_not_access_directly_() {
@@ -161,11 +158,11 @@ class TransferCache {
         void **entry = GetSlot(info.used - N);
         memcpy(entry, batch.data(), sizeof(void *) * N);
         tracking::Report(kTCInsertHit, size_class, 1);
-        insert_hits_++;
+        insert_hits_.LossyAdd(1);
         return;
       }
     }
-    insert_misses_.fetch_add(1, std::memory_order_relaxed);
+    insert_misses_.Add(1);
     tracking::Report(kTCInsertMiss, size_class, 1);
     freelist().InsertRange(batch);
   }
@@ -187,11 +184,11 @@ class TransferCache {
         void **entry = GetSlot(info.used);
         memcpy(batch, entry, sizeof(void *) * N);
         tracking::Report(kTCRemoveHit, size_class, 1);
-        remove_hits_++;
+        remove_hits_.LossyAdd(1);
         return N;
       }
     }
-    remove_misses_.fetch_add(1, std::memory_order_relaxed);
+    remove_misses_.Add(1);
     tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
   }
@@ -210,13 +207,11 @@ class TransferCache {
   // Returns the number of transfer cache insert/remove hits/misses.
   TransferCacheStats GetHitRateStats() ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
-    {
-      absl::base_internal::SpinLockHolder h(&lock_);
-      stats.insert_hits = insert_hits_;
-      stats.remove_hits = remove_hits_;
-    }
-    stats.insert_misses = insert_misses_.load(std::memory_order_relaxed);
-    stats.remove_misses = remove_misses_.load(std::memory_order_relaxed);
+
+    stats.insert_hits = insert_hits_.value();
+    stats.remove_hits = remove_hits_.value();
+    stats.insert_misses = insert_misses_.value();
+    stats.remove_misses = remove_misses_.value();
     return stats;
   }
 
@@ -347,10 +342,14 @@ class TransferCache {
   // Maximum size of the cache.
   const int32_t max_capacity_;
 
-  size_t insert_hits_ ABSL_GUARDED_BY(lock_);
-  size_t remove_hits_ ABSL_GUARDED_BY(lock_);
-  std::atomic<size_t> insert_misses_;
-  std::atomic<size_t> remove_misses_;
+  // insert_hits_ and remove_hits_ are logically guarded by lock_ for mutations
+  // and use LossyAdd, but the thread annotations cannot indicate that we do not
+  // need a lock for reads.
+  StatsCounter insert_hits_;
+  StatsCounter remove_hits_;
+  // insert_misses_ and remove_misses_ do not hold lock_, so they use Add.
+  StatsCounter insert_misses_;
+  StatsCounter remove_misses_;
 
   // Number of currently used and available cached entries in slots_.  This
   // variable is updated under a lock but can be read without one.

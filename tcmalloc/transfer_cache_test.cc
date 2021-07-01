@@ -67,6 +67,48 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
 }
 
+TYPED_TEST_P(TransferCacheTest, ReadStats) {
+  const int batch_size = TypeParam::kBatchSize;
+  TypeParam e;
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
+
+  // Ensure there is at least one insert hit/remove hit, so we can assert a
+  // non-tautology in t2.
+  e.Insert(batch_size);
+  e.Remove(batch_size);
+
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+
+  std::atomic<bool> stop{false};
+
+  std::thread t1([&]() {
+    while (!stop.load(std::memory_order_acquire)) {
+      e.Insert(batch_size);
+      e.Remove(batch_size);
+    }
+  });
+
+  std::thread t2([&]() {
+    while (!stop.load(std::memory_order_acquire)) {
+      auto stats = e.transfer_cache().GetHitRateStats();
+      CHECK_CONDITION(stats.insert_hits >= 1);
+      CHECK_CONDITION(stats.insert_misses == 0);
+      CHECK_CONDITION(stats.remove_hits >= 1);
+      CHECK_CONDITION(stats.remove_misses == 0);
+    }
+  });
+
+  absl::SleepFor(absl::Seconds(1));
+  stop.store(true, std::memory_order_release);
+
+  t1.join();
+  t2.join();
+}
+
 TYPED_TEST_P(TransferCacheTest, SingleItemSmoke) {
   const int batch_size = TypeParam::kBatchSize;
   if (batch_size == 1) {
@@ -320,7 +362,7 @@ TEST(LockTransferCacheTest, DISABLED_b172283201) {
   }
 }
 
-REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke,
+REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             EvictsOtherCaches, PushesToFreelist, WrappingWorks,
                             SingleItemSmoke, EvictsOtherCachesFlex,
