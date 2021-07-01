@@ -58,8 +58,6 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
   HugeLength HugePagesRequested() { return huge_pages_requested_; }
   HugeLength HugePagesReceived() { return huge_pages_received_; }
 
-  size_t MetadataBytes() { return metadata_bytes_; }
-
   HugeAllocatorTest() {
     should_overallocate_ = GetParam();
     huge_pages_requested_ = NHugePages(0);

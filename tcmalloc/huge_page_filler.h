@@ -182,8 +182,6 @@ class SkippedSubreleaseCorrectnessTracker {
           std::max(max_num_pages_at_decision, e.num_pages_at_decision);
       max_confirmed_peak = std::max(max_confirmed_peak, e.confirmed_peak);
     }
-
-    bool empty() const { return false; }
   };
 
   const absl::Duration window_;
@@ -249,8 +247,6 @@ class FillerStatsTracker {
       }
       return total_huge_pages;
     }
-
-    Length allocated_pages() const { return num_pages + free_pages; }
   };
 
   struct NumberOfFreePages {
@@ -708,7 +704,6 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   Length released_pages() const { return Length(released_count_); }
   Length free_pages() const;
   bool empty() const;
-  bool full() const;
 
   bool unbroken() const { return unbroken_; }
 
@@ -940,10 +935,6 @@ class HugePageFiller {
         nonempty_.ClearBit(i);
       }
       --size_;
-    }
-    TrackerList& operator[](const size_t n) {
-      ASSERT(n < N);
-      return lists_[n];
     }
     const TrackerList& operator[](const size_t n) const {
       ASSERT(n < N);
@@ -1198,11 +1189,6 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats* small,
 template <MemoryModifyFunction Unback>
 inline bool PageTracker<Unback>::empty() const {
   return free_.used() == 0;
-}
-
-template <MemoryModifyFunction Unback>
-inline bool PageTracker<Unback>::full() const {
-  return free_.used() == free_.size();
 }
 
 template <MemoryModifyFunction Unback>

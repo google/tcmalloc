@@ -104,12 +104,6 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     delete extra_;
   }
 
-  struct Mark {
-    int64_t pad;
-    int64_t mark;
-    int64_t padding[62];
-  };
-
   void CheckStats() {
     size_t actual_used_bytes = total_.in_bytes();
     BackingStats stats;
@@ -449,8 +443,6 @@ TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
   }
 }
 
-static double BytesToMiB(size_t bytes) { return bytes / (1024.0 * 1024.0); }
-
 TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
   const int kIters = 2000;
   const Length kSmallPages = Length(1);
@@ -581,10 +573,6 @@ struct MemoryBytes {
   uint64_t phys;
 };
 
-MemoryBytes operator-(MemoryBytes lhs, MemoryBytes rhs) {
-  return {lhs.virt - rhs.virt, lhs.phys - rhs.phys};
-}
-
 int64_t pagesize = getpagesize();
 
 static size_t BytesInCore(void* p, size_t len) {
@@ -633,12 +621,6 @@ void Touch(HugePage hp) {
   while (p < lim) {
     Touch(p);
     ++p;
-  }
-}
-
-void Touch(Span* s) {
-  for (PageId p = s->first_page(); p <= s->last_page(); ++p) {
-    Touch(p);
   }
 }
 

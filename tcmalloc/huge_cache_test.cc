@@ -104,10 +104,6 @@ class HugeCacheTest : public testing::Test {
  protected:
   static std::unique_ptr<testing::NiceMock<MockBackingInterface>> mock_;
 
-  size_t HugePagesRequested() { return backing.size() - 1024; }
-
-  size_t MetadataBytes() { return metadata_bytes; }
-
   HugeCacheTest() {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
@@ -125,23 +121,6 @@ class HugeCacheTest : public testing::Test {
     mock_.reset(nullptr);
 
     clock_offset_ = 0;
-  }
-
-  size_t* GetActual(HugePage p) {
-    size_t index = reinterpret_cast<size_t>(p.start_addr()) / kHugePageSize;
-    return &backing[index];
-  }
-
-  void CheckPages(HugeRange r, size_t c) {
-    for (HugePage p = r.first; p < r.first + r.n; ++p) {
-      EXPECT_EQ(c, *GetActual(p));
-    }
-  }
-
-  void MarkPages(HugeRange r, size_t c) {
-    for (HugePage p = r.first; p < r.first + r.n; ++p) {
-      *GetActual(p) = c;
-    }
   }
 
   void Advance(absl::Duration d) {

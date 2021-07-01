@@ -47,9 +47,7 @@ class HugeAddressMap {
     HugeRange range() const;
     // Tree structure
     Node *left();
-    const Node *left() const;
     Node *right();
-    const Node *right() const;
     // Iterate to the next node in address order
     const Node *next() const;
     Node *next();
@@ -133,13 +131,7 @@ inline constexpr HugeAddressMap::HugeAddressMap(MetadataAllocFunction meta)
 
 inline HugeRange HugeAddressMap::Node::range() const { return range_; }
 inline HugeAddressMap::Node *HugeAddressMap::Node::left() { return left_; }
-inline const HugeAddressMap::Node *HugeAddressMap::Node::left() const {
-  return left_;
-}
 inline HugeAddressMap::Node *HugeAddressMap::Node::right() { return right_; }
-inline const HugeAddressMap::Node *HugeAddressMap::Node::right() const {
-  return right_;
-}
 
 inline int64_t HugeAddressMap::Node::when() const { return when_; }
 inline HugeLength HugeAddressMap::Node::longest() const { return longest_; }
