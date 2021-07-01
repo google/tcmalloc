@@ -31,27 +31,24 @@ namespace {
 using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
-
 static constexpr int kSizeClass = 0;
 
-template <typename Env>
 void BM_CrossThread(benchmark::State& state) {
-  using Manager = typename Env::Manager;
-  using Cache = typename Env::TransferCache;
-  const int kBatchSize = Env::kBatchSize;
-  const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+  using Cache = TransferCacheEnv::TransferCache;
+  const int kBatchSize = TransferCacheEnv::kBatchSize;
+  const int kMaxObjectsToMove = TransferCacheEnv::kMaxObjectsToMove;
   void* batch[kMaxObjectsToMove];
 
   struct CrossThreadState {
     CrossThreadState() : m{}, c{Cache(&m, 1), Cache(&m, 1)} {}
-    Manager m;
+    FakeTransferCacheManager m;
     Cache c[2];
   };
 
   static CrossThreadState* s = nullptr;
   if (state.thread_index == 0) {
     s = new CrossThreadState();
-    for (int i = 0; i < Env::kInitialCapacityInBatches / 2; ++i) {
+    for (int i = 0; i < TransferCacheEnv::kInitialCapacityInBatches / 2; ++i) {
       for (Cache& c : s->c) {
         c.freelist().AllocateBatch(batch, kBatchSize);
         c.InsertRange(kSizeClass, {batch, kBatchSize});
@@ -89,14 +86,13 @@ void BM_CrossThread(benchmark::State& state) {
   }
 }
 
-template <typename Env>
 void BM_InsertRange(benchmark::State& state) {
-  const int kBatchSize = Env::kBatchSize;
-  const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+  const int kBatchSize = TransferCacheEnv::kBatchSize;
+  const int kMaxObjectsToMove = TransferCacheEnv::kMaxObjectsToMove;
 
   // optional to have more precise control of when the destruction occurs, as
   // we want to avoid polluting the timing with the dtor.
-  absl::optional<Env> e;
+  absl::optional<TransferCacheEnv> e;
   void* batch[kMaxObjectsToMove];
   for (auto iter : state) {
     state.PauseTiming();
@@ -110,14 +106,13 @@ void BM_InsertRange(benchmark::State& state) {
   }
 }
 
-template <typename Env>
 void BM_RemoveRange(benchmark::State& state) {
-  const int kBatchSize = Env::kBatchSize;
-  const int kMaxObjectsToMove = Env::kMaxObjectsToMove;
+  const int kBatchSize = TransferCacheEnv::kBatchSize;
+  const int kMaxObjectsToMove = TransferCacheEnv::kMaxObjectsToMove;
 
   // optional to have more precise control of when the destruction occurs, as
   // we want to avoid polluting the timing with the dtor.
-  absl::optional<Env> e;
+  absl::optional<TransferCacheEnv> e;
   void* batch[kMaxObjectsToMove];
   for (auto iter : state) {
     state.PauseTiming();
@@ -131,9 +126,9 @@ void BM_RemoveRange(benchmark::State& state) {
   }
 }
 
-BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
-BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
+BENCHMARK(BM_CrossThread)->ThreadRange(2, 64);
+BENCHMARK(BM_InsertRange);
+BENCHMARK(BM_RemoveRange);
 
 }  // namespace
 }  // namespace tcmalloc_internal

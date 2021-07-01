@@ -167,7 +167,6 @@ struct LocalNumaPartitionPolicy {
   size_t partition() const {
     return Static::numa_topology().GetCurrentPartition();
   }
-
   size_t scaled_partition() const {
     return Static::numa_topology().GetCurrentScaledPartition();
   }

@@ -222,6 +222,7 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {       80,       1,          32},  // 0.04%
     {       88,       1,          32},  // 0.05%
     {       96,       1,          32},  // 0.04%
+    {      104,       1,          32},  // 0.04%
     {      112,       1,          32},  // 0.04%
     {      128,       1,          32},  // 0.02%
     {      144,       1,          32},  // 0.04%
