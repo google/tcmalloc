@@ -23,7 +23,8 @@ Running the code within this tutorial requires:
     guide on GitHub.
 
 Although you are free to use your own build system, most of the documentation
-within this guide will assume you are using [Bazel](https://bazel.build/).
+within this guide will assume you are using [Bazel](https://bazel.build/),
+version 4.0 or newer.
 
 To download and install Bazel (and any of its dependencies), consult the
 [Bazel Installation Guide](https://docs.bazel.build/versions/master/install.html).
