@@ -23,8 +23,10 @@ namespace tcmalloc_internal {
 struct TransferCacheStats {
   size_t insert_hits;
   size_t insert_misses;
+  size_t insert_non_batch_misses;
   size_t remove_hits;
   size_t remove_misses;
+  size_t remove_non_batch_misses;
 };
 
 }  // namespace tcmalloc_internal

@@ -210,14 +210,25 @@ size-class we track how often insert or remove requests have been satisfied from
 transfer cache.
 
 ```
-Transfer cache insert/remove hits/misses by size-class
-class   1 [        8 bytes ] :    32417 insert hits;     1511 insert misses;    31919 remove hits;        0 remove misses;
-class   2 [       16 bytes ] :   277493 insert hits;     1436 insert misses;   277265 remove hits;        7 remove misses;
-class   3 [       24 bytes ] :   174842 insert hits;     1302 insert misses;   174521 remove hits;        9 remove misses;
-class   4 [       32 bytes ] :   140506 insert hits;     1796 insert misses;   140336 remove hits;        8 remove misses;
-class   5 [       40 bytes ] :   182921 insert hits;     1607 insert misses;   182745 remove hits;       12 remove misses;
+
+Transfer cache insert/remove hits/misses by size class
+class   1 [        8 bytes ] :        0 insert hits;        2 insert misses (       2 partial);        0 remove hits;        2 remove misses (       2 partial);
+class   2 [       16 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
+class   3 [       24 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
+class   4 [       32 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
+class   5 [       40 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
+class   6 [       48 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        1 remove misses (       1 partial);
+class   7 [       56 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
+class   8 [       64 bytes ] :        0 insert hits;        6 insert misses (       6 partial);        0 remove hits;        5 remove misses (       2 partial);
+class   9 [       72 bytes ] :       41 insert hits;     1133 insert misses (    1133 partial);       40 remove hits;      133 remove misses (      63 partial);
+class  10 [       80 bytes ] :      132 insert hits;      330 insert misses (     330 partial);      125 remove hits;      228 remove misses (      55 partial);
 ...
 ```
+
+As of July 2021, the `TransferCache` misses when inserting or removing a
+non-batch size number of objects from the cache.  These are reflected in the
+"partial" column.  The insert and remove miss column is *inclusive* of misses
+for both batch size and non-batch size numbers of objects.
 
 ### Per-CPU Information
 

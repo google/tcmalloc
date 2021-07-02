@@ -422,13 +422,14 @@ static void DumpStats(Printer* out, int level) {
     out->printf("------------------------------------------------\n");
     out->printf("Transfer cache insert/remove hits/misses by size class\n");
     for (int cl = 1; cl < kNumClasses; ++cl) {
-      // clang-format off
       out->printf(
           "class %3d [ %8zu bytes ] : %8" PRIu64 " insert hits; %8" PRIu64
-          " insert misses; %8" PRIu64 " remove hits; %8" PRIu64 " remove misses;\n",
+          " insert misses (%8lu partial); %8" PRIu64 " remove hits; %8" PRIu64
+          " remove misses (%8lu partial);\n",
           cl, Static::sizemap().class_to_size(cl), tc_stats[cl].insert_hits,
-          tc_stats[cl].insert_misses, tc_stats[cl].remove_hits, tc_stats[cl].remove_misses);
-      // clang-format on
+          tc_stats[cl].insert_misses, tc_stats[cl].insert_non_batch_misses,
+          tc_stats[cl].remove_hits, tc_stats[cl].remove_misses,
+          tc_stats[cl].remove_non_batch_misses);
     }
 
     if (UsePerCpuCache()) {
@@ -550,8 +551,12 @@ namespace {
         entry.PrintI64("sizeclass", Static::sizemap().class_to_size(cl));
         entry.PrintI64("insert_hits", tc_stats[cl].insert_hits);
         entry.PrintI64("insert_misses", tc_stats[cl].insert_misses);
+        entry.PrintI64("insert_non_batch_misses",
+                       tc_stats[cl].insert_non_batch_misses);
         entry.PrintI64("remove_hits", tc_stats[cl].remove_hits);
         entry.PrintI64("remove_misses", tc_stats[cl].remove_misses);
+        entry.PrintI64("remove_non_batch_misses",
+                       tc_stats[cl].remove_non_batch_misses);
       }
     }
 

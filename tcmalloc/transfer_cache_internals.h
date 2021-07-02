@@ -147,22 +147,28 @@ class TransferCache {
     const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B && info.used + N <= max_capacity_) {
-      absl::base_internal::SpinLockHolder h(&lock_);
-      if (MakeCacheSpace(size_class, N)) {
-        // MakeCacheSpace can drop the lock, so refetch
-        info = slot_info_.load(std::memory_order_relaxed);
-        info.used += N;
-        SetSlotInfo(info);
+    if (N == B) {
+      if (info.used + N <= max_capacity_) {
+        absl::base_internal::SpinLockHolder h(&lock_);
+        if (MakeCacheSpace(size_class, N)) {
+          // MakeCacheSpace can drop the lock, so refetch
+          info = slot_info_.load(std::memory_order_relaxed);
+          info.used += N;
+          SetSlotInfo(info);
 
-        void **entry = GetSlot(info.used - N);
-        memcpy(entry, batch.data(), sizeof(void *) * N);
-        tracking::Report(kTCInsertHit, size_class, 1);
-        insert_hits_.LossyAdd(1);
-        return;
+          void **entry = GetSlot(info.used - N);
+          memcpy(entry, batch.data(), sizeof(void *) * N);
+          tracking::Report(kTCInsertHit, size_class, 1);
+          insert_hits_.LossyAdd(1);
+          return;
+        }
       }
+
+      insert_misses_.Add(1);
+    } else {
+      insert_non_batch_misses_.Add(1);
     }
-    insert_misses_.Add(1);
+
     tracking::Report(kTCInsertMiss, size_class, 1);
     freelist().InsertRange(batch);
   }
@@ -174,21 +180,27 @@ class TransferCache {
     ASSERT(N > 0);
     const int B = Manager::num_objects_to_move(size_class);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B && info.used >= N) {
-      absl::base_internal::SpinLockHolder h(&lock_);
-      // Refetch with the lock
-      info = slot_info_.load(std::memory_order_relaxed);
+    if (N == B) {
       if (info.used >= N) {
-        info.used -= N;
-        SetSlotInfo(info);
-        void **entry = GetSlot(info.used);
-        memcpy(batch, entry, sizeof(void *) * N);
-        tracking::Report(kTCRemoveHit, size_class, 1);
-        remove_hits_.LossyAdd(1);
-        return N;
+        absl::base_internal::SpinLockHolder h(&lock_);
+        // Refetch with the lock
+        info = slot_info_.load(std::memory_order_relaxed);
+        if (info.used >= N) {
+          info.used -= N;
+          SetSlotInfo(info);
+          void **entry = GetSlot(info.used);
+          memcpy(batch, entry, sizeof(void *) * N);
+          tracking::Report(kTCRemoveHit, size_class, 1);
+          remove_hits_.LossyAdd(1);
+          return N;
+        }
       }
+
+      remove_misses_.Add(1);
+    } else {
+      remove_non_batch_misses_.Add(1);
     }
-    remove_misses_.Add(1);
+
     tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
   }
@@ -211,7 +223,17 @@ class TransferCache {
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
     stats.insert_misses = insert_misses_.value();
+    stats.insert_non_batch_misses = insert_non_batch_misses_.value();
     stats.remove_misses = remove_misses_.value();
+    stats.remove_non_batch_misses = remove_non_batch_misses_.value();
+
+    // For performance reasons, we only update a single atomic as part of the
+    // actual allocation operation.  For reporting, we keep reporting all
+    // misses together and separately break-out how many of those misses were
+    // non-batch sized.
+    stats.insert_misses += stats.insert_non_batch_misses;
+    stats.remove_misses += stats.remove_non_batch_misses;
+
     return stats;
   }
 
@@ -347,9 +369,11 @@ class TransferCache {
   // need a lock for reads.
   StatsCounter insert_hits_;
   StatsCounter remove_hits_;
-  // insert_misses_ and remove_misses_ do not hold lock_, so they use Add.
+  // Miss counters do not hold lock_, so they use Add.
   StatsCounter insert_misses_;
+  StatsCounter insert_non_batch_misses_;
   StatsCounter remove_misses_;
+  StatsCounter remove_non_batch_misses_;
 
   // Number of currently used and available cached entries in slots_.  This
   // variable is updated under a lock but can be read without one.

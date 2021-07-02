@@ -49,22 +49,30 @@ TYPED_TEST_SUITE_P(TransferCacheTest);
 TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
-  EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
-  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(0);
+  EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
+  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
 
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 0);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
 
   e.Insert(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
   e.Insert(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
+  e.Insert(batch_size - 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 1);
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
+  e.Remove(batch_size - 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 1);
 }
 
 TYPED_TEST_P(TransferCacheTest, ReadStats) {
@@ -80,8 +88,10 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
 
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
 
   std::atomic<bool> stop{false};
 
@@ -97,8 +107,10 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
       auto stats = e.transfer_cache().GetHitRateStats();
       CHECK_CONDITION(stats.insert_hits >= 1);
       CHECK_CONDITION(stats.insert_misses == 0);
+      CHECK_CONDITION(stats.insert_non_batch_misses == 0);
       CHECK_CONDITION(stats.remove_hits >= 1);
       CHECK_CONDITION(stats.remove_misses == 0);
+      CHECK_CONDITION(stats.remove_non_batch_misses == 0);
     }
   });
 
