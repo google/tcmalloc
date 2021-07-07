@@ -532,6 +532,34 @@ cc_binary(
     deps = EMPIRICAL_DEPS,
 )
 
+cc_test(
+    name = "empirical_driver_distribution_test",
+    srcs = ["empirical_driver.cc"],
+    args = [
+        "--profile=sigma",
+        "--bytes=104857600",
+        "--test_iterations=20",
+        "--print_stats_to_file=false",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
+    name = "empirical_driver_constant_test",
+    srcs = ["empirical_driver.cc"],
+    args = [
+        "--profile=65536",
+        "--bytes=104857600",
+        "--test_iterations=20",
+        "--print_stats_to_file=false",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
 cc_binary(
     name = "empirical_driver_hpaa",
     testonly = 1,
