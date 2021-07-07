@@ -680,6 +680,18 @@ cc_fuzz_test(
 )
 
 cc_test(
+    name = "arena_test",
+    timeout = "moderate",
+    srcs = ["arena_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "transfer_cache_test",
     timeout = "moderate",
     srcs = ["transfer_cache_test.cc"],

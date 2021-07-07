@@ -24,8 +24,16 @@ namespace tcmalloc_internal {
 
 void* Arena::Alloc(size_t bytes, int alignment) {
   ASSERT(alignment > 0);
+  {  // First we need to move up to the correct alignment.
+    const int misalignment =
+        reinterpret_cast<uintptr_t>(free_area_) % alignment;
+    const int alignment_bytes =
+        misalignment != 0 ? alignment - misalignment : 0;
+    free_area_ += alignment_bytes;
+    free_avail_ -= alignment_bytes;
+    bytes_allocated_ += alignment_bytes;
+  }
   char* result;
-  bytes = ((bytes + alignment - 1) / alignment) * alignment;
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
     size_t actual_size;
