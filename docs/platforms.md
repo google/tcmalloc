@@ -41,7 +41,7 @@ Architecture, Specific Compiler, and Standard Library implementation.
     <tr>
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
-      <td>x86, PPC</td>
+      <td>x86, AArch64</td>
       <td>gcc 9.2+<br/>clang 9.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
@@ -67,7 +67,7 @@ release should also work.
     <tr>
       <td>Linux</td>
       <td>little-endian, 64-bit</td>
-      <td>AArch64</td>
+      <td>PPC</td>
       <td>gcc 9.2+<br/>clang 9.0+</td>
       <td>libstdc++<br/>libc++</td>
     </tr>
