@@ -84,10 +84,6 @@ void Report(TrackingStat stat, size_t cl, ssize_t count);
 // mechanisms for data delivery without too much trouble...
 void Print(Printer* out);
 
-// Call before a thread will die (ideally after its last malloc call!)
-// so we don't lose its statistics.
-void ReportThreadDeath();
-
 // Call on startup during tcmalloc initialization.
 void Init();
 
@@ -98,9 +94,7 @@ void GetProperties(std::map<std::string, MallocExtension::Property>* result);
 #if !TCMALLOC_HAVE_TRACKING
 // no tracking, these are all no-ops
 inline void Report(TrackingStat stat, size_t cl, ssize_t count) {}
-inline void RegisterNewThreadIfNecessary() {}
 inline void Print(Printer* out) {}
-inline void ReportThreadDeath() {}
 inline void Init() {}
 inline void GetProperties(
     std::map<std::string, MallocExtension::Property>* result) {}
