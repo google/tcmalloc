@@ -163,9 +163,9 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->central_bytes = 0;
   r->transfer_bytes = 0;
   for (int cl = 0; cl < kNumClasses; ++cl) {
-    const size_t length = Static::transfer_cache().central_length(cl);
+    const size_t length = Static::central_freelist(cl).length();
     const size_t tc_length = Static::transfer_cache().tc_length(cl);
-    const size_t cache_overhead = Static::transfer_cache().OverheadBytes(cl);
+    const size_t cache_overhead = Static::central_freelist(cl).OverheadBytes();
     const size_t size = Static::sizemap().class_to_size(cl);
     r->central_bytes += (size * length) + cache_overhead;
     r->transfer_bytes += (size * tc_length);
@@ -178,7 +178,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       }
     }
     if (span_stats) {
-      span_stats[cl] = Static::transfer_cache().GetSpanStats(cl);
+      span_stats[cl] = Static::central_freelist(cl).GetSpanStats();
     }
     if (tc_stats) {
       tc_stats[cl] = Static::transfer_cache().GetHitRateStats(cl);

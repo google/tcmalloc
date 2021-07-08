@@ -68,24 +68,16 @@ class TransferCacheManager {
     return cache_[size_class].tc.RemoveRange(size_class, batch, n);
   }
 
-  size_t central_length(int size_class) const {
-    return cache_[size_class].tc.central_length();
-  }
-
   size_t tc_length(int size_class) const {
     return cache_[size_class].tc.tc_length();
   }
 
-  size_t OverheadBytes(int size_class) const {
-    return cache_[size_class].tc.OverheadBytes();
-  }
-
-  SpanStats GetSpanStats(int size_class) const {
-    return cache_[size_class].tc.GetSpanStats();
-  }
-
   TransferCacheStats GetHitRateStats(int size_class) {
     return cache_[size_class].tc.GetHitRateStats();
+  }
+
+  const CentralFreeList &central_freelist(int size_class) const {
+    return cache_[size_class].tc.freelist();
   }
 
  private:
@@ -134,27 +126,14 @@ class TransferCacheManager {
     return freelist_[size_class].RemoveRange(batch, n);
   }
 
-  size_t central_length(int size_class) const {
-    return freelist_[size_class].length();
-  }
-
   static constexpr size_t tc_length(int size_class) { return 0; }
 
-  size_t OverheadBytes(int size_class) {
-    return freelist_[size_class].OverheadBytes();
+  static constexpr TransferCacheStats GetHitRateStats(int size_class) {
+    return {0, 0, 0, 0};
   }
 
-  SpanStats GetSpanStats(int size_class) const {
-    return freelist_[size_class].GetSpanStats();
-  }
-
-  TransferCacheStats GetHitRateStats(int size_class) const {
-    TransferCacheStats stats;
-    stats.insert_hits = 0;
-    stats.insert_misses = 0;
-    stats.remove_hits = 0;
-    stats.remove_misses = 0;
-    return stats;
+  const CentralFreeList &central_freelist(int size_class) const {
+    return freelist_[size_class];
   }
 
  private:

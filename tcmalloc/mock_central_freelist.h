@@ -26,17 +26,11 @@ namespace tcmalloc_internal {
 
 class FakeCentralFreeListBase {
  public:
-  FakeCentralFreeListBase() : size_class_(0) {}
+  FakeCentralFreeListBase() {}
   FakeCentralFreeListBase(const FakeCentralFreeListBase&) = delete;
   FakeCentralFreeListBase& operator=(const FakeCentralFreeListBase&) = delete;
 
-  void Init(size_t cl) { size_class_ = cl; }
-  size_t length() { return 0; }
-  size_t OverheadBytes() { return 0; }
-  size_t size_class() const { return size_class_; }
-
- private:
-  size_t size_class_;
+  static constexpr void Init(size_t) {}
 };
 
 // CentralFreeList implementation that backs onto the system's malloc.

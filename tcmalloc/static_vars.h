@@ -27,6 +27,7 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -57,6 +58,10 @@ class Static {
   // Safe to call multiple times.
   static void InitIfNecessary();
 
+  // Central cache.
+  static const CentralFreeList& central_freelist(int size_class) {
+    return transfer_cache().central_freelist(size_class);
+  }
   // Central cache -- an array of free-lists, one per size-class.
   // We have a separate lock per free-list to reduce contention.
   static TransferCacheManager& transfer_cache() { return transfer_cache_; }
