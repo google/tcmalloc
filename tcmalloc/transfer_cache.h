@@ -41,7 +41,14 @@ namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
-class TransferCacheManager {
+class StaticForwarder {
+ public:
+  static size_t class_to_size(int size_class);
+  static size_t num_objects_to_move(int size_class);
+  static void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+};
+
+class TransferCacheManager : public StaticForwarder {
   template <typename CentralFreeList, typename Manager>
   friend class internal_transfer_cache::TransferCache;
   using TransferCache =
@@ -81,9 +88,6 @@ class TransferCacheManager {
   }
 
  private:
-  static size_t class_to_size(int size_class);
-  static size_t num_objects_to_move(int size_class);
-  void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
     return cache_[size_class].tc.ShrinkCache(size_class);

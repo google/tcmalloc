@@ -34,13 +34,13 @@ namespace tcmalloc_internal {
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
-size_t TransferCacheManager::class_to_size(int size_class) {
+size_t StaticForwarder::class_to_size(int size_class) {
   return Static::sizemap().class_to_size(size_class);
 }
-size_t TransferCacheManager::num_objects_to_move(int size_class) {
+size_t StaticForwarder::num_objects_to_move(int size_class) {
   return Static::sizemap().num_objects_to_move(size_class);
 }
-void* TransferCacheManager::Alloc(size_t size) {
+void* StaticForwarder::Alloc(size_t size) {
   return Static::arena().Alloc(size);
 }
 
