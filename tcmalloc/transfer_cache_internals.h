@@ -205,16 +205,10 @@ class TransferCache {
     return freelist().RemoveRange(batch, N);
   }
 
-  // Returns the number of free objects in the central cache.
-  size_t central_length() const { return freelist().length(); }
-
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() const {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
-
-  // Returns the number of spans allocated and deallocated from the CFL
-  SpanStats GetSpanStats() const { return freelist().GetSpanStats(); }
 
   // Returns the number of transfer cache insert/remove hits/misses.
   TransferCacheStats GetHitRateStats() ABSL_LOCKS_EXCLUDED(lock_) {
@@ -236,12 +230,6 @@ class TransferCache {
 
     return stats;
   }
-
-  // Returns the memory overhead (internal fragmentation) attributable
-  // to the freelist.  This is memory lost when the size of elements
-  // in a freelist doesn't exactly divide the page-size (an 8192-byte
-  // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() const { return freelist().OverheadBytes(); }
 
   SizeInfo GetSlotInfo() const {
     return slot_info_.load(std::memory_order_relaxed);
