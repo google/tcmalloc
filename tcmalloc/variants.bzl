@@ -70,13 +70,6 @@ variants = [
         "copts": [],
     },
     {
-        "name": "8k_pages_lock_free",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "copts": [],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_LOCK_FREE_TRANSFER_CACHE_V2"},
-    },
-    {
         "name": "8k_pages_sans_56",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
