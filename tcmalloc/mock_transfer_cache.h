@@ -58,7 +58,6 @@ class FakeTransferCacheManager : public FakeTransferCacheManagerBase {
  public:
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int);
-  bool GrowCache(int);
 };
 
 // TransferCacheManager which allows intercepting intersting methods.

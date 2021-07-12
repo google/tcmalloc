@@ -19,7 +19,6 @@ namespace tcmalloc_internal {
 
 int FakeTransferCacheManager::DetermineSizeClassToEvict() { return 3; }
 bool FakeTransferCacheManager::ShrinkCache(int) { return true; }
-bool FakeTransferCacheManager::GrowCache(int) { return true; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
