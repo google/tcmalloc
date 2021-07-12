@@ -56,6 +56,14 @@
 #error "Unsupported architecture."
 #endif
 
+#if !defined(__cplusplus) || __cplusplus < 201703L
+#error "TCMalloc requires C++17 or later."
+#else
+// Also explicitly use some C++17 syntax, to prevent detect flags like
+// `-Wc++14-compat`.
+namespace tcmalloc::google3_requires_cpp17_or_later {}
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
