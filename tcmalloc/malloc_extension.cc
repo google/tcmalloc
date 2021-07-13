@@ -419,9 +419,17 @@ size_t MallocExtension::ReleaseCpuMemory(int cpu) {
 
 void MallocExtension::ProcessBackgroundActions() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_Internal_ProcessBackgroundActions != nullptr) {
+  if (NeedsProcessBackgroundActions()) {
     MallocExtension_Internal_ProcessBackgroundActions();
   }
+#endif
+}
+
+bool MallocExtension::NeedsProcessBackgroundActions() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  return &MallocExtension_Internal_ProcessBackgroundActions != nullptr;
+#else
+  return false;
 #endif
 }
 

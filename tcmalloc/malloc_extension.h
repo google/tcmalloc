@@ -443,6 +443,11 @@ class MallocExtension final {
   // When linked against TCMalloc, this method does not return.
   static void ProcessBackgroundActions();
 
+  // Return true if ProcessBackgroundActions should be called on this platform.
+  // Not all platforms need/support background actions. As of 2021 this
+  // includes Apple and Emscripten.
+  static bool NeedsProcessBackgroundActions();
+
   // Specifies a rate in bytes per second.
   //
   // The enum is used to provide strong-typing for the value.
