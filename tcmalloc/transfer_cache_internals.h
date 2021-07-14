@@ -211,7 +211,7 @@ class TransferCache {
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
-  TransferCacheStats GetHitRateStats() ABSL_LOCKS_EXCLUDED(lock_) {
+  TransferCacheStats GetHitRateStats() const ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();

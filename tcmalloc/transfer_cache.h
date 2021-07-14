@@ -79,7 +79,7 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.tc_length();
   }
 
-  TransferCacheStats GetHitRateStats(int size_class) {
+  TransferCacheStats GetHitRateStats(int size_class) const {
     return cache_[size_class].tc.GetHitRateStats();
   }
 
