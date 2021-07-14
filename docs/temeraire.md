@@ -6,7 +6,11 @@ _Notes on the name_[^cutie]_: the french word for "reckless" or "rash" :), and a
 the name of several large and powerful English warships. So: giant and powerful,
 but maybe a little dangerous. :)_
 
-This is a description of the design of the Hugepage-Aware Allocator.
+This is a description of the design of the Hugepage-Aware Allocator. We have
+also published ["Beyond malloc efficiency to fleet efficiency: a hugepage-aware
+memory allocator" at OSDI 2021](https://research.google/pubs/pub50370/), which
+provides further details on the design, implementation, and rollout of
+Temeraire.
 
 ## GOALS
 

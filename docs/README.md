@@ -36,6 +36,19 @@ More advanced usages of TCMalloc may find the following documentation useful:
 *   The [history and differences](gperftools.md) between this repository and
     gperftools.
 
+## Publications
+
+We've published several papers relating to TCMalloc optimizations:
+
+*   ["Beyond malloc efficiency to fleet efficiency: a hugepage-aware memory
+    allocator" (OSDI 2021)](https://research.google/pubs/pub50370/) relating to
+    the development and rollout of [Temeraire](temeraire.md), TCMalloc's
+    hugepage-aware page heap implementation.
+*   ["Adaptive Hugepage Subrelease for Non-moving Memory Allocators in
+    Warehouse-Scale Computers" (ISMM
+    2021)](https://research.google/pubs/pub50436/) relating to optimizations for
+    releasing partial hugepages to the operating system.
+
 ## License
 
 The TCMalloc library is licensed under the terms of the Apache
