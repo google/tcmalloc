@@ -67,6 +67,9 @@ class CPUCache {
   // Give the number of bytes in <cpu>'s cache
   uint64_t UsedBytes(int cpu) const;
 
+  // Give the allocated number of bytes in <cpu>'s cache
+  uint64_t Allocated(int cpu) const;
+
   // Whether <cpu>'s cache has ever been populated with objects
   bool HasPopulated(int cpu) const;
 
@@ -83,6 +86,30 @@ class CPUCache {
 
   // Give the per-cpu limit of cache size.
   uint64_t CacheLimit() const;
+
+  // Shuffles per-cpu caches using the number of underflows and overflows that
+  // occurred in the prior interval. It selects the top per-cpu caches
+  // with highest misses as candidates, iterates through the other per-cpu
+  // caches to steal capacity from them and adds the stolen bytes to the
+  // available capacity of the per-cpu caches. May be called from any processor.
+  //
+  // TODO(vgogte): There are quite a few knobs that we can play around with in
+  // ShuffleCpuCaches.
+  void ShuffleCpuCaches();
+
+  // Tries to steal <bytes> for the destination <cpu>. It iterates through the
+  // the set of populated cpu caches and steals the bytes from them. A cpu is
+  // considered a good candidate to steal from if:
+  // (1) the cache is populated
+  // (2) the numbers of underflows and overflows are both less than 0.8x those
+  // of the destination per-cpu cache
+  // (3) source cpu is not the same as the destination cpu
+  // (4) capacity of the source cpu/cl is non-zero
+  //
+  // For a given source cpu, we iterate through the size classes to steal from
+  // them. Currently, we use a similar clock-like algorithm from Steal() to
+  // identify the cl to steal from.
+  void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
 
   // Empty out the cache on <cpu>; move all objects to the central
   // cache.  (If other threads run concurrently on that cpu, we can't
@@ -104,10 +131,11 @@ class CPUCache {
     size_t overflows;
   };
 
-  // Reports cache malloc or free misses for <cpu>.
-  // <is_malloc> determines whether the reported stat should be for malloc or
-  // free misses.
-  CpuCacheMissStats GetCacheMissStats(const int cpu) const;
+  // Reports total cache underflows and overflows for <cpu>.
+  CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
+
+  // Reports cache underflows and overflows for <cpu> this interval.
+  CpuCacheMissStats GetIntervalCacheMissStats(int cpu) const;
 
   // Report statistics
   void Print(Printer* out) const;
@@ -157,9 +185,13 @@ class CPUCache {
     absl::base_internal::SpinLock lock;
     PerClassResizeInfo per_class[kNumClasses];
     // tracks number of underflows on allocate.
-    std::atomic<size_t> underflows;
+    std::atomic<size_t> total_underflows;
     // tracks number of overflows on deallocate.
-    std::atomic<size_t> overflows;
+    std::atomic<size_t> total_overflows;
+    // tracks number of underflows recorded as of the end of the last interval.
+    std::atomic<size_t> prev_underflows;
+    // tracks number of overflows recorded as of the end of the last interval.
+    std::atomic<size_t> prev_overflows;
   };
   struct ResizeInfo : ResizeInfoUnpadded {
     char pad[ABSL_CACHELINE_SIZE -
@@ -172,6 +204,10 @@ class CPUCache {
   bool lazy_slabs_ = false;
   // The maximum capacity of each size class within the slab.
   uint16_t max_capacity_[kNumClasses] = {0};
+
+  // Provides a hint to StealFromOtherCache() so that we can steal from the
+  // caches in a round-robin fashion.
+  std::atomic<int> last_cpu_cache_steal_ = 0;
 
   // Return a set of objects to be returned to the Transfer Cache.
   static constexpr int kMaxToReturn = 16;
@@ -216,10 +252,10 @@ class CPUCache {
   // be freed.
   size_t Steal(int cpu, size_t cl, size_t bytes, ObjectsToReturn* to_return);
 
-  // Records a cache malloc and free miss on <cpu>, increments malloc or free
-  // miss by 1.
-  // <is_malloc> determines whether the associated count corresponds to a
-  // malloc or a free miss.
+  // Records a cache underflow or overflow on <cpu>, increments underflow or
+  // overflow by 1.
+  // <is_malloc> determines whether the associated count corresponds to an
+  // underflow or overflow.
   void RecordCacheMissStat(const int cpu, const bool is_malloc);
 
   static void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }

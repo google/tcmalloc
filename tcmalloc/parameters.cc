@@ -69,6 +69,8 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
     });
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
+ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
+    false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::lazy_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
@@ -159,6 +161,10 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
   return Parameters::hpaa_subrelease();
 }
 
+bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled() {
+  return Parameters::shuffle_per_cpu_caches();
+}
+
 bool TCMalloc_Internal_GetLazyPerCpuCachesEnabled() {
   return Parameters::lazy_per_cpu_caches();
 }
@@ -204,6 +210,11 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
 void TCMalloc_Internal_SetHPAASubrelease(bool v) {
   tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr()->store(
       v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
+  Parameters::shuffle_per_cpu_caches_enabled_.store(v,
+                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetLazyPerCpuCachesEnabled(bool v) {

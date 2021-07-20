@@ -131,6 +131,18 @@ class TcmallocSlab {
   // REQUIRES: len > 0.
   size_t PopBatch(size_t cl, void** batch, size_t len);
 
+  // Decrements the cpu/cl slab's capacity to no less than max(capacity-len, 0)
+  // and returns the actual decrement applied. It attempts to shrink any
+  // unused capacity (i.e end-current) in cpu/cl's slab; if it does not have
+  // enough unused items, it pops up to <len> items from cpu/cl slab and then
+  // shrinks the freed capacity.
+  //
+  // May be called from another processor, not just the <cpu>.
+  // REQUIRES: len > 0.
+  typedef void (*ShrinkHandler)(void* arg, size_t cl, void** batch, size_t n);
+  size_t ShrinkOtherCache(int cpu, size_t cl, size_t len, void* shrink_ctx,
+                          ShrinkHandler f);
+
   // Remove all items (of all classes) from <cpu>'s slab; reset capacity for all
   // classes to zero.  Then, for each sizeclass, invoke
   // DrainHandler(drain_ctx, cl, <items from slab>, <previous slab capacity>);
@@ -1094,6 +1106,73 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Destroy(void(free)(void*)) {
   free(slabs_);
   slabs_ = nullptr;
+}
+
+template <size_t NumClasses>
+size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
+                                                  size_t len, void* ctx,
+                                                  ShrinkHandler f) {
+  ASSERT(cpu >= 0);
+  ASSERT(cpu < absl::base_internal::NumCPUs());
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+
+  // Phase 1: Collect begin as it will be overwritten by the lock.
+  std::atomic<int64_t>* hdrp = GetHeader(cpu, cl);
+  Header hdr = LoadHeader(hdrp);
+  CHECK_CONDITION(!hdr.IsLocked());
+  const uint16_t begin = hdr.begin;
+
+  // Phase 2: stop concurrent mutations.
+  for (bool done = false; !done;) {
+    reinterpret_cast<Header*>(GetHeader(cpu, cl))->Lock();
+    FenceCpu(cpu, virtual_cpu_id_offset);
+    done = true;
+
+    hdr = LoadHeader(GetHeader(cpu, cl));
+    if (!hdr.IsLocked()) {
+      // Header was overwritten by Grow/Shrink. Retry.
+      done = false;
+    }
+  }
+
+  // Phase 3: If we do not have len number of items to shrink, we try
+  // to pop items from the list first to create enough capacity that can be
+  // shrunk. If we pop items, we also execute callbacks.
+  //
+  // We can't write all 4 fields at once with a single write, because Pop does
+  // several non-atomic loads of the fields. Consider that a concurrent Pop
+  // loads old current (still pointing somewhere in the middle of the region);
+  // then we update all fields with a single write; then Pop loads the updated
+  // begin which allows it to proceed; then it decrements current below begin.
+  //
+  // So we instead first just update current--our locked begin/end guarantee
+  // no Push/Pop will make progress.  Once we Fence below, we know no Push/Pop
+  // is using the old current, and can safely update begin/end to be an empty
+  // slab.
+
+  const uint16_t unused = hdr.end_copy - hdr.current;
+  if (unused < len) {
+    const uint16_t expected_pop = len - unused;
+    const uint16_t actual_pop =
+        std::min<uint16_t>(expected_pop, hdr.current - begin);
+    void** batch =
+        reinterpret_cast<void**>(GetHeader(cpu, 0) + hdr.current - actual_pop);
+    f(ctx, cl, batch, actual_pop);
+    hdr.current -= actual_pop;
+    StoreHeader(hdrp, hdr);
+    FenceCpu(cpu, virtual_cpu_id_offset);
+  }
+
+  // Phase 4: Shrink the capacity. Use a copy of begin and end_copy to
+  // restore the header, shrink it, and return the length by which the
+  // region was shrunk.
+  hdr.begin = begin;
+  const uint16_t to_shrink =
+      std::min<uint16_t>(len, hdr.end_copy - hdr.current);
+  hdr.end_copy -= to_shrink;
+  hdr.end = hdr.end_copy;
+  StoreHeader(hdrp, hdr);
+  return to_shrink;
 }
 
 template <size_t NumClasses>

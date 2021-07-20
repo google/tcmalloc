@@ -264,6 +264,7 @@ common_deps = [
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
     "@com_google_absl//absl/base:dynamic_annotations",
+    "@com_google_absl//absl/container:fixed_array",
     "@com_google_absl//absl/debugging:debugging_internal",
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
@@ -1265,11 +1266,18 @@ cc_test(
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc_deprecated_perthread",
+    tags = [
+        # TODO(b/193887621): Add TSan annotations to CPUCache and/or add
+        # atomics to PageMap
+        "notsan",
+    ],
     deps = [
         ":common_deprecated_perthread",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:util",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:seed_sequences",
         "@com_google_googletest//:gtest_main",
     ],
 )

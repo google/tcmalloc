@@ -552,7 +552,7 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*stop) {
     size_t cl = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
-    const int what = absl::Uniform<int32_t>(rnd, 0, 81);
+    const int what = absl::Uniform<int32_t>(rnd, 0, 91);
     if (what < 10) {
       if (!block->empty()) {
         if (slab->Push(cl, block->back(), &Handler::Overflow)) {
@@ -618,6 +618,31 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       size_t cap = slab->Capacity(
           absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs()), cl);
       EXPECT_LE(cap, kStressCapacity);
+    } else if (what < 90) {
+      struct Context {
+        std::vector<void*>* block;
+        std::atomic<size_t>* capacity;
+      };
+      Context ctx = {block, capacity};
+      int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+      if (mutexes->at(cpu).TryLock()) {
+        size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
+        size_t total_shrunk = slab->ShrinkOtherCache(
+            cpu, cl, to_shrink, &ctx,
+            [](void* arg, size_t cl, void** batch, size_t n) {
+              Context* ctx = static_cast<Context*>(arg);
+              EXPECT_LT(cl, kStressSlabs);
+              EXPECT_LE(n, kStressCapacity);
+              for (size_t i = 0; i < n; ++i) {
+                EXPECT_NE(batch[i], nullptr);
+                ctx->block->push_back(batch[i]);
+              }
+            });
+        EXPECT_LE(total_shrunk, to_shrink);
+        EXPECT_LE(0, total_shrunk);
+        capacity->fetch_add(total_shrunk);
+        mutexes->at(cpu).Unlock();
+      }
     } else {
       struct Context {
         std::vector<void*>* block;

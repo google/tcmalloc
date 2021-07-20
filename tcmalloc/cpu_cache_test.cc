@@ -14,8 +14,12 @@
 
 #include "tcmalloc/cpu_cache.h"
 
+#include <thread>  // NOLINT(build/c++11)
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/random/random.h"
+#include "absl/random/seed_sequences.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
@@ -26,6 +30,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
 
 TEST(CpuCacheTest, Metadata) {
@@ -185,9 +190,14 @@ TEST(CpuCacheTest, CacheMissStats) {
 
   //  The number of underflows and overflows must be zero for all the caches.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
-    EXPECT_EQ(miss_stats.underflows, 0);
-    EXPECT_EQ(miss_stats.overflows, 0);
+    CPUCache::CpuCacheMissStats total_misses =
+        cache.GetTotalCacheMissStats(cpu);
+    CPUCache::CpuCacheMissStats interval_misses =
+        cache.GetIntervalCacheMissStats(cpu);
+    EXPECT_EQ(total_misses.underflows, 0);
+    EXPECT_EQ(total_misses.overflows, 0);
+    EXPECT_EQ(interval_misses.underflows, 0);
+    EXPECT_EQ(interval_misses.overflows, 0);
   }
 
   int allowed_cpu_id;
@@ -218,13 +228,19 @@ TEST(CpuCacheTest, CacheMissStats) {
   }
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
+    CPUCache::CpuCacheMissStats total_misses =
+        cache.GetTotalCacheMissStats(cpu);
+    CPUCache::CpuCacheMissStats interval_misses =
+        cache.GetIntervalCacheMissStats(cpu);
     if (cpu == allowed_cpu_id) {
-      EXPECT_EQ(miss_stats.underflows, 1);
+      EXPECT_EQ(total_misses.underflows, 1);
+      EXPECT_EQ(interval_misses.underflows, 1);
     } else {
-      EXPECT_EQ(miss_stats.overflows, 0);
+      EXPECT_EQ(total_misses.underflows, 0);
+      EXPECT_EQ(interval_misses.underflows, 0);
     }
-    EXPECT_EQ(miss_stats.overflows, 0);
+    EXPECT_EQ(total_misses.overflows, 0);
+    EXPECT_EQ(interval_misses.overflows, 0);
   }
 
   // Tear down.
@@ -232,20 +248,93 @@ TEST(CpuCacheTest, CacheMissStats) {
   // TODO(ckennelly):  We're interacting with the real TransferCache.
   cache.Deallocate(ptr, kSizeClass);
 
-  // Confirm the underflow and overflow stats are unchanged; previous underflow
-  // still persists and no overflow occurs on deallocate.
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    CPUCache::CpuCacheMissStats miss_stats = cache.GetCacheMissStats(cpu);
-    if (cpu == allowed_cpu_id) {
-      EXPECT_EQ(miss_stats.underflows, 1);
-    } else {
-      EXPECT_EQ(miss_stats.underflows, 0);
-    }
-    EXPECT_EQ(miss_stats.overflows, 0);
-  }
-
   for (int i = 0; i < num_cpus; i++) {
     cache.Reclaim(i);
+  }
+}
+
+static void ShuffleThread(const std::atomic<bool>& stop) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CPUCache& cache = Static::cpu_cache();
+  // Wake up every 10ms to shuffle the caches so that we can allow misses to
+  // accumulate during that interval
+  while (!stop) {
+    cache.ShuffleCpuCaches();
+    absl::SleepFor(absl::Milliseconds(10));
+  }
+}
+
+static void StressThread(size_t thread_id, const std::atomic<bool>& stop) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CPUCache& cache = Static::cpu_cache();
+  std::vector<std::pair<size_t, void*>> blocks;
+  absl::BitGen rnd;
+  while (!stop) {
+    const int what = absl::Uniform<int32_t>(rnd, 0, 2);
+    if (what) {
+      // Allocate an object for a class
+      size_t cl = absl::Uniform<int32_t>(rnd, 1, kStressSlabs + 1);
+      void* ptr = cache.Allocate<OOMHandler>(cl);
+      blocks.emplace_back(std::make_pair(cl, ptr));
+    } else {
+      // Deallocate an object for a class
+      if (!blocks.empty()) {
+        cache.Deallocate(blocks.back().second, blocks.back().first);
+        blocks.pop_back();
+      }
+    }
+  }
+
+  // Cleaup. Deallocate rest of the allocated memory.
+  for (int i = 0; i < blocks.size(); i++) {
+    cache.Deallocate(blocks[i].second, blocks[i].first);
+  }
+}
+
+TEST(CpuCacheTest, StealCpuCache) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CPUCache& cache = Static::cpu_cache();
+  // Since this test allocates memory, avoid activating the real fast path to
+  // minimize allocations against the per-CPU cache.
+  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+
+  std::vector<std::thread> threads;
+  std::thread shuffle_thread;
+  const int n_threads = absl::base_internal::NumCPUs();
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(std::thread(StressThread, t, std::ref(stop)));
+  }
+  shuffle_thread = std::thread(ShuffleThread, std::ref(stop));
+
+  absl::SleepFor(absl::Seconds(5));
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+  shuffle_thread.join();
+
+  // Check that the total capacity is preserved after the shuffle.
+  size_t capacity = 0;
+  const int num_cpus = absl::base_internal::NumCPUs();
+  const size_t kTotalCapacity = num_cpus * Parameters::max_per_cpu_cache_size();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    capacity += cache.Allocated(cpu) + cache.Unallocated(cpu);
+  }
+  EXPECT_EQ(capacity, kTotalCapacity);
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    cache.Reclaim(cpu);
   }
 }
 
