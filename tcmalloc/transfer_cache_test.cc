@@ -14,6 +14,7 @@
 
 #include "tcmalloc/transfer_cache.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstring>
@@ -49,8 +50,10 @@ TYPED_TEST_SUITE_P(TransferCacheTest);
 TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
-  EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
-  EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
+  EXPECT_CALL(e.central_freelist(), InsertRange)
+      .Times(e.transfer_cache().IsFlexible() ? 0 : 1);
+  EXPECT_CALL(e.central_freelist(), RemoveRange)
+      .Times(e.transfer_cache().IsFlexible() ? 0 : 1);
 
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
@@ -64,15 +67,29 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   e.Insert(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
   e.Insert(batch_size - 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 1);
+  if (e.transfer_cache().IsFlexible()) {
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 3);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
+  } else {
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 1);
+  }
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
   e.Remove(batch_size - 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 1);
+  if (e.transfer_cache().IsFlexible()) {
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 3);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
+  } else {
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
+    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 1);
+  }
 }
 
 TYPED_TEST_P(TransferCacheTest, ReadStats) {
@@ -308,10 +325,10 @@ static size_t PickCoprimeBatchSize(size_t max_batch_size) {
   return max_batch_size;
 }
 
-TEST(LockTransferCacheTest, DISABLED_b172283201) {
-  // This test is designed to exercise the wraparound behavior for the former
-  // LockFreeTransferCache, which manages its indices in uint32_t's.  Because it
-  // uses a non-standard batch size (kBatchSize) as part of
+TEST(RingBufferTransferCacheTest, b172283201) {
+  // This test is designed to exercise the wraparound behavior for the
+  // RingBufferTransferCache, which manages its indices in uint32_t's.  Because
+  // it uses a non-standard batch size (kBatchSize) as part of
   // PickCoprimeBatchSize, it triggers a TransferCache miss to the
   // CentralFreeList, which is uninteresting for exercising b/172283201.
 
@@ -323,8 +340,8 @@ TEST(LockTransferCacheTest, DISABLED_b172283201) {
   GTEST_SKIP() << "skipping under thread sanitizer, which slows test execution";
 #endif
 
-  using EnvType =
-      FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+  using EnvType = FakeTransferCacheEnvironment<
+      internal_transfer_cache::RingBufferTransferCache<
           MockCentralFreeList, MockTransferCacheManager>>;
   EnvType env;
 
@@ -335,10 +352,6 @@ TEST(LockTransferCacheTest, DISABLED_b172283201) {
   const size_t batch_size = PickCoprimeBatchSize(EnvType::kBatchSize);
   ASSERT_GT(batch_size, 0);
   ASSERT_NE((size_t{1} << 32) % batch_size, 0) << batch_size;
-  const size_t kObjects =
-      static_cast<size_t>(std::numeric_limits<uint32_t>::max()) +
-      2 * batch_size;
-
   // For ease of comparison, allocate a buffer of char's.  We will use these to
   // generate unique addresses.  Since we assert that we will never miss in the
   // TransferCache and go to the CentralFreeList, these do not need to be valid
@@ -350,28 +363,51 @@ TEST(LockTransferCacheTest, DISABLED_b172283201) {
     pointers.push_back(&buffer[i]);
   }
 
-  EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
+  // To produce wraparound in the RingBufferTransferCache, we fill up the cache
+  // completely and then keep inserting new elements. This makes the cache
+  // return old elements to the freelist and eventually wrap around.
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
+  // We do return items to the freelist, don't try to actually free them.
+  ON_CALL(env.central_freelist(), InsertRange).WillByDefault(testing::Return());
+  ON_CALL(env.transfer_cache_manager(), DetermineSizeClassToEvict)
+      .WillByDefault(testing::Return(kSizeClass));
 
+  // First fill up the cache to its capacity.
+
+  while (env.transfer_cache().HasSpareCapacity(kSizeClass) ||
+         env.transfer_cache().GrowCache(kSizeClass)) {
+    env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));
+  }
+
+  // The current size of the transfer cache is close to its capacity. Insert
+  // enough batches to make sure we wrap around twice (1 batch size should wrap
+  // around as we are full currently, then insert the same amount of items
+  // again, then one more wrap around).
+  const size_t kObjects = env.transfer_cache().tc_length() + 2 * batch_size;
+
+  // From now on, calls to InsertRange() should result in a corresponding call
+  // to the freelist whenever the cache is full. This doesn't happen on every
+  // call, as we return up to num_to_move (i.e. kBatchSize) items to the free
+  // list in one batch.
+  EXPECT_CALL(env.central_freelist(),
+              InsertRange(testing::SizeIs(EnvType::kBatchSize)))
+      .Times(testing::AnyNumber());
   for (size_t i = 0; i < kObjects; i += batch_size) {
     env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));
-
-    ASSERT_EQ(env.transfer_cache().tc_length(), batch_size);
-
-    void* out[kMaxObjectsToMove];
-    int out_count =
-        env.transfer_cache().RemoveRange(kSizeClass, out, batch_size);
-    ASSERT_EQ(out_count, batch_size);
-
-    std::sort(out, out + out_count);
-    // Provide an optimized fast path for checking the returned pointers match
-    // the inserted pointers.  As discussed in b/172507506, this optimization
-    // reduces the runtime of this test by a factor of 10x.
-    if (memcmp(out, &pointers[0], sizeof(*out) * out_count) != 0) {
-      ASSERT_THAT(pointers, testing::ElementsAreArray(out, out + out_count));
-    }
-    ASSERT_EQ(env.transfer_cache().tc_length(), 0);
   }
+  // Manually drain the items in the transfercache, otherwise the destructor
+  // will try to free them.
+  std::vector<void*> to_free(batch_size);
+  size_t N = env.transfer_cache().tc_length();
+  while (N > 0) {
+    const size_t to_remove = std::min(N, batch_size);
+    const size_t removed =
+        env.transfer_cache().RemoveRange(kSizeClass, to_free.data(), to_remove);
+    ASSERT_THAT(removed, testing::Le(to_remove));
+    ASSERT_THAT(removed, testing::Gt(0));
+    N -= removed;
+  }
+  ASSERT_EQ(env.transfer_cache().tc_length(), 0);
 }
 
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
@@ -449,6 +485,14 @@ using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
 using TransferCacheTypes = ::testing::Types<Env>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheTest, TransferCacheTest,
                                TransferCacheTypes);
+
+using RingBufferEnv = FakeTransferCacheEnvironment<
+    internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
+                                                     MockTransferCacheManager>>;
+
+using RingBufferTransferCacheTypes = ::testing::Types<RingBufferEnv>;
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBufferTransferCacheTest, TransferCacheTest,
+                               RingBufferTransferCacheTypes);
 }  // namespace unit_tests
 
 namespace fuzz_tests {
@@ -457,11 +501,88 @@ namespace fuzz_tests {
 // itself.
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
     MockCentralFreeList, MockTransferCacheManager>>;
-
 using TransferCacheFuzzTypes = ::testing::Types<Env>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
                                TransferCacheFuzzTypes);
+
+using RingBufferEnv = FakeTransferCacheEnvironment<
+    internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
+                                                     MockTransferCacheManager>>;
+using RingBufferTransferCacheFuzzTypes = ::testing::Types<RingBufferEnv>;
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBufferTransferCacheFuzzTest,
+                               TransferCacheFuzzTest,
+                               RingBufferTransferCacheFuzzTypes);
 }  // namespace fuzz_tests
+
+namespace leak_tests {
+using Env = TwoSizesFakeTransferCacheEnvironment;
+
+class TwoSizesTransferCacheTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
+  const bool use_ring_buffer = GetParam();
+  TwoSizesFakeTransferCacheEnvironment env(use_ring_buffer);
+
+  // The point of this test is to see that adding "random" amounts of
+  // allocations to the transfer caches behaves correctly, even in the case that
+  // there are multiple size classes interacting by stealing from each other.
+
+  // Fill all caches to their maximum without starting to steal from each other.
+  for (int cl = 1; cl < Env::Manager::kSizeClasses; ++cl) {
+    const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+    while (env.transfer_cache_manager().HasSpareCapacity(cl)) {
+      env.Insert(cl, batch_size);
+    }
+  }
+
+  // Count the number of batches currently in the cache.
+  auto count_batches = [&env]() {
+    int batch_count = 0;
+    for (int cl = 1; cl < Env::Manager::kSizeClasses; ++cl) {
+      const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+      batch_count += env.transfer_cache_manager().tc_length(cl) / batch_size;
+    }
+    return batch_count;
+  };
+
+  absl::BitGen bitgen;
+  const int max_batches = count_batches();
+  int expected_batches = max_batches;
+  for (int i = 0; i < 100; ++i) {
+    {
+      // First remove.
+      const int cl = absl::Uniform<int>(bitgen, 1, Env::Manager::kSizeClasses);
+      const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+      if (env.transfer_cache_manager().tc_length(cl) >= batch_size) {
+        env.Remove(cl, batch_size);
+        --expected_batches;
+      }
+      const int current_batches = count_batches();
+      EXPECT_EQ(current_batches, expected_batches) << "iteration " << i;
+    }
+    {
+      // Then add in another size class.
+      const int cl = absl::Uniform<int>(bitgen, 1, Env::Manager::kSizeClasses);
+      // Evict from the "next" size class, skipping 0.
+      // This makes sure we are always evicting from somewhere if at all
+      // possible.
+      env.transfer_cache_manager().evicting_from_ =
+          1 + cl % (Env::Manager::kSizeClasses - 1);
+      if (expected_batches < max_batches) {
+        const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+        env.Insert(cl, batch_size);
+        ++expected_batches;
+      }
+      const int current_batches = count_batches();
+      EXPECT_EQ(current_batches, expected_batches) << "iteration " << i;
+    }
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(TwoSizesTransferCacheTest, TwoSizesTransferCacheTest,
+                         testing::Values(true, false));
+
+}  // namespace leak_tests
 
 }  // namespace
 }  // namespace tcmalloc_internal

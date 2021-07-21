@@ -55,6 +55,12 @@ class TransferCacheManager : public StaticForwarder {
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
+  template <typename CentralFreeList, typename Manager>
+  friend class internal_transfer_cache::RingBufferTransferCache;
+  using RingBufferTransferCache =
+      internal_transfer_cache::RingBufferTransferCache<
+          tcmalloc_internal::CentralFreeList, TransferCacheManager>;
+
  public:
   constexpr TransferCacheManager() : next_to_evict_(1) {}
 
@@ -62,46 +68,84 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    use_ringbuffer_ = IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE);
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].tc) TransferCache(this, i);
+      if (use_ringbuffer_) {
+        new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
+      } else {
+        new (&cache_[i].tc) TransferCache(this, i);
+      }
     }
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    cache_[size_class].tc.InsertRange(size_class, batch);
+    if (use_ringbuffer_) {
+      cache_[size_class].rbtc.InsertRange(size_class, batch);
+    } else {
+      cache_[size_class].tc.InsertRange(size_class, batch);
+    }
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    return cache_[size_class].tc.RemoveRange(size_class, batch, n);
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.RemoveRange(size_class, batch, n);
+    } else {
+      return cache_[size_class].tc.RemoveRange(size_class, batch, n);
+    }
   }
 
-  size_t tc_length(int size_class) const {
-    return cache_[size_class].tc.tc_length();
+  // This is not const because the underlying ring-buffer transfer cache
+  // function requires acquiring a lock.
+  size_t tc_length(int size_class) {
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.tc_length();
+    } else {
+      return cache_[size_class].tc.tc_length();
+    }
   }
 
   TransferCacheStats GetHitRateStats(int size_class) const {
-    return cache_[size_class].tc.GetHitRateStats();
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.GetHitRateStats();
+    } else {
+      return cache_[size_class].tc.GetHitRateStats();
+    }
   }
 
   const CentralFreeList &central_freelist(int size_class) const {
-    return cache_[size_class].tc.freelist();
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.freelist();
+    } else {
+      return cache_[size_class].tc.freelist();
+    }
   }
 
  private:
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
-    return cache_[size_class].tc.ShrinkCache(size_class);
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.ShrinkCache(size_class);
+    } else {
+      return cache_[size_class].tc.ShrinkCache(size_class);
+    }
   }
   bool GrowCache(int size_class) {
-    return cache_[size_class].tc.GrowCache(size_class);
+    if (use_ringbuffer_) {
+      return cache_[size_class].rbtc.GrowCache(size_class);
+    } else {
+      return cache_[size_class].tc.GrowCache(size_class);
+    }
   }
 
+  bool use_ringbuffer_ = false;
   std::atomic<int32_t> next_to_evict_;
   union Cache {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
     TransferCache tc;
+    RingBufferTransferCache rbtc;
     bool dummy;
   };
   Cache cache_[kNumClasses];

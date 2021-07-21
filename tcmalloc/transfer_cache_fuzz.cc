@@ -26,14 +26,19 @@ namespace {
 using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
     tcmalloc_internal::MockCentralFreeList,
     tcmalloc_internal::MockTransferCacheManager>;
-using Env = tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
+using TransferCacheEnv =
+    tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
-}  // namespace
-}  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
+using RingBufferTransferCache =
+    tcmalloc_internal::internal_transfer_cache::RingBufferTransferCache<
+        tcmalloc_internal::MockCentralFreeList,
+        tcmalloc_internal::MockTransferCacheManager>;
+using RingBufferTransferCacheEnv =
+    tcmalloc_internal::FakeTransferCacheEnvironment<RingBufferTransferCache>;
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  tcmalloc::Env env;
+template <typename Env>
+int RunFuzzer(const uint8_t *data, size_t size) {
+  Env env;
   for (int i = 0; i < size; ++i) {
     switch (data[i] % 10) {
       case 0:
@@ -54,5 +59,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         break;
     }
   }
+  return 0;
+}
+
+}  // namespace
+}  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
+
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  tcmalloc::RunFuzzer<tcmalloc::TransferCacheEnv>(data, size);
+  tcmalloc::RunFuzzer<tcmalloc::RingBufferTransferCacheEnv>(data, size);
   return 0;
 }

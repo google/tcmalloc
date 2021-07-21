@@ -17,6 +17,8 @@
 
 #include <stddef.h>
 
+#include <algorithm>
+#include <memory>
 #include <random>
 
 #include "gmock/gmock.h"
@@ -24,6 +26,7 @@
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
+#include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -138,11 +141,11 @@ class FakeTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min(n, kBatchSize);
       bufs.resize(b);
-      unsigned long removed = cache_.RemoveRange(kSizeClass, &bufs[0], b);
+      int removed = cache_.RemoveRange(kSizeClass, &bufs[0], b);
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
-      central_freelist().FreeBatch({&bufs[0], removed});
+      central_freelist().FreeBatch({&bufs[0], static_cast<size_t>(removed)});
       n -= removed;
     }
   }
@@ -177,6 +180,181 @@ class FakeTransferCacheEnvironment {
  private:
   Manager manager_;
   TransferCache cache_;
+};
+
+// A mock transfer cache manager class which supports two size classes instead
+// of just the one. To make this work, we have to store the transfer caches
+// inside the cache manager, like in production code.
+class TwoSizesTransferCacheManager : public FakeTransferCacheManagerBase {
+ public:
+  using FreeList = MockCentralFreeList;
+  using TransferCache =
+      internal_transfer_cache::TransferCache<FreeList,
+                                             TwoSizesTransferCacheManager>;
+  using RingBufferTransferCache =
+      internal_transfer_cache::RingBufferTransferCache<
+          FreeList, TwoSizesTransferCacheManager>;
+
+  // This is 3 instead of 2 because we hard code cl == 0 to be invalid in many
+  // places. We only use cl 1 and 2 here.
+  static constexpr int kSizeClasses = 3;
+  static constexpr size_t kClassSize1 = 8;
+  static constexpr size_t kClassSize2 = 16;
+  static constexpr size_t kNumToMove1 = 32;
+  static constexpr size_t kNumToMove2 = 16;
+
+  explicit TwoSizesTransferCacheManager(bool use_ring_buffer)
+      : use_ring_buffer_(use_ring_buffer) {
+    if (use_ring_buffer_) {
+      rb_caches_.reserve(kSizeClasses);
+      for (int cl = 0; cl < kSizeClasses; ++cl) {
+        rb_caches_.push_back(
+            absl::make_unique<RingBufferTransferCache>(this, cl));
+      }
+    } else {
+      caches_.reserve(kSizeClasses);
+      for (int cl = 0; cl < kSizeClasses; ++cl) {
+        caches_.push_back(absl::make_unique<TransferCache>(this, cl));
+      }
+    }
+  }
+
+  constexpr static size_t class_to_size(int size_class) {
+    switch (size_class) {
+      case 1:
+        return kClassSize1;
+      case 2:
+        return kClassSize2;
+      default:
+        return 0;
+    }
+  }
+  constexpr static size_t num_objects_to_move(int size_class) {
+    switch (size_class) {
+      case 1:
+        return kNumToMove1;
+      case 2:
+        return kNumToMove2;
+      default:
+        return 0;
+    }
+  }
+
+  int DetermineSizeClassToEvict() { return evicting_from_; }
+
+  bool ShrinkCache(int size_class) {
+    if (use_ring_buffer_) {
+      return rb_caches_[size_class]->ShrinkCache(size_class);
+    } else {
+      return caches_[size_class]->ShrinkCache(size_class);
+    }
+  }
+
+  FreeList& central_freelist(int cl) {
+    if (use_ring_buffer_) {
+      return rb_caches_[cl]->freelist();
+    } else {
+      return caches_[cl]->freelist();
+    }
+  }
+
+  void InsertRange(int cl, absl::Span<void*> batch) {
+    if (use_ring_buffer_) {
+      rb_caches_[cl]->InsertRange(cl, batch);
+    } else {
+      caches_[cl]->InsertRange(cl, batch);
+    }
+  }
+
+  int RemoveRange(int cl, void** batch, int N) {
+    if (use_ring_buffer_) {
+      return rb_caches_[cl]->RemoveRange(cl, batch, N);
+    } else {
+      return caches_[cl]->RemoveRange(cl, batch, N);
+    }
+  }
+
+  bool HasSpareCapacity(int cl) {
+    if (use_ring_buffer_) {
+      return rb_caches_[cl]->HasSpareCapacity(cl);
+    } else {
+      return caches_[cl]->HasSpareCapacity(cl);
+    }
+  }
+
+  size_t tc_length(int cl) {
+    if (use_ring_buffer_) {
+      return rb_caches_[cl]->tc_length();
+    } else {
+      return caches_[cl]->tc_length();
+    }
+  }
+
+  const bool use_ring_buffer_;
+  std::vector<std::unique_ptr<TransferCache>> caches_;
+  std::vector<std::unique_ptr<RingBufferTransferCache>> rb_caches_;
+
+  // From which size class to evict.
+  int evicting_from_ = 1;
+};
+
+class TwoSizesFakeTransferCacheEnvironment {
+ public:
+  using Manager = TwoSizesTransferCacheManager;
+  using TransferCache = typename Manager::TransferCache;
+  using FreeList = typename Manager::FreeList;
+
+  static constexpr int kMaxObjectsToMove =
+      ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
+  static constexpr int kMaxCapacityInBatches =
+      TransferCache::kMaxCapacityInBatches;
+  static constexpr int kInitialCapacityInBatches =
+      TransferCache::kInitialCapacityInBatches;
+
+  explicit TwoSizesFakeTransferCacheEnvironment(bool use_ring_buffer)
+      : manager_(use_ring_buffer) {}
+
+  ~TwoSizesFakeTransferCacheEnvironment() { Drain(); }
+
+  void Insert(int cl, int n) {
+    const size_t batch_size = Manager::num_objects_to_move(cl);
+    std::vector<void*> bufs;
+    while (n > 0) {
+      int b = std::min<int>(n, batch_size);
+      bufs.resize(b);
+      central_freelist(cl).AllocateBatch(&bufs[0], b);
+      manager_.InsertRange(cl, absl::MakeSpan(bufs));
+      n -= b;
+    }
+  }
+
+  void Remove(int cl, int n) {
+    const size_t batch_size = Manager::num_objects_to_move(cl);
+    std::vector<void*> bufs;
+    while (n > 0) {
+      const int b = std::min<int>(n, batch_size);
+      bufs.resize(b);
+      const int removed = manager_.RemoveRange(cl, &bufs[0], b);
+      // Ensure we make progress.
+      ASSERT_GT(removed, 0);
+      ASSERT_LE(removed, b);
+      central_freelist(cl).FreeBatch({&bufs[0], static_cast<size_t>(removed)});
+      n -= removed;
+    }
+  }
+
+  void Drain() {
+    for (int i = 0; i < Manager::kSizeClasses; ++i) {
+      Remove(i, manager_.tc_length(i));
+    }
+  }
+
+  Manager& transfer_cache_manager() { return manager_; }
+
+  FreeList& central_freelist(int cl) { return manager_.central_freelist(cl); }
+
+ private:
+  Manager manager_;
 };
 
 }  // namespace tcmalloc_internal

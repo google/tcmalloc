@@ -113,6 +113,12 @@ variants = [
         ],
         "copts": ["-DTCMALLOC_NUMA_AWARE"],
     },
+    {
+        "name": "ring_buffer_transfer_cache",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE"},
+    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
