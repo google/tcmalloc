@@ -68,9 +68,6 @@ class CentralFreeList {
   // page full of 5-byte objects would have 2 bytes memory overhead).
   size_t OverheadBytes() const;
 
-  // My size class.
-  size_t size_class() const { return size_class_; }
-
   SpanStats GetSpanStats() const;
 
  private:
