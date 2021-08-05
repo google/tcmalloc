@@ -182,18 +182,15 @@ class FakeTransferCacheEnvironment {
   TransferCache cache_;
 };
 
-// A mock transfer cache manager class which supports two size classes instead
+// A fake transfer cache manager class which supports two size classes instead
 // of just the one. To make this work, we have to store the transfer caches
 // inside the cache manager, like in production code.
-class TwoSizesTransferCacheManager : public FakeTransferCacheManagerBase {
+template <typename FreeListT,
+          template <typename FreeList, typename Manager> class TransferCacheT>
+class TwoSizeClassManager : public FakeTransferCacheManagerBase {
  public:
-  using FreeList = MockCentralFreeList;
-  using TransferCache =
-      internal_transfer_cache::TransferCache<FreeList,
-                                             TwoSizesTransferCacheManager>;
-  using RingBufferTransferCache =
-      internal_transfer_cache::RingBufferTransferCache<
-          FreeList, TwoSizesTransferCacheManager>;
+  using FreeList = FreeListT;
+  using TransferCache = TransferCacheT<FreeList, TwoSizeClassManager>;
 
   // This is 3 instead of 2 because we hard code cl == 0 to be invalid in many
   // places. We only use cl 1 and 2 here.
@@ -203,20 +200,10 @@ class TwoSizesTransferCacheManager : public FakeTransferCacheManagerBase {
   static constexpr size_t kNumToMove1 = 32;
   static constexpr size_t kNumToMove2 = 16;
 
-  explicit TwoSizesTransferCacheManager(bool use_ring_buffer)
-      : use_ring_buffer_(use_ring_buffer) {
-    if (use_ring_buffer_) {
-      rb_caches_.reserve(kSizeClasses);
-      for (int cl = 0; cl < kSizeClasses; ++cl) {
-        rb_caches_.push_back(
-            absl::make_unique<RingBufferTransferCache>(this, cl));
-      }
-    } else {
-      caches_.reserve(kSizeClasses);
-      for (int cl = 0; cl < kSizeClasses; ++cl) {
-        caches_.push_back(absl::make_unique<TransferCache>(this, cl));
-      }
-    }
+  TwoSizeClassManager() {
+    caches_.push_back(absl::make_unique<TransferCache>(this, 0));
+    caches_.push_back(absl::make_unique<TransferCache>(this, 1));
+    caches_.push_back(absl::make_unique<TransferCache>(this, 2));
   }
 
   constexpr static size_t class_to_size(int size_class) {
@@ -243,66 +230,35 @@ class TwoSizesTransferCacheManager : public FakeTransferCacheManagerBase {
   int DetermineSizeClassToEvict() { return evicting_from_; }
 
   bool ShrinkCache(int size_class) {
-    if (use_ring_buffer_) {
-      return rb_caches_[size_class]->ShrinkCache(size_class);
-    } else {
-      return caches_[size_class]->ShrinkCache(size_class);
-    }
+    return caches_[size_class]->ShrinkCache(size_class);
   }
 
-  FreeList& central_freelist(int cl) {
-    if (use_ring_buffer_) {
-      return rb_caches_[cl]->freelist();
-    } else {
-      return caches_[cl]->freelist();
-    }
-  }
+  FreeList& central_freelist(int cl) { return caches_[cl]->freelist(); }
 
   void InsertRange(int cl, absl::Span<void*> batch) {
-    if (use_ring_buffer_) {
-      rb_caches_[cl]->InsertRange(cl, batch);
-    } else {
-      caches_[cl]->InsertRange(cl, batch);
-    }
+    caches_[cl]->InsertRange(cl, batch);
   }
 
   int RemoveRange(int cl, void** batch, int N) {
-    if (use_ring_buffer_) {
-      return rb_caches_[cl]->RemoveRange(cl, batch, N);
-    } else {
-      return caches_[cl]->RemoveRange(cl, batch, N);
-    }
+    return caches_[cl]->RemoveRange(cl, batch, N);
   }
 
-  bool HasSpareCapacity(int cl) {
-    if (use_ring_buffer_) {
-      return rb_caches_[cl]->HasSpareCapacity(cl);
-    } else {
-      return caches_[cl]->HasSpareCapacity(cl);
-    }
-  }
+  bool HasSpareCapacity(int cl) { return caches_[cl]->HasSpareCapacity(cl); }
 
-  size_t tc_length(int cl) {
-    if (use_ring_buffer_) {
-      return rb_caches_[cl]->tc_length();
-    } else {
-      return caches_[cl]->tc_length();
-    }
-  }
+  size_t tc_length(int cl) { return caches_[cl]->tc_length(); }
 
-  const bool use_ring_buffer_;
   std::vector<std::unique_ptr<TransferCache>> caches_;
-  std::vector<std::unique_ptr<RingBufferTransferCache>> rb_caches_;
 
   // From which size class to evict.
   int evicting_from_ = 1;
 };
 
-class TwoSizesFakeTransferCacheEnvironment {
+template <template <typename FreeList, typename Manager> class TransferCacheT>
+class TwoSizeClassEnv {
  public:
-  using Manager = TwoSizesTransferCacheManager;
+  using FreeList = MockCentralFreeList;
+  using Manager = TwoSizeClassManager<FreeList, TransferCacheT>;
   using TransferCache = typename Manager::TransferCache;
-  using FreeList = typename Manager::FreeList;
 
   static constexpr int kMaxObjectsToMove =
       ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
@@ -311,10 +267,9 @@ class TwoSizesFakeTransferCacheEnvironment {
   static constexpr int kInitialCapacityInBatches =
       TransferCache::kInitialCapacityInBatches;
 
-  explicit TwoSizesFakeTransferCacheEnvironment(bool use_ring_buffer)
-      : manager_(use_ring_buffer) {}
+  explicit TwoSizeClassEnv() = default;
 
-  ~TwoSizesFakeTransferCacheEnvironment() { Drain(); }
+  ~TwoSizeClassEnv() { Drain(); }
 
   void Insert(int cl, int n) {
     const size_t batch_size = Manager::num_objects_to_move(cl);

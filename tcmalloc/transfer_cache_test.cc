@@ -515,21 +515,21 @@ INSTANTIATE_TYPED_TEST_SUITE_P(RingBufferTransferCacheFuzzTest,
 }  // namespace fuzz_tests
 
 namespace leak_tests {
-using Env = TwoSizesFakeTransferCacheEnvironment;
 
-class TwoSizesTransferCacheTest : public ::testing::TestWithParam<bool> {};
+template <typename Env>
+using TwoSizeClassTest = ::testing::Test;
+TYPED_TEST_SUITE_P(TwoSizeClassTest);
 
-TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
-  const bool use_ring_buffer = GetParam();
-  TwoSizesFakeTransferCacheEnvironment env(use_ring_buffer);
+TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
+  TypeParam env;
 
   // The point of this test is to see that adding "random" amounts of
   // allocations to the transfer caches behaves correctly, even in the case that
   // there are multiple size classes interacting by stealing from each other.
 
   // Fill all caches to their maximum without starting to steal from each other.
-  for (int cl = 1; cl < Env::Manager::kSizeClasses; ++cl) {
-    const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+  for (int cl = 1; cl < TypeParam::Manager::kSizeClasses; ++cl) {
+    const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
     while (env.transfer_cache_manager().HasSpareCapacity(cl)) {
       env.Insert(cl, batch_size);
     }
@@ -538,8 +538,8 @@ TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
   // Count the number of batches currently in the cache.
   auto count_batches = [&env]() {
     int batch_count = 0;
-    for (int cl = 1; cl < Env::Manager::kSizeClasses; ++cl) {
-      const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+    for (int cl = 1; cl < TypeParam::Manager::kSizeClasses; ++cl) {
+      const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
       batch_count += env.transfer_cache_manager().tc_length(cl) / batch_size;
     }
     return batch_count;
@@ -551,8 +551,9 @@ TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
   for (int i = 0; i < 100; ++i) {
     {
       // First remove.
-      const int cl = absl::Uniform<int>(bitgen, 1, Env::Manager::kSizeClasses);
-      const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+      const int cl =
+          absl::Uniform<int>(bitgen, 1, TypeParam::Manager::kSizeClasses);
+      const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
       if (env.transfer_cache_manager().tc_length(cl) >= batch_size) {
         env.Remove(cl, batch_size);
         --expected_batches;
@@ -562,14 +563,15 @@ TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
     }
     {
       // Then add in another size class.
-      const int cl = absl::Uniform<int>(bitgen, 1, Env::Manager::kSizeClasses);
+      const int cl =
+          absl::Uniform<int>(bitgen, 1, TypeParam::Manager::kSizeClasses);
       // Evict from the "next" size class, skipping 0.
       // This makes sure we are always evicting from somewhere if at all
       // possible.
       env.transfer_cache_manager().evicting_from_ =
-          1 + cl % (Env::Manager::kSizeClasses - 1);
+          1 + cl % (TypeParam::Manager::kSizeClasses - 1);
       if (expected_batches < max_batches) {
-        const size_t batch_size = Env::Manager::num_objects_to_move(cl);
+        const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
         env.Insert(cl, batch_size);
         ++expected_batches;
       }
@@ -579,8 +581,17 @@ TEST_P(TwoSizesTransferCacheTest, NoLeaks) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(TwoSizesTransferCacheTest, TwoSizesTransferCacheTest,
-                         testing::Values(true, false));
+REGISTER_TYPED_TEST_SUITE_P(TwoSizeClassTest, NoLeaks);
+
+using TwoTransferCacheEnv =
+    TwoSizeClassEnv<internal_transfer_cache::TransferCache>;
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TwoSizeClassTest,
+                               ::testing::Types<TwoTransferCacheEnv>);
+
+using TwoRingBufferEnv =
+    TwoSizeClassEnv<internal_transfer_cache::RingBufferTransferCache>;
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TwoSizeClassTest,
+                               ::testing::Types<TwoRingBufferEnv>);
 
 }  // namespace leak_tests
 
