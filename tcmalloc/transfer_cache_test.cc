@@ -325,7 +325,7 @@ static size_t PickCoprimeBatchSize(size_t max_batch_size) {
   return max_batch_size;
 }
 
-TEST(RingBufferTransferCacheTest, b172283201) {
+TEST(RingBufferTest, b172283201) {
   // This test is designed to exercise the wraparound behavior for the
   // RingBufferTransferCache, which manages its indices in uint32_t's.  Because
   // it uses a non-standard batch size (kBatchSize) as part of
@@ -416,10 +416,10 @@ REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             SingleItemSmoke, EvictsOtherCachesFlex,
                             FullCacheFlex, WrappingFlex);
 template <typename Env>
-using TransferCacheFuzzTest = ::testing::Test;
-TYPED_TEST_SUITE_P(TransferCacheFuzzTest);
+using FuzzTest = ::testing::Test;
+TYPED_TEST_SUITE_P(FuzzTest);
 
-TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedUnbiased) {
+TYPED_TEST_P(FuzzTest, MultiThreadedUnbiased) {
   TypeParam env;
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });
@@ -429,7 +429,7 @@ TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedUnbiased) {
   threads.Stop();
 }
 
-TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedInsert) {
+TYPED_TEST_P(FuzzTest, MultiThreadedBiasedInsert) {
   const int batch_size = TypeParam::kBatchSize;
 
   TypeParam env;
@@ -441,7 +441,7 @@ TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedInsert) {
   threads.Stop();
 }
 
-TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedRemove) {
+TYPED_TEST_P(FuzzTest, MultiThreadedBiasedRemove) {
   const int batch_size = TypeParam::kBatchSize;
 
   TypeParam env;
@@ -453,7 +453,7 @@ TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedRemove) {
   threads.Stop();
 }
 
-TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedShrink) {
+TYPED_TEST_P(FuzzTest, MultiThreadedBiasedShrink) {
   TypeParam env;
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });
@@ -463,7 +463,7 @@ TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedShrink) {
   threads.Stop();
 }
 
-TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedGrow) {
+TYPED_TEST_P(FuzzTest, MultiThreadedBiasedGrow) {
   TypeParam env;
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });
@@ -473,7 +473,7 @@ TYPED_TEST_P(TransferCacheFuzzTest, MultiThreadedBiasedGrow) {
   threads.Stop();
 }
 
-REGISTER_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, MultiThreadedUnbiased,
+REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedInsert,
                             MultiThreadedBiasedRemove, MultiThreadedBiasedGrow,
                             MultiThreadedBiasedShrink);
@@ -481,18 +481,14 @@ REGISTER_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, MultiThreadedUnbiased,
 namespace unit_tests {
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
     MockCentralFreeList, MockTransferCacheManager>>;
-
-using TransferCacheTypes = ::testing::Types<Env>;
-INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheTest, TransferCacheTest,
-                               TransferCacheTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
+                               ::testing::Types<Env>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
                                                      MockTransferCacheManager>>;
-
-using RingBufferTransferCacheTypes = ::testing::Types<RingBufferEnv>;
-INSTANTIATE_TYPED_TEST_SUITE_P(RingBufferTransferCacheTest, TransferCacheTest,
-                               RingBufferTransferCacheTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TransferCacheTest,
+                               ::testing::Types<RingBufferEnv>);
 }  // namespace unit_tests
 
 namespace fuzz_tests {
@@ -501,17 +497,13 @@ namespace fuzz_tests {
 // itself.
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
     MockCentralFreeList, MockTransferCacheManager>>;
-using TransferCacheFuzzTypes = ::testing::Types<Env>;
-INSTANTIATE_TYPED_TEST_SUITE_P(TransferCacheFuzzTest, TransferCacheFuzzTest,
-                               TransferCacheFuzzTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
                                                      MockTransferCacheManager>>;
-using RingBufferTransferCacheFuzzTypes = ::testing::Types<RingBufferEnv>;
-INSTANTIATE_TYPED_TEST_SUITE_P(RingBufferTransferCacheFuzzTest,
-                               TransferCacheFuzzTest,
-                               RingBufferTransferCacheFuzzTypes);
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, FuzzTest,
+                               ::testing::Types<RingBufferEnv>);
 }  // namespace fuzz_tests
 
 namespace leak_tests {
