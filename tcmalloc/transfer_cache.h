@@ -190,6 +190,15 @@ class TransferCacheManager {
 
 #endif
 
+// A trivial no-op implementation.
+struct ShardedTransferCacheManager {
+  static constexpr void Init() {}
+  static constexpr bool should_use(int cl) { return false; }
+  static constexpr void *Pop(int cl) { return nullptr; }
+  static constexpr void Push(int cl, void *ptr) {}
+  static constexpr size_t TotalBytes() { return 0; }
+};
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

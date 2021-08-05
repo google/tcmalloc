@@ -134,6 +134,7 @@ struct TCMallocStats {
   uint64_t central_bytes;              // Bytes in central cache
   uint64_t transfer_bytes;             // Bytes in central transfer cache
   uint64_t metadata_bytes;             // Bytes alloced for metadata
+  uint64_t sharded_transfer_bytes;     // Bytes in per-CCX cache
   uint64_t per_cpu_bytes;              // Bytes in per-CPU cache
   uint64_t pagemap_root_bytes_res;     // Resident bytes of pagemap root node
   uint64_t percpu_metadata_bytes_res;  // Resident bytes of the per-CPU metadata
@@ -217,10 +218,12 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   }
 
   r->per_cpu_bytes = 0;
+  r->sharded_transfer_bytes = 0;
   r->percpu_metadata_bytes_res = 0;
   r->percpu_metadata_bytes = 0;
   if (UsePerCpuCache()) {
     r->per_cpu_bytes = Static::cpu_cache().TotalUsedBytes();
+    r->sharded_transfer_bytes = Static::sharded_transfer_cache().TotalBytes();
 
     if (report_residence) {
       auto percpu_metadata = Static::cpu_cache().MetadataMemoryUsage();
@@ -251,7 +254,8 @@ static uint64_t InUseByApp(const TCMallocStats& stats) {
   return StatSub(stats.pageheap.system_bytes,
                  stats.thread_bytes + stats.central_bytes +
                      stats.transfer_bytes + stats.per_cpu_bytes +
-                     stats.pageheap.free_bytes + stats.pageheap.unmapped_bytes);
+                     stats.sharded_transfer_bytes + stats.pageheap.free_bytes +
+                     stats.pageheap.unmapped_bytes);
 }
 
 static uint64_t VirtualMemoryUsed(const TCMallocStats& stats) {
@@ -311,6 +315,7 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in page heap freelist\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in central cache freelist\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in per-CPU cache freelist\n"
+      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in Sharded cache freelist\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in transfer cache freelist\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in thread cache freelists\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata\n"
@@ -339,6 +344,7 @@ static void DumpStats(Printer* out, int level) {
       stats.pageheap.free_bytes, stats.pageheap.free_bytes / MiB,
       stats.central_bytes, stats.central_bytes / MiB,
       stats.per_cpu_bytes, stats.per_cpu_bytes / MiB,
+      stats.sharded_transfer_bytes, stats.sharded_transfer_bytes / MiB,
       stats.transfer_bytes, stats.transfer_bytes / MiB,
       stats.thread_bytes, stats.thread_bytes / MiB,
       stats.metadata_bytes, stats.metadata_bytes / MiB,
@@ -491,6 +497,8 @@ namespace {
   region.PrintI64("page_heap_freelist", stats.pageheap.free_bytes);
   region.PrintI64("central_cache_freelist", stats.central_bytes);
   region.PrintI64("per_cpu_cache_freelist", stats.per_cpu_bytes);
+  region.PrintI64("sharded_transfer_cache_freelist",
+                  stats.sharded_transfer_bytes);
   region.PrintI64("transfer_cache_freelist", stats.transfer_bytes);
   region.PrintI64("thread_cache_freelists", stats.thread_bytes);
   region.PrintI64("malloc_metadata", stats.metadata_bytes);
@@ -889,6 +897,13 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
+  if (name == "tcmalloc.sharded_transfer_cache_free") {
+    TCMallocStats stats;
+    ExtractTCMallocStats(&stats, false);
+    *value = stats.sharded_transfer_bytes;
+    return true;
+  }
+
   if (name == "tcmalloc.slack_bytes") {
     // Kept for backwards compatibility.  Now defined externally as:
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
@@ -942,16 +957,18 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.local_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value = stats.thread_bytes + stats.per_cpu_bytes;
+    *value =
+        stats.thread_bytes + stats.per_cpu_bytes + stats.sharded_transfer_bytes;
+    ;
     return true;
   }
 
   if (name == "tcmalloc.external_fragmentation_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value =
-        (stats.pageheap.free_bytes + stats.central_bytes + stats.per_cpu_bytes +
-         stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes);
+    *value = (stats.pageheap.free_bytes + stats.central_bytes +
+              stats.per_cpu_bytes + stats.sharded_transfer_bytes +
+              stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes);
     return true;
   }
 
@@ -1165,6 +1182,8 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.transfer_cache_free"].value = stats.transfer_bytes;
   // Per CPU Cache Free List
   (*result)["tcmalloc.cpu_free"].value = stats.per_cpu_bytes;
+  (*result)["tcmalloc.sharded_transfer_cache_free"].value =
+      stats.sharded_transfer_bytes;
   (*result)["tcmalloc.per_cpu_caches_active"].value = Static::CPUCacheActive();
   // Thread Cache Free List
   (*result)["tcmalloc.thread_cache_free"].value = stats.thread_bytes;

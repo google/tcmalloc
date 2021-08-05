@@ -272,11 +272,15 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
       // we've optimistically reported hit in Allocate, lets undo it and
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
-      tracking::Report(kMallocMiss, cl, 1);
-      CPUCache& cache = Static::cpu_cache();
-      cache.RecordCacheMissStat(cpu, true);
-      void* ret = cache.Refill(cpu, cl);
-
+      void* ret = nullptr;
+      if (Static::sharded_transfer_cache().should_use(cl)) {
+        ret = Static::sharded_transfer_cache().Pop(cl);
+      } else {
+        tracking::Report(kMallocMiss, cl, 1);
+        CPUCache& cache = Static::cpu_cache();
+        cache.RecordCacheMissStat(cpu, true);
+        ret = cache.Refill(cpu, cl);
+      }
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
         size_t size = Static::sizemap().class_to_size(cl);
         return OOMHandler(size);
@@ -297,6 +301,10 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void* ptr,
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
+      if (Static::sharded_transfer_cache().should_use(cl)) {
+        Static::sharded_transfer_cache().Push(cl, ptr);
+        return 1;
+      }
       tracking::Report(kFreeMiss, cl, 1);
       CPUCache& cache = Static::cpu_cache();
       cache.RecordCacheMissStat(cpu, false);

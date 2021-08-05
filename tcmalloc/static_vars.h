@@ -66,6 +66,11 @@ class Static {
   // We have a separate lock per free-list to reduce contention.
   static TransferCacheManager& transfer_cache() { return transfer_cache_; }
 
+  // A per-cache domain TransferCache.
+  static ShardedTransferCacheManager& sharded_transfer_cache() {
+    return sharded_transfer_cache_;
+  }
+
   static SizeMap& sizemap() { return sizemap_; }
 
   static CPUCache& cpu_cache() { return cpu_cache_; }
@@ -154,6 +159,7 @@ class Static {
   ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
   ABSL_CONST_INIT static TransferCacheManager transfer_cache_;
+  ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CPUCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static PageHeapAllocator<Span> span_allocator_;

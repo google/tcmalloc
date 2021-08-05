@@ -96,6 +96,10 @@ static size_t MaxCapacity(size_t cl) {
 #endif
   if (cl == 0 || cl >= kNumClasses) return 0;
 
+  if (Static::sharded_transfer_cache().should_use(cl)) {
+    return 0;
+  }
+
   if (Static::sizemap().class_to_size(cl) == 0) {
     return 0;
   }

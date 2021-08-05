@@ -47,6 +47,7 @@ ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
 ABSL_CONST_INIT Arena Static::arena_;
 ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 ABSL_CONST_INIT TransferCacheManager Static::transfer_cache_;
+ABSL_CONST_INIT ShardedTransferCacheManager Static::sharded_transfer_cache_;
 ABSL_CONST_INIT CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
@@ -72,7 +73,8 @@ size_t Static::metadata_bytes() {
   // struct's size.  But we can't due to linking issues.
   const size_t static_var_size =
       sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +
-      sizeof(transfer_cache_) + sizeof(cpu_cache_) + sizeof(span_allocator_) +
+      sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
+      sizeof(cpu_cache_) + sizeof(span_allocator_) +
       sizeof(stacktrace_allocator_) + sizeof(threadcache_allocator_) +
       sizeof(sampled_objects_) + sizeof(bucket_allocator_) +
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
@@ -107,6 +109,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
     transfer_cache_.Init();
+    sharded_transfer_cache_.Init();
     new (page_allocator_.memory) PageAllocator;
     threadcache_allocator_.Init(&arena_);
     cpu_cache_active_ = false;
