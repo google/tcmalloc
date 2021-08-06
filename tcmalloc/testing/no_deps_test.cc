@@ -37,11 +37,6 @@ int main() {
     if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
       TCMalloc_Internal_ForceCpuCacheActivation();
     }
-
-#if !defined(ADDRESS_SANITIZER) || !defined(MEMORY_SANITIZER) || \
-    !defined(THREAD_SANITIZER)
-    assert(MallocExtension_Internal_GetPerCpuCachesActive());
-#endif
   }
 
   size_t step = 16;

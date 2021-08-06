@@ -52,7 +52,7 @@ variants = [
             "-DTCMALLOC_256K_PAGES",
             "-DTCMALLOC_NUMA_AWARE",
         ],
-        "env": {"TCMALLOC_NUMA_AWARE": 1},
+        "env": {"TCMALLOC_NUMA_AWARE": "1"},
     },
     {
         "name": "small_but_slow",
@@ -142,6 +142,8 @@ def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
     for variant in variants:
         inner_target_name = name + "_" + variant["name"]
         variant_targets.append(inner_target_name)
+        env = kwargs.pop("env", {})
+        env.update(variant.get("env", {}))
         create_one(
             inner_target_name,
             copts = copts + variant.get("copts", []),
@@ -149,7 +151,7 @@ def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
             malloc = variant.get("malloc"),
             srcs = srcs,
             deps = deps + variant.get("deps", []),
-            env = kwargs.pop("env", {}).update(variant.get("env", {})),
+            env = env,
             **kwargs
         )
 
