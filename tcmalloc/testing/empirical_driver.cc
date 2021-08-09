@@ -89,6 +89,16 @@ ABSL_FLAG(absl::Duration, spike_rate, absl::Milliseconds(10),
 ABSL_FLAG(absl::Duration, spike_lifetime, absl::Milliseconds(30),
           "Processing time for spikes");
 
+ABSL_FLAG(bool, record_and_replay, false,
+          "Precalculate a trace of allocs / deallocs and use this trace to "
+          "drive allocation / deallocation.  Removes (expensive) testbench "
+          "overhead from actual performance measurement.");
+
+ABSL_FLAG(size_t, record_and_replay_buffer_size, 100000000,
+          "The total number of allocs / deallocs to precalculate for later "
+          "replay.  Memory required to store the replay buffers scales with "
+          "the number of threads.");
+
 ABSL_FLAG(bool, spikes_exact, false,
           "should spike rates/lifetimes be exactly the average (instead of "
           "randomized?)");
@@ -116,6 +126,8 @@ ABSL_FLAG(int64_t, test_iterations, 0,
 namespace tcmalloc {
 namespace empirical {
 namespace {
+
+static constexpr size_t kBatch = 100;
 
 void *alloc(size_t s) { return ::operator new(s); }
 
@@ -314,11 +326,13 @@ absl::Time SpikeTime() {
 class SimThread {
  public:
   SimThread(int n, absl::Barrier *startup,
+            absl::Barrier *record_and_replay_barrier,
             absl::Span<const std::unique_ptr<SimThread>> siblings, size_t bytes,
             size_t transient)
       : n_(n),
         thread_is_done_(false),
         startup_(startup),
+        record_and_replay_barrier_(record_and_replay_barrier),
         siblings_(siblings),
         bytes_(bytes),
         transient_(transient),
@@ -346,8 +360,22 @@ class SimThread {
 
   size_t usage() { return load_usage_.load(std::memory_order_relaxed); }
 
+  void RecordBirthsAndDeaths(EmpiricalData *load) {
+    // Round number of births / deaths to record down to a multiple of kBatch.
+    size_t buffer_size =
+        (absl::GetFlag(FLAGS_record_and_replay_buffer_size) / kBatch) * kBatch;
+    for (int i = 0; i < buffer_size; ++i) {
+      load->RecordNext();
+    }
+
+    load->RestoreSnapshot();
+  }
+
   void Run() {
-    EmpiricalData load(n_, Profile(), bytes_, alloc, sized_delete);
+    bool record_and_replay = absl::GetFlag(FLAGS_record_and_replay);
+    EmpiricalData load(n_, Profile(), bytes_, alloc, sized_delete,
+                       record_and_replay);
+
     if (transient_ > 0) {
       auto transient = absl::make_unique<EmpiricalData>(
           n_, TransientProfile(), transient_, alloc, sized_delete);
@@ -360,14 +388,29 @@ class SimThread {
       absl::base_internal::SpinLockHolder h(&lock_);
       next_spike_ = FirstSpike();
     }
+
+    if (record_and_replay) {
+      RecordBirthsAndDeaths(&load);
+      // Block until all threads have finished building their traces.  It is
+      // possible that some threads will complete this process before others.
+      record_and_replay_barrier_->Block();
+    }
+
+    // Phase 2: Loop through this thread's trace over and over.
     while (!thread_is_done_.load(std::memory_order_acquire)) {
       // Every so often we need to do something else (i.e. spawn a spike) but I
       // don't want to go through the overhead of computing times every
       // iteration.  100 reps means something like 150usec, which is still
       // plenty good resolution, but very low overhead.
-      static const size_t kBatch = 100;
-      for (int i = 0; i < kBatch; ++i) {
-        load.Next();
+      if (record_and_replay) {
+        for (int i = 0; i < kBatch; i++) {
+          load.ReplayNext();
+        }
+        load.RestartTraceIfNecessary();
+      } else {
+        for (int i = 0; i < kBatch; i++) {
+          load.Next();
+        }
       }
       absl::Time t = absl::Now();
       reps.Add(kBatch);
@@ -467,6 +510,7 @@ class SimThread {
   std::atomic<bool> thread_is_done_;
   absl::Time next_spike_ ABSL_GUARDED_BY(lock_);
   absl::Barrier *startup_;
+  absl::Barrier *record_and_replay_barrier_;
   const absl::Span<const std::unique_ptr<SimThread>> siblings_;
   size_t bytes_, transient_;
   absl::bernoulli_distribution spike_is_local_;
@@ -531,15 +575,21 @@ void RunSim() {
   const bool print_stats = absl::GetFlag(FLAGS_print_stats_to_file);
 
   absl::Barrier b(nthreads + 1);
+  absl::Barrier record_and_replay_barrier(nthreads + 1);
   std::vector<std::unique_ptr<SimThread>> state(nthreads);
   std::vector<std::thread> threads;
   threads.reserve(nthreads);
   for (size_t i = 0; i < nthreads; ++i) {
-    state[i] = absl::make_unique<SimThread>(i, &b, state, per_thread_size,
-                                            per_thread_transient);
+    state[i] =
+        absl::make_unique<SimThread>(i, &b, &record_and_replay_barrier, state,
+                                     per_thread_size, per_thread_transient);
     threads.push_back(std::thread(&SimThread::Run, state[i].get()));
   }
   b.Block();
+  if (absl::GetFlag(FLAGS_record_and_replay)) {
+    // Block until all threads have precalculated the birth / death sequence.
+    record_and_replay_barrier.Block();
+  }
   absl::Time last_mallocz = absl::InfinitePast();
   absl::Time last = absl::InfinitePast();
   size_t last_spikes_completed = 0;

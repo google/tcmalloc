@@ -38,7 +38,8 @@ static absl::discrete_distribution<size_t> BirthRateDistribution(
 EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
                              size_t total_mem,
                              absl::FunctionRef<void *(size_t)> alloc,
-                             absl::FunctionRef<void(void *, size_t)> dealloc)
+                             absl::FunctionRef<void(void *, size_t)> dealloc,
+                             bool record_and_replay_mode)
     : rng_(absl::SeedSeq{seed}),
       alloc_(alloc),
       dealloc_(dealloc),
@@ -83,13 +84,17 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
   // Now, we generate the initial sample. We have to sample from the *live*
   // distribution, not the *allocation* one, so we can't use the birth sampler;
   // make a new one from the live counts.  (We could run the full birth/death
-  // loop until we made it up to size but that's mucah slower.)
+  // loop until we made it up to size but that's much slower.)
   absl::discrete_distribution<int> live_dist(avg_counts.begin(),
                                              avg_counts.end());
 
   while (usage_ < total_mem) {
     int i = live_dist(rng_);
     DoBirth(i);
+  }
+
+  if (record_and_replay_mode) {
+    SnapshotLiveObjects();
   }
 
   for (auto &s : state_) {
@@ -136,6 +141,51 @@ void EmpiricalData::DoDeath(const size_t i) {
   dealloc_(p, size);
 }
 
+void EmpiricalData::RecordBirth(const size_t i) {
+  birth_or_death_sizes_.push_back(i);
+  SizeState &s = state_[i];
+  death_sampler_.AdjustWeight(i, s.death_rate);
+  // We only care about keeping the number of objects correct when building the
+  // trace.  When we replay we will actually push the allocated address but
+  // when building the trace we can just push nullptr to keep the length of live
+  // object lists consistent with what it should have been after a true birth.
+  s.objs.push_back(nullptr);
+  s.total++;
+}
+
+void EmpiricalData::ReplayBirth(const size_t i) {
+  SizeState &s = state_[i];
+  const size_t size = s.size;
+  usage_ += size;
+  total_num_allocated_++;
+  total_bytes_allocated_ += size;
+  num_live_++;
+  void *p = alloc_(size);
+  s.objs.push_back(p);
+  s.total++;
+}
+
+void EmpiricalData::RecordDeath(const size_t i) {
+  SizeState &s = state_[i];
+  CHECK_CONDITION(!s.objs.empty());
+  birth_or_death_sizes_.push_back(i);
+  auto to_free = absl::uniform_int_distribution<int>(
+      0, std::max(0, static_cast<int>(s.objs.size()) - 1))(rng_);
+  death_sampler_.AdjustWeight(i, -s.death_rate);
+  s.objs[to_free] = s.objs.back();
+  s.objs.pop_back();
+  death_objects_.push_back(to_free);
+}
+
+void EmpiricalData::ReplayDeath(const size_t i, uint64_t index) {
+  SizeState &s = state_[i];
+  CHECK_CONDITION(!s.objs.empty());
+  void *p = s.objs[index];
+  s.objs[index] = s.objs.back();
+  s.objs.pop_back();
+  dealloc_(p, s.size);
+}
+
 void EmpiricalData::Next() {
   // The code here is very simple, but the logic is complicated. We rely on
   // three key facts about independent distributions Exp(A) and Exp(B) (that is,
@@ -172,6 +222,82 @@ void EmpiricalData::Next() {
     DoDeath(i);
   }
   // (1) says we are now done and can re-sample the next event independently.
+}
+
+void EmpiricalData::RecordNext() {
+  const double B = total_birth_rate_;
+  const double T = death_sampler_.TotalWeight();
+  const double Both = B + T;
+  absl::uniform_real_distribution<double> which(0, Both);
+  bool do_birth = which(rng_) < B;
+  birth_or_death_.push_back(do_birth);
+
+  if (do_birth) {
+    size_t i = birth_sampler_(rng_);
+    RecordBirth(i);
+  } else {
+    size_t i = death_sampler_(rng_);
+    RecordDeath(i);
+  }
+}
+
+void EmpiricalData::ReplayNext() {
+  bool do_birth = birth_or_death_[birth_or_death_index_];
+  if (do_birth) {
+    ReplayBirth(birth_or_death_sizes_[birth_or_death_index_]);
+  } else {
+    ReplayDeath(birth_or_death_sizes_[birth_or_death_index_],
+                death_objects_[death_object_index_]);
+    death_object_index_++;
+  }
+  birth_or_death_index_++;
+}
+
+void EmpiricalData::SnapshotLiveObjects() {
+  for (const auto &s : state_) {
+    snapshot_state_.push_back(
+        {s.size, s.birth_rate, s.death_rate, s.total, s.objs});
+  }
+}
+
+void EmpiricalData::RestoreSnapshot() {
+  for (int i = 0; i < snapshot_state_.size(); i++) {
+    state_[i].objs = snapshot_state_[i].objs;
+  }
+}
+
+void EmpiricalData::RepairToSnapshotState() {
+  // Compared to the number of live objects when the snapshot was taken each
+  // size state either
+  // 1) Contains the same number of live objects as when the snapshot was taken,
+  //    requiring no action.
+  // 2) Contains a smaller number of live objects, requiring a (likely small)
+  //    number of true allocations.
+  // 3) Contains a larger number of live objects, requiring a (likely small)
+  //    number of true deallocations.
+  for (int i = 0; i < state_.size(); i++) {
+    while (state_[i].objs.size() < snapshot_state_[i].objs.size()) {
+      DoBirth(i);
+    }
+    while (state_[i].objs.size() > snapshot_state_[i].objs.size()) {
+      DoDeath(i);
+    }
+  }
+}
+
+void EmpiricalData::RestartTraceIfNecessary() {
+  if (birth_or_death_index_ == birth_or_death_.size()) {
+    // As the snapshotted lists of live objects will contain addresses which
+    // have already been freed we can't just call RestoreSnapshot().  Instead
+    // let's do the necessary allocations / deallocations to end up with the
+    // identical number of live objects we had when initially building the
+    // trace.
+    RepairToSnapshotState();
+    // After the above call we can safely run through the recorded trace
+    // again.
+    birth_or_death_index_ = 0;
+    death_object_index_ = 0;
+  }
 }
 
 std::vector<EmpiricalData::Entry> EmpiricalData::Actual() const {

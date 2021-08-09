@@ -174,10 +174,11 @@ class EmpiricalData {
     double num_live;
   };
 
-  // Allocates ~total_mem bytes, to put us in a "steady state".
+  // Allocates ~(total_mem bytes / thread count) to put us in a "steady state".
   EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
                 size_t total_mem, absl::FunctionRef<void *(size_t)> alloc,
-                absl::FunctionRef<void(void *, size_t)> dealloc);
+                absl::FunctionRef<void(void *, size_t)> dealloc,
+                bool record_and_replay_mode = false);
 
   ~EmpiricalData();
 
@@ -191,11 +192,45 @@ class EmpiricalData {
   // Allocate or deallocate the next object
   void Next();
 
+  // Records information on which allocation or deallocation *would have* been
+  // performed had we called Next() instead.  For questions about the internal
+  // logic of this function please see the comments within Next().
+  void RecordNext();
+
+  // Replays the next alloc or dealloc we recorded when building the trace.
+  // Also updates the indices into the recorded birth / death trace.
+  // incremented.
+  void ReplayNext();
+
   // Empirical stats for the lifetime of this simulation (not including
   // startup allocations.)
   std::vector<Entry> Actual() const;
 
   absl::BitGen *const rng() { return &rng_; }
+
+  // Saves the list of live objects of each size class.  We will later restore
+  // this list (exactly once) with RestoreSnapshot() after we have constructed
+  // the record and replay information.
+  void SnapshotLiveObjects();
+
+  // Restores the list of live objects within each size class to what it was
+  // after the warmup allocations were complete.  Because building the trace
+  // modifies the lists of live objects this function must be called
+  // 1) exactly once and 2) after the trace has been constructed but before
+  // starting to replay the trace.
+  void RestoreSnapshot();
+
+  // Restores the *lengths* of the number of live objects within each size class
+  // to what it was after the warmup allocations were complete.  This is
+  // accomplished by either allocating or deallocating objects until the same
+  // number of objects are live within each size class as were live after the
+  // warmup allocations were complete.  This is safe to call repeatedly.
+  void RepairToSnapshotState();
+
+  // Tests whether we have reached the end of the birth / death trace.  If so
+  // performs the actions necessary so that we can start replaying allocs /
+  // deallocs from the beginning of the trace again.
+  void RestartTraceIfNecessary();
 
  private:
   absl::BitGen rng_;
@@ -211,6 +246,11 @@ class EmpiricalData {
   void DoBirth(const size_t i);
   void DoDeath(const size_t i);
 
+  void RecordBirth(const size_t i);
+  void ReplayBirth(const size_t i);
+  void RecordDeath(const size_t i);
+  void ReplayDeath(const size_t i, const uint64_t index);
+
   absl::FunctionRef<void *(size_t)> alloc_;
   absl::FunctionRef<void(void *, size_t)> dealloc_;
 
@@ -223,6 +263,14 @@ class EmpiricalData {
   absl::discrete_distribution<size_t> birth_sampler_;
   double total_birth_rate_;
   AdjustableSampler death_sampler_;
+
+  // Record and replay members.
+  std::vector<SizeState> snapshot_state_;
+  std::vector<bool> birth_or_death_;
+  std::vector<uint16_t> birth_or_death_sizes_;
+  std::vector<uint32_t> death_objects_;
+  uint32_t birth_or_death_index_ = 0;
+  uint32_t death_object_index_ = 0;
 };
 
 using EmpiricalProfile = absl::Span<const EmpiricalData::Entry>;

@@ -591,6 +591,45 @@ cc_binary(
 )
 
 cc_test(
+    name = "empirical_driver_e2e",
+    timeout = "long",
+    srcs = ["empirical_driver.cc"],
+    args = [
+        "--bytes=10000000",
+        "--print_stats_to_file=false",
+        "--profile=beta",
+        "--test_iterations=5",
+    ],
+    copts = REGTEST_OPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    tags = [
+        "nosan",
+    ],
+    deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
+    name = "empirical_driver_record_and_replay_e2e",
+    timeout = "long",
+    srcs = ["empirical_driver.cc"],
+    args = [
+        "--bytes=10000000",
+        "--print_stats_to_file=false",
+        "--profile=beta",
+        "--record_and_replay",
+        "--test_iterations=5",
+    ],
+    copts = REGTEST_OPTS,
+    linkstatic = 1,
+    malloc = "//tcmalloc",
+    tags = [
+        "nosan",
+    ],
+    deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
+)
+
+cc_test(
     name = "limit_test",
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

@@ -116,5 +116,50 @@ TEST(Empirical, Basic) {
   }
 }
 
+TEST(EmpiricalRecordAndReplay, Basic) {
+  constexpr uint32_t kBufferSize = 100000;
+  constexpr size_t kSize = 128 * 1024 * 1024;
+  auto const &expected = dummy();
+  absl::BitGen rng;
+  EmpiricalData data(absl::Uniform<uint32_t>(rng), expected, kSize, alloc,
+                     sized_delete, /*record_and_replay_mode=*/true);
+  size_t total_allocations = data.total_num_allocated();
+  size_t total_bytes_allocated = data.total_bytes_allocated();
+
+  for (int j = 0; j < kBufferSize; ++j) {
+    data.RecordNext();
+  }
+
+  data.RestoreSnapshot();
+
+  // We need one warmup iteration so we can compute the delta allocations and
+  // bytes we should see from each time through the trace.
+  for (int j = 0; j < kBufferSize; ++j) {
+    data.ReplayNext();
+  }
+
+  size_t delta_allocations = data.total_num_allocated() - total_allocations;
+  size_t delta_bytes_allocated =
+      data.total_bytes_allocated() - total_bytes_allocated;
+
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_EQ(delta_allocations,
+              data.total_num_allocated() - total_allocations);
+    EXPECT_EQ(delta_bytes_allocated,
+              data.total_bytes_allocated() - total_bytes_allocated);
+
+    // Restart the trace before updating total_* so we don't capture the
+    // "repair" operations.
+    data.RestartTraceIfNecessary();
+
+    total_allocations = data.total_num_allocated();
+    total_bytes_allocated = data.total_bytes_allocated();
+
+    for (int j = 0; j < kBufferSize; ++j) {
+      data.ReplayNext();
+    }
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc
