@@ -408,14 +408,12 @@ class RingBufferTransferCache {
       Manager *owner, int cl,
       typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
           capacity)
-      : owner_(owner),
-        lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        max_capacity_(capacity.max_capacity),
+      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         slot_info_(RingBufferSizeInfo({0, 0, capacity.capacity})),
-        slots_(nullptr),
-        freelist_do_not_access_directly_() {
+        max_capacity_(capacity.max_capacity),
+        freelist_do_not_access_directly_(),
+        owner_(owner) {
     freelist().Init(cl);
-
     if (max_capacity_ == 0) {
       // We don't allocate a buffer. Set slots_bitmask_ to 0 to prevent UB.
       slots_bitmask_ = 0;
@@ -768,11 +766,17 @@ class RingBufferTransferCache {
     slot_info_ = info;
   }
 
-  Manager *const owner_;
+  // Pointer to array of free objects.
+  void **slots_ ABSL_GUARDED_BY(lock_);
 
   // This lock protects all the data members.  used_slots_ and cache_slots_
   // may be looked at without holding the lock.
   absl::base_internal::SpinLock lock_;
+
+  // Number of currently used and available cached entries in slots_. Use
+  // GetSlotInfo() to read this.
+  // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
+  RingBufferSizeInfo slot_info_ ABSL_GUARDED_BY(lock_);
 
   // Maximum size of the cache.
   const int32_t max_capacity_;
@@ -793,15 +797,8 @@ class RingBufferTransferCache {
   StatsCounter remove_misses_;
   StatsCounter remove_non_batch_misses_;
 
-  // Number of currently used and available cached entries in slots_. Use
-  // GetSlotInfo() to read this.
-  // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
-  RingBufferSizeInfo slot_info_ ABSL_GUARDED_BY(lock_);
-
-  // Pointer to array of free objects.
-  void **slots_ ABSL_GUARDED_BY(lock_);
-
   FreeList freelist_do_not_access_directly_;
+  Manager *const owner_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache
