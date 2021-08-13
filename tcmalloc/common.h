@@ -17,7 +17,6 @@
 #ifndef TCMALLOC_COMMON_H_
 #define TCMALLOC_COMMON_H_
 
-#include <bits/wordsize.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -275,7 +274,7 @@ inline constexpr bool IsExpandedSizeClass(unsigned cl) {
   return kHasExpandedClasses && (cl >= kExpandedClassesStart);
 }
 
-#if !defined(TCMALLOC_SMALL_BUT_SLOW) && __WORDSIZE != 32
+#if !defined(TCMALLOC_SMALL_BUT_SLOW) && __SIZEOF_POINTER__ != 4
 // Always allocate at least a huge page
 inline constexpr size_t kMinSystemAlloc = kHugePageSize;
 inline constexpr size_t kMinMmapAlloc = 1 << 30;  // mmap() in 1GiB ranges.
