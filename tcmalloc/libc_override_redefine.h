@@ -67,7 +67,7 @@ int posix_memalign(void** r, size_t a, size_t s) noexcept {
 }
 void malloc_stats(void) noexcept { TCMallocInternalMallocStats(); }
 int mallopt(int cmd, int v) noexcept { return TCMallocInternalMallOpt(cmd, v); }
-#ifdef HAVE_STRUCT_MALLINFO
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 struct mallinfo mallinfo(void) noexcept {
   return TCMallocInternalMallocInfo();
 }
