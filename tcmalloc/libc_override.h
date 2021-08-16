@@ -32,7 +32,7 @@
 #include "tcmalloc/libc_override_glibc.h"
 
 #else
-#error Need to add support for your libc/OS here
+#include "tcmalloc/libc_override_redefine.h"
 
 #endif
 
