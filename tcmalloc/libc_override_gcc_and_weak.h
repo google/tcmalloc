@@ -21,7 +21,6 @@
 #define TCMALLOC_LIBC_OVERRIDE_GCC_AND_WEAK_INL_H_
 
 #include <stddef.h>
-#include <sys/cdefs.h>
 
 #include <new>
 
