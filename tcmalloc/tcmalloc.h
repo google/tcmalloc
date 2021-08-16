@@ -26,6 +26,7 @@
 #include <stddef.h>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 
 // __THROW is defined in glibc systems.  It means, counter-intuitively,
@@ -68,8 +69,7 @@ void TCMallocInternalMallocStats(void) __THROW
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 int TCMallocInternalMallOpt(int cmd, int value) __THROW
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-#if !defined(OS_FREEBSD) && !defined(OS_MACOSX)
-// struct mallinfo isn't defined on these platforms
+#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
 struct mallinfo TCMallocInternalMallocInfo(void) __THROW
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif

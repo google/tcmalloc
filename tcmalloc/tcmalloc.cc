@@ -115,11 +115,8 @@
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
-#if defined(OS_FREEBSD) || defined(OS_MACOSX)
-#undef HAVE_STRUCT_MALLINFO
-#else
+#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
 #include <malloc.h>
-#define HAVE_STRUCT_MALLINFO
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -1788,7 +1785,7 @@ inline int do_mallopt(int cmd, int value) {
   return 1;  // Indicates error
 }
 
-#ifdef HAVE_STRUCT_MALLINFO
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 inline struct mallinfo do_mallinfo() {
   TCMallocStats stats;
   ExtractTCMallocStats(&stats, false);
@@ -1808,7 +1805,7 @@ inline struct mallinfo do_mallinfo() {
 
   return info;
 }
-#endif  // HAVE_STRUCT_MALLINFO
+#endif  // TCMALLOC_HAVE_STRUCT_MALLINFO
 
 }  // namespace
 }  // namespace tcmalloc_internal
@@ -1818,7 +1815,9 @@ GOOGLE_MALLOC_SECTION_END
 using tcmalloc::tcmalloc_internal::AllocSmall;
 using tcmalloc::tcmalloc_internal::CppPolicy;
 using tcmalloc::tcmalloc_internal::do_free_no_hooks;
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 using tcmalloc::tcmalloc_internal::do_mallinfo;
+#endif
 using tcmalloc::tcmalloc_internal::do_malloc_pages;
 using tcmalloc::tcmalloc_internal::do_malloc_stats;
 using tcmalloc::tcmalloc_internal::do_mallopt;
@@ -1952,7 +1951,7 @@ using tcmalloc::tcmalloc_internal::DefaultAlignPolicy;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
 
-// depends on HAVE_STRUCT_MALLINFO, so needs to come after that.
+// depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
 #include "tcmalloc/libc_override.h"
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMalloc(
@@ -2357,7 +2356,7 @@ extern "C" int TCMallocInternalMallOpt(int cmd, int value) noexcept {
   return do_mallopt(cmd, value);
 }
 
-#ifdef HAVE_STRUCT_MALLINFO
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 extern "C" struct mallinfo TCMallocInternalMallocInfo(void) noexcept {
   return do_mallinfo();
 }
