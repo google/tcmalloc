@@ -69,7 +69,7 @@
 #endif
 
 #if !defined(__x86_64__) && !defined(__ppc64__) && !defined(__arm__) && \
-    !defined(__aarch64__)
+    !defined(__aarch64__) && !defined(__riscv)
 #error "Unsupported architecture."
 #endif
 
@@ -105,6 +105,9 @@ inline constexpr int kAddressBits =
 // AARCH64 kernel supports 48-bit virtual addresses for both user and kernel.
 inline constexpr int kAddressBits =
     (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
+#elif defined __riscv && defined __linux__
+inline constexpr int kAddressBits =
+    (sizeof(void *) < 8 ? (8 * sizeof(void *)) : 48);
 #else
 inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
@@ -115,6 +118,8 @@ static constexpr size_t kHugePageShift = 21;
 #elif defined(__PPC64__)
 static constexpr size_t kHugePageShift = 24;
 #elif defined __aarch64__ && defined __linux__
+static constexpr size_t kHugePageShift = 21;
+#elif defined __riscv && defined __linux__
 static constexpr size_t kHugePageShift = 21;
 #else
 // ...whatever, guess something big-ish
