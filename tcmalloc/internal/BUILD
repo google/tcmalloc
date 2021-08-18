@@ -259,9 +259,7 @@ cc_library(
     ],
     deps = [
         ":config",
-        ":environment",
         ":logging",
-        ":percpu",
         ":util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
@@ -277,10 +275,8 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":cache_topology",
-        ":logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
