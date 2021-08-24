@@ -85,6 +85,7 @@ class TransferCache {
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(capacity.max_capacity),
         slot_info_(SizeInfo({0, capacity.capacity})),
+        touched_(false),
         slots_(nullptr),
         freelist_do_not_access_directly_() {
     freelist().Init(cl);
@@ -150,6 +151,7 @@ class TransferCache {
     const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
+    touched_.store(true, std::memory_order_release);
     if (N == B) {
       if (info.used + N <= max_capacity_) {
         absl::base_internal::SpinLockHolder h(&lock_);
@@ -183,6 +185,7 @@ class TransferCache {
     ASSERT(N > 0);
     const int B = Manager::num_objects_to_move(size_class);
     auto info = slot_info_.load(std::memory_order_relaxed);
+    touched_.store(true, std::memory_order_release);
     if (N == B) {
       if (info.used >= N) {
         absl::base_internal::SpinLockHolder h(&lock_);
@@ -206,6 +209,35 @@ class TransferCache {
 
     tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
+  }
+
+  // If this object has not been touched since the last attempt, then
+  // return all objects to 'freelist()'.
+  void TryPlunder(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    if (max_capacity_ == 0) return;
+    if (touched_.load(std::memory_order_acquire)) {
+      touched_.store(false, std::memory_order_release);
+      return;
+    }
+    // If the lock is being held, someone is modifying the cache.
+    if (!lock_.TryLock()) return;
+    const int B = Manager::num_objects_to_move(size_class);
+    SizeInfo info = GetSlotInfo();
+    while (info.used > 0) {
+      const size_t num_to_move = std::min(B, info.used);
+      void *buf[kMaxObjectsToMove];
+      void **const entry = GetSlot(info.used - B);
+      memcpy(buf, entry, sizeof(void *) * B);
+      info.used -= num_to_move;
+      SetSlotInfo(info);
+      lock_.Unlock();
+      freelist().InsertRange({buf, num_to_move});
+      // If someone is starting to use the cache, stop doing this.
+      if (touched_.load(std::memory_order_acquire)) return;
+      if (!lock_.TryLock()) return;
+      info = GetSlotInfo();
+    }
+    lock_.Unlock();
   }
 
   // Returns the number of free objects in the transfer cache.
@@ -371,6 +403,9 @@ class TransferCache {
   // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
   std::atomic<SizeInfo> slot_info_;
 
+  // Has this transfer cache been changed since the last call to TryPlunder()?
+  std::atomic<bool> touched_;
+
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
@@ -448,6 +483,7 @@ class RingBufferTransferCache {
 
     {
       absl::base_internal::SpinLockHolder h(&lock_);
+      touched_ = true;
       RingBufferSizeInfo info = GetSlotInfo();
       if (info.used + N <= max_capacity_) {
         const bool cache_grown = MakeCacheSpace(size_class, N);
@@ -517,6 +553,7 @@ class RingBufferTransferCache {
 
     {
       absl::base_internal::SpinLockHolder h(&lock_);
+      touched_ = true;
       RingBufferSizeInfo info = GetSlotInfo();
       if (info.used > 0) {
         // Return up to however much we have in our local cache.
@@ -532,6 +569,34 @@ class RingBufferTransferCache {
     remove_misses_.Add(1);
     tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
+  }
+
+  // If this object has not been touched since the last attempt, then
+  // return all objects to 'freelist()'.
+  void TryPlunder(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    if (max_capacity_ == 0) return;
+    // If the lock is being held, someone is modifying the cache.
+    if (!lock_.TryLock()) return;
+    if (touched_) {
+      touched_ = false;
+      lock_.Unlock();
+      return;
+    }
+    const int B = Manager::num_objects_to_move(size_class);
+    while (slot_info_.used > 0) {
+      const size_t num_to_move(std::min(B, slot_info_.used));
+      void *buf[kMaxObjectsToMove];
+      CopyOutOfEnd(buf, num_to_move, slot_info_);
+      lock_.Unlock();
+      freelist().InsertRange({buf, num_to_move});
+      // If someone is starting to use the cache, stop doing this.
+      if (!lock_.TryLock()) return;
+      if (touched_) {
+        lock_.Unlock();
+        return;
+      }
+    }
+    lock_.Unlock();
   }
 
   // Returns the number of free objects in the central cache.
@@ -777,6 +842,9 @@ class RingBufferTransferCache {
   // GetSlotInfo() to read this.
   // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
   RingBufferSizeInfo slot_info_ ABSL_GUARDED_BY(lock_);
+
+  // Has this transfer cache been changed since the last call to TryPlunder()?
+  bool touched_ ABSL_GUARDED_BY(lock_) = false;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;

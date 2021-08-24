@@ -311,6 +311,33 @@ TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
   }
 }
 
+TYPED_TEST_P(TransferCacheTest, Plunder) {
+  TypeParam env;
+
+  // Fill in some elements so the test runs without problems.
+  env.Insert(TypeParam::kBatchSize);
+  env.Insert(TypeParam::kBatchSize);
+
+  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(2);
+
+  void* buf[TypeParam::kBatchSize];
+
+  // Make changes and make sure plundering does not do anything.
+  (void)env.transfer_cache().RemoveRange(kSizeClass, buf,
+                                         TypeParam::kBatchSize);
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_GT(env.transfer_cache().tc_length(), 0);
+
+  env.transfer_cache().InsertRange(kSizeClass, {buf, TypeParam::kBatchSize});
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_GT(env.transfer_cache().tc_length(), 0);
+
+  // And now plunder again and confirm this time we emptied the cache.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 0);
+}
+
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
 // coprime with 2^32.  We choose the largest possible batch size within that
 // constraint to minimize the number of iterations of insert/remove required.
@@ -414,7 +441,7 @@ REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             EvictsOtherCaches, PushesToFreelist, WrappingWorks,
                             SingleItemSmoke, EvictsOtherCachesFlex,
-                            FullCacheFlex, WrappingFlex);
+                            FullCacheFlex, WrappingFlex, Plunder);
 template <typename Env>
 using FuzzTest = ::testing::Test;
 TYPED_TEST_SUITE_P(FuzzTest);

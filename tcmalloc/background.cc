@@ -23,6 +23,7 @@
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -133,6 +134,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       }
     }
 
+    tcmalloc::tcmalloc_internal::Static().sharded_transfer_cache().Plunder();
     prev_time = now;
     absl::SleepFor(kSleepTime);
   }

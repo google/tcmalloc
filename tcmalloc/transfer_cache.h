@@ -95,6 +95,18 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
+  // All caches which have not been modified since the last time this method has
+  // been called will return all objects to the freelist.
+  void Plunder() {
+    for (int i = 0; i < kNumClasses; ++i) {
+      if (use_ringbuffer_) {
+        cache_[i].rbtc.TryPlunder(i);
+      } else {
+        cache_[i].tc.TryPlunder(i);
+      }
+    }
+  }
+
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
   size_t tc_length(int size_class) {
@@ -197,6 +209,7 @@ struct ShardedTransferCacheManager {
   static constexpr void *Pop(int cl) { return nullptr; }
   static constexpr void Push(int cl, void *ptr) {}
   static constexpr size_t TotalBytes() { return 0; }
+  static constexpr void Plunder() {}
 };
 
 }  // namespace tcmalloc_internal
