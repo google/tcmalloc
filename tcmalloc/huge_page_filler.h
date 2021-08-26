@@ -24,6 +24,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
@@ -37,6 +38,11 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// This and the following classes implement the adaptive hugepage subrelease
+// mechanism and realized fragmentation metric described in "Adaptive Hugepage
+// Subrelease for Non-moving Memory Allocators in Warehouse-Scale Computers"
+// (ISMM 2021).
 
 // Tracks correctness of skipped subrelease decisions over time.
 template <size_t kEpochs = 16>
@@ -455,6 +461,11 @@ void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
   out->printf("HugePageFiller: time series over %d min interval\n\n",
               absl::ToInt64Minutes(summary_interval_));
+
+  // Realized fragmentation is equivalent to backed minimum free pages over a
+  // 5-min interval. It is printed for convenience but not included in pbtxt.
+  out->printf("HugePageFiller: realized fragmentation: %.1f MiB\n",
+              free_pages.free_backed.in_mib());
   out->printf("HugePageFiller: minimum free pages: %zu (%zu backed)\n",
               free_pages.free.raw_num(), free_pages.free_backed.raw_num());
 

@@ -631,6 +631,7 @@ time period:
 ```
 HugePageFiller: time series over 5 min interval
 
+HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
@@ -643,7 +644,10 @@ which is an indication of how much memory could have been "usefully" reclaimed
 (i.e., free for long enough that the OS would likely be able to use the memory
 for another process). The line shows both the total number of free pages in the
 filler (whether or not released to the OS) as well as only those that were
-backed by physical memory for the full 5-min interval.
+backed by physical memory for the full 5-min interval. This metric is called
+"realized fragmentation" and described in ["Adaptive Hugepage Subrelease for
+Non-moving Memory Allocators in Warehouse-Scale
+Computers"](https://research.google/pubs/pub50436/) (ISMM 2021).
 
 The next two sections show the state of the filler at peak demand (i.e., when
 the maximum number of pages was in use) and at peak hps (i.e., when the maximum

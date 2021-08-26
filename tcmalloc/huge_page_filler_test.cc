@@ -1536,6 +1536,7 @@ TEST_F(FillerStatsTrackerTest, Works) {
 
     EXPECT_THAT(buffer, StrEq(R"(HugePageFiller: time series over 5 min interval
 
+HugePageFiller: realized fragmentation: 0.8 MiB
 HugePageFiller: minimum free pages: 110 (100 backed)
 HugePageFiller: at peak demand: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
@@ -1949,6 +1950,7 @@ HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: time series over 5 min interval
 
+HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
