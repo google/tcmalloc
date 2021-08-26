@@ -115,8 +115,7 @@ class ShardedTransferCacheManager {
   };
 
   int get_index(int cl) {
-    const int cpu =
-        tcmalloc::tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id;
+    const int cpu = tcmalloc::tcmalloc_internal::subtle::percpu::RseqCpuId();
     ASSERT(cpu < 256);
     ASSERT(cpu >= 0);
     return get_index(cpu, cl);
