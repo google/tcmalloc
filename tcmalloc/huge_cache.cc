@@ -439,9 +439,9 @@ void HugeCache::PrintInPbtxt(PbtxtRegion *hpaa) {
   const double overflow_rate = safe_ratio(overflows_, fills_);
 
   // number of bytes in HugeCache
-  hpaa->PrintI64("cached_huge_page_bytes", size_.raw_num() * kPageSize);
+  hpaa->PrintI64("cached_huge_page_bytes", size_.in_bytes());
   // max allowed bytes in HugeCache
-  hpaa->PrintI64("max_cached_huge_page_bytes", limit().raw_num() * kPageSize);
+  hpaa->PrintI64("max_cached_huge_page_bytes", limit().in_bytes());
   // lifetime cache hit rate
   hpaa->PrintDouble("huge_cache_hit_rate", hit_rate);
   // lifetime cache overflow rate
