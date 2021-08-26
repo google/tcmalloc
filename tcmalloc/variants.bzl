@@ -98,6 +98,13 @@ variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
     {
+        "name": "256k_pages_pow2_sharded_transfer_cache",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
+    },
+    {
         "name": "256k_pages_pow2_below64",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": ["//tcmalloc:common_256k_pages"],
@@ -118,6 +125,13 @@ variants = [
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE"},
+    },
+    {
+        "name": "256k_pages_pow2_with_per_ccx",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
 ]
 

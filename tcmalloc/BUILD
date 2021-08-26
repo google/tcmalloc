@@ -285,6 +285,7 @@ common_deps = [
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
     "//tcmalloc/internal:numa",
+    "//tcmalloc/internal:cache_topology",
     "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc/internal:percpu",

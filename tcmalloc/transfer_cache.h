@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <limits>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -29,6 +30,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
@@ -45,7 +47,95 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static void *Alloc(size_t size, int alignment = kAlignment)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+};
+
+// This transfer-cache is set up to be sharded per L3 cache. It is backed by
+// the non-sharded "normal" TransferCacheManager.
+class ShardedTransferCacheManager {
+ public:
+  constexpr ShardedTransferCacheManager() {}
+
+  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  bool should_use(int cl) const { return active_for_class_[cl]; }
+
+  size_t TotalBytes();
+
+  void *Pop(int cl) {
+    void *batch[1];
+    const int got = cache_[get_index(cl)].tc.RemoveRange(cl, batch, 1);
+    return got == 1 ? batch[0] : nullptr;
+  }
+
+  void Push(int cl, void *ptr) {
+    cache_[get_index(cl)].tc.InsertRange(cl, {&ptr, 1});
+  }
+
+  // All caches not touched since last attempt will return all objects
+  // to the non-sharded TransferCache.
+  void Plunder() {
+    if (cache_ == nullptr || num_shards_ == 0) return;
+    for (int i = 0; i < num_shards_ * kNumClasses; ++i) {
+      cache_[i].tc.TryPlunder(cache_[i].tc.freelist().size_class());
+    }
+  }
+
+ private:
+  // The Manager is set up so that stealing is disabled for this TransferCache.
+  class Manager : public StaticForwarder {
+   public:
+    static constexpr int DetermineSizeClassToEvict() { return -1; }
+    static constexpr bool MakeCacheSpace(int) { return false; }
+    static constexpr bool ShrinkCache(int) { return false; }
+  };
+
+  // Forwards calls to the unsharded TransferCache.
+  class BackingTransferCache {
+   public:
+    void Init(int cl) { size_class_ = cl; }
+    void InsertRange(absl::Span<void *> batch) const;
+    ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) const;
+    int size_class() const { return size_class_; }
+
+   private:
+    int size_class_ = -1;
+  };
+
+  using TransferCache =
+      internal_transfer_cache::RingBufferTransferCache<BackingTransferCache,
+                                                       Manager>;
+
+  union Cache {
+    constexpr Cache() : dummy(false) {}
+    ~Cache() {}
+    TransferCache tc;
+    bool dummy;
+  };
+
+  int get_index(int cl) {
+    const int cpu =
+        tcmalloc::tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id;
+    ASSERT(cpu < 256);
+    ASSERT(cpu >= 0);
+    return get_index(cpu, cl);
+  }
+
+  int get_index(int cpu, int cl) {
+    const int shard = l3_cache_index_[cpu];
+    ASSERT(shard < num_shards_);
+    const int index = shard * kNumClasses + cl;
+    ASSERT(index < num_shards_ * kNumClasses);
+    return index;
+  }
+
+  // Mapping from cpu to the L3 cache used.
+  uint8_t l3_cache_index_[CPU_SETSIZE] = {0};
+
+  Cache *cache_ = nullptr;
+  int num_shards_ = 0;
+  bool active_for_class_[kNumClasses] = {false};
 };
 
 class TransferCacheManager : public StaticForwarder {
@@ -200,8 +290,6 @@ class TransferCacheManager {
   CentralFreeList freelist_[kNumClasses];
 } ABSL_CACHELINE_ALIGNED;
 
-#endif
-
 // A trivial no-op implementation.
 struct ShardedTransferCacheManager {
   static constexpr void Init() {}
@@ -211,6 +299,8 @@ struct ShardedTransferCacheManager {
   static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
 };
+
+#endif
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
