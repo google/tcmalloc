@@ -60,10 +60,10 @@ void ShardedTransferCacheManager::Init() {
     for (int cl = 0; cl < kNumClasses; ++cl) {
       const int index = shard * kNumClasses + cl;
       const int size_per_object = Static::sizemap().class_to_size(cl);
-      static constexpr int k4MB = 12 << 20;
+      static constexpr int k12MB = 12 << 20;
       static constexpr int min_size = 4096;
       const int use_this_size_class = size_per_object >= min_size;
-      const int capacity = use_this_size_class ? k4MB / size_per_object : 0;
+      const int capacity = use_this_size_class ? k12MB / size_per_object : 0;
       active_for_class_[cl] = use_this_size_class;
       new (&cache_[index].tc)
           TransferCache(nullptr, capacity > 0 ? cl : 0, {capacity, capacity});
