@@ -84,6 +84,12 @@ class CPUCache {
   // Give the number of bytes unallocated to any sizeclass in <cpu>'s cache.
   uint64_t Unallocated(int cpu) const;
 
+  // Gives the total capacity of <cpu>'s cache in bytes.
+  //
+  // The total capacity of <cpu>'s cache should be equal to the sum of allocated
+  // and unallocated bytes for that cache.
+  uint64_t Capacity(int cpu) const;
+
   // Give the per-cpu limit of cache size.
   uint64_t CacheLimit() const;
 
@@ -96,6 +102,9 @@ class CPUCache {
   // TODO(vgogte): There are quite a few knobs that we can play around with in
   // ShuffleCpuCaches.
   void ShuffleCpuCaches();
+
+  // Sets the lower limit on the capacity that can be stolen from the cpu cache.
+  static constexpr double kCacheCapacityThreshold = 0.20;
 
   // Tries to steal <bytes> for the destination <cpu>. It iterates through the
   // the set of populated cpu caches and steals the bytes from them. A cpu is
@@ -192,6 +201,9 @@ class CPUCache {
     std::atomic<size_t> prev_underflows;
     // tracks number of overflows recorded as of the end of the last interval.
     std::atomic<size_t> prev_overflows;
+    // total cache space available on this CPU. This tracks the total
+    // allocated and unallocated bytes on this CPU cache.
+    std::atomic<size_t> capacity;
   };
   struct ResizeInfo : ResizeInfoUnpadded {
     char pad[ABSL_CACHELINE_SIZE -

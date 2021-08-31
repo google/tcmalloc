@@ -79,6 +79,7 @@ cc_library(
     ],
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
     ],

@@ -173,6 +173,7 @@ void CPUCache::Activate(ActivationMode mode) {
       resize_[cpu].per_class[cl].Init();
     }
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
+    resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
@@ -481,6 +482,12 @@ void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
     // We do not steal from the cache that hasn't been populated yet.
     if (!HasPopulated(src_cpu)) continue;
 
+    // We do not steal from cache that has capacity less than our lower
+    // capacity threshold.
+    if (Capacity(src_cpu) <
+        kCacheCapacityThreshold * Parameters::max_per_cpu_cache_size())
+      continue;
+
     const CpuCacheMissStats src_misses = GetIntervalCacheMissStats(src_cpu);
 
     // If underflows and overflows from the source cpu are higher, we do not
@@ -569,6 +576,7 @@ void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
         if (freelist_.ShrinkOtherCache(src_cpu, source_cl, 1, nullptr,
                                        ShrinkHandler) == 1) {
           acquired += size;
+          resize_[src_cpu].capacity.fetch_sub(size, std::memory_order_relaxed);
         }
       }
 
@@ -592,6 +600,7 @@ void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
     } while (!resize_[cpu].available.compare_exchange_weak(
         before, bytes_with_stolen, std::memory_order_relaxed,
         std::memory_order_relaxed));
+    resize_[cpu].capacity.fetch_add(acquired, std::memory_order_relaxed);
   }
 }
 
@@ -787,6 +796,10 @@ uint64_t CPUCache::TotalObjectsOfClass(size_t cl) const {
 
 uint64_t CPUCache::Unallocated(int cpu) const {
   return resize_[cpu].available.load(std::memory_order_relaxed);
+}
+
+uint64_t CPUCache::Capacity(int cpu) const {
+  return resize_[cpu].capacity.load(std::memory_order_relaxed);
 }
 
 uint64_t CPUCache::CacheLimit() const {

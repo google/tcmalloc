@@ -25,6 +25,7 @@
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -145,6 +146,9 @@ TEST(CpuCacheTest, Metadata) {
       }
 
       EXPECT_LE(cache.Unallocated(cpu), max_cpu_cache_size);
+      EXPECT_EQ(cache.Capacity(cpu), max_cpu_cache_size);
+      EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
+                cache.Capacity(cpu));
     }
 
     for (int cl = 0; cl < kNumClasses; ++cl) {
@@ -329,10 +333,140 @@ TEST(CpuCacheTest, StealCpuCache) {
   const int num_cpus = absl::base_internal::NumCPUs();
   const size_t kTotalCapacity = num_cpus * Parameters::max_per_cpu_cache_size();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    capacity += cache.Allocated(cpu) + cache.Unallocated(cpu);
+    EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
+              cache.Capacity(cpu));
+    capacity += cache.Capacity(cpu);
   }
   EXPECT_EQ(capacity, kTotalCapacity);
 
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    cache.Reclaim(cpu);
+  }
+}
+
+// Runs a single allocate and deallocate operation to warm up the cache. Once a
+// few objects are allocated in the cold cache, we can shuffle cpu caches to
+// steal that capacity from the cold cache to the hot cache.
+static void ColdCacheOperations(int cpu_id) {
+  // Temporarily fake being on the given CPU.
+  ScopedFakeCpuId fake_cpu_id(cpu_id);
+
+  CPUCache& cache = Static::cpu_cache();
+  if (subtle::percpu::UsingFlatVirtualCpus()) {
+    subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
+  }
+
+  // We allocate and deallocate a single highest cl object.
+  // This makes sure that we have a single large object in the cache that faster
+  // cache can steal. Allocating a large object ensures that we steal the
+  // maximum steal-able capacity for this cache in a short amount of time.
+  const size_t cl = kNumClasses - 1;
+  void* ptr = cache.Allocate<OOMHandler>(cl);
+  cache.Deallocate(ptr, cl);
+}
+
+// Runs multiple allocate and deallocate operation on the cpu cache to collect
+// misses. Once we collect enough misses on this cache, we can shuffle cpu
+// caches to steal capacity from colder caches to the hot cache.
+static void HotCacheOperations(int cpu_id) {
+  // Temporarily fake being on the given CPU.
+  ScopedFakeCpuId fake_cpu_id(cpu_id);
+
+  CPUCache& cache = Static::cpu_cache();
+  if (subtle::percpu::UsingFlatVirtualCpus()) {
+    subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
+  }
+
+  // Allocate and deallocate objects to make sure we have enough misses on the
+  // cache. This will make sure we have sufficient disparity in misses between
+  // the hotter and colder cache, and that we may be able to steal bytes from
+  // the colder cache.
+  for (size_t cl = 1; cl <= kStressSlabs; ++cl) {
+    void* ptr = cache.Allocate<OOMHandler>(cl);
+    cache.Deallocate(ptr, cl);
+  }
+
+  // We reclaim the cache to reset it so that we record underflows/overflows the
+  // next time we allocate and deallocate objects. Without reclaim, the cache
+  // would stay warmed up and it would take more time to drain the colder cache.
+  cache.Reclaim(cpu_id);
+}
+
+TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CPUCache& cache = Static::cpu_cache();
+  // Since this test allocates memory, avoid activating the real fast path to
+  // minimize allocations against the per-CPU cache.
+  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+
+  constexpr int hot_cpu_id = 0;
+  constexpr int cold_cpu_id = 1;
+
+  const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
+
+  // Empirical tests suggest that we should be able to steal all the steal-able
+  // capacity from colder cache in < 100 tries. Keeping enough buffer here to
+  // make sure we steal from colder cache, while at the same time avoid timeouts
+  // if something goes bad.
+  constexpr int kMaxStealTries = 1000;
+
+  for (int num_tries = 0;
+       num_tries < kMaxStealTries &&
+       cache.Capacity(cold_cpu_id) >
+           CPUCache::kCacheCapacityThreshold * max_cpu_cache_size;
+       ++num_tries) {
+    ColdCacheOperations(cold_cpu_id);
+    HotCacheOperations(hot_cpu_id);
+    cache.ShuffleCpuCaches();
+
+    // Check that the capacity is preserved.
+    EXPECT_EQ(cache.Allocated(cold_cpu_id) + cache.Unallocated(cold_cpu_id),
+              cache.Capacity(cold_cpu_id));
+    EXPECT_EQ(cache.Allocated(hot_cpu_id) + cache.Unallocated(hot_cpu_id),
+              cache.Capacity(hot_cpu_id));
+  }
+
+  size_t cold_cache_capacity = cache.Capacity(cold_cpu_id);
+  size_t hot_cache_capacity = cache.Capacity(hot_cpu_id);
+
+  // Check that we drained cold cache to the lower capacity limit.
+  // We also keep some tolerance, up to the largest class size, below the lower
+  // capacity threshold that we can drain cold cache to.
+  EXPECT_GT(cold_cache_capacity,
+            CPUCache::kCacheCapacityThreshold * max_cpu_cache_size -
+                Static::sizemap().class_to_size(kNumClasses - 1));
+
+  // Check that we have at least stolen some capacity.
+  EXPECT_GT(hot_cache_capacity, max_cpu_cache_size);
+
+  // Perform a few more shuffles to make sure that lower cache capacity limit
+  // has been reached for the cold cache. A few more shuffles should not
+  // change the capacity of either of the caches.
+  for (int i = 0; i < 100; ++i) {
+    ColdCacheOperations(cold_cpu_id);
+    HotCacheOperations(hot_cpu_id);
+    cache.ShuffleCpuCaches();
+
+    // Check that the capacity is preserved.
+    EXPECT_EQ(cache.Allocated(cold_cpu_id) + cache.Unallocated(cold_cpu_id),
+              cache.Capacity(cold_cpu_id));
+    EXPECT_EQ(cache.Allocated(hot_cpu_id) + cache.Unallocated(hot_cpu_id),
+              cache.Capacity(hot_cpu_id));
+  }
+
+  // Check that the capacity of cold and hot caches is same as before.
+  EXPECT_EQ(cache.Capacity(cold_cpu_id), cold_cache_capacity);
+  EXPECT_EQ(cache.Capacity(hot_cpu_id), hot_cache_capacity);
+
+  // Make sure that the total capacity is preserved.
+  EXPECT_EQ(cache.Capacity(cold_cpu_id) + cache.Capacity(hot_cpu_id),
+            2 * max_cpu_cache_size);
+
+  // Reclaim caches.
+  const int num_cpus = absl::base_internal::NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     cache.Reclaim(cpu);
   }

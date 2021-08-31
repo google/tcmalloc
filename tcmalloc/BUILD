@@ -1280,6 +1280,7 @@ cc_test(
         ":common_deprecated_perthread",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:util",
+        "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:seed_sequences",

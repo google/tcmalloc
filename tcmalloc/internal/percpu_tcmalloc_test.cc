@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -91,59 +92,6 @@ void RunOnSingleCpu(std::function<bool(int)> test) {
   auto wrapper = [&test](int this_cpu, int unused) { return test(this_cpu); };
   RunOnSingleCpuWithRemoteCpu(wrapper);
 }
-
-// ScopedUnregisterRseq unregisters the current thread from rseq.  On
-// destruction, it reregisters it with IsFast().
-class ScopedUnregisterRseq {
- public:
-  ScopedUnregisterRseq() {
-    // Since we expect that we will be able to register the thread for rseq in
-    // the destructor, verify that we can do so now.
-    CHECK_CONDITION(IsFast());
-
-    syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), kRseqUnregister,
-            TCMALLOC_PERCPU_RSEQ_SIGNATURE);
-
-    // Unregistering stores kCpuIdUninitialized to the cpu_id field.
-    CHECK_CONDITION(__rseq_abi.cpu_id == kCpuIdUninitialized);
-  }
-
-  // REQUIRES: __rseq_abi.cpu_id == kCpuIdUninitialized
-  ~ScopedUnregisterRseq() {
-    CHECK_CONDITION(IsFast());
-  }
-};
-
-#if !defined(__ppc__)
-
-// An RAII object that injects a fake CPU ID into the percpu library for as long
-// as it exists.
-class ScopedFakeCpuId {
- public:
-  explicit ScopedFakeCpuId(const int cpu_id) {
-    // Now that our unregister_rseq_ member has prevented the kernel from
-    // modifying __rseq_abi, we can inject our own CPU ID.
-    __rseq_abi.cpu_id = cpu_id;
-  }
-
-  ~ScopedFakeCpuId() {
-    // Undo the modification we made in the constructor, as required by
-    // ~ScopedFakeCpuId.
-    __rseq_abi.cpu_id = kCpuIdUninitialized;
-  }
-
- private:
-
-  const ScopedUnregisterRseq unregister_rseq_;
-};
-
-#else
-
-// On PPC we can't inject a CPU ID because we get the CPU ID directly from a
-// register. Instead change the scheduling affinity for the process.
-using ScopedFakeCpuId = ScopedAffinityMask;
-
-#endif
 
 constexpr size_t kStressSlabs = 4;
 constexpr size_t kStressCapacity = 4;

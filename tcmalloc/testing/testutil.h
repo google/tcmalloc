@@ -15,7 +15,11 @@
 #ifndef TCMALLOC_TESTING_TESTUTIL_H_
 #define TCMALLOC_TESTING_TESTUTIL_H_
 
+#include <sys/syscall.h>
+#include <unistd.h>
+
 #include "benchmark/benchmark.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 
 // When compiled 64-bit and run on systems with swap several unittests will end
@@ -80,6 +84,53 @@ class ScopedGuardedSamplingRate {
 
  private:
   int64_t previous_;
+};
+
+// ScopedUnregisterRseq unregisters the current thread from rseq.  On
+// destruction, it reregisters it with IsFast().
+class ScopedUnregisterRseq {
+ public:
+  ScopedUnregisterRseq() {
+    // Since we expect that we will be able to register the thread for rseq in
+    // the destructor, verify that we can do so now.
+    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+
+    syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,
+            sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
+            tcmalloc_internal::subtle::percpu::kRseqUnregister,
+            TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+
+    // Unregistering stores kCpuIdUninitialized to the cpu_id field.
+    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::RseqCpuId() ==
+                    tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
+  }
+
+  // REQUIRES: __rseq_abi.cpu_id == kCpuIdUninitialized
+  ~ScopedUnregisterRseq() {
+    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+  }
+};
+
+// An RAII object that injects a fake CPU ID into the percpu library for as long
+// as it exists.
+class ScopedFakeCpuId {
+ public:
+  explicit ScopedFakeCpuId(const int cpu_id) {
+    // Now that our unregister_rseq_ member has prevented the kernel from
+    // modifying __rseq_abi, we can inject our own CPU ID.
+    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
+  }
+
+  ~ScopedFakeCpuId() {
+    // Undo the modification we made in the constructor, as required by
+    // ~ScopedFakeCpuId.
+    tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
+        tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+  }
+
+ private:
+
+  const ScopedUnregisterRseq unregister_rseq_;
 };
 
 }  // namespace tcmalloc

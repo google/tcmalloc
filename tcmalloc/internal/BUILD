@@ -434,6 +434,7 @@ cc_test(
         ":percpu_tcmalloc",
         ":util",
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:fixed_array",
