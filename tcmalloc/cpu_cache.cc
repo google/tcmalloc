@@ -960,12 +960,17 @@ uint32_t CPUCache::PerClassResizeInfo::Tick() {
   return state.quiescent_ticks - 1;
 }
 
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+extern "C" int RunningOnValgrind();
+#endif
+
 static void ActivatePerCPUCaches() {
   if (tcmalloc::tcmalloc_internal::Static::CPUCacheActive()) {
     // Already active.
     return;
   }
 
+#ifdef ABSL_HAVE_THREAD_SANITIZER
   // RunningOnValgrind is a proxy for "is something intercepting malloc."
   //
   // If Valgrind, et. al., are in use, TCMalloc isn't in use and we shouldn't
@@ -973,6 +978,7 @@ static void ActivatePerCPUCaches() {
   if (RunningOnValgrind()) {
     return;
   }
+#endif
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
     Static::cpu_cache().Activate(CPUCache::ActivationMode::FastPathOn);
