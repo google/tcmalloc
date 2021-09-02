@@ -131,6 +131,7 @@ TEST(EmpiricalRecordAndReplay, Basic) {
   }
 
   data.RestoreSnapshot();
+  data.BuildDeathObjectPointers();
 
   // We need one warmup iteration so we can compute the delta allocations and
   // bytes we should see from each time through the trace.

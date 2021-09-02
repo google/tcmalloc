@@ -248,6 +248,7 @@ void EmpiricalData::ReplayNext() {
   } else {
     ReplayDeath(birth_or_death_sizes_[birth_or_death_index_],
                 death_objects_[death_object_index_]);
+    __builtin_prefetch(death_object_pointers_[death_object_index_], 1, 3);
     death_object_index_++;
   }
   birth_or_death_index_++;
@@ -264,6 +265,54 @@ void EmpiricalData::RestoreSnapshot() {
   for (int i = 0; i < snapshot_state_.size(); i++) {
     state_[i].objs = snapshot_state_[i].objs;
   }
+}
+
+void EmpiricalData::ReserveSizeClassObjects() {
+  // Keep a running sum and high water mark for the delta in the size class
+  // object arrays.
+  std::vector<int32_t> max_object_size_delta(state_.size(), 0);
+  std::vector<int32_t> cur_object_size_delta(state_.size(), 0);
+  for (int i = 0; i < birth_or_death_.size(); i++) {
+    auto size_class = birth_or_death_sizes_[i];
+    if (birth_or_death_[i]) {
+      cur_object_size_delta[size_class]++;
+      max_object_size_delta[size_class] = std::max(
+          max_object_size_delta[size_class], cur_object_size_delta[size_class]);
+    } else {
+      cur_object_size_delta[size_class]--;
+    }
+  }
+
+  for (int i = 0; i < state_.size(); i++) {
+    state_[i].objs.reserve(state_[i].objs.size() + max_object_size_delta[i]);
+  }
+}
+
+void EmpiricalData::BuildDeathObjectPointers() {
+  constexpr uint32_t kPrefetchDistance = 64;
+
+  // This is a bit ugly but because the below code can create pointers past the
+  // end of the current objects arrays we need to first need to reserve their
+  // capacity at the maximum capacity they will ever hit to ensure they won't
+  // grow and possibly be reallocated.  They will never grow beyond the size
+  // calculated by this function.
+  ReserveSizeClassObjects();
+
+  // The easiest way to compute the prefetch objects is to get the pointers
+  // corresponding to each death_objects_[] and then rotating the array so the
+  // N + prefetch_distance object is stored at index N.
+  uint32_t death_index = 0;
+  for (int i = 0; i < birth_or_death_.size(); i++) {
+    // Skip births
+    if (birth_or_death_[i]) {
+      continue;
+    }
+    SizeState &s = state_[birth_or_death_sizes_[i]];
+    death_object_pointers_.push_back(&s.objs[death_objects_[death_index++]]);
+  }
+  std::rotate(death_object_pointers_.begin(),
+              death_object_pointers_.begin() + kPrefetchDistance,
+              death_object_pointers_.end());
 }
 
 void EmpiricalData::RepairToSnapshotState() {

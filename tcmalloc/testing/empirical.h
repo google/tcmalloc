@@ -227,6 +227,11 @@ class EmpiricalData {
   // warmup allocations were complete.  This is safe to call repeatedly.
   void RepairToSnapshotState();
 
+  // Computes addresses to prefetch when executing in record and replay mode.
+  // This is necessary to minimize the impact of indexing into SizeState.objs
+  // when freeing an object.
+  void BuildDeathObjectPointers();
+
   // Tests whether we have reached the end of the birth / death trace.  If so
   // performs the actions necessary so that we can start replaying allocs /
   // deallocs from the beginning of the trace again.
@@ -250,6 +255,7 @@ class EmpiricalData {
   void ReplayBirth(const size_t i);
   void RecordDeath(const size_t i);
   void ReplayDeath(const size_t i, const uint64_t index);
+  void ReserveSizeClassObjects();
 
   absl::FunctionRef<void *(size_t)> alloc_;
   absl::FunctionRef<void(void *, size_t)> dealloc_;
@@ -269,6 +275,7 @@ class EmpiricalData {
   std::vector<bool> birth_or_death_;
   std::vector<uint16_t> birth_or_death_sizes_;
   std::vector<uint32_t> death_objects_;
+  std::vector<void **> death_object_pointers_;
   uint32_t birth_or_death_index_ = 0;
   uint32_t death_object_index_ = 0;
 };

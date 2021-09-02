@@ -369,6 +369,7 @@ class SimThread {
     }
 
     load->RestoreSnapshot();
+    load->BuildDeathObjectPointers();
   }
 
   void Run() {
