@@ -72,7 +72,8 @@ enum TrackingStat {
   kTCInsertMiss = 7,  // # of times the object list misses the transfer cache.
   kTCRemoveHit = 8,   // # of times object list fetching hits transfer cache.
   kTCRemoveMiss = 9,  // # of times object list fetching misses transfer cache.
-  kNumTrackingStats = 10,
+  kTCElementsPlunder = 10,  // # of elements plundered from the transfer cache.
+  kNumTrackingStats = 11,
 };
 
 namespace tracking {

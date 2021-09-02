@@ -313,27 +313,33 @@ TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
 
 TYPED_TEST_P(TransferCacheTest, Plunder) {
   TypeParam env;
-
-  // Fill in some elements so the test runs without problems.
+  //  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
+  //  EXPECT_CALL(env.central_freelist(), InsertRange).Times(1);
+  // Fill in some elements.
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // All these elements will be plundered.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 0);
 
-  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
-  EXPECT_CALL(env.central_freelist(), InsertRange).Times(2);
+  env.Insert(TypeParam::kBatchSize);
+  env.Insert(TypeParam::kBatchSize);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
 
   void* buf[TypeParam::kBatchSize];
-
-  // Make changes and make sure plundering does not do anything.
+  // -1 +1, this sets the low_water_mark (the lowest end-state after a
+  // call to RemoveRange to 1 batch.
   (void)env.transfer_cache().RemoveRange(kSizeClass, buf,
                                          TypeParam::kBatchSize);
-  env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_GT(env.transfer_cache().tc_length(), 0);
-
   env.transfer_cache().InsertRange(kSizeClass, {buf, TypeParam::kBatchSize});
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // We have one batch, and this is the same as the low water mark, so nothing
+  // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_GT(env.transfer_cache().tc_length(), 0);
-
-  // And now plunder again and confirm this time we emptied the cache.
+  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+  // If we plunder immediately the low_water_mark is at maxint, and eveything
+  // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), 0);
 }
