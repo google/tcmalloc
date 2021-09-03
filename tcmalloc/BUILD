@@ -829,6 +829,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
+    tags = [
+    ],
     deps = [
         ":common",
         ":malloc_extension",
@@ -1076,7 +1078,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:logging",
