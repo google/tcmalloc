@@ -126,7 +126,7 @@ one /header/ block per size-class. The header has a pointer to the start of the
 per-size-class array of pointers to objects, as well as a pointer to the
 current, dynamic, maximum capacity and the current position within that array
 segment. The static maximum capacity of each per-size-class array of pointers is
-[determined at start time](https://github.com/google/tcmalloc/blob/master/tcmalloc/percpu_tcmalloc.h)
+[determined at start time](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/percpu_tcmalloc.h)
 by the difference between the start of the array for this size-class and the
 start of the array for the next size-class.
 
