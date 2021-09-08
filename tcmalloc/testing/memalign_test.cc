@@ -268,6 +268,7 @@ TEST(MemalignTest, valloc) {
   }
 }
 
+#if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__)
 TEST(MemalignTest, pvalloc) {
   const int pagesize = getpagesize();
 
@@ -286,6 +287,7 @@ TEST(MemalignTest, pvalloc) {
   ASSERT_TRUE(Valid(p, pagesize, 'y'));
   free(p);
 }
+#endif
 
 }  // namespace
 }  // namespace tcmalloc
