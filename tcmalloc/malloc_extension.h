@@ -526,7 +526,6 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
 // Aligned size returning new is only supported for libc++ because of issues
 // with libstdcxx.so linkage. See http://b/110969867 for background.
 #if defined(__cpp_aligned_new)
-#define TCMALLOC_HAS_ALIGNED_SIZE_RETURNING_NEW
 
 // Identical to `tcmalloc_size_returning_operator_new` except that the returned
 // memory is aligned according to the `alignment` argument.
