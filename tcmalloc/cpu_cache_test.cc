@@ -352,9 +352,11 @@ static void ColdCacheOperations(int cpu_id) {
   ScopedFakeCpuId fake_cpu_id(cpu_id);
 
   CPUCache& cache = Static::cpu_cache();
+#if TCMALLOC_PERCPU_USE_RSEQ
   if (subtle::percpu::UsingFlatVirtualCpus()) {
     subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
   }
+#endif
 
   // We allocate and deallocate a single highest cl object.
   // This makes sure that we have a single large object in the cache that faster
@@ -373,9 +375,11 @@ static void HotCacheOperations(int cpu_id) {
   ScopedFakeCpuId fake_cpu_id(cpu_id);
 
   CPUCache& cache = Static::cpu_cache();
+#if TCMALLOC_PERCPU_USE_RSEQ
   if (subtle::percpu::UsingFlatVirtualCpus()) {
     subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
   }
+#endif
 
   // Allocate and deallocate objects to make sure we have enough misses on the
   // cache. This will make sure we have sufficient disparity in misses between

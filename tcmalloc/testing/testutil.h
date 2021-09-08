@@ -95,10 +95,15 @@ class ScopedUnregisterRseq {
     // the destructor, verify that we can do so now.
     CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
 
+#if TCMALLOC_PERCPU_USE_RSEQ
     syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,
             sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
             tcmalloc_internal::subtle::percpu::kRseqUnregister,
             TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+#else
+    // rseq is is unavailable in this build
+    CHECK_CONDITION(false);
+#endif
 
     // Unregistering stores kCpuIdUninitialized to the cpu_id field.
     CHECK_CONDITION(tcmalloc_internal::subtle::percpu::RseqCpuId() ==
@@ -116,16 +121,20 @@ class ScopedUnregisterRseq {
 class ScopedFakeCpuId {
  public:
   explicit ScopedFakeCpuId(const int cpu_id) {
+#if TCMALLOC_PERCPU_USE_RSEQ
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
+#endif
   }
 
   ~ScopedFakeCpuId() {
+#if TCMALLOC_PERCPU_USE_RSEQ
     // Undo the modification we made in the constructor, as required by
     // ~ScopedFakeCpuId.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
         tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+#endif
   }
 
  private:
