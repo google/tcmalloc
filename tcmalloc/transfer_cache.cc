@@ -27,6 +27,7 @@
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tracking.h"
@@ -34,6 +35,20 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+absl::string_view TransferCacheImplementationToLabel(
+    TransferCacheImplementation type) {
+  switch (type) {
+    case TransferCacheImplementation::Legacy:
+      return "LEGACY";
+    case TransferCacheImplementation::None:
+      return "NO_TRANSFERCACHE";
+    case TransferCacheImplementation::Ring:
+      return "RING";
+    default:
+      ASSUME(false);
+  }
+}
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
@@ -103,7 +118,7 @@ int TransferCacheManager::DetermineSizeClassToEvict() {
   next_to_evict_.store(t + 1, std::memory_order_relaxed);
 
   // Ask nicely first.
-  if (use_ringbuffer_) {
+  if (implementation_ == TransferCacheImplementation::Ring) {
     if (cache_[t].rbtc.HasSpareCapacity(t)) return t;
   } else {
     if (cache_[t].tc.HasSpareCapacity(t)) return t;
