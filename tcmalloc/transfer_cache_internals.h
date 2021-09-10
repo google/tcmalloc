@@ -623,16 +623,9 @@ class RingBufferTransferCache {
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
     stats.insert_misses = insert_misses_.value();
-    stats.insert_non_batch_misses = insert_non_batch_misses_.value();
+    stats.insert_non_batch_misses = 0;
     stats.remove_misses = remove_misses_.value();
-    stats.remove_non_batch_misses = remove_non_batch_misses_.value();
-
-    // For performance reasons, we only update a single atomic as part of the
-    // actual allocation operation.  For reporting, we keep reporting all
-    // misses together and separately break-out how many of those misses were
-    // non-batch sized.
-    stats.insert_misses += stats.insert_non_batch_misses;
-    stats.remove_misses += stats.remove_non_batch_misses;
+    stats.remove_non_batch_misses = 0;
 
     return stats;
   }
@@ -869,9 +862,7 @@ class RingBufferTransferCache {
   StatsCounter remove_hits_;
   // Miss counters do not hold lock_, so they use Add.
   StatsCounter insert_misses_;
-  StatsCounter insert_non_batch_misses_;
   StatsCounter remove_misses_;
-  StatsCounter remove_non_batch_misses_;
 
   FreeList freelist_do_not_access_directly_;
   Manager *const owner_;
