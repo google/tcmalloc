@@ -166,11 +166,7 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    implementation_ =
-        IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE)
-            ? TransferCacheImplementation::Ring
-            : TransferCacheImplementation::Legacy;
+    implementation_ = ChooseImplementation();
     for (int i = 0; i < kNumClasses; ++i) {
       if (implementation_ == TransferCacheImplementation::Ring) {
         new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
@@ -237,6 +233,8 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheImplementation implementation() const { return implementation_; }
 
  private:
+  static TransferCacheImplementation ChooseImplementation();
+
   int DetermineSizeClassToEvict();
   bool ShrinkCache(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
