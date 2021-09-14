@@ -39,9 +39,8 @@ using LifetimeTrackerUnderTest =
 
 class LifetimeTrackerTest : public testing::Test {
  protected:
-  const LifetimeTrackerUnderTest::Clock kFakeClock =
-      LifetimeTrackerUnderTest::Clock{.now = FakeClock,
-                                      .freq = GetFakeClockFrequency};
+  const Clock kFakeClock =
+      Clock{.now = FakeClock, .freq = GetFakeClockFrequency};
 
   void Advance(absl::Duration d) {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();

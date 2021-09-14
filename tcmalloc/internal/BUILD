@@ -43,6 +43,21 @@ cc_library(
 )
 
 cc_library(
+    name = "clock",
+    hdrs = ["clock.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_library(
     name = "config",
     hdrs = ["config.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -122,6 +137,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":clock",
         ":lifetime_predictions",
         ":linked_list",
         "@com_google_absl//absl/algorithm:container",
@@ -565,6 +581,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":clock",
         ":logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/functional:function_ref",

@@ -17,6 +17,7 @@
 
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/lifetime_predictions.h"
 #include "tcmalloc/internal/linked_list.h"
 
@@ -61,11 +62,6 @@ class LifetimeTrackerImpl {
     uint64_t overestimated_lifetimes = 0;
     uint64_t short_lived_predictions = 0;
     uint64_t long_lived_predictions = 0;
-  };
-
-  struct Clock {
-    int64_t (*now)();
-    double (*freq)();
   };
 
   explicit LifetimeTrackerImpl(
