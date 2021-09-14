@@ -116,6 +116,42 @@ cc_test(
 )
 
 cc_library(
+    name = "lifetime_tracker",
+    hdrs = ["lifetime_tracker.h"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":lifetime_predictions",
+        ":linked_list",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:malloc_internal",
+        "@com_google_absl//absl/debugging:stacktrace",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "lifetime_tracker_test",
+    srcs = ["lifetime_tracker_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":lifetime_predictions",
+        ":lifetime_tracker",
+        ":logging",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "linked_list",
     hdrs = ["linked_list.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
