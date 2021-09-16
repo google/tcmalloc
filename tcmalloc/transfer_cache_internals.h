@@ -129,11 +129,6 @@ class TransferCache {
                       (1024 * 1024) / (bytes * objs_to_move) * objs_to_move));
     capacity = std::min(capacity, max_capacity);
 
-    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE) ||
-        IsExperimentActive(Experiment::TCMALLOC_16X_TRANSFER_CACHE_REAL)) {
-      capacity *= 16;
-      max_capacity *= 16;
-    }
     return {capacity, max_capacity};
   }
 
