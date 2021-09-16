@@ -269,7 +269,9 @@ TEST_P(TcmallocSlabTest, Unit) {
 
 #if !defined(__ppc__)
     if (UsingFlatVirtualCpus()) {
+#if TCMALLOC_PERCPU_USE_RSEQ
       __rseq_abi.vcpu_id = cpu ^ 1;
+#endif
       cpu = cpu ^ 1;
     }
 #endif
