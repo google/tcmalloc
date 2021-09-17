@@ -25,6 +25,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/cache_topology.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
@@ -110,6 +111,29 @@ ABSL_MUST_USE_RESULT int
 ShardedTransferCacheManager::BackingTransferCache::RemoveRange(void **batch,
                                                                int n) const {
   return Static::transfer_cache().RemoveRange(size_class_, batch, n);
+}
+
+TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
+  // Prefer ring, if we're forcing it on.
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE)) {
+    return TransferCacheImplementation::Ring;
+  }
+
+  // Consider opt-outs
+  const char *e = thread_safe_getenv("TCMALLOC_INTERNAL_TRANSFERCACHE_CONTROL");
+  if (e) {
+    if (e[0] == '0') {
+      return TransferCacheImplementation::Legacy;
+    }
+    if (e[0] == '1') {
+      return TransferCacheImplementation::Ring;
+    }
+    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+  }
+
+  // Otherwise, default to legacy.
+  return TransferCacheImplementation::Legacy;
 }
 
 int TransferCacheManager::DetermineSizeClassToEvict() {
