@@ -517,6 +517,35 @@ class SizeMap {
 // Linker initialized, so this lock can be accessed at any time.
 extern absl::base_internal::SpinLock pageheap_lock;
 
+// FIXME(vyng): remove this after the new benchmark version is imported.
+// This is a hack to accommdate accessing .threads and .thread_index on
+// benchmark State object.
+// (In 1.6.0, the fields were made into methods, hence it's API breaking).
+
+namespace benchmark_compat {
+
+template <typename T>
+auto get_threads(T& t) -> decltype(t.threads()) {
+  return t.threads();
+}
+
+template <typename T>
+auto get_threads(T& t) -> decltype(t.threads) {
+  return t.threads;
+}
+
+template <typename T>
+auto get_thread_idx(T& t) -> decltype(t.thread_index()) {
+  return t.thread_index();
+}
+
+template <typename T>
+auto get_thread_idx(T& t) -> decltype(t.thread_index) {
+  return t.thread_index;
+}
+
+}  // namespace benchmark_compat
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

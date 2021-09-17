@@ -50,7 +50,7 @@ void BM_CrossThread(benchmark::State& state) {
   };
 
   static CrossThreadState* s = nullptr;
-  if (state.thread_index == 0) {
+  if (benchmark_compat::get_thread_idx(state) == 0) {
     s = new CrossThreadState();
     for (int i = 0; i < ::tcmalloc::tcmalloc_internal::internal_transfer_cache::
                                 kInitialCapacityInBatches /
@@ -63,7 +63,7 @@ void BM_CrossThread(benchmark::State& state) {
     }
   }
 
-  int src = state.thread_index % 2;
+  int src = benchmark_compat::get_thread_idx(state) % 2;
   int dst = (src + 1) % 2;
   for (auto iter : state) {
     benchmark::DoNotOptimize(batch);
@@ -72,7 +72,7 @@ void BM_CrossThread(benchmark::State& state) {
     s->c[dst].InsertRange(kSizeClass, {batch, kBatchSize});
     benchmark::DoNotOptimize(batch);
   }
-  if (state.thread_index == 0) {
+  if (benchmark_compat::get_thread_idx(state) == 0) {
     TransferCacheStats stats{};
     for (Cache& c : s->c) {
       TransferCacheStats other = c.GetHitRateStats();
