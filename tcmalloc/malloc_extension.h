@@ -433,6 +433,19 @@ class MallocExtension final {
   // null if the implementation does not support profiling.
   static AllocationProfilingToken StartAllocationProfiling();
 
+  // Initializes the state needed for this thread to call
+  // ProcessBackgroundActionsTick. This is the counterpart to
+  // ProcessBackgroundActions that allows co-operative task keeping on a thread
+  // that is performing other task keeping.
+  static void ProcessBackgroundActionsInit();
+
+  // This is to be called periodically to run housekeeping actions for the
+  // allocator off of the main allocation paths of new/delete. Note that unlike
+  // ProcessBackgroundActions, the thread is not automatically marked as
+  // idle/busy and the caller is responsible for doing that correctly.
+  // See ProcessBackgroundActions for details of the actions performed.
+  static void ProcessBackgroundActionsTick();
+
   // Runs housekeeping actions for the allocator off of the main allocation path
   // of new/delete.  As of 2020, this includes:
   // * Inspecting the current CPU mask and releasing memory from inaccessible

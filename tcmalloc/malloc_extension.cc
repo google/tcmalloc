@@ -425,6 +425,22 @@ void MallocExtension::ProcessBackgroundActions() {
 #endif
 }
 
+void MallocExtension::ProcessBackgroundActionsInit() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (NeedsProcessBackgroundActions()) {
+    MallocExtension_Internal_ProcessBackgroundActionsInit();
+  }
+#endif
+}
+
+void MallocExtension::ProcessBackgroundActionsTick() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (NeedsProcessBackgroundActions()) {
+    MallocExtension_Internal_ProcessBackgroundActionsTick();
+  }
+#endif
+}
+
 bool MallocExtension::NeedsProcessBackgroundActions() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   return &MallocExtension_Internal_ProcessBackgroundActions != nullptr;

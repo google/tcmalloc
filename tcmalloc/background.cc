@@ -99,43 +99,54 @@ void ShuffleCpuCaches() {
 GOOGLE_MALLOC_SECTION_END
 
 // Release memory to the system at a constant rate.
-void MallocExtension_Internal_ProcessBackgroundActions() {
-  tcmalloc::MallocExtension::MarkThreadIdle();
+static absl::Time prev_time;
+static absl::Time last_shuffle;
 
+void MallocExtension_Internal_ProcessBackgroundActionsInit() {
   // Initialize storage for ReleasePerCpuMemoryToOS().
   CPU_ZERO(&tcmalloc::tcmalloc_internal::prev_allowed_cpus);
 
-  absl::Time prev_time = absl::Now();
+  prev_time = absl::Now();
+  last_shuffle = absl::InfinitePast();
+}
+
+void MallocExtension_Internal_ProcessBackgroundActions() {
   constexpr absl::Duration kSleepTime = absl::Seconds(1);
 
-  // Shuffle per-cpu caches once per kCpuCacheShufflePeriod secs.
-  constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
-  absl::Time last_shuffle = absl::InfinitePast();
+  tcmalloc::MallocExtension::MarkThreadIdle();
+  MallocExtension_Internal_ProcessBackgroundActionsInit();
 
   while (true) {
-    absl::Time now = absl::Now();
-    const ssize_t bytes_to_release =
-        static_cast<size_t>(tcmalloc::tcmalloc_internal::Parameters::
-                                background_release_rate()) *
-        absl::ToDoubleSeconds(now - prev_time);
-    if (bytes_to_release > 0) {  // may be negative if time goes backwards
-      tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
-    }
-
-    tcmalloc::tcmalloc_internal::ReleasePerCpuMemoryToOS();
-
-    const bool shuffle_per_cpu_caches =
-        tcmalloc::tcmalloc_internal::Parameters::shuffle_per_cpu_caches();
-
-    if (shuffle_per_cpu_caches) {
-      if (now - last_shuffle >= kCpuCacheShufflePeriod) {
-        tcmalloc::tcmalloc_internal::ShuffleCpuCaches();
-        last_shuffle = now;
-      }
-    }
-
-    tcmalloc::tcmalloc_internal::Static().sharded_transfer_cache().Plunder();
-    prev_time = now;
+    MallocExtension_Internal_ProcessBackgroundActionsTick();
     absl::SleepFor(kSleepTime);
   }
+}
+
+void MallocExtension_Internal_ProcessBackgroundActionsTick() {
+  // Shuffle per-cpu caches once per kCpuCacheShufflePeriod secs.
+  constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
+
+  absl::Time now = absl::Now();
+  const ssize_t bytes_to_release =
+      static_cast<size_t>(tcmalloc::tcmalloc_internal::Parameters::
+                              background_release_rate()) *
+      absl::ToDoubleSeconds(now - prev_time);
+  if (bytes_to_release > 0) {  // may be negative if time goes backwards
+    tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
+  }
+
+  tcmalloc::tcmalloc_internal::ReleasePerCpuMemoryToOS();
+
+  const bool shuffle_per_cpu_caches =
+      tcmalloc::tcmalloc_internal::Parameters::shuffle_per_cpu_caches();
+
+  if (shuffle_per_cpu_caches) {
+    if (now - last_shuffle >= kCpuCacheShufflePeriod) {
+      tcmalloc::tcmalloc_internal::ShuffleCpuCaches();
+      last_shuffle = now;
+    }
+  }
+
+  tcmalloc::tcmalloc_internal::Static().sharded_transfer_cache().Plunder();
+  prev_time = now;
 }
