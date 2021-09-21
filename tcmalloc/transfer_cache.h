@@ -243,13 +243,6 @@ class TransferCacheManager : public StaticForwarder {
       return cache_[size_class].tc.ShrinkCache(size_class);
     }
   }
-  bool GrowCache(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.GrowCache(size_class);
-    } else {
-      return cache_[size_class].tc.GrowCache(size_class);
-    }
-  }
 
   TransferCacheImplementation implementation_ =
       TransferCacheImplementation::Legacy;

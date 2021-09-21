@@ -59,6 +59,8 @@ struct alignas(8) SizeInfo {
   int32_t used;
   int32_t capacity;
 };
+static constexpr int kMaxCapacityInBatches = 64;
+static constexpr int kInitialCapacityInBatches = 16;
 
 // TransferCache is used to cache transfers of
 // sizemap.num_objects_to_move(size_class) back and forth between
@@ -68,9 +70,6 @@ class TransferCache {
  public:
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
-
-  static constexpr int kMaxCapacityInBatches = 64;
-  static constexpr int kInitialCapacityInBatches = 16;
 
   TransferCache(Manager *owner, int cl)
       : TransferCache(owner, cl, CapacityNeeded(cl)) {}
@@ -433,9 +432,6 @@ class RingBufferTransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  static constexpr int kMaxCapacityInBatches = 64;
-  static constexpr int kInitialCapacityInBatches = 16;
-
   RingBufferTransferCache(Manager *owner, int cl)
       : RingBufferTransferCache(
             owner, cl,
@@ -599,17 +595,11 @@ class RingBufferTransferCache {
     lock_.Unlock();
   }
 
-  // Returns the number of free objects in the central cache.
-  size_t central_length() const { return freelist().length(); }
-
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() ABSL_LOCKS_EXCLUDED(lock_) {
     absl::base_internal::SpinLockHolder h(&lock_);
     return static_cast<size_t>(GetSlotInfo().used);
   }
-
-  // Returns the number of spans allocated and deallocated from the CFL
-  SpanStats GetSpanStats() const { return freelist().GetSpanStats(); }
 
   // Returns the number of transfer cache insert/remove hits/misses.
   TransferCacheStats GetHitRateStats() const ABSL_LOCKS_EXCLUDED(lock_) {
@@ -624,12 +614,6 @@ class RingBufferTransferCache {
 
     return stats;
   }
-
-  // Returns the memory overhead (internal fragmentation) attributable
-  // to the freelist.  This is memory lost when the size of elements
-  // in a freelist doesn't exactly divide the page-size (an 8192-byte
-  // page full of 5-byte objects would have 2 bytes memory overhead).
-  size_t OverheadBytes() const { return freelist().OverheadBytes(); }
 
   RingBufferSizeInfo GetSlotInfo() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     return slot_info_;
