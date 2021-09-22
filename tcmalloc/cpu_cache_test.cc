@@ -489,11 +489,15 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   //  The number of underflows and overflows must be zero for all the caches.
   const int num_cpus = absl::base_internal::NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     // Check that reclaim miss metrics are reset.
     CPUCache::CpuCacheMissStats reclaim_misses =
         cache.GetReclaimCacheMissStats(cpu);
     EXPECT_EQ(reclaim_misses.underflows, 0);
     EXPECT_EQ(reclaim_misses.overflows, 0);
+
+    // None of the caches should have been reclaimed yet.
+    EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
 
     // Check that caches are empty.
     uint64_t used_bytes = cache.UsedBytes(cpu);
@@ -509,11 +513,13 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
 
   // Perform some operations to warm up caches and make sure they are populated.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     ColdCacheOperations(cpu, kSizeClass);
     EXPECT_TRUE(cache.HasPopulated(cpu));
   }
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     CPUCache::CpuCacheMissStats misses_last_interval =
         cache.GetReclaimCacheMissStats(cpu);
     CPUCache::CpuCacheMissStats total_misses =
@@ -533,6 +539,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   // Miss metrics since the last interval were non-zero and the change in used
   // bytes was non-zero, so none of the caches should get reclaimed.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     // As no cache operations were performed since the last reclaim
     // operation, the reclaim misses captured during the last interval (i.e.
     // since the last reclaim) should be zero.
@@ -540,6 +547,10 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
         cache.GetReclaimCacheMissStats(cpu);
     EXPECT_EQ(reclaim_misses.underflows, 0);
     EXPECT_EQ(reclaim_misses.overflows, 0);
+
+    // None of the caches should have been reclaimed as the caches were
+    // accessed in the previous interval.
+    EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
 
     // Caches should not have been reclaimed; used bytes should be non-zero.
     EXPECT_GT(cache.UsedBytes(cpu), 0);
@@ -556,12 +567,16 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   cache.TryReclaimingCaches();
 
   // All caches, except the busy cpu cache against which we performed some
-  // operations in the previous interval, should have been reclaimed.
+  // operations in the previous interval, should have been reclaimed exactly
+  // once.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     if (cpu == busy_cpu) {
       EXPECT_GT(cache.UsedBytes(cpu), 0);
+      EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
     } else {
       EXPECT_EQ(cache.UsedBytes(cpu), 0);
+      EXPECT_EQ(cache.GetNumReclaims(cpu), 1);
     }
   }
 
@@ -569,9 +584,13 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   cache.TryReclaimingCaches();
 
   // All caches, including the busy cache, should have been reclaimed this
-  // time.
+  // time. Note that the caches that were reclaimed in the previous interval
+  // should not be reclaimed again and the number of reclaims reported for them
+  // should still be one.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     EXPECT_EQ(cache.UsedBytes(cpu), 0);
+    EXPECT_EQ(cache.GetNumReclaims(cpu), 1);
   }
 }
 

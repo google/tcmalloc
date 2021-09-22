@@ -874,7 +874,16 @@ uint64_t CPUCache::Reclaim(int cpu) {
 
   DrainContext ctx{&resize_[cpu].available, 0};
   freelist_.Drain(cpu, &ctx, DrainHandler);
+
+  // Record that the reclaim occurred for this CPU.
+  resize_[cpu].num_reclaims.store(
+      resize_[cpu].num_reclaims.load(std::memory_order_relaxed) + 1,
+      std::memory_order_relaxed);
   return ctx.bytes;
+}
+
+uint64_t CPUCache::GetNumReclaims(int cpu) const {
+  return resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
 }
 
 void CPUCache::RecordCacheMissStat(const int cpu, const bool is_malloc) {
@@ -983,17 +992,20 @@ void CPUCache::Print(Printer *out) const {
   }
 
   out->printf("------------------------------------------------\n");
-  out->printf("Number of per-CPU cache underflows and overflows\n");
+  out->printf("Number of per-CPU cache underflows, overflows and reclaims\n");
   out->printf("------------------------------------------------\n");
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
        ++cpu) {
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
+    uint64_t reclaims = GetNumReclaims(cpu);
     out->printf(
         "cpu %3d:"
         "%12" PRIu64
         " underflows,"
-        "%12" PRIu64 " overflows\n",
-        cpu, miss_stats.underflows, miss_stats.overflows);
+        "%12" PRIu64
+        " overflows,"
+        "%12" PRIu64 " reclaims\n",
+        cpu, miss_stats.underflows, miss_stats.overflows, reclaims);
   }
 }
 
@@ -1007,6 +1019,7 @@ void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
+    uint64_t reclaims = GetNumReclaims(cpu);
     entry.PrintI64("cpu", uint64_t(cpu));
     entry.PrintI64("used", rbytes);
     entry.PrintI64("unused", unallocated);
@@ -1014,6 +1027,7 @@ void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
     entry.PrintBool("populated", populated);
     entry.PrintI64("underflows", miss_stats.underflows);
     entry.PrintI64("overflows", miss_stats.overflows);
+    entry.PrintI64("reclaims", reclaims);
   }
 }
 

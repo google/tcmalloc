@@ -133,6 +133,9 @@ class CPUCache {
   // of bytes we sent back.  This function is thread safe.
   uint64_t Reclaim(int cpu);
 
+  // Reports number of times the <cpu> has been reclaimed.
+  uint64_t GetNumReclaims(int cpu) const;
+
   // Determine number of bits we should use for allocating per-cpu cache
   // The amount of per-cpu cache is 2 ^ kPerCpuShift
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
@@ -223,6 +226,8 @@ class CPUCache {
     std::atomic<size_t> reclaim_overflows;
     // Used bytes in the cache as of the end of the last resize interval.
     std::atomic<uint64_t> reclaim_used_bytes;
+    // Tracks number of times this CPU has been reclaimed.
+    std::atomic<size_t> num_reclaims;
   };
   struct ResizeInfo : ResizeInfoUnpadded {
     char pad[ABSL_CACHELINE_SIZE -
