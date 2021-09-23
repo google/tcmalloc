@@ -72,7 +72,7 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     false);
 ABSL_CONST_INIT std::atomic<bool>
-    Parameters::reclaim_idle_per_cpu_caches_enabled_(false);
+    Parameters::reclaim_idle_per_cpu_caches_enabled_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::lazy_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
