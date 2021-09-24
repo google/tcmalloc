@@ -181,10 +181,13 @@ TEST(MemalignTest, AlignedAlloc) {
 
 #ifndef NDEBUG
 TEST(MemalignTest, AlignedAllocDeathTest) {
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(0, 1)), "");
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(sizeof(void*) + 1, 1)),
-               "");
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(4097, 1)), "");
+  // Hide invalid alignment from -Wnon-power-of-two-alignment.
+  volatile size_t alignment = 0;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  alignment = sizeof(void*) + 1;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  alignment = 4097;
+  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
 }
 #endif
 
