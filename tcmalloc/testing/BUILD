@@ -708,6 +708,7 @@ cc_test(
         "nosan",
     ],
     deps = [
+        ":testutil",
         "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:declarations",

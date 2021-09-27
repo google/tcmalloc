@@ -313,9 +313,13 @@ class MallocExtension final {
 
   // Gets the guarded sampling rate.  Returns a value < 0 if unknown.
   static int64_t GetGuardedSamplingRate();
-  // Sets the guarded sampling rate for sampled allocations.  Guarded samples
-  // provide probablistic protections against buffer underflow, overflow, and
-  // use-after-free.
+  // Sets the guarded sampling rate for sampled allocations.  TCMalloc samples
+  // approximately every rate bytes allocated, subject to implementation
+  // limitations in GWP-ASan.
+  //
+  // Guarded samples provide probablistic protections against buffer underflow,
+  // overflow, and use-after-free when GWP-ASan is active (via calling
+  // ActivateGuardedSampling).
   static void SetGuardedSamplingRate(int64_t rate);
 
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
