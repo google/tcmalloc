@@ -142,6 +142,23 @@ class ScopedFakeCpuId {
   const ScopedUnregisterRseq unregister_rseq_;
 };
 
+// This pragma ensures that a loop does not get unrolled, in which case the
+// different loop iterations would map to different call sites instead of the
+// same ones as expected by some tests. Supported pragmas differ between GCC and
+// Clang, which is why we need this conditional.
+#if (defined(__clang__) || defined(__INTEL_COMPILER))
+#define PRAGMA_NO_UNROLL _Pragma("nounroll")
+#elif (defined(__GNUC__) || defined(__GCUG__))
+// GCC does not always respect "#pragma unroll <N>". The most reliable approach
+// is therefore to completely disable optimizations for this source file.
+#pragma GCC optimize("O0")
+#define PRAGMA_NO_UNROLL
+#else
+// If #pragma nounroll is unsupported, the test may still work by compiling with
+// equivalent compiler options.
+#define PRAGMA_NO_UNROLL
+#endif
+
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TESTING_TESTUTIL_H_
