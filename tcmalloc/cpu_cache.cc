@@ -231,7 +231,7 @@ void *CPUCache::Refill(int cpu, size_t cl) {
         Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch, i));
       }
     }
-  } while (i == 0 && total < target &&
+  } while (got == batch_length && i == 0 && total < target &&
            cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
