@@ -127,6 +127,7 @@ cc_test(
 
 cc_test(
     name = "tcmalloc_test_hp_aware",
+    timeout = "long",
     srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
@@ -278,6 +279,7 @@ cc_test(
 
 cc_test(
     name = "sampling_test",
+    timeout = "long",
     srcs = ["sampling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
@@ -682,6 +684,7 @@ cc_test(
 
 cc_test(
     name = "aligned_new_test",
+    timeout = "long",
     srcs = ["aligned_new_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS + ["-faligned-new"],
     linkstatic = 1,
