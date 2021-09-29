@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_LIFETIME_TRACKER_H_
-#define TCMALLOC_LIFETIME_TRACKER_H_
+#ifndef TCMALLOC_INTERNAL_LIFETIME_TRACKER_H_
+#define TCMALLOC_INTERNAL_LIFETIME_TRACKER_H_
 
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
@@ -169,4 +169,4 @@ using LifetimeTracker = LifetimeTrackerImpl<LifetimeDatabase, LifetimeStats>;
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_LIFETIME_TRACKER_H_
+#endif  // TCMALLOC_INTERNAL_LIFETIME_TRACKER_H_
