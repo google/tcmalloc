@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <cmath>
 #include <limits>
 
 #include "absl/numeric/bits.h"
@@ -433,10 +434,7 @@ class RingBufferTransferCache {
   using FreeList = CentralFreeList;
 
   RingBufferTransferCache(Manager *owner, int cl)
-      : RingBufferTransferCache(
-            owner, cl,
-            TransferCache<CentralFreeList,
-                          TransferCacheManager>::CapacityNeeded(cl)) {}
+      : RingBufferTransferCache(owner, cl, CapacityNeeded(cl)) {}
 
   RingBufferTransferCache(
       Manager *owner, int cl,
@@ -722,6 +720,27 @@ class RingBufferTransferCache {
   }
 
  private:
+  // Due to decreased downward pressure, the ring buffer based transfer cache
+  // contains on average more bytes than the legacy implementation.
+  // To counteract this, decrease the capacity (but not max capacity).
+  // TODO(b/161927252):  Revisit TransferCache rebalancing strategy
+  static typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
+  CapacityNeeded(int cl) {
+    auto capacity =
+        TransferCache<CentralFreeList, TransferCacheManager>::CapacityNeeded(
+            cl);
+    const int N = Manager::num_objects_to_move(cl);
+    if (N == 0) return {0, 0};
+    ASSERT(capacity.capacity % N == 0);
+    // We still want capacity to be in multiples of batches.
+    const int capacity_in_batches = capacity.capacity / N;
+    // This factor was found by trial and error.
+    const int new_batches =
+        static_cast<int>(std::ceil(capacity_in_batches / 1.5));
+    capacity.capacity = new_batches * N;
+    return capacity;
+  }
+
   // Converts a logical index (i.e. i-th element stored in the ring buffer) into
   // a physical index into slots_.
   size_t GetSlotIndex(size_t start, size_t i) const {
