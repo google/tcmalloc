@@ -422,7 +422,10 @@ cc_library(
     name = "parameter_accessors",
     hdrs = ["parameter_accessors.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//base:__pkg__",
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
