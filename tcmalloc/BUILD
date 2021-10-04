@@ -1049,6 +1049,7 @@ cc_test(
 cc_test(
     name = "profile_test",
     size = "medium",
+    timeout = "long",
     srcs = ["profile_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     flaky = 1,  # TODO(b/134690164)
