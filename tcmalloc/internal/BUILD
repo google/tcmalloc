@@ -122,7 +122,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":lifetime_predictions",
-        ":logging",
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
@@ -159,7 +158,6 @@ cc_test(
     deps = [
         ":lifetime_predictions",
         ":lifetime_tracker",
-        ":logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
