@@ -143,6 +143,8 @@ struct TCMallocStats {
   size_t percpu_metadata_bytes;        // included in metadata bytes
   BackingStats pageheap;               // Stats from page heap
 
+  ArenaStats arena;  // Stats from the metadata Arena
+
   // Explicitly declare the ctor to put it in the google_malloc section.
   TCMallocStats() = default;
 };
@@ -201,6 +203,8 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     if (large_spans != nullptr) {
       Static::page_allocator().GetLargeSpanStats(large_spans);
     }
+
+    r->arena = Static::arena().stats();
   }
   // We can access the pagemap without holding the pageheap_lock since it
   // is static data, and we are only taking address and size which are
@@ -256,7 +260,8 @@ static uint64_t InUseByApp(const TCMallocStats& stats) {
 }
 
 static uint64_t VirtualMemoryUsed(const TCMallocStats& stats) {
-  return stats.pageheap.system_bytes + stats.metadata_bytes;
+  return stats.pageheap.system_bytes + stats.metadata_bytes +
+         stats.arena.bytes_unallocated + stats.arena.bytes_unavailable;
 }
 
 static uint64_t PhysicalMemoryUsed(const TCMallocStats& stats) {
@@ -316,6 +321,9 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in transfer cache freelist\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in thread cache freelists\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata\n"
+      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unallocated\n"
+      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unavailable\n"
+
       "MALLOC:   ------------\n"
       "MALLOC: = %12" PRIu64 " (%7.1f MiB) Actual memory used (physical + swap)\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes released to OS (aka unmapped)\n"
@@ -336,7 +344,8 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab resident bytes\n"
       "MALLOC:   %12" PRIu64 "               Tcmalloc page size\n"
       "MALLOC:   %12" PRIu64 "               Tcmalloc hugepage size\n"
-      "MALLOC:   %12" PRIu64 "               CPUs Allowed in Mask\n",
+      "MALLOC:   %12" PRIu64 "               CPUs Allowed in Mask\n"
+      "MALLOC:   %12" PRIu64 "               Arena blocks\n",
       bytes_in_use_by_app, bytes_in_use_by_app / MiB,
       stats.pageheap.free_bytes, stats.pageheap.free_bytes / MiB,
       stats.central_bytes, stats.central_bytes / MiB,
@@ -345,6 +354,8 @@ static void DumpStats(Printer* out, int level) {
       stats.transfer_bytes, stats.transfer_bytes / MiB,
       stats.thread_bytes, stats.thread_bytes / MiB,
       stats.metadata_bytes, stats.metadata_bytes / MiB,
+      stats.arena.bytes_unallocated, stats.arena.bytes_unallocated / MiB,
+      stats.arena.bytes_unavailable, stats.arena.bytes_unavailable / MiB,
       physical_memory_used, physical_memory_used / MiB,
       stats.pageheap.unmapped_bytes, stats.pageheap.unmapped_bytes / MiB,
       virtual_memory_used, virtual_memory_used / MiB,
@@ -368,7 +379,9 @@ static void DumpStats(Printer* out, int level) {
       stats.percpu_metadata_bytes_res, stats.percpu_metadata_bytes_res / MiB,
       uint64_t(kPageSize),
       uint64_t(kHugePageSize),
-      CountAllowedCpus());
+      CountAllowedCpus(),
+      stats.arena.blocks
+  );
   // clang-format on
 
   PrintExperiments(out);
@@ -504,6 +517,10 @@ namespace {
   region.PrintI64("transfer_cache_freelist", stats.transfer_bytes);
   region.PrintI64("thread_cache_freelists", stats.thread_bytes);
   region.PrintI64("malloc_metadata", stats.metadata_bytes);
+  region.PrintI64("malloc_metadata_arena_unavailable",
+                  stats.arena.bytes_unavailable);
+  region.PrintI64("malloc_metadata_arena_unallocated",
+                  stats.arena.bytes_unallocated);
   region.PrintI64("actual_mem_used", physical_memory_used);
   region.PrintI64("unmapped", stats.pageheap.unmapped_bytes);
   region.PrintI64("virtual_address_space_used", virtual_memory_used);
@@ -524,6 +541,7 @@ namespace {
   region.PrintI64("tcmalloc_page_size", uint64_t(kPageSize));
   region.PrintI64("tcmalloc_huge_page_size", uint64_t(kHugePageSize));
   region.PrintI64("cpus_allowed", CountAllowedCpus());
+  region.PrintI64("arena_blocks", stats.arena.blocks);
 
   {
     auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
@@ -974,14 +992,16 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     ExtractTCMallocStats(&stats, false);
     *value = (stats.pageheap.free_bytes + stats.central_bytes +
               stats.per_cpu_bytes + stats.sharded_transfer_bytes +
-              stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes);
+              stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes +
+              stats.arena.bytes_unavailable + stats.arena.bytes_unallocated);
     return true;
   }
 
   if (name == "tcmalloc.metadata_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, true);
-    *value = stats.metadata_bytes;
+    *value = stats.metadata_bytes + stats.arena.bytes_unavailable +
+             stats.arena.bytes_unallocated;
     return true;
   }
 

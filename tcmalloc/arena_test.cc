@@ -33,6 +33,53 @@ TEST(Arena, AlignedAlloc) {
   }
 }
 
+TEST(Arena, Stats) {
+  Arena arena;
+
+  ArenaStats stats;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    stats = arena.stats();
+  }
+  EXPECT_EQ(stats.bytes_allocated, 0);
+  EXPECT_EQ(stats.bytes_unallocated, 0);
+  EXPECT_EQ(stats.bytes_unavailable, 0);
+  EXPECT_EQ(stats.blocks, 0);
+
+  // Trigger an allocation and grab new stats.
+  ArenaStats stats_after_alloc;
+  void* ptr;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    ptr = arena.Alloc(1, 1);
+    stats_after_alloc = arena.stats();
+  }
+  EXPECT_NE(ptr, nullptr);
+
+  EXPECT_EQ(stats_after_alloc.bytes_allocated, 1);
+  EXPECT_GE(stats_after_alloc.bytes_unallocated, 0);
+  EXPECT_EQ(stats_after_alloc.bytes_unavailable, 0);
+  EXPECT_EQ(stats_after_alloc.blocks, 1);
+
+  // Trigger an allocation that is larger than the remaining free bytes.
+  //
+  // TODO(b/201694482): Optimize this.
+  ArenaStats stats_after_alloc2;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    ptr = arena.Alloc(stats_after_alloc.bytes_unallocated + 1, 1);
+    stats_after_alloc2 = arena.stats();
+  }
+  EXPECT_NE(ptr, nullptr);
+
+  EXPECT_EQ(stats_after_alloc2.bytes_allocated,
+            stats_after_alloc.bytes_unallocated + 2);
+  EXPECT_GE(stats_after_alloc2.bytes_unallocated, 0);
+  EXPECT_EQ(stats_after_alloc2.bytes_unavailable,
+            stats_after_alloc.bytes_unallocated);
+  EXPECT_EQ(stats_after_alloc2.blocks, 2);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

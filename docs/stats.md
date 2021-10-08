@@ -20,18 +20,20 @@ The most generally useful section is the first few lines:
 ```
 See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an explanation of this page
 ------------------------------------------------
-MALLOC:    16709337136 (15935.3 MiB) Bytes in use by application
-MALLOC: +    503480320 (  480.2 MiB) Bytes in page heap freelist
-MALLOC: +    363974808 (  347.1 MiB) Bytes in central cache freelist
-MALLOC: +    120122560 (  114.6 MiB) Bytes in per-CPU cache freelist
-MALLOC: +       415232 (    0.4 MiB) Bytes in transfer cache freelist
-MALLOC: +        76920 (    0.1 MiB) Bytes in thread cache freelists
-MALLOC: +     52258953 (   49.8 MiB) Bytes in malloc metadata
+MALLOC:    10858234672 (10355.2 MiB) Bytes in use by application
+MALLOC: +    827129856 (  788.8 MiB) Bytes in page heap freelist
+MALLOC: +    386098400 (  368.2 MiB) Bytes in central cache freelist
+MALLOC: +    105330688 (  100.5 MiB) Bytes in per-CPU cache freelist
+MALLOC: +      9095680 (    8.7 MiB) Bytes in transfer cache freelist
+MALLOC: +       660976 (    0.6 MiB) Bytes in thread cache freelists
+MALLOC: +     49333930 (   47.0 MiB) Bytes in malloc metadata
+MALLOC: +       629440 (    0.6 MiB) Bytes in malloc metadata Arena unallocated
+MALLOC: +      1599704 (    1.5 MiB) Bytes in malloc metadata Arena unavailable
 MALLOC:   ------------
-MALLOC: =  17749665929 (16927.4 MiB) Actual memory used (physical + swap)
-MALLOC: +    333905920 (  318.4 MiB) Bytes released to OS (aka unmapped)
+MALLOC: =  12238113346 (11671.2 MiB) Actual memory used (physical + swap)
+MALLOC: +    704643072 (  672.0 MiB) Bytes released to OS (aka unmapped)
 MALLOC:   ------------
-MALLOC: =  18083571849 (17245.8 MiB) Virtual address space used
+MALLOC: =  12942756418 (12343.2 MiB) Virtual address space used
 ```
 
 *   **Bytes in use by application:** Number of bytes that the application is
@@ -62,6 +64,14 @@ MALLOC: =  18083571849 (17245.8 MiB) Virtual address space used
 *   **Bytes in malloc metadata:** the size of the data structures used for
     tracking memory allocation. This will grow as the amount of memory used
     grows.
+*   **Bytes in malloc metadata Arena unallocated:** Metadata is allocated in an
+    internal Arena.  Memory requests to the OS are made in blocks which amortize
+    several Arena allocations and this captures memory that is not yet allocated
+    but could be by future Arena allocations.
+*   **Bytes in malloc metadata Arena unavailable:** The Arena allocator may
+    fail to allocate a block fully when a subsequent Arena allocation request is
+    made that is larger than the block's remaining space.  This memory is
+    currently unavailable for allocation.
 
 There's a couple of summary lines:
 

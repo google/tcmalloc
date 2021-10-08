@@ -26,6 +26,19 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+struct ArenaStats {
+  // The number of bytes allocated and in-use by calls to Alloc()
+  size_t bytes_allocated;
+  // The number of bytes currently reserved for future calls to Alloc().
+  size_t bytes_unallocated;
+  // The number of bytes lost and unavailable to calls to Alloc() due to
+  // inefficiencies in Arena.
+  size_t bytes_unavailable;
+
+  // The number of blocks allocated by the Arena.
+  size_t blocks;
+};
+
 // Arena allocation; designed for use by tcmalloc internal data structures like
 // spans, profiles, etc.  Always expands.
 class Arena {
@@ -39,11 +52,14 @@ class Arena {
                                              int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Returns the total number of bytes allocated from this arena.  Requires
-  // pageheap_lock is held.
-  uint64_t bytes_allocated() const
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return bytes_allocated_;
+  // Returns statistics about memory allocated and managed by this Arena.
+  ArenaStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    ArenaStats s;
+    s.bytes_allocated = bytes_allocated_;
+    s.bytes_unallocated = free_avail_;
+    s.bytes_unavailable = bytes_unavailable_;
+    s.blocks = blocks_;
+    return s;
   }
 
  private:
@@ -55,7 +71,10 @@ class Arena {
   size_t free_avail_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Total number of bytes allocated from this arena
-  uint64_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock);
+  size_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock);
+  size_t bytes_unavailable_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  // Total number of blocks/free areas managed by this Arena.
+  size_t blocks_ ABSL_GUARDED_BY(pageheap_lock) = 0;
 
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;

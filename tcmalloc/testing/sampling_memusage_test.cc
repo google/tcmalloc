@@ -65,8 +65,22 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
   }
 
   size_t CurrentHeapSize() {
-    const size_t result = Property("generic.current_allocated_bytes") +
-                          Property("tcmalloc.metadata_bytes");
+    size_t result = Property("generic.current_allocated_bytes") +
+                    Property("tcmalloc.metadata_bytes");
+    // Ignore unallocated bytes managed by the Arena.  These are accessible to
+    // future metadata allocations and we might trigger a new Arena block in the
+    // course of sampling.
+    //
+    // tcmalloc.metadata_bytes includes bytes wasted due to the Arena's block
+    // overhead, which is more attributable to the cost of sampling.
+    size_t unallocated;
+    {
+      absl::base_internal::SpinLockHolder l(&tcmalloc_internal::pageheap_lock);
+      unallocated =
+          tcmalloc_internal::Static::arena().stats().bytes_unallocated;
+    }
+
+    result = result >= unallocated ? result - unallocated : 0;
     return result;
   }
 

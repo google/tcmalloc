@@ -62,6 +62,12 @@ void* Arena::Alloc(size_t bytes, int alignment) {
             kAllocIncrement, bytes);
     }
     SystemBack(free_area_, actual_size);
+
+    // We've discarded the previous free_area_, so any bytes that were
+    // unallocated are effectively inaccessible to future allocations.
+    bytes_unavailable_ += free_avail_;
+    blocks_++;
+
     free_avail_ = actual_size;
   }
 
