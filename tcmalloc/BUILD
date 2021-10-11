@@ -265,7 +265,6 @@ common_deps = [
     "@com_google_absl//absl/base:core_headers",
     "@com_google_absl//absl/base:dynamic_annotations",
     "@com_google_absl//absl/container:fixed_array",
-    "@com_google_absl//absl/debugging:debugging_internal",
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/synchronization",
