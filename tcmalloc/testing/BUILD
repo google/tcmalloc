@@ -323,6 +323,7 @@ create_tcmalloc_testsuite(
 # Test of sampler class
 cc_test(
     name = "sampler_test",
+    timeout = "long",
     srcs = ["sampler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
