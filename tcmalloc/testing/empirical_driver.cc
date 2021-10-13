@@ -443,7 +443,7 @@ class SimThread {
       ready_for_new = t >= next_spike_;
 
       auto it = to_kill_.begin();
-      for (; it != to_kill_.end() && t < it->first; ++it) {
+      for (; it != to_kill_.end() && t >= it->first; ++it) {
         dead.insert(dead.end(), it->second.begin(), it->second.end());
       }
       to_kill_.erase(to_kill_.begin(), it);
