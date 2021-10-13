@@ -328,11 +328,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":testutil",
         "//tcmalloc:common",
@@ -607,9 +602,6 @@ cc_test(
     copts = REGTEST_OPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
     deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
@@ -627,9 +619,6 @@ cc_test(
     copts = REGTEST_OPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
     deps = EMPIRICAL_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 

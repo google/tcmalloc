@@ -705,9 +705,6 @@ cc_fuzz_test(
     srcs = ["transfer_cache_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
     ],
     deps = [
         ":common",
@@ -1013,11 +1010,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/strings",
