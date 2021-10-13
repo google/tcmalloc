@@ -175,8 +175,6 @@ class LifetimeDatabase {
     return arena;
   }
 
-  static uint64_t bytes_allocated_ ABSL_GUARDED_BY(table_lock_);
-
   void UpdateLRU(LifetimeStats* stats)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(table_lock_) {
     stats_fifo_.remove(stats);
