@@ -59,7 +59,7 @@ class Static {
   static void InitIfNecessary();
 
   // Central cache.
-  static const CentralFreeList& central_freelist(int size_class) {
+  static CentralFreeList& central_freelist(int size_class) {
     return transfer_cache().central_freelist(size_class);
   }
   // Central cache -- an array of free-lists, one per size-class.

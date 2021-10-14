@@ -230,6 +230,14 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
+  CentralFreeList &central_freelist(int size_class) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.freelist();
+    } else {
+      return cache_[size_class].tc.freelist();
+    }
+  }
+
   TransferCacheImplementation implementation() const { return implementation_; }
 
  private:
@@ -288,6 +296,10 @@ class TransferCacheManager {
   }
 
   const CentralFreeList &central_freelist(int size_class) const {
+    return freelist_[size_class];
+  }
+
+  CentralFreeList &central_freelist(int size_class) {
     return freelist_[size_class];
   }
 
