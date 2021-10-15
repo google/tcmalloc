@@ -59,7 +59,7 @@ class FakeTransferCacheManagerBase {
 // Useful for benchmarks where you want to unrelated expensive operations.
 class FakeTransferCacheManager : public FakeTransferCacheManagerBase {
  public:
-  int DetermineSizeClassToEvict();
+  int DetermineSizeClassToEvict(int current_size_class);
   bool ShrinkCache(int);
 };
 
@@ -86,7 +86,7 @@ class RawMockTransferCacheManager : public FakeTransferCacheManagerBase {
     });
   }
 
-  MOCK_METHOD(int, DetermineSizeClassToEvict, ());
+  MOCK_METHOD(int, DetermineSizeClassToEvict, (int current_size_class));
   MOCK_METHOD(bool, ShrinkCache, (int size_class));
   MOCK_METHOD(bool, GrowCache, (int size_class));
 };
@@ -223,7 +223,9 @@ class TwoSizeClassManager : public FakeTransferCacheManagerBase {
     }
   }
 
-  int DetermineSizeClassToEvict() { return evicting_from_; }
+  int DetermineSizeClassToEvict(int current_size_class) {
+    return evicting_from_;
+  }
 
   bool ShrinkCache(int size_class) {
     return caches_[size_class]->ShrinkCache(size_class);

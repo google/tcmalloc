@@ -95,7 +95,9 @@ class ShardedTransferCacheManager {
   // The Manager is set up so that stealing is disabled for this TransferCache.
   class Manager : public StaticForwarder {
    public:
-    static constexpr int DetermineSizeClassToEvict() { return -1; }
+    static constexpr int DetermineSizeClassToEvict(int size_class) {
+      return -1;
+    }
     static constexpr bool MakeCacheSpace(int) { return false; }
     static constexpr bool ShrinkCache(int) { return false; }
   };
@@ -243,7 +245,7 @@ class TransferCacheManager : public StaticForwarder {
  private:
   static TransferCacheImplementation ChooseImplementation();
 
-  int DetermineSizeClassToEvict();
+  int DetermineSizeClassToEvict(int size_class);
   bool ShrinkCache(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.ShrinkCache(size_class);

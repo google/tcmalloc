@@ -283,7 +283,7 @@ class TransferCache {
     // Check if we can expand this cache?
     if (info.capacity + N > max_capacity_) return false;
 
-    int to_evict = owner_->DetermineSizeClassToEvict();
+    int to_evict = owner_->DetermineSizeClassToEvict(size_class);
     if (to_evict == size_class) return false;
 
     // Release the held lock before the other instance tries to grab its lock.
@@ -635,7 +635,7 @@ class RingBufferTransferCache {
 
     // Release the held lock before the other instance tries to grab its lock.
     lock_.Unlock();
-    int to_evict = owner_->DetermineSizeClassToEvict();
+    int to_evict = owner_->DetermineSizeClassToEvict(size_class);
     if (to_evict == size_class) {
       lock_.Lock();
       return false;
