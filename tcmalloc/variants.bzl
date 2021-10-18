@@ -70,27 +70,6 @@ variants = [
         "copts": [],
     },
     {
-        "name": "8k_pages_sans_56",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "copts": [],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_CACHELINE_AWARE_SIZECLASSES"},
-    },
-    {
-        "name": "8k_pages_16x_transfer_cache",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "copts": [],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_16X_TRANSFER_CACHE"},
-    },
-    {
-        "name": "8k_pages_16x_transfer_cache_v2",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "copts": [],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_16X_TRANSFER_CACHE_REAL"},
-    },
-    {
         "name": "256k_pages_pow2",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": ["//tcmalloc:common_256k_pages"],
