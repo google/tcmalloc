@@ -95,6 +95,7 @@ bool want_hpaa() {
 
 PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
+  has_cold_impl_ = ColdExperimentActive();
   if (kUseHPAA) {
     normal_impl_[0] =
         new (&choices_[0].hpaa) HugePageAwareAllocator(MemoryTag::kNormal);
@@ -104,6 +105,12 @@ PageAllocator::PageAllocator() {
     }
     sampled_impl_ = new (&choices_[kNumaPartitions + 0].hpaa)
         HugePageAwareAllocator(MemoryTag::kSampled);
+    if (has_cold_impl_) {
+      cold_impl_ = new (&choices_[kNumaPartitions + 1].hpaa)
+          HugePageAwareAllocator(MemoryTag::kCold);
+    } else {
+      cold_impl_ = normal_impl_[0];
+    }
     alg_ = HPAA;
   } else {
     normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
@@ -112,6 +119,12 @@ PageAllocator::PageAllocator() {
     }
     sampled_impl_ =
         new (&choices_[kNumaPartitions + 0].ph) PageHeap(MemoryTag::kSampled);
+    if (has_cold_impl_) {
+      cold_impl_ =
+          new (&choices_[kNumaPartitions + 1].ph) PageHeap(MemoryTag::kCold);
+    } else {
+      cold_impl_ = normal_impl_[0];
+    }
     alg_ = PAGE_HEAP;
   }
 }
@@ -171,6 +184,13 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
       Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of ",
           limit_, "without breaking hugepages - performance will drop");
       warned_hugepages = true;
+    }
+    if (has_cold_impl_) {
+      ret += static_cast<HugePageAwareAllocator *>(cold_impl_)
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
+      if (ret >= pages) {
+        return true;
+      }
     }
     for (int partition = 0; partition < active_numa_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator *>(normal_impl_[partition])

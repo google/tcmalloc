@@ -130,6 +130,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
                 return AllocAndReport<MemoryTag::kNormalP1>;
               case MemoryTag::kSampled:
                 return AllocAndReport<MemoryTag::kSampled>;
+              case MemoryTag::kCold:
+                return AllocAndReport<MemoryTag::kCold>;
               default:
                 ASSUME(false);
                 __builtin_unreachable();

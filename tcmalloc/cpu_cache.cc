@@ -110,6 +110,23 @@ static size_t MaxCapacity(size_t cl) {
     return kSmallObjectDepth;
   }
 
+  if (ColdExperimentActive()) {
+    // We reduce the number of cached objects for some sizes to fit into the
+    // slab.
+    static constexpr uint16_t kLargeUninterestingObjectDepth = 133;
+    static constexpr uint16_t kLargeInterestingObjectDepth = 152;
+
+    absl::Span<const size_t> cold = Static::sizemap().ColdSizeClasses();
+    ASSERT(!cold.empty());
+    if (absl::c_binary_search(cold, cl)) {
+      return kLargeInterestingObjectDepth;
+    } else if (!IsExpandedSizeClass(cl)) {
+      return kLargeUninterestingObjectDepth;
+    } else {
+      return 0;
+    }
+  }
+
   if (IsExpandedSizeClass(cl)) {
     return 0;
   }

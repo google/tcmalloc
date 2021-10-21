@@ -37,6 +37,18 @@ class CFLTest : public testing::TestWithParam<size_t> {
  private:
   void SetUp() override {
     cl_ = GetParam();
+    if (IsExpandedSizeClass(cl_)) {
+      if (!ColdExperimentActive()) {
+        // If !ColdExperimentActive(), we will use the normal page heap, which
+        // will keep us from seeing memory get the expected tags.
+        GTEST_SKIP()
+            << "Skipping expanded size classes without cold experiment";
+      }
+
+#ifdef THREAD_SANITIZER
+      GTEST_SKIP() << "Skipping expanded size class under tsan";
+#endif
+    }
     size_t object_size = Static::sizemap().class_to_size(cl_);
     if (object_size == 0) {
       GTEST_SKIP() << "Skipping empty size class.";

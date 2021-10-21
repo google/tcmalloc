@@ -97,6 +97,7 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/new_extension.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
@@ -462,6 +463,7 @@ static void DumpStats(Printer* out, int level) {
       Static::page_allocator().Print(out, MemoryTag::kNormalP1);
     }
     Static::page_allocator().Print(out, MemoryTag::kSampled);
+    Static::page_allocator().Print(out, MemoryTag::kCold);
     tracking::Print(out);
     Static::guardedpage_allocator().Print(out);
 
@@ -601,6 +603,7 @@ namespace {
     Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kNormalP1);
   }
   Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
+  Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
   // We do not collect tracking information in pbtxt.
 
   size_t limit_bytes;
@@ -1322,6 +1325,11 @@ static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
 template <Hooks hooks_state>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
                                                           size_t cl) {
+  if (!IsExpandedSizeClass(cl)) {
+    ASSERT(IsNormalMemory(ptr));
+  } else {
+    ASSERT(IsColdMemory(ptr));
+  }
   if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
     // Take the slow path.
     invoke_delete_hooks_and_free<FreeSmallSlow, hooks_state>(ptr, cl);
@@ -1416,6 +1424,9 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
 // In case of out-of-memory condition when allocating span or
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
+//
+// TODO(b/124707070): Pass the requested allocation access hint as well,
+// allowing us to encode the hint in heap/allocation profiles.
 static void* SampleifyAllocation(size_t requested_size, size_t weight,
                                  size_t requested_alignment, size_t cl,
                                  void* obj, Span* span, size_t* capacity) {
@@ -1531,7 +1542,9 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-    if (Static::numa_topology().numa_aware()) {
+  if (policy.access() == AllocationAccess::kCold) {
+    tag = MemoryTag::kCold;
+  } else if (Static::numa_topology().numa_aware()) {
     tag = NumaNormalTag(policy.numa_partition());
   }
   const size_t alignment = policy.align();
@@ -1544,6 +1557,7 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
 
   void* result = span->start_address();
   ASSERT(
+      !ColdExperimentActive() ||
       tag == GetMemoryTag(span->start_address()));
 
   if (size_t weight = ShouldSampleAllocation(size)) {
@@ -1620,6 +1634,9 @@ static void do_free_pages(void* ptr, const PageId p) {
         Static::guardedpage_allocator().Deallocate(ptr);
         pageheap_lock.Lock();
         Span::Delete(span);
+      } else if (IsColdMemory(ptr)) {
+        ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
+        Static::page_allocator().Delete(span, MemoryTag::kCold);
       } else {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
         Static::page_allocator().Delete(span, MemoryTag::kSampled);
@@ -1638,7 +1655,12 @@ static void do_free_pages(void* ptr, const PageId p) {
 
   if (proxy) {
     const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
-    const size_t cl = Static::sizemap().SizeClass(policy, size);
+    size_t cl;
+    if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
+      cl = Static::sizemap().SizeClass(policy.AccessAsCold(), size);
+    } else {
+      cl = Static::sizemap().SizeClass(policy.AccessAsHot(), size);
+    }
     FreeSmall<Hooks::NO>(proxy, cl);
   }
 }
@@ -1728,9 +1750,28 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // The optimized path doesn't work with sampled objects, whose deletions
   // trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(IsSampledMemory(ptr))) {
+    // IsColdMemory(ptr) implies IsSampledMemory(ptr).
+    if (!IsColdMemory(ptr)) {
       // we don't know true class size of the ptr
       if (ptr == nullptr) return;
       return FreePages(ptr);
+    } else {
+      // TODO(b/124707070):  Dedupe this with the code below, once this path is
+      // used more frequently.
+      ASSERT(ptr != nullptr);
+
+      uint32_t cl;
+      if (ABSL_PREDICT_FALSE(!Static::sizemap().GetSizeClass(
+              CppPolicy().AlignAs(align.align()).AccessAsCold(), size, &cl))) {
+        // We couldn't calculate the size class, which means size > kMaxSize.
+        ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
+        static_assert(kMaxSize >= kPageSize,
+                      "kMaxSize must be at least kPageSize");
+        return FreePages(ptr);
+      }
+
+      return do_free_with_cl<true, Hooks::RUN>(ptr, cl);
+    }
   }
 
   // At this point, since ptr's tag bit is 1, it means that it
@@ -1791,6 +1832,21 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   }
   size_t actual = GetSize(ptr);
   if (ABSL_PREDICT_TRUE(actual == size)) return true;
+  // We might have had a cold size class, which then sampled, so actual > size.
+  // Let's check that.
+  //
+  // TODO(b/124707070):  When we grow a sampled allocation in this way,
+  // recompute the true size at allocation time.  This allows size-feedback from
+  // operator new to benefit from the bytes we are allocating.
+  if (actual > size && IsSampledMemory(ptr)) {
+    if (Static::sizemap().GetSizeClass(
+            CppPolicy().AlignAs(align.align()).AccessAsCold(), size, &cl)) {
+      size = Static::sizemap().class_to_size(cl);
+      if (actual == size) {
+        return true;
+      }
+    }
+  }
   Log(kLog, __FILE__, __LINE__, "size check failed", actual, size, cl);
   return false;
 }
@@ -2419,3 +2475,40 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
+
+void* operator new(size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new(size_t size, std::nothrow_t,
+                   tcmalloc::hot_cold_t hot_cold) noexcept {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().Nothrow().AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().Nothrow().AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new(size_t size, std::align_val_t align,
+                   tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().AlignAs(align).AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().AlignAs(align).AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new(size_t size, std::align_val_t align, std::nothrow_t,
+                   tcmalloc::hot_cold_t hot_cold) noexcept {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsHot(), size,
+                      nullptr);
+  } else {
+    return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsCold(), size,
+                      nullptr);
+  }
+}

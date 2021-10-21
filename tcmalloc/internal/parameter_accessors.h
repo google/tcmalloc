@@ -51,6 +51,11 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(absl::Duration v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_ColdExperimentActive();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
+    bool v);
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_PossiblyCold(const void* ptr);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

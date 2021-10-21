@@ -131,6 +131,7 @@ class AddressRegionFactory {
                             // frequently than normal regions.
     kInfrequent ABSL_DEPRECATED("Use kInfrequentAllocation") =
         kInfrequentAllocation,
+    kInfrequentAccess,  // TCMalloc places cold allocations in these regions.
   };
 
   AddressRegionFactory() {}

@@ -25,6 +25,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+ABSL_CONST_INIT std::atomic<bool> hot_cold_pageheap_active{true};
+
 absl::string_view MemoryTagToLabel(MemoryTag tag) {
   switch (tag) {
     case MemoryTag::kNormal:
@@ -33,6 +35,8 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
       return "NORMAL_P1";
     case MemoryTag::kSampled:
       return "SAMPLED";
+    case MemoryTag::kCold:
+      return "COLD";
     default:
       ASSUME(false);
   }
@@ -197,6 +201,99 @@ void SizeMap::Init() {
       break;
     }
   }
+
+  if (!kHasExpandedClasses) {
+    return;
+  }
+
+  memset(cold_sizes_, 0, sizeof(cold_sizes_));
+  cold_sizes_count_ = 0;
+
+  // Initialize hot_cold_pageheap_active.
+  const char* e = thread_safe_getenv("TCMALLOC_HOTCOLD_CONTROL");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        hot_cold_pageheap_active.store(false, std::memory_order_relaxed);
+        break;
+      case '1':
+        // Do nothing.
+        ASSERT(hot_cold_pageheap_active.load(std::memory_order_relaxed));
+        break;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        break;
+    }
+  }
+
+  if (!ColdExperimentActive()) {
+    std::copy(&class_array_[0], &class_array_[kClassArraySize],
+              &class_array_[kClassArraySize]);
+    return;
+  }
+
+  // TODO(b/124707070): Systematically identify candidates for cold allocation
+  // and include them explicitly in size_classes.cc.
+  ABSL_CONST_INIT static constexpr size_t kColdCandidates[] = {
+      2048,  4096,  6144,  7168,  8192,   16384,
+      20480, 32768, 40960, 65536, 131072, 262144,
+  };
+  static_assert(ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
+                "kColdCandidates is too large.");
+
+  // Point all lookups in the upper register of class_array_ (allocations
+  // seeking cold memory) to the lower size classes.  This gives us an easy
+  // fallback for sizes that are too small for moving to cold memory (due to
+  // intrusive span metadata).
+  std::copy(&class_array_[0], &class_array_[kClassArraySize],
+            &class_array_[kClassArraySize]);
+
+  for (size_t max_size_in_class : kColdCandidates) {
+    ASSERT(max_size_in_class != 0);
+
+    // Find the size class.  Some of our kColdCandidates may not map to actual
+    // size classes in our current configuration.
+    bool found = false;
+    int c;
+    for (c = kExpandedClassesStart; c < kNumClasses; c++) {
+      if (class_to_size_[c] == max_size_in_class) {
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      continue;
+    }
+
+    // Verify the candidate can fit into a single span's kCacheSize, otherwise,
+    // we use an intrusive freelist which triggers memory accesses.
+    if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
+        Span::kCacheSize) {
+      continue;
+    }
+
+    cold_sizes_[cold_sizes_count_] = c;
+    cold_sizes_count_++;
+
+    for (int s = next_size; s <= max_size_in_class; s += kAlignment) {
+      class_array_[ClassIndex(s) + kClassArraySize] = c;
+    }
+    next_size = max_size_in_class + kAlignment;
+    if (next_size > kMaxSize) {
+      break;
+    }
+  }
+}
+
+extern "C" bool TCMalloc_Internal_ColdExperimentActive() {
+  return ColdExperimentActive();
+}
+
+// This only provides correct answer for TCMalloc-allocated memory,
+// and may give a false positive for non-allocated block.
+extern "C" bool TCMalloc_Internal_PossiblyCold(const void* ptr) {
+  return IsColdMemory(ptr);
 }
 
 }  // namespace tcmalloc_internal

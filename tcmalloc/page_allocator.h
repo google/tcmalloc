@@ -106,7 +106,7 @@ class PageAllocator {
 
   size_t active_numa_partitions() const;
 
-  static constexpr size_t kNumHeaps = kNumaPartitions + 1;
+  static constexpr size_t kNumHeaps = kNumaPartitions + 2;
 
   union Choices {
     Choices() : dummy(0) {}
@@ -117,7 +117,9 @@ class PageAllocator {
   } choices_[kNumHeaps];
   std::array<PageAllocatorInterface*, kNumaPartitions> normal_impl_;
   PageAllocatorInterface* sampled_impl_;
+  PageAllocatorInterface* cold_impl_;
   Algorithm alg_;
+  bool has_cold_impl_;
 
   bool limit_is_hard_{false};
   // Max size of backed spans we will attempt to maintain.
@@ -134,6 +136,8 @@ inline PageAllocatorInterface* PageAllocator::impl(MemoryTag tag) const {
       return normal_impl_[1];
     case MemoryTag::kSampled:
       return sampled_impl_;
+    case MemoryTag::kCold:
+      return cold_impl_;
     default:
       ASSUME(false);
       __builtin_unreachable();
@@ -158,6 +162,9 @@ inline BackingStats PageAllocator::stats() const {
     ret += normal_impl_[partition]->stats();
   }
   ret += sampled_impl_->stats();
+  if (has_cold_impl_) {
+    ret += cold_impl_->stats();
+  }
   return ret;
 }
 
@@ -170,6 +177,11 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
   }
   sampled_impl_->GetSmallSpanStats(&sampled);
   *result = normal + sampled;
+  if (has_cold_impl_) {
+    SmallSpanStats cold;
+    cold_impl_->GetSmallSpanStats(&cold);
+    *result += cold;
+  }
 }
 
 inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
@@ -181,10 +193,23 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
   }
   sampled_impl_->GetLargeSpanStats(&sampled);
   *result = normal + sampled;
+  if (has_cold_impl_) {
+    LargeSpanStats cold;
+    cold_impl_->GetLargeSpanStats(&cold);
+    *result = *result + cold;
+  }
 }
 
 inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
   Length released;
+  // TODO(ckennelly): Refine this policy.  Cold data should be the most
+  // resilient to not being on huge pages.
+  if (has_cold_impl_) {
+    released = cold_impl_->ReleaseAtLeastNPages(num_pages);
+    if (released >= num_pages) {
+      return released;
+    }
+  }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     released +=
         normal_impl_[partition]->ReleaseAtLeastNPages(num_pages - released);
@@ -198,6 +223,10 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
 }
 
 inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
+  if (tag == MemoryTag::kCold && !has_cold_impl_) {
+    return;
+  }
+
   const absl::string_view label = MemoryTagToLabel(tag);
   if (tag != MemoryTag::kNormal) {
     out->printf("\n>>>>>>> Begin %s page allocator <<<<<<<\n", label);
@@ -209,6 +238,10 @@ inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
 }
 
 inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
+  if (tag == MemoryTag::kCold && !has_cold_impl_) {
+    return;
+  }
+
   PbtxtRegion pa = region->CreateSubRegion("page_allocator");
   pa.PrintRaw("tag", MemoryTagToLabel(tag));
   impl(tag)->PrintInPbtxt(&pa);

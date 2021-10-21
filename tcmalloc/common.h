@@ -236,10 +236,22 @@ enum class MemoryTag : uint8_t {
   kNormalP1 = (kNumaPartitions > 1) ? 0x2 : 0xff,
   // Not sampled
   kNormal = kNormalP0,
+  // Cold
+  kCold = (kNumaPartitions > 1) ? 0x4 : 0x2,
 };
 
+// We make kNormal and kCold disjoint so that IsCold implies IsSampled.  This
+// allows us to avoid modifying the fast delete path in any way when cold-tagged
+// memory allocations are absent.  We can overload the IsSampled check and then
+// do a second check for whether the possibly-sampled allocation is actually
+// IsCold.
+static_assert((static_cast<uint8_t>(MemoryTag::kNormal) &
+               static_cast<uint8_t>(MemoryTag::kCold)) == 0,
+              "kNormal and kCold should have disjoint bit patterns");
+
 inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
-inline constexpr uintptr_t kTagMask = uintptr_t{0x3} << kTagShift;
+inline constexpr uintptr_t kTagMask = uintptr_t{kNumaPartitions > 1 ? 0x7 : 0x3}
+                                      << kTagShift;
 
 // Returns true if ptr is tagged.
 ABSL_DEPRECATED("Replace with specific tests")
@@ -262,6 +274,23 @@ inline bool IsSampledMemory(const void* ptr) {
 }
 
 inline bool IsNormalMemory(const void* ptr) { return !IsSampledMemory(ptr); }
+
+inline bool IsColdMemory(const void* ptr) {
+  bool r = (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
+           (static_cast<uintptr_t>(MemoryTag::kCold) << kTagShift);
+  // IsColdMemory(ptr) implies IsSampledMemory(ptr).  This allows us to avoid
+  // introducing new branches on the delete fast path when cold memory tags are
+  // not in use.
+  ASSERT(!r || IsSampledMemory(ptr));
+  return r;
+}
+
+ABSL_CONST_INIT extern std::atomic<bool> hot_cold_pageheap_active;
+
+inline bool ColdExperimentActive() {
+  return kHasExpandedClasses &&
+         hot_cold_pageheap_active.load(std::memory_order_relaxed);
+}
 
 inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
@@ -290,6 +319,21 @@ inline constexpr size_t kMinMmapAlloc = 32 << 20;
 static_assert(kMinMmapAlloc % kMinSystemAlloc == 0,
               "Minimum mmap allocation size is not a multiple of"
               " minimum system allocation size");
+
+enum class AllocationAccess {
+  kHot,
+  kCold,
+};
+
+inline AllocationAccess AccessFromPointer(void* ptr) {
+  if (!kHasExpandedClasses) {
+    ASSERT(!IsColdMemory(ptr));
+    return AllocationAccess::kHot;
+  }
+
+  return ABSL_PREDICT_FALSE(IsColdMemory(ptr)) ? AllocationAccess::kCold
+                                               : AllocationAccess::kHot;
+}
 
 inline MemoryTag NumaNormalTag(size_t numa_partition) {
   switch (numa_partition) {
@@ -423,6 +467,9 @@ class SizeMap {
   static const SizeClassInfo kLegacySizeClasses[];
   static const int kLegacySizeClassesCount;
 
+  size_t cold_sizes_[12] = {0};
+  size_t cold_sizes_count_ = 0;
+
  public:
   // constexpr constructor to guarantee zero-initialization at compile-time.  We
   // rely on Init() to populate things.
@@ -432,7 +479,7 @@ class SizeMap {
   void Init();
 
   // Returns the size class for size `size` respecting the alignment
-  // requirements of `policy`.
+  // & access requirements of `policy`.
   //
   // Returns true on success. Returns false if either:
   // - the size exceeds the maximum size class size.
@@ -465,7 +512,11 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
-    *cl = class_array_[idx] + policy.scaled_numa_partition();
+    if (kHasExpandedClasses && policy.access() == AllocationAccess::kCold) {
+      *cl = class_array_[idx + kClassArraySize];
+    } else {
+      *cl = class_array_[idx] + policy.scaled_numa_partition();
+    }
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
@@ -511,6 +562,10 @@ class SizeMap {
   inline SizeMap::BatchSize num_objects_to_move(size_t cl) {
     ASSERT(cl < kNumClasses);
     return num_objects_to_move_[cl];
+  }
+
+  absl::Span<const size_t> ColdSizeClasses() const {
+    return {cold_sizes_, cold_sizes_count_};
   }
 };
 

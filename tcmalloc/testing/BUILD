@@ -28,6 +28,7 @@ REGTEST_DEPS = [
     "@com_google_googletest//:gtest",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:core_headers",
+    "@com_google_absl//absl/container:flat_hash_set",
     "@com_google_absl//absl/debugging:leak_check",
     "@com_google_absl//absl/random",
     "@com_google_absl//absl/random:distributions",
@@ -41,6 +42,7 @@ REGTEST_DEPS = [
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:parameter_accessors",
     "//tcmalloc:malloc_extension",
+    "//tcmalloc:new_extension",
 ]
 
 REGTEST_OPTS = [

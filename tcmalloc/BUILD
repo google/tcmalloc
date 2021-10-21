@@ -62,6 +62,7 @@ cc_library(
 tcmalloc_deps = [
     ":experiment",
     ":malloc_extension",
+    ":new_extension",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
@@ -257,6 +258,7 @@ common_hdrs = [
 common_deps = [
     ":experiment",
     ":malloc_extension",
+    ":new_extension",
     ":noruntime_size_classes",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
@@ -1221,6 +1223,31 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
+    name = "new_extension",
+    srcs = ["new_extension.cc"],
+    hdrs = ["new_extension.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [":__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "new_extension_test",
+    srcs = ["new_extension_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":new_extension",
+        "//tcmalloc/testing:testutil",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 

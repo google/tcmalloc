@@ -64,6 +64,7 @@
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
@@ -71,10 +72,12 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/utility/utility.h"
 #include "benchmark/benchmark.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/new_extension.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
@@ -1272,6 +1275,85 @@ TEST(SizedDeleteTest, NothrowSizedOperatorDelete) {
   for (size_t size = 0; size < 64 * 1024; ++size) {
     sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
     ::operator delete(res.p, std::nothrow);
+  }
+}
+
+TEST(HotColdTest, HotColdNew) {
+  const bool expectColdTags = TCMalloc_Internal_ColdExperimentActive();
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  absl::flat_hash_set<uintptr_t> hot;
+  absl::flat_hash_set<uintptr_t> cold;
+
+  absl::BitGen rng;
+
+  // Allocate some hot objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+  };
+
+  constexpr size_t kSmall = 2 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
+    label |= uint8_t{128};
+
+    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size});
+
+    EXPECT_TRUE(!IsColdMemory(ptr)) << ptr;
+  }
+
+  // Delete
+  for (SizedPtr s : ptrs) {
+    if (expectColdTags && !IsSampledMemory(s.ptr)) {
+      EXPECT_TRUE(hot.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
+    }
+
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+
+  // Allocate some cold objects
+  ptrs.clear();
+  for (int i = 0; i < 1000; i++) {
+    size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    uint8_t label = absl::Uniform<uint8_t>(rng, 0, 127);
+    label &= ~uint8_t{128};
+
+    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+    ptrs.emplace_back(SizedPtr{ptr, size});
+  }
+
+  for (SizedPtr s : ptrs) {
+    if (expectColdTags && IsColdMemory(s.ptr)) {
+      EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
+    }
+
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+
+  if (!expectColdTags) {
+    return;
+  }
+
+  for (uintptr_t h : hot) {
+    EXPECT_THAT(cold, testing::Not(testing::Contains(h)))
+        << reinterpret_cast<void*>(h);
   }
 }
 

@@ -29,6 +29,9 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 static MemoryTag MemoryTagFromSizeClass(size_t cl) {
+  if (IsExpandedSizeClass(cl)) {
+    return MemoryTag::kCold;
+  }
   if (!Static::numa_topology().numa_aware()) {
     return MemoryTag::kNormal;
   }
@@ -102,6 +105,7 @@ void CentralFreeList::InsertRange(absl::Span<void*> batch) {
     for (int i = 0; i < free_count; ++i) {
       Span* const free_span = free_spans[i];
       ASSERT(IsNormalMemory(free_span->start_address())
+             || IsColdMemory(free_span->start_address())
       );
       Static::pagemap().UnregisterSizeClass(free_span);
 

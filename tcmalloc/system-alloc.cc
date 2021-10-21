@@ -38,6 +38,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sampler.h"
 
@@ -61,6 +62,16 @@ extern "C" int madvise(caddr_t, size_t, int);
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+ABSL_CONST_INIT static std::atomic<bool> madvise_cold_regions_nohugepage(true);
+
+extern "C" bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
+  return madvise_cold_regions_nohugepage.load(std::memory_order_relaxed);
+}
+
+extern "C" void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
+  madvise_cold_regions_nohugepage.store(v, std::memory_order_relaxed);
+}
 
 namespace {
 
@@ -142,6 +153,7 @@ class RegionManager {
   void DiscardMappedRegions() {
     std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
     sampled_region_ = nullptr;
+    cold_region_ = nullptr;
   }
 
  private:
@@ -153,6 +165,7 @@ class RegionManager {
 
   std::array<AddressRegion*, kNumaPartitions> normal_region_{{nullptr}};
   AddressRegion* sampled_region_{nullptr};
+  AddressRegion* cold_region_{nullptr};
 };
 std::aligned_storage<sizeof(RegionManager), alignof(RegionManager)>::type
     region_manager_space;
@@ -184,6 +197,11 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
     return {nullptr, 0};
   }
   (void)hint_;
+  if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess &&
+      madvise_cold_regions_nohugepage.load(std::memory_order_relaxed)) {
+    // This is only advisory, so ignore the error.
+    (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
+  }
   free_size_ -= actual_size;
   return {result_ptr, actual_size};
 }
@@ -225,6 +243,8 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
     case MemoryTag::kSampled:
       return UsageHint::kInfrequentAllocation;
       break;
+    case MemoryTag::kCold:
+      return UsageHint::kInfrequentAccess;
     default:
       ASSUME(false);
       __builtin_unreachable();
@@ -280,6 +300,8 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
         return &normal_region_[1];
       case MemoryTag::kSampled:
         return &sampled_region_;
+      case MemoryTag::kCold:
+        return &cold_region_;
       default:
         ASSUME(false);
         __builtin_unreachable();
@@ -548,6 +570,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
 
   static uintptr_t next_sampled_addr = 0;
   static std::array<uintptr_t, kNumaPartitions> next_normal_addr = {0};
+  static uintptr_t next_cold_addr = 0;
 
   absl::optional<int> numa_partition;
   uintptr_t& next_addr = *[&]() {
@@ -560,6 +583,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       case MemoryTag::kNormalP1:
         numa_partition = 1;
         return &next_normal_addr[1];
+      case MemoryTag::kCold:
+        return &next_cold_addr;
       default:
         ASSUME(false);
         __builtin_unreachable();

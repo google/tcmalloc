@@ -40,6 +40,8 @@ static int OpenLog(MemoryTag tag) {
         return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE_P1");
       case MemoryTag::kSampled:
         return thread_safe_getenv("TCMALLOC_SAMPLED_PAGE_LOG_FILE");
+      case MemoryTag::kCold:
+        return thread_safe_getenv("TCMALLOC_COLD_PAGE_LOG_FILE");
       default:
         ASSUME(false);
         __builtin_unreachable();
