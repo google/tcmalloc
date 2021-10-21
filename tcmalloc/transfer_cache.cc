@@ -143,11 +143,12 @@ int TransferCacheManager::DetermineSizeClassToEvict(int current_size_class) {
 
   // Ask nicely first.
   if (implementation_ == TransferCacheImplementation::Ring) {
-    // HasSpareCapacity may take lock_ while we already hold the lock on
-    // cache_[t].  Avoid checking this cache.
-    //
-    // TODO(ckennelly):  Add a test which directly exercises this condition.
-    if (t == current_size_class || cache_[t].rbtc.HasSpareCapacity(t)) return t;
+    // HasSpareCapacity may take lock_, but HasSpareCapacity(t) will fail if
+    // we're already evicting from t so we can avoid consulting the lock in
+    // that cases.
+    if (ABSL_PREDICT_FALSE(t == current_size_class) ||
+        cache_[t].rbtc.HasSpareCapacity(t))
+      return t;
   } else {
     if (cache_[t].tc.HasSpareCapacity(t)) return t;
   }

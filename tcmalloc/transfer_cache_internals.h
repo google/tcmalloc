@@ -444,7 +444,7 @@ class RingBufferTransferCache {
         slot_info_(RingBufferSizeInfo({0, 0, capacity.capacity})),
         max_capacity_(capacity.max_capacity),
         freelist_do_not_access_directly_(),
-        owner_(owner) {
+        owner_do_not_access_directly_(owner) {
     freelist().Init(cl);
     if (max_capacity_ == 0) {
       // We don't allocate a buffer. Set slots_bitmask_ to 0 to prevent UB.
@@ -454,7 +454,7 @@ class RingBufferTransferCache {
       ASSERT(slots_size >= max_capacity_);
       ASSERT(slots_size < max_capacity_ * 2);
       slots_ =
-          reinterpret_cast<void **>(owner_->Alloc(slots_size * sizeof(void *)));
+          reinterpret_cast<void **>(owner->Alloc(slots_size * sizeof(void *)));
       slots_bitmask_ = slots_size - 1;
     }
   }
@@ -635,12 +635,12 @@ class RingBufferTransferCache {
 
     // Release the held lock before the other instance tries to grab its lock.
     lock_.Unlock();
-    int to_evict = owner_->DetermineSizeClassToEvict(size_class);
+    int to_evict = manager().DetermineSizeClassToEvict(size_class);
     if (to_evict == size_class) {
       lock_.Lock();
       return false;
     }
-    bool made_space = owner_->ShrinkCache(to_evict);
+    bool made_space = manager().ShrinkCache(to_evict);
     lock_.Lock();
 
     if (!made_space) return false;
@@ -828,6 +828,14 @@ class RingBufferTransferCache {
     slot_info_ = info;
   }
 
+  const Manager &manager() const ABSL_LOCKS_EXCLUDED(lock_) {
+    return *owner_do_not_access_directly_;
+  }
+
+  Manager &manager() ABSL_LOCKS_EXCLUDED(lock_) {
+    return *owner_do_not_access_directly_;
+  }
+
   // Pointer to array of free objects.
   void **slots_ ABSL_GUARDED_BY(lock_);
 
@@ -863,7 +871,7 @@ class RingBufferTransferCache {
   StatsCounter remove_misses_;
 
   FreeList freelist_do_not_access_directly_;
-  Manager *const owner_;
+  Manager *const owner_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache
