@@ -268,8 +268,9 @@ void SizeMap::Init() {
 
     // Verify the candidate can fit into a single span's kCacheSize, otherwise,
     // we use an intrusive freelist which triggers memory accesses.
-    if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
-        Span::kCacheSize) {
+    if (Span::IsIntrusive(
+            max_size_in_class,
+            Length(class_to_pages_[c]).in_bytes() / max_size_in_class)) {
       continue;
     }
 
