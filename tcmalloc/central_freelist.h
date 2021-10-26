@@ -32,6 +32,16 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// Records histogram of span utilization. Span utilization represents
+// the number of objects allocated from the span, with maximum number of objects
+// that can be allocated from a span is less than objects_per_span_.
+// Buckets in the histogram correspond to power-of-two number of objects. That
+// is, bucket N tracks number of spans with allocated objects < 2^N.
+static constexpr size_t kSpanUtilBucketCapacity = 17;
+struct SpanUtilHistogram {
+  size_t value[kSpanUtilBucketCapacity] = {0};
+};
+
 // Data kept per size-class in central cache.
 class CentralFreeList {
  public:
@@ -69,6 +79,15 @@ class CentralFreeList {
   size_t OverheadBytes() const;
 
   SpanStats GetSpanStats() const;
+
+  // Reports span utilization histogram stats.
+  void PrintSpanUtilStats(Printer* out) const;
+  void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region) const;
+
+  // Get histogram of span utilization.
+  // Histogram consists of kSpanUtilBucketCapacity number of buckets; bucket N
+  // records number of spans with allocated objects < 2^N.
+  SpanUtilHistogram GetSpanUtilHistogram() const;
 
  private:
   // Release an object to spans.
@@ -122,6 +141,28 @@ class CentralFreeList {
 
   StatsCounter num_spans_requested_;
   StatsCounter num_spans_returned_;
+
+  // Records current number of spans with corresponding number of allocated
+  // objects. Instead of using the absolute value of number of
+  // allocated objects, we use absl::bit_width(free_objects) to index this
+  // map. As the actual value of objects_per_span_ is not known at compile
+  // time, we use maximum bit_width that objects_per_span_ can have to
+  // construct this map.
+  StatsCounter objects_to_spans_
+      [std::numeric_limits<decltype(objects_per_span_)>::digits];
+
+  // Records <span> in objects_to_span_ map.
+  // If increase is set to true, includes the span by incrementing the count
+  // in the map. Otherwise, removes the span by decrementing the count in
+  // the map.
+  //
+  // Updates to objects_to_span_ are guarded by lock_, so writes may be
+  // performed using LossyAdd.
+  void RecordSpanUtil(Span* span, bool increase)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    const size_t allocated = span->Allocated();
+    objects_to_spans_[absl::bit_width(allocated)].LossyAdd(increase ? 1 : -1);
+  }
 
   // Dummy header for non-empty spans
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);

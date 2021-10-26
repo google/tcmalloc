@@ -213,6 +213,25 @@ class   5 [       40 bytes ] :    82230 objs;   3.1 MiB;   9.3 cum MiB;      790
 ...
 ```
 
+### Central Cache Free List Span Utilization
+
+Central cache free list manages memory in spans, where each span is a collection
+of one or more TCMalloc pages. We track histogram of span utilization, where
+each column refers to the number of spans with allocated objects less than N.
+
+```
+------------------------------------------------
+Central cache freelist: Span utilization histogram
+Non-cumulative number of spans with allocated objects < N
+------------------------------------------------
+class   1 [        8 bytes ] :      0 < 1,     0 < 2,     0 < 4,     0 < 8,     0 < 16,     1 < 32,     0 < 64,     1 < 128,     1 < 256,     1 < 512,     0 < 1024,     0 < 2048,     4 < 4096,    16 < 8192,     0 < 16384,     0 < 32768,     0 < 65536
+class   2 [       16 bytes ] :      0 < 1,     0 < 2,     0 < 4,     0 < 8,     0 < 16,     0 < 32,     0 < 64,     0 < 128,     0 < 256,     0 < 512,     1 < 1024,     0 < 2048,    47 < 4096,     0 < 8192,     0 < 16384,     0 < 32768,     0 < 65536
+class   3 [       24 bytes ] :      0 < 1,     0 < 2,     0 < 4,     0 < 8,     0 < 16,     0 < 32,     0 < 64,     2 < 128,     1 < 256,     3 < 512,     5 < 1024,   127 < 2048,     0 < 4096,     0 < 8192,     0 < 16384,     0 < 32768,     0 < 65536
+class   4 [       32 bytes ] :      0 < 1,     0 < 2,     0 < 4,     0 < 8,     0 < 16,     0 < 32,     0 < 64,     0 < 128,     0 < 256,     1 < 512,     0 < 1024,   129 < 2048,     0 < 4096,     0 < 8192,     0 < 16384,     0 < 32768,     0 < 65536
+class   5 [       40 bytes ] :      0 < 1,     1 < 2,     1 < 4,     0 < 8,     0 < 16,     0 < 32,     1 < 64,     1 < 128,     4 < 256,     5 < 512,    80 < 1024,     0 < 2048,     0 < 4096,     0 < 8192,     0 < 16384,     0 < 32768,     0 < 65536
+...
+```
+
 ### Transfer Cache Information
 
 Transfer cache is used by TCMalloc, before going to central free list. For each

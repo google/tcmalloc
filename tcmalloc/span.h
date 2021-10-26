@@ -157,6 +157,9 @@ class Span : public SpanList::Elem {
   // REQUIRES: this is a SMALL_OBJECT span.
   double Fragmentation() const;
 
+  // Returns number of objects allocated in the span.
+  uint16_t Allocated() const { return allocated_; }
+
   // ---------------------------------------------------------------------------
   // Freelist management.
   // Used for spans in CentralFreelist to manage free objects.

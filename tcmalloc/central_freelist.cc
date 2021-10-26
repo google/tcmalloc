@@ -45,6 +45,7 @@ void CentralFreeList::Init(size_t cl) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   pages_per_span_ = Length(Static::sizemap().class_to_pages(cl));
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+  ASSERT(absl::bit_width(objects_per_span_) < kSpanUtilBucketCapacity);
 }
 
 static Span* MapObjectToSpan(void* object) {
@@ -59,7 +60,12 @@ Span* CentralFreeList::ReleaseToSpans(void* object, Span* span,
     nonempty_.prepend(span);
   }
 
+  // As the objects are being added to the span, its utilization might change.
+  // We remove the stale utilization from the histogram and add the new
+  // utilization to the histogram after we release objects to the span.
+  RecordSpanUtil(span, /*increase=*/false);
   if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
+    RecordSpanUtil(span, /*increase=*/true);
     return nullptr;
   }
   span->RemoveFromList();  // from nonempty_
@@ -151,8 +157,13 @@ int CentralFreeList::RemoveRange(void** batch, int N) {
   } else {
     do {
       Span* span = nonempty_.first();
+      // As the objects are being popped from the span, its utilization might
+      // change. So, we remove the stale utilization from the histogram here and
+      // add it again once we pop the objects.
+      RecordSpanUtil(span, /*increase=*/false);
       int here =
           span->FreelistPopBatch(batch + result, N - result, object_size);
+      RecordSpanUtil(span, /*increase=*/true);
       ASSERT(here > 0);
       if (span->FreelistEmpty(object_size)) {
         span->RemoveFromList();  // from nonempty_
@@ -191,6 +202,9 @@ int CentralFreeList::Populate(void** batch,
   bool span_empty = result == objects_per_span;
 
   lock_.Lock();
+
+  // Update the histogram once we populate the span.
+  RecordSpanUtil(span, /*increase=*/true);
   if (!span_empty) {
     nonempty_.prepend(span);
   }
@@ -215,6 +229,39 @@ SpanStats CentralFreeList::GetSpanStats() const {
   stats.num_spans_returned = static_cast<size_t>(num_spans_returned_.value());
   stats.obj_capacity = stats.num_live_spans() * objects_per_span_;
   return stats;
+}
+
+SpanUtilHistogram CentralFreeList::GetSpanUtilHistogram() const {
+  SpanUtilHistogram histogram;
+  for (int i = 0; i <= absl::bit_width(objects_per_span_); ++i) {
+    histogram.value[i] = objects_to_spans_[i].value();
+  }
+  return histogram;
+}
+
+void CentralFreeList::PrintSpanUtilStats(Printer* out) const {
+  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
+
+  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
+    out->printf("%6zu < %zu", util_histogram.value[i], 1 << i);
+    if (i < kSpanUtilBucketCapacity - 1) {
+      out->printf(",");
+    }
+  }
+  out->printf("\n");
+}
+
+void CentralFreeList::PrintSpanUtilStatsInPbtxt(PbtxtRegion* region) const {
+  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
+
+  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
+    PbtxtRegion histogram = region->CreateSubRegion("span_util_histogram");
+    size_t lower_bound = i > 0 ? 1 << (i - 1) : 0;
+    histogram.PrintI64("lower_bound", lower_bound);
+    histogram.PrintI64("upper_bound", 1 << i);
+    histogram.PrintI64("value", util_histogram.value[i]);
+  }
 }
 
 }  // namespace tcmalloc_internal

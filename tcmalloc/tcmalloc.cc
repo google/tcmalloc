@@ -437,6 +437,14 @@ static void DumpStats(Printer* out, int level) {
     }
 
     out->printf("------------------------------------------------\n");
+    out->printf("Central cache freelist: Span utilization histogram\n");
+    out->printf("Non-cumulative number of spans with allocated objects < N\n");
+    out->printf("------------------------------------------------\n");
+    for (int cl = 1; cl < kNumClasses; ++cl) {
+      Static::central_freelist(cl).PrintSpanUtilStats(out);
+    }
+
+    out->printf("------------------------------------------------\n");
     out->printf("Transfer cache implementation: %s\n",
                 TransferCacheImplementationToLabel(
                     Static::transfer_cache().implementation()));
@@ -572,6 +580,7 @@ namespace {
                        span_stats[cl].num_spans_requested);
         entry.PrintI64("num_spans_returned", span_stats[cl].num_spans_returned);
         entry.PrintI64("obj_capacity", span_stats[cl].obj_capacity);
+        Static::central_freelist(cl).PrintSpanUtilStatsInPbtxt(&entry);
       }
     }
 
