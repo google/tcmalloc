@@ -496,6 +496,10 @@ static void DumpStats(Printer* out, int level) {
         absl::FormatDuration(Parameters::filler_skip_subrelease_interval()));
     out->printf("PARAMETER flat vcpus %d\n",
                 subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
+    out->printf("PARAMETER tcmalloc_shuffle_per_cpu_caches %d\n",
+                Parameters::shuffle_per_cpu_caches() ? 1 : 0);
+    out->printf("PARAMETER tcmalloc_reclaim_idle_per_cpu_caches %d\n",
+                Parameters::reclaim_idle_per_cpu_caches() ? 1 : 0);
   }
 }
 
@@ -639,6 +643,10 @@ namespace {
   region.PrintI64(
       "tcmalloc_skip_subrelease_interval_ns",
       absl::ToInt64Nanoseconds(Parameters::filler_skip_subrelease_interval()));
+  region.PrintBool("tcmalloc_shuffle_per_cpu_caches",
+                   Parameters::shuffle_per_cpu_caches());
+  region.PrintBool("tcmalloc_reclaim_idle_per_cpu_caches",
+                   Parameters::reclaim_idle_per_cpu_caches());
   region.PrintRaw("percpu_vcpu_type",
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
 }
