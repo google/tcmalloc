@@ -66,6 +66,8 @@ bool SizeMap::MaybeRunTimeSizeClasses() {
 }
 
 void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
+  CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
+
   class_to_size_[0] = 0;
   class_to_pages_[0] = 0;
   num_objects_to_move_[0] = 0;
@@ -146,8 +148,11 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
       return false;
     }
   }
-  // Last size class must be able to hold kMaxSize.
-  if (parsed[num_classes - 1].size < kMaxSize) {
+  // Last size class must be kMaxSize.  This is not strictly
+  // class_to_size_[kNumBaseClasses - 1] because several size class
+  // configurations populate fewer distinct size classes and fill the tail of
+  // the array with zeroes.
+  if (parsed[num_classes - 1].size != kMaxSize) {
     Log(kLog, __FILE__, __LINE__, "last class doesn't cover kMaxSize",
         num_classes - 1, parsed[num_classes - 1].size, kMaxSize);
     return false;

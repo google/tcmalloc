@@ -216,6 +216,25 @@ TEST_F(SizeClassesTest, NumToMove) {
   }
 }
 
+TEST_F(SizeClassesTest, MaxSize) {
+  // kMaxSize should appear as one of the size classes.  As of 10/2021, we crash
+  // during SizeClass::Init anyways, but this test exists to further document
+  // that requirement.
+  bool found = false;
+
+  for (int c = 1; c < kNumClasses; c++) {
+    // For non-empty size classes, we should move at least 1 object to/from each
+    // layer of the caches.
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == kMaxSize) {
+      found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found) << "Could not find " << kMaxSize;
+}
+
 class TestingSizeMap : public SizeMap {
  public:
   TestingSizeMap() {}
