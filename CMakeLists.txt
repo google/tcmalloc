@@ -1,10 +1,5 @@
-
-cmake_minimum_required( VERSION 3.10)
-
-# It's best to use 3.21 because of https://cmake.org/cmake/help/v3.22/command/target_link_libraries.html#linking-object-libraries-via-target-objects
-if(${CMAKE_VERSION} VERSION_LESS "3.21.0")
-  message(WARN "It is recommended to use CMake Version 3.21.0 or higher to build tcmalloc. See Note in https://cmake.org/cmake/help/v3.22/command/target_link_libraries.html#linking-object-libraries-via-target-objects")
-endif()
+# We require 3.21 because of https://cmake.org/cmake/help/v3.22/command/target_link_libraries.html#linking-object-libraries-via-target-objects
+cmake_minimum_required( VERSION 3.21)
 
 include("cmake/HunterGate.cmake")
 
