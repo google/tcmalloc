@@ -25,6 +25,7 @@
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
@@ -161,6 +162,7 @@ class CentralFreeList {
   void RecordSpanUtil(Span* span, bool increase)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     const size_t allocated = span->Allocated();
+    ASSUME(allocated > 0);
     objects_to_spans_[absl::bit_width(allocated)].LossyAdd(increase ? 1 : -1);
   }
 
