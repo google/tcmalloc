@@ -1,0 +1,6 @@
+@PACKAGE_INIT@
+
+find_package(absl CONFIG REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/tcmallocTargets.cmake")
+check_required_components("@PROJECT_NAME@")
