@@ -24,14 +24,36 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace central_freelist_internal {
+
+// StaticForwarder provides access to the PageMap and page heap.
+//
+// This is a class, rather than namespaced globals, so that it can be mocked for
+// testing.
+class StaticForwarder {
+ public:
+  static size_t class_to_size(int size_class);
+  static Length class_to_pages(int size_class);
+
+  static Span* MapObjectToSpan(const void* object);
+  static Span* AllocateSpan(int size_class, Length pages_per_span)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  static void DeallocateSpans(int size_class, absl::Span<Span*> free_spans)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+};
+
+}  // namespace central_freelist_internal
 
 // Records histogram of span utilization. Span utilization represents
 // the number of objects allocated from the span, with maximum number of objects

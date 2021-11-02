@@ -1313,7 +1313,9 @@ create_tcmalloc_testsuite(
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],

@@ -18,12 +18,262 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/container/fixed_array.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace central_freelist_internal {
+
+class StaticForwarderTest : public testing::TestWithParam<size_t> {
+ protected:
+  size_t cl_;
+  size_t object_size_;
+  Length pages_per_span_;
+  size_t batch_size_;
+  size_t objects_per_span_;
+
+ private:
+  void SetUp() override {
+    cl_ = GetParam();
+    if (IsExpandedSizeClass(cl_)) {
+#if ABSL_HAVE_THREAD_SANITIZER
+      GTEST_SKIP() << "Skipping test under sanitizers that conflict with "
+                      "address placement";
+#endif
+
+      if (!ColdExperimentActive()) {
+        // If !ColdExperimentActive(), we will use the normal page heap, which
+        // will keep us from seeing memory get the expected tags.
+        GTEST_SKIP()
+            << "Skipping expanded size classes without cold experiment";
+      }
+    }
+    object_size_ = Static::sizemap().class_to_size(cl_);
+    if (object_size_ == 0) {
+      GTEST_SKIP() << "Skipping empty size class.";
+    }
+
+    pages_per_span_ = Length(Static::sizemap().class_to_pages(cl_));
+    batch_size_ = Static::sizemap().num_objects_to_move(cl_);
+    objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
+  }
+};
+
+TEST_P(StaticForwarderTest, Simple) {
+  Span* span = StaticForwarder::AllocateSpan(cl_, pages_per_span_);
+  ASSERT_NE(span, nullptr);
+
+  absl::FixedArray<void*> batch(objects_per_span_);
+  size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
+                                         &batch[0], objects_per_span_);
+  ASSERT_EQ(allocated, objects_per_span_);
+
+  EXPECT_EQ(cl_, Static::pagemap().sizeclass(span->first_page()));
+  EXPECT_EQ(cl_, Static::pagemap().sizeclass(span->last_page()));
+
+  // span_test.cc provides test coverage for Span, but we need to obtain several
+  // objects to confirm we can map back to the Span pointer from the PageMap.
+  for (void* ptr : batch) {
+    EXPECT_EQ(span, StaticForwarder::MapObjectToSpan(ptr));
+  }
+
+  for (void* ptr : batch) {
+    span->FreelistPush(ptr, object_size_);
+  }
+
+  StaticForwarder::DeallocateSpans(cl_, absl::MakeSpan(&span, 1));
+}
+
+class StaticForwarderEnvironment {
+  struct SpanData {
+    Span* span;
+    void* batch[kMaxObjectsToMove];
+  };
+
+ public:
+  StaticForwarderEnvironment(int size_class, size_t object_size,
+                             size_t objects_per_span, Length pages_per_span,
+                             int batch_size)
+      : size_class_(size_class),
+        object_size_(object_size),
+        objects_per_span_(objects_per_span),
+        pages_per_span_(pages_per_span),
+        batch_size_(batch_size) {}
+
+  ~StaticForwarderEnvironment() { Drain(); }
+
+  void RandomlyPoke() {
+    absl::BitGen rng;
+    double coin = absl::Uniform(rng, 0.0, 1.0);
+
+    if (coin < 0.5) {
+      Grow();
+    } else if (coin < 0.9) {
+      // Deallocate Spans.  We may deallocate more than 1 span, so we bias
+      // towards allocating Spans more often than we deallocate.
+      Shrink();
+    } else {
+      Shuffle(rng);
+    }
+  }
+
+  void Drain() {
+    std::vector<std::unique_ptr<SpanData>> spans;
+
+    {
+      absl::MutexLock l(&mu_);
+      if (data_.empty()) {
+        return;
+      }
+
+      spans = std::move(data_);
+      data_.clear();
+    }
+
+    // Check mappings.
+    std::vector<Span*> free_spans;
+    for (const auto& data : spans) {
+      EXPECT_EQ(size_class_,
+                Static::pagemap().sizeclass(data->span->first_page()));
+      EXPECT_EQ(size_class_,
+                Static::pagemap().sizeclass(data->span->last_page()));
+      // Confirm we can map at least one object back.
+      EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
+
+      free_spans.push_back(data->span);
+    }
+
+    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+  }
+
+  void Grow() {
+    // Allocate a Span
+    Span* span = StaticForwarder::AllocateSpan(size_class_, pages_per_span_);
+    ASSERT_NE(span, nullptr);
+
+    auto d = absl::make_unique<SpanData>();
+    d->span = span;
+
+    size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
+                                           d->batch, batch_size_);
+    EXPECT_LE(allocated, objects_per_span_);
+
+    EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->first_page()));
+    EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->last_page()));
+    // Confirm we can map at least one object back.
+    EXPECT_EQ(span, StaticForwarder::MapObjectToSpan(d->batch[0]));
+
+    absl::MutexLock l(&mu_);
+    spans_allocated_++;
+    data_.push_back(std::move(d));
+  }
+
+  void Shrink() {
+    absl::BitGen rng;
+    std::vector<std::unique_ptr<SpanData>> spans;
+
+    {
+      absl::MutexLock l(&mu_);
+      if (data_.empty()) {
+        return;
+      }
+
+      size_t count = absl::LogUniform<size_t>(rng, 1, data_.size());
+      spans.reserve(count);
+
+      for (int i = 0; i < count; i++) {
+        spans.push_back(std::move(data_.back()));
+        data_.pop_back();
+      }
+    }
+
+    // Check mappings.
+    std::vector<Span*> free_spans;
+    for (auto& data : spans) {
+      EXPECT_EQ(size_class_,
+                Static::pagemap().sizeclass(data->span->first_page()));
+      EXPECT_EQ(size_class_,
+                Static::pagemap().sizeclass(data->span->last_page()));
+      // Confirm we can map at least one object back.
+      EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
+
+      free_spans.push_back(data->span);
+    }
+
+    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+  }
+
+  void Shuffle(absl::BitGen& rng) {
+    // Shuffle the shared vector.
+    absl::MutexLock l(&mu_);
+    absl::c_shuffle(data_, rng);
+  }
+
+  int64_t BytesAllocated() {
+    absl::MutexLock l(&mu_);
+    return pages_per_span_.in_bytes() * spans_allocated_;
+  }
+
+ private:
+  int size_class_;
+  size_t object_size_;
+  size_t objects_per_span_;
+  Length pages_per_span_;
+  int batch_size_;
+
+  absl::Mutex mu_;
+  int64_t spans_allocated_ ABSL_GUARDED_BY(mu_) = 0;
+  std::vector<std::unique_ptr<SpanData>> data_ ABSL_GUARDED_BY(mu_);
+};
+
+static BackingStats PageHeapStats() {
+  absl::base_internal::SpinLockHolder l(&pageheap_lock);
+  return Static::page_allocator().stats();
+}
+
+TEST_P(StaticForwarderTest, Fuzz) {
+#if ABSL_HAVE_THREAD_SANITIZER
+  // TODO(b/193887621):  Enable this test under TSan after addressing benign
+  // true positives.
+  GTEST_SKIP() << "Skipping test under Thread Sanitizer.";
+#endif  // ABSL_HAVE_THREAD_SANITIZER
+
+  const auto page_heap_before = PageHeapStats();
+
+  StaticForwarderEnvironment env(cl_, object_size_, objects_per_span_,
+                                 pages_per_span_, batch_size_);
+  ThreadManager threads;
+  threads.Start(10, [&](int) { env.RandomlyPoke(); });
+
+  absl::SleepFor(absl::Seconds(0.2));
+
+  threads.Stop();
+
+  const auto page_heap_after = PageHeapStats();
+  // Confirm we did not leak Spans by ensuring the page heap did not grow nearly
+  // 1:1 by the total number of Spans we ever allocated.
+  //
+  // Since we expect to allocate a significant number of spans, we apply a
+  // factor of 1/2 (which is unlikely to be flaky) to avoid false negatives
+  // if/when a background thread triggers a deallocation.
+  const int64_t bytes_allocated = env.BytesAllocated();
+  EXPECT_GT(bytes_allocated, 0);
+  EXPECT_LE(static_cast<int64_t>(page_heap_after.system_bytes) -
+                static_cast<int64_t>(page_heap_before.system_bytes),
+            bytes_allocated / 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
+                         testing::Range(size_t(1), kNumClasses));
+
+}  // namespace central_freelist_internal
+
 namespace {
 
 // TODO(b/162552708) Mock out the page heap to interact with CFL instead
