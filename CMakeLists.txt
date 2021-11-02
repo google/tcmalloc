@@ -1,13 +1,6 @@
 # We require 3.21 because of https://cmake.org/cmake/help/v3.22/command/target_link_libraries.html#linking-object-libraries-via-target-objects
 cmake_minimum_required( VERSION 3.21)
 
-include("cmake/HunterGate.cmake")
-
-HunterGate(
-    URL "https://github.com/cpp-pm/hunter/archive/v0.23.315.tar.gz"
-    SHA1 "ea5d72afc0df67f2126e7fd069f20c5f723709e1"
-)
-
 project(tcmalloc LANGUAGES CXX ASM)
 
 
@@ -20,21 +13,26 @@ if("${PROJECT_SOURCE_DIR}" STREQUAL "${PROJECT_BINARY_DIR}")
 endif()
 
 # Get Dependencies
-##########################
-hunter_add_package(abseil)
+#######################################
 find_package(absl CONFIG REQUIRED)
 
-
+# Set Tcmalloc specific properties
+#######################################
+# Include directory for all tcmalloc targets
 set(TCMALLOC_COMMON_INCLUDE_DIRS "${CMAKE_CURRENT_LIST_DIR}")
+
+# C++ Standard used by TCMALLOC
 set(TCMALLOC_CXX_STANDARD "17")
-set(LOCAL_INCLUDE_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
+
+# Directory into which cmake install script are copied
 set(config_install_dir "lib/cmake/tcmalloc")
 
-
+# Add sources
+#######################################
 add_subdirectory(tcmalloc)
 
 # Installation
-############################
+#######################################
 
 set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(project_config "${generated_dir}/tcmallocConfig.cmake")
