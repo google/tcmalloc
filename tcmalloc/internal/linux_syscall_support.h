@@ -41,11 +41,6 @@ static_assert(sizeof(kernel_rseq) == (4 * sizeof(unsigned long long)),
               "Unexpected size for rseq structure");
 
 struct kernel_rseq_cs {
-  unsigned version;
-  unsigned flags;
-  unsigned long long start_ip;
-  unsigned long long post_commit_offset;
-  unsigned long long abort_ip;
   // This is aligned, per upstream RSEQ specification.
 } __attribute__((aligned(4 * sizeof(unsigned long long))));
 

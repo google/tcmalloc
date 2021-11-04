@@ -289,22 +289,6 @@ static void FenceInterruptCPUs(const cpu_set_t* cpus) {
   SlowFence(cpus);
 }
 
-void Fence() {
-  CompilerBarrier();
-
-  // Other operations (or all in RSEQ mode) might just be running on another
-  // CPU.  Do something about that: use RSEQ::Fence() to just send interrupts
-  // and restart any such operation.
-#if TCMALLOC_PERCPU_USE_RSEQ
-  if (using_upstream_fence.load(std::memory_order_relaxed)) {
-    UpstreamRseqFenceCpu(-1);
-    return;
-  }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
-
-  FenceInterruptCPUs(nullptr);
-}
-
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   // Prevent compiler re-ordering of code below. In particular, the call to
   // GetCurrentCpu must not appear in assembly program order until after any
