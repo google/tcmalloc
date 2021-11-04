@@ -23,6 +23,7 @@ load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmal
 licenses(["notice"])  # Apache 2.0
 
 REGTEST_DEPS = [
+    ":test_allocator_harness",
     ":testutil",
     ":thread_manager",
     "@com_google_googletest//:gtest",
@@ -913,6 +914,39 @@ cc_test(
         "//tcmalloc/internal:util",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "test_allocator_harness",
+    testonly = 1,
+    hdrs = ["test_allocator_harness.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":testutil",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "reclaim_test",
+    srcs = ["reclaim_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = ["nosan"],
+    deps = [
+        ":test_allocator_harness",
+        ":thread_manager",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:parameter_accessors",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
     ],
 )
