@@ -61,15 +61,6 @@ variants = [
         "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
     },
     {
-        "name": "legacy_spans",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common",
-            "//tcmalloc:want_legacy_spans",
-        ],
-        "copts": [],
-    },
-    {
         "name": "8k_pages_not_hotcold",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],

@@ -160,8 +160,6 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   return true;
 }
 
-int ABSL_ATTRIBUTE_WEAK default_want_legacy_spans();
-
 // Initialize the mapping arrays
 void SizeMap::Init() {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
@@ -184,13 +182,7 @@ void SizeMap::Init() {
     SetSizeClasses(kExperimentalPow2Below64SizeClassesCount,
                    kExperimentalPow2Below64SizeClasses);
   } else {
-    if (default_want_legacy_spans != nullptr &&
-        default_want_legacy_spans() > 0
-    ) {
-      SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
-    } else {
       SetSizeClasses(kSizeClassesCount, kSizeClasses);
-    }
   }
   MaybeRunTimeSizeClasses();
 

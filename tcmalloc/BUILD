@@ -173,7 +173,6 @@ common_srcs = [
     "cpu_cache.h",
     "experimental_pow2_below64_size_class.cc",
     "experimental_pow2_size_class.cc",
-    "legacy_size_classes.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
     "huge_address_map.cc",
@@ -353,20 +352,6 @@ cc_library(
 cc_library(
     name = "want_no_hpaa",
     srcs = ["want_no_hpaa.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc/testing:__pkg__"],
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
-)
-
-# TEMPORARY. WILL BE REMOVED.
-# Add a dep to this if you want your binary to use old span sizes.
-cc_library(
-    name = "want_legacy_spans",
-    srcs = ["want_legacy_spans.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = [
