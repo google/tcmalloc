@@ -2296,12 +2296,6 @@ extern "C" void* TCMallocInternalNewArray(size_t size)
 #else
 {
   void* p = fast_alloc(CppPolicy().WithoutHooks(), size);
-  // We keep this next instruction out of fast_alloc for a reason: when
-  // it's in, and new just calls fast_alloc, the optimizer may fold the
-  // new call into fast_alloc, which messes up our whole section-based
-  // stacktracing (see ABSL_ATTRIBUTE_SECTION, above).  This ensures fast_alloc
-  // isn't the last thing this fn calls, and prevents the folding.
-  MallocHook::InvokeNewHook(p, size);
   return p;
 }
 #endif  // TCMALLOC_ALIAS
