@@ -87,10 +87,6 @@ bool decide_subrelease() {
     }
   }
 
-  if (tcmalloc::IsExperimentActive(tcmalloc::Experiment::TCMALLOC_TEMERAIRE)) {
-    return false;
-  }
-
   return true;
 }
 
