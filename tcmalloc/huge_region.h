@@ -148,10 +148,6 @@ class HugeRegionSet {
   // Add region to the set.
   void Contribute(Region *region);
 
-  // Unback any totally unused hugepages; return the number of pages
-  // we managed to release.
-  HugeLength Release();
-
   void Print(Printer *out) const;
   void PrintInPbtxt(PbtxtRegion *hpaa) const;
   void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
@@ -476,18 +472,6 @@ template <typename Region>
 inline void HugeRegionSet<Region>::Contribute(Region *region) {
   n_++;
   AddToList(region);
-}
-
-// Unback any totally unused hugepages; return the number of pages
-// we managed to release.
-template <typename Region>
-inline HugeLength HugeRegionSet<Region>::Release() {
-  HugeLength hl = NHugePages(0);
-  for (Region *region : list_) {
-    hl += region->Release();
-  }
-
-  return hl;
 }
 
 template <typename Region>

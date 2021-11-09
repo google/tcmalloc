@@ -44,10 +44,6 @@ static double BytesToMiB(size_t bytes) {
   return bytes / MiB;
 }
 
-static double PagesToMiB(uint64_t pages) {
-  return BytesToMiB(pages * kPageSize);
-}
-
 // For example, PrintRightAdjustedWithPrefix(out, ">=", 42, 6) prints "  >=42".
 static void PrintRightAdjustedWithPrefix(Printer *out, const char *prefix,
                                          Length num, int width) {
