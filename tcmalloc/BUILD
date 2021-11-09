@@ -1133,6 +1133,35 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "sampled_allocation_recorder",
+    hdrs = ["sampled_allocation_recorder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_recorder_test",
+    srcs = ["sampled_allocation_recorder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":sampled_allocation_recorder",
+        "//tcmalloc/testing:thread_manager",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 create_tcmalloc_testsuite(
     name = "span_test",
     srcs = ["span_test.cc"],
