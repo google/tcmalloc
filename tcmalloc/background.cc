@@ -25,39 +25,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
-GOOGLE_MALLOC_SECTION_BEGIN
-namespace tcmalloc {
-namespace tcmalloc_internal {
-namespace {
-
-void ShuffleCpuCaches() {
-  if (!MallocExtension::PerCpuCachesActive()) {
-    return;
-  }
-
-  // Shuffle per-cpu caches
-  Static::cpu_cache().ShuffleCpuCaches();
-}
-
-// Reclaims per-cpu caches.
-//
-// Here, we use heuristics that are based on cache usage and misses, to
-// determine if the caches have been recently inactive and if they may be
-// reclaimed.
-void ReclaimIdleCpuCaches() {
-  // Attempts reclaim only when per-CPU caches are in use.
-  if (!MallocExtension::PerCpuCachesActive()) {
-    return;
-  }
-
-  Static::cpu_cache().TryReclaimingCaches();
-}
-
-}  // namespace
-}  // namespace tcmalloc_internal
-}  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
-
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
   tcmalloc::MallocExtension::MarkThreadIdle();
@@ -89,20 +56,28 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
     }
 
-    // Try to reclaim per-cpu caches once every kCpuCacheReclaimPeriod
-    // when enabled.
-    if (now - last_reclaim >= kCpuCacheReclaimPeriod) {
-      tcmalloc::tcmalloc_internal::ReclaimIdleCpuCaches();
-      last_reclaim = now;
-    }
+    if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
+      // Accelerate fences as part of this operation by registering this thread
+      // with rseq.  While this is not strictly required to succeed, we do not
+      // expect an inconsistent state for rseq (some threads registered and some
+      // threads unable to).
+      CHECK_CONDITION(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
 
-    const bool shuffle_per_cpu_caches =
-        tcmalloc::tcmalloc_internal::Parameters::shuffle_per_cpu_caches();
+      // Try to reclaim per-cpu caches once every kCpuCacheReclaimPeriod
+      // when enabled.
+      if (now - last_reclaim >= kCpuCacheReclaimPeriod) {
+        tcmalloc::tcmalloc_internal::Static::cpu_cache().TryReclaimingCaches();
+        last_reclaim = now;
+      }
 
-    if (shuffle_per_cpu_caches) {
-      if (now - last_shuffle >= kCpuCacheShufflePeriod) {
-        tcmalloc::tcmalloc_internal::ShuffleCpuCaches();
-        last_shuffle = now;
+      const bool shuffle_per_cpu_caches =
+          tcmalloc::tcmalloc_internal::Parameters::shuffle_per_cpu_caches();
+
+      if (shuffle_per_cpu_caches) {
+        if (now - last_shuffle >= kCpuCacheShufflePeriod) {
+          tcmalloc::tcmalloc_internal::Static::cpu_cache().ShuffleCpuCaches();
+          last_shuffle = now;
+        }
       }
     }
 
