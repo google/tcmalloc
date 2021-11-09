@@ -227,6 +227,9 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
     return cpu;
   }
 
+  // Do not return a physical CPU ID when we expect a virtual CPU ID.
+  CHECK_CONDITION(virtual_cpu_id_offset != offsetof(kernel_rseq, vcpu_id));
+
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
   cpu = sched_getcpu();
   ASSERT(cpu >= 0);

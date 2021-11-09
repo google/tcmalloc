@@ -297,7 +297,8 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (GetCurrentVirtualCpu(virtual_cpu_id_offset) == cpu) {
+  if (ABSL_PREDICT_TRUE(IsFastNoInit()) &&
+      GetCurrentVirtualCpu(virtual_cpu_id_offset) == cpu) {
     return;
   }
 
