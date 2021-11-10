@@ -313,6 +313,40 @@ cpu   4:      1260016 bytes (    1.2 MiB) with      179800 bytes unallocated
 Some CPU caches may be marked `active`, indicating that the process is currently
 runnable on that CPU.
 
+### Size Class Capacity Information in Per-CPU Caches
+
+In per-CPU caches, TCMalloc caches objects of discrete sizes. These are referred
+to as size classes. Memory requests for a particular object size are rounded off
+to a convenient size class. TCMalloc populates objects in each size class based
+on their demand, but also imposes an upper limit on the number of objects that
+may be cached per size class. The statistics below measure the capacity of each
+size class freelist, where capacity represents the total number of objects
+currently cached by the freelist. The columns below report number of objects
+cached by TCMalloc per size class:
+
+*   Size class.
+*   The size of each object in that size class.
+*   Minimum capacity of the size class freelist summarized over all per-CPU
+    caches.
+*   Average capacity of the size class freelist summarized over all per-CPU
+    caches.
+*   Maximum capacity of the size class freelist summarized over all per-CPU
+    caches.
+*   The upper limit imposed by TCMalloc on the number of objects that can be
+    cached in a per-CPU cache for that size class.
+
+```
+------------------------------------------------
+Size class capacity statistics in per-cpu caches
+------------------------------------------------
+class   0 [        0 bytes ] :      0 (minimum),    0.0 (average),     0 (maximum),     0 maximum allowed capacity
+class   1 [        8 bytes ] :      0 (minimum),  133.1 (average),   636 (maximum),  2048 maximum allowed capacity
+class   2 [       16 bytes ] :      0 (minimum),   51.8 (average),   378 (maximum),  2048 maximum allowed capacity
+class   3 [       24 bytes ] :      0 (minimum),  119.3 (average),   510 (maximum),  2048 maximum allowed capacity
+class   4 [       32 bytes ] :      0 (minimum),  100.0 (average),   542 (maximum),  2048 maximum allowed capacity
+class   5 [       40 bytes ] :      0 (minimum),   80.6 (average),   467 (maximum),  2048 maximum allowed capacity
+```
+
 ### Pageheap Information
 
 The pageheap holds pages of memory that are not currently being used either by

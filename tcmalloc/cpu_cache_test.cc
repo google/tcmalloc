@@ -594,6 +594,82 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   }
 }
 
+TEST(CpuCacheTest, SizeClassCapacityTest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CPUCache& cache = Static::cpu_cache();
+  // Since this test allocates memory, avoid activating the real fast path to
+  // minimize allocations against the per-CPU cache.
+  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+
+  const int num_cpus = absl::base_internal::NumCPUs();
+  constexpr size_t kSizeClass = 3;
+  const size_t batch_size = Static::sizemap().num_objects_to_move(kSizeClass);
+
+  // Perform some operations to warm up caches and make sure they are populated.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
+    ColdCacheOperations(cpu, kSizeClass);
+    EXPECT_TRUE(cache.HasPopulated(cpu));
+  }
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    SCOPED_TRACE(absl::StrFormat("Failed cl: %d", cl));
+    CPUCache::SizeClassCapacityStats capacity_stats =
+        cache.GetSizeClassCapacityStats(cl);
+    if (cl == kSizeClass) {
+      // As all the caches are populated and each cache stores batch_size number
+      // of kSizeClass objects, all the stats below should be equal to
+      // batch_size.
+      EXPECT_EQ(capacity_stats.min_capacity, batch_size);
+      EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, batch_size);
+      EXPECT_EQ(capacity_stats.max_capacity, batch_size);
+    } else {
+      // Capacity stats for other size classes should be zero.
+      EXPECT_EQ(capacity_stats.min_capacity, 0);
+      EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, 0);
+      EXPECT_EQ(capacity_stats.max_capacity, 0);
+    }
+  }
+
+  // Next, we reclaim per-cpu caches, one at a time, to drain all the kSizeClass
+  // objects cached by them. As we progressively reclaim per-cpu caches, the
+  // capacity for kSizeClass averaged over all CPUs should also drop linearly.
+  // We reclaim all but one per-cpu caches (we reclaim last per-cpu cache
+  // outside the loop so that we can check for max_capacity=0 separately).
+  for (int cpu = 0; cpu < num_cpus - 1; ++cpu) {
+    SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
+    cache.Reclaim(cpu);
+
+    CPUCache::SizeClassCapacityStats capacity_stats =
+        cache.GetSizeClassCapacityStats(kSizeClass);
+    // Reclaiming even one per-cpu cache should set min_capacity to zero.
+    EXPECT_EQ(capacity_stats.min_capacity, 0);
+
+    // (cpu+1) number of caches have been reclaimed. So, (num_cpus-cpu-1) number
+    // of caches are currently populated, with each cache storing batch_size
+    // number of kSizeClass objects.
+    double expected_avg =
+        static_cast<double>(batch_size * (num_cpus - cpu - 1)) / num_cpus;
+    EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, expected_avg);
+
+    // At least one per-cpu cache exists that caches batch_size number of
+    // kSizeClass objects.
+    EXPECT_EQ(capacity_stats.max_capacity, batch_size);
+  }
+
+  // We finally reclaim last per-cpu cache. All the reported capacity stats
+  // should drop to zero as none of the caches hold any objects.
+  cache.Reclaim(num_cpus - 1);
+  CPUCache::SizeClassCapacityStats capacity_stats =
+      cache.GetSizeClassCapacityStats(kSizeClass);
+  EXPECT_EQ(capacity_stats.min_capacity, 0);
+  EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, 0);
+  EXPECT_EQ(capacity_stats.max_capacity, 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

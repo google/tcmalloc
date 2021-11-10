@@ -985,6 +985,37 @@ CPUCache::CpuCacheMissStats CPUCache::GetTotalCacheMissStats(int cpu) const {
   return stats;
 }
 
+CPUCache::SizeClassCapacityStats CPUCache::GetSizeClassCapacityStats(
+    size_t cl) const {
+  SizeClassCapacityStats stats;
+  int num_populated = 0;
+  // We use a local variable here, instead of directly updating min_capacity in
+  // SizeClassCapacityStats struct to make sure we do not end up with SIZE_MAX
+  // in stats.min_capacity when num_populated is equal to zero.
+  size_t min_capacity = SIZE_MAX;
+
+  // Scan through all per-CPU caches and calculate minimum, average and maximum
+  // capacities for the size class <cl> across all the populated caches.
+  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
+       ++cpu) {
+    // We do not include stats for non-populated cpus in our average.
+    if (!HasPopulated(cpu)) {
+      continue;
+    }
+
+    size_t cap = freelist_.Capacity(cpu, cl);
+    stats.max_capacity = std::max(stats.max_capacity, cap);
+    min_capacity = std::min(min_capacity, cap);
+    stats.avg_capacity += cap;
+    ++num_populated;
+  }
+  if (num_populated > 0) {
+    stats.avg_capacity /= num_populated;
+    stats.min_capacity = min_capacity;
+  }
+  return stats;
+}
+
 void CPUCache::Print(Printer *out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
@@ -1006,6 +1037,22 @@ void CPUCache::Print(Printer *out) const {
                 cpu, rbytes, rbytes / MiB, unallocated,
                 CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
                 populated ? " populated" : "");
+  }
+
+  out->printf("------------------------------------------------\n");
+  out->printf("Size class capacity statistics in per-cpu caches\n");
+  out->printf("------------------------------------------------\n");
+
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    SizeClassCapacityStats stats = GetSizeClassCapacityStats(cl);
+    out->printf(
+        "class %3d [ %8zu bytes ] : "
+        "%6zu (minimum),"
+        "%7.1f (average),"
+        "%6zu (maximum),"
+        "%6zu maximum allowed capacity\n",
+        cl, Static::sizemap().class_to_size(cl), stats.min_capacity,
+        stats.avg_capacity, stats.max_capacity, max_capacity_[cl]);
   }
 
   out->printf("------------------------------------------------\n");
@@ -1045,6 +1092,16 @@ void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
     entry.PrintI64("underflows", miss_stats.underflows);
     entry.PrintI64("overflows", miss_stats.overflows);
     entry.PrintI64("reclaims", reclaims);
+  }
+
+  // Record size class capacity statistics.
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    SizeClassCapacityStats stats = GetSizeClassCapacityStats(cl);
+    PbtxtRegion entry = region->CreateSubRegion("size_class_capacity");
+    entry.PrintI64("min_capacity", stats.min_capacity);
+    entry.PrintDouble("avg_capacity", stats.avg_capacity);
+    entry.PrintI64("max_capacity", stats.max_capacity);
+    entry.PrintI64("max_allowed_capacity", max_capacity_[cl]);
   }
 }
 

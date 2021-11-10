@@ -160,6 +160,19 @@ class CPUCache {
   // Reports cache underflows and overflows for <cpu> this interval.
   CpuCacheMissStats GetIntervalCacheMissStats(int cpu) const;
 
+  struct SizeClassCapacityStats {
+    size_t min_capacity = 0;
+    double avg_capacity = 0;
+    size_t max_capacity = 0;
+  };
+
+  // Scans through populated per-CPU caches, and reports minimum, average and
+  // maximum capacity for size class <cl>.
+  //
+  // TODO(b/205829372): Change cl to size_class here and in rest of TCMalloc to
+  // adhere to C++ style guide.
+  SizeClassCapacityStats GetSizeClassCapacityStats(size_t cl) const;
+
   // Report statistics
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region) const;
