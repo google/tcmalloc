@@ -27,8 +27,8 @@
 #include <functional>
 
 #include "absl/base/config.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 
@@ -42,9 +42,9 @@ template <typename T>
 struct Sample {
   // Guards the ability to restore the sample to a pristine state.  This
   // prevents races with sampling and resurrecting an object.
-  absl::Mutex init_mu;
+  absl::base_internal::SpinLock lock{absl::base_internal::SCHEDULE_KERNEL_ONLY};
   T* next = nullptr;
-  T* dead ABSL_GUARDED_BY(init_mu) = nullptr;
+  T* dead ABSL_GUARDED_BY(lock) = nullptr;
 };
 
 // Holds samples and their associated stack traces with a soft limit of
@@ -125,7 +125,7 @@ SampleRecorder<T>::SetDisposeCallback(DisposeCallback f) {
 template <typename T>
 SampleRecorder<T>::SampleRecorder()
     : dropped_samples_(0), size_estimate_(0), all_(nullptr), dispose_(nullptr) {
-  absl::MutexLock l(&graveyard_.init_mu);
+  absl::base_internal::SpinLockHolder l(&graveyard_.lock);
   graveyard_.dead = &graveyard_;
 }
 
@@ -154,15 +154,15 @@ void SampleRecorder<T>::PushDead(T* sample) {
     dispose(*sample);
   }
 
-  absl::MutexLock graveyard_lock(&graveyard_.init_mu);
-  absl::MutexLock sample_lock(&sample->init_mu);
+  absl::base_internal::SpinLockHolder graveyard_lock(&graveyard_.lock);
+  absl::base_internal::SpinLockHolder sample_lock(&sample->lock);
   sample->dead = graveyard_.dead;
   graveyard_.dead = sample;
 }
 
 template <typename T>
 T* SampleRecorder<T>::PopDead() {
-  absl::MutexLock graveyard_lock(&graveyard_.init_mu);
+  absl::base_internal::SpinLockHolder graveyard_lock(&graveyard_.lock);
 
   // The list is circular, so eventually it collapses down to
   //   graveyard_.dead == &graveyard_
@@ -170,7 +170,7 @@ T* SampleRecorder<T>::PopDead() {
   T* sample = graveyard_.dead;
   if (sample == &graveyard_) return nullptr;
 
-  absl::MutexLock sample_lock(&sample->init_mu);
+  absl::base_internal::SpinLockHolder sample_lock(&sample->lock);
   graveyard_.dead = sample->dead;
   sample->dead = nullptr;
   sample->PrepareForSampling();
@@ -207,7 +207,7 @@ int64_t SampleRecorder<T>::Iterate(
     const std::function<void(const T& stack)>& f) {
   T* s = all_.load(std::memory_order_acquire);
   while (s != nullptr) {
-    absl::MutexLock l(&s->init_mu);
+    absl::base_internal::SpinLockHolder l(&s->lock);
     if (s->dead == nullptr) {
       f(*s);
     }

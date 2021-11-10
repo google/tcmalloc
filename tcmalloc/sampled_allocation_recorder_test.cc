@@ -20,7 +20,6 @@
 
 #include "gmock/gmock.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "tcmalloc/testing/thread_manager.h"
