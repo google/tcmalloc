@@ -113,7 +113,6 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
 
     t.join();
   }
-  const int64_t end_size = MemoryUsageSlow(getpid());
 
   // Flush the page heap.  Our allocations may have been retained.
   if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval != nullptr) {
@@ -121,6 +120,10 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
         absl::ZeroDuration());
   }
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
+
+  // Read RSS usage only after releasing page heap has had an opportunity to
+  // reduce it.
+  const int64_t end_size = MemoryUsageSlow(getpid());
 
   // This will detect a leak rate of 12 bytes per thread, which is well under 1%
   // of the allocation done.
