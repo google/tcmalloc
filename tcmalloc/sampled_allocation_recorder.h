@@ -26,10 +26,8 @@
 #include <cstddef>
 #include <functional>
 
-#include "absl/base/config.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

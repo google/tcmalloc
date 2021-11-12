@@ -50,6 +50,9 @@ class StackTraceTable final : public ProfileBase {
 
   ProfileType Type() const override { return type_; }
 
+  void SetDuration(absl::Duration duration) { duration_ = duration; }
+  absl::Duration Duration() const override { return duration_; }
+
   // Adds stack trace "t" to table with the specified count.
   // The count is a floating point value to reduce rounding
   // errors when accounting for sampling probabilities.
@@ -79,6 +82,7 @@ class StackTraceTable final : public ProfileBase {
 
   ProfileType type_;
   int64_t period_;
+  absl::Duration duration_ = absl::ZeroDuration();
   int bucket_mask_;
   int depth_total_;
   Bucket** table_;

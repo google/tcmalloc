@@ -101,6 +101,10 @@ class Profile final {
   int64_t Period() const;
   ProfileType Type() const;
 
+  // The duration the profile was collected for.  For instantaneous profiles
+  // (heap, peakheap, etc.), this returns absl::ZeroDuration().
+  absl::Duration Duration() const;
+
  private:
   explicit Profile(std::unique_ptr<const tcmalloc_internal::ProfileBase>);
 
@@ -589,6 +593,10 @@ class ProfileBase {
 
   // The type of profile (live objects, allocated, etc.).
   virtual ProfileType Type() const = 0;
+
+  // The duration the profile was collected for.  For instantaneous profiles
+  // (heap, peakheap, etc.), this returns absl::ZeroDuration().
+  virtual absl::Duration Duration() const = 0;
 };
 
 }  // namespace tcmalloc_internal

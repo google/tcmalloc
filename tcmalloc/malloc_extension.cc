@@ -76,6 +76,14 @@ ProfileType Profile::Type() const {
   return impl_->Type();
 }
 
+absl::Duration Profile::Duration() const {
+  if (!impl_) {
+    return absl::ZeroDuration();
+  }
+
+  return impl_->Duration();
+}
+
 AddressRegion::~AddressRegion() {}
 
 AddressRegionFactory::~AddressRegionFactory() {}

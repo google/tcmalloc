@@ -755,6 +755,7 @@ class AllocationSample final : public AllocationProfilingTokenBase {
 
  private:
   std::unique_ptr<StackTraceTable> mallocs_;
+  absl::Time start_;
   AllocationSample* next ABSL_GUARDED_BY(pageheap_lock);
   friend class AllocationSampleList;
 };
@@ -792,7 +793,7 @@ class AllocationSampleList {
   AllocationSample* first_;
 } allocation_samples_ ABSL_GUARDED_BY(pageheap_lock);
 
-AllocationSample::AllocationSample() {
+AllocationSample::AllocationSample() : start_(absl::Now()) {
   mallocs_ = absl::make_unique<StackTraceTable>(
       ProfileType::kAllocations, Sampler::GetSamplePeriod(), true, true);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -815,8 +816,12 @@ Profile AllocationSample::Stop() && ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   // We need to remove ourselves from the allocation_samples_ list before we
   // mutate mallocs_;
   if (mallocs_) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocation_samples_.Remove(this);
+    {
+      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      allocation_samples_.Remove(this);
+    }
+
+    mallocs_->SetDuration(absl::Now() - start_);
   }
   return ProfileAccessor::MakeProfile(std::move(mallocs_));
 }
