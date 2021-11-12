@@ -1030,7 +1030,6 @@ cc_test(
     timeout = "long",
     srcs = ["profile_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    flaky = 1,  # TODO(b/134690164)
     linkstatic = 1,
     malloc = "//tcmalloc",
     shard_count = 2,

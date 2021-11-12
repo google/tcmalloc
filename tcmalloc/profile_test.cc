@@ -210,8 +210,10 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 }
 
 TEST(FragmentationzTest, Accuracy) {
+  // Increase sampling rate to decrease flakiness.
+  ScopedProfileSamplingRate ps(512 * 1024);
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
-  MallocExtension::SetGuardedSamplingRate(-1);
+  ScopedGuardedSamplingRate gs(-1);
 
   // a fairly odd allocation size - will be rounded to 128.  This lets
   // us find our record in the table.
@@ -270,8 +272,7 @@ TEST(FragmentationzTest, Accuracy) {
   double frag_bytes = sum;
   double real_frag_bytes =
       static_cast<double>(allocated_size * kNumItems) * 0.8;
-  // We should be pretty close with this much data:
-  // TODO(b/134690164): this is still slightly flaky (<1%) - why?
+  // We should be pretty close with this much data.
   EXPECT_NEAR(real_frag_bytes, frag_bytes, real_frag_bytes * 0.15)
       << " sum = " << sum << " allocated = " << allocated_size
       << " requested = " << requested_size << " count = " << count;
