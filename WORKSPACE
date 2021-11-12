@@ -48,6 +48,40 @@ http_archive(
     sha256 = "1e19e9a3bc3d4ee91d7fcad00653485ee6c798efbbf9588d40b34cbfbded143d",
 )
 
+# Python rules
+#
+# This is explicitly added to workaround
+# https://github.com/bazelbuild/rules_python/issues/437.
+http_archive(
+    name = "rules_python",
+    urls = ["https://github.com/bazelbuild/rules_python/releases/download/0.1.0/rules_python-0.1.0.tar.gz"],
+    sha256 = "b6d46438523a3ec0f3cead544190ee13223a52f6a6765a29eae7b7cc24cc83a0",
+)
+
+# Proto rules for Bazel and Protobuf
+http_archive(
+    name = "com_google_protobuf",
+    urls = ["https://github.com/protocolbuffers/protobuf/archive/13d559beb6967033a467a7517c35d8ad970f8afb.zip"],
+    strip_prefix = "protobuf-13d559beb6967033a467a7517c35d8ad970f8afb",
+    sha256 = "9ca59193fcfe52c54e4c2b4584770acd1a6528fc35efad363f8513c224490c50",
+)
+load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+protobuf_deps()
+
+http_archive(
+    name = "rules_proto",
+    sha256 = "66bfdf8782796239d3875d37e7de19b1d94301e8972b3cbd2446b332429b4df1",
+    strip_prefix = "rules_proto-4.0.0",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_proto/archive/refs/tags/4.0.0.tar.gz",
+        "https://github.com/bazelbuild/rules_proto/archive/refs/tags/4.0.0.tar.gz",
+    ],
+)
+
+load("@rules_proto//proto:repositories.bzl", "rules_proto_dependencies", "rules_proto_toolchains")
+rules_proto_dependencies()
+rules_proto_toolchains()
+
 # Fuzzing
 http_archive(
     name = "rules_fuzzing",

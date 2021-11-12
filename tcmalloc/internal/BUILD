@@ -14,6 +14,8 @@
 #
 # Internal libraries used for the implementation and testing of TCMalloc.
 
+load("@rules_cc//cc:defs.bzl", "cc_proto_library")
+load("@rules_proto//proto:defs.bzl", "proto_library")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
 
@@ -502,6 +504,17 @@ cc_test(
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
+)
+
+proto_library(
+    name = "profile_proto",
+    srcs = ["profile.proto"],
+)
+
+cc_proto_library(
+    name = "profile_cc_proto",
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [":profile_proto"],
 )
 
 cc_library(
