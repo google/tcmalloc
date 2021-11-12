@@ -65,8 +65,10 @@ The advantage of managing objects using larger page sizes are:
 applications. However, if an application has a heap measured in GiB it may be
 worth looking at using large page sizes.
 
-**Suggestion:** Consider small-but-slow if it is more important to minimise
-memory footprint over performance.
+**Suggestion:** Small-but-slow is *extremely* slow and should be used only where
+it is absolutely vital to minimize memory footprint over performance at all
+costs.  Small-but-slow works by turning off and shrinking several of TCMalloc's
+caches, but this comes at a significant performance penalty.
 
 **Note:** Size-classes are determined on a per-page-size basis. So changing the
 page size will implicitly change the size-classes used. Size-classes are
