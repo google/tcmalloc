@@ -26,6 +26,7 @@ TCMALLOC_LLVM_FLAGS = [
 TCMALLOC_GCC_FLAGS = [
     "-Wno-attribute-alias",
     "-Wno-sign-compare",
+    "-Wno-stringop-overflow",
     "-Wno-uninitialized",
     "-Wno-unused-function",
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66425

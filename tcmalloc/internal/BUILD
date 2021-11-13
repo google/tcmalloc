@@ -100,6 +100,21 @@ cc_test(
 )
 
 cc_library(
+    name = "fake_profile",
+    hdrs = ["fake_profile.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+    ],
+)
+
+cc_library(
     name = "lifetime_predictions",
     hdrs = ["lifetime_predictions.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -515,6 +530,43 @@ cc_proto_library(
     name = "profile_cc_proto",
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [":profile_proto"],
+)
+
+cc_library(
+    name = "profile_builder",
+    srcs = ["profile_builder.cc"],
+    hdrs = ["profile_builder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":logging",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:profile_cc_proto",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "profile_builder_test",
+    srcs = ["profile_builder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":fake_profile",
+        ":profile_builder",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:profile_cc_proto",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
 )
 
 cc_library(
