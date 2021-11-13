@@ -415,7 +415,6 @@ cc_library(
     ],
     deps = [
         ":logging",
-        "@com_google_absl//absl/base:core_headers",
     ],
 )
 

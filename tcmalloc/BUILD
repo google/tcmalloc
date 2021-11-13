@@ -644,20 +644,6 @@ cc_library(
 )
 
 cc_library(
-    name = "mock_static_forwarder",
-    testonly = 1,
-    hdrs = ["mock_static_forwarder.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":common",
-        ":mock_transfer_cache",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest",
-    ],
-)
-
-cc_library(
     name = "page_allocator_test_util",
     testonly = 1,
     srcs = [
@@ -1332,13 +1318,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common",
-        ":mock_static_forwarder",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:fixed_array",
