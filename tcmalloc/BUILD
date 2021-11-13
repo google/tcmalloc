@@ -141,8 +141,8 @@ cc_library(
     ],
     copts = [
         "-O2",
-        "-UNDEBUG",
     ] + TCMALLOC_DEFAULT_COPTS,
+    deprecation = "Replace :opt_with_assertions with :tcmalloc",
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
