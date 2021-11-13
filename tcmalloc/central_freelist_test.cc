@@ -21,6 +21,7 @@
 #include "absl/container/fixed_array.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -276,52 +277,28 @@ INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
 
 namespace {
 
-// TODO(b/162552708) Mock out the page heap to interact with CFL instead
-class CFLTest : public testing::TestWithParam<size_t> {
- protected:
-  size_t cl_;
-  size_t batch_size_;
-  size_t objects_per_span_;
-  CentralFreeList cfl_;
+using central_freelist_internal::kSpanUtilBucketCapacity;
+using central_freelist_internal::SpanUtilHistogram;
 
- private:
-  void SetUp() override {
-    cl_ = GetParam();
-    if (IsExpandedSizeClass(cl_)) {
-      if (!ColdExperimentActive()) {
-        // If !ColdExperimentActive(), we will use the normal page heap, which
-        // will keep us from seeing memory get the expected tags.
-        GTEST_SKIP()
-            << "Skipping expanded size classes without cold experiment";
-      }
+template <typename Env>
+using CentralFreeListTest = ::testing::Test;
+TYPED_TEST_SUITE_P(CentralFreeListTest);
 
-#ifdef THREAD_SANITIZER
-      GTEST_SKIP() << "Skipping expanded size class under tsan";
-#endif
-    }
-    size_t object_size = Static::sizemap().class_to_size(cl_);
-    if (object_size == 0) {
-      GTEST_SKIP() << "Skipping empty size class.";
-    }
+TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
+  TypeParam e;
 
-    auto pages_per_span = Length(Static::sizemap().class_to_pages(cl_));
-    batch_size_ = Static::sizemap().num_objects_to_move(cl_);
-    objects_per_span_ = pages_per_span.in_bytes() / object_size;
-    cfl_.Init(cl_);
-  }
+  EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
-  void TearDown() override { EXPECT_EQ(cfl_.length(), 0); }
-};
+  absl::FixedArray<void*> batch(TypeParam::kBatchSize);
+  int allocated =
+      e.central_freelist().RemoveRange(&batch[0], TypeParam::kBatchSize);
+  ASSERT_GT(allocated, 0);
+  EXPECT_LE(allocated, TypeParam::kBatchSize);
 
-TEST_P(CFLTest, SingleBatch) {
-  void* batch[kMaxObjectsToMove];
-  uint64_t got = cfl_.RemoveRange(batch, batch_size_);
-  ASSERT_GT(got, 0);
-
-  // We should observe span's utilization captured in the histogram. The
-  // number of spans in rest of the buckets should be zero.
-  int bucket = absl::bit_width(got);
-  SpanUtilHistogram histogram = cfl_.GetSpanUtilHistogram();
+  // We should observe span's utilization captured in the histogram. The number
+  // of spans in rest of the buckets should be zero.
+  const int bucket = absl::bit_width(static_cast<unsigned>(allocated));
+  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     if (i == bucket) {
       EXPECT_EQ(histogram.value[i], 1);
@@ -330,26 +307,37 @@ TEST_P(CFLTest, SingleBatch) {
     }
   }
 
-  cfl_.InsertRange({batch, got});
-  SpanStats stats = cfl_.GetSpanStats();
+  EXPECT_CALL(e.forwarder(), MapObjectToSpan).Times(allocated);
+  EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(1);
+
+  SpanStats stats = e.central_freelist().GetSpanStats();
+  EXPECT_EQ(stats.num_spans_requested, 1);
+  EXPECT_EQ(stats.num_spans_returned, 0);
+  EXPECT_EQ(stats.obj_capacity, 1024);
+
+  e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
+
+  stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, 1);
   EXPECT_EQ(stats.num_spans_returned, 1);
   EXPECT_EQ(stats.obj_capacity, 0);
 
   // Span captured in the histogram with the earlier utilization should have
   // been removed.
-  histogram = cfl_.GetSpanUtilHistogram();
+  histogram = e.central_freelist().GetSpanUtilHistogram();
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     EXPECT_EQ(histogram.value[i], 0);
   }
 }
 
-TEST_P(CFLTest, SpanUtilizationHistogram) {
+TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
+  TypeParam e;
+
   const size_t num_spans = 10;
 
   // Request num_spans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = num_spans * objects_per_span_;
+  const int num_objects_to_fetch = num_spans * TypeParam::kObjectsPerSpan;
   int total_fetched = 0;
   // Tracks object and corresponding span idx from which it was allocated.
   std::vector<std::pair<void*, int>> objects_to_span_idx;
@@ -359,12 +347,13 @@ TEST_P(CFLTest, SpanUtilizationHistogram) {
 
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got = cfl_.RemoveRange(batch, std::min(n, batch_size_));
+    int got = e.central_freelist().RemoveRange(
+        batch, std::min(n, TypeParam::kBatchSize));
     total_fetched += got;
 
     // Increment span_idx if current objects have been fetched from the new
     // span.
-    if (total_fetched > (span_idx + 1) * objects_per_span_) {
+    if (total_fetched > (span_idx + 1) * TypeParam::kObjectsPerSpan) {
       ++span_idx;
     }
     // Record fetched object and associated span index.
@@ -379,10 +368,10 @@ TEST_P(CFLTest, SpanUtilizationHistogram) {
   EXPECT_EQ(span_idx + 1, num_spans);
 
   // We should have num_spans spans in the histogram with number of allocated
-  // objects equal to objects_per_span_ (i.e. in the last bucket).
+  // objects equal to TypeParam::kObjectsPerSpan (i.e. in the last bucket).
   // Rest of the buckets should be empty.
-  SpanUtilHistogram histogram = cfl_.GetSpanUtilHistogram();
-  int last_bucket = absl::bit_width(objects_per_span_);
+  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
+  int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan);
   ASSERT(last_bucket < kSpanUtilBucketCapacity);
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     if (i == last_bucket) {
@@ -400,8 +389,8 @@ TEST_P(CFLTest, SpanUtilizationHistogram) {
   // correct.
   int total_returned = 0;
   while (total_returned < num_objects_to_fetch) {
-    uint64_t size_to_pop =
-        std::min(objects_to_span_idx.size() - total_returned, batch_size_);
+    uint64_t size_to_pop = std::min(objects_to_span_idx.size() - total_returned,
+                                    TypeParam::kBatchSize);
 
     for (int i = 0; i < size_to_pop; ++i) {
       const auto [ptr, span_idx] = objects_to_span_idx[i + total_returned];
@@ -410,7 +399,7 @@ TEST_P(CFLTest, SpanUtilizationHistogram) {
       --allocated_per_span[span_idx];
     }
     total_returned += size_to_pop;
-    cfl_.InsertRange({batch, size_to_pop});
+    e.central_freelist().InsertRange({batch, size_to_pop});
 
     // Calculate expected histogram.
     SpanUtilHistogram expected;
@@ -418,38 +407,40 @@ TEST_P(CFLTest, SpanUtilizationHistogram) {
       size_t allocated = absl::bit_width(allocated_per_span[i]);
       // If span has non-zero allocated objects, include it in the histogram.
       if (allocated) {
-        ASSERT(allocated <= absl::bit_width(objects_per_span_));
+        ASSERT(allocated <= absl::bit_width(TypeParam::kObjectsPerSpan));
         ++expected.value[allocated];
       }
     }
 
     // Fetch histogram and compare it with the expected histogram that we
     // calculated using the tracked allocated objects per span.
-    SpanUtilHistogram histogram = cfl_.GetSpanUtilHistogram();
+    SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
     for (int i = 0; i < kSpanUtilBucketCapacity; i++) {
       EXPECT_EQ(histogram.value[i], expected.value[i]);
     }
   }
 
   // Since no span is live here, histogram must be empty.
-  histogram = cfl_.GetSpanUtilHistogram();
+  histogram = e.central_freelist().GetSpanUtilHistogram();
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     EXPECT_EQ(histogram.value[i], 0);
   }
 }
 
-TEST_P(CFLTest, MultipleSpans) {
+TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
+  TypeParam e;
   std::vector<void*> all_objects;
 
   const size_t num_spans = 10;
 
   // Request num_spans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = num_spans * objects_per_span_;
+  const int num_objects_to_fetch = num_spans * TypeParam::kObjectsPerSpan;
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got = cfl_.RemoveRange(batch, std::min(n, batch_size_));
+    int got = e.central_freelist().RemoveRange(
+        batch, std::min(n, TypeParam::kBatchSize));
     for (int i = 0; i < got; ++i) {
       all_objects.push_back(batch[i]);
     }
@@ -457,10 +448,10 @@ TEST_P(CFLTest, MultipleSpans) {
   }
 
   // We should have num_spans spans in the histogram with number of
-  // allocated objects equal to objects_per_span_ (i.e. in the last bucket).
-  // Rest of the buckets should be empty.
-  SpanUtilHistogram histogram = cfl_.GetSpanUtilHistogram();
-  int last_bucket = absl::bit_width(objects_per_span_);
+  // allocated objects equal to TypeParam::kObjectsPerSpan (i.e. in the last
+  // bucket). Rest of the buckets should be empty.
+  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
+  int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan);
   ASSERT(last_bucket < kSpanUtilBucketCapacity);
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     if (i == last_bucket) {
@@ -470,7 +461,7 @@ TEST_P(CFLTest, MultipleSpans) {
     }
   }
 
-  SpanStats stats = cfl_.GetSpanStats();
+  SpanStats stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, num_spans);
   EXPECT_EQ(stats.num_spans_returned, 0);
 
@@ -485,20 +476,20 @@ TEST_P(CFLTest, MultipleSpans) {
   bool checked_half = false;
   while (total_returned < num_objects_to_fetch) {
     uint64_t size_to_pop =
-        std::min(all_objects.size() - total_returned, batch_size_);
+        std::min(all_objects.size() - total_returned, TypeParam::kBatchSize);
     for (int i = 0; i < size_to_pop; ++i) {
       batch[i] = all_objects[i + total_returned];
     }
     total_returned += size_to_pop;
-    cfl_.InsertRange({batch, size_to_pop});
+    e.central_freelist().InsertRange({batch, size_to_pop});
     // sanity check
     if (!checked_half && total_returned >= (num_objects_to_fetch / 2)) {
-      stats = cfl_.GetSpanStats();
+      stats = e.central_freelist().GetSpanStats();
       EXPECT_GT(stats.num_spans_requested, stats.num_spans_returned);
       EXPECT_NE(stats.obj_capacity, 0);
       // Total spans recorded in the histogram must be equal to the number of
       // live spans.
-      histogram = cfl_.GetSpanUtilHistogram();
+      histogram = e.central_freelist().GetSpanUtilHistogram();
       size_t spans_in_histogram = 0;
       for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
         spans_in_histogram += histogram.value[i];
@@ -508,17 +499,29 @@ TEST_P(CFLTest, MultipleSpans) {
     }
   }
 
-  stats = cfl_.GetSpanStats();
+  stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
   // Since no span is live, histogram must be empty.
-  histogram = cfl_.GetSpanUtilHistogram();
+  histogram = e.central_freelist().GetSpanUtilHistogram();
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     EXPECT_EQ(histogram.value[i], 0);
   }
   EXPECT_EQ(stats.obj_capacity, 0);
 }
 
-INSTANTIATE_TEST_SUITE_P(All, CFLTest, testing::Range(size_t(1), kNumClasses));
+REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
+                            SpanUtilizationHistogram, MultipleSpans);
+
+namespace unit_tests {
+
+using Env = FakeCentralFreeListEnvironment<
+    central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
+
+INSTANTIATE_TYPED_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
+                               ::testing::Types<Env>);
+
+}  // namespace unit_tests
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
