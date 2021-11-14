@@ -1880,10 +1880,6 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
 
 inline void do_malloc_stats() { PrintStats(1); }
 
-inline int do_malloc_trim(size_t pad) {
-  return 0;  // Indicate no memory released
-}
-
 inline int do_mallopt(int cmd, int value) {
   return 1;  // Indicates error
 }
@@ -1923,7 +1919,6 @@ using tcmalloc::tcmalloc_internal::do_mallinfo;
 #endif
 using tcmalloc::tcmalloc_internal::do_malloc_pages;
 using tcmalloc::tcmalloc_internal::do_malloc_stats;
-using tcmalloc::tcmalloc_internal::do_malloc_trim;
 using tcmalloc::tcmalloc_internal::do_mallopt;
 using tcmalloc::tcmalloc_internal::GetThreadSampler;
 using tcmalloc::tcmalloc_internal::MallocPolicy;
@@ -2448,10 +2443,6 @@ extern "C" void* TCMallocInternalPvalloc(size_t size) noexcept {
 
 extern "C" void TCMallocInternalMallocStats(void) noexcept {
   do_malloc_stats();
-}
-
-extern "C" int TCMallocInternalMallocTrim(size_t pad) noexcept {
-  return do_malloc_trim(pad);
 }
 
 extern "C" int TCMallocInternalMallOpt(int cmd, int value) noexcept {

@@ -100,7 +100,6 @@ void* pvalloc(size_t size) noexcept TCMALLOC_ALIAS(TCMallocInternalPvalloc);
 int posix_memalign(void** r, size_t a, size_t s) noexcept
     TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
 void malloc_stats(void) noexcept TCMALLOC_ALIAS(TCMallocInternalMallocStats);
-int malloc_trim(size_t pad) noexcept TCMALLOC_ALIAS(TCMallocInternalMallocTrim);
 int mallopt(int cmd, int value) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallOpt);
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
