@@ -79,6 +79,7 @@ void* pvalloc(size_t s) { return TCMallocInternalPvalloc(s); }
 
 #if defined(__GLIBC__) || defined(__NEWLIB__) || defined(__UCLIBC__)
 void malloc_stats(void) { TCMallocInternalMallocStats(); }
+int malloc_trim(size_t pad) { return TCMallocInternalMallocTrim(pad); }
 #endif
 
 #if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__) || \
