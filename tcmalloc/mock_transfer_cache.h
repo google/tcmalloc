@@ -258,9 +258,6 @@ class TwoSizeClassEnv {
   using Manager = TwoSizeClassManager<FreeList, TransferCacheT>;
   using TransferCache = typename Manager::TransferCache;
 
-  static constexpr int kMaxObjectsToMove =
-      ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
-
   explicit TwoSizeClassEnv() = default;
 
   ~TwoSizeClassEnv() { Drain(); }
