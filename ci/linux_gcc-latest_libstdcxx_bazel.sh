@@ -66,7 +66,6 @@ for std in ${STD}; do
         /usr/local/bin/bazel test ... \
           --compilation_mode="${compilation_mode}" \
           --copt="${exceptions_mode}" \
-          --copt=-Werror \
           --define="absl=1" \
           --distdir="/bazel-distdir" \
           --keep_going \

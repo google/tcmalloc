@@ -53,8 +53,6 @@ class StaticForwarder {
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
 
-}  // namespace central_freelist_internal
-
 // Records histogram of span utilization. Span utilization represents
 // the number of objects allocated from the span, with maximum number of objects
 // that can be allocated from a span is less than objects_per_span_.
@@ -66,8 +64,11 @@ struct SpanUtilHistogram {
 };
 
 // Data kept per size-class in central cache.
+template <typename ForwarderT>
 class CentralFreeList {
  public:
+  using Forwarder = ForwarderT;
+
   constexpr CentralFreeList()
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         size_class_(0),
@@ -111,6 +112,10 @@ class CentralFreeList {
   // Histogram consists of kSpanUtilBucketCapacity number of buckets; bucket N
   // records number of spans with allocated objects < 2^N.
   SpanUtilHistogram GetSpanUtilHistogram() const;
+
+  const Forwarder& forwarder() const { return forwarder_; }
+
+  Forwarder& forwarder() { return forwarder_; }
 
  private:
   // Release an object to spans.
@@ -190,7 +195,211 @@ class CentralFreeList {
 
   // Dummy header for non-empty spans
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);
+
+  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
+
+// Like a constructor and hence we disable thread safety analysis.
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::Init(size_t cl)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  size_class_ = cl;
+  object_size_ = Forwarder::class_to_size(cl);
+  pages_per_span_ = Forwarder::class_to_pages(cl);
+  objects_per_span_ =
+      pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+  ASSERT(absl::bit_width(objects_per_span_) < kSpanUtilBucketCapacity);
+}
+
+template <class Forwarder>
+inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
+                                                        Span* span,
+                                                        size_t object_size) {
+  if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
+    nonempty_.prepend(span);
+  }
+
+  // As the objects are being added to the span, its utilization might change.
+  // We remove the stale utilization from the histogram and add the new
+  // utilization to the histogram after we release objects to the span.
+  RecordSpanUtil(span, /*increase=*/false);
+  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
+    RecordSpanUtil(span, /*increase=*/true);
+    return nullptr;
+  }
+  span->RemoveFromList();  // from nonempty_
+  return span;
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
+  CHECK_CONDITION(!batch.empty() && batch.size() <= kMaxObjectsToMove);
+  Span* spans[kMaxObjectsToMove];
+  // Safe to store free spans into freed up space in span array.
+  Span** free_spans = spans;
+  int free_count = 0;
+
+  // Prefetch Span objects to reduce cache misses.
+  for (int i = 0; i < batch.size(); ++i) {
+    Span* span = forwarder_.MapObjectToSpan(batch[i]);
+    ASSERT(span != nullptr);
+    span->Prefetch();
+    spans[i] = span;
+  }
+
+  // First, release all individual objects into spans under our mutex
+  // and collect spans that become completely free.
+  {
+    // Use local copy of variable to ensure that it is not reloaded.
+    size_t object_size = object_size_;
+    absl::base_internal::SpinLockHolder h(&lock_);
+    for (int i = 0; i < batch.size(); ++i) {
+      Span* span = ReleaseToSpans(batch[i], spans[i], object_size);
+      if (ABSL_PREDICT_FALSE(span)) {
+        free_spans[free_count] = span;
+        free_count++;
+      }
+    }
+
+    RecordMultiSpansDeallocated(free_count);
+    UpdateObjectCounts(batch.size());
+  }
+
+  // Then, release all free spans into page heap under its mutex.
+  if (ABSL_PREDICT_FALSE(free_count)) {
+    forwarder_.DeallocateSpans(size_class_,
+                               absl::MakeSpan(free_spans, free_count));
+  }
+}
+
+template <class Forwarder>
+inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
+  ASSUME(N > 0);
+  // Use local copy of variable to ensure that it is not reloaded.
+  size_t object_size = object_size_;
+  int result = 0;
+  absl::base_internal::SpinLockHolder h(&lock_);
+  if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
+    result = Populate(batch, N);
+  } else {
+    do {
+      Span* span = nonempty_.first();
+      // As the objects are being popped from the span, its utilization might
+      // change. So, we remove the stale utilization from the histogram here and
+      // add it again once we pop the objects.
+      RecordSpanUtil(span, /*increase=*/false);
+      int here =
+          span->FreelistPopBatch(batch + result, N - result, object_size);
+      RecordSpanUtil(span, /*increase=*/true);
+      ASSERT(here > 0);
+      if (span->FreelistEmpty(object_size)) {
+        span->RemoveFromList();  // from nonempty_
+      }
+      result += here;
+    } while (result < N && !nonempty_.empty());
+  }
+  UpdateObjectCounts(-result);
+  return result;
+}
+
+// Fetch memory from the system and add to the central cache freelist.
+template <class Forwarder>
+inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  // Release central list lock while operating on pageheap
+  // Note, this could result in multiple calls to populate each allocating
+  // a new span and the pushing those partially full spans onto nonempty.
+  lock_.Unlock();
+
+  Span* span = forwarder_.AllocateSpan(size_class_, pages_per_span_);
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
+        pages_per_span_.in_bytes());
+
+    lock_.Lock();
+    return 0;
+  }
+
+  size_t objects_per_span = objects_per_span_;
+  int result = span->BuildFreelist(object_size_, objects_per_span, batch, N);
+  ASSERT(result > 0);
+  // This is a cheaper check than using FreelistEmpty().
+  bool span_empty = result == objects_per_span;
+
+  lock_.Lock();
+
+  // Update the histogram once we populate the span.
+  RecordSpanUtil(span, /*increase=*/true);
+  if (!span_empty) {
+    nonempty_.prepend(span);
+  }
+  RecordSpanAllocated();
+  return result;
+}
+
+template <class Forwarder>
+inline size_t CentralFreeList<Forwarder>::OverheadBytes() const {
+  if (ABSL_PREDICT_FALSE(object_size_ == 0)) {
+    return 0;
+  }
+  const size_t overhead_per_span = pages_per_span_.in_bytes() % object_size_;
+  return num_spans() * overhead_per_span;
+}
+
+template <class Forwarder>
+inline SpanStats CentralFreeList<Forwarder>::GetSpanStats() const {
+  SpanStats stats;
+  if (ABSL_PREDICT_FALSE(objects_per_span_ == 0)) {
+    return stats;
+  }
+  stats.num_spans_requested = static_cast<size_t>(num_spans_requested_.value());
+  stats.num_spans_returned = static_cast<size_t>(num_spans_returned_.value());
+  stats.obj_capacity = stats.num_live_spans() * objects_per_span_;
+  return stats;
+}
+
+template <class Forwarder>
+inline SpanUtilHistogram CentralFreeList<Forwarder>::GetSpanUtilHistogram()
+    const {
+  SpanUtilHistogram histogram;
+  for (int i = 0; i <= absl::bit_width(objects_per_span_); ++i) {
+    histogram.value[i] = objects_to_spans_[i].value();
+  }
+  return histogram;
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) const {
+  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
+
+  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
+    out->printf("%6zu < %zu", util_histogram.value[i], 1 << i);
+    if (i < kSpanUtilBucketCapacity - 1) {
+      out->printf(",");
+    }
+  }
+  out->printf("\n");
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
+    PbtxtRegion* region) const {
+  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
+
+  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
+    PbtxtRegion histogram = region->CreateSubRegion("span_util_histogram");
+    size_t lower_bound = i > 0 ? 1 << (i - 1) : 0;
+    histogram.PrintI64("lower_bound", lower_bound);
+    histogram.PrintI64("upper_bound", 1 << i);
+    histogram.PrintI64("value", util_histogram.value[i]);
+  }
+}
+
+}  // namespace central_freelist_internal
+
+using CentralFreeList = central_freelist_internal::CentralFreeList<
+    central_freelist_internal::StaticForwarder>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

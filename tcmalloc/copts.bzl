@@ -15,6 +15,9 @@
 """This package provides default compiler warning flags for the OSS release"""
 
 TCMALLOC_LLVM_FLAGS = [
+    # Ensure TCMalloc itself builds without errors, even if its dependencies
+    # aren't necessarily -Werror clean.
+    "-Werror",
     "-Wno-deprecated-declarations",
     "-Wno-implicit-int-float-conversion",
     "-Wno-sign-compare",
@@ -24,6 +27,9 @@ TCMALLOC_LLVM_FLAGS = [
 ]
 
 TCMALLOC_GCC_FLAGS = [
+    # Ensure TCMalloc itself builds without errors, even if its dependencies
+    # aren't necessarily -Werror clean.
+    "-Werror",
     "-Wno-attribute-alias",
     "-Wno-sign-compare",
     "-Wno-stringop-overflow",

@@ -644,6 +644,20 @@ cc_library(
 )
 
 cc_library(
+    name = "mock_static_forwarder",
+    testonly = 1,
+    hdrs = ["mock_static_forwarder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        ":mock_transfer_cache",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+cc_library(
     name = "page_allocator_test_util",
     testonly = 1,
     srcs = [
@@ -1318,11 +1332,13 @@ cc_test(
     ],
 )
 
-create_tcmalloc_testsuite(
+cc_test(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":common",
+        ":mock_static_forwarder",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:fixed_array",
@@ -1342,5 +1358,35 @@ create_tcmalloc_benchmark(
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_library(
+    name = "profile_marshaler",
+    srcs = ["profile_marshaler.cc"],
+    hdrs = ["profile_marshaler.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":malloc_extension",
+        "//tcmalloc/internal:profile_builder",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "profile_marshaler_test",
+    srcs = ["profile_marshaler_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":profile_marshaler",
+        "//tcmalloc/internal:fake_profile",
+        "//tcmalloc/internal:profile_cc_proto",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
     ],
 )

@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_OPTIMIZATION_H_
 #define TCMALLOC_INTERNAL_OPTIMIZATION_H_
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/logging.h"
 
 // Our wrapper for __builtin_assume, allowing us to check the assumption on
@@ -40,6 +41,13 @@
 #define TCMALLOC_ATTRIBUTE_CONST __attribute__((const))
 #else
 #define TCMALLOC_ATTRIBUTE_CONST
+#endif
+
+#if ABSL_HAVE_CPP_ATTRIBUTE(no_unique_address)
+#define TCMALLOC_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#else
+#define TCMALLOC_NO_UNIQUE_ADDRESS
+#error
 #endif
 
 #endif  // TCMALLOC_INTERNAL_OPTIMIZATION_H_

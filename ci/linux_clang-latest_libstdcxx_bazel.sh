@@ -67,7 +67,6 @@ for std in ${STD}; do
           --compilation_mode="${compilation_mode}" \
           --copt="--gcc-toolchain=/usr/local" \
           --copt="${exceptions_mode}" \
-          --copt=-Werror \
           --define="absl=1" \
           --distdir="/bazel-distdir" \
           --keep_going \

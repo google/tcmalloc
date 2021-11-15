@@ -42,7 +42,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 enum class TransferCacheImplementation {
-  Legacy,
   None,
   Ring,
 };
@@ -168,100 +167,60 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    implementation_ = ChooseImplementation();
     for (int i = 0; i < kNumClasses; ++i) {
-      if (implementation_ == TransferCacheImplementation::Ring) {
-        new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
-      } else {
-        new (&cache_[i].tc) TransferCache(this, i);
-      }
+      new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
     }
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      cache_[size_class].rbtc.InsertRange(size_class, batch);
-    } else {
-      cache_[size_class].tc.InsertRange(size_class, batch);
-    }
+    cache_[size_class].rbtc.InsertRange(size_class, batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.RemoveRange(size_class, batch, n);
-    } else {
-      return cache_[size_class].tc.RemoveRange(size_class, batch, n);
-    }
+    return cache_[size_class].rbtc.RemoveRange(size_class, batch, n);
   }
 
   // All caches which have not been modified since the last time this method has
   // been called will return all objects to the freelist.
   void Plunder() {
     for (int i = 0; i < kNumClasses; ++i) {
-      if (implementation_ == TransferCacheImplementation::Ring) {
-        cache_[i].rbtc.TryPlunder(i);
-      } else {
-        cache_[i].tc.TryPlunder(i);
-      }
+      cache_[i].rbtc.TryPlunder(i);
     }
   }
 
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
   size_t tc_length(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.tc_length();
-    } else {
-      return cache_[size_class].tc.tc_length();
-    }
+    return cache_[size_class].rbtc.tc_length();
   }
 
   TransferCacheStats GetHitRateStats(int size_class) const {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.GetHitRateStats();
-    } else {
-      return cache_[size_class].tc.GetHitRateStats();
-    }
+    return cache_[size_class].rbtc.GetHitRateStats();
   }
 
   const CentralFreeList &central_freelist(int size_class) const {
-    if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.freelist();
-    } else {
-      return cache_[size_class].tc.freelist();
-    }
   }
 
   CentralFreeList &central_freelist(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.freelist();
-    } else {
-      return cache_[size_class].tc.freelist();
-    }
   }
 
-  TransferCacheImplementation implementation() const { return implementation_; }
+  TransferCacheImplementation implementation() const {
+    return TransferCacheImplementation::Ring;
+  }
 
  private:
-  static TransferCacheImplementation ChooseImplementation();
-
   int DetermineSizeClassToEvict(int size_class);
   bool ShrinkCache(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.ShrinkCache(size_class);
-    } else {
-      return cache_[size_class].tc.ShrinkCache(size_class);
-    }
   }
 
-  TransferCacheImplementation implementation_ =
-      TransferCacheImplementation::Legacy;
   std::atomic<int32_t> next_to_evict_;
   union Cache {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
-    TransferCache tc;
     RingBufferTransferCache rbtc;
     bool dummy;
   };

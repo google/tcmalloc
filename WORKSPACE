@@ -90,6 +90,7 @@ http_archive(
     urls = ["https://github.com/bazelbuild/rules_fuzzing/archive/v0.1.1.zip"],
 )
 
+# Protobuf
 load("@rules_fuzzing//fuzzing:repositories.bzl", "rules_fuzzing_dependencies")
 
 rules_fuzzing_dependencies()
