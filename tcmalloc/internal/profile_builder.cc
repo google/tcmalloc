@@ -39,6 +39,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+#if defined(__linux__)
 // Returns the Phdr of the first segment of the given type.
 const ElfW(Phdr) *
     GetFirstSegment(const dl_phdr_info* const info, const int segment_type) {
@@ -127,6 +128,7 @@ static const char* GetSoName(const dl_phdr_info* const info) {
   CHECK_CONDITION(dt_soname->d_un.d_val < dt_strsz->d_un.d_val);
   return strtab + dt_soname->d_un.d_val;
 }
+#endif  // defined(__linux__)
 
 uintptr_t RoundUpToPageSize(uintptr_t address) {
   const uintptr_t pagesize = sysconf(_SC_PAGESIZE);
