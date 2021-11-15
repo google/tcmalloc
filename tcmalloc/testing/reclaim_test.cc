@@ -126,6 +126,11 @@ TEST(ReclaimTest, ReclaimWorks) {
 }
 
 TEST(ReclaimTest, ReclaimStable) {
+  if (!MallocExtension::PerCpuCachesActive()) {
+    GTEST_SKIP() << "Skipping test without per-CPU caches";
+    return;
+  }
+
   // make sure that reclamation under heavy load doesn't lead to
   // corruption.
   struct Reclaimer {

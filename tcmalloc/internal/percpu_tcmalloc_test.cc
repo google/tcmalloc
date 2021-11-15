@@ -35,6 +35,7 @@
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/config.h"
@@ -605,7 +606,16 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       };
       Context ctx = {block, capacity};
       int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+      // Flip coin on whether to unregister rseq on this thread.
+      const bool unregister = absl::Bernoulli(rnd, 0.5);
+
       if (mutexes->at(cpu).TryLock()) {
+        absl::optional<ScopedUnregisterRseq> scoped_rseq;
+        if (unregister) {
+          scoped_rseq.emplace();
+          ASSERT(!IsFastNoInit());
+        }
+
         slab->Drain(
             cpu, &ctx,
             [](void* arg, size_t cl, void** batch, size_t n, size_t cap) {
@@ -621,6 +631,9 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
             });
         mutexes->at(cpu).Unlock();
       }
+
+      // Verify we re-registered with rseq as required.
+      ASSERT(IsFastNoInit());
     }
   }
 }
