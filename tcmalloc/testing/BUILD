@@ -943,6 +943,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",
+        "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",

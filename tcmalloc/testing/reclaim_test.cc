@@ -22,6 +22,7 @@
 #include "absl/strings/str_format.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -128,7 +129,15 @@ TEST(ReclaimTest, ReclaimStable) {
   // make sure that reclamation under heavy load doesn't lead to
   // corruption.
   struct Reclaimer {
-    static void Go(std::atomic<bool>* sync) {
+    static void Go(std::atomic<bool>* sync, bool initialize_rseq) {
+      if (initialize_rseq) {
+        // Require initialization to succeed.
+        CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+      } else {
+        // Require that we have not initialized this thread with rseq yet.
+        CHECK_CONDITION(!tcmalloc_internal::subtle::percpu::IsFastNoInit());
+      }
+
       size_t bytes = 0;
       int iter = 0;
       while (!sync->load(std::memory_order_acquire)) {
@@ -142,7 +151,8 @@ TEST(ReclaimTest, ReclaimStable) {
   };
 
   std::atomic<bool> sync{false};
-  std::thread releaser(Reclaimer::Go, &sync);
+  std::thread releaser(Reclaimer::Go, &sync, true);
+  std::thread no_rseq_releaser(Reclaimer::Go, &sync, false);
 
   const int kThreads = 10;
   ThreadManager mgr;
@@ -156,6 +166,7 @@ TEST(ReclaimTest, ReclaimStable) {
 
   sync.store(true, std::memory_order_release);
   releaser.join();
+  no_rseq_releaser.join();
 }
 
 }  // namespace
