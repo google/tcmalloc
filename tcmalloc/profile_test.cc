@@ -190,7 +190,6 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   }
   // Hopefully we're in a fairly small range, that contains our actual
   // allocation.
-  // TODO(b/134690164): better statistical tests here.
   EXPECT_GE((min_bytes * 3) / 2, max_bytes);
   EXPECT_LE((min_bytes * 3) / 4, kTotalPerSize);
   EXPECT_LE(kTotalPerSize, (max_bytes * 4) / 3);
