@@ -28,6 +28,7 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -45,8 +46,7 @@ struct Sample {
   T* dead ABSL_GUARDED_BY(lock) = nullptr;
 };
 
-// Holds samples and their associated stack traces with a soft limit of
-// `SetMaxSamples()`.
+// Holds samples and their associated stack traces.
 //
 // Thread safe.
 template <typename T, typename AllocatorT>
@@ -76,20 +76,13 @@ class SampleRecorder {
   using DisposeCallback = void (*)(const T&);
   DisposeCallback SetDisposeCallback(DisposeCallback f);
 
-  // Iterates over all the registered `StackInfo`s.  Returning the number of
-  // samples that have been dropped.
-  int64_t Iterate(const std::function<void(const T& stack)>& f);
-
-  void SetMaxSamples(int32_t max);
+  // Iterates over all the registered samples.
+  void Iterate(const absl::FunctionRef<void(const T& sample)>& f);
 
  private:
   void PushNew(T* sample);
   void PushDead(T* sample);
   T* PopDead();
-
-  std::atomic<size_t> dropped_samples_;
-  std::atomic<size_t> size_estimate_;
-  std::atomic<int32_t> max_samples_{1 << 20};
 
   // Intrusive lock free linked lists for tracking samples.
   //
@@ -131,11 +124,7 @@ SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
 
 template <typename T, typename Allocator>
 SampleRecorder<T, Allocator>::SampleRecorder(Allocator* allocator)
-    : dropped_samples_(0),
-      size_estimate_(0),
-      all_(nullptr),
-      dispose_(nullptr),
-      allocator_(allocator) {
+    : all_(nullptr), dispose_(nullptr), allocator_(allocator) {
   absl::base_internal::SpinLockHolder l(&graveyard_.lock);
   graveyard_.dead = &graveyard_;
 }
@@ -190,13 +179,6 @@ T* SampleRecorder<T, Allocator>::PopDead() {
 
 template <typename T, typename Allocator>
 T* SampleRecorder<T, Allocator>::Register() {
-  int64_t size = size_estimate_.fetch_add(1, std::memory_order_relaxed);
-  if (size > max_samples_.load(std::memory_order_relaxed)) {
-    size_estimate_.fetch_sub(1, std::memory_order_relaxed);
-    dropped_samples_.fetch_add(1, std::memory_order_relaxed);
-    return nullptr;
-  }
-
   T* sample = PopDead();
   if (sample == nullptr) {
     // Resurrection failed.  Hire a new warlock.
@@ -210,12 +192,11 @@ T* SampleRecorder<T, Allocator>::Register() {
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::Unregister(T* sample) {
   PushDead(sample);
-  size_estimate_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 template <typename T, typename Allocator>
-int64_t SampleRecorder<T, Allocator>::Iterate(
-    const std::function<void(const T& stack)>& f) {
+void SampleRecorder<T, Allocator>::Iterate(
+    const absl::FunctionRef<void(const T& sample)>& f) {
   T* s = all_.load(std::memory_order_acquire);
   while (s != nullptr) {
     absl::base_internal::SpinLockHolder l(&s->lock);
@@ -224,13 +205,6 @@ int64_t SampleRecorder<T, Allocator>::Iterate(
     }
     s = s->next;
   }
-
-  return dropped_samples_.load(std::memory_order_relaxed);
-}
-
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::SetMaxSamples(int32_t max) {
-  max_samples_.store(max, std::memory_order_release);
 }
 
 }  // namespace tcmalloc_internal
