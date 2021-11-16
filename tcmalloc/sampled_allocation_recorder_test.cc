@@ -36,60 +36,71 @@ struct Info : public Sample<Info> {
   absl::Time create_time;
 };
 
-std::vector<size_t> GetSizes(SampleRecorder<Info>* s) {
-  std::vector<size_t> res;
-  s->Iterate([&](const Info& info) {
-    res.push_back(info.size.load(std::memory_order_acquire));
-  });
-  return res;
-}
+class TestAllocator {
+ public:
+  static Info* Alloc(size_t size) { return new Info; }
+  static void Delete(Info* info) { delete info; }
+};
 
-Info* Register(SampleRecorder<Info>* s, size_t size) {
-  auto* info = s->Register();
-  assert(info != nullptr);
-  info->size.store(size);
-  return info;
-}
+class SampleRecorderTest : public ::testing::Test {
+ public:
+  SampleRecorderTest() : sample_recorder_(&allocator_) {}
 
-TEST(SampleRecorderTest, Registration) {
-  SampleRecorder<Info> sampler;
-  auto* info1 = Register(&sampler, 1);
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(1));
+  std::vector<size_t> GetSizes() {
+    std::vector<size_t> res;
+    sample_recorder_.Iterate([&](const Info& info) {
+      res.push_back(info.size.load(std::memory_order_acquire));
+    });
+    return res;
+  }
 
-  auto* info2 = Register(&sampler, 2);
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(1, 2));
+  Info* Register(size_t size) {
+    auto* info = sample_recorder_.Register();
+    assert(info != nullptr);
+    info->size.store(size);
+    return info;
+  }
+
+  TestAllocator allocator_;
+  SampleRecorder<Info, TestAllocator> sample_recorder_;
+};
+
+TEST_F(SampleRecorderTest, Registration) {
+  auto* info1 = Register(1);
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(1));
+
+  auto* info2 = Register(2);
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(1, 2));
   info1->size.store(3);
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(3, 2));
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(3, 2));
 
-  sampler.Unregister(info1);
-  sampler.Unregister(info2);
+  sample_recorder_.Unregister(info1);
+  sample_recorder_.Unregister(info2);
 }
 
-TEST(SampleRecorderTest, Unregistration) {
-  SampleRecorder<Info> sampler;
+TEST_F(SampleRecorderTest, Unregistration) {
   std::vector<Info*> infos;
   for (size_t i = 0; i < 3; ++i) {
-    infos.push_back(Register(&sampler, i));
+    infos.push_back(Register(i));
   }
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(0, 1, 2));
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 1, 2));
 
-  sampler.Unregister(infos[1]);
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(0, 2));
+  sample_recorder_.Unregister(infos[1]);
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2));
 
-  infos.push_back(Register(&sampler, 3));
-  infos.push_back(Register(&sampler, 4));
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(0, 2, 3, 4));
-  sampler.Unregister(infos[3]);
-  EXPECT_THAT(GetSizes(&sampler), UnorderedElementsAre(0, 2, 4));
+  infos.push_back(Register(3));
+  infos.push_back(Register(4));
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2, 3, 4));
+  sample_recorder_.Unregister(infos[3]);
+  EXPECT_THAT(GetSizes(), UnorderedElementsAre(0, 2, 4));
 
-  sampler.Unregister(infos[0]);
-  sampler.Unregister(infos[2]);
-  sampler.Unregister(infos[4]);
-  EXPECT_THAT(GetSizes(&sampler), IsEmpty());
+  sample_recorder_.Unregister(infos[0]);
+  sample_recorder_.Unregister(infos[2]);
+  sample_recorder_.Unregister(infos[4]);
+  EXPECT_THAT(GetSizes(), IsEmpty());
 }
 
-TEST(SampleRecorderTest, MultiThreaded) {
-  SampleRecorder<Info> sampler;
+TEST_F(SampleRecorderTest, MultiThreaded) {
   absl::Notification stop;
   ThreadManager threads;
   threads.Start(10, [&](int) {
@@ -99,11 +110,11 @@ TEST(SampleRecorderTest, MultiThreaded) {
     std::vector<Info*> infoz;
     while (!stop.HasBeenNotified()) {
       if (infoz.empty()) {
-        infoz.push_back(sampler.Register());
+        infoz.push_back(sample_recorder_.Register());
       }
       switch (std::uniform_int_distribution<>(0, 2)(gen)) {
         case 0: {
-          infoz.push_back(sampler.Register());
+          infoz.push_back(sample_recorder_.Register());
           break;
         }
         case 1: {
@@ -111,12 +122,12 @@ TEST(SampleRecorderTest, MultiThreaded) {
           Info* info = infoz[p];
           infoz[p] = infoz.back();
           infoz.pop_back();
-          sampler.Unregister(info);
+          sample_recorder_.Unregister(info);
           break;
         }
         case 2: {
           absl::Duration oldest = absl::ZeroDuration();
-          sampler.Iterate([&](const Info& info) {
+          sample_recorder_.Iterate([&](const Info& info) {
             oldest = std::max(oldest, absl::Now() - info.create_time);
           });
           ASSERT_GE(oldest, absl::ZeroDuration());
@@ -132,11 +143,9 @@ TEST(SampleRecorderTest, MultiThreaded) {
   threads.Stop();
 }
 
-TEST(SampleRecorderTest, Callback) {
-  SampleRecorder<Info> sampler;
-
-  auto* info1 = Register(&sampler, 1);
-  auto* info2 = Register(&sampler, 2);
+TEST_F(SampleRecorderTest, Callback) {
+  auto* info1 = Register(1);
+  auto* info2 = Register(2);
 
   static const Info* expected;
 
@@ -147,14 +156,14 @@ TEST(SampleRecorderTest, Callback) {
   };
 
   // Set the callback.
-  EXPECT_EQ(sampler.SetDisposeCallback(callback), nullptr);
+  EXPECT_EQ(sample_recorder_.SetDisposeCallback(callback), nullptr);
   expected = info1;
-  sampler.Unregister(info1);
+  sample_recorder_.Unregister(info1);
 
   // Unset the callback.
-  EXPECT_EQ(callback, sampler.SetDisposeCallback(nullptr));
+  EXPECT_EQ(callback, sample_recorder_.SetDisposeCallback(nullptr));
   expected = nullptr;  // no more calls.
-  sampler.Unregister(info2);
+  sample_recorder_.Unregister(info2);
 }
 
 }  // namespace

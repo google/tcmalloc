@@ -49,11 +49,19 @@ struct Sample {
 // `SetMaxSamples()`.
 //
 // Thread safe.
-template <typename T>
+template <typename T, typename AllocatorT>
 class SampleRecorder {
  public:
-  SampleRecorder();
+  using Allocator = AllocatorT;
+
+  explicit SampleRecorder(Allocator* allocator);
   ~SampleRecorder();
+
+  SampleRecorder(const SampleRecorder&) = delete;
+  SampleRecorder& operator=(const SampleRecorder&) = delete;
+
+  SampleRecorder(SampleRecorder&&) = delete;
+  SampleRecorder& operator=(SampleRecorder&&) = delete;
 
   // Registers for sampling.  Returns an opaque registration info.
   T* Register();
@@ -112,33 +120,38 @@ class SampleRecorder {
   T graveyard_;
 
   std::atomic<DisposeCallback> dispose_;
+  Allocator* const allocator_;
 };
 
-template <typename T>
-typename SampleRecorder<T>::DisposeCallback
-SampleRecorder<T>::SetDisposeCallback(DisposeCallback f) {
+template <typename T, typename Allocator>
+typename SampleRecorder<T, Allocator>::DisposeCallback
+SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
   return dispose_.exchange(f, std::memory_order_relaxed);
 }
 
-template <typename T>
-SampleRecorder<T>::SampleRecorder()
-    : dropped_samples_(0), size_estimate_(0), all_(nullptr), dispose_(nullptr) {
+template <typename T, typename Allocator>
+SampleRecorder<T, Allocator>::SampleRecorder(Allocator* allocator)
+    : dropped_samples_(0),
+      size_estimate_(0),
+      all_(nullptr),
+      dispose_(nullptr),
+      allocator_(allocator) {
   absl::base_internal::SpinLockHolder l(&graveyard_.lock);
   graveyard_.dead = &graveyard_;
 }
 
-template <typename T>
-SampleRecorder<T>::~SampleRecorder() {
+template <typename T, typename Allocator>
+SampleRecorder<T, Allocator>::~SampleRecorder() {
   T* s = all_.load(std::memory_order_acquire);
   while (s != nullptr) {
     T* next = s->next;
-    delete s;
+    allocator_->Delete(s);
     s = next;
   }
 }
 
-template <typename T>
-void SampleRecorder<T>::PushNew(T* sample) {
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::PushNew(T* sample) {
   sample->next = all_.load(std::memory_order_relaxed);
   while (!all_.compare_exchange_weak(sample->next, sample,
                                      std::memory_order_release,
@@ -146,8 +159,8 @@ void SampleRecorder<T>::PushNew(T* sample) {
   }
 }
 
-template <typename T>
-void SampleRecorder<T>::PushDead(T* sample) {
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::PushDead(T* sample) {
   if (auto* dispose = dispose_.load(std::memory_order_relaxed)) {
     dispose(*sample);
   }
@@ -158,8 +171,8 @@ void SampleRecorder<T>::PushDead(T* sample) {
   graveyard_.dead = sample;
 }
 
-template <typename T>
-T* SampleRecorder<T>::PopDead() {
+template <typename T, typename Allocator>
+T* SampleRecorder<T, Allocator>::PopDead() {
   absl::base_internal::SpinLockHolder graveyard_lock(&graveyard_.lock);
 
   // The list is circular, so eventually it collapses down to
@@ -175,8 +188,8 @@ T* SampleRecorder<T>::PopDead() {
   return sample;
 }
 
-template <typename T>
-T* SampleRecorder<T>::Register() {
+template <typename T, typename Allocator>
+T* SampleRecorder<T, Allocator>::Register() {
   int64_t size = size_estimate_.fetch_add(1, std::memory_order_relaxed);
   if (size > max_samples_.load(std::memory_order_relaxed)) {
     size_estimate_.fetch_sub(1, std::memory_order_relaxed);
@@ -187,21 +200,21 @@ T* SampleRecorder<T>::Register() {
   T* sample = PopDead();
   if (sample == nullptr) {
     // Resurrection failed.  Hire a new warlock.
-    sample = new T();
+    sample = allocator_->Alloc(sizeof(T));
     PushNew(sample);
   }
 
   return sample;
 }
 
-template <typename T>
-void SampleRecorder<T>::Unregister(T* sample) {
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::Unregister(T* sample) {
   PushDead(sample);
   size_estimate_.fetch_sub(1, std::memory_order_relaxed);
 }
 
-template <typename T>
-int64_t SampleRecorder<T>::Iterate(
+template <typename T, typename Allocator>
+int64_t SampleRecorder<T, Allocator>::Iterate(
     const std::function<void(const T& stack)>& f) {
   T* s = all_.load(std::memory_order_acquire);
   while (s != nullptr) {
@@ -215,8 +228,8 @@ int64_t SampleRecorder<T>::Iterate(
   return dropped_samples_.load(std::memory_order_relaxed);
 }
 
-template <typename T>
-void SampleRecorder<T>::SetMaxSamples(int32_t max) {
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::SetMaxSamples(int32_t max) {
   max_samples_.store(max, std::memory_order_release);
 }
 
