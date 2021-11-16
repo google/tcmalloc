@@ -70,7 +70,7 @@ void GetMallocStats(std::string* buffer) {
 
   CHECK_CONDITION(&TCMalloc_Internal_GetStats != nullptr);
   size_t required = TCMalloc_Internal_GetStats(buffer->data(), buffer->size());
-  ASSERT(required <= buffer->size());
+  EXPECT_LE(required, buffer->size());
 
   buffer->resize(std::min(required, buffer->size()));
 }
@@ -82,10 +82,14 @@ TEST(ReclaimTest, ReclaimWorks) {
   }
 
   std::string before, after;
-  // Allocate strings, so that they (probably) don't need to be reallocated
-  // below, and so don't perturb what we're trying to measure.
-  before.reserve(1 << 18);
-  after.reserve(1 << 18);
+  // Allocate strings, so that they don't need to be reallocated below, and so
+  // don't perturb what we're trying to measure.
+  //
+  // As of November 2021, this size, plus the null terminator on the
+  // std::string, is well outside of the size classes used by TCMalloc, so a
+  // resize will not perturb the per-CPU cache.
+  before.reserve(1 << 19);
+  after.reserve(1 << 19);
 
   // Generate some traffic to fill up caches.
   const int kThreads = 10;
