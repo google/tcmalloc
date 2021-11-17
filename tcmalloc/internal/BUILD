@@ -109,7 +109,6 @@ cc_library(
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/functional:function_ref",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
     ],
 )
