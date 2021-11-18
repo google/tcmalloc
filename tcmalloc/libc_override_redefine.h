@@ -81,6 +81,10 @@ void* pvalloc(size_t s) { return TCMallocInternalPvalloc(s); }
 void malloc_stats(void) { TCMallocInternalMallocStats(); }
 #endif
 
+#ifdef TCMALLOC_HAVE_MALLOC_TRIM
+int malloc_trim(size_t pad) { return TCMallocInternalMallocTrim(pad); }
+#endif
+
 #if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__) || \
     defined(__UCLIBC__)
 int mallopt(int cmd, int v) { return TCMallocInternalMallOpt(cmd, v); }

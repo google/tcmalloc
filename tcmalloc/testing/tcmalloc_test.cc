@@ -405,6 +405,12 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
   EXPECT_EQ(starting_bytes + 2 * MB, GetUnmappedBytes());
 }
 
+TEST(TCMallocTest, MallocTrim) {
+#ifdef TCMALLOC_HAVE_MALLOC_TRIM
+  EXPECT_EQ(malloc_trim(0), 0);
+#endif
+}
+
 TEST(TCMallocTest, NothrowSizedDelete) {
   struct Foo {
     double a;
