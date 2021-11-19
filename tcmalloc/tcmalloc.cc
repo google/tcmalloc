@@ -426,8 +426,8 @@ static void DumpStats(Printer* out, int level) {
       cumulative += class_bytes;
       // clang-format off
       out->printf(
-          "class %3d [ %8zu bytes ] : %8" PRIu64 " objs; %5.1f MiB; %5.1f cum MiB; "
-          "%8" PRIu64 " live pages; spans: %6zu ret / %6zu req = %5.4f;\n",
+          "class %3d [ %8zu bytes ] : %8" PRIu64 " objs; %5.1f MiB; %6.1f cum MiB; "
+          "%8" PRIu64 " live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
           cl, Static::sizemap().class_to_size(cl), class_count[cl],
           class_bytes / MiB, cumulative / MiB,
           span_stats[cl].num_live_spans()*Static::sizemap().class_to_pages(cl),
