@@ -373,6 +373,8 @@ cc_test(
     srcs = ["cache_topology_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    tags = [
+    ],
     deps = [
         ":cache_topology",
         "@com_github_google_benchmark//:benchmark",
@@ -499,6 +501,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
+    tags = [
+    ],
     deps = [
         ":config",
         ":logging",
