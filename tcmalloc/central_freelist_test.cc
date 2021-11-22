@@ -15,6 +15,7 @@
 #include "tcmalloc/central_freelist.h"
 
 #include <algorithm>
+#include <utility>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"

@@ -14,6 +14,8 @@
 
 #include "tcmalloc/common.h"
 
+#include <algorithm>
+
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/optimization.h"

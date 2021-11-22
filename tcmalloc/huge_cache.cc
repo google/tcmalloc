@@ -14,6 +14,7 @@
 
 #include "tcmalloc/huge_cache.h"
 
+#include <algorithm>
 #include <tuple>
 
 #include "absl/time/time.h"

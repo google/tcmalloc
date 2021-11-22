@@ -14,6 +14,8 @@
 
 #include <unistd.h>
 
+#include <algorithm>
+
 #include "absl/base/internal/spinlock.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/guarded_page_allocator.h"

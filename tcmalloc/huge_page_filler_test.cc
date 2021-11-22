@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <iterator>
 #include <memory>

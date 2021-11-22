@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <memory>
 #include <random>
 #include <tuple>
