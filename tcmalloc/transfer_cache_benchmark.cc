@@ -28,9 +28,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-using TransferCacheEnv =
-    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
 using RingBufferTransferCacheEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MinimalFakeCentralFreeList,
                                                      FakeTransferCacheManager>>;
@@ -135,12 +132,9 @@ void BM_RemoveRange(benchmark::State& state) {
   }
 }
 
-BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_CrossThread, RingBufferTransferCacheEnv)
     ->ThreadRange(2, 64);
-BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_InsertRange, RingBufferTransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, RingBufferTransferCacheEnv);
 
 }  // namespace

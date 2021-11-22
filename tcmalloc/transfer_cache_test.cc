@@ -512,10 +512,6 @@ REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedShrink);
 
 namespace unit_tests {
-using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, MockTransferCacheManager>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
-                               ::testing::Types<Env>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
@@ -528,10 +524,6 @@ namespace fuzz_tests {
 // Use the FakeCentralFreeList instead of the MockCentralFreeList for fuzz tests
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
-using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, MockTransferCacheManager>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
-
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
                                                      MockTransferCacheManager>>;
@@ -607,11 +599,6 @@ TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
 }
 
 REGISTER_TYPED_TEST_SUITE_P(TwoSizeClassTest, NoLeaks);
-
-using TwoTransferCacheEnv =
-    TwoSizeClassEnv<internal_transfer_cache::TransferCache>;
-INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TwoSizeClassTest,
-                               ::testing::Types<TwoTransferCacheEnv>);
 
 using TwoRingBufferEnv =
     TwoSizeClassEnv<internal_transfer_cache::RingBufferTransferCache>;

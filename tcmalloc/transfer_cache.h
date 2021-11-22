@@ -149,12 +149,6 @@ class ShardedTransferCacheManager {
 
 class TransferCacheManager : public StaticForwarder {
   template <typename CentralFreeList, typename Manager>
-  friend class internal_transfer_cache::TransferCache;
-  using TransferCache =
-      internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
-                                             TransferCacheManager>;
-
-  template <typename CentralFreeList, typename Manager>
   friend class internal_transfer_cache::RingBufferTransferCache;
   using RingBufferTransferCache =
       internal_transfer_cache::RingBufferTransferCache<
