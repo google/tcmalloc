@@ -245,7 +245,7 @@ class RingBufferTransferCache {
         low_water_mark_ = std::min(low_water_mark_, info.used);
         return copied;
       }
-      low_water_mark_ = 0;
+      ASSERT(low_water_mark_ == 0);
     }
 
     remove_misses_.Add(1);
@@ -258,15 +258,18 @@ class RingBufferTransferCache {
     if (max_capacity_ == 0) return;
     // If the lock is being held, someone is modifying the cache.
     if (!lock_.TryLock()) return;
-    int low_water_mark = low_water_mark_;
-    low_water_mark_ = std::numeric_limits<int>::max();
+    ASSERT(low_water_mark_ <= slot_info_.used);
+    int to_return = low_water_mark_;
+    low_water_mark_ = slot_info_.used;
     const int B = Manager::num_objects_to_move(size_class);
-    while (slot_info_.used > 0 && low_water_mark >= B &&
-           (low_water_mark_ == std::numeric_limits<int>::max())) {
-      const size_t num_to_move(std::min(B, slot_info_.used));
+    while (true) {
+      const size_t num_to_move =
+          std::min({B, slot_info_.used, to_return, low_water_mark_});
+      if (num_to_move == 0) break;
       void *buf[kMaxObjectsToMove];
-      CopyOutOfEnd(buf, num_to_move, slot_info_);
-      low_water_mark -= num_to_move;
+      CopyOutOfStart(buf, num_to_move, slot_info_);
+      to_return -= num_to_move;
+      low_water_mark_ -= num_to_move;
       lock_.Unlock();
       freelist().InsertRange({buf, num_to_move});
       tracking::Report(kTCElementsPlunder, size_class, num_to_move);
@@ -382,7 +385,7 @@ class RingBufferTransferCache {
       // Our internal slot array may get overwritten as soon as we drop the
       // lock, so copy the items to free to an on stack buffer.
       CopyOutOfStart(to_free, num_to_free, info);
-      low_water_mark_ = info.used;
+      low_water_mark_ = std::min(low_water_mark_, info.used);
       info.capacity -= N;
       SetSlotInfo(info);
     }
@@ -533,7 +536,7 @@ class RingBufferTransferCache {
   // Lowest value of "slot_info_.used" since last call to TryPlunder. All
   // elements not used for a full cycle (2 seconds) are unlikely to get used
   // again.
-  int low_water_mark_ ABSL_GUARDED_BY(lock_) = std::numeric_limits<int>::max();
+  int low_water_mark_ ABSL_GUARDED_BY(lock_) = 0;
 
   // Maximum size of the cache.
   const int32_t max_capacity_;

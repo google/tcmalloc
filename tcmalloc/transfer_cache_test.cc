@@ -319,12 +319,20 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
   ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
-  // All these elements will be plundered.
+  // Previously the transfer cache was empty, so we're not plundering yet.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // But now all these elements will be plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), 0);
 
+  // Stock up again.
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
+  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // Plundering doesn't do anything as the cache was empty after the last
+  // plunder call.
+  env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
 
   void* buf[TypeParam::kBatchSize];
@@ -332,13 +340,14 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   // call to RemoveRange to 1 batch.
   (void)env.transfer_cache().RemoveRange(kSizeClass, buf,
                                          TypeParam::kBatchSize);
+  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
   env.transfer_cache().InsertRange(kSizeClass, {buf, TypeParam::kBatchSize});
   ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
   // We have one batch, and this is the same as the low water mark, so nothing
   // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
-  // If we plunder immediately the low_water_mark is at maxint, and eveything
+  // If we plunder immediately the low_water_mark is at the current size
   // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), 0);
