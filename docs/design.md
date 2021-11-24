@@ -157,15 +157,15 @@ currently cached. On average the amount actually cached should be about half the
 limit.
 
 The maximum capacity is increased when a size-class
-[runs out of objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc),
+[runs out of objects](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h),
 and when fetching more objects, it also considers
-[increasing the capacity](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
+[increasing the capacity](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h)
 of the size-class. It can increase the capacity of the size-class up until the
 total memory (for all size-classes) that the cache could hold reaches the
 per-cpu limit or until the capacity of that size-class reaches the hard-coded
 size limit for that size-class. If the size-class has not reached the hard-coded
 limit, then in order to increase the capacity it can
-[steal](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
+[steal](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h)
 capacity from another size-class on the same CPU.
 
 ### Restartable Sequences and Per-CPU TCMalloc
@@ -249,11 +249,11 @@ sizing algorithm.
     [reduced](https://github.com/google/tcmalloc/blob/master/tcmalloc/thread_cache.cc)
     should the total size of the cached objects exceed the per-thread limit.
 *   In per-CPU mode the
-    [capacity](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
+    [capacity](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h)
     of the free list is increased depending on whether we are alternating
     between underflows and overflows (indicating that a larger cache might stop
     this alternation). The capacity is
-    [reduced](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.cc)
+    [reduced](https://github.com/google/tcmalloc/blob/master/tcmalloc/cpu_cache.h)
     when it has not been grown for a time and may therefore be over capacity.
 
 ## TCMalloc Middle-end
