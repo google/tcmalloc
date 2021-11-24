@@ -62,10 +62,6 @@ void *StaticForwarder::Alloc(size_t size, int alignment) {
 }
 
 void ShardedTransferCacheManager::Init() {
-  if (!IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE)) {
-    return;
-  }
   num_shards_ = BuildCpuToL3CacheMap(l3_cache_index_);
   cache_ = reinterpret_cast<Cache *>(Static::arena().Alloc(
       sizeof(Cache) * kNumClasses * num_shards_, ABSL_CACHELINE_SIZE));

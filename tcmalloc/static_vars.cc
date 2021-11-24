@@ -109,7 +109,12 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
     transfer_cache_.Init();
-    sharded_transfer_cache_.Init();
+    if (IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE)) {
+      // The constructor of the sharded transfer cache leaves it in a disabled
+      // state.
+      sharded_transfer_cache_.Init();
+    }
     new (page_allocator_.memory) PageAllocator;
     threadcache_allocator_.Init(&arena_);
     cpu_cache_active_ = false;

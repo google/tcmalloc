@@ -520,6 +520,13 @@ REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedRemove, MultiThreadedBiasedGrow,
                             MultiThreadedBiasedShrink);
 
+TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
+  ShardedTransferCacheManager manager;
+  for (int cl = 0; cl < kNumClasses; ++cl) {
+    EXPECT_FALSE(manager.should_use(cl));
+  }
+}
+
 namespace unit_tests {
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
