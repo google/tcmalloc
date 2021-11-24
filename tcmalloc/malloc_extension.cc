@@ -29,6 +29,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal_malloc_extension.h"
+#include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 
@@ -482,7 +483,20 @@ tcmalloc_size_returning_operator_new(size_t size) {
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_hot_cold(size_t size,
+                                              tcmalloc::hot_cold_t) {
+  return {::operator new(size), size};
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept {
+  void* p = ::operator new(size, std::nothrow);
+  return {p, p ? size : 0};
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+    size_t size, tcmalloc::hot_cold_t) noexcept {
   void* p = ::operator new(size, std::nothrow);
   return {p, p ? size : 0};
 }

@@ -44,6 +44,18 @@
 #include "absl/types/span.h"
 
 namespace tcmalloc {
+
+// Indicates how frequently accessed the allocation is expected to be.
+// 0   - The allocation is rarely accessed.
+// ...
+// 255 - The allocation is accessed very frequently.
+enum class hot_cold_t : uint8_t;
+
+// TODO(ckennelly): Lifetimes
+
+}  // namespace tcmalloc
+
+namespace tcmalloc {
 namespace tcmalloc_internal {
 class AllocationProfilingTokenAccessor;
 class AllocationProfilingTokenBase;
@@ -531,6 +543,10 @@ extern "C" {
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new(size_t size);
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept;
+tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
+    size_t size, tcmalloc::hot_cold_t hot_cold);
+tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept;
 
 // Aligned size returning new is only supported for libc++ because of issues
 // with libstdcxx.so linkage. See http://b/110969867 for background.

@@ -1258,6 +1258,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [":__subpackages__"],
     deps = [
+        ":malloc_extension",
         "@com_google_absl//absl/base:core_headers",
     ],
 )

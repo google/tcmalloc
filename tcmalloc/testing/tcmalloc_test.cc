@@ -858,27 +858,47 @@ TEST(TCMallocTest, TestAliasedFunctions) {
 
 #endif
 
-TEST(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
+class TcmallocSizedNewTest : public ::testing::TestWithParam<hot_cold_t> {};
+
+INSTANTIATE_TEST_SUITE_P(HotColdDefault, TcmallocSizedNewTest,
+                         testing::Values(hot_cold_t(0), hot_cold_t{128},
+                                         hot_cold_t{255}));
+
+// local helper to call tcmalloc_size_returning_operator_new() with, or without
+// a hot_cold_t parameter based on hot_cold_t = 128 meaning 'default'
+sized_ptr_t sro_new(size_t size, hot_cold_t hot_cold) {
+  return hot_cold == hot_cold_t{128}
+             ? tcmalloc_size_returning_operator_new(size)
+             : tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold);
+}
+sized_ptr_t sro_new_nothrow(size_t size, hot_cold_t hot_cold) {
+  return hot_cold == hot_cold_t{128}
+             ? tcmalloc_size_returning_operator_new_nothrow(size)
+             : tcmalloc_size_returning_operator_new_hot_cold_nothrow(size,
+                                                                     hot_cold);
+}
+
+TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = tcmalloc_size_returning_operator_new(3);
+  sized_ptr_t res = sro_new(3, GetParam());
   EXPECT_THAT(res.n, testing::Ge(8));
   ::operator delete(res.p);
 }
 
-TEST(TcmallocSizedNewTest, NothrowSizedOperatorNewReturnsExtraCapacity) {
+TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNewReturnsExtraCapacity) {
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(3);
+  sized_ptr_t res = sro_new_nothrow(3, GetParam());
   EXPECT_THAT(res.n, testing::Ge(8));
   ::operator delete(res.p);
 }
 
-TEST(TcmallocSizedNewTest, SizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
   for (size_t size = 0; size < 1024; ++size) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t res = sro_new(size, GetParam());
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
     EXPECT_LE(size, std::max(size + 100, 2 * size));
@@ -887,9 +907,9 @@ TEST(TcmallocSizedNewTest, SizedOperatorNew) {
   }
 }
 
-TEST(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
   for (size_t size = 0; size < 64 * 1024; ++size) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(size);
+    sized_ptr_t res = sro_new_nothrow(size, GetParam());
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
     EXPECT_LE(size, std::max(size + 100, 2 * size));
@@ -898,19 +918,19 @@ TEST(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
   }
 }
 
-TEST(TcmallocSizedNewTest, InvalidSizedOperatorNewAlwaysFails) {
+TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNewAlwaysFails) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  EXPECT_DEATH(tcmalloc_size_returning_operator_new(kBadSize), ".*");
+  EXPECT_DEATH(sro_new(kBadSize, GetParam()), ".*");
 }
 
-TEST(TcmallocSizedNewTest, InvalidNothrowSizedOperatorNew) {
+TEST_P(TcmallocSizedNewTest, InvalidNothrowSizedOperatorNew) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  sized_ptr_t res = tcmalloc_size_returning_operator_new_nothrow(kBadSize);
+  sized_ptr_t res = sro_new_nothrow(kBadSize, GetParam());
   EXPECT_EQ(res.p, nullptr);
   EXPECT_EQ(res.n, 0);
 }
 
-TEST(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
+TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
   // Set reasonable sampling and guarded sampling probabilities.
   ScopedProfileSamplingRate s(20);
   ScopedGuardedSamplingRate gs(20);
@@ -918,14 +938,14 @@ TEST(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
 
   // Traverse clean power 2 / common size class / page sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size *= 2) {
-    sized_ptr_t r = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t r = sro_new(size, GetParam());
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
     ::operator delete(r.p, r.n);
   }
 
   // Traverse randomized sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size += kOddIncrement) {
-    sized_ptr_t r = tcmalloc_size_returning_operator_new(size);
+    sized_ptr_t r = sro_new(size, GetParam());
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
     ::operator delete(r.p, r.n);
   }

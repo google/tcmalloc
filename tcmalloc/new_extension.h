@@ -19,17 +19,7 @@
 #include <cstdint>
 #include <new>
 
-namespace tcmalloc {
-
-// Indicates how frequently accessed the allocation is expected to be.
-// 0   - The allocation is rarely accessed.
-// ...
-// 255 - The allocation is accessed very frequently.
-enum class hot_cold_t : uint8_t;
-
-// TODO(ckennelly): Lifetimes
-
-}  // namespace tcmalloc
+#include "tcmalloc/malloc_extension.h"
 
 void* operator new(size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false);
 void* operator new(size_t size, const std::nothrow_t,
