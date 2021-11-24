@@ -2,9 +2,9 @@
 
 Andrew Hunter, [Chris Kennelly](ckennelly@google.com)
 
-_Notes on the name_[^cutie]_: the french word for "reckless" or "rash" :), and also
-the name of several large and powerful English warships. So: giant and powerful,
-but maybe a little dangerous. :)_
+*Notes on the name*[^cutie]*: the french word for "reckless" or "rash" :), and
+also the name of several large and powerful English warships. So: giant and
+powerful, but maybe a little dangerous. :)*
 
 This is a description of the design of the Hugepage-Aware Allocator. We have
 also published ["Beyond malloc efficiency to fleet efficiency: a hugepage-aware
@@ -17,7 +17,7 @@ Temeraire.
 What do we want out of this redesign?
 
 *   Dramatic reduction in pageheap size. The pageheap in TCMalloc holds
-    substantial amounts of memory _after_ its attempts to `MADV_DONTNEED` memory
+    substantial amounts of memory *after* its attempts to `MADV_DONTNEED` memory
     back to the OS, due to internal fragmentation. We can recover a useful
     fraction of this. In optimal cases, we see savings of over 90%. We do not
     expect to achieve this generally, but a variety of synthetic loads suggest
@@ -28,7 +28,7 @@ What do we want out of this redesign?
     hugepages. Services have seen substantial performance gains from **from
     disabling release** (and going to various other lengths to maximize hugepage
     usage).
-*   _reasonable_ allocation speed. This is really stating a non-goal: speed
+*   *reasonable* allocation speed. This is really stating a non-goal: speed
     parity with `PageHeap::New`. PageHeap is a relatively light consumer of
     cycles. We are willing to accept a speed hit in actual page allocation in
     exchange for better hugepage usage and space overhead. This is not free but
@@ -36,7 +36,7 @@ What do we want out of this redesign?
     regressions in speed. We intentionally accept two particular time hits:
 
     *   much more aggressive releasing (of entire hugepages), leading to
-        increased costs for _backing_ memory.
+        increased costs for *backing* memory.
     *   much more detailed (and expensive) choices of where to fulfill a
         particular request.
 
@@ -61,8 +61,8 @@ corresponding object we allocated from as free.
 We will sketch the purpose and approach of each important part. Note that we
 have fairly detailed unit tests for each of these; one consequence on the
 implementations is that most components are templated on the
-`tcmalloc::SystemRelease` functions[^templated] as we make a strong attempt to be zero
-initializable where possible (sadly not everywhere).
+`tcmalloc::SystemRelease` functions[^templated] as we make a strong attempt to
+be zero initializable where possible (sadly not everywhere).
 
 ### `RangeTracker`
 
@@ -92,7 +92,7 @@ and to provide memory for the other components to break up into smaller chunks.
 `HugeAllocator` is (nearly) trivial: it requests arbitrarily large
 hugepage-sized chunks from `SysAllocator`, keeps them unbacked, and tracks the
 available (unbacked) regions. Note that we do not need to be perfectly space
-efficient here: we only pay virtual memory and metadata, since _none_ of the
+efficient here: we only pay virtual memory and metadata, since *none* of the
 contents are backed. (We do make our best efforts to be relatively frugal,
 however, since there’s no need to inflate VSS by large factors.) Nor do we have
 to be particularly fast; this is well off any hot path, and we’re going to incur
@@ -110,7 +110,7 @@ fiddly, but reasonably efficient and not stunningly complicated.
 #### `HugeCache`
 
 This is a very simple wrapper on top of HugeAllocator. It's only purpose is to
-store some number of backed _single_ hugepage ranges as a hot cache (in case we
+store some number of backed *single* hugepage ranges as a hot cache (in case we
 rapidly allocate and deallocate a 2 MiB chunk).
 
 It is not clear whether the cache is necessary, but we have it and it's not
@@ -118,14 +118,14 @@ costing us much in complexity, and will help significantly in some potential
 antagonistic scenarios, so we favor keeping it.
 
 It currently attempts to estimate the optimal cache size based on past behavior.
-This may not really be needed, but it's a very minor feature to keep _or_ drop.
+This may not really be needed, but it's a very minor feature to keep *or* drop.
 
 ### `HugePageFiller` (the core…)
 
 `HugePageFiller` takes small requests (less than a hugepage) and attempts to
 pack them efficiently into hugepages. The vast majority of binaries use almost
-entirely small allocations[^conditional], so this is the dominant consumer of space and
-the most important component.
+entirely small allocations[^conditional], so this is the dominant consumer of
+space and the most important component.
 
 Our goal here is to make our live allocations fit within the smallest set of
 hugepages possible, so that we can afford to keep all used hugepages fully
@@ -136,10 +136,10 @@ requests for 1 page are (usually) the most common, but 4, 8, or even 50+ page
 requests aren't unheard of. Many 1-page free regions won’t be useful here, and
 we'll have to request enormous numbers of new hugepages for anything large.
 
-Our solution is to build a heap-ordered data structure on _fragmentation_, not
+Our solution is to build a heap-ordered data structure on *fragmentation*, not
 total amount free, in each hugepage. We use the **longest free range** (the
 biggest allocation a hugepage can fulfill!) as a measurement of fragmentation.
-In other words: if a hugepage has a free range of length 8, we _never_ allocate
+In other words: if a hugepage has a free range of length 8, we *never* allocate
 from it for a smaller request (unless all hugepages available have equally long
 ranges). This carefully husbands long ranges for the requests that need them,
 and allows them to grow (as neighboring allocations are freed).
@@ -148,10 +148,10 @@ Inside each equal-longest-free-range group, we order our heap by the **number of
 allocations** (chunked logarithmically). This helps favor allocating from fuller
 hugepages (of equal fragmented status). Number of allocations handily
 outperforms the total number of allocated pages here; our hypothesis is that
-since allocations of any size are equally likely[^radioactive] to become free at any given
-time, and we need all allocations on a hugepage to become free to make the
-hugepage empty, we’re better off hoping for 1 10-page allocation to become free
-(with some probability P) than 5 1-page allocations (with probability P^5).
+since allocations of any size are equally likely[^radioactive] to become free at
+any given time, and we need all allocations on a hugepage to become free to make
+the hugepage empty, we’re better off hoping for 1 10-page allocation to become
+free (with some probability P) than 5 1-page allocations (with probability P^5).
 
 The `HugePageFiller` contains support for releasing parts of mostly-empty
 hugepages as a last resort.
@@ -196,7 +196,7 @@ A few important details:
     given binary, which means we can be less careful about how we organize the
     set of regions.
 
-*   We don’t make _any_ attempt, when allocating from a given region, to find an
+*   We don’t make *any* attempt, when allocating from a given region, to find an
     already-backed but unused range. Nor do we prefer regions that have such
     ranges.
 
@@ -222,7 +222,7 @@ discussing.
 
     1.  Small allocations are handed directly to the filler; we add hugepages to
         the filler as needed.
-    1.  For slightly larger allocations (still under a full hugepage), we _try_
+    1.  For slightly larger allocations (still under a full hugepage), we *try*
         the filler, but don’t grow it if there’s not currently space. Instead,
         we look in the regions for free space. If neither the regions or the
         filler has space, we prefer growing the filler (since it comes in
@@ -259,11 +259,9 @@ application.
 [^cutie]: Also the name of
     [this cutie](https://lh3.googleusercontent.com/VXENOSfqH1L84VMwLVAUA7JIqQh7TYH-IZHLBalvVVuMUeD3w5rOVHPsIp97nYEgmKpQoxsHO-lieGouheNmifA2X6tOPTBleTbQc_WCZIrI_roU2K37iiHg9go6omp2ys0Y7cxYc9c6EWNaCYtKG1dEPyyYLULUarCex4oqwt8KgRl95rd3yKXC6YQeW-TWkDpK786ZaAA3vKJXqT5E-ArPxQccyPH13EAmHrltKatqihC7L4Ym5IfP42u58IJwC5bRnKMczm2WwUfipGDEOvymf63mPNKmGMka50AQV4VGrE7hW_Ateb2roCTGISgZIooBSRwK0PMjqV9hBLP5DmUG4ITSV4FlOI5iWOyMSNZV6Gz5T2FgNez08Wdn98tsEsN4_lPcjdZXyJuHeVRKxAawDwjkbWP3aieXDckHY-bJMt0QfyDhPWzSOpTxTALcZiwoC069K9SrBDVKEKowJ2Zag7OlbpROhqbagM5Wuo_nn6O27yWXpihc8Lptt-Vo_e8kQZ4N2RReby3bxNPdRyv2L8BrDCIWBO-iFk7GcYRd9ox7HSD-7Y0yH1FtMP0FZKD5a2raVmabMQrolhsjc-AfYHgD3xBkNo-uTJ8YnFpqjpTdZz_1=w2170-h1446-no),
     the real reason for the choice.
-
-[^templated]: It will be possible, given recent improvements in constexpr usage, to
-    eliminate this in followups.
-
-[^conditional]: Here we mean "requests to the pageheap as filtered through sampling, the
-    central cache, etc"
-
-[^radioactive]: Well, no, this is false in our empirical data, but to first order.
+[^templated]: It will be possible, given recent improvements in constexpr usage,
+    to eliminate this in followups.
+[^conditional]: Here we mean "requests to the pageheap as filtered through
+    sampling, the central cache, etc"
+[^radioactive]: Well, no, this is false in our empirical data, but to first
+    order.

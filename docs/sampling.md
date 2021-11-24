@@ -20,11 +20,12 @@ When we pick an allocation such as
 [Sampler::RecordAllocationSlow()](https://github.com/google/tcmalloc/blob/master/tcmalloc/sampler.cc)
 to sample we do some additional processing around that allocation using
 [SampleifyAllocation()](https://github.com/google/tcmalloc/blob/master/tcmalloc/tcmalloc.cc) -
-recording stack, alignment, request size, and allocation size. Then we go through
-all the active samplers using [ReportMalloc()](https://github.com/google/tcmalloc/blob/master/tcmalloc/tcmalloc.cc)
-and tell them about the allocation. We also tell the span that we're sampling it
-- we can do this because we do sampling at tcmalloc page sizes, so each sample
-corresponds to a particular page in the pagemap.
+recording stack, alignment, request size, and allocation size. Then we go
+through all the active samplers using
+[ReportMalloc()](https://github.com/google/tcmalloc/blob/master/tcmalloc/tcmalloc.cc)
+and tell them about the allocation. We also tell the span that we're sampling
+it - we can do this because we do sampling at tcmalloc page sizes, so each
+sample corresponds to a particular page in the pagemap.
 
 ## How We Free Sampled Objects
 

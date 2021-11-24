@@ -13,8 +13,8 @@ starting development using TCMalloc at least run through this quick tutorial.
 
 Running the code within this tutorial requires:
 
-*   A compatible platform (E.g. Linux). Consult the [Platforms Guide](platforms.md)
-    for more information.
+*   A compatible platform (E.g. Linux). Consult the
+    [Platforms Guide](platforms.md) for more information.
 *   A compatible C++ compiler *supporting at least C++17*. Most major compilers
     are supported.
 *   [Git](https://git-scm.com/) for interacting with the Abseil source code
@@ -45,8 +45,8 @@ Resolving deltas: 100% (1083/1083), done.
 $
 ```
 
-Git will create the repository within a directory named `tcmalloc`.
-Navigate into this directory and run all tests:
+Git will create the repository within a directory named `tcmalloc`. Navigate
+into this directory and run all tests:
 
 ```
 $ cd tcmalloc
@@ -136,6 +136,7 @@ local_repository(
   path = "/PATH_TO_SOURCE/Source/tcmalloc",
 )
 ```
+
 The "name" in the `WORKSPACE` file identifies the name you will use in Bazel
 `BUILD` files to refer to the linked repository (in this case
 "com_google_tcmalloc").

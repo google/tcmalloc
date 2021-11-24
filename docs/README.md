@@ -17,12 +17,13 @@ support for TCMalloc.
 
 All users of TCMalloc should consult the following documentation resources:
 
-* The [TCMalloc Quickstart](quickstart.md) covers downloading, installing,
-  building, and testing TCMalloc, including incorporating within your codebase.
-* The [TCMalloc Overview](overview.md) covers the basic architecture of
-  TCMalloc, and how that may affect configuration choices.
-* The [TCMalloc Reference](reference.md) covers the C and C++ TCMalloc API
-  endpoints.
+*   The [TCMalloc Quickstart](quickstart.md) covers downloading, installing,
+    building, and testing TCMalloc, including incorporating within your
+    codebase.
+*   The [TCMalloc Overview](overview.md) covers the basic architecture of
+    TCMalloc, and how that may affect configuration choices.
+*   The [TCMalloc Reference](reference.md) covers the C and C++ TCMalloc API
+    endpoints.
 
 More advanced usages of TCMalloc may find the following documentation useful:
 
@@ -51,7 +52,7 @@ We've published several papers relating to TCMalloc optimizations:
 
 ## License
 
-The TCMalloc library is licensed under the terms of the Apache
-license. See LICENSE for more information.
+The TCMalloc library is licensed under the terms of the Apache license. See
+LICENSE for more information.
 
 Disclaimer: This is not an officially supported Google product.

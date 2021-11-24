@@ -12,12 +12,12 @@ implementation itself.
 ## History
 
 Google open-sourced its memory allocator as part of "Google Performance Tools"
-in 2005.  At the time, it became easy to externalize code, but more difficult to
-keep it in-sync with our internal usage, as discussed by Titus Winters’ in [his
-2017 CppCon Talk](https://www.youtube.com/watch?v=tISy7EJQPzI) and the "Software
-Engineering at Google" book.  Subsequently, our internal implementation diverged
-from the code externally.  This project eventually was adopted by the community
-as "gperftools."
+in 2005. At the time, it became easy to externalize code, but more difficult to
+keep it in-sync with our internal usage, as discussed by Titus Winters’ in
+[his 2017 CppCon Talk](https://www.youtube.com/watch?v=tISy7EJQPzI) and the
+"Software Engineering at Google" book. Subsequently, our internal implementation
+diverged from the code externally. This project eventually was adopted by the
+community as "gperftools."
 
 ## Differences
 
@@ -68,4 +68,3 @@ exceptions:
 Over time, we have found that configurability carries a maintenance burden.
 While a knob can provide immediate flexibility, the increased complexity can
 cause subtle problems for more rarely used combinations.
-

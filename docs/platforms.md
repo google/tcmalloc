@@ -1,7 +1,7 @@
 # TCMalloc Platforms
 
-The TCMalloc code is supported on the following platforms. By "platforms",
-we mean the union of operating system, architecture (e.g. little-endian vs.
+The TCMalloc code is supported on the following platforms. By "platforms", we
+mean the union of operating system, architecture (e.g. little-endian vs.
 big-endian), compiler, and standard library.
 
 ## Language Requirements
@@ -13,7 +13,7 @@ We guarantee that our code will compile under the following compilation flags:
 
 Linux:
 
-* gcc 9.2+, clang 9.0+: `-std=c++17`
+*   gcc 9.2+, clang 9.0+: `-std=c++17`
 
 (TL;DR; All code at this time must be built under C++17. We will update this
 list if circumstances change.)

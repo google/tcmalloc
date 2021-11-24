@@ -8,9 +8,8 @@ freshness: { owner: 'ckennelly' reviewed: '2021-06-15' }
 ## per-CPU Caches
 
 TCMalloc implements its per-CPU caches using restartable sequences (`man
-rseq(2)`) on Linux.  This kernel feature was developed by [Paul Turner and
-Andrew Hunter at
-Google](http://www.linuxplumbersconf.net/2013/ocw//system/presentations/1695/original/LPC%20-%20PerCpu%20Atomics.pdf)
+rseq(2)`) on Linux. This kernel feature was developed by
+[Paul Turner and Andrew Hunter at Google](http://www.linuxplumbersconf.net/2013/ocw//system/presentations/1695/original/LPC%20-%20PerCpu%20Atomics.pdf)
 and Mathieu Desnoyers at EfficiOS. Restartable sequences let us execute a region
 to completion (atomically with respect to other threads on the same CPU) or to
 be aborted if interrupted by the kernel by preemption, interrupts, or signal
@@ -18,8 +17,8 @@ handling.
 
 Choosing to restart on migration across cores or preemption allows us to
 optimize the common case - we stay on the same core - by avoiding atomics, over
-the more rare case - we are actually preempted.  As a consequence of this
-tradeoff, we need to make our code paths actually support being restarted.  The
+the more rare case - we are actually preempted. As a consequence of this
+tradeoff, we need to make our code paths actually support being restarted. The
 entire sequence, except for its final store to memory which *commits* the
 change, must be capable of starting over.
 
@@ -40,17 +39,17 @@ This carries a few implementation challenges:
 
 ## Structure of the `TcmallocSlab`
 
-In per-CPU mode, we allocate an array of `N` `TcmallocSlab::Slabs`.  For all
+In per-CPU mode, we allocate an array of `N` `TcmallocSlab::Slabs`. For all
 operations, we index into the array with the logical CPU ID.
 
 Each slab is has a header region of control data (one 8-byte header per-size
-class).  These index into the remainder of the slab, which contains pointers to
+class). These index into the remainder of the slab, which contains pointers to
 free listed objects.
 
 ![Memory layout of per-cpu data structures](images/per-cpu-cache-internals.png "Memory layout of per-cpu data structures")
 
-In [C++
-code](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/percpu_tcmalloc.h),
+In
+[C++ code](https://github.com/google/tcmalloc/blob/master/tcmalloc/internal/percpu_tcmalloc.h),
 these are represented as:
 
 ```
@@ -82,17 +81,17 @@ struct Header {
 The atomic `header` allows us to read the state (esp. for telemetry purposes) of
 a core without undefined behavior.
 
-The fields in `Header` are indexed in `sizeof(void*)` strides into the slab.
-For the default value of `Shift=18`, this allows us to cache nearly 32K objects
-per CPU.
+The fields in `Header` are indexed in `sizeof(void*)` strides into the slab. For
+the default value of `Shift=18`, this allows us to cache nearly 32K objects per
+CPU.
 
 We have allocated capacity for `end-begin` objects for a given size-class.
-`begin` is chosen via static partitioning at initialization time.  `end` is
+`begin` is chosen via static partitioning at initialization time. `end` is
 chosen dynamically at a higher-level (in `tcmalloc::CPUCache`), as to:
 
-* Avoid running into the next size-classes' `begin`
-* Balance cached object capacity across size-classes, according to the specified
-  byte limit.
+*   Avoid running into the next size-classes' `begin`
+*   Balance cached object capacity across size-classes, according to the
+    specified byte limit.
 
 ## Usage: Allocation
 
@@ -149,7 +148,7 @@ pointer is between `[start, commit)`, it returns control to a specified,
 per-sequence restart header at `abort`.
 
 Since the *next* object is frequently allocated soon after the current object,
-so the allocation path prefetches the pointed-to object.  To avoid prefetching a
+so the allocation path prefetches the pointed-to object. To avoid prefetching a
 wild address, we populate `slabs[cpu][begin]` for each CPU/size-class with a
 pointer-to-self.
 
@@ -185,17 +184,17 @@ This ensures that the 4 bytes prior to `abort` match up with the signature that
 was configured with the `rseq` syscall.
 
 On x86, we can represent this with a nop which would allow for interleaving in
-the main implementation.  On other platforms - with fixed width instructions -
+the main implementation. On other platforms - with fixed width instructions -
 the signature is often chosen to be an illegal/trap instruction, so it has to be
 disjoint from the function's body.
 
-## Usage:  Deallocation
+## Usage: Deallocation
 
 Deallocation uses two stores, one to store the deallocated object and another to
-update `current`.  This is still compatible with the restartable sequence
-technique, as there is a *single* commit step, updating `current`.  Any
-preempted sequences will overwrite the value of the deallocated object until a
-successful sequence commits it by updating `current`.
+update `current`. This is still compatible with the restartable sequence
+technique, as there is a *single* commit step, updating `current`. Any preempted
+sequences will overwrite the value of the deallocated object until a successful
+sequence commits it by updating `current`.
 
 ```
 int TcmallocSlab_Push(
@@ -233,15 +232,15 @@ kernel to provide zeroed pages from the `mmap` call to obtain memory for the
 slab metadata.
 
 At startup, this leaves the `Header` of each initialized to `current = begin =
-end = 0`.  The initial push or pop will trigger the overflow or underflow paths
+end = 0`. The initial push or pop will trigger the overflow or underflow paths
 (respectively), so that we can populate these values.
 
-## More Complex Operations:  Batches
+## More Complex Operations: Batches
 
 When the cache under or overflows, we populate or remove a full batch of objects
-obtained from inner caches.  This amortizes some of the lock acquisition/logic
-for those caches.  Using a similar approach to push and pop, we update a batch
-of `N` items and we update `current to commit the update.
+obtained from inner caches. This amortizes some of the lock acquisition/logic
+for those caches. Using a similar approach to push and pop, we update a batch of
+`N` items and we update `current to commit the update.
 
 ## Kernel API and implementation
 

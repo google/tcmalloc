@@ -28,9 +28,9 @@ introduce a significant amount of overhead for allocations between 1 and 10
 hugepages, and the overhead could still be considered significant for
 allocations larger than that.)
 
-*   We _cannot_ unback the unused tail of the last hugepage (requirement (2)
+*   We *cannot* unback the unused tail of the last hugepage (requirement (2)
     would be violated).
-*   We _cannot_ assume these requests are necessarily rare and we will have many
+*   We *cannot* assume these requests are necessarily rare and we will have many
     smaller ones to fill the unused tail (requirement (1) would be violated).
     Moreover this is **empirically false** for widely used
     binaries.
@@ -75,7 +75,7 @@ for large allocations, backing and unbacking hugepages on demand. When one
 region fills, obtain another; fill from the most fragmented to bound total
 overhead (a policy derived from `HugePageFiller`).
 
-That is _really it_. We do not see this as particularly complicated. The only
+That is *really it*. We do not see this as particularly complicated. The only
 thing left is the implementation of that policy: We used `RangeTracker` because
 it was convenient, supported exactly the API we needed, and fast enough (even
 though we're tracking fairly large bitsets).

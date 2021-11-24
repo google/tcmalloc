@@ -67,7 +67,7 @@ worth looking at using large page sizes.
 
 **Suggestion:** Small-but-slow is *extremely* slow and should be used only where
 it is absolutely vital to minimize memory footprint over performance at all
-costs.  Small-but-slow works by turning off and shrinking several of TCMalloc's
+costs. Small-but-slow works by turning off and shrinking several of TCMalloc's
 caches, but this comes at a significant performance penalty.
 
 **Note:** Size-classes are determined on a per-page-size basis. So changing the
@@ -97,7 +97,7 @@ Releasing memory held by unuable CPU caches is handled by
 `tcmalloc::MallocExtension::ProcessBackgroundActions`.
 
 In contrast `tcmalloc::MallocExtension::SetMaxTotalThreadCacheBytes` controls
-the _total_ size of all thread caches in the application.
+the *total* size of all thread caches in the application.
 
 **Suggestion:** The default cache size is typically sufficient, but cache size
 can be increased (or decreased) depending on the amount of time spent in
@@ -126,15 +126,15 @@ There are two disadvantages of releasing memory aggressively:
 
 **Note:** Release rate is not a panacea for memory usage. Jobs should be
 provisioned for peak memory usage to avoid OOM errors. Setting a release rate
-may enable an application to exceed the memory limit for short periods of
-time without triggering an OOM. A release rate is also a good citizen behavior
-as it will enable the system to use spare capacity memory for applications
-which are are under provisioned. However, it is not a substitute for setting
-appropriate memory requirements for the job.
+may enable an application to exceed the memory limit for short periods of time
+without triggering an OOM. A release rate is also a good citizen behavior as it
+will enable the system to use spare capacity memory for applications which are
+are under provisioned. However, it is not a substitute for setting appropriate
+memory requirements for the job.
 
-**Note:** Memory is released from the `PageHeap` and stranded per-cpu caches.
-It is not possible to release memory from other internal structures, like
-the `CentralFreeList`.
+**Note:** Memory is released from the `PageHeap` and stranded per-cpu caches. It
+is not possible to release memory from other internal structures, like the
+`CentralFreeList`.
 
 **Suggestion:** The default release rate is probably appropriate for most
 applications. In situations where it is tempting to set a faster rate it is
@@ -143,7 +143,7 @@ cause an OOM at some point.
 
 ## System-Level Optimizations
 
-*   TCMalloc heavily relies on Transparent Huge Pages (THP).  As of February
+*   TCMalloc heavily relies on Transparent Huge Pages (THP). As of February
     2020, we build and test with
 
 ```
@@ -158,7 +158,7 @@ cause an OOM at some point.
 ```
 
 *   TCMalloc makes assumptions about the availability of virtual address space,
-    so that we can layout allocations in cetain ways.  We build and test with
+    so that we can layout allocations in cetain ways. We build and test with
 
 ```
 /proc/sys/vm/overcommit_memory:
@@ -170,34 +170,37 @@ cause an OOM at some point.
 TCMalloc is built and tested in certain ways. These build-time options can
 improve performance:
 
-* Statically-linking TCMalloc reduces function call overhead, by obviating the
-  need to call procedure linkage stubs in the procedure linkage table (PLT).
-* Enabling [sized deallocation from
-  C++14](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2013/n3778.html)
-  reduces deallocation costs when the size can be determined. Sized deallocation
-  is enabled with the `-fsized-deallocation` flag. This behavior is enabled by
-  default in GCC), but as of early 2020, is not enabled by default on Clang even
-  when compiling for C++14/C++17.
+*   Statically-linking TCMalloc reduces function call overhead, by obviating the
+    need to call procedure linkage stubs in the procedure linkage table (PLT).
+*   Enabling
+    [sized deallocation from C++14](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2013/n3778.html)
+    reduces deallocation costs when the size can be determined. Sized
+    deallocation is enabled with the `-fsized-deallocation` flag. This behavior
+    is enabled by default in GCC), but as of early 2020, is not enabled by
+    default on Clang even when compiling for C++14/C++17.
 
-  Some standard C++ libraries (such as
-  [libc++](https://reviews.llvm.org/rCXX345214)) will take advantage of sized
-  deallocation for their allocators as well, improving deallocation performance
-  in C++ containers.
-* Aligning raw storage allocated with `::operator new` to 8 bytes by compiling
-  with `__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8`. This smaller alignment minimizes
-  wasted memory for many common allocation sizes (24, 40, etc.) which are
-  otherwise rounded up to a multiple of 16 bytes. On many compilers, this
-  behavior is controlled by the `-fnew-alignment=...` flag.
+    Some standard C++ libraries (such as
+    [libc++](https://reviews.llvm.org/rCXX345214)) will take advantage of sized
+    deallocation for their allocators as well, improving deallocation
+    performance in C++ containers.
 
-  When `__STDCPP_DEFAULT_NEW_ALIGNMENT__` is not specified (or is larger than 8
-  bytes), we use standard 16 byte alignments for `::operator new`. However, for
-  allocations under 16 bytes, we may return an object with a lower alignment, as
-  no object with a larger alignment requirement can be allocated in the space.
-* Optimizing failures of `operator new` by directly failing instead of throwing
-  exceptions. Because TCMalloc does not throw exceptions when `operator new`
-  fails, this can be used as a performance optimization for many move
-  constructors.
+*   Aligning raw storage allocated with `::operator new` to 8 bytes by compiling
+    with `__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8`. This smaller alignment
+    minimizes wasted memory for many common allocation sizes (24, 40, etc.)
+    which are otherwise rounded up to a multiple of 16 bytes. On many compilers,
+    this behavior is controlled by the `-fnew-alignment=...` flag.
 
-  Within Abseil code, these direct allocation failures are enabled with the
-  Abseil build-time configuration macro
-  [`ABSL_ALLOCATOR_NOTHROW`](https://abseil.io/docs/cpp/guides/base#abseil-exception-policy).
+    When `__STDCPP_DEFAULT_NEW_ALIGNMENT__` is not specified (or is larger than
+    8 bytes), we use standard 16 byte alignments for `::operator new`. However,
+    for allocations under 16 bytes, we may return an object with a lower
+    alignment, as no object with a larger alignment requirement can be allocated
+    in the space.
+
+*   Optimizing failures of `operator new` by directly failing instead of
+    throwing exceptions. Because TCMalloc does not throw exceptions when
+    `operator new` fails, this can be used as a performance optimization for
+    many move constructors.
+
+    Within Abseil code, these direct allocation failures are enabled with the
+    Abseil build-time configuration macro
+    [`ABSL_ALLOCATOR_NOTHROW`](https://abseil.io/docs/cpp/guides/base#abseil-exception-policy).

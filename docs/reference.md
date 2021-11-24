@@ -41,14 +41,14 @@ void* operator new[](std::size_t count,
                      std::align_val_t al, const std::nothrow_t&) noexcept;  // C++17
 ```
 
-`operator new`/`operator new[]` allocates `count` bytes.  They may be invoked
+`operator new`/`operator new[]` allocates `count` bytes. They may be invoked
 directly but are more commonly invoked as part of a *new*-expression.
 
 When `__STDCPP_DEFAULT_NEW_ALIGNMENT__` is not specified (or is larger than 8
 bytes), we use standard 16 byte alignments for `::operator new` without a
 `std::align_val_t` argument. However, for allocations under 16 bytes, we may
 return an object with a lower alignment, as no object with a larger alignment
-requirement can be allocated in the space.  When compiled with
+requirement can be allocated in the space. When compiled with
 `__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8`, we use a set of sizes aligned to 8
 bytes for raw storage allocated with `::operator new`.
 
@@ -61,9 +61,9 @@ requested alignment.
 If the allocation is unsuccessful, a failure terminates the program.
 
 NOTE: unlike in the C++ standard, we do not throw an exception in case of
-allocation failure, or invoke `std::get_new_handler()` repeatedly in an
-attempt to successfully allocate, but instead crash directly. Such behavior can
-be used as a performance optimization for move constructors not currently marked
+allocation failure, or invoke `std::get_new_handler()` repeatedly in an attempt
+to successfully allocate, but instead crash directly. Such behavior can be used
+as a performance optimization for move constructors not currently marked
 `noexcept`; such move operations can be allowed to fail directly due to
 allocation failures. Within Abseil code, these direct allocation failures are
 enabled with the Abseil build-time configuration macro
@@ -89,7 +89,7 @@ void operator delete[](void* ptr, std::size_t sz,
 ```
 
 `::operator delete`/`::operator delete[]` deallocate memory previously allocated
-by a corresponding `::operator new`/`::operator new[]` call respectively.  It is
+by a corresponding `::operator new`/`::operator new[]` call respectively. It is
 commonly invoked as part of a *delete*-expression.
 
 Sized delete is used as a critical performance optimization, eliminating the
@@ -110,18 +110,18 @@ the `<stdlib.h>` header file. Implementations require C11 or greater.
 
 TCMalloc provides implementation for the following C API functions:
 
-* `malloc()`
-* `calloc()`
-* `realloc()`
-* `free()`
-* `aligned_alloc()`
+*   `malloc()`
+*   `calloc()`
+*   `realloc()`
+*   `free()`
+*   `aligned_alloc()`
 
 For `malloc`, `calloc`, and `realloc`, we obey the behavior of C90 DR075 and
 [DR445](http://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_445)
 which states:
 
-    The alignment requirement still applies even if the size is too small for
-    any object requiring the given alignment.
+> The alignment requirement still applies even if the size is too small for any
+> object requiring the given alignment.
 
 In other words, `malloc(1)` returns `alignof(std::max_align_t)`-aligned pointer.
 Based on the progress of
@@ -131,15 +131,15 @@ this alignment in the future.
 Additionally, TCMalloc provides an implementation for the following POSIX
 standard library function, available within glibc:
 
-* `posix_memalign()`
+*   `posix_memalign()`
 
 TCMalloc also provides implementations for the following obsolete functions
 typically provided within libc implementations:
 
-* `cfree()`
-* `memalign()`
-* `valloc()`
-* `pvalloc()`
+*   `cfree()`
+*   `memalign()`
+*   `valloc()`
+*   `pvalloc()`
 
 Documentation is not provided for these obsolete functions. The implementations
 are provided only for compatibility purposes.
@@ -178,7 +178,7 @@ void* realloc(void *ptr, size_t new_size);
 ```
 
 `realloc()` re-allocates memory for an existing region of memory by either
-expanding or contracting the memory based on the passed `new_size` in  bytes,
+expanding or contracting the memory based on the passed `new_size` in bytes,
 returning a `void*` pointer to the start of that memory (which may not change);
 it does not perform any initialization of new areas of memory.
 
@@ -196,11 +196,11 @@ void* aligned_alloc(size_t alignment, size_t size);
 not perform any initialization.
 
 The `size` parameter must be an integral multiple of `alignment` and `alignment`
-must be a power of two.  If either of these cases is not satisfied,
+must be a power of two. If either of these cases is not satisfied,
 `aligned_alloc()` will fail and return a NULL pointer.
 
-`aligned_alloc` with `size=0` returns a non-NULL zero-sized pointer.
-(Attempting to access memory at this location is undefined.)
+`aligned_alloc` with `size=0` returns a non-NULL zero-sized pointer. (Attempting
+to access memory at this location is undefined.)
 
 ### `posix_memalign()`
 
@@ -215,7 +215,7 @@ type of data pointer in order to be dereferenceable. If the alignment allocation
 succeeds, `posix_memalign()` returns `0`; otherwise it returns an error value.
 
 `posix_memalign` is similar to `aligned_alloc()` but `alignment` be a power of
-two multiple of `sizeof(void *)`.  If the constraints are not satisfied,
+two multiple of `sizeof(void *)`. If the constraints are not satisfied,
 `posix_memalign()` will fail.
 
 `posix_memalign` with `size=0` returns a non-NULL zero-sized pointer.

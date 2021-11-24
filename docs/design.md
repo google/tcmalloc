@@ -18,8 +18,7 @@ allocator that has the following characteristics:
 
 ## Usage
 
-You use TCMalloc by specifying it as the `malloc` attribute on your binary rules
-in Bazel.
+You use TCMalloc by specifying it as the `malloc` attribute on your binary rules in Bazel.
 
 ## Overview
 
@@ -80,15 +79,15 @@ size-class. The size-classes are designed to minimize the amount of memory that
 is wasted when rounding to the next largest size-class.
 
 When compiled with `__STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8`, we use a set of
-sizes aligned to 8 bytes for raw storage allocated with `::operator new`.  This
+sizes aligned to 8 bytes for raw storage allocated with `::operator new`. This
 smaller alignment minimizes wasted memory for many common allocation sizes (24,
 40, etc.) which are otherwise rounded up to a multiple of 16 bytes. On many
 compilers, this behavior is controlled by the `-fnew-alignment=...` flag.
-When `__STDCPP_DEFAULT_NEW_ALIGNMENT__` is not
-specified (or is larger than 8 bytes), we use standard 16 byte alignments for
-`::operator new`. However, for allocations under 16 bytes, we may return an
-object with a lower alignment, as no object with a larger alignment requirement
-can be allocated in the space.
+When
+`__STDCPP_DEFAULT_NEW_ALIGNMENT__` is not specified (or is larger than 8 bytes),
+we use standard 16 byte alignments for `::operator new`. However, for
+allocations under 16 bytes, we may return an object with a lower alignment, as
+no object with a larger alignment requirement can be allocated in the space.
 
 When an object of a given size is requested, that request is mapped to a request
 of a particular size-class using the
@@ -297,9 +296,9 @@ available objects in the spans, more spans are requested from the back-end.
 When objects are
 [returned to the central free list](https://github.com/google/tcmalloc/blob/master/tcmalloc/central_freelist.cc),
 each object is mapped to the span to which it belongs (using the
-[pagemap](#pagemap-and-spans)) and then released into that span. If all the objects that
-reside in a particular span are returned to it, the entire span gets returned to
-the back-end.
+[pagemap](#pagemap-and-spans)) and then released into that span. If all the
+objects that reside in a particular span are returned to it, the entire span
+gets returned to the back-end.
 
 ### Pagemap and Spans
 

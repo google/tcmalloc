@@ -65,13 +65,13 @@ MALLOC: =  12942756418 (12343.2 MiB) Virtual address space used
     tracking memory allocation. This will grow as the amount of memory used
     grows.
 *   **Bytes in malloc metadata Arena unallocated:** Metadata is allocated in an
-    internal Arena.  Memory requests to the OS are made in blocks which amortize
+    internal Arena. Memory requests to the OS are made in blocks which amortize
     several Arena allocations and this captures memory that is not yet allocated
     but could be by future Arena allocations.
-*   **Bytes in malloc metadata Arena unavailable:** The Arena allocator may
-    fail to allocate a block fully when a subsequent Arena allocation request is
-    made that is larger than the block's remaining space.  This memory is
-    currently unavailable for allocation.
+*   **Bytes in malloc metadata Arena unavailable:** The Arena allocator may fail
+    to allocate a block fully when a subsequent Arena allocation request is made
+    that is larger than the block's remaining space. This memory is currently
+    unavailable for allocation.
 
 There's a couple of summary lines:
 
@@ -255,9 +255,9 @@ class  10 [       80 bytes ] :      132 insert hits;      330 insert misses (   
 ```
 
 As of July 2021, the `TransferCache` misses when inserting or removing a
-non-batch size number of objects from the cache.  These are reflected in the
-"partial" column.  The insert and remove miss column is *inclusive* of misses
-for both batch size and non-batch size numbers of objects.
+non-batch size number of objects from the cache. These are reflected in the
+"partial" column. The insert and remove miss column is *inclusive* of misses for
+both batch size and non-batch size numbers of objects.
 
 ### Per-CPU Information
 
@@ -360,7 +360,7 @@ caches, or to directly satisfy requests that are larger than the sizes supported
 by the per-thread or per-cpu caches.
 
 **Note:** TCMalloc cannot tell whether a span of memory is actually backed by
-physical memory, but it uses _unmapped_ to indicate that it has told the OS that
+physical memory, but it uses *unmapped* to indicate that it has told the OS that
 the span is not used and does not need the associated physical memory. For this
 reason the physical memory of an application may be larger that the amount that
 TCMalloc reports.
