@@ -1445,9 +1445,10 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
 //
 // TODO(b/124707070): Pass the requested allocation access hint as well,
 // allowing us to encode the hint in heap/allocation profiles.
-static void* SampleifyAllocation(size_t requested_size, size_t weight,
-                                 size_t requested_alignment, size_t cl,
-                                 void* obj, Span* span, size_t* capacity) {
+template <typename Policy>
+static void* SampleifyAllocation(Policy policy, size_t requested_size,
+                                 size_t weight, size_t cl, void* obj,
+                                 Span* span, size_t* capacity) {
   CHECK_CONDITION((cl != 0 && obj != nullptr && span == nullptr) ||
                   (cl == 0 && obj == nullptr && span != nullptr));
 
@@ -1457,6 +1458,7 @@ static void* SampleifyAllocation(size_t requested_size, size_t weight,
 
   // requested_alignment = 1 means 'small size table alignment was used'
   // Historically this is reported as requested_alignment = 0
+  size_t requested_alignment = policy.align();
   if (requested_alignment == 1) {
     requested_alignment = 0;
   }
@@ -1565,9 +1567,8 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
   } else if (Static::numa_topology().numa_aware()) {
     tag = NumaNormalTag(policy.numa_partition());
   }
-  const size_t alignment = policy.align();
   Span* span = Static::page_allocator().NewAligned(
-      num_pages, BytesToLengthCeil(alignment), tag);
+      num_pages, BytesToLengthCeil(policy.align()), tag);
 
   if (span == nullptr) {
     return nullptr;
@@ -1579,7 +1580,7 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
       tag == GetMemoryTag(span->start_address()));
 
   if (size_t weight = ShouldSampleAllocation(size)) {
-    CHECK_CONDITION(result == SampleifyAllocation(size, weight, alignment, 0,
+    CHECK_CONDITION(result == SampleifyAllocation(policy, size, weight, 0,
                                                   nullptr, span, nullptr));
   }
 
@@ -1609,8 +1610,8 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy, size_t cl,
   }
   size_t weight;
   if (ABSL_PREDICT_FALSE(weight = ShouldSampleAllocation(size))) {
-    return SampleifyAllocation(size, weight, policy.align(), cl, result,
-                               nullptr, capacity);
+    return SampleifyAllocation(policy, size, weight, cl, result, nullptr,
+                               capacity);
   }
   SetClassCapacity(cl, capacity);
   return result;
