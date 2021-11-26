@@ -60,7 +60,7 @@ struct StackTrace {
   uintptr_t requested_alignment;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
 
-  uintptr_t depth;           // Number of PC values stored in array below
+  uintptr_t depth;  // Number of PC values stored in array below
   void* stack[kMaxStackDepth];
 
   // weight is the expected number of *bytes* that were requested

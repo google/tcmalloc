@@ -38,7 +38,7 @@ namespace {
 class HugeAllocatorTest : public testing::TestWithParam<bool> {
  private:
   // Use a tiny fraction of actual size so we can test aggressively.
-  static void *AllocateFake(size_t bytes, size_t *actual, size_t align);
+  static void* AllocateFake(size_t bytes, size_t* actual, size_t align);
 
   static constexpr size_t kMaxBacking = 1024 * 1024;
   // This isn't super good form but we'll never have more than one HAT
@@ -47,8 +47,8 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
 
   // We use actual malloc for metadata allocations, but we track them so they
   // can be deleted.
-  static void *MallocMetadata(size_t size);
-  static std::vector<void *> metadata_allocs_;
+  static void* MallocMetadata(size_t size);
+  static std::vector<void*> metadata_allocs_;
   static size_t metadata_bytes_;
   static bool should_overallocate_;
   static HugeLength huge_pages_requested_;
@@ -69,14 +69,14 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
   }
 
   ~HugeAllocatorTest() override {
-    for (void *p : metadata_allocs_) {
+    for (void* p : metadata_allocs_) {
       free(p);
     }
     metadata_allocs_.clear();
     backing_.clear();
   }
 
-  size_t *GetActual(HugePage p) { return &backing_[p.index()]; }
+  size_t* GetActual(HugePage p) { return &backing_[p.index()]; }
 
   // We're dealing with a lot of memory, so we don't want to do full memset
   // and then check every byte for corruption.  So set the first and last
@@ -104,7 +104,7 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
 };
 
 // Use a tiny fraction of actual size so we can test aggressively.
-void *HugeAllocatorTest::AllocateFake(size_t bytes, size_t *actual,
+void* HugeAllocatorTest::AllocateFake(size_t bytes, size_t* actual,
                                       size_t align) {
   CHECK_CONDITION(bytes % kHugePageSize == 0);
   CHECK_CONDITION(align % kHugePageSize == 0);
@@ -123,21 +123,21 @@ void *HugeAllocatorTest::AllocateFake(size_t bytes, size_t *actual,
   }
   if (index + bytes > kMaxBacking) return nullptr;
   backing_.resize(index + bytes);
-  void *ptr = reinterpret_cast<void *>(index * kHugePageSize);
+  void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
   return ptr;
 }
 
 // We use actual malloc for metadata allocations, but we track them so they
 // can be deleted.
-void *HugeAllocatorTest::MallocMetadata(size_t size) {
+void* HugeAllocatorTest::MallocMetadata(size_t size) {
   metadata_bytes_ += size;
-  void *ptr = malloc(size);
+  void* ptr = malloc(size);
   metadata_allocs_.push_back(ptr);
   return ptr;
 }
 
 std::vector<size_t> HugeAllocatorTest::backing_;
-std::vector<void *> HugeAllocatorTest::metadata_allocs_;
+std::vector<void*> HugeAllocatorTest::metadata_allocs_;
 size_t HugeAllocatorTest::metadata_bytes_;
 bool HugeAllocatorTest::should_overallocate_;
 HugeLength HugeAllocatorTest::huge_pages_requested_;
@@ -340,8 +340,8 @@ TEST_P(HugeAllocatorTest, Frugal) {
 
 TEST_P(HugeAllocatorTest, Stats) {
   struct Helper {
-    static void Stats(const HugeAllocator *huge, size_t *num_spans,
-                      Length *pages, absl::Duration *avg_age) {
+    static void Stats(const HugeAllocator* huge, size_t* num_spans,
+                      Length* pages, absl::Duration* avg_age) {
       SmallSpanStats small;
       LargeSpanStats large;
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
@@ -353,7 +353,7 @@ TEST_P(HugeAllocatorTest, Stats) {
       *num_spans = large.spans;
       EXPECT_EQ(Length(0), large.normal_pages);
       *pages = large.returned_pages;
-      const PageAgeHistograms::Histogram *hist = ages.GetTotalHistogram(true);
+      const PageAgeHistograms::Histogram* hist = ages.GetTotalHistogram(true);
       *avg_age = absl::Seconds(hist->avg_age());
     }
   };
@@ -440,7 +440,7 @@ TEST_P(HugeAllocatorTest, OOM) {
 
 INSTANTIATE_TEST_SUITE_P(
     NormalOverAlloc, HugeAllocatorTest, testing::Values(false, true),
-    +[](const testing::TestParamInfo<bool> &info) {
+    +[](const testing::TestParamInfo<bool>& info) {
       return info.param ? "overallocates" : "normal";
     });
 

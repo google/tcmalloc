@@ -23,7 +23,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void HugeAllocator::Print(Printer *out) {
+void HugeAllocator::Print(Printer* out) {
   out->printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
   free_.Print(out);
   out->printf(
@@ -32,19 +32,19 @@ void HugeAllocator::Print(Printer *out) {
       (from_system_ - in_use_).raw_num());
 }
 
-void HugeAllocator::PrintInPbtxt(PbtxtRegion *hpaa) const {
+void HugeAllocator::PrintInPbtxt(PbtxtRegion* hpaa) const {
   free_.PrintInPbtxt(hpaa);
   hpaa->PrintI64("num_total_requested_huge_pages", from_system_.raw_num());
   hpaa->PrintI64("num_in_use_huge_pages", in_use_.raw_num());
 }
 
-HugeAddressMap::Node *HugeAllocator::Find(HugeLength n) {
-  HugeAddressMap::Node *curr = free_.root();
+HugeAddressMap::Node* HugeAllocator::Find(HugeLength n) {
+  HugeAddressMap::Node* curr = free_.root();
   // invariant: curr != nullptr && curr->longest >= n
   // we favor smaller gaps and lower nodes and lower addresses, in that
   // order. The net effect is that we are neither a best-fit nor a
   // lowest-address allocator but vaguely close to both.
-  HugeAddressMap::Node *best = nullptr;
+  HugeAddressMap::Node* best = nullptr;
   while (curr && curr->longest() >= n) {
     if (curr->range().len() >= n) {
       if (!best || best->range().len() > curr->range().len()) {
@@ -102,7 +102,7 @@ HugeRange HugeAllocator::AllocateRange(HugeLength n) {
   size_t actual;
   size_t bytes = n.in_bytes();
   size_t align = kHugePageSize;
-  void *ptr = allocate_(bytes, &actual, align);
+  void* ptr = allocate_(bytes, &actual, align);
   if (ptr == nullptr) {
     // OOM...
     return HugeRange::Nil();
@@ -117,7 +117,7 @@ HugeRange HugeAllocator::AllocateRange(HugeLength n) {
 
 HugeRange HugeAllocator::Get(HugeLength n) {
   CHECK_CONDITION(n > NHugePages(0));
-  auto *node = Find(n);
+  auto* node = Find(n);
   if (!node) {
     // Get more memory, then "delete" it
     HugeRange r = AllocateRange(n);
@@ -154,9 +154,9 @@ void HugeAllocator::Release(HugeRange r) {
   DebugCheckFreelist();
 }
 
-void HugeAllocator::AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                                 PageAgeHistograms *ages) const {
-  for (const HugeAddressMap::Node *node = free_.first(); node != nullptr;
+void HugeAllocator::AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                                 PageAgeHistograms* ages) const {
+  for (const HugeAddressMap::Node* node = free_.first(); node != nullptr;
        node = node->next()) {
     HugeLength n = node->range().len();
     if (large != nullptr) {

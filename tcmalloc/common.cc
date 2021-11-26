@@ -184,7 +184,7 @@ void SizeMap::Init() {
     SetSizeClasses(kExperimentalPow2Below64SizeClassesCount,
                    kExperimentalPow2Below64SizeClasses);
   } else {
-      SetSizeClasses(kSizeClassesCount, kSizeClasses);
+    SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
   MaybeRunTimeSizeClasses();
 

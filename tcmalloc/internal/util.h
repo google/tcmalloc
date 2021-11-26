@@ -49,7 +49,7 @@ namespace tcmalloc_internal {
 // signal_safe_open() - a wrapper for open(2) which ignores signals
 // Semantics equivalent to open(2):
 //   returns a file-descriptor (>=0) on success, -1 on failure, error in errno
-int signal_safe_open(const char *path, int flags, ...);
+int signal_safe_open(const char* path, int flags, ...);
 
 // signal_safe_close() - a wrapper for close(2) which ignores signals
 // Semantics equivalent to close(2):
@@ -68,8 +68,8 @@ int signal_safe_close(int fd);
 // flushed from the buffer in the first write.  To handle this case the optional
 // bytes_written parameter is provided, when not-NULL, it will always return the
 // total bytes written before any error.
-ssize_t signal_safe_write(int fd, const char *buf, size_t count,
-                          size_t *bytes_written);
+ssize_t signal_safe_write(int fd, const char* buf, size_t count,
+                          size_t* bytes_written);
 
 // signal_safe_read() - a wrapper for read(2) which ignores signals
 // Semantics equivalent to read(2):
@@ -83,7 +83,7 @@ ssize_t signal_safe_write(int fd, const char *buf, size_t count,
 // read by a previous read.  To handle this case the optional bytes_written
 // parameter is provided, when not-NULL, it will always return the total bytes
 // read before any error.
-ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read);
+ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
 
 // signal_safe_poll() - a wrapper for poll(2) which ignores signals
 // Semantics equivalent to poll(2):
@@ -93,7 +93,7 @@ ssize_t signal_safe_read(int fd, char *buf, size_t count, size_t *bytes_read);
 // poll for data.  Unlike ppoll/pselect, signal_safe_poll is *ignoring* signals
 // not attempting to re-enable them.  Protecting us from the traditional races
 // involved with the latter.
-int signal_safe_poll(struct ::pollfd *fds, int nfds, absl::Duration timeout);
+int signal_safe_poll(struct ::pollfd* fds, int nfds, absl::Duration timeout);
 
 // Affinity helpers.
 

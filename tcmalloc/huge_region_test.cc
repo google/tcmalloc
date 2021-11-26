@@ -42,7 +42,7 @@ class HugeRegionTest : public ::testing::Test {
  protected:
   HugeRegionTest()
       :  // an unlikely magic page
-        p_(HugePageContaining(reinterpret_cast<void *>(0x1faced200000))),
+        p_(HugePageContaining(reinterpret_cast<void*>(0x1faced200000))),
         region_({p_, region_.size()}, MockUnback) {
     // we usually don't care about backing calls, unless testing that
     // specifically.
@@ -54,23 +54,23 @@ class HugeRegionTest : public ::testing::Test {
   // This is wordy, but necessary for mocking:
   class BackingInterface {
    public:
-    virtual void Unback(void *p, size_t len) = 0;
+    virtual void Unback(void* p, size_t len) = 0;
     virtual ~BackingInterface() {}
   };
 
   class MockBackingInterface : public BackingInterface {
    public:
-    MOCK_METHOD2(Unback, void(void *p, size_t len));
+    MOCK_METHOD2(Unback, void(void* p, size_t len));
   };
 
   static std::unique_ptr<MockBackingInterface> mock_;
 
-  static void MockUnback(void *p, size_t len) { mock_->Unback(p, len); }
+  static void MockUnback(void* p, size_t len) { mock_->Unback(p, len); }
 
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
   void ExpectUnback(HugeRange r) {
-    void *ptr = r.start_addr();
+    void* ptr = r.start_addr();
     size_t bytes = r.byte_len();
     EXPECT_CALL(*mock_, Unback(ptr, bytes)).Times(1);
   }
@@ -112,7 +112,7 @@ class HugeRegionTest : public ::testing::Test {
     return Allocate(n, &from_released);
   }
 
-  Alloc Allocate(Length n, bool *from_released) {
+  Alloc Allocate(Length n, bool* from_released) {
     Alloc ret;
     CHECK_CONDITION(region_.MaybeGet(n, &ret.p, from_released));
     ret.n = n;
@@ -279,10 +279,10 @@ TEST_F(HugeRegionTest, Stats) {
   const Length kLen = region_.size().in_pages();
   const size_t kBytes = kLen.in_bytes();
   struct Helper {
-    static void Stat(const Region &region, std::vector<Length> *small_backed,
-                     std::vector<Length> *small_unbacked, LargeSpanStats *large,
-                     BackingStats *stats, double *avg_age_backed,
-                     double *avg_age_unbacked) {
+    static void Stat(const Region& region, std::vector<Length>* small_backed,
+                     std::vector<Length>* small_unbacked, LargeSpanStats* large,
+                     BackingStats* stats, double* avg_age_backed,
+                     double* avg_age_unbacked) {
       SmallSpanStats small;
       *large = LargeSpanStats();
       PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
@@ -450,7 +450,7 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Delete(d);
 }
 
-static void NilUnback(void *p, size_t bytes) {}
+static void NilUnback(void* p, size_t bytes) {}
 
 class HugeRegionSetTest : public testing::Test {
  protected:
@@ -521,9 +521,9 @@ TEST_F(HugeRegionSetTest, Set) {
   // Random traffic should have defragmented our allocations into full
   // and empty regions, and released the empty ones.  Annoyingly, we don't
   // know which region is which, so we have to do a bit of silliness:
-  std::vector<Region *> regions = {r1.get(), r2.get(), r3.get(), r4.get()};
+  std::vector<Region*> regions = {r1.get(), r2.get(), r3.get(), r4.get()};
   std::sort(regions.begin(), regions.end(),
-            [](const Region *a, const Region *b) -> bool {
+            [](const Region* a, const Region* b) -> bool {
               return a->used_pages() > b->used_pages();
             });
 

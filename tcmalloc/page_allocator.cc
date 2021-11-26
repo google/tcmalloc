@@ -41,7 +41,7 @@ bool decide_want_hpaa() {
   return false;
 #endif
 
-  const char *e =
+  const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
     switch (e[0]) {
@@ -186,21 +186,21 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
       warned_hugepages = true;
     }
     if (has_cold_impl_) {
-      ret += static_cast<HugePageAwareAllocator *>(cold_impl_)
+      ret += static_cast<HugePageAwareAllocator*>(cold_impl_)
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
       if (ret >= pages) {
         return true;
       }
     }
     for (int partition = 0; partition < active_numa_partitions(); partition++) {
-      ret += static_cast<HugePageAwareAllocator *>(normal_impl_[partition])
+      ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
       if (ret >= pages) {
         return true;
       }
     }
 
-    ret += static_cast<HugePageAwareAllocator *>(sampled_impl_)
+    ret += static_cast<HugePageAwareAllocator*>(sampled_impl_)
                ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
   }
   // Return "true", if we got back under the limit.

@@ -71,9 +71,9 @@ class LimitTest : public ::testing::Test {
   }
 
   // avoid fragmentation in local caches
-  void *malloc_pages(size_t bytes) {
+  void* malloc_pages(size_t bytes) {
     CHECK_CONDITION(bytes % kPageSize == 0);
-    void *ptr;
+    void* ptr;
     CHECK_CONDITION(posix_memalign(&ptr, kPageSize, bytes) == 0);
     return ptr;
   }
@@ -91,7 +91,7 @@ class LimitTest : public ::testing::Test {
   absl::string_view GetStats() {
     size_t capacity = stats_buffer_.capacity();
     stats_buffer_.resize(capacity);
-    char *data = stats_buffer_.data();
+    char* data = stats_buffer_.data();
 
     int actual_size = TCMalloc_Internal_GetStats(data, capacity);
     stats_buffer_.erase(actual_size);
@@ -103,7 +103,7 @@ class LimitTest : public ::testing::Test {
   absl::string_view GetStatsInPbTxt() {
     size_t capacity = stats_pbtxt_.capacity();
     stats_pbtxt_.resize(capacity);
-    char *data = stats_pbtxt_.data();
+    char* data = stats_pbtxt_.data();
 
     int actual_size = MallocExtension_Internal_GetStatsInPbtxt(data, capacity);
     stats_pbtxt_.erase(actual_size);
@@ -136,7 +136,7 @@ TEST_F(LimitTest, LimitRespected) {
   static const size_t kLimForUse = kLim * 9 / 10;
   // First allocate many small objects...
   size_t used = 0;
-  std::vector<void *> ptrs;
+  std::vector<void*> ptrs;
   while (used < kLimForUse) {
     ptrs.push_back(malloc_pages(kPageSize));
     used += kPageSize;
@@ -144,7 +144,7 @@ TEST_F(LimitTest, LimitRespected) {
   DumpHeapStats("after allocating small objects");
   // return much of the space, fragmented...
   bool ret = false;
-  for (auto &p : ptrs) {
+  for (auto& p : ptrs) {
     if (ret) {
       free(p);
       p = nullptr;
@@ -221,7 +221,7 @@ TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
         // fragmentation, then allocate some large objects. If we subrelease we
         // could stay under our hard limit, but if we don't then we should go
         // over.
-        std::vector<void *> ptrs;
+        std::vector<void*> ptrs;
         constexpr size_t kNumMediumObjs = 400;
         constexpr size_t kNumLargeObjs = 200;
         for (size_t i = 0; i < kNumMediumObjs; i++) {
@@ -231,7 +231,7 @@ TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
         for (size_t i = 0; i < ptrs.size(); i++) {
           if (i % 2) continue;
           ::operator delete(ptrs[i]);
-          ptrs[i] = static_cast<void *>(nullptr);
+          ptrs[i] = static_cast<void*>(nullptr);
         }
         DumpHeapStats("after freeing half of medium objects");
         for (size_t i = 0; i < kNumLargeObjs; i++) {

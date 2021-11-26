@@ -93,8 +93,8 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 #ifdef __x86_64__
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
          virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
-  return *reinterpret_cast<short *>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                                    virtual_cpu_id_offset);
+  return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
+                                   virtual_cpu_id_offset);
 #else
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
   return RseqCpuId();
@@ -108,45 +108,45 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 }
 #endif
 
-typedef int (*OverflowHandler)(int cpu, size_t cl, void *item);
-typedef void *(*UnderflowHandler)(int cpu, size_t cl);
+typedef int (*OverflowHandler)(int cpu, size_t cl, void* item);
+typedef void* (*UnderflowHandler)(int cpu, size_t cl);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
 extern "C" {
-int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t *p,
+int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
                                           intptr_t old_val, intptr_t new_val);
 
 #ifndef __x86_64__
-int TcmallocSlab_Internal_Push(void *ptr, size_t cl, void *item, size_t shift,
+int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
                                OverflowHandler f);
-int TcmallocSlab_Internal_Push_FixedShift(void *ptr, size_t cl, void *item,
+int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
                                           OverflowHandler f);
-void *TcmallocSlab_Internal_Pop(void *ptr, size_t cl, UnderflowHandler f,
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl, UnderflowHandler f,
                                 size_t shift);
-void *TcmallocSlab_Internal_Pop_FixedShift(void *ptr, size_t cl,
+void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
                                            UnderflowHandler f);
 #endif  // __x86_64__
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PushBatch_FixedShift(void *ptr, size_t cl,
-                                                  void **batch, size_t len);
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t cl,
+                                                  void** batch, size_t len);
 
 // Pop a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PopBatch_FixedShift(void *ptr, size_t cl,
-                                                 void **batch, size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t cl,
+                                                 void** batch, size_t len);
 
 #ifdef __x86_64__
-int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t *p,
+int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
                                                intptr_t old_val,
                                                intptr_t new_val);
-size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void *ptr, size_t cl,
-                                                       void **batch,
+size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr, size_t cl,
+                                                       void** batch,
                                                        size_t len);
-size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void *ptr, size_t cl,
-                                                      void **batch, size_t len);
+size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr, size_t cl,
+                                                      void** batch, size_t len);
 #endif
 }
 
@@ -281,8 +281,8 @@ inline void CompilerBarrier() {
 // Required as tsan does not natively understand RSEQ.
 #ifdef THREAD_SANITIZER
 extern "C" {
-void __tsan_acquire(void *addr);
-void __tsan_release(void *addr);
+void __tsan_acquire(void* addr);
+void __tsan_release(void* addr);
 }
 #endif
 
@@ -290,26 +290,26 @@ void __tsan_release(void *addr);
 // get at the memory acccesses we make from RSEQ assembler sequences,
 // which means it doesn't know about the semantics our sequences
 // enforce.  So if we're under TSAN, add barrier annotations.
-inline void TSANAcquire(void *p) {
+inline void TSANAcquire(void* p) {
 #ifdef THREAD_SANITIZER
   __tsan_acquire(p);
 #endif
 }
 
-inline void TSANRelease(void *p) {
+inline void TSANRelease(void* p) {
 #ifdef THREAD_SANITIZER
   __tsan_release(p);
 #endif
 }
 
-inline void TSANMemoryBarrierOn(void *p) {
+inline void TSANMemoryBarrierOn(void* p) {
   TSANAcquire(p);
   TSANRelease(p);
 }
 
 // These methods may *only* be called if IsFast() has been called by the current
 // thread (and it returned true).
-inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
+inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
                                 intptr_t old_val, intptr_t new_val,
                                 const size_t virtual_cpu_id_offset) {
   TSANMemoryBarrierOn(p);
@@ -328,7 +328,7 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t> *p,
     default:
       __builtin_unreachable();
   }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
   __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
 }

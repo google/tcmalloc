@@ -37,8 +37,8 @@ static absl::discrete_distribution<size_t> BirthRateDistribution(
 
 EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
                              size_t total_mem,
-                             absl::FunctionRef<void *(size_t)> alloc,
-                             absl::FunctionRef<void(void *, size_t)> dealloc,
+                             absl::FunctionRef<void*(size_t)> alloc,
+                             absl::FunctionRef<void(void*, size_t)> dealloc,
                              bool record_and_replay_mode)
     : rng_(absl::SeedSeq{seed}),
       alloc_(alloc),
@@ -53,14 +53,14 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
   // First, compute average live count for each size in a heap of size
   // <total_mem>.
   double total = 0;
-  for (const auto &w : weights) {
+  for (const auto& w : weights) {
     total += w.num_live * w.size;
   }
   const double scale = total_mem / total;
   std::vector<double> avg_counts;
   double total_avg_counts = 0;
   // now sum(w.num_live * scale * w.size) = total_mem as desired.
-  for (const auto &w : weights) {
+  for (const auto& w : weights) {
     const double count = w.num_live * scale;
     avg_counts.push_back(count);
     total_avg_counts += count;
@@ -73,7 +73,7 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
   // We just then have to pick lifespans to match the desired avg_count.
   for (int i = 0; i < weights.size(); ++i) {
     const double avg_count = avg_counts[i];
-    const Entry &w = weights[i];
+    const Entry& w = weights[i];
     total_birth_rate_ += w.alloc_rate;
     const double lifespan = avg_count / w.alloc_rate;
     const double death_rate = 1 / lifespan;
@@ -97,14 +97,14 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
     SnapshotLiveObjects();
   }
 
-  for (auto &s : state_) {
+  for (auto& s : state_) {
     // Don't count initial sample towards allocations (skews data).
     s.total = 0;
   }
 }
 
 EmpiricalData::~EmpiricalData() {
-  for (auto &s : state_) {
+  for (auto& s : state_) {
     const size_t size = s.size;
     for (auto p : s.objs) {
       dealloc_(p, size);
@@ -113,7 +113,7 @@ EmpiricalData::~EmpiricalData() {
 }
 
 void EmpiricalData::DoBirth(const size_t i) {
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   // We have an extra live object, so the overall death rate goes up.
   death_sampler_.AdjustWeight(i, s.death_rate);
   const size_t size = s.size;
@@ -121,13 +121,13 @@ void EmpiricalData::DoBirth(const size_t i) {
   total_num_allocated_++;
   total_bytes_allocated_ += size;
   num_live_++;
-  void *p = alloc_(size);
+  void* p = alloc_(size);
   s.objs.push_back(p);
   s.total++;
 }
 
 void EmpiricalData::DoDeath(const size_t i) {
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   CHECK_CONDITION(!s.objs.empty());
   const int obj =
       absl::uniform_int_distribution<int>(0, s.objs.size() - 1)(rng_);
@@ -135,7 +135,7 @@ void EmpiricalData::DoDeath(const size_t i) {
   const size_t size = s.size;
   usage_ -= size;
   num_live_--;
-  void *p = s.objs[obj];
+  void* p = s.objs[obj];
   s.objs[obj] = s.objs.back();
   s.objs.pop_back();
   dealloc_(p, size);
@@ -143,7 +143,7 @@ void EmpiricalData::DoDeath(const size_t i) {
 
 void EmpiricalData::RecordBirth(const size_t i) {
   birth_or_death_sizes_.push_back(i);
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   death_sampler_.AdjustWeight(i, s.death_rate);
   // We only care about keeping the number of objects correct when building the
   // trace.  When we replay we will actually push the allocated address but
@@ -154,19 +154,19 @@ void EmpiricalData::RecordBirth(const size_t i) {
 }
 
 void EmpiricalData::ReplayBirth(const size_t i) {
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   const size_t size = s.size;
   usage_ += size;
   total_num_allocated_++;
   total_bytes_allocated_ += size;
   num_live_++;
-  void *p = alloc_(size);
+  void* p = alloc_(size);
   s.objs.push_back(p);
   s.total++;
 }
 
 void EmpiricalData::RecordDeath(const size_t i) {
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   CHECK_CONDITION(!s.objs.empty());
   birth_or_death_sizes_.push_back(i);
   auto to_free = absl::uniform_int_distribution<int>(
@@ -178,9 +178,9 @@ void EmpiricalData::RecordDeath(const size_t i) {
 }
 
 void EmpiricalData::ReplayDeath(const size_t i, uint64_t index) {
-  SizeState &s = state_[i];
+  SizeState& s = state_[i];
   CHECK_CONDITION(!s.objs.empty());
-  void *p = s.objs[index];
+  void* p = s.objs[index];
   s.objs[index] = s.objs.back();
   s.objs.pop_back();
   dealloc_(p, s.size);
@@ -255,7 +255,7 @@ void EmpiricalData::ReplayNext() {
 }
 
 void EmpiricalData::SnapshotLiveObjects() {
-  for (const auto &s : state_) {
+  for (const auto& s : state_) {
     snapshot_state_.push_back(
         {s.size, s.birth_rate, s.death_rate, s.total, s.objs});
   }
@@ -307,7 +307,7 @@ void EmpiricalData::BuildDeathObjectPointers() {
     if (birth_or_death_[i]) {
       continue;
     }
-    SizeState &s = state_[birth_or_death_sizes_[i]];
+    SizeState& s = state_[birth_or_death_sizes_[i]];
     death_object_pointers_.push_back(&s.objs[death_objects_[death_index++]]);
   }
   std::rotate(death_object_pointers_.begin(),
@@ -351,7 +351,7 @@ void EmpiricalData::RestartTraceIfNecessary() {
 
 std::vector<EmpiricalData::Entry> EmpiricalData::Actual() const {
   std::vector<Entry> data;
-  for (const auto &s : state_) {
+  for (const auto& s : state_) {
     data.push_back({s.size, static_cast<double>(s.total),
                     static_cast<double>(s.objs.size())});
   }

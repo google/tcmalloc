@@ -129,10 +129,10 @@ namespace {
 
 static constexpr size_t kBatch = 100;
 
-void *alloc(size_t s) { return ::operator new(s); }
+void* alloc(size_t s) { return ::operator new(s); }
 
-const EmpiricalProfile *ParseProfileChoice(const absl::string_view flag) {
-  static const auto *choices = []() {
+const EmpiricalProfile* ParseProfileChoice(const absl::string_view flag) {
+  static const auto* choices = []() {
     return new std::map<absl::string_view, const EmpiricalProfile>{
         {"beta", empirical_distributions::Beta()},
         {"bravo", empirical_distributions::Bravo()},
@@ -160,25 +160,25 @@ const EmpiricalProfile *ParseProfileChoice(const absl::string_view flag) {
   return &i->second;
 }
 
-const EmpiricalProfile &Profile() {
-  static const EmpiricalProfile *choice =
+const EmpiricalProfile& Profile() {
+  static const EmpiricalProfile* choice =
       ParseProfileChoice(absl::GetFlag(FLAGS_profile));
   return *choice;
 }
 
-const EmpiricalProfile *ParseProfileChoiceWithDefault(
+const EmpiricalProfile* ParseProfileChoiceWithDefault(
     const absl::string_view flag) {
   return flag.empty() ? &Profile() : ParseProfileChoice(flag);
 }
 
-const EmpiricalProfile &SpikeProfile() {
-  static const EmpiricalProfile *choice =
+const EmpiricalProfile& SpikeProfile() {
+  static const EmpiricalProfile* choice =
       ParseProfileChoiceWithDefault(absl::GetFlag(FLAGS_spike_profile));
   return *choice;
 }
 
-const EmpiricalProfile &TransientProfile() {
-  static const EmpiricalProfile *choice =
+const EmpiricalProfile& TransientProfile() {
+  static const EmpiricalProfile* choice =
       ParseProfileChoiceWithDefault(absl::GetFlag(FLAGS_transient_profile));
   return *choice;
 }
@@ -186,8 +186,8 @@ const EmpiricalProfile &TransientProfile() {
 class SequenceNumber {
  public:
   constexpr SequenceNumber() : value_(0) {}
-  SequenceNumber(const SequenceNumber &) = delete;
-  SequenceNumber &operator=(const SequenceNumber &) = delete;
+  SequenceNumber(const SequenceNumber&) = delete;
+  SequenceNumber& operator=(const SequenceNumber&) = delete;
 
   intptr_t GetNext() { return value_.fetch_add(1, std::memory_order_relaxed); }
 
@@ -284,11 +284,11 @@ bool OneSpiker() {
   return b;
 }
 
-absl::Duration Exp(absl::BitGen *random, absl::Duration mean) {
+absl::Duration Exp(absl::BitGen* random, absl::Duration mean) {
   return std::exponential_distribution<double>()(*random) * mean;
 }
 
-absl::Duration SpikeLifetime(absl::BitGen *random) {
+absl::Duration SpikeLifetime(absl::BitGen* random) {
   if (SpikesExact()) return SpikeAvgLifetime();
   return Exp(random, SpikeAvgLifetime());
 }
@@ -325,8 +325,8 @@ absl::Time SpikeTime() {
 
 class SimThread {
  public:
-  SimThread(int n, absl::Barrier *startup,
-            absl::Barrier *record_and_replay_barrier,
+  SimThread(int n, absl::Barrier* startup,
+            absl::Barrier* record_and_replay_barrier,
             absl::Span<const std::unique_ptr<SimThread>> siblings, size_t bytes,
             size_t transient)
       : n_(n),
@@ -360,7 +360,7 @@ class SimThread {
 
   size_t usage() { return load_usage_.load(std::memory_order_relaxed); }
 
-  void RecordBirthsAndDeaths(EmpiricalData *load) {
+  void RecordBirthsAndDeaths(EmpiricalData* load) {
     // Round number of births / deaths to record down to a multiple of kBatch.
     size_t buffer_size =
         (absl::GetFlag(FLAGS_record_and_replay_buffer_size) / kBatch) * kBatch;
@@ -436,7 +436,7 @@ class SimThread {
  private:
   // returns true if we should make a new spike too!
   bool KillSpikesCheckNew(absl::Time t) {
-    std::vector<Spike *> dead;
+    std::vector<Spike*> dead;
     bool ready_for_new;
     {
       absl::base_internal::SpinLockHolder h(&lock_);
@@ -449,7 +449,7 @@ class SimThread {
       to_kill_.erase(to_kill_.begin(), it);
     }
 
-    for (auto *d : dead) {
+    for (auto* d : dead) {
       delete d;
     }
 
@@ -467,7 +467,7 @@ class SimThread {
     return SpikeTime();
   }
 
-  void MakeSpike(absl::Time t, absl::BitGen *random) {
+  void MakeSpike(absl::Time t, absl::BitGen* random) {
     // First, compute next spike times, in different ways depending on our
     // scenario.
     if (OneSpiker()) {
@@ -481,7 +481,7 @@ class SimThread {
       }
       size_t i = absl::uniform_int_distribution<size_t>(
           0, siblings_.size() - 1)(*random);
-      SimThread *who = siblings_[i].get();
+      SimThread* who = siblings_[i].get();
       absl::base_internal::SpinLockHolder h(&who->lock_);
       who->next_spike_ = when;
     } else {
@@ -490,11 +490,11 @@ class SimThread {
       next_spike_ = when;
     }
 
-    Spike *s = new Spike(SpikeSize());
+    Spike* s = new Spike(SpikeSize());
     spike_bytes_allocated_.fetch_add(s->bytes_allocated());
     absl::Duration life = SpikeLifetime(random);
     absl::Time death = absl::Now() + life;
-    SimThread *killer = this;
+    SimThread* killer = this;
     // This slightly overselects ourselves, since we might be the random
     // sibling, but that's minor.
     if (!spike_is_local_(*random)) {
@@ -510,8 +510,8 @@ class SimThread {
   size_t n_;
   std::atomic<bool> thread_is_done_;
   absl::Time next_spike_ ABSL_GUARDED_BY(lock_);
-  absl::Barrier *startup_;
-  absl::Barrier *record_and_replay_barrier_;
+  absl::Barrier* startup_;
+  absl::Barrier* record_and_replay_barrier_;
   const absl::Span<const std::unique_ptr<SimThread>> siblings_;
   size_t bytes_, transient_;
   absl::bernoulli_distribution spike_is_local_;
@@ -520,7 +520,7 @@ class SimThread {
   std::atomic<size_t> spike_bytes_allocated_{0};
   std::atomic<size_t> load_usage_{0};
   absl::base_internal::SpinLock lock_;
-  std::map<absl::Time, std::vector<Spike *>> to_kill_ ABSL_GUARDED_BY(lock_);
+  std::map<absl::Time, std::vector<Spike*>> to_kill_ ABSL_GUARDED_BY(lock_);
   size_t run_release_each_bytes_{};
   size_t next_release_boundary_{};
 };
@@ -612,7 +612,7 @@ void RunSim() {
     size_t usage = 0;
     size_t bot = std::numeric_limits<size_t>::max(),
            top = std::numeric_limits<size_t>::min();
-    for (const auto &s : state) {
+    for (const auto& s : state) {
       bytes += s->total_bytes_allocated();
       allocations += s->load_allocations();
       size_t u = s->usage();
@@ -653,14 +653,14 @@ void RunSim() {
     ++iterations;
     if (absl::GetFlag(FLAGS_test_iterations) &&
         iterations >= absl::GetFlag(FLAGS_test_iterations)) {
-      for (const auto &s : state) {
+      for (const auto& s : state) {
         s->mark_thread_done();
       }
       break;
     }
   }
 
-  for (auto &t : threads) {
+  for (auto& t : threads) {
     t.join();
   }
 }
@@ -668,7 +668,7 @@ void RunSim() {
 }  // namespace empirical
 }  // namespace tcmalloc
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
   absl::ParseCommandLine(argc, argv);
   tcmalloc::empirical::RunSim();

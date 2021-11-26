@@ -833,7 +833,7 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
       default:
         __builtin_unreachable();
     }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
@@ -874,7 +874,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else   // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {

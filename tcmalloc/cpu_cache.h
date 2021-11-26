@@ -494,7 +494,7 @@ static size_t MaxCapacity(size_t cl) {
   return kLargeObjectDepth;
 }
 
-static void *SlabAlloc(size_t size)
+static void* SlabAlloc(size_t size)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   return Static::arena().Alloc(size);
 }
@@ -504,7 +504,7 @@ inline void CPUCache::Activate(ActivationMode mode) {
   int num_cpus = absl::base_internal::NumCPUs();
 
   size_t per_cpu_shift = kPerCpuShift;
-  const auto &topology = Static::numa_topology();
+  const auto& topology = Static::numa_topology();
   if (topology.numa_aware()) {
     per_cpu_shift += absl::bit_ceil(topology.active_partitions() - 1);
   }
@@ -520,14 +520,14 @@ inline void CPUCache::Activate(ActivationMode mode) {
        ++cl) {
     const uint16_t mc = MaxCapacity(cl);
     max_capacity_[cl] = mc;
-    bytes_required += sizeof(void *) * mc;
+    bytes_required += sizeof(void*) * mc;
   }
 
   // Deal with expanded size classes.
   for (int cl = kExpandedClassesStart; cl < kNumClasses; ++cl) {
     const uint16_t mc = MaxCapacity(cl);
     max_capacity_[cl] = mc;
-    bytes_required += sizeof(void *) * mc;
+    bytes_required += sizeof(void*) * mc;
   }
 
   // As we may make certain size classes no-ops by selecting "0" at runtime,
@@ -539,7 +539,7 @@ inline void CPUCache::Activate(ActivationMode mode) {
 
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
 
-  resize_ = reinterpret_cast<ResizeInfo *>(
+  resize_ = reinterpret_cast<ResizeInfo*>(
       Static::arena().Alloc(sizeof(ResizeInfo) * num_cpus));
   lazy_slabs_ = Parameters::lazy_per_cpu_caches();
 
@@ -570,7 +570,7 @@ inline void CPUCache::Activate(ActivationMode mode) {
 // So make sure only to make changes to one CPU's cache; at all times,
 // it must be safe to find ourselves migrated (at which point we atomically
 // return memory to the correct CPU.)
-inline void *CPUCache::Refill(int cpu, size_t cl) {
+inline void* CPUCache::Refill(int cpu, size_t cl) {
   const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
 
   // UpdateCapacity can evict objects from other size classes as it tries to
@@ -586,8 +586,8 @@ inline void *CPUCache::Refill(int cpu, size_t cl) {
   size_t total = 0;
   size_t got;
   size_t i;
-  void *result = nullptr;
-  void *batch[kMaxObjectsToMove];
+  void* result = nullptr;
+  void* batch[kMaxObjectsToMove];
   do {
     const size_t want = std::min(batch_length, target - total);
     got = Static::transfer_cache().RemoveRange(cl, batch, want);
@@ -605,7 +605,7 @@ inline void *CPUCache::Refill(int cpu, size_t cl) {
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch, i));
+        Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, i));
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
@@ -613,7 +613,7 @@ inline void *CPUCache::Refill(int cpu, size_t cl) {
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
     Static::transfer_cache().InsertRange(
-        to_return.cl[i], absl::Span<void *>(&(to_return.obj[i]), 1));
+        to_return.cl[i], absl::Span<void*>(&(to_return.obj[i]), 1));
   }
 
   return result;
@@ -621,7 +621,7 @@ inline void *CPUCache::Refill(int cpu, size_t cl) {
 
 inline size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
                                        bool overflow,
-                                       ObjectsToReturn *to_return) {
+                                       ObjectsToReturn* to_return) {
   // Freelist size balancing strategy:
   //  - We grow a size class only on overflow/underflow.
   //  - We shrink size classes in Steal as it scans all size classes.
@@ -648,7 +648,7 @@ inline size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
   // first time.
   absl::base_internal::LowLevelCallOnce(
       &resize_[cpu].initialized,
-      [](CPUCache *cache, int cpu) {
+      [](CPUCache* cache, int cpu) {
         if (cache->lazy_slabs_) {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
           cache->freelist_.InitCPU(cpu, MaxCapacityHelper);
@@ -705,7 +705,7 @@ inline size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
 }
 
 inline void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
-                           ObjectsToReturn *to_return) {
+                           ObjectsToReturn* to_return) {
   const size_t size = Static::sizemap().class_to_size(cl);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes;
@@ -846,11 +846,11 @@ inline void CPUCache::ShuffleCpuCaches() {
   }
 }
 
-static void ShrinkHandler(void *arg, size_t cl, void **batch, size_t count) {
+static void ShrinkHandler(void* arg, size_t cl, void** batch, size_t count) {
   const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch + i, n));
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch + i, n));
   }
 }
 
@@ -1020,7 +1020,7 @@ inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
 
 // There are rather a lot of policy knobs we could tweak here.
 inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
-                              ObjectsToReturn *to_return) {
+                              ObjectsToReturn* to_return) {
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
   size_t acquired = 0;
@@ -1095,7 +1095,7 @@ inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
         // Can't steal any more because the to_return set is full.
         break;
       }
-      void *obj = freelist_.Pop(source_cl, NoopUnderflow);
+      void* obj = freelist_.Pop(source_cl, NoopUnderflow);
       if (obj) {
         --to_return->count;
         to_return->cl[to_return->count] = source_cl;
@@ -1122,13 +1122,13 @@ inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
   return acquired;
 }
 
-inline int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
+inline int CPUCache::Overflow(void* ptr, size_t cl, int cpu) {
   const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
   const size_t target = UpdateCapacity(cpu, cl, batch_length, true, nullptr);
   // Return target objects in batch_length batches.
   size_t total = 0;
   size_t count = 1;
-  void *batch[kMaxObjectsToMove];
+  void* batch[kMaxObjectsToMove];
   batch[0] = ptr;
   do {
     size_t want = std::min(batch_length, target - total);
@@ -1140,7 +1140,7 @@ inline int CPUCache::Overflow(void *ptr, size_t cl, int cpu) {
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch, count));
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, count));
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
@@ -1221,13 +1221,13 @@ inline uint64_t CPUCache::CacheLimit() const {
 }
 
 struct DrainContext {
-  std::atomic<size_t> *available;
+  std::atomic<size_t>* available;
   uint64_t bytes;
 };
 
-static void DrainHandler(void *arg, size_t cl, void **batch, size_t count,
+static void DrainHandler(void* arg, size_t cl, void** batch, size_t count,
                          size_t cap) {
-  DrainContext *ctx = static_cast<DrainContext *>(arg);
+  DrainContext* ctx = static_cast<DrainContext*>(arg);
   const size_t size = Static::sizemap().class_to_size(cl);
   const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
   ctx->bytes += count * size;
@@ -1236,7 +1236,7 @@ static void DrainHandler(void *arg, size_t cl, void **batch, size_t count,
   ctx->available->fetch_add(cap * size, std::memory_order_relaxed);
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache().InsertRange(cl, absl::Span<void *>(batch + i, n));
+    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch + i, n));
   }
 }
 
@@ -1265,7 +1265,7 @@ inline uint64_t CPUCache::GetNumReclaims(int cpu) const {
 }
 
 inline void CPUCache::RecordCacheMissStat(const int cpu, const bool is_malloc) {
-  CPUCache &cpu_cache = Static::cpu_cache();
+  CPUCache& cpu_cache = Static::cpu_cache();
   if (is_malloc) {
     cpu_cache.resize_[cpu].total_underflows.fetch_add(
         1, std::memory_order_relaxed);
@@ -1380,7 +1380,7 @@ inline CPUCache::SizeClassCapacityStats CPUCache::GetSizeClassCapacityStats(
   return stats;
 }
 
-inline void CPUCache::Print(Printer *out) const {
+inline void CPUCache::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
               Static::cpu_cache().CacheLimit());
@@ -1437,7 +1437,7 @@ inline void CPUCache::Print(Printer *out) const {
   }
 }
 
-inline void CPUCache::PrintInPbtxt(PbtxtRegion *region) const {
+inline void CPUCache::PrintInPbtxt(PbtxtRegion* region) const {
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
@@ -1474,7 +1474,7 @@ inline void CPUCache::PerClassResizeInfo::Init() {
 }
 
 inline bool CPUCache::PerClassResizeInfo::Update(bool overflow, bool grow,
-                                                 uint32_t *successive) {
+                                                 uint32_t* successive) {
   int32_t raw = state_.load(std::memory_order_relaxed);
   State state;
   memcpy(&state, &raw, sizeof(state));

@@ -29,7 +29,7 @@
 
 const size_t kMem = 10 << 20;
 const size_t kMin = 8;
-void *blocks[kMem / kMin];
+void* blocks[kMem / kMin];
 
 int main() {
   const char* env = getenv("FORCE_CPU_CACHES");

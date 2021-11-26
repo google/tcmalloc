@@ -32,8 +32,8 @@ class PrintTest : public ::testing::Test {
   static constexpr size_t kBufferSize = 256 * 1024;
   char buf_[kBufferSize];
 
-  void ExpectStats(const BackingStats &back, const SmallSpanStats &small,
-                   const LargeSpanStats &large, const std::string &expected) {
+  void ExpectStats(const BackingStats& back, const SmallSpanStats& small,
+                   const LargeSpanStats& large, const std::string& expected) {
     Printer out(&buf_[0], kBufferSize);
     PrintStats("PrintTest", &out, back, small, large, true);
     EXPECT_EQ(expected, buf_);
@@ -93,7 +93,7 @@ class AgeTest : public testing::Test {
     return kNow - freq * age;
   }
 
-  void ExpectAges(const PageAgeHistograms &ages, const std::string &expected) {
+  void ExpectAges(const PageAgeHistograms& ages, const std::string& expected) {
     Printer out(&buf_[0], kBufferSize);
     ages.Print("AgeTest", &out);
     std::string got = buf_;

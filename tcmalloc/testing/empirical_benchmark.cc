@@ -24,9 +24,9 @@
 namespace tcmalloc {
 namespace {
 
-void *alloc(size_t s) { return ::operator new(s); }
+void* alloc(size_t s) { return ::operator new(s); }
 
-void BM_EmpiricalTrivial(benchmark::State &state) {
+void BM_EmpiricalTrivial(benchmark::State& state) {
   std::vector<EmpiricalData::Entry> triv = {{1024, 1, 1}, {2048, 1, 1}};
   EmpiricalData d(0, triv, 1024 * 1024 * 1024, alloc, sized_delete);
 

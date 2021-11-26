@@ -32,7 +32,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 static int OpenLog(MemoryTag tag) {
-  const char *fname = [&]() {
+  const char* fname = [&]() {
     switch (tag) {
       case MemoryTag::kNormal:
         return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
@@ -58,7 +58,7 @@ static int OpenLog(MemoryTag tag) {
   // Tag file with PID - handles forking children much better.
   int pid = getpid();
   // Blaze tests can output here for recovery of the output file
-  const char *test_dir = thread_safe_getenv("TEST_UNDECLARED_OUTPUTS_DIR");
+  const char* test_dir = thread_safe_getenv("TEST_UNDECLARED_OUTPUTS_DIR");
   if (test_dir) {
     snprintf(buf, sizeof(buf), "%s/%s.%d", test_dir, fname, pid);
   } else {
@@ -74,10 +74,10 @@ static int OpenLog(MemoryTag tag) {
   return fd;
 }
 
-PageAllocatorInterface::PageAllocatorInterface(const char *label, MemoryTag tag)
+PageAllocatorInterface::PageAllocatorInterface(const char* label, MemoryTag tag)
     : PageAllocatorInterface(label, &Static::pagemap(), tag) {}
 
-PageAllocatorInterface::PageAllocatorInterface(const char *label, PageMap *map,
+PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
                                                MemoryTag tag)
     : info_(label, OpenLog(tag)), pagemap_(map), tag_(tag) {}
 

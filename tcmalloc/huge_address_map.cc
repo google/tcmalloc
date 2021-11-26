@@ -26,15 +26,15 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-const HugeAddressMap::Node *HugeAddressMap::Node::next() const {
-  const Node *n = right_;
+const HugeAddressMap::Node* HugeAddressMap::Node::next() const {
+  const Node* n = right_;
   if (n) {
     while (n->left_) n = n->left_;
     return n;
   }
 
   n = parent_;
-  const Node *last = this;
+  const Node* last = this;
   while (n) {
     if (n->left_ == last) return n;
     last = n;
@@ -44,12 +44,12 @@ const HugeAddressMap::Node *HugeAddressMap::Node::next() const {
   return nullptr;
 }
 
-HugeAddressMap::Node *HugeAddressMap::Node::next() {
-  const Node *n = static_cast<const Node *>(this)->next();
-  return const_cast<Node *>(n);
+HugeAddressMap::Node* HugeAddressMap::Node::next() {
+  const Node* n = static_cast<const Node*>(this)->next();
+  return const_cast<Node*>(n);
 }
 
-void HugeAddressMap::Node::Check(size_t *num_nodes, HugeLength *size) const {
+void HugeAddressMap::Node::Check(size_t* num_nodes, HugeLength* size) const {
   HugeLength longest = range_.len();
   *num_nodes += 1;
   *size += range_.len();
@@ -83,10 +83,10 @@ void HugeAddressMap::Node::Check(size_t *num_nodes, HugeLength *size) const {
   CHECK_CONDITION(longest_ == longest);
 }
 
-const HugeAddressMap::Node *HugeAddressMap::first() const {
-  const Node *n = root();
+const HugeAddressMap::Node* HugeAddressMap::first() const {
+  const Node* n = root();
   if (!n) return nullptr;
-  const Node *left = n->left_;
+  const Node* left = n->left_;
   while (left) {
     n = left;
     left = n->left_;
@@ -95,9 +95,9 @@ const HugeAddressMap::Node *HugeAddressMap::first() const {
   return n;
 }
 
-HugeAddressMap::Node *HugeAddressMap::first() {
-  const Node *f = static_cast<const HugeAddressMap *>(this)->first();
-  return const_cast<Node *>(f);
+HugeAddressMap::Node* HugeAddressMap::first() {
+  const Node* f = static_cast<const HugeAddressMap*>(this)->first();
+  return const_cast<Node*>(f);
 }
 
 void HugeAddressMap::Check() {
@@ -116,23 +116,23 @@ size_t HugeAddressMap::nranges() const { return used_nodes_; }
 
 HugeLength HugeAddressMap::total_mapped() const { return total_size_; }
 
-void HugeAddressMap::Print(Printer *out) const {
+void HugeAddressMap::Print(Printer* out) const {
   out->printf("HugeAddressMap: treap %zu / %zu nodes used / created\n",
               used_nodes_, total_nodes_);
   const size_t longest = root_ ? root_->longest_.raw_num() : 0;
   out->printf("HugeAddressMap: %zu contiguous hugepages available\n", longest);
 }
 
-void HugeAddressMap::PrintInPbtxt(PbtxtRegion *hpaa) const {
+void HugeAddressMap::PrintInPbtxt(PbtxtRegion* hpaa) const {
   hpaa->PrintI64("num_huge_address_map_treap_nodes_used", used_nodes_);
   hpaa->PrintI64("num_huge_address_map_treap_nodes_created", total_nodes_);
   const size_t longest = root_ ? root_->longest_.in_bytes() : 0;
   hpaa->PrintI64("contiguous_free_bytes", longest);
 }
 
-HugeAddressMap::Node *HugeAddressMap::Predecessor(HugePage p) {
-  Node *n = root();
-  Node *best = nullptr;
+HugeAddressMap::Node* HugeAddressMap::Predecessor(HugePage p) {
+  Node* n = root();
+  Node* best = nullptr;
   while (n) {
     HugeRange here = n->range_;
     if (here.contains(p)) return n;
@@ -151,7 +151,7 @@ HugeAddressMap::Node *HugeAddressMap::Predecessor(HugePage p) {
   return best;
 }
 
-void HugeAddressMap::Merge(Node *b, HugeRange r, Node *a) {
+void HugeAddressMap::Merge(Node* b, HugeRange r, Node* a) {
   auto merge_when = [](HugeRange x, int64_t x_when, HugeRange y,
                        int64_t y_when) {
     // avoid overflow with floating-point
@@ -195,9 +195,9 @@ void HugeAddressMap::Insert(HugeRange r) {
   total_size_ += r.len();
   // First, try to merge if necessary. Note there are three possibilities:
   // we might need to merge before with r, r with after, or all three together.
-  Node *before = Predecessor(r.start());
+  Node* before = Predecessor(r.start());
   CHECK_CONDITION(!before || !before->range_.intersects(r));
-  Node *after = before ? before->next() : first();
+  Node* after = before ? before->next() : first();
   CHECK_CONDITION(!after || !after->range_.intersects(r));
   if (before && before->range_.precedes(r)) {
     if (after && r.precedes(after->range_)) {
@@ -213,10 +213,10 @@ void HugeAddressMap::Insert(HugeRange r) {
   CHECK_CONDITION(!before || !before->range_.precedes(r));
   CHECK_CONDITION(!after || !r.precedes(after->range_));
   // No merging possible; just add a new node.
-  Node *n = Get(r);
-  Node *curr = root();
-  Node *parent = nullptr;
-  Node **link = &root_;
+  Node* n = Get(r);
+  Node* curr = root();
+  Node* parent = nullptr;
+  Node** link = &root_;
   // Walk down the tree to our correct location
   while (curr != nullptr && curr->prio_ >= n->prio_) {
     curr->longest_ = std::max(curr->longest_, r.len());
@@ -238,10 +238,10 @@ void HugeAddressMap::Insert(HugeRange r) {
     // We need to split the treap at curr into n's children.
     // This will be two treaps: one less than p, one greater, and has
     // a nice recursive structure.
-    Node **less = &n->left_;
-    Node *lp = n;
-    Node **more = &n->right_;
-    Node *mp = n;
+    Node** less = &n->left_;
+    Node* lp = n;
+    Node** more = &n->right_;
+    Node* mp = n;
     while (curr) {
       if (curr->range_.start() < p) {
         *less = curr;
@@ -272,21 +272,21 @@ void HugeAddressMap::Node::FixLongest() {
   longest_ = new_longest;
 }
 
-void HugeAddressMap::FixLongest(HugeAddressMap::Node *n) {
+void HugeAddressMap::FixLongest(HugeAddressMap::Node* n) {
   while (n) {
     n->FixLongest();
     n = n->parent_;
   }
 }
 
-void HugeAddressMap::Remove(HugeAddressMap::Node *n) {
+void HugeAddressMap::Remove(HugeAddressMap::Node* n) {
   total_size_ -= n->range_.len();
   // We need to merge the left and right children of n into one
   // treap, then glue it into place wherever n was.
-  Node **link;
-  Node *parent = n->parent_;
-  Node *top = n->left_;
-  Node *bottom = n->right_;
+  Node** link;
+  Node* parent = n->parent_;
+  Node* top = n->left_;
+  Node* bottom = n->right_;
 
   const HugeLength child_longest =
       std::max(top ? top->longest_ : NHugePages(0),
@@ -308,7 +308,7 @@ void HugeAddressMap::Remove(HugeAddressMap::Node *n) {
 
   // A routine op we'll need a lot: given two (possibly null)
   // children, put the root-ier one into top.
-  auto reorder_maybe = [](Node **top, Node **bottom) {
+  auto reorder_maybe = [](Node** top, Node** bottom) {
     Node *b = *bottom, *t = *top;
     if (b && (!t || t->prio_ < b->prio_)) {
       *bottom = t;
@@ -343,25 +343,25 @@ void HugeAddressMap::Remove(HugeAddressMap::Node *n) {
   Put(n);
 }
 
-void HugeAddressMap::Put(Node *n) {
+void HugeAddressMap::Put(Node* n) {
   freelist_size_++;
   used_nodes_--;
   n->left_ = freelist_;
   freelist_ = n;
 }
 
-HugeAddressMap::Node *HugeAddressMap::Get(HugeRange r) {
+HugeAddressMap::Node* HugeAddressMap::Get(HugeRange r) {
   CHECK_CONDITION((freelist_ == nullptr) == (freelist_size_ == 0));
   used_nodes_++;
   int prio = rand_r(&seed_);
   if (freelist_size_ == 0) {
     total_nodes_++;
-    Node *ret = reinterpret_cast<Node *>(meta_(sizeof(Node)));
+    Node* ret = reinterpret_cast<Node*>(meta_(sizeof(Node)));
     return new (ret) Node(r, prio);
   }
 
   freelist_size_--;
-  Node *ret = freelist_;
+  Node* ret = freelist_;
   freelist_ = ret->left_;
   return new (ret) Node(r, prio);
 }

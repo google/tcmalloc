@@ -64,7 +64,7 @@ class AdjustableSampler {
     CHECK_CONDITION(n >= 1);
   }
 
-  explicit AdjustableSampler(const std::vector<double> &weights)
+  explicit AdjustableSampler(const std::vector<double>& weights)
       : n_(NextPowerOfTwo(weights.size())), tree_(2 * n_ - 1, 0) {
     CHECK_CONDITION(!weights.empty());
     absl::c_copy(weights, tree_.begin() + (n_ - 1));
@@ -79,7 +79,7 @@ class AdjustableSampler {
   // Sample from the distribution on {0, 1, ..., n_ - 1} with probabilities:
   // p_i = w_i / Sum(w_i)
   template <typename Generator>
-  size_t operator()(Generator &g) const {  // NOLINT(runtime/references)
+  size_t operator()(Generator& g) const {  // NOLINT(runtime/references)
     return SampleWeight(
         absl::uniform_real_distribution<double>(0, tree_[0])(g));
   }
@@ -99,7 +99,7 @@ class AdjustableSampler {
 
   double TotalWeight() const { return tree_[0]; }
 
-  bool operator==(const AdjustableSampler &rhs) const {
+  bool operator==(const AdjustableSampler& rhs) const {
     return n_ == rhs.n_ && tree_ == rhs.tree_;
   }
 
@@ -176,8 +176,8 @@ class EmpiricalData {
 
   // Allocates ~(total_mem bytes / thread count) to put us in a "steady state".
   EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
-                size_t total_mem, absl::FunctionRef<void *(size_t)> alloc,
-                absl::FunctionRef<void(void *, size_t)> dealloc,
+                size_t total_mem, absl::FunctionRef<void*(size_t)> alloc,
+                absl::FunctionRef<void(void*, size_t)> dealloc,
                 bool record_and_replay_mode = false);
 
   ~EmpiricalData();
@@ -206,7 +206,7 @@ class EmpiricalData {
   // startup allocations.)
   std::vector<Entry> Actual() const;
 
-  absl::BitGen *const rng() { return &rng_; }
+  absl::BitGen* const rng() { return &rng_; }
 
   // Saves the list of live objects of each size class.  We will later restore
   // this list (exactly once) with RestoreSnapshot() after we have constructed
@@ -245,7 +245,7 @@ class EmpiricalData {
     const double birth_rate;
     const double death_rate;
     size_t total;
-    std::vector<void *> objs;
+    std::vector<void*> objs;
   };
 
   void DoBirth(const size_t i);
@@ -257,8 +257,8 @@ class EmpiricalData {
   void ReplayDeath(const size_t i, const uint64_t index);
   void ReserveSizeClassObjects();
 
-  absl::FunctionRef<void *(size_t)> alloc_;
-  absl::FunctionRef<void(void *, size_t)> dealloc_;
+  absl::FunctionRef<void*(size_t)> alloc_;
+  absl::FunctionRef<void(void*, size_t)> dealloc_;
 
   size_t usage_;
   size_t num_live_;
@@ -275,7 +275,7 @@ class EmpiricalData {
   std::vector<bool> birth_or_death_;
   std::vector<uint16_t> birth_or_death_sizes_;
   std::vector<uint32_t> death_objects_;
-  std::vector<void **> death_object_pointers_;
+  std::vector<void**> death_object_pointers_;
   uint32_t birth_or_death_index_ = 0;
   uint32_t death_object_index_ = 0;
 };

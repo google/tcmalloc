@@ -58,7 +58,7 @@ class Bitmap {
 
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
-  bool NextFreeRange(size_t start, size_t *index, size_t *length) const;
+  bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
 
   // Returns index of the first {true, false} bit >= index, or N if none.
   size_t FindSet(size_t index) const;
@@ -121,7 +121,7 @@ class RangeTracker {
   void Unmark(size_t index, size_t n);
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
-  bool NextFreeRange(size_t start, size_t *index, size_t *length) const;
+  bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
 
   void Clear();
 
@@ -256,8 +256,8 @@ inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
 // If there is at least one free range at or after <start>,
 // put it in *index, *length and return true; else return false.
 template <size_t N>
-inline bool RangeTracker<N>::NextFreeRange(size_t start, size_t *index,
-                                           size_t *length) const {
+inline bool RangeTracker<N>::NextFreeRange(size_t start, size_t* index,
+                                           size_t* length) const {
   return bits_.NextFreeRange(start, index, length);
 }
 
@@ -403,8 +403,8 @@ inline void Bitmap<N>::SetRangeValue(size_t index, size_t n) {
 }
 
 template <size_t N>
-inline bool Bitmap<N>::NextFreeRange(size_t start, size_t *index,
-                                     size_t *length) const {
+inline bool Bitmap<N>::NextFreeRange(size_t start, size_t* index,
+                                     size_t* length) const {
   if (start >= N) return false;
   size_t i = FindClear(start);
   if (i == N) return false;

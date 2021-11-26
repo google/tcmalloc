@@ -37,7 +37,7 @@ namespace {
 int64_t MemoryUsageSlow(pid_t pid) {
   int64_t ret = 0;
 
-  FILE *f =
+  FILE* f =
       fopen(absl::StrCat("/proc/", pid, "/task/", pid, "/smaps").c_str(), "r");
   CHECK_CONDITION(f != nullptr);
 
@@ -106,7 +106,7 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
 
   for (int i = 0; i < kThreads; ++i) {
     std::thread t([]() {
-      void *p = calloc(1024, 1);
+      void* p = calloc(1024, 1);
       benchmark::DoNotOptimize(p);
       free(p);
     });

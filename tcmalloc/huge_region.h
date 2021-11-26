@@ -57,7 +57,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId *p, bool *from_released);
+  bool MaybeGet(Length n, PageId* p, bool* from_released);
 
   // Return [p, p + n) for new allocations.
   // If release=true, release any hugepages made empty as a result.
@@ -77,24 +77,24 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   }
   Length unmapped_pages() const { return (size() - nbacked_).in_pages(); }
 
-  void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                    PageAgeHistograms *ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                    PageAgeHistograms* ages) const;
 
   HugeLength backed() const;
 
-  void Print(Printer *out) const;
-  void PrintInPbtxt(PbtxtRegion *detail) const;
+  void Print(Printer* out) const;
+  void PrintInPbtxt(PbtxtRegion* detail) const;
 
   BackingStats stats() const;
 
   // We don't define this as operator< because it's a rather specialized order.
-  bool BetterToAllocThan(const HugeRegion *rhs) const {
+  bool BetterToAllocThan(const HugeRegion* rhs) const {
     return longest_free() < rhs->longest_free();
   }
 
-  void prepend_it(HugeRegion *other) { this->prepend(other); }
+  void prepend_it(HugeRegion* other) { this->prepend(other); }
 
-  void append_it(HugeRegion *other) { this->append(other); }
+  void append_it(HugeRegion* other) { this->append(other); }
 
  private:
   RangeTracker<kRegionSize.in_pages().raw_num()> tracker_;
@@ -113,7 +113,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // Adjust counts of allocs-per-hugepage for [p, p + n) being added/removed.
 
   // *from_released is set to true iff [p, p + n) is currently unbacked
-  void Inc(PageId p, Length n, bool *from_released);
+  void Inc(PageId p, Length n, bool* from_released);
   // If release is true, unback any hugepage that becomes empty.
   void Dec(PageId p, Length n, bool release);
 
@@ -140,22 +140,22 @@ class HugeRegionSet {
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
   // Returns false if no range available.
-  bool MaybeGet(Length n, PageId *page, bool *from_released);
+  bool MaybeGet(Length n, PageId* page, bool* from_released);
 
   // Return an allocation to a region (if one matches!)
   bool MaybePut(PageId p, Length n);
 
   // Add region to the set.
-  void Contribute(Region *region);
+  void Contribute(Region* region);
 
-  void Print(Printer *out) const;
-  void PrintInPbtxt(PbtxtRegion *hpaa) const;
-  void AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                    PageAgeHistograms *ages) const;
+  void Print(Printer* out) const;
+  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                    PageAgeHistograms* ages) const;
   BackingStats stats() const;
 
  private:
-  void Fix(Region *r) {
+  void Fix(Region* r) {
     // We've changed r's fragmentation--move it through the list to the
     // correct home (if needed).
     Rise(r);
@@ -163,7 +163,7 @@ class HugeRegionSet {
   }
 
   // Check if r has to move forward in the list.
-  void Rise(Region *r) {
+  void Rise(Region* r) {
     auto prev = list_.at(r);
     --prev;
     if (prev == list_.end()) return;           // we're at the front
@@ -179,7 +179,7 @@ class HugeRegionSet {
   }
 
   // Check if r has to move backward in the list.
-  void Fall(Region *r) {
+  void Fall(Region* r) {
     auto next = list_.at(r);
     ++next;
     if (next == list_.end()) return;          // we're at the back
@@ -195,8 +195,8 @@ class HugeRegionSet {
   }
 
   // Add r in its sorted place.
-  void AddToList(Region *r) {
-    for (Region *curr : list_) {
+  void AddToList(Region* r) {
+    for (Region* curr : list_) {
       if (r->BetterToAllocThan(curr)) {
         curr->prepend_it(r);
         return;
@@ -229,7 +229,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction unback)
   }
 }
 
-inline bool HugeRegion::MaybeGet(Length n, PageId *p, bool *from_released) {
+inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
   if (n > longest_free()) return false;
   auto index = Length(tracker_.FindAndMark(n.raw_num()));
 
@@ -263,9 +263,9 @@ inline HugeLength HugeRegion::Release() {
   return r;
 }
 
-inline void HugeRegion::AddSpanStats(SmallSpanStats *small,
-                                     LargeSpanStats *large,
-                                     PageAgeHistograms *ages) const {
+inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
+                                     LargeSpanStats* large,
+                                     PageAgeHistograms* ages) const {
   size_t index = 0, n;
   Length f, u;
   // This is complicated a bit by the backed/unbacked status of pages.
@@ -336,7 +336,7 @@ inline HugeLength HugeRegion::backed() const {
   return b;
 }
 
-inline void HugeRegion::Print(Printer *out) const {
+inline void HugeRegion::Print(Printer* out) const {
   const size_t kib_used = used_pages().in_bytes() / 1024;
   const size_t kib_free = free_pages().in_bytes() / 1024;
   const size_t kib_longest_free = longest_free().in_bytes() / 1024;
@@ -350,7 +350,7 @@ inline void HugeRegion::Print(Printer *out) const {
       total_unbacked_.in_bytes() / 1024 / 1024);
 }
 
-inline void HugeRegion::PrintInPbtxt(PbtxtRegion *detail) const {
+inline void HugeRegion::PrintInPbtxt(PbtxtRegion* detail) const {
   detail->PrintI64("used_bytes", used_pages().in_bytes());
   detail->PrintI64("free_bytes", free_pages().in_bytes());
   detail->PrintI64("longest_free_range_bytes", longest_free().in_bytes());
@@ -367,7 +367,7 @@ inline BackingStats HugeRegion::stats() const {
   return s;
 }
 
-inline void HugeRegion::Inc(PageId p, Length n, bool *from_released) {
+inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
   bool should_back = false;
   const int64_t now = absl::base_internal::CycleClock::Now();
   while (n > Length(0)) {
@@ -442,9 +442,9 @@ inline void HugeRegion::UnbackHugepages(bool should[kNumHugePages]) {
 // true iff the returned range is currently unbacked.
 // Returns false if no range available.
 template <typename Region>
-inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId *page,
-                                            bool *from_released) {
-  for (Region *region : list_) {
+inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
+                                            bool* from_released) {
+  for (Region* region : list_) {
     if (region->MaybeGet(n, page, from_released)) {
       Fix(region);
       return true;
@@ -456,7 +456,7 @@ inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId *page,
 // Return an allocation to a region (if one matches!)
 template <typename Region>
 inline bool HugeRegionSet<Region>::MaybePut(PageId p, Length n) {
-  for (Region *region : list_) {
+  for (Region* region : list_) {
     if (region->contains(p)) {
       region->Put(p, n, true);
       Fix(region);
@@ -469,20 +469,20 @@ inline bool HugeRegionSet<Region>::MaybePut(PageId p, Length n) {
 
 // Add region to the set.
 template <typename Region>
-inline void HugeRegionSet<Region>::Contribute(Region *region) {
+inline void HugeRegionSet<Region>::Contribute(Region* region) {
   n_++;
   AddToList(region);
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::Print(Printer *out) const {
+inline void HugeRegionSet<Region>::Print(Printer* out) const {
   out->printf("HugeRegionSet: 1 MiB+ allocations best-fit into %zu MiB slabs\n",
               Region::size().in_bytes() / 1024 / 1024);
   out->printf("HugeRegionSet: %zu total regions\n", n_);
   Length total_free;
   HugeLength total_backed = NHugePages(0);
 
-  for (Region *region : list_) {
+  for (Region* region : list_) {
     region->Print(out);
     total_free += region->free_pages();
     total_backed += region->backed();
@@ -500,20 +500,20 @@ inline void HugeRegionSet<Region>::Print(Printer *out) const {
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   hpaa->PrintI64("min_huge_region_alloc_size", 1024 * 1024);
   hpaa->PrintI64("huge_region_size", Region::size().in_bytes());
-  for (Region *region : list_) {
+  for (Region* region : list_) {
     auto detail = hpaa->CreateSubRegion("huge_region_details");
     region->PrintInPbtxt(&detail);
   }
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::AddSpanStats(SmallSpanStats *small,
-                                                LargeSpanStats *large,
-                                                PageAgeHistograms *ages) const {
-  for (Region *region : list_) {
+inline void HugeRegionSet<Region>::AddSpanStats(SmallSpanStats* small,
+                                                LargeSpanStats* large,
+                                                PageAgeHistograms* ages) const {
+  for (Region* region : list_) {
     region->AddSpanStats(small, large, ages);
   }
 }
@@ -521,7 +521,7 @@ inline void HugeRegionSet<Region>::AddSpanStats(SmallSpanStats *small,
 template <typename Region>
 inline BackingStats HugeRegionSet<Region>::stats() const {
   BackingStats stats;
-  for (Region *region : list_) {
+  for (Region* region : list_) {
     stats += region->stats();
   }
 

@@ -32,34 +32,34 @@ namespace tcmalloc_internal {
 // from noticing one another's presence in the pagemap.
 class ExtraRegion : public AddressRegion {
  public:
-  explicit ExtraRegion(AddressRegion *under) : under_(under) {}
+  explicit ExtraRegion(AddressRegion* under) : under_(under) {}
 
-  std::pair<void *, size_t> Alloc(size_t size, size_t alignment) override {
+  std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override {
     size_t big = size + alignment + alignment;
     // Can't pad if allocation is within 2 * alignment of region size.
     if (big > kMinMmapAlloc) {
       return under_->Alloc(size, alignment);
     }
-    void *ptr;
+    void* ptr;
     size_t actual_size;
     std::tie(ptr, actual_size) = under_->Alloc(big, alignment);
     if (!ptr) return {nullptr, 0};
     actual_size = actual_size - alignment * 2;
-    return {static_cast<char *>(ptr) + alignment, actual_size};
+    return {static_cast<char*>(ptr) + alignment, actual_size};
   }
 
  private:
-  AddressRegion *under_;
+  AddressRegion* under_;
 };
 
 class ExtraRegionFactory : public AddressRegionFactory {
  public:
-  explicit ExtraRegionFactory(AddressRegionFactory *under) : under_(under) {}
+  explicit ExtraRegionFactory(AddressRegionFactory* under) : under_(under) {}
 
-  AddressRegion *Create(void *start, size_t size, UsageHint hint) override {
-    AddressRegion *underlying_region = under_->Create(start, size, hint);
+  AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
+    AddressRegion* underlying_region = under_->Create(start, size, hint);
     CHECK_CONDITION(underlying_region);
-    void *region_space = MallocInternal(sizeof(ExtraRegion));
+    void* region_space = MallocInternal(sizeof(ExtraRegion));
     CHECK_CONDITION(region_space);
     return new (region_space) ExtraRegion(underlying_region);
   }
@@ -69,7 +69,7 @@ class ExtraRegionFactory : public AddressRegionFactory {
   }
 
  private:
-  AddressRegionFactory *under_;
+  AddressRegionFactory* under_;
 };
 
 }  // namespace tcmalloc_internal

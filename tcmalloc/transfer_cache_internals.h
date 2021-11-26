@@ -68,7 +68,7 @@ struct Capacity {
   int max_capacity;
 };
 
-  // Compute initial and max capacity that we should configure this cache for.
+// Compute initial and max capacity that we should configure this cache for.
 template <class Manager>
 static Capacity LegacyCapacityNeeded(size_t cl) {
   // We need at least 2 slots to store list head and tail.
@@ -121,10 +121,10 @@ class RingBufferTransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  RingBufferTransferCache(Manager *owner, int cl)
+  RingBufferTransferCache(Manager* owner, int cl)
       : RingBufferTransferCache(owner, cl, CapacityNeeded(cl)) {}
 
-  RingBufferTransferCache(Manager *owner, int cl, Capacity capacity)
+  RingBufferTransferCache(Manager* owner, int cl, Capacity capacity)
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         slot_info_(RingBufferSizeInfo({0, 0, capacity.capacity})),
         max_capacity_(capacity.max_capacity),
@@ -139,13 +139,13 @@ class RingBufferTransferCache {
       ASSERT(slots_size >= max_capacity_);
       ASSERT(slots_size < max_capacity_ * 2);
       slots_ =
-          reinterpret_cast<void **>(owner->Alloc(slots_size * sizeof(void *)));
+          reinterpret_cast<void**>(owner->Alloc(slots_size * sizeof(void*)));
       slots_bitmask_ = slots_size - 1;
     }
   }
 
-  RingBufferTransferCache(const RingBufferTransferCache &) = delete;
-  RingBufferTransferCache &operator=(const RingBufferTransferCache &) = delete;
+  RingBufferTransferCache(const RingBufferTransferCache&) = delete;
+  RingBufferTransferCache& operator=(const RingBufferTransferCache&) = delete;
 
   // This transfercache implementation handles non-batch sized
   // inserts and removes efficiently.
@@ -155,12 +155,12 @@ class RingBufferTransferCache {
 
   // Insert the specified batch into the transfer cache.  N is the number of
   // elements in the range.  RemoveRange() is the opposite operation.
-  void InsertRange(int size_class, absl::Span<void *> batch)
+  void InsertRange(int size_class, absl::Span<void*> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
     const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
-    void *to_free_buf[kMaxObjectsToMove];
+    void* to_free_buf[kMaxObjectsToMove];
     int to_free_num = 0;
 
     {
@@ -202,7 +202,7 @@ class RingBufferTransferCache {
         if (to_insert_start > 0) {
           // We also want to return some of the inserted items in this case.
           memcpy(to_free_buf + to_free_num, batch.data(),
-                 to_insert_start * sizeof(void *));
+                 to_insert_start * sizeof(void*));
           to_free_num += to_insert_start;
         }
         // This is only false if info.capacity is 0.
@@ -220,7 +220,7 @@ class RingBufferTransferCache {
       ASSERT(to_free_num <= B);
       insert_misses_.Add(1);
       tracking::Report(kTCInsertMiss, size_class, 1);
-      freelist().InsertRange(absl::Span<void *>(to_free_buf, to_free_num));
+      freelist().InsertRange(absl::Span<void*>(to_free_buf, to_free_num));
     }
   }
 
@@ -228,7 +228,7 @@ class RingBufferTransferCache {
   // batch. This might return less than N if the transfercache is non-empty but
   // contains fewer elements than N. It is guaranteed to return at least 1 as
   // long as either the transfercache or the free list are not empty.
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int N)
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void** batch, int N)
       ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(N > 0);
 
@@ -266,7 +266,7 @@ class RingBufferTransferCache {
       const size_t num_to_move =
           std::min({B, slot_info_.used, to_return, low_water_mark_});
       if (num_to_move == 0) break;
-      void *buf[kMaxObjectsToMove];
+      void* buf[kMaxObjectsToMove];
       CopyOutOfStart(buf, num_to_move, slot_info_);
       to_return -= num_to_move;
       low_water_mark_ -= num_to_move;
@@ -364,7 +364,7 @@ class RingBufferTransferCache {
   bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = Manager::num_objects_to_move(size_class);
 
-    void *to_free[kMaxObjectsToMove];
+    void* to_free[kMaxObjectsToMove];
     int num_to_free;
     {
       absl::base_internal::SpinLockHolder h(&lock_);
@@ -397,12 +397,12 @@ class RingBufferTransferCache {
 
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() ABSL_LOCKS_EXCLUDED(lock_) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList& freelist() ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
 
   // The const version of the wrapper, needed to call stats on
-  ABSL_ATTRIBUTE_ALWAYS_INLINE const FreeList &freelist() const
+  ABSL_ATTRIBUTE_ALWAYS_INLINE const FreeList& freelist() const
       ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
@@ -435,7 +435,7 @@ class RingBufferTransferCache {
   // Copies N elements from source to the end of the ring buffer. It updates
   // `info`, be sure to call SetSlotInfo() to save the modifications.
   // N has to be > 0.
-  void CopyIntoEnd(void *const *source, size_t N, RingBufferSizeInfo &info)
+  void CopyIntoEnd(void* const* source, size_t N, RingBufferSizeInfo& info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     ASSERT(N > 0);
     ASSERT(info.used + N <= info.capacity);
@@ -443,10 +443,10 @@ class RingBufferTransferCache {
     const size_t end = GetSlotIndex(info.start, info.used + N);
     if (ABSL_PREDICT_FALSE(end < begin && end != 0)) {
       // We wrap around the buffer.
-      memcpy(slots_ + begin, source, sizeof(void *) * (N - end));
-      memcpy(slots_, source + (N - end), sizeof(void *) * end);
+      memcpy(slots_ + begin, source, sizeof(void*) * (N - end));
+      memcpy(slots_, source + (N - end), sizeof(void*) * end);
     } else {
-      memcpy(slots_ + begin, source, sizeof(void *) * N);
+      memcpy(slots_ + begin, source, sizeof(void*) * N);
     }
     info.used += N;
   }
@@ -455,24 +455,24 @@ class RingBufferTransferCache {
   // target. Does not do any updates to slot_info_.
   // N has to be > 0.
   // You should use CopyOutOfEnd or CopyOutOfStart instead in most cases.
-  void CopyOutOfSlots(void **target, size_t N, size_t start, size_t index) const
+  void CopyOutOfSlots(void** target, size_t N, size_t start, size_t index) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     ASSERT(N > 0);
     const size_t begin = GetSlotIndex(start, index);
     const size_t end = GetSlotIndex(start, index + N);
     if (ABSL_PREDICT_FALSE(end < begin && end != 0)) {
       // We wrap around the buffer.
-      memcpy(target, slots_ + begin, sizeof(void *) * (N - end));
-      memcpy(target + (N - end), slots_, sizeof(void *) * end);
+      memcpy(target, slots_ + begin, sizeof(void*) * (N - end));
+      memcpy(target + (N - end), slots_, sizeof(void*) * end);
     } else {
-      memcpy(target, slots_ + begin, sizeof(void *) * N);
+      memcpy(target, slots_ + begin, sizeof(void*) * N);
     }
   }
 
   // Copies N elements from the start of the ring buffer into target. Updates
   // `info`, be sure to call SetSlotInfo() to save the modifications.
   // N has to be > 0.
-  void CopyOutOfStart(void **target, size_t N, RingBufferSizeInfo &info)
+  void CopyOutOfStart(void** target, size_t N, RingBufferSizeInfo& info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     ASSERT(N > 0);
     ASSERT(N <= info.used);
@@ -490,7 +490,7 @@ class RingBufferTransferCache {
   // Copies N elements from the end of the ring buffer into target. Updates
   // `info`, be sure to call SetSlotInfo() to save the modifications.
   // N has to be > 0.
-  void CopyOutOfEnd(void **target, size_t N, RingBufferSizeInfo &info)
+  void CopyOutOfEnd(void** target, size_t N, RingBufferSizeInfo& info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
     ASSERT(N > 0);
     ASSERT(N <= info.used);
@@ -513,16 +513,16 @@ class RingBufferTransferCache {
     slot_info_ = info;
   }
 
-  const Manager &manager() const ABSL_LOCKS_EXCLUDED(lock_) {
+  const Manager& manager() const ABSL_LOCKS_EXCLUDED(lock_) {
     return *owner_do_not_access_directly_;
   }
 
-  Manager &manager() ABSL_LOCKS_EXCLUDED(lock_) {
+  Manager& manager() ABSL_LOCKS_EXCLUDED(lock_) {
     return *owner_do_not_access_directly_;
   }
 
   // Pointer to array of free objects.
-  void **slots_ ABSL_GUARDED_BY(lock_);
+  void** slots_ ABSL_GUARDED_BY(lock_);
 
   // This lock protects all the data members.  used_slots_ and cache_slots_
   // may be looked at without holding the lock.
@@ -556,7 +556,7 @@ class RingBufferTransferCache {
   StatsCounter remove_misses_;
 
   FreeList freelist_do_not_access_directly_;
-  Manager *const owner_do_not_access_directly_;
+  Manager* const owner_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache

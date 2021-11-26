@@ -55,7 +55,7 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size, int alignment = kAlignment)
+  static void* Alloc(size_t size, int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 };
 
@@ -71,13 +71,13 @@ class ShardedTransferCacheManager {
 
   size_t TotalBytes();
 
-  void *Pop(int cl) {
-    void *batch[1];
+  void* Pop(int cl) {
+    void* batch[1];
     const int got = cache_[get_index(cl)].tc.RemoveRange(cl, batch, 1);
     return got == 1 ? batch[0] : nullptr;
   }
 
-  void Push(int cl, void *ptr) {
+  void Push(int cl, void* ptr) {
     cache_[get_index(cl)].tc.InsertRange(cl, {&ptr, 1});
   }
 
@@ -105,8 +105,8 @@ class ShardedTransferCacheManager {
   class BackingTransferCache {
    public:
     void Init(int cl) { size_class_ = cl; }
-    void InsertRange(absl::Span<void *> batch) const;
-    ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) const;
+    void InsertRange(absl::Span<void*> batch) const;
+    ABSL_MUST_USE_RESULT int RemoveRange(void** batch, int n) const;
     int size_class() const { return size_class_; }
 
    private:
@@ -142,7 +142,7 @@ class ShardedTransferCacheManager {
   // Mapping from cpu to the L3 cache used.
   uint8_t l3_cache_index_[CPU_SETSIZE] = {0};
 
-  Cache *cache_ = nullptr;
+  Cache* cache_ = nullptr;
   int num_shards_ = 0;
   bool active_for_class_[kNumClasses] = {false};
 };
@@ -157,8 +157,8 @@ class TransferCacheManager : public StaticForwarder {
  public:
   constexpr TransferCacheManager() : next_to_evict_(1) {}
 
-  TransferCacheManager(const TransferCacheManager &) = delete;
-  TransferCacheManager &operator=(const TransferCacheManager &) = delete;
+  TransferCacheManager(const TransferCacheManager&) = delete;
+  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
@@ -166,11 +166,11 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void InsertRange(int size_class, absl::Span<void *> batch) {
+  void InsertRange(int size_class, absl::Span<void*> batch) {
     cache_[size_class].rbtc.InsertRange(size_class, batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void** batch, int n) {
     return cache_[size_class].rbtc.RemoveRange(size_class, batch, n);
   }
 
@@ -192,12 +192,12 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].rbtc.GetHitRateStats();
   }
 
-  const CentralFreeList &central_freelist(int size_class) const {
-      return cache_[size_class].rbtc.freelist();
+  const CentralFreeList& central_freelist(int size_class) const {
+    return cache_[size_class].rbtc.freelist();
   }
 
-  CentralFreeList &central_freelist(int size_class) {
-      return cache_[size_class].rbtc.freelist();
+  CentralFreeList& central_freelist(int size_class) {
+    return cache_[size_class].rbtc.freelist();
   }
 
   TransferCacheImplementation implementation() const {
@@ -207,7 +207,7 @@ class TransferCacheManager : public StaticForwarder {
  private:
   int DetermineSizeClassToEvict(int size_class);
   bool ShrinkCache(int size_class) {
-      return cache_[size_class].rbtc.ShrinkCache(size_class);
+    return cache_[size_class].rbtc.ShrinkCache(size_class);
   }
 
   std::atomic<int32_t> next_to_evict_;
@@ -227,8 +227,8 @@ class TransferCacheManager : public StaticForwarder {
 class TransferCacheManager {
  public:
   constexpr TransferCacheManager() : freelist_() {}
-  TransferCacheManager(const TransferCacheManager &) = delete;
-  TransferCacheManager &operator=(const TransferCacheManager &) = delete;
+  TransferCacheManager(const TransferCacheManager&) = delete;
+  TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
@@ -236,11 +236,11 @@ class TransferCacheManager {
     }
   }
 
-  void InsertRange(int size_class, absl::Span<void *> batch) {
+  void InsertRange(int size_class, absl::Span<void*> batch) {
     freelist_[size_class].InsertRange(batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void** batch, int n) {
     return freelist_[size_class].RemoveRange(batch, n);
   }
 
@@ -250,11 +250,11 @@ class TransferCacheManager {
     return {0, 0, 0, 0};
   }
 
-  const CentralFreeList &central_freelist(int size_class) const {
+  const CentralFreeList& central_freelist(int size_class) const {
     return freelist_[size_class];
   }
 
-  CentralFreeList &central_freelist(int size_class) {
+  CentralFreeList& central_freelist(int size_class) {
     return freelist_[size_class];
   }
 
@@ -270,8 +270,8 @@ class TransferCacheManager {
 struct ShardedTransferCacheManager {
   static constexpr void Init() {}
   static constexpr bool should_use(int cl) { return false; }
-  static constexpr void *Pop(int cl) { return nullptr; }
-  static constexpr void Push(int cl, void *ptr) {}
+  static constexpr void* Pop(int cl) { return nullptr; }
+  static constexpr void Push(int cl, void* ptr) {}
   static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
 };

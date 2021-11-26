@@ -57,13 +57,13 @@ size_t StaticForwarder::class_to_size(int size_class) {
 size_t StaticForwarder::num_objects_to_move(int size_class) {
   return Static::sizemap().num_objects_to_move(size_class);
 }
-void *StaticForwarder::Alloc(size_t size, int alignment) {
+void* StaticForwarder::Alloc(size_t size, int alignment) {
   return Static::arena().Alloc(size, alignment);
 }
 
 void ShardedTransferCacheManager::Init() {
   num_shards_ = BuildCpuToL3CacheMap(l3_cache_index_);
-  cache_ = reinterpret_cast<Cache *>(Static::arena().Alloc(
+  cache_ = reinterpret_cast<Cache*>(Static::arena().Alloc(
       sizeof(Cache) * kNumClasses * num_shards_, ABSL_CACHELINE_SIZE));
   ASSERT(cache_ != nullptr);
   for (int shard = 0; shard < num_shards_; ++shard) {
@@ -97,12 +97,12 @@ size_t ShardedTransferCacheManager::TotalBytes() {
 }
 
 void ShardedTransferCacheManager::BackingTransferCache::InsertRange(
-    absl::Span<void *> batch) const {
+    absl::Span<void*> batch) const {
   Static::transfer_cache().InsertRange(size_class_, batch);
 }
 
 ABSL_MUST_USE_RESULT int
-ShardedTransferCacheManager::BackingTransferCache::RemoveRange(void **batch,
+ShardedTransferCacheManager::BackingTransferCache::RemoveRange(void** batch,
                                                                int n) const {
   return Static::transfer_cache().RemoveRange(size_class_, batch, n);
 }

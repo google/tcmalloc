@@ -33,7 +33,7 @@ namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 // Returns the NUMA node whose memory is used to back the allocation at ptr.
-size_t BackingNode(void *const ptr) {
+size_t BackingNode(void* const ptr) {
   // Ensure that at least the page containing the first byte of our
   // allocation is actually backed by physical memory by writing to it.
   memset(ptr, 42, 1);
@@ -82,7 +82,7 @@ TEST(NumaLocalityTest, AllocationsAreLocal) {
 
     // Perform a randomly sized memory allocation.
     const size_t alloc_size = absl::Uniform(gen, 1ul, 5ul << 20);
-    void *ptr = ::operator new(alloc_size);
+    void* ptr = ::operator new(alloc_size);
     ASSERT_NE(ptr, nullptr);
 
     // Discover which NUMA node contains the memory backing that allocation.

@@ -38,7 +38,7 @@ HugeLength MinMaxTracker<kEpochs>::MaxOverTime(absl::Duration t) const {
   HugeLength m = NHugePages(0);
   size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
   timeseries_.IterBackwards([&](size_t offset, int64_t ts,
-                                const Extrema &e) { m = std::max(m, e.max); },
+                                const Extrema& e) { m = std::max(m, e.max); },
                             num_epochs);
   return m;
 }
@@ -48,20 +48,20 @@ HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
   HugeLength m = kMaxVal;
   size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
   timeseries_.IterBackwards([&](size_t offset, int64_t ts,
-                                const Extrema &e) { m = std::min(m, e.min); },
+                                const Extrema& e) { m = std::min(m, e.min); },
                             num_epochs);
   return m;
 }
 
 template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::Print(Printer *out) const {
+void MinMaxTracker<kEpochs>::Print(Printer* out) const {
   // Prints timestamp:min_pages:max_pages for each window with records.
   // Timestamp == kEpochs - 1 is the most recent measurement.
   const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
   out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
   int written = 0;
   timeseries_.Iter(
-      [&](size_t offset, int64_t ts, const Extrema &e) {
+      [&](size_t offset, int64_t ts, const Extrema& e) {
         if ((written++) % 100 == 0)
           out->printf("\nHugeCache: Usage timeseries ");
         out->printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
@@ -71,7 +71,7 @@ void MinMaxTracker<kEpochs>::Print(Printer *out) const {
 }
 
 template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
+void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   // Prints content of each non-empty epoch, from oldest to most recent data
   auto huge_cache_history = hpaa->CreateSubRegion("huge_cache_history");
   huge_cache_history.PrintI64("window_ms",
@@ -79,7 +79,7 @@ void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
   huge_cache_history.PrintI64("epochs", kEpochs);
 
   timeseries_.Iter(
-      [&](size_t offset, int64_t ts, const Extrema &e) {
+      [&](size_t offset, int64_t ts, const Extrema& e) {
         auto m = huge_cache_history.CreateSubRegion("measurements");
         m.PrintI64("epoch", offset);
         m.PrintI64("min_bytes", e.min.in_bytes());
@@ -89,7 +89,7 @@ void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion *hpaa) const {
 }
 
 template <size_t kEpochs>
-bool MinMaxTracker<kEpochs>::Extrema::operator==(const Extrema &other) const {
+bool MinMaxTracker<kEpochs>::Extrema::operator==(const Extrema& other) const {
   return (other.max == max) && (other.min == min);
 }
 
@@ -99,8 +99,8 @@ template class MinMaxTracker<600>;
 
 // The logic for actually allocating from the cache or backing, and keeping
 // the hit rates specified.
-HugeRange HugeCache::DoGet(HugeLength n, bool *from_released) {
-  auto *node = Find(n);
+HugeRange HugeCache::DoGet(HugeLength n, bool* from_released) {
+  auto* node = Find(n);
   if (!node) {
     misses_++;
     weighted_misses_ += n.raw_num();
@@ -205,7 +205,7 @@ void HugeCache::UpdateSize(HugeLength size) {
   }
 }
 
-HugeRange HugeCache::Get(HugeLength n, bool *from_released) {
+HugeRange HugeCache::Get(HugeLength n, bool* from_released) {
   HugeRange r = DoGet(n, from_released);
   // failure to get a range should "never" "never" happen (VSS limits
   // or wildly incorrect allocation sizes only...) Don't deal with
@@ -265,7 +265,7 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
   HugeLength removed = NHugePages(0);
   while (size_ > target) {
     // Remove smallest-ish nodes, to avoid fragmentation where possible.
-    auto *node = Find(NHugePages(1));
+    auto* node = Find(NHugePages(1));
     CHECK_CONDITION(node);
     HugeRange r = node->range();
     cache_.Remove(node);
@@ -309,10 +309,10 @@ HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   return released;
 }
 
-void HugeCache::AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
-                             PageAgeHistograms *ages) const {
+void HugeCache::AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
+                             PageAgeHistograms* ages) const {
   static_assert(kPagesPerHugePage >= kMaxPages);
-  for (const HugeAddressMap::Node *node = cache_.first(); node != nullptr;
+  for (const HugeAddressMap::Node* node = cache_.first(); node != nullptr;
        node = node->next()) {
     HugeLength n = node->range().len();
     if (large != nullptr) {
@@ -326,13 +326,13 @@ void HugeCache::AddSpanStats(SmallSpanStats *small, LargeSpanStats *large,
   }
 }
 
-HugeAddressMap::Node *HugeCache::Find(HugeLength n) {
-  HugeAddressMap::Node *curr = cache_.root();
+HugeAddressMap::Node* HugeCache::Find(HugeLength n) {
+  HugeAddressMap::Node* curr = cache_.root();
   // invariant: curr != nullptr && curr->longest >= n
   // we favor smaller gaps and lower nodes and lower addresses, in that
   // order. The net effect is that we are neither a best-fit nor a
   // lowest-address allocator but vaguely close to both.
-  HugeAddressMap::Node *best = nullptr;
+  HugeAddressMap::Node* best = nullptr;
   while (curr && curr->longest() >= n) {
     if (curr->range().len() >= n) {
       if (!best || best->range().len() > curr->range().len()) {
@@ -373,7 +373,7 @@ HugeAddressMap::Node *HugeCache::Find(HugeLength n) {
   return best;
 }
 
-void HugeCache::Print(Printer *out) {
+void HugeCache::Print(Printer* out) {
   const int64_t millis = absl::ToInt64Milliseconds(kCacheTime);
   out->printf(
       "HugeCache: contains unused, backed hugepage(s) "
@@ -425,7 +425,7 @@ void HugeCache::Print(Printer *out) {
   detailed_tracker_.Print(out);
 }
 
-void HugeCache::PrintInPbtxt(PbtxtRegion *hpaa) {
+void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
   hpaa->PrintI64("huge_cache_time_const",
                  absl::ToInt64Milliseconds(kCacheTime));
 

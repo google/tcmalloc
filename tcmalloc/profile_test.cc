@@ -39,7 +39,7 @@ namespace {
 
 TEST(AllocationSampleTest, TokenAbuse) {
   auto token = MallocExtension::StartAllocationProfiling();
-  void *ptr = ::operator new(512 * 1024 * 1024);
+  void* ptr = ::operator new(512 * 1024 * 1024);
   // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
   // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
   benchmark::DoNotOptimize(ptr);
@@ -47,7 +47,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
   // Repeated Claims should happily return null.
   auto profile = std::move(token).Stop();
   int count = 0;
-  profile.Iterate([&](const Profile::Sample &) { count++; });
+  profile.Iterate([&](const Profile::Sample&) { count++; });
 
 #if !defined(UNDEFINED_BEHAVIOR_SANITIZER)
   // UBSan does not implement our profiling API, but running the test can
@@ -57,7 +57,7 @@ TEST(AllocationSampleTest, TokenAbuse) {
 
   auto profile2 = std::move(token).Stop();  // NOLINT: use-after-move intended
   int count2 = 0;
-  profile2.Iterate([&](const Profile::Sample &) { count2++; });
+  profile2.Iterate([&](const Profile::Sample&) { count2++; });
   EXPECT_EQ(count2, 0);
 
   // Delete (on the scope ending) without Claim should also be OK.
@@ -86,12 +86,12 @@ TEST(AllocationSampleTest, RaceToClaim) {
     counter.DecrementCount();
 
     const int kNum = 1000000;
-    std::vector<void *> ptrs;
+    std::vector<void*> ptrs;
     while (!stop) {
       for (int i = 0; i < kNum; i++) {
         ptrs.push_back(::operator new(1));
       }
-      for (void *p : ptrs) {
+      for (void* p : ptrs) {
         sized_delete(p, 1);
       }
       ptrs.clear();
@@ -123,7 +123,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     size_t alignment;
     bool keep;
     // objects we don't delete as we go
-    void *list = nullptr;
+    void* list = nullptr;
   };
   std::vector<Requests> sizes = {
       {8, 0, false},          {16, 16, true},        {1024, 0, false},
@@ -136,9 +136,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 
   // We use new/delete to allocate memory, as malloc returns objects aligned to
   // std::max_align_t.
-  for (auto &s : sizes) {
+  for (auto& s : sizes) {
     for (size_t bytes = 0; bytes < kTotalPerSize; bytes += s.size) {
-      void *obj;
+      void* obj;
       if (s.alignment > 0) {
         obj = operator new(s.size, static_cast<std::align_val_t>(s.alignment));
       } else {
@@ -165,7 +165,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
     alignment[s.size] = s.alignment;
   }
 
-  profile.Iterate([&](const tcmalloc::Profile::Sample &e) {
+  profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
     // Skip unexpected sizes.  They may have been triggered by a background
     // thread.
     if (sizes_expected.find(e.allocated_size) == sizes_expected.end()) {
@@ -196,9 +196,9 @@ TEST(AllocationSampleTest, SampleAccuracy) {
 #endif
 
   // Remove the objects we left alive
-  for (auto &s : sizes) {
+  for (auto& s : sizes) {
     while (s.list != nullptr) {
-      void *obj = tcmalloc_internal::SLL_Pop(&s.list);
+      void* obj = tcmalloc_internal::SLL_Pop(&s.list);
       if (s.alignment > 0) {
         operator delete(obj, static_cast<std::align_val_t>(s.alignment));
       } else {
@@ -233,7 +233,7 @@ TEST(FragmentationzTest, Accuracy) {
     // doesn't come with a have a "free()" deleter; use ::operator new insted.
     (i % 5 == 0 ? keep : drop)
         .push_back(std::unique_ptr<char[]>(
-            static_cast<char *>(::operator new[](kItemSize))));
+            static_cast<char*>(::operator new[](kItemSize))));
   }
   drop.resize(0);
 
@@ -248,7 +248,7 @@ TEST(FragmentationzTest, Accuracy) {
   size_t allocated_size = 0;
   size_t sum = 0;
   size_t count = 0;
-  profile.Iterate([&](const Profile::Sample &e) {
+  profile.Iterate([&](const Profile::Sample& e) {
     if (e.requested_size != kItemSize) return;
 
     if (requested_size == 0) {

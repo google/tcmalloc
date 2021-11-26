@@ -136,13 +136,13 @@ struct TCMallocStats {
   uint64_t per_cpu_bytes;              // Bytes in per-CPU cache
   uint64_t pagemap_root_bytes_res;     // Resident bytes of pagemap root node
   uint64_t percpu_metadata_bytes_res;  // Resident bytes of the per-CPU metadata
-  AllocatorStats tc_stats;             // ThreadCache objects
-  AllocatorStats span_stats;           // Span objects
-  AllocatorStats stack_stats;          // StackTrace objects
-  AllocatorStats bucket_stats;         // StackTraceTable::Bucket objects
-  size_t pagemap_bytes;                // included in metadata bytes
-  size_t percpu_metadata_bytes;        // included in metadata bytes
-  BackingStats pageheap;               // Stats from page heap
+  AllocatorStats tc_stats;       // ThreadCache objects
+  AllocatorStats span_stats;     // Span objects
+  AllocatorStats stack_stats;    // StackTrace objects
+  AllocatorStats bucket_stats;   // StackTraceTable::Bucket objects
+  size_t pagemap_bytes;          // included in metadata bytes
+  size_t percpu_metadata_bytes;  // included in metadata bytes
+  BackingStats pageheap;         // Stats from page heap
 
   ArenaStats arena;  // Stats from the metadata Arena
 
@@ -1360,7 +1360,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   ASSERT(subtle::percpu::IsFastNoInit());
 
   Static::cpu_cache().Deallocate(ptr, cl);
-#else  // TCMALLOC_DEPRECATED_PERTHREAD
+#else   // TCMALLOC_DEPRECATED_PERTHREAD
   ThreadCache* cache = ThreadCache::GetCacheIfPresent();
 
   // IsOnFastPath does not track whether or not we have an active ThreadCache on
@@ -1575,9 +1575,7 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
   }
 
   void* result = span->start_address();
-  ASSERT(
-      !ColdExperimentActive() ||
-      tag == GetMemoryTag(span->start_address()));
+  ASSERT(!ColdExperimentActive() || tag == GetMemoryTag(span->start_address()));
 
   if (size_t weight = ShouldSampleAllocation(size)) {
     CHECK_CONDITION(result == SampleifyAllocation(policy, size, weight, 0,
@@ -2016,7 +2014,7 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU cache should be ready.
   ret = Static::cpu_cache().Allocate<Policy::handle_oom>(cl);
-#else  // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
+#else   // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
   // The ThreadCache should be ready.
   ASSERT(cache != nullptr);
   ret = cache->Allocate<Policy::handle_oom>(cl);

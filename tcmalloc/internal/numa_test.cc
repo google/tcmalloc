@@ -41,7 +41,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-int memfd_create(const char *name, unsigned int flags) {
+int memfd_create(const char* name, unsigned int flags) {
 #ifdef __NR_memfd_create
   return syscall(__NR_memfd_create, name, flags);
 #else
@@ -67,13 +67,13 @@ class SyntheticCpuList {
 
   // Disallow copies, which would make require reference counting to know when
   // we should close fd_.
-  SyntheticCpuList(const SyntheticCpuList &) = delete;
-  SyntheticCpuList &operator=(const SyntheticCpuList &) = delete;
+  SyntheticCpuList(const SyntheticCpuList&) = delete;
+  SyntheticCpuList& operator=(const SyntheticCpuList&) = delete;
 
   // Moves are fine - only one instance at a time holds the fd.
-  SyntheticCpuList(SyntheticCpuList &&other)
+  SyntheticCpuList(SyntheticCpuList&& other)
       : fd_(std::exchange(other.fd_, -1)) {}
-  SyntheticCpuList &operator=(SyntheticCpuList &&other) {
+  SyntheticCpuList& operator=(SyntheticCpuList&& other) {
     new (this) SyntheticCpuList(std::move(other));
     return *this;
   }
@@ -259,7 +259,7 @@ TEST(ParseCpulistTest, Random) {
     // amount of data we provide to it from each read.
     absl::string_view remaining(serialized);
     const cpu_set_t parsed =
-        ParseCpulist([&](char *const buf, const size_t count) -> ssize_t {
+        ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
           // Calculate how much data we have left to provide.
           const size_t max = std::min(count, remaining.size());
 

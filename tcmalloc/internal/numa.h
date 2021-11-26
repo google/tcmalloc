@@ -150,7 +150,7 @@ int OpenSysfsCpulist(size_t node);
 // actually read. If an error occurs during reading it should return -1 with
 // errno set to an appropriate error code.
 cpu_set_t ParseCpulist(
-    absl::FunctionRef<ssize_t(char *buf, size_t count)> read);
+    absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 
 // Initialize the data members of a NumaTopology<> instance.
 //
@@ -163,7 +163,7 @@ cpu_set_t ParseCpulist(
 // Returns true if we're actually NUMA aware; i.e. if we have CPUs mapped to
 // multiple partitions.
 bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
-                      uint64_t *partition_to_nodes, NumaBindMode *bind_mode,
+                      uint64_t* partition_to_nodes, NumaBindMode* bind_mode,
                       size_t num_partitions, size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist);
 

@@ -52,7 +52,7 @@ int OpenSysfsCpulist(size_t node) {
   return signal_safe_open(path, O_RDONLY | O_CLOEXEC);
 }
 
-cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char *, size_t)> read) {
+cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char*, size_t)> read) {
   cpu_set_t set;
   CPU_ZERO(&set);
 
@@ -106,8 +106,8 @@ cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char *, size_t)> read) {
 }
 
 bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
-                      uint64_t *const partition_to_nodes,
-                      NumaBindMode *const bind_mode,
+                      uint64_t* const partition_to_nodes,
+                      NumaBindMode* const bind_mode,
                       const size_t num_partitions, const size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist) {
   // Node 0 will always map to partition 0; record it here in case the system
@@ -133,7 +133,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
   // cpu_to_scaled_partition & partition_to_nodes arrays are zero initialized
   // we're trivially done - CPUs all map to partition 0, which contains only
   // CPU 0 added above.
-  const char *e =
+  const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_NUMA_AWARE");
   if (e == nullptr) {
     // Enable NUMA awareness iff default_want_numa_aware().
@@ -192,7 +192,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
 
     // Parse the cpulist file to determine which CPUs are local to this node.
     const cpu_set_t node_cpus =
-        ParseCpulist([&](char *const buf, const size_t count) {
+        ParseCpulist([&](char* const buf, const size_t count) {
           return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
         });
 

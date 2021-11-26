@@ -31,7 +31,7 @@ using RingBufferTransferCacheEnv =
     tcmalloc_internal::FakeTransferCacheEnvironment<RingBufferTransferCache>;
 
 template <typename Env>
-int RunFuzzer(const uint8_t *data, size_t size) {
+int RunFuzzer(const uint8_t* data, size_t size) {
   Env env;
   for (int i = 0; i < size; ++i) {
     switch (data[i] % 10) {
@@ -60,7 +60,7 @@ int RunFuzzer(const uint8_t *data, size_t size) {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   tcmalloc::RunFuzzer<tcmalloc::RingBufferTransferCacheEnv>(data, size);
   return 0;
 }

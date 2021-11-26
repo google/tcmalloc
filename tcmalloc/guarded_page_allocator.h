@@ -76,7 +76,7 @@ ABSL_CONST_INIT extern absl::base_internal::SpinLock guarded_page_lock;
 class GuardedPageAllocator {
  public:
   struct GpaStackTrace {
-    void *stack[kMaxStackDepth];
+    void* stack[kMaxStackDepth];
     size_t depth = 0;
     pid_t tid = 0;
   };
@@ -112,8 +112,8 @@ class GuardedPageAllocator {
         double_free_detected_(false),
         write_overflow_detected_(false) {}
 
-  GuardedPageAllocator(const GuardedPageAllocator &) = delete;
-  GuardedPageAllocator &operator=(const GuardedPageAllocator &) = delete;
+  GuardedPageAllocator(const GuardedPageAllocator&) = delete;
+  GuardedPageAllocator& operator=(const GuardedPageAllocator&) = delete;
 
   ~GuardedPageAllocator() = default;
 
@@ -143,20 +143,20 @@ class GuardedPageAllocator {
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  void *Allocate(size_t size, size_t alignment)
+  void* Allocate(size_t size, size_t alignment)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
   // returned by a call to Allocate.
-  void Deallocate(void *ptr) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
+  void Deallocate(void* ptr) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Returns the size requested when ptr was allocated.  ptr must have been
   // previously returned by a call to Allocate.
-  size_t GetRequestedSize(const void *ptr) const;
+  size_t GetRequestedSize(const void* ptr) const;
 
   // Returns ptr's offset from the beginning of its allocation along with the
   // allocation's size.
-  std::pair<off_t, size_t> GetAllocationOffsetAndSize(const void *ptr) const;
+  std::pair<off_t, size_t> GetAllocationOffsetAndSize(const void* ptr) const;
 
   // Records stack traces in alloc_trace and dealloc_trace for the page nearest
   // to ptr.  alloc_trace is the trace at the time the page was allocated.  If
@@ -167,18 +167,18 @@ class GuardedPageAllocator {
   // Returns the likely error type for an access at ptr.
   //
   // Requires that ptr points to memory mapped by this class.
-  ErrorType GetStackTraces(const void *ptr, GpaStackTrace *alloc_trace,
-                           GpaStackTrace *dealloc_trace) const;
+  ErrorType GetStackTraces(const void* ptr, GpaStackTrace* alloc_trace,
+                           GpaStackTrace* dealloc_trace) const;
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
-  void Print(Printer *out) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
-  void PrintInPbtxt(PbtxtRegion *gwp_asan) const
+  void Print(Printer* out) ABSL_LOCKS_EXCLUDED(guarded_page_lock);
+  void PrintInPbtxt(PbtxtRegion* gwp_asan) const
       ABSL_LOCKS_EXCLUDED(guarded_page_lock);
 
   // Returns true if ptr points to memory managed by this class.
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
-  PointerIsMine(const void *ptr) const {
+  PointerIsMine(const void* ptr) const {
     uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
   }
@@ -236,7 +236,7 @@ class GuardedPageAllocator {
 
   // Returns the likely error type for the given access address and metadata
   // associated with the nearest slot.
-  ErrorType GetErrorType(uintptr_t addr, const SlotMetadata &d) const;
+  ErrorType GetErrorType(uintptr_t addr, const SlotMetadata& d) const;
 
   // Magic constant used for detecting write-overflows at deallocation time.
   static uint8_t GetWriteOverflowMagic(size_t slot) {
@@ -250,7 +250,7 @@ class GuardedPageAllocator {
   // If slot is marked for right alignment, moves the allocation in *ptr to the
   // right end of the slot, maintaining the specified size and alignment.  Magic
   // bytes are written in any alignment padding.
-  void MaybeRightAlign(size_t slot, size_t size, size_t alignment, void **ptr);
+  void MaybeRightAlign(size_t slot, size_t size, size_t alignment, void** ptr);
 
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
@@ -274,7 +274,7 @@ class GuardedPageAllocator {
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
   // is detected.
-  SlotMetadata *data_;
+  SlotMetadata* data_;
 
   uintptr_t pages_base_addr_;  // Points to start of mapped region.
   uintptr_t pages_end_addr_;   // Points to the end of mapped region.

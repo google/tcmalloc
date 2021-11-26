@@ -115,7 +115,7 @@ inline constexpr int kAddressBits =
     (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
 #elif defined __riscv && defined __linux__
 inline constexpr int kAddressBits =
-    (sizeof(void *) < 8 ? (8 * sizeof(void *)) : 48);
+    (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
 #else
 inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif

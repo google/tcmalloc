@@ -43,7 +43,7 @@ namespace tcmalloc_internal {
 // The returned pointer is guaranteed to satisfy GetMemoryTag(ptr) == "tag".
 //
 // Returns nullptr when out of memory.
-void *SystemAlloc(size_t bytes, size_t *actual_bytes, size_t alignment,
+void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
                   MemoryTag tag);
 
 // Returns the number of times we failed to give pages back to the OS after a
@@ -59,27 +59,27 @@ int SystemReleaseErrors();
 // the address space next time they are touched, which can impact
 // performance.  (Only pages fully covered by the memory region will
 // be released, partial pages will not.)
-void SystemRelease(void *start, size_t length);
+void SystemRelease(void* start, size_t length);
 
 // This call is the inverse of SystemRelease: the pages in this range
 // are in use and should be faulted in.  (In principle this is a
 // best-effort hint, but in practice we will unconditionally fault the
 // range.)
 // REQUIRES: [start, start + length) is a range aligned to 4KiB boundaries.
-void SystemBack(void *start, size_t length);
+void SystemBack(void* start, size_t length);
 
 // Returns the current address region factory.
-AddressRegionFactory *GetRegionFactory();
+AddressRegionFactory* GetRegionFactory();
 
 // Sets the current address region factory to factory.
-void SetRegionFactory(AddressRegionFactory *factory);
+void SetRegionFactory(AddressRegionFactory* factory);
 
 // Reserves using mmap() a region of memory of the requested size and alignment,
 // with the bits specified by kTagMask set according to tag.
 //
 // REQUIRES: pagesize <= alignment <= kTagMask
 // REQUIRES: size <= kTagMask
-void *MmapAligned(size_t size, size_t alignment, MemoryTag tag);
+void* MmapAligned(size_t size, size_t alignment, MemoryTag tag);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

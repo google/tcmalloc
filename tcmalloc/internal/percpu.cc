@@ -118,8 +118,8 @@ static void InitPerCpu() {
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.
     using_upstream_fence.store(
-            0 == syscall(__NR_membarrier,
-                         kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
+        0 == syscall(__NR_membarrier,
+                     kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
         std::memory_order_relaxed);
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
   }

@@ -27,18 +27,18 @@
 
 // Koenig lookup
 namespace tcmalloc {
-void PrintTo(const EmpiricalData::Entry &e, ::std::ostream *os) {
+void PrintTo(const EmpiricalData::Entry& e, ::std::ostream* os) {
   *os << "{" << e.size << " bytes, " << e.alloc_rate << "/" << e.num_live
       << "}";
 }
 
 namespace {
 
-void *alloc(size_t s) { return ::operator new(s); }
+void* alloc(size_t s) { return ::operator new(s); }
 
 using testing::Pointwise;
 
-const std::vector<EmpiricalData::Entry> &dummy() {
+const std::vector<EmpiricalData::Entry>& dummy() {
   static std::vector<EmpiricalData::Entry> e = {{8, 1000, 100 * 1000},
                                                 {16, 1000, 1000},
                                                 {64, 100, 1000},
@@ -51,7 +51,7 @@ MATCHER(EntrySizeEq, "have equal size") {
   return std::get<0>(arg).size == std::get<1>(arg).size;
 }
 
-std::vector<double> Normalize(const std::vector<double> &xs) {
+std::vector<double> Normalize(const std::vector<double>& xs) {
   double total = 0;
   for (double x : xs) {
     total += x;
@@ -65,7 +65,7 @@ std::vector<double> Normalize(const std::vector<double> &xs) {
   return ret;
 }
 
-std::vector<double> GetRates(const std::vector<EmpiricalData::Entry> &es) {
+std::vector<double> GetRates(const std::vector<EmpiricalData::Entry>& es) {
   std::vector<double> ret;
   for (auto e : es) {
     ret.push_back(e.alloc_rate);
@@ -74,7 +74,7 @@ std::vector<double> GetRates(const std::vector<EmpiricalData::Entry> &es) {
   return ret;
 }
 
-std::vector<double> GetCounts(const std::vector<EmpiricalData::Entry> &es) {
+std::vector<double> GetCounts(const std::vector<EmpiricalData::Entry>& es) {
   std::vector<double> ret;
   for (auto e : es) {
     ret.push_back(e.num_live);
@@ -93,7 +93,7 @@ MATCHER_P(DoubleRelEq, err,
 
 TEST(Empirical, Basic) {
   size_t kSize = 128 * 1024 * 1024;
-  auto const &expected = dummy();
+  auto const& expected = dummy();
   absl::BitGen rng;
   EmpiricalData data(absl::Uniform<uint32_t>(rng), expected, kSize, alloc,
                      sized_delete);
@@ -119,7 +119,7 @@ TEST(Empirical, Basic) {
 TEST(EmpiricalRecordAndReplay, Basic) {
   constexpr uint32_t kBufferSize = 100000;
   constexpr size_t kSize = 128 * 1024 * 1024;
-  auto const &expected = dummy();
+  auto const& expected = dummy();
   absl::BitGen rng;
   EmpiricalData data(absl::Uniform<uint32_t>(rng), expected, kSize, alloc,
                      sized_delete, /*record_and_replay_mode=*/true);
