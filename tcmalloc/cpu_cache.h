@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <atomic>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/internal/spinlock.h"
@@ -29,6 +30,7 @@
 #include "absl/container/fixed_array.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/parameters.h"
@@ -39,7 +41,44 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace cpu_cache_internal {
 
+// StaticForwarder provides access to the SizeMap and transfer caches.
+//
+// This is a class, rather than namespaced globals, so that it can be mocked for
+// testing.
+class StaticForwarder {
+ public:
+  static size_t class_to_size(int size_class) {
+    return Static::sizemap().class_to_size(size_class);
+  }
+
+  static bool lazy_per_cpu_caches() {
+    return Parameters::lazy_per_cpu_caches();
+  }
+
+  static size_t max_per_cpu_cache_size() {
+    return Parameters::max_per_cpu_cache_size();
+  }
+
+  static size_t num_objects_to_move(int size_class) {
+    return Static::sizemap().num_objects_to_move(size_class);
+  }
+
+  static const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
+    return Static::numa_topology();
+  }
+
+  static ShardedTransferCacheManager& sharded_transfer_cache() {
+    return Static::sharded_transfer_cache();
+  }
+
+  static TransferCacheManager& transfer_cache() {
+    return Static::transfer_cache();
+  }
+};
+
+template <typename Forwarder>
 class CPUCache {
  public:
   constexpr CPUCache() = default;
@@ -181,6 +220,10 @@ class CPUCache {
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region) const;
 
+  const Forwarder& forwarder() const { return forwarder_; }
+
+  Forwarder& forwarder() { return forwarder_; }
+
  private:
   // Per-size-class freelist resizing info.
   class PerClassResizeInfo {
@@ -263,6 +306,8 @@ class CPUCache {
   // caches in a round-robin fashion.
   std::atomic<int> last_cpu_cache_steal_ = 0;
 
+  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+
   // Return a set of objects to be returned to the Transfer Cache.
   static constexpr int kMaxToReturn = 16;
   struct ObjectsToReturn {
@@ -280,6 +325,8 @@ class CPUCache {
     ASSERT(cpu_cache.resize_ != nullptr);
     return cpu_cache.max_capacity_[cl];
   }
+
+  size_t MaxCapacity(size_t cl);
 
   void* Refill(int cpu, size_t cl);
 
@@ -316,8 +363,10 @@ class CPUCache {
   static int NoopOverflow(int cpu, size_t cl, void* item) { return -1; }
 };
 
+template <class Forwarder>
 template <void* OOMHandler(size_t)>
-inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
+inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
+CPUCache<Forwarder>::Allocate(size_t cl) {
   ASSERT(cl > 0);
 
   tracking::Report(kMallocHit, cl, 1);
@@ -327,16 +376,16 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
       void* ret = nullptr;
+      CPUCache& cache = Static::cpu_cache();
       if (Static::sharded_transfer_cache().should_use(cl)) {
         ret = Static::sharded_transfer_cache().Pop(cl);
       } else {
         tracking::Report(kMallocMiss, cl, 1);
-        CPUCache& cache = Static::cpu_cache();
         cache.RecordCacheMissStat(cpu, true);
         ret = cache.Refill(cpu, cl);
       }
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
-        size_t size = Static::sizemap().class_to_size(cl);
+        size_t size = cache.forwarder().class_to_size(cl);
         return OOMHandler(size);
       }
       return ret;
@@ -345,8 +394,9 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Allocate(size_t cl) {
   return freelist_.Pop(cl, &Helper::Underflow);
 }
 
-inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void* ptr,
-                                                              size_t cl) {
+template <class Forwarder>
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
+CPUCache<Forwarder>::Deallocate(void* ptr, size_t cl) {
   ASSERT(cl > 0);
   tracking::Report(kFreeHit, cl, 1);  // Be optimistic; correct later if needed.
 
@@ -366,36 +416,6 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCache::Deallocate(void* ptr,
     }
   };
   freelist_.Push(cl, ptr, Helper::Overflow);
-}
-
-inline bool UsePerCpuCache() {
-  // We expect a fast path of per-CPU caches being active and the thread being
-  // registered with rseq.
-  if (ABSL_PREDICT_FALSE(!Static::CPUCacheActive())) {
-    return false;
-  }
-
-  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFastNoInit())) {
-    return true;
-  }
-
-  // When rseq is not registered, use this transition edge to shutdown the
-  // thread cache for this thread.
-  //
-  // We call IsFast() on every non-fastpath'd malloc or free since IsFast() has
-  // the side-effect of initializing the per-thread state needed for "unsafe"
-  // per-cpu operations in case this is the first time a new thread is calling
-  // into tcmalloc.
-  //
-  // If the per-CPU cache for a thread is not initialized, we push ourselves
-  // onto the slow path (if !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this
-  // occurs.  See fast_alloc's use of TryRecordAllocationFast.
-  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFast())) {
-    ThreadCache::BecomeIdle();
-    return true;
-  }
-
-  return false;
 }
 
 static cpu_set_t FillActiveCpuMask() {
@@ -424,7 +444,8 @@ static cpu_set_t FillActiveCpuMask() {
 
 // MaxCapacity() determines how we distribute memory in the per-cpu cache
 // to the various class sizes.
-static size_t MaxCapacity(size_t cl) {
+template <class Forwarder>
+inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
   // The number of size classes that are commonly used and thus should be
   // allocated more slots in the per-cpu cache.
   static constexpr size_t kNumSmall = 10;
@@ -456,11 +477,11 @@ static size_t MaxCapacity(size_t cl) {
 #endif
   if (cl == 0 || cl >= kNumClasses) return 0;
 
-  if (Static::sharded_transfer_cache().should_use(cl)) {
+  if (forwarder_.sharded_transfer_cache().should_use(cl)) {
     return 0;
   }
 
-  if (Static::sizemap().class_to_size(cl) == 0) {
+  if (forwarder_.class_to_size(cl) == 0) {
     return 0;
   }
 
@@ -499,12 +520,13 @@ static void* SlabAlloc(size_t size)
   return Static::arena().Alloc(size);
 }
 
-inline void CPUCache::Activate(ActivationMode mode) {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::Activate(ActivationMode mode) {
   ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
 
   size_t per_cpu_shift = kPerCpuShift;
-  const auto& topology = Static::numa_topology();
+  const auto& topology = forwarder_.numa_topology();
   if (topology.numa_aware()) {
     per_cpu_shift += absl::bit_ceil(topology.active_partitions() - 1);
   }
@@ -515,9 +537,7 @@ inline void CPUCache::Activate(ActivationMode mode) {
   // Deal with size classes that correspond only to NUMA partitions that are in
   // use. If NUMA awareness is disabled then we may have a smaller shift than
   // would suffice for all of the unused size classes.
-  for (int cl = 0;
-       cl < Static::numa_topology().active_partitions() * kNumBaseClasses;
-       ++cl) {
+  for (int cl = 0; cl < topology.active_partitions() * kNumBaseClasses; ++cl) {
     const uint16_t mc = MaxCapacity(cl);
     max_capacity_[cl] = mc;
     bytes_required += sizeof(void*) * mc;
@@ -541,9 +561,9 @@ inline void CPUCache::Activate(ActivationMode mode) {
 
   resize_ = reinterpret_cast<ResizeInfo*>(
       Static::arena().Alloc(sizeof(ResizeInfo) * num_cpus));
-  lazy_slabs_ = Parameters::lazy_per_cpu_caches();
+  lazy_slabs_ = forwarder_.lazy_per_cpu_caches();
 
-  auto max_cache_size = Parameters::max_per_cpu_cache_size();
+  auto max_cache_size = forwarder_.max_per_cpu_cache_size();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     for (int cl = 1; cl < kNumClasses; ++cl) {
@@ -570,8 +590,9 @@ inline void CPUCache::Activate(ActivationMode mode) {
 // So make sure only to make changes to one CPU's cache; at all times,
 // it must be safe to find ourselves migrated (at which point we atomically
 // return memory to the correct CPU.)
-inline void* CPUCache::Refill(int cpu, size_t cl) {
-  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
+template <class Forwarder>
+inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
+  const size_t batch_length = forwarder_.num_objects_to_move(cl);
 
   // UpdateCapacity can evict objects from other size classes as it tries to
   // increase capacity of this size class. The objects are returned in
@@ -588,9 +609,10 @@ inline void* CPUCache::Refill(int cpu, size_t cl) {
   size_t i;
   void* result = nullptr;
   void* batch[kMaxObjectsToMove];
+
   do {
     const size_t want = std::min(batch_length, target - total);
-    got = Static::transfer_cache().RemoveRange(cl, batch, want);
+    got = forwarder_.transfer_cache().RemoveRange(cl, batch, want);
     if (got == 0) {
       break;
     }
@@ -605,23 +627,26 @@ inline void* CPUCache::Refill(int cpu, size_t cl) {
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, i));
+        forwarder_.transfer_cache().InsertRange(cl,
+                                                absl::Span<void*>(batch, i));
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
            cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
-    Static::transfer_cache().InsertRange(
+    forwarder_.transfer_cache().InsertRange(
         to_return.cl[i], absl::Span<void*>(&(to_return.obj[i]), 1));
   }
 
   return result;
 }
 
-inline size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
-                                       bool overflow,
-                                       ObjectsToReturn* to_return) {
+template <class Forwarder>
+inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
+                                                  size_t batch_length,
+                                                  bool overflow,
+                                                  ObjectsToReturn* to_return) {
   // Freelist size balancing strategy:
   //  - We grow a size class only on overflow/underflow.
   //  - We shrink size classes in Steal as it scans all size classes.
@@ -704,9 +729,11 @@ inline size_t CPUCache::UpdateCapacity(int cpu, size_t cl, size_t batch_length,
   return target;
 }
 
-inline void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
-                           ObjectsToReturn* to_return) {
-  const size_t size = Static::sizemap().class_to_size(cl);
+template <class Forwarder>
+inline void CPUCache<Forwarder>::Grow(int cpu, size_t cl,
+                                      size_t desired_increase,
+                                      ObjectsToReturn* to_return) {
+  const size_t size = forwarder_.class_to_size(cl);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes;
 
@@ -739,7 +766,8 @@ inline void CPUCache::Grow(int cpu, size_t cl, size_t desired_increase,
   }
 }
 
-inline void CPUCache::TryReclaimingCaches() {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::TryReclaimingCaches() {
   const int num_cpus = absl::base_internal::NumCPUs();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
@@ -774,7 +802,8 @@ inline void CPUCache::TryReclaimingCaches() {
   }
 }
 
-inline void CPUCache::ShuffleCpuCaches() {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::ShuffleCpuCaches() {
   // Knobs that we can potentially tune depending on the workloads.
   constexpr double kBytesToStealPercent = 5.0;
   constexpr int kMaxNumStealCpus = 5;
@@ -825,7 +854,7 @@ inline void CPUCache::ShuffleCpuCaches() {
   // Try to steal kBytesToStealPercent percentage of max_per_cpu_cache_size for
   // each destination cpu cache.
   size_t to_steal =
-      kBytesToStealPercent / 100.0 * Parameters::max_per_cpu_cache_size();
+      kBytesToStealPercent / 100.0 * forwarder_.max_per_cpu_cache_size();
   for (int i = 0; i < num_dest_cpus; ++i) {
     StealFromOtherCache(misses[i].first, max_populated_cpu, to_steal);
   }
@@ -846,16 +875,22 @@ inline void CPUCache::ShuffleCpuCaches() {
   }
 }
 
+template <typename Forwarder>
 static void ShrinkHandler(void* arg, size_t cl, void** batch, size_t count) {
-  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
+  Forwarder& forwarder = *static_cast<Forwarder*>(arg);
+
+  const size_t batch_length = forwarder.num_objects_to_move(cl);
+  auto& transfer_cache = forwarder.transfer_cache();
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch + i, n));
+    transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
   }
 }
 
-inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
-                                          size_t bytes) {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
+                                                     int max_populated_cpu,
+                                                     size_t bytes) {
   constexpr double kCacheMissThreshold = 0.80;
 
   const CpuCacheMissStats dest_misses = GetIntervalCacheMissStats(cpu);
@@ -899,7 +934,7 @@ inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
     // We do not steal from cache that has capacity less than our lower
     // capacity threshold.
     if (Capacity(src_cpu) <
-        kCacheCapacityThreshold * Parameters::max_per_cpu_cache_size())
+        kCacheCapacityThreshold * forwarder_.max_per_cpu_cache_size())
       continue;
 
     const CpuCacheMissStats src_misses = GetIntervalCacheMissStats(src_cpu);
@@ -933,11 +968,10 @@ inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
       const size_t length = freelist_.Length(src_cpu, source_cl);
 
       // TODO(vgogte): Currently, scoring is similar to stealing from the
-      // same cpu in CpuCache::Steal(). Revisit this later to tune the
-      // knobs.
-      const size_t batch_length =
-          Static::sizemap().num_objects_to_move(source_cl);
-      size_t size = Static::sizemap().class_to_size(source_cl);
+      // same cpu in CPUCache<Forwarder>::Steal(). Revisit this later to tune
+      // the knobs.
+      const size_t batch_length = forwarder_.num_objects_to_move(source_cl);
+      size_t size = forwarder_.class_to_size(source_cl);
 
       // Clock-like algorithm to prioritize size classes for shrinking.
       //
@@ -987,8 +1021,8 @@ inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
       // frequent locking overhead.
       {
         absl::base_internal::SpinLockHolder h(&resize_[src_cpu].lock);
-        if (freelist_.ShrinkOtherCache(src_cpu, source_cl, 1, nullptr,
-                                       ShrinkHandler) == 1) {
+        if (freelist_.ShrinkOtherCache(src_cpu, source_cl, 1, &forwarder_,
+                                       ShrinkHandler<Forwarder>) == 1) {
           acquired += size;
           resize_[src_cpu].capacity.fetch_sub(size, std::memory_order_relaxed);
         }
@@ -1019,8 +1053,9 @@ inline void CPUCache::StealFromOtherCache(int cpu, int max_populated_cpu,
 }
 
 // There are rather a lot of policy knobs we could tweak here.
-inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
-                              ObjectsToReturn* to_return) {
+template <class Forwarder>
+inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
+                                         ObjectsToReturn* to_return) {
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
   size_t acquired = 0;
@@ -1046,9 +1081,8 @@ inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
       continue;
     }
     const size_t length = freelist_.Length(cpu, source_cl);
-    const size_t batch_length =
-        Static::sizemap().num_objects_to_move(source_cl);
-    size_t size = Static::sizemap().class_to_size(source_cl);
+    const size_t batch_length = forwarder_.num_objects_to_move(source_cl);
+    size_t size = forwarder_.class_to_size(source_cl);
 
     // Clock-like algorithm to prioritize size classes for shrinking.
     //
@@ -1122,8 +1156,9 @@ inline size_t CPUCache::Steal(int cpu, size_t dest_cl, size_t bytes,
   return acquired;
 }
 
-inline int CPUCache::Overflow(void* ptr, size_t cl, int cpu) {
-  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
+template <class Forwarder>
+inline int CPUCache<Forwarder>::Overflow(void* ptr, size_t cl, int cpu) {
+  const size_t batch_length = forwarder_.num_objects_to_move(cl);
   const size_t target = UpdateCapacity(cpu, cl, batch_length, true, nullptr);
   // Return target objects in batch_length batches.
   size_t total = 0;
@@ -1140,7 +1175,8 @@ inline int CPUCache::Overflow(void* ptr, size_t cl, int cpu) {
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, count));
+    forwarder_.transfer_cache().InsertRange(cl,
+                                            absl::Span<void*>(batch, count));
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
@@ -1148,7 +1184,8 @@ inline int CPUCache::Overflow(void* ptr, size_t cl, int cpu) {
   return 1;
 }
 
-inline uint64_t CPUCache::Allocated(int target_cpu) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::Allocated(int target_cpu) const {
   ASSERT(target_cpu >= 0);
   if (!HasPopulated(target_cpu)) {
     return 0;
@@ -1156,13 +1193,14 @@ inline uint64_t CPUCache::Allocated(int target_cpu) const {
 
   uint64_t total = 0;
   for (int cl = 1; cl < kNumClasses; cl++) {
-    int size = Static::sizemap().class_to_size(cl);
+    int size = forwarder_.class_to_size(cl);
     total += size * freelist_.Capacity(target_cpu, cl);
   }
   return total;
 }
 
-inline uint64_t CPUCache::UsedBytes(int target_cpu) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::UsedBytes(int target_cpu) const {
   ASSERT(target_cpu >= 0);
   if (!HasPopulated(target_cpu)) {
     return 0;
@@ -1170,22 +1208,25 @@ inline uint64_t CPUCache::UsedBytes(int target_cpu) const {
 
   uint64_t total = 0;
   for (int cl = 1; cl < kNumClasses; cl++) {
-    int size = Static::sizemap().class_to_size(cl);
+    int size = forwarder_.class_to_size(cl);
     total += size * freelist_.Length(target_cpu, cl);
   }
   return total;
 }
 
-inline bool CPUCache::HasPopulated(int target_cpu) const {
+template <class Forwarder>
+inline bool CPUCache<Forwarder>::HasPopulated(int target_cpu) const {
   ASSERT(target_cpu >= 0);
   return resize_[target_cpu].populated.load(std::memory_order_relaxed);
 }
 
-inline PerCPUMetadataState CPUCache::MetadataMemoryUsage() const {
+template <class Forwarder>
+inline PerCPUMetadataState CPUCache<Forwarder>::MetadataMemoryUsage() const {
   return freelist_.MetadataMemoryUsage();
 }
 
-inline uint64_t CPUCache::TotalUsedBytes() const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::TotalUsedBytes() const {
   uint64_t total = 0;
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
        ++cpu) {
@@ -1194,7 +1235,8 @@ inline uint64_t CPUCache::TotalUsedBytes() const {
   return total;
 }
 
-inline uint64_t CPUCache::TotalObjectsOfClass(size_t cl) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::TotalObjectsOfClass(size_t cl) const {
   ASSERT(cl < kNumClasses);
   uint64_t total_objects = 0;
   if (cl > 0) {
@@ -1208,39 +1250,48 @@ inline uint64_t CPUCache::TotalObjectsOfClass(size_t cl) const {
   return total_objects;
 }
 
-inline uint64_t CPUCache::Unallocated(int cpu) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::Unallocated(int cpu) const {
   return resize_[cpu].available.load(std::memory_order_relaxed);
 }
 
-inline uint64_t CPUCache::Capacity(int cpu) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::Capacity(int cpu) const {
   return resize_[cpu].capacity.load(std::memory_order_relaxed);
 }
 
-inline uint64_t CPUCache::CacheLimit() const {
-  return Parameters::max_per_cpu_cache_size();
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::CacheLimit() const {
+  return forwarder_.max_per_cpu_cache_size();
 }
 
+template <class Forwarder>
 struct DrainContext {
+  Forwarder* forwarder;
   std::atomic<size_t>* available;
   uint64_t bytes;
 };
 
-static void DrainHandler(void* arg, size_t cl, void** batch, size_t count,
+template <class Forwarder>
+static void DrainHandler(void* drain_ctx, size_t cl, void** batch, size_t count,
                          size_t cap) {
-  DrainContext* ctx = static_cast<DrainContext*>(arg);
-  const size_t size = Static::sizemap().class_to_size(cl);
-  const size_t batch_length = Static::sizemap().num_objects_to_move(cl);
+  DrainContext<Forwarder>* ctx =
+      static_cast<DrainContext<Forwarder>*>(drain_ctx);
+  const size_t size = ctx->forwarder->class_to_size(cl);
+  const size_t batch_length = ctx->forwarder->num_objects_to_move(cl);
   ctx->bytes += count * size;
   // Drain resets capacity to 0, so return the allocated capacity to that
   // CPU's slack.
   ctx->available->fetch_add(cap * size, std::memory_order_relaxed);
+  auto& transfer_cache = ctx->forwarder->transfer_cache();
   for (size_t i = 0; i < count; i += batch_length) {
     size_t n = std::min(batch_length, count - i);
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch + i, n));
+    transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
   }
 }
 
-inline uint64_t CPUCache::Reclaim(int cpu) {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   absl::base_internal::SpinLockHolder h(&resize_[cpu].lock);
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
@@ -1250,8 +1301,8 @@ inline uint64_t CPUCache::Reclaim(int cpu) {
     return 0;
   }
 
-  DrainContext ctx{&resize_[cpu].available, 0};
-  freelist_.Drain(cpu, &ctx, DrainHandler);
+  DrainContext<Forwarder> ctx{&forwarder_, &resize_[cpu].available, 0};
+  freelist_.Drain(cpu, &ctx, DrainHandler<Forwarder>);
 
   // Record that the reclaim occurred for this CPU.
   resize_[cpu].num_reclaims.store(
@@ -1260,23 +1311,24 @@ inline uint64_t CPUCache::Reclaim(int cpu) {
   return ctx.bytes;
 }
 
-inline uint64_t CPUCache::GetNumReclaims(int cpu) const {
+template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::GetNumReclaims(int cpu) const {
   return resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
 }
 
-inline void CPUCache::RecordCacheMissStat(const int cpu, const bool is_malloc) {
-  CPUCache& cpu_cache = Static::cpu_cache();
+template <class Forwarder>
+inline void CPUCache<Forwarder>::RecordCacheMissStat(const int cpu,
+                                                     const bool is_malloc) {
   if (is_malloc) {
-    cpu_cache.resize_[cpu].total_underflows.fetch_add(
-        1, std::memory_order_relaxed);
+    resize_[cpu].total_underflows.fetch_add(1, std::memory_order_relaxed);
   } else {
-    cpu_cache.resize_[cpu].total_overflows.fetch_add(1,
-                                                     std::memory_order_relaxed);
+    resize_[cpu].total_overflows.fetch_add(1, std::memory_order_relaxed);
   }
 }
 
-inline CPUCache::CpuCacheMissStats CPUCache::GetReclaimCacheMissStats(
-    int cpu) const {
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetReclaimCacheMissStats(int cpu) const {
   CpuCacheMissStats stats;
   size_t total_underflows =
       resize_[cpu].total_underflows.load(std::memory_order_relaxed);
@@ -1315,8 +1367,9 @@ inline CPUCache::CpuCacheMissStats CPUCache::GetReclaimCacheMissStats(
   return stats;
 }
 
-inline CPUCache::CpuCacheMissStats CPUCache::GetIntervalCacheMissStats(
-    int cpu) const {
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetIntervalCacheMissStats(int cpu) const {
   CpuCacheMissStats stats;
   size_t total_underflows =
       resize_[cpu].total_underflows.load(std::memory_order_relaxed);
@@ -1339,8 +1392,9 @@ inline CPUCache::CpuCacheMissStats CPUCache::GetIntervalCacheMissStats(
   return stats;
 }
 
-inline CPUCache::CpuCacheMissStats CPUCache::GetTotalCacheMissStats(
-    int cpu) const {
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetTotalCacheMissStats(int cpu) const {
   CpuCacheMissStats stats;
   stats.underflows =
       resize_[cpu].total_underflows.load(std::memory_order_relaxed);
@@ -1349,8 +1403,9 @@ inline CPUCache::CpuCacheMissStats CPUCache::GetTotalCacheMissStats(
   return stats;
 }
 
-inline CPUCache::SizeClassCapacityStats CPUCache::GetSizeClassCapacityStats(
-    size_t cl) const {
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::SizeClassCapacityStats
+CPUCache<Forwarder>::GetSizeClassCapacityStats(size_t cl) const {
   SizeClassCapacityStats stats;
   int num_populated = 0;
   // We use a local variable here, instead of directly updating min_capacity in
@@ -1380,10 +1435,11 @@ inline CPUCache::SizeClassCapacityStats CPUCache::GetSizeClassCapacityStats(
   return stats;
 }
 
-inline void CPUCache::Print(Printer* out) const {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
-              Static::cpu_cache().CacheLimit());
+              CacheLimit());
   out->printf("------------------------------------------------\n");
 
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
@@ -1415,7 +1471,7 @@ inline void CPUCache::Print(Printer* out) const {
         "%7.1f (average),"
         "%6zu (maximum),"
         "%6zu maximum allowed capacity\n",
-        cl, Static::sizemap().class_to_size(cl), stats.min_capacity,
+        cl, forwarder_.class_to_size(cl), stats.min_capacity,
         stats.avg_capacity, stats.max_capacity, max_capacity_[cl]);
   }
 
@@ -1437,7 +1493,8 @@ inline void CPUCache::Print(Printer* out) const {
   }
 }
 
-inline void CPUCache::PrintInPbtxt(PbtxtRegion* region) const {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
@@ -1469,12 +1526,14 @@ inline void CPUCache::PrintInPbtxt(PbtxtRegion* region) const {
   }
 }
 
-inline void CPUCache::PerClassResizeInfo::Init() {
+template <class Forwarder>
+inline void CPUCache<Forwarder>::PerClassResizeInfo::Init() {
   state_.store(0, std::memory_order_relaxed);
 }
 
-inline bool CPUCache::PerClassResizeInfo::Update(bool overflow, bool grow,
-                                                 uint32_t* successive) {
+template <class Forwarder>
+inline bool CPUCache<Forwarder>::PerClassResizeInfo::Update(
+    bool overflow, bool grow, uint32_t* successive) {
   int32_t raw = state_.load(std::memory_order_relaxed);
   State state;
   memcpy(&state, &raw, sizeof(state));
@@ -1491,7 +1550,8 @@ inline bool CPUCache::PerClassResizeInfo::Update(bool overflow, bool grow,
   return overflow_then_underflow;
 }
 
-inline uint32_t CPUCache::PerClassResizeInfo::Tick() {
+template <class Forwarder>
+inline uint32_t CPUCache<Forwarder>::PerClassResizeInfo::Tick() {
   int32_t raw = state_.load(std::memory_order_relaxed);
   State state;
   memcpy(&state, &raw, sizeof(state));
@@ -1499,6 +1559,44 @@ inline uint32_t CPUCache::PerClassResizeInfo::Tick() {
   memcpy(&raw, &state, sizeof(raw));
   state_.store(raw, std::memory_order_relaxed);
   return state.quiescent_ticks - 1;
+}
+
+}  // namespace cpu_cache_internal
+
+// Static forward declares CPUCache to avoid a cycle in headers.  Make
+// "CPUCache" be non-templated to avoid breaking that forward declaration.
+struct CPUCache final
+    : public cpu_cache_internal::CPUCache<cpu_cache_internal::StaticForwarder> {
+};
+
+inline bool UsePerCpuCache() {
+  // We expect a fast path of per-CPU caches being active and the thread being
+  // registered with rseq.
+  if (ABSL_PREDICT_FALSE(!Static::CPUCacheActive())) {
+    return false;
+  }
+
+  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFastNoInit())) {
+    return true;
+  }
+
+  // When rseq is not registered, use this transition edge to shutdown the
+  // thread cache for this thread.
+  //
+  // We call IsFast() on every non-fastpath'd malloc or free since IsFast() has
+  // the side-effect of initializing the per-thread state needed for "unsafe"
+  // per-cpu operations in case this is the first time a new thread is calling
+  // into tcmalloc.
+  //
+  // If the per-CPU cache for a thread is not initialized, we push ourselves
+  // onto the slow path (if !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this
+  // occurs.  See fast_alloc's use of TryRecordAllocationFast.
+  if (ABSL_PREDICT_TRUE(subtle::percpu::IsFast())) {
+    ThreadCache::BecomeIdle();
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace tcmalloc_internal
