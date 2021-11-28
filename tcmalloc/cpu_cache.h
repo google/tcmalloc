@@ -1565,7 +1565,7 @@ inline uint32_t CPUCache<Forwarder>::PerClassResizeInfo::Tick() {
 
 // Static forward declares CPUCache to avoid a cycle in headers.  Make
 // "CPUCache" be non-templated to avoid breaking that forward declaration.
-struct CPUCache final
+class CPUCache final
     : public cpu_cache_internal::CPUCache<cpu_cache_internal::StaticForwarder> {
 };
 
