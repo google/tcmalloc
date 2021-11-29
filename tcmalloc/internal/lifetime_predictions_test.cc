@@ -16,6 +16,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/hash/hash_testing.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -50,6 +51,18 @@ class LifetimeDatabaseTest : public testing::Test {
     }
   }
 
+  ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeDatabase::Key
+  GetKeyFromStacktraceId(int id) {
+    if (id == 0) {
+      LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
+      return key;
+    } else if (id % 2 == 0) {
+      return GetKeyFromStacktraceId(id / 2);
+    } else {
+      return GetKeyFromStacktraceId_2(id / 2);
+    }
+  }
+
   // Record a sufficiently large number of short-lived allocations to make
   // a prediction short-lived, absent any long-lived allocations.
   void MakeShortLived(LifetimeStats* stats, bool high_certainty) {
@@ -68,6 +81,18 @@ class LifetimeDatabaseTest : public testing::Test {
       return AllocateWithStacktraceId(id / 2);
     } else {
       return AllocateWithStacktraceId_2(id / 2);
+    }
+  }
+
+  ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeDatabase::Key
+  GetKeyFromStacktraceId_2(int id) {
+    if (id == 0) {
+      LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
+      return key;
+    } else if (id % 2 == 0) {
+      return GetKeyFromStacktraceId(id / 2);
+    } else {
+      return GetKeyFromStacktraceId_2(id / 2);
     }
   }
 };
@@ -149,6 +174,18 @@ TEST_F(LifetimeDatabaseTest, Eviction) {
 
   // Check that this freed up memory
   EXPECT_LT(after_bytes, before_bytes);
+}
+
+TEST_F(LifetimeDatabaseTest, Hash) {
+  std::vector<LifetimeDatabase::Key> keys;
+  keys.push_back(LifetimeDatabase::Key::RecordCurrentKey());
+  keys.push_back(LifetimeDatabase::Key::RecordCurrentKey());
+  for (int i = 0; i < 128; ++i) {
+    keys.push_back(GetKeyFromStacktraceId(i));
+  }
+  keys.push_back(GetKeyFromStacktraceId(2000));
+  keys.push_back(GetKeyFromStacktraceId(8000));
+  EXPECT_TRUE(absl::VerifyTypeImplementsAbslHashCorrectly(keys));
 }
 
 }  // namespace
