@@ -1510,7 +1510,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   // Grab the stack trace outside the heap lock
   StackTrace tmp;
   tmp.proxy = proxy;
-  tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 1);
+  tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 0);
   tmp.requested_size = requested_size;
   tmp.requested_alignment = requested_alignment;
   tmp.allocated_size = allocated_size;
