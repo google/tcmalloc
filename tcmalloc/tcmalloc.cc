@@ -658,8 +658,6 @@ namespace {
 // buffer and other_buffer.
 //
 // REQUIRES: buffer_length > 0 and other_buffer_length > 0.
-//
-// TODO(b/130249686): This is NOT YET ready to use.
 extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
   ASSERT(buffer_length > 0);

@@ -76,8 +76,6 @@ class PageAllocatorInterface {
   virtual void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap in pbtxt format.
-  //
-  // TODO(b/130249686): Remove this one and make `Print` print in pbtxt.
   virtual void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
