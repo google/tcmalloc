@@ -140,6 +140,7 @@ class RingBufferTransferCache {
       ASSERT(slots_size < max_capacity_ * 2);
       slots_ =
           reinterpret_cast<void**>(owner->Alloc(slots_size * sizeof(void*)));
+      ASSERT(slots_ != nullptr);
       slots_bitmask_ = slots_size - 1;
     }
   }

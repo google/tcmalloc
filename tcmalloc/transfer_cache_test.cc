@@ -41,8 +41,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-static constexpr int kSizeClass = 0;
-
 template <typename Env>
 using TransferCacheTest = ::testing::Test;
 TYPED_TEST_SUITE_P(TransferCacheTest);
@@ -103,12 +101,12 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
   e.Insert(batch_size);
   e.Remove(batch_size);
 
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
+  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
 
   std::atomic<bool> stop{false};
 
@@ -521,9 +519,71 @@ REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedShrink);
 
 TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
-  ShardedTransferCacheManager manager;
+  ShardedTransferCacheManager manager(nullptr, nullptr);
   for (int cl = 0; cl < kNumClasses; ++cl) {
     EXPECT_FALSE(manager.should_use(cl));
+  }
+}
+
+TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
+  FakeShardedTransferCacheEnvironment env;
+  FakeShardedTransferCacheEnvironment::ShardedManager& manager =
+      env.sharded_manager();
+
+  EXPECT_FALSE(manager.shard_initialized(0));
+  EXPECT_FALSE(manager.shard_initialized(1));
+
+  size_t metadata = env.MetadataAllocated();
+  // We already allocated some data for the sharded transfer cache.
+  EXPECT_GT(metadata, 0);
+
+  // Push something onto cpu 0/shard0.
+  {
+    void* ptr;
+    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.SetCurrentCpu(0);
+    manager.Push(kSizeClass, ptr);
+    EXPECT_TRUE(manager.shard_initialized(0));
+    EXPECT_EQ(manager.tc_length(0, kSizeClass), 1);
+    EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_GT(env.MetadataAllocated(), metadata);
+    metadata = env.MetadataAllocated();
+  }
+
+  // Popping again should work, but not deinitialize the shard.
+  {
+    void* ptr = manager.Pop(kSizeClass);
+    ASSERT_NE(ptr, nullptr);
+    env.central_freelist().FreeBatch({&ptr, 1});
+    EXPECT_TRUE(manager.shard_initialized(0));
+    EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+    EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_EQ(env.MetadataAllocated(), metadata);
+  }
+
+  // Push something onto cpu 1, also shard 0.
+  {
+    void* ptr;
+    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.SetCurrentCpu(1);
+    manager.Push(kSizeClass, ptr);
+    EXPECT_TRUE(manager.shard_initialized(0));
+    EXPECT_EQ(manager.tc_length(1, kSizeClass), 1);
+    EXPECT_FALSE(manager.shard_initialized(1));
+    // No new metadata allocated
+    EXPECT_EQ(env.MetadataAllocated(), metadata);
+  }
+
+  // Push something onto cpu 2/shard 1.
+  {
+    void* ptr;
+    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.SetCurrentCpu(2);
+    manager.Push(kSizeClass, ptr);
+    EXPECT_TRUE(manager.shard_initialized(0));
+    EXPECT_TRUE(manager.shard_initialized(1));
+    EXPECT_EQ(manager.tc_length(2, kSizeClass), 1);
+    EXPECT_GT(env.MetadataAllocated(), metadata);
   }
 }
 
@@ -534,6 +594,7 @@ using RingBufferEnv = FakeTransferCacheEnvironment<
                                                      MockTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TransferCacheTest,
                                ::testing::Types<RingBufferEnv>);
+
 }  // namespace unit_tests
 
 namespace fuzz_tests {

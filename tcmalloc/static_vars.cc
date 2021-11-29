@@ -47,7 +47,8 @@ ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
 ABSL_CONST_INIT Arena Static::arena_;
 ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 ABSL_CONST_INIT TransferCacheManager Static::transfer_cache_;
-ABSL_CONST_INIT ShardedTransferCacheManager Static::sharded_transfer_cache_;
+ABSL_CONST_INIT ShardedTransferCacheManager
+    Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;

@@ -19,8 +19,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
+#include <optional>
 
 #include "absl/base/attributes.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/guarded_page_allocator.h"
@@ -57,53 +60,16 @@ size_t StaticForwarder::class_to_size(int size_class) {
 size_t StaticForwarder::num_objects_to_move(int size_class) {
   return Static::sizemap().num_objects_to_move(size_class);
 }
-void* StaticForwarder::Alloc(size_t size, int alignment) {
+void *StaticForwarder::Alloc(size_t size, int alignment) {
   return Static::arena().Alloc(size, alignment);
 }
 
-void ShardedTransferCacheManager::Init() {
-  num_shards_ = BuildCpuToL3CacheMap(l3_cache_index_);
-  cache_ = reinterpret_cast<Cache*>(Static::arena().Alloc(
-      sizeof(Cache) * kNumClasses * num_shards_, ABSL_CACHELINE_SIZE));
-  ASSERT(cache_ != nullptr);
-  for (int shard = 0; shard < num_shards_; ++shard) {
-    for (int cl = 0; cl < kNumClasses; ++cl) {
-      const int index = shard * kNumClasses + cl;
-      const int size_per_object = Static::sizemap().class_to_size(cl);
-      static constexpr int k12MB = 12 << 20;
-      static constexpr int min_size = 4096;
-      const int use_this_size_class = size_per_object >= min_size;
-      const int capacity = use_this_size_class ? k12MB / size_per_object : 0;
-      active_for_class_[cl] = use_this_size_class;
-      new (&cache_[index].tc)
-          TransferCache(nullptr, capacity > 0 ? cl : 0, {capacity, capacity});
-      cache_[index].tc.freelist().Init(cl);
-    }
-  }
-}
-
-size_t ShardedTransferCacheManager::TotalBytes() {
-  if (cache_ == nullptr) return 0;
-  size_t out = 0;
-  for (int shard = 0; shard < num_shards_; ++shard) {
-    for (int cl = 0; cl < kNumClasses; ++cl) {
-      const int bytes_per_entry = Static::sizemap().class_to_size(cl);
-      if (bytes_per_entry <= 0) continue;
-      const int index = shard * kNumClasses + cl;
-      out += cache_[index].tc.tc_length() * bytes_per_entry;
-    }
-  }
-  return out;
-}
-
-void ShardedTransferCacheManager::BackingTransferCache::InsertRange(
-    absl::Span<void*> batch) const {
+void BackingTransferCache::InsertRange(absl::Span<void *> batch) const {
   Static::transfer_cache().InsertRange(size_class_, batch);
 }
 
-ABSL_MUST_USE_RESULT int
-ShardedTransferCacheManager::BackingTransferCache::RemoveRange(void** batch,
-                                                               int n) const {
+ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
+                                                           int n) const {
   return Static::transfer_cache().RemoveRange(size_class_, batch, n);
 }
 

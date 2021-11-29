@@ -19,13 +19,17 @@
 
 #include <algorithm>
 #include <memory>
+#include <new>
 #include <random>
+#include <vector>
 
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_central_freelist.h"
+#include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
 
 namespace tcmalloc {
@@ -33,7 +37,7 @@ namespace tcmalloc_internal {
 
 inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
-inline constexpr int kSizeClass = 0;
+inline constexpr int kSizeClass = 1;
 
 class FakeTransferCacheManagerBase {
  public:
@@ -42,16 +46,21 @@ class FakeTransferCacheManagerBase {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size) {
-    memory_.emplace_back(::operator new(size));
-    return memory_.back().get();
+  void* Alloc(size_t size, size_t alignment = kAlignment) {
+    const std::align_val_t a = static_cast<std::align_val_t>(alignment);
+    memory_.push_back(std::make_unique<AlignedPtr>(::operator new(size, a), a));
+    return memory_.back()->ptr;
   }
-  struct Free {
-    void operator()(void* b) { ::operator delete(b); }
-  };
 
  private:
-  std::vector<std::unique_ptr<void, Free>> memory_;
+  struct AlignedPtr {
+    AlignedPtr(void* ptr, std::align_val_t alignment)
+        : ptr(ptr), alignment(alignment) {}
+    ~AlignedPtr() { ::operator delete(ptr, alignment); }
+    void* ptr;
+    std::align_val_t alignment;
+  };
+  std::vector<std::unique_ptr<AlignedPtr>> memory_;
 };
 
 // TransferCacheManager with basic stubs for everything.
@@ -92,6 +101,48 @@ class RawMockTransferCacheManager : public FakeTransferCacheManagerBase {
 };
 
 using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
+
+// A transfer cache manager which allocates memory from a fixed size arena. This
+// is necessary to prevent running into deadlocks in some cases, e.g. when the
+// `ShardedTransferCacheManager` calls `Alloc()` which in turns tries to
+// allocate memory using the normal malloc machinery, it leads to a deadlock
+// on the pageheap_lock.
+class ArenaBasedFakeTransferCacheManager {
+ public:
+  ArenaBasedFakeTransferCacheManager() { bytes_.resize(kTotalSize); }
+  static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
+  static constexpr bool MakeCacheSpace(int) { return false; }
+  static constexpr bool ShrinkCache(int) { return false; }
+  constexpr static size_t class_to_size(int size_class) {
+    // Chosen >= min size for the sharded transfer cache to kick in.
+    if (size_class == kSizeClass) return 4096;
+    return 0;
+  }
+  constexpr static size_t num_objects_to_move(int size_class) {
+    if (size_class == kSizeClass) return kNumToMove;
+    return 0;
+  }
+  void* Alloc(size_t size, size_t alignment = kAlignment) {
+    size_t space = kTotalSize - used_;
+    if (space < size) return nullptr;
+    void* head = &bytes_[used_];
+    void* aligned = std::align(alignment, size, head, space);
+    if (aligned != nullptr) {
+      // Increase by the allocated size plus the alignment offset.
+      used_ += size + (kTotalSize - space);
+      CHECK_CONDITION(used_ <= bytes_.capacity());
+    }
+    return aligned;
+  }
+  size_t used() const { return used_; }
+
+ private:
+  static constexpr size_t kTotalSize = 10000000;
+  // We're not changing the size of this vector during the life of this object,
+  // to avoid running into deadlocks.
+  std::vector<char> bytes_;
+  size_t used_ = 0;
+};
 
 // Wires up a largely functional TransferCache + TransferCacheManager +
 // MockCentralFreeList.
@@ -301,6 +352,88 @@ class TwoSizeClassEnv {
 
  private:
   Manager manager_;
+};
+
+class FakeCpuLayout {
+ public:
+  static constexpr int kNumCpus = 4;
+  static constexpr int kNumShards = 2;
+
+  FakeCpuLayout() : current_cpu_(0) {}
+
+  int CurrentCpu() { return current_cpu_; }
+
+  void SetCurrentCpu(int cpu) {
+    ASSERT(cpu >= 0);
+    ASSERT(cpu < kNumCpus);
+    current_cpu_ = cpu;
+  }
+
+  static int BuildCacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
+    l3_cache_index[0] = 0;
+    l3_cache_index[1] = 0;
+    l3_cache_index[2] = 1;
+    l3_cache_index[3] = 1;
+    return kNumShards;
+  }
+
+ private:
+  int current_cpu_;
+};
+
+class FakeShardedTransferCacheEnvironment {
+ public:
+  using Manager = ArenaBasedFakeTransferCacheManager;
+  using ShardedManager =
+      ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
+                                      MinimalFakeCentralFreeList>;
+
+  static constexpr int kMaxObjectsToMove =
+      ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
+
+  FakeShardedTransferCacheEnvironment()
+      : sharded_manager_(&owner_, &cpu_layout_) {
+    sharded_manager_.Init();
+  }
+
+  ~FakeShardedTransferCacheEnvironment() { Drain(); }
+
+  void Insert(int cpu, int n) {
+    cpu_layout_.SetCurrentCpu(cpu);
+    for (int i = 0; i < n; ++i) {
+      void* allocated;
+      central_freelist().AllocateBatch(&allocated, 1);
+      sharded_manager_.Push(kSizeClass, allocated);
+    }
+  }
+
+  void Remove(int cpu, int n) {
+    cpu_layout_.SetCurrentCpu(cpu);
+    std::vector<void*> bufs;
+    for (int i = 0; i < n; ++i) {
+      void* ptr = sharded_manager_.Pop(kSizeClass);
+      // Ensure we make progress.
+      ASSERT_NE(ptr, nullptr);
+      central_freelist().FreeBatch({&ptr, 1});
+    }
+  }
+
+  void Drain() {
+    for (int cpu = 0; cpu < FakeCpuLayout::kNumCpus; ++cpu) {
+      Remove(cpu, sharded_manager_.tc_length(cpu, kSizeClass));
+    }
+  }
+
+  ShardedManager& sharded_manager() { return sharded_manager_; }
+  MinimalFakeCentralFreeList& central_freelist() { return freelist_; }
+  void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
+  size_t MetadataAllocated() const { return owner_.used(); }
+
+ private:
+  MinimalFakeCentralFreeList freelist_;
+  ArenaBasedFakeTransferCacheManager owner_;
+  FakeCpuLayout cpu_layout_;
+  ShardedManager sharded_manager_;
 };
 
 }  // namespace tcmalloc_internal
