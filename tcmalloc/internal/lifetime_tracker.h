@@ -51,10 +51,7 @@ class LifetimeTrackerImpl {
     bool is_tracked() { return deadline != 0; }
 
     // Reset the element (implies not tracked).
-    void reset() {
-      deadline = 0;
-      counterfactual_ptr = nullptr;
-    }
+    void reset() { deadline = 0; }
   };
 
   struct Stats {

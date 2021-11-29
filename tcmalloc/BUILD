@@ -185,6 +185,8 @@ common_srcs = [
     "huge_page_aware_allocator.h",
     "huge_page_filler.h",
     "huge_pages.h",
+    "lifetime_based_allocator.h",
+    "lifetime_based_allocator.cc",
     "page_allocator.cc",
     "page_allocator.h",
     "page_allocator_interface.cc",
@@ -232,6 +234,7 @@ common_hdrs = [
     "huge_pages.h",
     "huge_region.h",
     "huge_page_aware_allocator.h",
+    "lifetime_based_allocator.h",
     "page_allocator.h",
     "page_allocator_interface.h",
     "page_heap.h",
@@ -281,6 +284,8 @@ common_deps = [
     "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:environment",
+    "//tcmalloc/internal:lifetime_predictions",
+    "//tcmalloc/internal:lifetime_tracker",
     "//tcmalloc/internal:linked_list",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:mincore",
@@ -599,6 +604,7 @@ cc_library(
         "huge_page_filler.h",
         "huge_pages.h",
         "huge_region.h",
+        "lifetime_based_allocator.h",
         "page_allocator.h",
         "page_allocator_interface.h",
         "page_heap.h",
@@ -1015,6 +1021,21 @@ cc_fuzz_test(
         ":malloc_extension",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_test(
+    name = "lifetime_based_allocator_test",
+    srcs = ["lifetime_based_allocator_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "//tcmalloc/testing:testutil",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 

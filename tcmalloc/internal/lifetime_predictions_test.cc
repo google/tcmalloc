@@ -28,20 +28,20 @@ class LifetimeDatabaseTest : public testing::Test {
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeStats*
   AllocateA() {
-    LifetimeDatabase::Key key;
+    LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
     return lifetime_database_.LookupOrAddLifetimeStats(&key);
   }
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeStats*
   AllocateB() {
-    LifetimeDatabase::Key key;
+    LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
     return lifetime_database_.LookupOrAddLifetimeStats(&key);
   }
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeStats*
   AllocateWithStacktraceId(int id) {
     if (id == 0) {
-      LifetimeDatabase::Key key;
+      LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
       return lifetime_database_.LookupOrAddLifetimeStats(&key);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);
@@ -62,7 +62,7 @@ class LifetimeDatabaseTest : public testing::Test {
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL LifetimeStats*
   AllocateWithStacktraceId_2(int id) {
     if (id == 0) {
-      LifetimeDatabase::Key key;
+      LifetimeDatabase::Key key = LifetimeDatabase::Key::RecordCurrentKey();
       return lifetime_database_.LookupOrAddLifetimeStats(&key);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);

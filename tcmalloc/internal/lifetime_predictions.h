@@ -82,25 +82,34 @@ class LifetimeStats : public TList<LifetimeStats>::Elem {
 // reference-counted.
 class LifetimeDatabase {
  public:
-  struct Key {
-    int depth;  // Number of PC values stored in array below
-    void* stack[kMaxStackDepth];
-
-    // Statically instantiate at the start of the allocation to acquire
-    // the allocation stack trace.
-    Key() { depth = absl::GetStackTrace(stack, kMaxStackDepth, 1); }
+  class Key {
+   public:
+    static Key RecordCurrentKey() {
+      // This should not trigger a copy due to copy elision.
+      return Key();
+    }
 
     template <typename H>
     friend H AbslHashValue(H h, const Key& c) {
-      return H::combine(H::combine_contiguous(std::move(h), c.stack, c.depth),
-                        c.depth);
+      return H::combine(H::combine_contiguous(std::move(h), c.stack_, c.depth_),
+                        c.depth_);
     }
 
-    bool operator==(const Key& other) const {
-      if (depth != other.depth) {
+    friend bool operator==(const Key& lhs, const Key& rhs) {
+      if (lhs.depth_ != rhs.depth_) {
         return false;
       }
-      return std::equal(stack, stack + depth, other.stack);
+      return std::equal(lhs.stack_, lhs.stack_ + lhs.depth_, rhs.stack_);
+    }
+
+   private:
+    int depth_;  // Number of PC values stored in array below
+    void* stack_[kMaxStackDepth];
+
+    // We statically instantiate `Key` at the start of the allocation to acquire
+    // the allocation stack trace. This can take a significant amount of time.
+    Key() {
+      depth_ = absl::GetStackTrace(stack_, kMaxStackDepth, /*skip_count=*/1);
     }
   };
 
