@@ -57,7 +57,8 @@ static void ActivatePerCPUCaches() {
 #endif
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
-    Static::cpu_cache().Activate(CPUCache::ActivationMode::FastPathOn);
+    Static::cpu_cache().Activate();
+    Static::ActivateCPUCache();
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:

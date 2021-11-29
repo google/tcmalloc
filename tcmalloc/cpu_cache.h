@@ -83,15 +83,10 @@ class CPUCache {
  public:
   constexpr CPUCache() = default;
 
-  enum class ActivationMode {
-    FastPathOn,
-    FastPathOffTestOnly,
-  };
-
   // tcmalloc explicitly initializes its global state (to be safe for
   // use in global constructors) so our constructor must be trivial;
   // do all initialization here instead.
-  void Activate(ActivationMode mode);
+  void Activate();
 
   // Allocate an object of the given size class. When allocation fails
   // (from this cache and after running Refill), OOMHandler(size) is
@@ -521,7 +516,7 @@ static void* SlabAlloc(size_t size)
 }
 
 template <class Forwarder>
-inline void CPUCache<Forwarder>::Activate(ActivationMode mode) {
+inline void CPUCache<Forwarder>::Activate() {
   ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
 
@@ -575,9 +570,6 @@ inline void CPUCache<Forwarder>::Activate(ActivationMode mode) {
   }
 
   freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_, per_cpu_shift);
-  if (mode == ActivationMode::FastPathOn) {
-    Static::ActivateCPUCache();
-  }
 }
 
 // Fetch more items from the central cache, refill our local cache,

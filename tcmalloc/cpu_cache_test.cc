@@ -42,9 +42,7 @@ TEST(CpuCacheTest, Metadata) {
   const int num_cpus = absl::base_internal::NumCPUs();
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
   EXPECT_EQ(r.virtual_size, num_cpus << CPUCache::kPerCpuShift);
@@ -188,9 +186,7 @@ TEST(CpuCacheTest, CacheMissStats) {
   const int num_cpus = absl::base_internal::NumCPUs();
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
@@ -307,9 +303,7 @@ TEST(CpuCacheTest, StealCpuCache) {
   }
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   std::vector<std::thread> threads;
   std::thread shuffle_thread;
@@ -397,9 +391,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   }
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   constexpr int hot_cpu_id = 0;
   constexpr int cold_cpu_id = 1;
@@ -482,9 +474,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   }
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
   const int num_cpus = absl::base_internal::NumCPUs();
@@ -600,9 +590,7 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   }
 
   CPUCache& cache = Static::cpu_cache();
-  // Since this test allocates memory, avoid activating the real fast path to
-  // minimize allocations against the per-CPU cache.
-  cache.Activate(CPUCache::ActivationMode::FastPathOffTestOnly);
+  cache.Activate();
 
   const int num_cpus = absl::base_internal::NumCPUs();
   constexpr size_t kSizeClass = 3;
