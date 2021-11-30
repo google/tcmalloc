@@ -135,15 +135,28 @@ class AlignAsPolicy {
   size_t value_;
 };
 
+// AllocationAccessAsPolicy: use user provided access hint
+class AllocationAccessAsPolicy {
+ public:
+  AllocationAccessAsPolicy() = delete;
+  explicit constexpr AllocationAccessAsPolicy(hot_cold_t value)
+      : value_(value) {}
+
+  constexpr hot_cold_t access() const { return value_; }
+
+ private:
+  hot_cold_t value_;
+};
+
 struct AllocationAccessHotPolicy {
-  // Important: the value here is explicitly kHot to allow the value to be
-  // constant propagated.  This allows allocations without a hot/cold hint to
-  // use the normal fast path.
-  static constexpr AllocationAccess access() { return AllocationAccess::kHot; }
+  // Important: the value here is explicitly hot_cold_t{255} to allow the value
+  // to be constant propagated.  This allows allocations without a hot/cold hint
+  // to use the normal fast path.
+  static constexpr hot_cold_t access() { return hot_cold_t{255}; }
 };
 
 struct AllocationAccessColdPolicy {
-  static constexpr AllocationAccess access() { return AllocationAccess::kCold; }
+  static constexpr hot_cold_t access() { return hot_cold_t{0}; }
 };
 
 using DefaultAllocationAccessPolicy = AllocationAccessHotPolicy;
@@ -215,7 +228,7 @@ class TCMallocPolicy {
     return numa_.scaled_partition();
   }
 
-  constexpr AllocationAccess access() const { return AccessPolicy::access(); }
+  constexpr hot_cold_t access() const { return AccessPolicy::access(); }
 
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
@@ -227,6 +240,14 @@ class TCMallocPolicy {
   AlignAs(align_t align) const {
     return TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
                           NumaPolicy>(AlignAsPolicy{align}, numa_);
+  }
+
+  // Returns this policy with access hit
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                           HooksPolicy, NumaPolicy>
+  AccessAs(hot_cold_t access) const {
+    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                          HooksPolicy, NumaPolicy>(align_, access, numa_);
   }
 
   // Returns this policy for frequent access

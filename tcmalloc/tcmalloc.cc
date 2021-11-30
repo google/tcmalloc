@@ -1560,7 +1560,7 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
   MemoryTag tag = MemoryTag::kNormal;
-  if (policy.access() == AllocationAccess::kCold) {
+  if (IsColdHint(policy.access())) {
     tag = MemoryTag::kCold;
   } else if (Static::numa_topology().numa_aware()) {
     tag = NumaNormalTag(policy.numa_partition());

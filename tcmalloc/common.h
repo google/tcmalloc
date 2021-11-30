@@ -326,6 +326,10 @@ enum class AllocationAccess {
   kCold,
 };
 
+inline bool IsColdHint(hot_cold_t hint) {
+  return static_cast<uint8_t>(hint) < uint8_t{128};
+}
+
 inline AllocationAccess AccessFromPointer(void* ptr) {
   if (!kHasExpandedClasses) {
     ASSERT(!IsColdMemory(ptr));
@@ -513,7 +517,7 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
       return false;
     }
-    if (kHasExpandedClasses && policy.access() == AllocationAccess::kCold) {
+    if (kHasExpandedClasses && IsColdHint(policy.access())) {
       *cl = class_array_[idx + kClassArraySize];
     } else {
       *cl = class_array_[idx] + policy.scaled_numa_partition();

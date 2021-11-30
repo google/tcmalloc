@@ -1075,6 +1075,7 @@ cc_test(
     ],
     deps = [
         ":malloc_extension",
+        ":new_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/testing:testutil",
