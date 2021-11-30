@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/new_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -121,13 +122,24 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   struct Requests {
     size_t size;
     size_t alignment;
+    absl::optional<tcmalloc::hot_cold_t> hot_cold;
+    bool expected_hot;
     bool keep;
     // objects we don't delete as we go
     void* list = nullptr;
   };
   std::vector<Requests> sizes = {
-      {8, 0, false},          {16, 16, true},        {1024, 0, false},
-      {64 * 1024, 64, false}, {512 * 1024, 0, true}, {1024 * 1024, 128, true}};
+      {8, 0, absl::nullopt, true, false},
+      {16, 16, absl::nullopt, true, true},
+      {1024, 0, absl::nullopt, true, false},
+      {64 * 1024, 64, absl::nullopt, true, false},
+      {512 * 1024, 0, absl::nullopt, true, true},
+      {1024 * 1024, 128, absl::nullopt, true, true},
+      // As an implementation detail, 32 is not allocated to a cold size class.
+      {32, 0, tcmalloc::hot_cold_t{0}, true, true},
+      {64, 0, tcmalloc::hot_cold_t{255}, true, true},
+      {8192, 0, tcmalloc::hot_cold_t{0}, false, true},
+  };
   std::set<size_t> sizes_expected;
   for (auto s : sizes) {
     sizes_expected.insert(s.size);
@@ -141,6 +153,8 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       void* obj;
       if (s.alignment > 0) {
         obj = operator new(s.size, static_cast<std::align_val_t>(s.alignment));
+      } else if (s.hot_cold.has_value()) {
+        obj = operator new(s.size, *s.hot_cold);
       } else {
         obj = operator new(s.size);
       }
@@ -149,7 +163,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       } else if (s.alignment > 0) {
         operator delete(obj, static_cast<std::align_val_t>(s.alignment));
       } else {
-        operator delete(obj);
+        sized_delete(obj, s.size);
       }
     }
   }
@@ -161,8 +175,17 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   // size -> alignment request
   absl::flat_hash_map<size_t, size_t> alignment;
 
+  // size -> access_hint
+  absl::flat_hash_map<size_t, hot_cold_t> access_hint;
+
+  // size -> access_allocated
+  absl::flat_hash_map<size_t, Profile::Sample::Access> access_allocated;
+
   for (auto s : sizes) {
     alignment[s.size] = s.alignment;
+    access_hint[s.size] = s.hot_cold.value_or(hot_cold_t{255});
+    access_allocated[s.size] = s.expected_hot ? Profile::Sample::Access::Hot
+                                              : Profile::Sample::Access::Cold;
   }
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
@@ -172,10 +195,14 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       return;
     }
 
+    SCOPED_TRACE(e.requested_size);
+
     // Don't check stack traces until we have evidence that's broken, it's
     // tedious and done fairly well elsewhere.
     m[e.allocated_size] += e.sum;
     EXPECT_EQ(alignment[e.requested_size], e.requested_alignment);
+    EXPECT_EQ(access_hint[e.requested_size], e.access_hint);
+    EXPECT_EQ(access_allocated[e.requested_size], e.access_allocated);
   });
 
 #if !defined(UNDEFINED_BEHAVIOR_SANITIZER)

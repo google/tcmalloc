@@ -104,6 +104,17 @@ class Profile final {
     size_t requested_alignment;
     size_t allocated_size;
 
+    enum class Access {
+      Hot,
+      Cold,
+
+      // Only present to prevent switch statements without a default clause so
+      // that we can extend this enumeration without breaking code.
+      kDoNotUse,
+    };
+    hot_cold_t access_hint;
+    Access access_allocated;
+
     int depth;
     void* stack[kMaxStackDepth];
   };

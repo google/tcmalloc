@@ -30,26 +30,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 bool StackTraceTable::Bucket::KeyEqual(uintptr_t h, const StackTrace& t) const {
-  // Do not merge entries with different sizes so that profiling tools
-  // can allow size-based analysis of the resulting profiles.  Note
-  // that sizes being supplied here are already quantized (to either
-  // the size-class size for small objects, or a multiple of pages for
-  // big objects).  So the number of distinct buckets kept per stack
-  // trace should be fairly small.
-  if (this->hash != h || this->trace.depth != t.depth ||
-      this->trace.requested_size != t.requested_size ||
-      this->trace.requested_alignment != t.requested_alignment ||
-      // These could theoretically differ due to e.g. memalign choices.
-      // Split the buckets just in case that happens (though it should be rare.)
-      this->trace.allocated_size != t.allocated_size) {
-    return false;
-  }
-  for (int i = 0; i < t.depth; ++i) {
-    if (this->trace.stack[i] != t.stack[i]) {
-      return false;
-    }
-  }
-  return true;
+  return this->hash == h && this->trace == t;
 }
 
 StackTraceTable::StackTraceTable(ProfileType type, int64_t period, bool merge,
@@ -134,6 +115,10 @@ void StackTraceTable::Iterate(
       e.requested_size = requested_size;
       e.requested_alignment = b->trace.requested_alignment;
       e.allocated_size = allocated_size;
+      e.access_hint = static_cast<hot_cold_t>(b->trace.access_hint);
+      e.access_allocated = b->trace.cold_allocated
+                               ? Profile::Sample::Access::Cold
+                               : Profile::Sample::Access::Hot;
 
       e.depth = b->trace.depth;
       static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,

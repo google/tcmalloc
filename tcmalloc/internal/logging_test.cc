@@ -21,10 +21,55 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/flags/flag.h"
+#include "absl/hash/hash_testing.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
+
+TEST(StackTraceTest, Hash) {
+  StackTrace s1, s2, s3, s4;
+
+  s1.requested_size = 1;
+  s1.requested_alignment = 2;
+  s1.allocated_size = 4;
+  s1.access_hint = 8;
+  s1.cold_allocated = false;
+  s1.depth = 2;
+  s1.stack[0] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s1.stack[1] = absl::bit_cast<void*>(uintptr_t{0xBA});
+
+  s2.requested_size = 8;
+  s2.requested_alignment = 4;
+  s2.allocated_size = 2;
+  s2.access_hint = 1;
+  s2.cold_allocated = true;
+  s2.depth = 2;
+  s2.stack[0] = absl::bit_cast<void*>(uintptr_t{0xBA});
+  s2.stack[1] = absl::bit_cast<void*>(uintptr_t{0xAB});
+
+  s3.requested_size = 8;
+  s3.requested_alignment = 4;
+  s3.allocated_size = 2;
+  s3.access_hint = 1;
+  s3.cold_allocated = true;
+  s3.depth = 3;
+  s3.stack[0] = absl::bit_cast<void*>(uintptr_t{0xBA});
+  s3.stack[1] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s3.stack[2] = absl::bit_cast<void*>(uintptr_t{0xCD});
+
+  s4.requested_size = 1;
+  s4.requested_alignment = 2;
+  s4.allocated_size = 4;
+  s4.access_hint = 16;
+  s4.cold_allocated = true;
+  s4.depth = 2;
+  s4.stack[0] = absl::bit_cast<void*>(uintptr_t{0xAB});
+  s4.stack[1] = absl::bit_cast<void*>(uintptr_t{0xBA});
+
+  EXPECT_TRUE(absl::VerifyTypeImplementsAbslHashCorrectly(
+      {StackTrace(), s1, s2, s3, s4}));
+}
 
 static std::string* log_buffer;
 

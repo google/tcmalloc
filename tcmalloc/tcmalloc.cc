@@ -1440,9 +1440,6 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
 // In case of out-of-memory condition when allocating span or
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
-//
-// TODO(b/124707070): Pass the requested allocation access hint as well,
-// allowing us to encode the hint in heap/allocation profiles.
 template <typename Policy>
 static void* SampleifyAllocation(Policy policy, size_t requested_size,
                                  size_t weight, size_t cl, void* obj,
@@ -1453,6 +1450,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   void* proxy = nullptr;
   void* guarded_alloc = nullptr;
   size_t allocated_size;
+  bool allocated_cold;
 
   // requested_alignment = 1 means 'small size table alignment was used'
   // Historically this is reported as requested_alignment = 0
@@ -1465,6 +1463,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     ASSERT(cl == Static::pagemap().sizeclass(PageIdContaining(obj)));
 
     allocated_size = Static::sizemap().class_to_size(cl);
+    allocated_cold = IsExpandedSizeClass(cl);
 
     // If the caller didn't provide a span, allocate one:
     Length num_pages = BytesToLengthCeil(allocated_size);
@@ -1502,6 +1501,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     // the current assumption is that only class sized allocs are sampled
     // for gwp-asan.
     allocated_size = span->bytes_in_span();
+    allocated_cold = IsColdMemory(span->start_address());
   }
   if (capacity) *capacity = allocated_size;
 
@@ -1514,6 +1514,8 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   tmp.requested_size = requested_size;
   tmp.requested_alignment = requested_alignment;
   tmp.allocated_size = allocated_size;
+  tmp.access_hint = static_cast<uint8_t>(policy.access());
+  tmp.cold_allocated = allocated_cold;
   tmp.weight = weight;
 
   {

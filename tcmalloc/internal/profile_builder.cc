@@ -361,6 +361,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int objects_id = builder.InternString("objects");
   const int request_id = builder.InternString("request");
   const int space_id = builder.InternString("space");
+  const int access_hint_id = builder.InternString("access_hint");
+  const int access_allocated_id = builder.InternString("access_allocated");
+  const int cold_id = builder.InternString("cold");
+  const int hot_id = builder.InternString("hot");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -429,6 +433,30 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+
+    auto add_access_label = [&](int key,
+                                tcmalloc::Profile::Sample::Access access) {
+      switch (access) {
+        case tcmalloc::Profile::Sample::Access::Hot: {
+          perftools::profiles::Label& access_label = *sample.add_label();
+          access_label.set_key(key);
+          access_label.set_str(hot_id);
+          break;
+        }
+        case tcmalloc::Profile::Sample::Access::Cold: {
+          perftools::profiles::Label& access_label = *sample.add_label();
+          access_label.set_key(key);
+          access_label.set_str(cold_id);
+          break;
+        }
+        default:
+          break;
+      }
+    };
+
+    add_positive_label(access_hint_id, 0,
+                       static_cast<uint8_t>(entry.access_hint));
+    add_access_label(access_allocated_id, entry.access_allocated);
   });
 
   return std::move(builder).Finalize();

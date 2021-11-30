@@ -265,6 +265,7 @@ cc_test(
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/hash:hash_testing",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -571,6 +572,7 @@ cc_test(
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:variant",
         "@com_google_googletest//:gtest_main",
     ],
 )

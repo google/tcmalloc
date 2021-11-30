@@ -26,6 +26,7 @@
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/time/time.h"
+#include "absl/types/variant.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -185,6 +186,8 @@ TEST(ProfileConverterTest, Profile) {
     sample.stack[2] = absl::bit_cast<void*>(uintptr_t{0x34512});
     sample.stack[3] = absl::bit_cast<void*>(uintptr_t{0x45123});
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+    sample.access_hint = hot_cold_t{254};
+    sample.access_allocated = Profile::Sample::Access::Cold;
   }
 
   {
@@ -203,6 +206,8 @@ TEST(ProfileConverterTest, Profile) {
     sample.stack[1] = absl::bit_cast<void*>(uintptr_t{0x23451});
     sample.stack[2] = absl::bit_cast<void*>(uintptr_t{0x45123});
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
+    sample.access_hint = hot_cold_t{1};
+    sample.access_allocated = Profile::Sample::Access::Hot;
   }
 
   fake_profile->SetSamples(std::move(samples));
@@ -266,7 +271,9 @@ TEST(ProfileConverterTest, Profile) {
   EXPECT_THAT(interned_addresses, testing::Not(testing::Contains(0)));
 
   // Samples
-  std::vector<std::vector<std::pair<std::string, int>>> extracted;
+  std::vector<
+      std::vector<std::pair<std::string, absl::variant<int, std::string>>>>
+      extracted;
   for (const auto& s : converted.sample()) {
     EXPECT_FALSE(s.location_id().empty());
     // No duplicates
@@ -282,18 +289,22 @@ TEST(ProfileConverterTest, Profile) {
     auto& labels = extracted.back();
     for (const auto& l : s.label()) {
       if (l.str() != 0) {
-        // Skip string labels for now.
-        continue;
+        labels.emplace_back(converted.string_table(l.key()),
+                            converted.string_table(l.str()));
+      } else {
+        labels.emplace_back(converted.string_table(l.key()), l.num());
       }
-
-      labels.emplace_back(converted.string_table(l.key()), l.num());
     }
   }
-  EXPECT_THAT(extracted,
-              UnorderedElementsAre(
-                  UnorderedElementsAre(Pair("bytes", 16), Pair("request", 2),
-                                       Pair("alignment", 4)),
-                  UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4))));
+  EXPECT_THAT(
+      extracted,
+      UnorderedElementsAre(
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("access_hint", 254), Pair("access_allocated", "cold")),
+          UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+                               Pair("access_hint", 1),
+                               Pair("access_allocated", "hot"))));
 
   // The addresses for the samples at stack[0], stack[1] should match.
   ASSERT_GE(converted.sample().size(), 2);
