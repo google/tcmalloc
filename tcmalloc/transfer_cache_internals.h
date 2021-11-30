@@ -162,8 +162,8 @@ class RingBufferTransferCache {
     const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
     void* to_free_buf[kMaxObjectsToMove];
-    int to_free_num = 0;
-
+    int returned_from_cache = 0;
+    int forwarded_to_freelist = 0;
     {
       absl::base_internal::SpinLockHolder h(&lock_);
       RingBufferSizeInfo info = GetSlotInfo();
@@ -183,40 +183,33 @@ class RingBufferTransferCache {
       // If we arrive here, this means that there is not enough capacity in the
       // current cache to include the new items, and we cannot grow it.
 
-      // We want to return up to `B` items from the transfer cache and currently
-      // inserted items.
-      const int returned_from_cache = std::min<int>(B, info.used);
+      // We want to return up to `B` old items from the transfer cache to make
+      // space for recently used ones.
+      returned_from_cache = std::min<int>(B, info.used);
       if (returned_from_cache > 0) {
         CopyOutOfStart(to_free_buf, returned_from_cache, info);
       }
-      to_free_num = returned_from_cache;
-      if (info.used > 0) {
-        // We didn't have to return the whole cache. This means we can copy
-        // in all of the inserted items.
-        ASSERT(info.used + N <= info.capacity);
-        CopyIntoEnd(batch.data(), N, info);
-      } else {
-        // The transfercache is empty. We might still not have enough capacity
-        // to store all of the inserted items though.
-        const int to_insert_start = std::max(0, N - info.capacity);
-        ASSERT(returned_from_cache + to_insert_start <= B);
-        if (to_insert_start > 0) {
-          // We also want to return some of the inserted items in this case.
-          memcpy(to_free_buf + to_free_num, batch.data(),
-                 to_insert_start * sizeof(void*));
-          to_free_num += to_insert_start;
-        }
-        // This is only false if info.capacity is 0.
-        if (ABSL_PREDICT_TRUE(N > to_insert_start)) {
-          CopyIntoEnd(batch.data() + to_insert_start, N - to_insert_start,
-                      info);
-        }
+      // There might still not be enough space for all items we want to insert.
+      // We have to return this many items directly to the freelist.
+      forwarded_to_freelist =
+          info.used > 0 ? 0 : std::max(0, N - info.capacity);
+      ASSERT(info.used + N - forwarded_to_freelist <= info.capacity);
+      // This is only false if info.capacity is 0.
+      if (ABSL_PREDICT_TRUE(N > forwarded_to_freelist)) {
+        CopyIntoEnd(batch.data() + forwarded_to_freelist,
+                    N - forwarded_to_freelist, info);
       }
       SetSlotInfo(info);
     }
+
     // It can work out that we manage to insert all items into the cache after
     // all.
+    const int to_free_num = returned_from_cache + forwarded_to_freelist;
     if (to_free_num > 0) {
+      if (forwarded_to_freelist > 0) {
+        memcpy(to_free_buf + returned_from_cache, batch.data(),
+               forwarded_to_freelist * sizeof(void*));
+      }
       ASSERT(to_free_num <= kMaxObjectsToMove);
       ASSERT(to_free_num <= B);
       insert_misses_.Add(1);
@@ -312,13 +305,14 @@ class RingBufferTransferCache {
   // no space.
   bool MakeCacheSpace(int size_class, int N)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    // Increase capacity in number of batches, as we do when reducing capacity.
-    const int B = Manager::num_objects_to_move(size_class);
-    ASSERT(B >= N);
 
     auto info = GetSlotInfo();
     // Is there room in the cache?
     if (info.used + N <= info.capacity) return true;
+
+    // Increase capacity in number of batches, as we do when reducing capacity.
+    const int B = Manager::num_objects_to_move(size_class);
+    ASSERT(B >= N);
     // Check if we can expand this cache?
     if (info.capacity + B > max_capacity_) return false;
 
@@ -364,13 +358,13 @@ class RingBufferTransferCache {
   // Decreases cache_slots_ on success.
   bool ShrinkCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = Manager::num_objects_to_move(size_class);
+    if (N == 0) return false;
 
     void* to_free[kMaxObjectsToMove];
     int num_to_free;
     {
       absl::base_internal::SpinLockHolder h(&lock_);
       auto info = GetSlotInfo();
-      if (info.capacity == 0) return false;
       if (info.capacity < N) return false;
 
       const int unused = info.capacity - info.used;
