@@ -36,25 +36,15 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-#ifdef ABSL_HAVE_THREAD_SANITIZER
-extern "C" int RunningOnValgrind();
-#endif
-
 static void ActivatePerCPUCaches() {
   if (tcmalloc::tcmalloc_internal::Static::CPUCacheActive()) {
     // Already active.
     return;
   }
 
-#ifdef ABSL_HAVE_THREAD_SANITIZER
-  // RunningOnValgrind is a proxy for "is something intercepting malloc."
-  //
-  // If Valgrind, et. al., are in use, TCMalloc isn't in use and we shouldn't
-  // activate our per-CPU caches.
-  if (RunningOnValgrind()) {
-    return;
-  }
-#endif
+#ifndef ABSL_HAVE_THREAD_SANITIZER
+  // Thread Sanitizer has its own malloc so we shouldn't activate our per-CPU
+  // caches.
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
     Static::cpu_cache().Activate();
@@ -64,6 +54,7 @@ static void ActivatePerCPUCaches() {
     // If there's a problem with this code, let's notice it right away:
     ::operator delete(::operator new(1));
   }
+#endif
 }
 
 class PerCPUInitializer {

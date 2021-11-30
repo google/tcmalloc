@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -352,7 +353,7 @@ class TransferCacheManager {
 
 // A trivial no-op implementation.
 struct ShardedTransferCacheManager {
-  constexpr ShardedTransferCacheManager(nullptr_t, nullptr_t) {}
+  constexpr ShardedTransferCacheManager(std::nullptr_t, std::nullptr_t) {}
   static constexpr void Init() {}
   static constexpr bool should_use(int cl) { return false; }
   static constexpr void* Pop(int cl) { return nullptr; }
