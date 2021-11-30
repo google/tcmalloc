@@ -49,6 +49,11 @@ namespace cpu_cache_internal {
 // testing.
 class StaticForwarder {
  public:
+  static void* Alloc(size_t size) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    return Static::arena().Alloc(size);
+  }
+
   static size_t class_to_size(int size_class) {
     return Static::sizemap().class_to_size(size_class);
   }
@@ -510,11 +515,6 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
   return kLargeObjectDepth;
 }
 
-static void* SlabAlloc(size_t size)
-    ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  return Static::arena().Alloc(size);
-}
-
 template <class Forwarder>
 inline void CPUCache<Forwarder>::Activate() {
   ASSERT(Static::IsInited());
@@ -552,10 +552,8 @@ inline void CPUCache<Forwarder>::Activate() {
           kBytesAvailable, " need ", bytes_required);
   }
 
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
-
   resize_ = reinterpret_cast<ResizeInfo*>(
-      Static::arena().Alloc(sizeof(ResizeInfo) * num_cpus));
+      forwarder_.Alloc(sizeof(ResizeInfo) * num_cpus));
   lazy_slabs_ = forwarder_.lazy_per_cpu_caches();
 
   auto max_cache_size = forwarder_.max_per_cpu_cache_size();
@@ -569,7 +567,8 @@ inline void CPUCache<Forwarder>::Activate() {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(SlabAlloc, MaxCapacityHelper, lazy_slabs_, per_cpu_shift);
+  freelist_.Init(&forwarder_.Alloc, MaxCapacityHelper, lazy_slabs_,
+                 per_cpu_shift);
 }
 
 // Fetch more items from the central cache, refill our local cache,
