@@ -263,7 +263,7 @@ cc_test(
     deps = [
         ":logging",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/hash:hash_testing",
         "@com_google_googletest//:gtest_main",

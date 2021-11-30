@@ -20,6 +20,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/casts.h"
 #include "absl/flags/flag.h"
 #include "absl/hash/hash_testing.h"
 

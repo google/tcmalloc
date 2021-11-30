@@ -292,7 +292,8 @@ TEST(ProfileConverterTest, Profile) {
         labels.emplace_back(converted.string_table(l.key()),
                             converted.string_table(l.str()));
       } else {
-        labels.emplace_back(converted.string_table(l.key()), l.num());
+        labels.emplace_back(converted.string_table(l.key()),
+                            static_cast<int>(l.num()));
       }
     }
   }

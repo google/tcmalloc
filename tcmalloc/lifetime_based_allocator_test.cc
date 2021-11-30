@@ -23,6 +23,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_split.h"
+#include "absl/synchronization/barrier.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -83,14 +84,14 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
   }
 
   static HugeRegion* HugeRegionAllocFn() {
-    CHECK_EQ(region_metadata_.refcount, 0);
+    EXPECT_EQ(region_metadata_.refcount, 0);
     ++region_metadata_.refcount;
     return static_cast<HugeRegion*>(region_metadata_.ptr);
   }
 
   static HugeRange BackingMemoryAllocFn(HugeLength size) {
-    CHECK_EQ(size.in_bytes(), HugeRegion::size().in_bytes());
-    CHECK_EQ(region_backing_memory_.refcount, 0);
+    EXPECT_EQ(size.in_bytes(), HugeRegion::size().in_bytes());
+    EXPECT_EQ(region_backing_memory_.refcount, 0);
     ++region_backing_memory_.refcount;
     return HugeRange::Make(HugePageContaining(region_backing_memory_.ptr),
                            size);
