@@ -112,6 +112,8 @@ create_tcmalloc_benchmark_suite(
         "//tcmalloc/internal:declarations",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
     ],
 )
 

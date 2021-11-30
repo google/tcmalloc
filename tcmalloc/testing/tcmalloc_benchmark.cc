@@ -14,11 +14,16 @@
 
 #include <malloc.h>
 
+#include <memory>
 #include <new>
+#include <thread>
 #include <vector>
 
 #include "absl/random/random.h"
+#include "absl/synchronization/notification.h"
+#include "absl/time/time.h"
 #include "benchmark/benchmark.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -173,6 +178,67 @@ static void BM_random_new_delete(benchmark::State& state) {
   }
 }
 BENCHMARK(BM_random_new_delete);
+
+static void BM_get_stats(benchmark::State& state) {
+  std::vector<std::unique_ptr<char[]>> allocations;
+  const int num_allocations = state.range(0);
+  allocations.reserve(num_allocations);
+
+  // Perform randomly sized allocations which will be kept live whilst we
+  // collect stats, allowing us to observe the impact of heap size on the time
+  // taken to collect stats.
+  absl::BitGen rand;
+  for (int i = 0; i < num_allocations; i++) {
+    const size_t size = absl::Uniform<size_t>(rand, 1, 1 << 20);
+    allocations.emplace_back(new char[size]);
+  }
+
+  // Here we go; collect stats.
+  for (auto s : state) {
+    const std::string stats = MallocExtension::GetStats();
+    benchmark::DoNotOptimize(stats);
+  }
+}
+BENCHMARK(BM_get_stats)->Range(1, 1 << 20);
+
+static void BM_get_stats_pageheap_lock(benchmark::State& state) {
+  std::vector<std::unique_ptr<char[]>> allocations;
+  const int num_allocations = state.range(0);
+  allocations.reserve(num_allocations);
+
+  // Perform randomly sized allocations which will be kept live whilst we
+  // collect stats, allowing us to observe the impact of heap size on the time
+  // taken to collect stats.
+  absl::BitGen rand;
+  for (int i = 0; i < num_allocations; i++) {
+    const size_t size = absl::Uniform<size_t>(rand, 1, 1 << 20);
+    allocations.emplace_back(new char[size]);
+  }
+
+  // Create a background thread which busy-loops calling
+  // MallocExtension::GetStats().
+  absl::Notification done;
+  std::thread stats_thread([&] {
+    while (!done.HasBeenNotified()) {
+      const std::string stats = MallocExtension::GetStats();
+      benchmark::DoNotOptimize(stats);
+    }
+  });
+
+  // Repeatedly acquire and release pageheap_lock.
+  // Since nothing else is going on in this thread, the average time to acquire
+  // and release is a reasonable approximation to how long the stats_thread
+  // holds pageheap lock.
+  for (auto s : state) {
+    tcmalloc_internal::pageheap_lock.Lock();
+    tcmalloc_internal::pageheap_lock.Unlock();
+  }
+
+  // End the background stats_thread.
+  done.Notify();
+  stats_thread.join();
+}
+BENCHMARK(BM_get_stats_pageheap_lock)->Range(1, 1 << 20);
 
 }  // namespace
 }  // namespace tcmalloc
