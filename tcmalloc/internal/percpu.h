@@ -61,8 +61,8 @@
 #include "tcmalloc/internal/logging.h"
 
 // TCMALLOC_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ on the
-// target architecture exists. We currently only provide RSEQ for 64-bit x86 and
-// PPC binaries.
+// target architecture exists. We currently only provide RSEQ for 64-bit x86,
+// Arm and PPC binaries.
 #if !defined(TCMALLOC_PERCPU_USE_RSEQ)
 #if (ABSL_PER_THREAD_TLS == 1) && (TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
 #define TCMALLOC_PERCPU_USE_RSEQ 1
@@ -70,6 +70,14 @@
 #define TCMALLOC_PERCPU_USE_RSEQ 0
 #endif
 #endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
+
+// TCMALLOC_PERCPU_USE_RSEQ_VCPU defines whether TCMalloc support for RSEQ
+// virtual CPU IDs is available on the target architecture.
+#if TCMALLOC_PERCPU_USE_RSEQ && (defined(__x86_64__) || defined(__aarch64__))
+#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 1
+#else
+#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 0
+#endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ_VCPU)
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -90,7 +98,7 @@ extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
 static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
          virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
   return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
@@ -98,7 +106,7 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 #else
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
   return RseqCpuId();
-#endif
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 #else  // !TCMALLOC_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
@@ -117,7 +125,7 @@ extern "C" {
 int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
                                           intptr_t old_val, intptr_t new_val);
 
-#ifndef __x86_64__
+#if !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
                                OverflowHandler f);
 int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
@@ -126,7 +134,7 @@ void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl, UnderflowHandler f,
                                 size_t shift);
 void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
                                            UnderflowHandler f);
-#endif  // __x86_64__
+#endif  // !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
@@ -138,7 +146,7 @@ size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t cl,
 size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t cl,
                                                  void** batch, size_t len);
 
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
                                                intptr_t old_val,
                                                intptr_t new_val);
@@ -147,7 +155,7 @@ size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr, size_t cl,
                                                        size_t len);
 size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr, size_t cl,
                                                       void** batch, size_t len);
-#endif
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
@@ -319,12 +327,12 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
       return TcmallocSlab_Internal_PerCpuCmpxchg64(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
     case offsetof(kernel_rseq, vcpu_id):
       return TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(
           target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
           old_val, new_val);
-#endif  // __x86_64__
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
     default:
       __builtin_unreachable();
   }

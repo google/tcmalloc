@@ -380,7 +380,6 @@ overflow_label:
 #endif  // defined(__x86_64__)
 
 #if defined(__aarch64__)
-
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl, void* item,
@@ -447,8 +446,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
       // Start
       "4:\n"
-      // cpu_id = __rseq_abi.cpu_id;
-      "ldr %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
+      // cpu_id = __rseq_abi.vcpu_id;
+      "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
       // region_start = Start of cpu region
       "lsl %[region_start], %[cpu_id], %[shift]\n"
       "add %[region_start], %[region_start], %[slabs]\n"
@@ -721,8 +720,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
           // Start
           "4:\n"
-          // cpu_id = __rseq_abi.cpu_id;
-          "ldr %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
+          // cpu_id = __rseq_abi.vcpu_id;
+          "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
           // region_start = Start of cpu region
           "lsl %[region_start], %[cpu_id], %[shift]\n"
           "add %[region_start], %[region_start], %[slabs]\n"
@@ -825,11 +824,11 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
       case offsetof(kernel_rseq, cpu_id):
         return TcmallocSlab_Internal_PushBatch_FixedShift(slabs_, cl, batch,
                                                           len);
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
       case offsetof(kernel_rseq, vcpu_id):
         return TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(slabs_, cl,
                                                                batch, len);
-#endif  // __x86_64__
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
       default:
         __builtin_unreachable();
     }
@@ -861,12 +860,12 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
       case offsetof(kernel_rseq, cpu_id):
         n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs_, cl, batch, len);
         break;
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
       case offsetof(kernel_rseq, vcpu_id):
         n = TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(slabs_, cl, batch,
                                                            len);
         break;
-#endif  // __x86_64__
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
       default:
         __builtin_unreachable();
     }
@@ -949,11 +948,11 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(void*(alloc)(size_t size),
                                     size_t (*capacity)(size_t cl), bool lazy,
                                     size_t shift) {
-#ifdef __x86_64__
+#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
-#endif  // __x86_64__
+#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
   shift_ = shift;
   size_t mem_size = absl::base_internal::NumCPUs() * (1ul << shift);

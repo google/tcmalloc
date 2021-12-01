@@ -143,6 +143,8 @@ label##_trampoline:                                               \
 /* FETCH_CPU assumes &__rseq_abi is in x5.  */
 #define FETCH_CPU(dest) \
   ldr dest, [x5, #4] /* cpuid is 32-bits */
+#define FETCH_VCPU(dest) \
+  ldrh dest, [x5, #30] /* vcpuid is 16-bits */
 
 /* With PIE  have initial-exec TLS, even in the presence of position
    independent code. */
@@ -230,6 +232,30 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 
+  .p2align 6 /* aligns to 2^6 with NOP filling */
+  .globl TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU
+  .type  TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU, @function
+TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU:
+  .cfi_startproc
+  BTI_C
+  START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
+  FETCH_VCPU(w4)
+  cmp w0, w4 /* check cpu vs current_cpu */
+  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit
+  ldr x6, [x1]
+  cmp x6, x2 /* verify *p == old */
+  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_mismatch
+  str x3, [x1]
+.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit:
+  mov x0, x4
+  ret  /* return current cpu, indicating mismatch OR success */
+.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_mismatch:
+  mov x0, #-1 /* mismatch versus "old" or "check", return -1 */
+  ret
+  .cfi_endproc
+ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
+
 /* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
  *     void *ptr (x0),
  *     size_t cl (w1),
@@ -294,6 +320,46 @@ TcmallocSlab_Internal_PushBatch_FixedShift:
 ENCODE_SIZE(TcmallocSlab_Internal_PushBatch_FixedShift)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
 
+  .p2align 6 /* aligns to 2^6 with NOP filling */
+  .globl TcmallocSlab_Internal_PushBatch_FixedShift_VCPU
+  .type  TcmallocSlab_Internal_PushBatch_FixedShift_VCPU, @function
+TcmallocSlab_Internal_PushBatch_FixedShift_VCPU:
+  .cfi_startproc
+  BTI_C
+  START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift_VCPU)
+  FETCH_VCPU(w8)
+  lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
+  add x8, x0, x8
+  add x4, x8, x1, LSL #3    /* r4 = hdr */
+  ldrh w9, [x4]             /* r9 = current */
+  ldrh w10, [x4, #6]        /* r10 = end */
+  cmp w9, w10
+  bge .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_no_capacity
+  add  x11, x2, x3, LSL #3  /* r11 = batch + len * 8 */
+  sub  w10, w10, w9         /* r10 = free capacity */
+  cmp w3, w10
+  csel w10, w3, w10, ls     /* r10 = min(len, free capacity), amount we are
+                               pushing */
+  add x13, x9, x10          /* r13 = current + amount we are pushing. */
+  add x9, x8, x9, LSL #3    /* r9 = current cpu slab stack */
+  add x14, x8, x13, LSL #3  /* r14 = new current address */
+.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop:
+  ldr x12, [x11,  #-8]!     /* r12 = [--r11] */
+  str x12, [x9], #8         /* [r9++] = r12 */
+  cmp x9, x14               /* if current cpu slab address == new current
+                               address */
+  bne .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop
+  strh w13, [x4] /* store new current index */
+.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_commit:
+  mov x0, x10
+  ret
+.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_no_capacity:
+  mov x0, #0
+  ret
+  .cfi_endproc
+ENCODE_SIZE(TcmallocSlab_Internal_PushBatch_FixedShift_VCPU)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift_VCPU)
+
 /* size_t TcmallocSlab_Internal_PopBatch_FixedShift(
  *     void *ptr (x0),
  *     size_t cl (w1),
@@ -357,6 +423,46 @@ TcmallocSlab_Internal_PopBatch_FixedShift:
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_PopBatch_FixedShift)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch_FixedShift)
+
+  .p2align 6 /* aligns to 2^6 with NOP filling */
+  .globl TcmallocSlab_Internal_PopBatch_FixedShift_VCPU
+  .type  TcmallocSlab_Internal_PopBatch_FixedShift_VCPU, @function
+TcmallocSlab_Internal_PopBatch_FixedShift_VCPU:
+  .cfi_startproc
+  BTI_C
+  START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift_VCPU)
+  FETCH_VCPU(w8)
+  lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
+  add x8, x0, x8
+  add x4, x8, x1, LSL #3
+  ldrh w9, [x4]             /* current */
+  ldrh w10, [x4, #4]        /* begin */
+  cmp w10, w9
+  bhs .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_no_items
+  sub w11, w9, w10          /* r11 = available items */
+  cmp w3, w11
+  csel w11, w3, w11, ls     /* r11 = min(len, available items), amount we are
+                               popping */
+  add x13, x8, x9, LSL #3   /* r13 = current cpu slab stack  */
+  sub x9, x9, x11           /* update new current  */
+  mov x12, x2               /* r12 = batch */
+  add x14, x2, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
+.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop:
+  ldr x10, [x13, #-8]!      /* r10 = [--r13] */
+  str x10, [x12], #8        /* [r12++] = r10 */
+  cmp x12, x14              /* if current batch == batch + amount we are
+                               popping */
+  bne .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop
+  strh w9, [x4]             /* store new current */
+.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_commit:
+  mov x0, x11
+  ret
+.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_no_items:
+  mov x0, #0
+  ret
+  .cfi_endproc
+ENCODE_SIZE(TcmallocSlab_Internal_PopBatch_FixedShift_VCPU)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch_FixedShift_VCPU)
 
   .globl TcmallocSlab_Internal_Push
   .type TcmallocSlab_Internal_Push, @function
