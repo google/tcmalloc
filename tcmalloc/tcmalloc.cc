@@ -825,7 +825,8 @@ Profile AllocationSample::Stop() && ABSL_LOCKS_EXCLUDED(pageheap_lock) {
 }
 
 extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
-  for (size_t shift = 17; shift < 22; shift++) {
+  size_t shift = std::max<size_t>(18, absl::bit_width(ret->capacity()) - 1);
+  for (; shift < 22; shift++) {
     const size_t size = 1 << shift;
     // Double ret's size until we succeed in writing the buffer without
     // truncation.

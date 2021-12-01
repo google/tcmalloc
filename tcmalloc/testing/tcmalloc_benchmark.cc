@@ -27,6 +27,9 @@
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/malloc_extension.h"
 
+extern "C" ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetStats(
+    std::string* ret);
+
 namespace tcmalloc {
 namespace {
 
@@ -200,6 +203,33 @@ static void BM_get_stats(benchmark::State& state) {
   }
 }
 BENCHMARK(BM_get_stats)->Range(1, 1 << 20);
+
+static void BM_get_stats_internal(benchmark::State& state) {
+  if (&MallocExtension_Internal_GetStats == nullptr) {
+    // Sanitizer builds don't provide this function.
+    return;
+  }
+  std::vector<std::unique_ptr<char[]>> allocations;
+  const int num_allocations = state.range(0);
+  allocations.reserve(num_allocations);
+
+  // Perform randomly sized allocations which will be kept live whilst we
+  // collect stats, allowing us to observe the impact of heap size on the time
+  // taken to collect stats.
+  absl::BitGen rand;
+  for (int i = 0; i < num_allocations; i++) {
+    const size_t size = absl::Uniform<size_t>(rand, 1, 1 << 20);
+    allocations.emplace_back(new char[size]);
+  }
+
+  // Collect stats into our string, avoiding repeated resize.
+  std::string stats;
+  stats.resize(1 << 18);
+  for (auto s : state) {
+    MallocExtension_Internal_GetStats(&stats);
+  }
+}
+BENCHMARK(BM_get_stats_internal)->Range(1, 1 << 20);
 
 static void BM_get_stats_pageheap_lock(benchmark::State& state) {
   std::vector<std::unique_ptr<char[]>> allocations;
