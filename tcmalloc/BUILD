@@ -321,6 +321,16 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "explicitly_constructed",
+    hdrs = ["explicitly_constructed.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "//tcmalloc/internal:config",
+    ],
+)
+
 # TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to use hugepage-aware
 # allocator.
