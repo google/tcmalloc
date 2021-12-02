@@ -643,6 +643,7 @@ namespace {
       absl::ToInt64Nanoseconds(Parameters::filler_skip_subrelease_interval()));
   region.PrintBool("tcmalloc_shuffle_per_cpu_caches",
                    Parameters::shuffle_per_cpu_caches());
+  region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
 }

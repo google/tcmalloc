@@ -21,6 +21,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/strings/str_cat.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -70,6 +71,9 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("transfer_cache_implementation: RING"));
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
+  EXPECT_THAT(buf,
+              HasSubstr(absl::StrCat("profile_sampling_rate: ",
+                                     Parameters::profile_sampling_rate())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
