@@ -59,19 +59,6 @@ ABSL_PER_THREAD_TLS_KEYWORD ABSL_ATTRIBUTE_WEAK volatile kernel_rseq
         {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
 
-#ifdef __ppc__
-// On PPC, we have two cases for accessing the __rseq_abi TLS variable:
-// * For initial-exec TLS, we write the raw assembly for accessing the memory
-//   with the appropriate relocations and offsets.  On optimized builds, this is
-//   the use case that matters.
-// * For non-initial-exec TLS, access is far more involved.  We call this helper
-//   function from percpu_rseq_ppc.S to leave the initialization and access to
-//   the compiler.
-ABSL_ATTRIBUTE_UNUSED ABSL_ATTRIBUTE_NOINLINE void* tcmalloc_tls_fetch_pic() {
-  return const_cast<kernel_rseq*>(&__rseq_abi);
-}
-#endif
-
 }  // extern "C"
 
 enum PerCpuInitStatus {

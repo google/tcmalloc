@@ -32,15 +32,6 @@ namespace tcmalloc_internal {
 int ABSL_ATTRIBUTE_WEAK default_want_hpaa();
 
 bool decide_want_hpaa() {
-#if defined(__PPC64__) && defined(TCMALLOC_SMALL_BUT_SLOW)
-  // In small-but-slow, we choose a kMinSystemAlloc size that smaller than the
-  // hugepage size on PPC.  If this situation changes, this static_assert will
-  // begin failing.
-  static_assert(kHugePageSize > kMinSystemAlloc,
-                "HPAA may now support PPC, update tests");
-  return false;
-#endif
-
   const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {

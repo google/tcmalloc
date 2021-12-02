@@ -19,8 +19,7 @@
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
-#if defined(__linux__) && \
-    (defined(__x86_64__) || defined(__PPC64__) || defined(__aarch64__))
+#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
@@ -30,8 +29,6 @@
 #define TCMALLOC_PERCPU_RSEQ_FLAGS 0x0
 #if defined(__x86_64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x53053053
-#elif defined(__ppc__)
-#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0FE5000B
 #elif defined(__aarch64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xd428bc00
 #else
@@ -166,29 +163,8 @@ size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr, size_t cl,
 bool UsingFlatVirtualCpus();
 
 inline int GetCurrentCpuUnsafe() {
-// On PowerPC, Linux maintains the current CPU in the bottom 12 bits of special
-// purpose register SPRG3, which is readable from user mode. References:
-//
-//   https://github.com/torvalds/linux/blob/164c09978cebebd8b5fc198e9243777dbaecdfa0/arch/powerpc/kernel/vdso.c#L727
-//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L966
-//   https://github.com/torvalds/linux/blob/dfb945473ae8528fd885607b6fa843c676745e0c/arch/powerpc/include/asm/reg.h#L593
-//   https://lists.ozlabs.org/pipermail/linuxppc-dev/2012-July/099011.html
-//
-// This is intended for VDSO syscalls, but is much faster if we simply inline it
-// here, presumably due to the function call and null-check overheads of the
-// VDSO version. As of 2014-07 the CPU time costs are something like 1.2 ns for
-// the inline version vs 12 ns for VDSO.
-#if defined(__PPC64__) && defined(__linux__)
-  uint64_t spr;
-
-  // Mark the asm as volatile, so that it is not hoisted out of loops.
-  asm volatile("mfspr %0, 0x103;" : "=r"(spr));
-
-  return spr & 0xfff;
-#else
-  // Elsewhere, use the rseq mechanism.
+  // Use the rseq mechanism.
   return RseqCpuId();
-#endif
 }
 
 inline int GetCurrentCpu() {

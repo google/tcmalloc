@@ -19,8 +19,6 @@
 #if TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 #if defined(__x86_64__)
 #include "tcmalloc/internal/percpu_rseq_x86_64.S"
-#elif defined(__ppc__)
-#include "tcmalloc/internal/percpu_rseq_ppc.S"
 #elif defined(__aarch64__)
 #include "tcmalloc/internal/percpu_rseq_aarch64.S"
 #else
@@ -33,9 +31,9 @@
 // .note.GNU-stack section implies executable stack" errors.
 //
 // Cf. http://en.chys.info/2010/12/note-gnu-stack/
-#if defined(__arm__) || defined(__PPC64__)
+#if defined(__arm__)
 .section .note.GNU-stack, "", %progbits
 #else
 .section .note.GNU-stack, "", @progbits
-#endif  // __arm__ || __PPC64__
+#endif  // __arm__
 

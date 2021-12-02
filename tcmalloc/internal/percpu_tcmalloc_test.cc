@@ -271,26 +271,17 @@ TEST_P(TcmallocSlabTest, Unit) {
     // Temporarily fake being on the given CPU.
     ScopedFakeCpuId fake_cpu_id(cpu);
 
-#if !defined(__ppc__)
     if (UsingFlatVirtualCpus()) {
 #if TCMALLOC_PERCPU_USE_RSEQ
       __rseq_abi.vcpu_id = cpu ^ 1;
 #endif
       cpu = cpu ^ 1;
     }
-#endif
     current_cpu_ = cpu;
 
     for (size_t cl = 0; cl < kStressSlabs; ++cl) {
       SCOPED_TRACE(cl);
       current_cl_ = cl;
-
-#ifdef __ppc__
-      // This is imperfect but the window between operations below is small.  We
-      // can make this more precise around individual operations if we see
-      // measurable flakiness as a result.
-      if (fake_cpu_id.Tampered()) break;
-#endif
 
       // Check new slab state.
       ASSERT_EQ(slab_.Length(cpu, cl), 0);
