@@ -102,16 +102,18 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
  private:
   typedef HugePageFiller<PageTracker<SystemRelease>> FillerType;
-  FillerType filler_;
+  FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
   static void UnbackWithoutLock(void* start, size_t length)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  HugeRegionSet<HugeRegion> regions_;
+  HugeRegionSet<HugeRegion> regions_ ABSL_GUARDED_BY(pageheap_lock);
 
-  PageHeapAllocator<FillerType::Tracker> tracker_allocator_;
-  PageHeapAllocator<HugeRegion> region_allocator_;
+  PageHeapAllocator<FillerType::Tracker> tracker_allocator_
+      ABSL_GUARDED_BY(pageheap_lock);
+  PageHeapAllocator<HugeRegion> region_allocator_
+      ABSL_GUARDED_BY(pageheap_lock);
 
   FillerType::Tracker* GetTracker(HugePage p);
 
@@ -121,8 +123,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   static void* AllocAndReport(size_t bytes, size_t* actual, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void* MetaDataAlloc(size_t bytes);
-  HugeAllocator alloc_;
-  HugeCache cache_;
+  HugeAllocator alloc_ ABSL_GUARDED_BY(pageheap_lock);
+  HugeCache cache_ ABSL_GUARDED_BY(pageheap_lock);
 
   // donated_huge_pages_ measures the number of huge pages contributed to the
   // filler from left overs of large huge page allocations.  When the large
@@ -132,7 +134,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   HugeLength donated_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages);
+                    PageAgeHistograms* ages)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   PageId RefillFiller(Length n, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
