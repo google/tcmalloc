@@ -650,14 +650,10 @@ namespace {
 }  // namespace
 
 // Gets a human readable description of the current state of the malloc data
-// structures. A part of the state is stored in pbtxt format in `buffer`, the
-// rest of the state is stored in the old format (the same as in
-// MallocExtension::GetStats) in `other_buffer`. Both buffers are
-// null-terminated strings in a prefix of "buffer[0,buffer_length-1]" or
-// "other_buffer[0,other_buffer_length-1]". Returns the actual written sizes for
-// buffer and other_buffer.
+// structures. Returns the actual written size.
+// [buffer, buffer+result] will contain NUL-terminated output string.
 //
-// REQUIRES: buffer_length > 0 and other_buffer_length > 0.
+// REQUIRES: buffer_length > 0.
 extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
   ASSERT(buffer_length > 0);
