@@ -22,7 +22,7 @@ namespace tcmalloc {
 namespace {
 
 constexpr int64_t kDefaultProfileSamplingRate =
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
     512 << 10
 #else
     2 << 20
@@ -34,7 +34,13 @@ constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0
 };
-constexpr absl::Duration kDefaultSkipSubreleaseInterval = absl::Seconds(60);
+constexpr absl::Duration kDefaultSkipSubreleaseInterval =
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
+    absl::ZeroDuration()
+#else
+    absl::Seconds(60)
+#endif
+    ;
 
 bool TestProfileSamplingRate() {
 

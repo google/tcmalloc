@@ -37,7 +37,13 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
 // constant initialization for the atomic.  This avoids an initialization order
 // fiasco.
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
-  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(absl::Seconds(60)));
+  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
+      absl::ZeroDuration()
+#else
+      absl::Seconds(60)
+#endif
+          ));
   return v;
 }
 
