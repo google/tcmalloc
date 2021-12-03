@@ -76,8 +76,8 @@
 #endif
 #endif
 
-#if !defined(__x86_64__) && !defined(__arm__) && !defined(__aarch64__) && \
-    !defined(__riscv)
+#if !defined(__x86_64__) && !defined(__ppc64__) && !defined(__arm__) && \
+    !defined(__aarch64__) && !defined(__riscv)
 #error "Unsupported architecture."
 #endif
 
@@ -123,6 +123,8 @@ inline constexpr int kAddressBits = 8 * sizeof(void*);
 #if defined(__x86_64__)
 // x86 has 2 MiB huge pages
 static constexpr size_t kHugePageShift = 21;
+#elif defined(__PPC64__)
+static constexpr size_t kHugePageShift = 24;
 #elif defined __aarch64__ && defined __linux__
 static constexpr size_t kHugePageShift = 21;
 #elif defined __riscv && defined __linux__

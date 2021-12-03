@@ -805,13 +805,22 @@ class StatTest : public testing::Test {
     span_stats_free_bytes += large.normal_pages.in_bytes();
     span_stats_released_bytes += large.returned_pages.in_bytes();
 
+#ifndef __ppc__
     const size_t alloced_bytes = total_.in_bytes();
+#endif
     ASSERT_EQ(here.virt, stats.system_bytes);
+#ifndef __ppc__
     const size_t actual_unmapped = here.virt - here.phys;
+#endif
+    // TODO(b/122551676):  On PPC, our release granularity may be smaller than
+    // the system page size, so we may not actually unmap memory that we expect.
+    // Pending using the return value of madvise, relax this constraint.
+#ifndef __ppc__
     ASSERT_EQ(actual_unmapped, stats.unmapped_bytes);
     ASSERT_EQ(here.phys, stats.free_bytes + alloced_bytes);
     ASSERT_EQ(alloced_bytes,
               stats.system_bytes - stats.free_bytes - stats.unmapped_bytes);
+#endif
     ASSERT_EQ(stats.free_bytes, span_stats_free_bytes);
     ASSERT_EQ(stats.unmapped_bytes, span_stats_released_bytes);
   }

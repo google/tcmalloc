@@ -640,6 +640,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
         free_{} {
     init_when(when);
 
+#ifndef __ppc64__
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winvalid-offsetof"
@@ -678,6 +679,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+#endif  // __ppc64__
   }
 
   struct PageAllocation {

@@ -462,6 +462,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     textual_hdrs = [
         "percpu_rseq_aarch64.S",
+        "percpu_rseq_ppc.S",
         "percpu_rseq_x86_64.S",
     ],
     visibility = [
