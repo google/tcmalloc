@@ -25,11 +25,6 @@
 #include "absl/numeric/bits.h"
 #include "tcmalloc/internal/config.h"
 
-#ifdef __x86_64__
-#include <emmintrin.h>
-#include <xmmintrin.h>
-#endif
-
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
