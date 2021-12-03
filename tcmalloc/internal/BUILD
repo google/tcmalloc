@@ -260,6 +260,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     data = [
     ],
+    tags = [
+    ],
     deps = [
         ":logging",
         "@com_github_google_benchmark//:benchmark",
