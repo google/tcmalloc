@@ -495,6 +495,7 @@ cc_library(
         ":percpu",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:dynamic_annotations",
+        "@com_google_absl//absl/functional:function_ref",
     ],
 )
 

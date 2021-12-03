@@ -109,14 +109,13 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
  protected:
   TcmallocSlabTest() {
     slab_test_ = &slab_;
-    metadata_bytes_ = 0;
 
 // Ignore false-positive warning in GCC. For more information, see:
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003
 #pragma GCC diagnostic ignored "-Wnonnull"
-    slab_.Init(
-        &ByteCountingMalloc, [](size_t cl) { return kCapacity; },
-        GetParam() == SlabInit::kLazy, kShift);
+    slab_.Init([&](size_t size) { return this->ByteCountingMalloc(size); },
+               [](size_t) { return kCapacity; }, GetParam() == SlabInit::kLazy,
+               kShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -160,7 +159,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
     return res;
   }
 
-  static void* ByteCountingMalloc(size_t size) {
+  void* ByteCountingMalloc(size_t size) {
     const size_t kPageSize = getpagesize();
     void* ptr;
     CHECK_CONDITION(posix_memalign(&ptr, kPageSize, size) == 0);
@@ -183,7 +182,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
   static bool overflow_called_;
   static bool underflow_called_;
   static TcmallocSlab* slab_test_;
-  static size_t metadata_bytes_;
+  size_t metadata_bytes_ = 0;
 };
 
 static int ExpectNoOverflow(int cpu, size_t cl, void* item) {
@@ -203,7 +202,6 @@ size_t TcmallocSlabTest::current_cl_;
 bool TcmallocSlabTest::overflow_called_;
 bool TcmallocSlabTest::underflow_called_;
 TcmallocSlab* TcmallocSlabTest::slab_test_;
-size_t TcmallocSlabTest::metadata_bytes_;
 
 TEST_P(TcmallocSlabTest, Metadata) {
   PerCPUMetadataState r = slab_.MetadataMemoryUsage();

@@ -50,12 +50,17 @@ namespace cpu_cache_internal {
 class StaticForwarder {
  public:
   static void* Alloc(size_t size) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    ASSERT(Static::IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     return Static::arena().Alloc(size);
   }
 
   static size_t class_to_size(int size_class) {
     return Static::sizemap().class_to_size(size_class);
+  }
+
+  static absl::Span<const size_t> cold_size_classes() {
+    return Static::sizemap().ColdSizeClasses();
   }
 
   static bool lazy_per_cpu_caches() {
@@ -319,13 +324,6 @@ class CPUCache {
     void* obj[kMaxToReturn];
   };
 
-  static size_t MaxCapacityHelper(size_t cl) {
-    CPUCache& cpu_cache = Static::cpu_cache();
-    // Heuristic that the CPUCache has been activated.
-    ASSERT(cpu_cache.resize_ != nullptr);
-    return cpu_cache.max_capacity_[cl];
-  }
-
   size_t MaxCapacity(size_t cl);
 
   void* Refill(int cpu, size_t cl);
@@ -377,8 +375,8 @@ CPUCache<Forwarder>::Allocate(size_t cl) {
       tracking::Report(kMallocHit, cl, -1);
       void* ret = nullptr;
       CPUCache& cache = Static::cpu_cache();
-      if (Static::sharded_transfer_cache().should_use(cl)) {
-        ret = Static::sharded_transfer_cache().Pop(cl);
+      if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
+        ret = cache.forwarder().sharded_transfer_cache().Pop(cl);
       } else {
         tracking::Report(kMallocMiss, cl, 1);
         cache.RecordCacheMissStat(cpu, true);
@@ -405,12 +403,12 @@ CPUCache<Forwarder>::Deallocate(void* ptr, size_t cl) {
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
-      if (Static::sharded_transfer_cache().should_use(cl)) {
-        Static::sharded_transfer_cache().Push(cl, ptr);
+      CPUCache& cache = Static::cpu_cache();
+      if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
+        cache.forwarder().sharded_transfer_cache().Push(cl, ptr);
         return 1;
       }
       tracking::Report(kFreeMiss, cl, 1);
-      CPUCache& cache = Static::cpu_cache();
       cache.RecordCacheMissStat(cpu, false);
       return cache.Overflow(ptr, cl, cpu);
     }
@@ -497,7 +495,7 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
     static constexpr uint16_t kLargeUninterestingObjectDepth = 133;
     static constexpr uint16_t kLargeInterestingObjectDepth = 152;
 
-    absl::Span<const size_t> cold = Static::sizemap().ColdSizeClasses();
+    absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     ASSERT(!cold.empty());
     if (absl::c_binary_search(cold, cl)) {
       return kLargeInterestingObjectDepth;
@@ -517,7 +515,6 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
 
 template <class Forwarder>
 inline void CPUCache<Forwarder>::Activate() {
-  ASSERT(Static::IsInited());
   int num_cpus = absl::base_internal::NumCPUs();
 
   size_t per_cpu_shift = kPerCpuShift;
@@ -567,8 +564,9 @@ inline void CPUCache<Forwarder>::Activate() {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(&forwarder_.Alloc, MaxCapacityHelper, lazy_slabs_,
-                 per_cpu_shift);
+  freelist_.Init(
+      &forwarder_.Alloc, [this](size_t cl) { return this->max_capacity_[cl]; },
+      lazy_slabs_, per_cpu_shift);
 }
 
 // Fetch more items from the central cache, refill our local cache,
@@ -667,7 +665,8 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
       [](CPUCache* cache, int cpu) {
         if (cache->lazy_slabs_) {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCPU(cpu, MaxCapacityHelper);
+          cache->freelist_.InitCPU(
+              cpu, [cache](size_t cl) { return cache->max_capacity_[cl]; });
         }
 
         // While we could unconditionally store, a lazy slab population

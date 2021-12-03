@@ -21,6 +21,7 @@
 #include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
 
@@ -82,14 +83,15 @@ class TcmallocSlab {
   //         batch can be used; otherwise batch operations are emulated.
   //
   // Initial capacity is 0 for all slabs.
-  void Init(void*(alloc)(size_t size), size_t (*capacity)(size_t cl), bool lazy,
+  void Init(absl::FunctionRef<void*(size_t)> alloc,
+            absl::FunctionRef<size_t(size_t)> capacity, bool lazy,
             size_t shift);
 
   // Only may be called if Init(..., lazy = true) was used.
-  void InitCPU(int cpu, size_t (*capacity)(size_t cl));
+  void InitCPU(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
   // For tests.
-  void Destroy(void(free)(void*));
+  void Destroy(absl::FunctionRef<void(void*)> free);
 
   // Number of elements in cpu/cl slab.
   size_t Length(int cpu, size_t cl) const;
@@ -945,9 +947,9 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Init(void*(alloc)(size_t size),
-                                    size_t (*capacity)(size_t cl), bool lazy,
-                                    size_t shift) {
+void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
+                                    absl::FunctionRef<size_t(size_t)> capacity,
+                                    bool lazy, size_t shift) {
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
@@ -1019,7 +1021,8 @@ void TcmallocSlab<NumClasses>::Init(void*(alloc)(size_t size),
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::InitCPU(int cpu, size_t (*capacity)(size_t cl)) {
+void TcmallocSlab<NumClasses>::InitCPU(
+    int cpu, absl::FunctionRef<size_t(size_t)> capacity) {
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // TODO(ckennelly): Consolidate this logic with Drain.
@@ -1100,7 +1103,7 @@ void TcmallocSlab<NumClasses>::InitCPU(int cpu, size_t (*capacity)(size_t cl)) {
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Destroy(void(free)(void*)) {
+void TcmallocSlab<NumClasses>::Destroy(absl::FunctionRef<void(void*)> free) {
   free(slabs_);
   slabs_ = nullptr;
 }
