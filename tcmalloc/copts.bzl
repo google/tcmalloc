@@ -19,6 +19,7 @@ TCMALLOC_LLVM_FLAGS = [
     # aren't necessarily -Werror clean.
     "-Werror",
     "-Wno-deprecated-declarations",
+    "-Wno-deprecated-volatile",
     "-Wno-implicit-int-float-conversion",
     "-Wno-sign-compare",
     "-Wno-uninitialized",
