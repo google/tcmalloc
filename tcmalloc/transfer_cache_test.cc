@@ -311,6 +311,12 @@ TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
 
 TYPED_TEST_P(TransferCacheTest, Plunder) {
   TypeParam env;
+  if (!std::is_same<typename TypeParam::TransferCache,
+                    internal_transfer_cache::RingBufferTransferCache<
+                        typename TypeParam::FreeList,
+                        typename TypeParam::Manager>>::value) {
+    GTEST_SKIP() << "Skipping ring-specific test.";
+  }
   //  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
   //  EXPECT_CALL(env.central_freelist(), InsertRange).Times(1);
   // Fill in some elements.
@@ -588,6 +594,10 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
 }
 
 namespace unit_tests {
+using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+    MockCentralFreeList, MockTransferCacheManager>>;
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
+                               ::testing::Types<Env>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
@@ -601,6 +611,10 @@ namespace fuzz_tests {
 // Use the FakeCentralFreeList instead of the MockCentralFreeList for fuzz tests
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
+using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+    MockCentralFreeList, MockTransferCacheManager>>;
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
+
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
                                                      MockTransferCacheManager>>;
@@ -676,6 +690,11 @@ TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
 }
 
 REGISTER_TYPED_TEST_SUITE_P(TwoSizeClassTest, NoLeaks);
+
+using TwoTransferCacheEnv =
+    TwoSizeClassEnv<internal_transfer_cache::TransferCache>;
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TwoSizeClassTest,
+                               ::testing::Types<TwoTransferCacheEnv>);
 
 using TwoRingBufferEnv =
     TwoSizeClassEnv<internal_transfer_cache::RingBufferTransferCache>;

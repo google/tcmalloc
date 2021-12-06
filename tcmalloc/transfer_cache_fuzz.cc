@@ -23,6 +23,12 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace {
 
+using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
+    tcmalloc_internal::MockCentralFreeList,
+    tcmalloc_internal::MockTransferCacheManager>;
+using TransferCacheEnv =
+    tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
+
 using RingBufferTransferCache =
     tcmalloc_internal::internal_transfer_cache::RingBufferTransferCache<
         tcmalloc_internal::MockCentralFreeList,
@@ -60,7 +66,8 @@ int RunFuzzer(const uint8_t* data, size_t size) {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+  tcmalloc::RunFuzzer<tcmalloc::TransferCacheEnv>(data, size);
   tcmalloc::RunFuzzer<tcmalloc::RingBufferTransferCacheEnv>(data, size);
   return 0;
 }
