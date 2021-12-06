@@ -1181,6 +1181,18 @@ cc_test(
 )
 
 cc_library(
+    name = "sampled_allocation",
+    srcs = ["sampled_allocation.cc"],
+    hdrs = ["sampled_allocation.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":sampled_allocation_recorder",
+        "//tcmalloc/internal:logging",
+    ],
+)
+
+cc_library(
     name = "sampled_allocation_recorder",
     hdrs = ["sampled_allocation_recorder.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
