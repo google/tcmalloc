@@ -68,7 +68,7 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("percpu_slab_residence: 0"));
   }
   EXPECT_THAT(buf, ContainsRegex("(cpus_allowed: [1-9][0-9]*)"));
-  EXPECT_THAT(buf, HasSubstr("transfer_cache_implementation: RING"));
+  EXPECT_THAT(buf, HasSubstr("transfer_cache_implementation: LEGACY"));
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf,

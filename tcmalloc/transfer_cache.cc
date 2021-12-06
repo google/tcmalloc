@@ -94,8 +94,8 @@ TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
     Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
   }
 
-  // Otherwise, default to ring.
-  return TransferCacheImplementation::Ring;
+  // Otherwise, default to legacy.
+  return TransferCacheImplementation::Legacy;
 }
 
 int TransferCacheManager::DetermineSizeClassToEvict(int current_size_class) {
