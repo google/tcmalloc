@@ -43,6 +43,8 @@ namespace tcmalloc_internal {
 absl::string_view TransferCacheImplementationToLabel(
     TransferCacheImplementation type) {
   switch (type) {
+    case TransferCacheImplementation::Legacy:
+      return "LEGACY";
     case TransferCacheImplementation::None:
       return "NO_TRANSFERCACHE";
     case TransferCacheImplementation::Ring:
@@ -73,19 +75,44 @@ ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
   return Static::transfer_cache().RemoveRange(size_class_, batch, n);
 }
 
+TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
+  // Prefer ring, if we're forcing it on.
+  if (IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE)) {
+    return TransferCacheImplementation::Ring;
+  }
+
+  // Consider opt-outs
+  const char *e = thread_safe_getenv("TCMALLOC_INTERNAL_TRANSFERCACHE_CONTROL");
+  if (e) {
+    if (e[0] == '0') {
+      return TransferCacheImplementation::Legacy;
+    }
+    if (e[0] == '1') {
+      return TransferCacheImplementation::Ring;
+    }
+    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+  }
+
+  // Otherwise, default to ring.
+  return TransferCacheImplementation::Ring;
+}
+
 int TransferCacheManager::DetermineSizeClassToEvict(int current_size_class) {
   int t = next_to_evict_.load(std::memory_order_relaxed);
   if (t >= kNumClasses) t = 1;
   next_to_evict_.store(t + 1, std::memory_order_relaxed);
 
   // Ask nicely first.
-  //
-  // HasSpareCapacity may take lock_, but HasSpareCapacity(t) will fail if
-  // we're already evicting from t so we can avoid consulting the lock in
-  // that cases.
-  if (ABSL_PREDICT_FALSE(t == current_size_class) ||
-      cache_[t].rbtc.HasSpareCapacity(t)) {
-    return t;
+  if (implementation_ == TransferCacheImplementation::Ring) {
+    // HasSpareCapacity may take lock_, but HasSpareCapacity(t) will fail if
+    // we're already evicting from t so we can avoid consulting the lock in
+    // that cases.
+    if (ABSL_PREDICT_FALSE(t == current_size_class) ||
+        cache_[t].rbtc.HasSpareCapacity(t))
+      return t;
+  } else {
+    if (cache_[t].tc.HasSpareCapacity(t)) return t;
   }
 
   // But insist on the second try.
