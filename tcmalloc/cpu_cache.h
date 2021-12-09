@@ -63,10 +63,6 @@ class StaticForwarder {
     return Static::sizemap().ColdSizeClasses();
   }
 
-  static bool lazy_per_cpu_caches() {
-    return Parameters::lazy_per_cpu_caches();
-  }
-
   static size_t max_per_cpu_cache_size() {
     return Parameters::max_per_cpu_cache_size();
   }
@@ -301,9 +297,6 @@ class CPUCache {
   // Tracking data for each CPU's cache resizing efforts.
   ResizeInfo* resize_ = nullptr;
 
-  // Track whether we are lazily initializing slabs.  We cannot use the latest
-  // value in Parameters, as it can change after initialization.
-  bool lazy_slabs_ = false;
   // The maximum capacity of each size class within the slab.
   uint16_t max_capacity_[kNumClasses] = {0};
 
@@ -551,7 +544,6 @@ inline void CPUCache<Forwarder>::Activate() {
 
   resize_ = reinterpret_cast<ResizeInfo*>(
       forwarder_.Alloc(sizeof(ResizeInfo) * num_cpus));
-  lazy_slabs_ = forwarder_.lazy_per_cpu_caches();
 
   auto max_cache_size = forwarder_.max_per_cpu_cache_size();
 
@@ -566,7 +558,7 @@ inline void CPUCache<Forwarder>::Activate() {
 
   freelist_.Init(
       &forwarder_.Alloc, [this](size_t cl) { return this->max_capacity_[cl]; },
-      lazy_slabs_, per_cpu_shift);
+      true, per_cpu_shift);
 }
 
 // Fetch more items from the central cache, refill our local cache,
@@ -663,7 +655,7 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
   absl::base_internal::LowLevelCallOnce(
       &resize_[cpu].initialized,
       [](CPUCache* cache, int cpu) {
-        if (cache->lazy_slabs_) {
+        {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
           cache->freelist_.InitCPU(
               cpu, [cache](size_t cl) { return cache->max_capacity_[cl]; });
