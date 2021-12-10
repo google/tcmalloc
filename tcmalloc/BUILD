@@ -1381,6 +1381,24 @@ cc_test(
 )
 
 cc_test(
+    name = "cpu_cache_activate_test",
+    srcs = ["cpu_cache_activate_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":tcmalloc_deprecated_perthread",
+    deps = [
+        ":common_deprecated_perthread",
+        ":malloc_extension",
+        "//tcmalloc/internal:percpu",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

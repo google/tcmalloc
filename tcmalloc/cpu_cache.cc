@@ -42,9 +42,6 @@ static void ActivatePerCPUCaches() {
     return;
   }
 
-#ifndef ABSL_HAVE_THREAD_SANITIZER
-  // Thread Sanitizer has its own malloc so we shouldn't activate our per-CPU
-  // caches.
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
     Static::cpu_cache().Activate();
@@ -54,7 +51,6 @@ static void ActivatePerCPUCaches() {
     // If there's a problem with this code, let's notice it right away:
     ::operator delete(::operator new(1));
   }
-#endif
 }
 
 class PerCPUInitializer {

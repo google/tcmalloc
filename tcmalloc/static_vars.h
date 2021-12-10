@@ -119,9 +119,11 @@ class Static {
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCacheActive() {
-    return cpu_cache_active_;
+    return cpu_cache_active_.load(std::memory_order_acquire);
   }
-  static void ActivateCPUCache() { cpu_cache_active_ = true; }
+  static void ActivateCPUCache() {
+    cpu_cache_active_.store(true, std::memory_order_release);
+  }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE IsOnFastPath() {
     return
@@ -173,7 +175,7 @@ class Static {
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
   static PageHeapAllocator<StackTraceTable::Bucket> bucket_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
-  static bool cpu_cache_active_;
+  ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;
   ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;
   ABSL_CONST_INIT static NumaTopology<kNumaPartitions, kNumBaseClasses>
       numa_topology_;
