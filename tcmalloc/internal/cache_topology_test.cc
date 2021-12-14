@@ -21,7 +21,7 @@
 
 namespace {
 
-TEST(CacheToplogy, ComputesSomethingReasonable) {
+TEST(CacheTopology, ComputesSomethingReasonable) {
   // This test verifies that each L3 cache serves the same number of CPU. This
   // is not a strict requirement for the correct operation of this code, but a
   // sign of sanity.

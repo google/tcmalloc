@@ -377,8 +377,6 @@ cc_test(
     srcs = ["cache_topology_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    tags = [
-    ],
     deps = [
         ":cache_topology",
         "@com_github_google_benchmark//:benchmark",
