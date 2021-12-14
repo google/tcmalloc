@@ -59,6 +59,14 @@ int BuildCpuToL3CacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
       // At some point we reach the number of CPU on the system, and
       // we should exit. We verify that there was no other problem.
       CHECK_CONDITION(errno == ENOENT);
+      // For aarch64 if
+      // /sys/devices/system/cpu/cpu*/cache/index3/shared_cpu_list is missing
+      // then L3 is assumed to be shared by all CPUs.
+      // TODO(b/210049384): find a better replacement for shared_cpu_list in
+      // this case, e.g. based on numa nodes.
+#ifdef __aarch64__
+      if (index == 0) return 1;
+#endif
       return index;
     }
     // The file contains something like:
