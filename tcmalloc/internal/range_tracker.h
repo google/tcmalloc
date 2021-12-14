@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <algorithm>
 #include <climits>
 #include <limits>
 #include <type_traits>

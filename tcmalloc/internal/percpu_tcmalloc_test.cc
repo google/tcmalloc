@@ -19,7 +19,9 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <atomic>
+#include <functional>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
