@@ -317,8 +317,7 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
                         typename TypeParam::Manager>>::value) {
     GTEST_SKIP() << "Skipping ring-specific test.";
   }
-  //  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
-  //  EXPECT_CALL(env.central_freelist(), InsertRange).Times(1);
+
   // Fill in some elements.
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
@@ -355,6 +354,28 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
   ASSERT_EQ(env.transfer_cache().tc_length(), 0);
+
+  // Fill it up completely.
+  while (env.transfer_cache().tc_length() <
+         env.transfer_cache().max_capacity()) {
+    env.Insert(TypeParam::kBatchSize);
+  }
+  // low water mark should still be zero, so no plundering.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(),
+            env.transfer_cache().max_capacity());
+
+  // Inserting a one-element batch means we return one batch to the freelist and
+  // then insert only one element after. I.e. the cache size should shrink.
+  env.Insert(1);
+  ASSERT_EQ(env.transfer_cache().tc_length(),
+            env.transfer_cache().max_capacity() - TypeParam::kBatchSize + 1);
+  // If we fill up the cache again, plundering should respect that.
+  env.Insert(TypeParam::kBatchSize - 1);
+  ASSERT_EQ(env.transfer_cache().tc_length(),
+            env.transfer_cache().max_capacity());
+  env.transfer_cache().TryPlunder(kSizeClass);
+  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize - 1);
 }
 
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is

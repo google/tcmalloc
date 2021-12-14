@@ -361,6 +361,8 @@ class TransferCache {
     return freelist_do_not_access_directly_;
   }
 
+  int32_t max_capacity() const { return max_capacity_; }
+
  private:
   // Returns first object of the i-th slot.
   void **GetSlot(size_t i) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
@@ -476,6 +478,7 @@ class RingBufferTransferCache {
     int forwarded_to_freelist = 0;
     {
       absl::base_internal::SpinLockHolder h(&lock_);
+      ASSERT(low_water_mark_ <= slot_info_.used);
       RingBufferSizeInfo info = GetSlotInfo();
       if (info.used + N <= max_capacity_) {
         const bool cache_grown = MakeCacheSpace(size_class, N);
@@ -509,7 +512,9 @@ class RingBufferTransferCache {
         CopyIntoEnd(batch.data() + forwarded_to_freelist,
                     N - forwarded_to_freelist, info);
       }
+      low_water_mark_ = std::min(low_water_mark_, info.used);
       SetSlotInfo(info);
+      ASSERT(low_water_mark_ <= slot_info_.used);
     }
 
     // It can work out that we manage to insert all items into the cache after
@@ -547,6 +552,7 @@ class RingBufferTransferCache {
         tracking::Report(kTCRemoveHit, size_class, 1);
         remove_hits_.LossyAdd(1);
         low_water_mark_ = std::min(low_water_mark_, info.used);
+        ASSERT(low_water_mark_ <= slot_info_.used);
         return copied;
       }
       ASSERT(low_water_mark_ == 0);
@@ -574,6 +580,7 @@ class RingBufferTransferCache {
       CopyOutOfStart(buf, num_to_move, slot_info_);
       to_return -= num_to_move;
       low_water_mark_ -= num_to_move;
+      ASSERT(low_water_mark_ <= slot_info_.used);
       lock_.Unlock();
       freelist().InsertRange({buf, num_to_move});
       tracking::Report(kTCElementsPlunder, size_class, num_to_move);
@@ -581,6 +588,7 @@ class RingBufferTransferCache {
       if (!lock_.TryLock()) {
         return;
       }
+      ASSERT(low_water_mark_ <= slot_info_.used);
     }
     lock_.Unlock();
   }
@@ -660,6 +668,7 @@ class RingBufferTransferCache {
   // succeeded at growing the cache by a batch size.
   bool GrowCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     absl::base_internal::SpinLockHolder h(&lock_);
+    ASSERT(low_water_mark_ <= slot_info_.used);
     return MakeCacheSpace(size_class, Manager::num_objects_to_move(size_class));
   }
 
@@ -675,6 +684,7 @@ class RingBufferTransferCache {
     {
       absl::base_internal::SpinLockHolder h(&lock_);
       auto info = GetSlotInfo();
+      ASSERT(low_water_mark_ <= slot_info_.used);
       if (info.capacity < N) return false;
 
       const int unused = info.capacity - info.used;
@@ -711,6 +721,8 @@ class RingBufferTransferCache {
       ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
+
+  int32_t max_capacity() const { return max_capacity_; }
 
  private:
   // Due to decreased downward pressure, the ring buffer based transfer cache

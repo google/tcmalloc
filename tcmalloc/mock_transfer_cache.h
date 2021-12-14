@@ -197,6 +197,8 @@ class FakeTransferCacheEnvironment {
     }
   }
 
+  void TryPlunder() { cache_.TryPlunder(kSizeClass); }
+
   void Drain() { Remove(cache_.tc_length()); }
 
   void RandomlyPoke() {
@@ -211,10 +213,12 @@ class FakeTransferCacheEnvironment {
       Grow();
     } else if (choice < 0.3) {
       cache_.HasSpareCapacity(kSizeClass);
-    } else if (choice < 0.65) {
+    } else if (choice < 0.6) {
       Insert(absl::Uniform(gen, 1, kBatchSize));
-    } else {
+    } else if (choice < 0.9) {
       Remove(absl::Uniform(gen, 1, kBatchSize));
+    } else {
+      TryPlunder();
     }
   }
 
