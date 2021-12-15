@@ -317,7 +317,9 @@ class CPUCache {
     void* obj[kMaxToReturn];
   };
 
-  size_t MaxCapacity(size_t cl);
+  // Determines how we distribute memory in the per-cpu cache to the various
+  // class sizes.
+  size_t MaxCapacity(size_t cl) const;
 
   void* Refill(int cpu, size_t cl);
 
@@ -433,10 +435,8 @@ static cpu_set_t FillActiveCpuMask() {
   return allowed_cpus;
 }
 
-// MaxCapacity() determines how we distribute memory in the per-cpu cache
-// to the various class sizes.
 template <class Forwarder>
-inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
+inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) const {
   // The number of size classes that are commonly used and thus should be
   // allocated more slots in the per-cpu cache.
   static constexpr size_t kNumSmall = 10;
@@ -462,7 +462,7 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) {
   // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
   // Each 256KiB is a subtle::percpu::TcmallocSlab::Slabs
   // Max(kNumClasses) is 89, so the maximum footprint per CPU is:
-  //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78 + 88) = 254 KiB
+  //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78) = 254 KiB
   static const uint16_t kSmallObjectDepth = 2048;
   static const uint16_t kLargeObjectDepth = 152;
 #endif
