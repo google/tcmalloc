@@ -115,8 +115,8 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 }
 #endif
 
-typedef int (*OverflowHandler)(int cpu, size_t cl, void* item);
-typedef void* (*UnderflowHandler)(int cpu, size_t cl);
+typedef int (*OverflowHandler)(int cpu, size_t cl, void* item, void* arg);
+typedef void* (*UnderflowHandler)(int cpu, size_t cl, void* arg);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
@@ -126,14 +126,15 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
 
 #if !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
-                               OverflowHandler overflow_handler);
+                               OverflowHandler overflow_handler, void* arg);
 int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
-                                          OverflowHandler overflow_handler);
+                                          OverflowHandler overflow_handler,
+                                          void* arg);
 void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
-                                UnderflowHandler underflow_handler,
-                                size_t shift);
+                                UnderflowHandler underflow_handler, void* arg);
 void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
-                                           UnderflowHandler underflow_handler);
+                                           UnderflowHandler underflow_handler,
+                                           void* arg);
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
 // Push a batch for a slab which the Shift equal to

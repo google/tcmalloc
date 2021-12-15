@@ -352,8 +352,10 @@ class CPUCache {
   // underflow or overflow.
   void RecordCacheMissStat(const int cpu, const bool is_malloc);
 
-  static void* NoopUnderflow(int cpu, size_t cl) { return nullptr; }
-  static int NoopOverflow(int cpu, size_t cl, void* item) { return -1; }
+  static void* NoopUnderflow(int cpu, size_t cl, void* arg) { return nullptr; }
+  static int NoopOverflow(int cpu, size_t cl, void* item, void* arg) {
+    return -1;
+  }
 };
 
 template <class Forwarder>
@@ -364,12 +366,13 @@ CPUCache<Forwarder>::Allocate(size_t cl) {
 
   tracking::Report(kMallocHit, cl, 1);
   struct Helper {
-    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl) {
+    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl,
+                                                   void* arg) {
       // we've optimistically reported hit in Allocate, lets undo it and
       // report miss instead.
       tracking::Report(kMallocHit, cl, -1);
+      CPUCache& cache = *static_cast<CPUCache*>(arg);
       void* ret = nullptr;
-      CPUCache& cache = Static::cpu_cache();
       if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
         ret = cache.forwarder().sharded_transfer_cache().Pop(cl);
       } else {
@@ -384,7 +387,7 @@ CPUCache<Forwarder>::Allocate(size_t cl) {
       return ret;
     }
   };
-  return freelist_.Pop(cl, &Helper::Underflow);
+  return freelist_.Pop(cl, &Helper::Underflow, this);
 }
 
 template <class Forwarder>
@@ -394,11 +397,13 @@ CPUCache<Forwarder>::Deallocate(void* ptr, size_t cl) {
   tracking::Report(kFreeHit, cl, 1);  // Be optimistic; correct later if needed.
 
   struct Helper {
-    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void* ptr) {
+    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void* ptr,
+                                                void* arg) {
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
       tracking::Report(kFreeHit, cl, -1);
-      CPUCache& cache = Static::cpu_cache();
+
+      CPUCache& cache = *static_cast<CPUCache*>(arg);
       if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
         cache.forwarder().sharded_transfer_cache().Push(cl, ptr);
         return 1;
@@ -408,7 +413,7 @@ CPUCache<Forwarder>::Deallocate(void* ptr, size_t cl) {
       return cache.Overflow(ptr, cl, cpu);
     }
   };
-  freelist_.Push(cl, ptr, Helper::Overflow);
+  freelist_.Push(cl, ptr, Helper::Overflow, this);
 }
 
 static cpu_set_t FillActiveCpuMask() {
@@ -1111,7 +1116,7 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
         // Can't steal any more because the to_return set is full.
         break;
       }
-      void* obj = freelist_.Pop(source_cl, NoopUnderflow);
+      void* obj = freelist_.Pop(source_cl, NoopUnderflow, nullptr);
       if (obj) {
         --to_return->count;
         to_return->cl[to_return->count] = source_cl;
