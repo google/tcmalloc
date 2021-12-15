@@ -2,7 +2,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2021-06-15' }
+freshness: { owner: 'ckennelly' reviewed: '2021-12-14' }
 *-->
 
 ## per-CPU Caches
@@ -367,3 +367,51 @@ The two CPU ID fields are maintained as follows:
     (an out of range value). It is
     [called](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L322)
     in the unregister path discussed above.
+
+## Cross-CPU Operations
+
+With restartable sequences, we've optimized the fast path for same-CPU
+operations at the expense of costlier cross-CPU operations. Cross-CPU operations
+are rare&mdash;typically done only to facilitate periodic drains of idle
+caches&mdash;so this is a desirable tradeoff.
+
+Cross-CPU operations rely on operating system assistance (wrapped in
+`tcmalloc::tcmalloc_internal::subtle::percpu::FenceCpu`) to interrupt any
+running restartable sequences on the remote core. When control is returned to
+the thread running on that core, we have guaranteed that either the restartable
+sequence that was running has completed *or* that the restartable sequence was
+preempted.
+
+We use preemption and "locks" (`TcmallocSlab::Header::Lock`) to ensure that
+during a particular period, all accesses to the fast path will fail&mdash;the
+cache is both simultaneously "full" and "empty" so all inserts and removes will
+go to the slow path. Unlike using `sched_setaffinity` to run a remote core, this
+approach allows us to perform longer operations, such as taking elements from
+the cache and inserting them into the `TransferCache` as part of `Drain`, while
+still maintaining correctness.
+
+Since we are using relaxed loads and stores, potentially with word-level
+granularity, our operations need to potentially store part of the needed data to
+`Header`, fence, and then write additional fields. For example, at the end of of
+`Drain`, we:
+
+*   Store `hdr.current`. `hdr.begin = 0xFFFF` and `hdr.end = 0x0`, ensuring
+    insert and remove operations continue to fail.
+*   `FenceCpu`
+*   Store `hdr.begin` and `hdr.end` to their proper values.
+
+This sequence ensures that a thread running on the remote core can only see one
+of:
+
+*   `hdr.current = X`; `hdr.begin = 0xFFFF`; `hdr.end = 0x0`
+*   `hdr.current = Y`; `hdr.begin = 0xFFFF`; `hdr.end = 0x0`
+*   `hdr.current = Y`; `hdr.begin = Y`; `hdr.end = Y`
+
+`FenceCpu` ensures that after it completes, no thread can see `current=X` any
+longer.
+
+If we did a single store or omitted the intervening fence operation, a thread on
+the remote core could potentially see `hdr.begin = Y < hdr.current = X` and
+attempt to remove an element from the cache. (This failure would lead to data
+corruption as the element had already been "deallocated" to the `TransferCache`,
+essentially triggering a double-free.)
