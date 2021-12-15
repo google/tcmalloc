@@ -24,6 +24,8 @@ namespace tcmalloc_internal {
 
 // Stores information about the sampled allocation.
 struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
+  constexpr SampledAllocation() = default;
+
   SampledAllocation(const SampledAllocation&) = delete;
   SampledAllocation& operator=(const SampledAllocation&) = delete;
 

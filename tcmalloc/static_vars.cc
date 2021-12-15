@@ -50,9 +50,13 @@ ABSL_CONST_INIT TransferCacheManager Static::transfer_cache_;
 ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
+ABSL_CONST_INIT PageHeapAllocator<SampledAllocation>
+    Static::sampledallocation_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
+ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
+    Static::sampled_allocation_recorder_;
 ABSL_CONST_INIT SpanList Static::sampled_objects_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
@@ -75,8 +79,9 @@ size_t Static::metadata_bytes() {
   const size_t static_var_size =
       sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +
       sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
-      sizeof(cpu_cache_) + sizeof(span_allocator_) +
-      sizeof(stacktrace_allocator_) + sizeof(threadcache_allocator_) +
+      sizeof(cpu_cache_) + sizeof(sampledallocation_allocator_) +
+      sizeof(span_allocator_) + sizeof(stacktrace_allocator_) +
+      sizeof(threadcache_allocator_) + sizeof(sampled_allocation_recorder_) +
       sizeof(sampled_objects_) + sizeof(bucket_allocator_) +
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
@@ -102,6 +107,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     tracking::Init();
     sizemap_.Init();
     numa_topology_.Init();
+    sampledallocation_allocator_.Init(&arena_);
+    sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
     span_allocator_.New();  // Reduce cache conflicts

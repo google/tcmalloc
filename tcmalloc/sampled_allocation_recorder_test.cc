@@ -14,6 +14,7 @@
 
 #include "tcmalloc/sampled_allocation_recorder.h"
 
+#include <algorithm>
 #include <atomic>
 #include <random>
 #include <vector>
@@ -21,6 +22,7 @@
 #include "gmock/gmock.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
+#include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -38,13 +40,15 @@ struct Info : public Sample<Info> {
 
 class TestAllocator {
  public:
-  static Info* Alloc(size_t size) { return new Info; }
+  static Info* New() { return new Info; }
   static void Delete(Info* info) { delete info; }
 };
 
 class SampleRecorderTest : public ::testing::Test {
  public:
-  SampleRecorderTest() : sample_recorder_(&allocator_) {}
+  SampleRecorderTest() : sample_recorder_(&allocator_) {
+    sample_recorder_.Init();
+  }
 
   std::vector<size_t> GetSizes() {
     std::vector<size_t> res;
@@ -64,6 +68,22 @@ class SampleRecorderTest : public ::testing::Test {
   TestAllocator allocator_;
   SampleRecorder<Info, TestAllocator> sample_recorder_;
 };
+
+// In static_vars.cc, we use tcmalloc/explicitly_constructed.h to
+// set up the sample recorder. Have a test here to verify that it is properly
+// initialized and functional through this approach.
+TEST_F(SampleRecorderTest, ExplicitlyConstructed) {
+  ExplicitlyConstructed<SampleRecorder<Info, TestAllocator>>
+      sample_recorder_helper;
+  sample_recorder_helper.Construct(&allocator_);
+  SampleRecorder<Info, TestAllocator>& sample_recorder =
+      sample_recorder_helper.get_mutable();
+  sample_recorder.Init();
+
+  Info* info = sample_recorder.Register();
+  assert(info != nullptr);
+  sample_recorder.Unregister(info);
+}
 
 TEST_F(SampleRecorderTest, Registration) {
   auto* info1 = Register(1);

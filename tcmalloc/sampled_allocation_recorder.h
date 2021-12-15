@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <functional>
 
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/functional/function_ref.h"
@@ -41,7 +42,8 @@ template <typename T>
 struct Sample {
   // Guards the ability to restore the sample to a pristine state.  This
   // prevents races with sampling and resurrecting an object.
-  absl::base_internal::SpinLock lock{absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  absl::base_internal::SpinLock lock{absl::kConstInit,
+                                     absl::base_internal::SCHEDULE_KERNEL_ONLY};
   T* next = nullptr;
   T* dead ABSL_GUARDED_BY(lock) = nullptr;
 };
@@ -54,7 +56,7 @@ class SampleRecorder {
  public:
   using Allocator = AllocatorT;
 
-  explicit SampleRecorder(Allocator* allocator);
+  constexpr explicit SampleRecorder(Allocator* allocator);
   ~SampleRecorder();
 
   SampleRecorder(const SampleRecorder&) = delete;
@@ -62,6 +64,9 @@ class SampleRecorder {
 
   SampleRecorder(SampleRecorder&&) = delete;
   SampleRecorder& operator=(SampleRecorder&&) = delete;
+
+  // Sets up the dead pointer of `graveyard_` to make it a circular linked list.
+  void Init();
 
   // Registers for sampling.  Returns an opaque registration info.
   T* Register();
@@ -123,11 +128,8 @@ SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
 }
 
 template <typename T, typename Allocator>
-SampleRecorder<T, Allocator>::SampleRecorder(Allocator* allocator)
-    : all_(nullptr), dispose_(nullptr), allocator_(allocator) {
-  absl::base_internal::SpinLockHolder l(&graveyard_.lock);
-  graveyard_.dead = &graveyard_;
-}
+constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator* allocator)
+    : all_(nullptr), dispose_(nullptr), allocator_(allocator) {}
 
 template <typename T, typename Allocator>
 SampleRecorder<T, Allocator>::~SampleRecorder() {
@@ -137,6 +139,12 @@ SampleRecorder<T, Allocator>::~SampleRecorder() {
     allocator_->Delete(s);
     s = next;
   }
+}
+
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::Init() {
+  absl::base_internal::SpinLockHolder l(&graveyard_.lock);
+  graveyard_.dead = &graveyard_;
 }
 
 template <typename T, typename Allocator>
@@ -182,7 +190,7 @@ T* SampleRecorder<T, Allocator>::Register() {
   T* sample = PopDead();
   if (sample == nullptr) {
     // Resurrection failed.  Hire a new warlock.
-    sample = allocator_->Alloc(sizeof(T));
+    sample = allocator_->New();
     PushNew(sample);
   }
 

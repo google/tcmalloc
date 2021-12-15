@@ -259,6 +259,7 @@ common_hdrs = [
 
 common_deps = [
     ":experiment",
+    ":explicitly_constructed",
     ":malloc_extension",
     ":new_extension",
     ":noruntime_size_classes",
@@ -281,6 +282,8 @@ common_deps = [
     "@com_google_absl//absl/types:span",
     "//tcmalloc/internal:atomic_stats_counter",
     "@com_google_absl//absl/numeric:bits",
+    "//tcmalloc:sampled_allocation",
+    "//tcmalloc:sampled_allocation_recorder",
     "//tcmalloc/internal:config",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:environment",
@@ -1210,6 +1213,7 @@ cc_test(
     srcs = ["sampled_allocation_recorder_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":explicitly_constructed",
         ":sampled_allocation_recorder",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",

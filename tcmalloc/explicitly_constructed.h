@@ -51,10 +51,11 @@ class ExplicitlyConstructed {
   void Destruct() { get_mutable()->~T(); }
 
   constexpr const T& get() const { return reinterpret_cast<const T&>(union_); }
-  T* get_mutable() { return reinterpret_cast<T*>(&union_); }
+  T& get_mutable() { return reinterpret_cast<T&>(union_); }
 
  private:
   union AlignedUnion {
+    constexpr AlignedUnion() = default;
     alignas(T) char space[sizeof(T)];
     int64_t align_to_int64;
     void* align_to_ptr;

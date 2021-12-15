@@ -29,6 +29,7 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/logging.h"
@@ -38,6 +39,8 @@
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/peak_heap_tracker.h"
+#include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/sampled_allocation_recorder.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/transfer_cache.h"
@@ -45,6 +48,9 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
+    SampledAllocation, PageHeapAllocator<SampledAllocation>>;
 
 class CPUCache;
 class PageMap;
@@ -98,6 +104,10 @@ class Static {
     return guardedpage_allocator_;
   }
 
+  static PageHeapAllocator<SampledAllocation>& sampledallocation_allocator() {
+    return sampledallocation_allocator_;
+  }
+
   static PageHeapAllocator<Span>& span_allocator() { return span_allocator_; }
 
   static PageHeapAllocator<StackTrace>& stacktrace_allocator() {
@@ -106,6 +116,10 @@ class Static {
 
   static PageHeapAllocator<ThreadCache>& threadcache_allocator() {
     return threadcache_allocator_;
+  }
+
+  static SampledAllocationRecorder& sampled_allocation_recorder() {
+    return sampled_allocation_recorder_.get_mutable();
   }
 
   // State kept for sampled allocations (/heapz support). The StatsCounter is
@@ -170,6 +184,7 @@ class Static {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CPUCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
+  static PageHeapAllocator<SampledAllocation> sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
@@ -192,6 +207,11 @@ class Static {
 
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
+
+  // Manages sampled allocations and allows iteration over samples free from
+  // the global pageheap_lock.
+  static ExplicitlyConstructed<SampledAllocationRecorder>
+      sampled_allocation_recorder_;
 };
 
 inline bool Static::IsInited() {
