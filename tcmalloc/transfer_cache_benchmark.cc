@@ -135,6 +135,39 @@ void BM_RemoveRange(benchmark::State& state) {
   }
 }
 
+template <typename Env>
+void BM_RealisticBatchNonBatchMutations(benchmark::State& state) {
+  const int kBatchSize = Env::kBatchSize;
+
+  Env e;
+  absl::BitGen gen;
+
+  for (auto iter : state) {
+    state.PauseTiming();
+    const double choice = absl::Uniform(gen, 0.0, 1.0);
+    state.ResumeTiming();
+
+    // These numbers have been determined by looking at production data.
+    if (choice < 0.424) {
+      e.Insert(kBatchSize);
+    } else if (choice < 0.471) {
+      e.Insert(1);
+    } else if (choice < 0.959) {
+      e.Remove(kBatchSize);
+    } else {
+      e.Remove(1);
+    }
+  }
+
+  const TransferCacheStats stats = e.transfer_cache().GetHitRateStats();
+  state.counters["insert_hit_ratio"] =
+      static_cast<double>(stats.insert_hits) /
+      (stats.insert_hits + stats.insert_misses);
+  state.counters["remove_hit_ratio"] =
+      static_cast<double>(stats.remove_hits) /
+      (stats.remove_hits + stats.remove_misses);
+}
+
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_CrossThread, RingBufferTransferCacheEnv)
     ->ThreadRange(2, 64);
@@ -142,6 +175,9 @@ BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_InsertRange, RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, RingBufferTransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations, TransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations,
+                   RingBufferTransferCacheEnv);
 
 }  // namespace
 }  // namespace tcmalloc_internal
