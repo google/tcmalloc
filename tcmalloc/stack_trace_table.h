@@ -78,8 +78,6 @@ class StackTraceTable final : public ProfileBase {
   int bucket_total() const { return bucket_total_; }
 
  private:
-  static constexpr int kHashTableSize = 1 << 14;  // => table_ is 128k
-
   ProfileType type_;
   int64_t period_;
   absl::Duration duration_ = absl::ZeroDuration();
