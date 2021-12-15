@@ -112,11 +112,11 @@ class TcmallocSlab {
   // Add an item (which must be non-zero) to the current CPU's slab. Returns
   // true if add succeeds. Otherwise invokes <f> and returns false (assuming
   // that <f> returns negative value).
-  bool Push(size_t cl, void* item, OverflowHandler f);
+  bool Push(size_t cl, void* item, OverflowHandler overflow_handler);
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <f> and returns its result.
-  void* Pop(size_t cl, UnderflowHandler f);
+  void* Pop(size_t cl, UnderflowHandler underflow_handler);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -169,16 +169,20 @@ class TcmallocSlab {
 
  private:
   // Slab header (packed, atomically updated 64-bit).
+  // All {begin, current, end} values are pointer offsets from per-CPU region
+  // start. The slot array is in [begin, end), and the occupied slots are in
+  // [begin, current).
   struct Header {
-    // All values are word offsets from per-CPU region start.
-    // The array is [begin, end).
+    // The end offset of the currently occupied slots.
     uint16_t current;
     // Copy of end. Updated by Shrink/Grow, but is not overwritten by Drain.
     uint16_t end_copy;
     // Lock updates only begin and end with a 32-bit write.
     union {
       struct {
+        // The begin offset of the slot array for this size class.
         uint16_t begin;
+        // The end offset of the slot array for this size class.
         uint16_t end;
       };
       uint32_t lock_update;
@@ -272,7 +276,8 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t cl, size_t len) {
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl, void* item,
-    const size_t shift, OverflowHandler f, const size_t virtual_cpu_id_offset) {
+    const size_t shift, OverflowHandler overflow_handler,
+    const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
@@ -376,7 +381,7 @@ overflow_label:
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
-  return f(cpu, cl, item);
+  return overflow_handler(cpu, cl, item);
 }
 #endif  // defined(__x86_64__)
 
@@ -384,7 +389,8 @@ overflow_label:
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl, void* item,
-    const size_t shift, OverflowHandler f, const size_t virtual_cpu_id_offset) {
+    const size_t shift, OverflowHandler overflow_handler,
+    const size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
   void* end_ptr;
@@ -510,22 +516,25 @@ overflow_label:
   // transformation of cpu_id to the value of scratch.
   int cpu = cpu_id;
 #endif
-  return f(cpu, cl, item);
+  return overflow_handler(cpu, cl, item);
 }
 #endif  // defined (__aarch64__)
 
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
-    size_t cl, void* item, OverflowHandler f) {
+    size_t cl, void* item, OverflowHandler overflow_handler) {
   ASSERT(item != nullptr);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Internal_Push<NumClasses>(slabs_, cl, item, shift_, f,
+  return TcmallocSlab_Internal_Push<NumClasses>(slabs_, cl, item, shift_,
+                                                overflow_handler,
                                                 virtual_cpu_id_offset_) >= 0;
 #else
   if (shift_ == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Internal_Push_FixedShift(slabs_, cl, item, f) >= 0;
+    return TcmallocSlab_Internal_Push_FixedShift(slabs_, cl, item,
+                                                 overflow_handler) >= 0;
   } else {
-    return TcmallocSlab_Internal_Push(slabs_, cl, item, shift_, f) >= 0;
+    return TcmallocSlab_Internal_Push(slabs_, cl, item, shift_,
+                                      overflow_handler) >= 0;
   }
 #endif
 }
@@ -534,7 +543,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl,
-    UnderflowHandler f, const size_t shift,
+    UnderflowHandler underflow_handler, const size_t shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* scratch;
@@ -653,7 +662,7 @@ underflow_path:
       (reinterpret_cast<char*>(scratch) - reinterpret_cast<char*>(slabs)) >>
       shift;
 #endif
-  return f(cpu, cl);
+  return underflow_handler(cpu, cl);
 }
 #endif  // defined(__x86_64__)
 
@@ -661,7 +670,7 @@ underflow_path:
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl,
-    UnderflowHandler f, const size_t shift,
+    UnderflowHandler underflow_handler, const size_t shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* region_start;
@@ -788,21 +797,21 @@ underflow_path:
   // transformation of cpu_id to the value of scratch.
   int cpu = cpu_id;
 #endif
-  return f(cpu, cl);
+  return underflow_handler(cpu, cl);
 }
 #endif  // defined(__aarch64__)
 
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t cl, UnderflowHandler f) {
+    size_t cl, UnderflowHandler underflow_handler) {
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Internal_Pop<NumClasses>(slabs_, cl, f, shift_,
-                                               virtual_cpu_id_offset_);
+  return TcmallocSlab_Internal_Pop<NumClasses>(slabs_, cl, underflow_handler,
+                                               shift_, virtual_cpu_id_offset_);
 #else
   if (shift_ == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Internal_Pop_FixedShift(slabs_, cl, f);
+    return TcmallocSlab_Internal_Pop_FixedShift(slabs_, cl, underflow_handler);
   } else {
-    return TcmallocSlab_Internal_Pop(slabs_, cl, f, shift_);
+    return TcmallocSlab_Internal_Pop(slabs_, cl, underflow_handler, shift_);
   }
 #endif
 }

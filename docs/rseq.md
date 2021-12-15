@@ -1,8 +1,8 @@
-# Restartable Sequence Mechancism for TCMalloc
+# Restartable Sequence Mechanism for TCMalloc
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2021-12-14' }
+freshness: { owner: 'ckennelly' reviewed: '2021-12-15' }
 *-->
 
 ## per-CPU Caches
@@ -42,7 +42,7 @@ This carries a few implementation challenges:
 In per-CPU mode, we allocate an array of `N` `TcmallocSlab::Slabs`. For all
 operations, we index into the array with the logical CPU ID.
 
-Each slab is has a header region of control data (one 8-byte header per-size
+Each slab has a header region of control data (one 8-byte header per-size
 class). These index into the remainder of the slab, which contains pointers to
 free listed objects.
 
@@ -59,14 +59,19 @@ struct Slabs {
 };
 
 // Slab header (packed, atomically updated 64-bit).
+// All {begin, current, end} values are pointer offsets from per-CPU region
+// start. The slot array is in [begin, end), and the occupied slots are in
+// [begin, current).
 struct Header {
-  // All values are word offsets from per-CPU region start.
-  // The array is [begin, end).
+  // The end offset of the currently occupied slots.
   uint16_t current;
   // Copy of end. Updated by Shrink/Grow, but is not overwritten by Drain.
   uint16_t end_copy;
   // Lock updates only begin and end with a 32-bit write.
+
+  // The begin offset of the slot array for this size class.
   uint16_t begin;
+  // The end offset of the slot array for this size class.
   uint16_t end;
 
   // Lock is used by Drain to stop concurrent mutations of the Header.
@@ -99,36 +104,36 @@ As the first operation, we can look at allocation, which needs to read the
 pointer at index `current-1`, return that object, and decrement `current`.
 Decrementing `current` is the *commit* operation.
 
-In psuedo-C++, this looks like:
+In pseudo-C++, this looks like:
 
 ```
 void* TcmallocSlab_Pop(
     void *slabs,
-    size_t cl,
-    UnderflowHandler f) {
+    size_t size_class,
+    UnderflowHandler underflow_handler) {
   // Expanded START_RSEQ macro...
 restart:
   __rseq_abi.rseq_cs = &__rseq_cs_TcmallocSlab_Pop;
 start:
   // Actual sequence
   uint64_t cpu_id = __rseq_abi.cpu_id;
-  Header* hdr = &slabs[cpu_id].header[cl];
+  Header* hdr = &slabs[cpu_id].header[size_class];
   uint64_t current = hdr->current;
   uint64_t begin = hdr->begin;
   if (ABSL_PREDICT_FALSE(current <= begin)) {
     goto underflow;
   }
 
-  void* next = *(&slabs[cpu_id] + current * sizeof(void*) - 2 *sizeof(void*))
+  void* next = *(&slabs[cpu_id] + current * sizeof(void*) - 2 * sizeof(void*))
   prefetcht0(next);
 
   void* ret = *(&slabs[cpu_id] + current * sizeof(void*) - sizeof(void*));
-  current--;
+  --current;
   hdr->current = current;
 commit:
   return ret;
 underflow:
-  return f(cpu_id, cl);
+  return underflow_handler(cpu_id, size_class);
 }
 
 // This is implemented in assembly, but for exposition.
@@ -148,7 +153,7 @@ pointer is between `[start, commit)`, it returns control to a specified,
 per-sequence restart header at `abort`.
 
 Since the *next* object is frequently allocated soon after the current object,
-so the allocation path prefetches the pointed-to object. To avoid prefetching a
+the allocation path prefetches the pointed-to object. To avoid prefetching a
 wild address, we populate `slabs[cpu][begin]` for each CPU/size-class with a
 pointer-to-self.
 
@@ -164,8 +169,8 @@ in program order.
 
 The `abort` label is distinct from `restart`. The `rseq` API provided by the
 kernel (see below) requires a "signature" (typically an intentionally invalid
-opcode) in the 4 bytes prior to the restart handler, we form a small
-trampoline - properly signed - to jump back to `abort`.
+opcode) in the 4 bytes prior to the restart handler. We form a small
+trampoline - properly signed - to jump back to `restart`.
 
 In x86 assembly, this looks like:
 
@@ -199,16 +204,16 @@ sequence commits it by updating `current`.
 ```
 int TcmallocSlab_Push(
     void *slab,
-    size_t cl,
+    size_t size_class,
     void* item,
-    OverflowHandler f) {
+    OverflowHandler overflow_handler) {
   // Expanded START_RSEQ macro...
-abort:
+restart:
   __rseq_abi.rseq_cs = &__rseq_cs_TcmallocSlab_Push;
 start:
   // Actual sequence
   uint64_t cpu_id = __rseq_abi.cpu_id;
-  Header* hdr = &slabs[cpu_id].header[cl];
+  Header* hdr = &slabs[cpu_id].header[size_class];
   uint64_t current = hdr->current;
   uint64_t end = hdr->end;
   if (ABSL_PREDICT_FALSE(current >= end)) {
@@ -221,7 +226,7 @@ start:
 commit:
   return;
 overflow:
-  return f(cpu_id, cl, item);
+  return overflow_handler(cpu_id, size_class, item);
 }
 ```
 
@@ -239,8 +244,8 @@ end = 0`. The initial push or pop will trigger the overflow or underflow paths
 
 When the cache under or overflows, we populate or remove a full batch of objects
 obtained from inner caches. This amortizes some of the lock acquisition/logic
-for those caches. Using a similar approach to push and pop, we update a batch of
-`N` items and we update `current to commit the update.
+for those caches. Using a similar approach to push and pop, we read/write a
+batch of `N` items and we update `current` to commit the operation.
 
 ## Kernel API and implementation
 
@@ -253,7 +258,7 @@ It starts by
 [handling](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L312-L328)
 the case where the thread wants to unregister, implementing that by clearing the
 [rseq information](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/include/linux/sched.h#L1188-L1189)
-out of the `task_struct` for the thread runnong
+out of the `task_struct` for the thread running
 [on the current CPU](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/arch/x86/include/asm/current.h#L11-L18).
 It then moves on to
 [return an error](https://github.com/torvalds/linux/blob/414eece95b98b209cef0f49cfcac108fd00b8ced/kernel/rseq.c#L333-L345)
@@ -322,9 +327,10 @@ on how the restart logic varies based on user input:
     the `rseq` syscall.
 
     The intent is to avoid turning buffer overflows into arbitrary code
-    execution: if you an attacker can write into memory then they can control
+    execution: if an attacker can write into memory then they can control
     `rseq_cs::abort_ip`, which is kind of like writing a jump instruction into
-    memory, which can be seen as breaking W^X protections. Instead the kernel
+    memory, which can be seen as breaking
+    [W^X](https://en.wikipedia.org/wiki/W%5EX) protections. Instead the kernel
     has the caller pre-register a magic value from the executable memory that
     they want to run, under the assumption that an attacker is unlikely to be
     able to find other usable "gadgets" in executable memory that happen to be

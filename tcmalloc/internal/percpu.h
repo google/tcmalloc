@@ -126,13 +126,14 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
 
 #if !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
-                               OverflowHandler f);
+                               OverflowHandler overflow_handler);
 int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
-                                          OverflowHandler f);
-void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl, UnderflowHandler f,
+                                          OverflowHandler overflow_handler);
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
+                                UnderflowHandler underflow_handler,
                                 size_t shift);
 void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
-                                           UnderflowHandler f);
+                                           UnderflowHandler underflow_handler);
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
 // Push a batch for a slab which the Shift equal to

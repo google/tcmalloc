@@ -38,25 +38,26 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
 }
 
 int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
-                               OverflowHandler f) {
+                               OverflowHandler overflow_handler) {
   Unsupported();
   return -1;
 }
 
 int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
-                                          OverflowHandler f) {
+                                          OverflowHandler overflow_handler) {
   Unsupported();
   return -1;
 }
 
-void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl, UnderflowHandler f,
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
+                                UnderflowHandler underflow_handler,
                                 size_t shift) {
   Unsupported();
   return nullptr;
 }
 
 void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
-                                           UnderflowHandler f) {
+                                           UnderflowHandler underflow_handler) {
   Unsupported();
   return nullptr;
 }
