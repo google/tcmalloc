@@ -33,9 +33,11 @@ using ::testing::UnorderedElementsAre;
 
 struct Info : public Sample<Info> {
  public:
-  void PrepareForSampling() {}
+  Info() { PrepareForSampling(); }
+  void PrepareForSampling() { initialized = true; }
   std::atomic<size_t> size;
   absl::Time create_time;
+  bool initialized;
 };
 
 class TestAllocator {
@@ -83,6 +85,19 @@ TEST_F(SampleRecorderTest, ExplicitlyConstructed) {
   Info* info = sample_recorder.Register();
   assert(info != nullptr);
   sample_recorder.Unregister(info);
+}
+
+// Check that the state modified by PrepareForSampling() is properly set.
+TEST_F(SampleRecorderTest, PrepareForSampling) {
+  Info* info1 = Register(1);
+  // PrepareForSampling() is invoked in the constructor.
+  EXPECT_TRUE(info1->initialized);
+  info1->initialized = false;
+  sample_recorder_.Unregister(info1);
+
+  Info* info2 = Register(2);
+  // We are reusing the sample, PrepareForSampling() is invoked in PopDead();
+  EXPECT_TRUE(info2->initialized);
 }
 
 TEST_F(SampleRecorderTest, Registration) {
