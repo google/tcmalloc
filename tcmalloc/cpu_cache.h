@@ -558,7 +558,7 @@ inline void CPUCache<Forwarder>::Activate() {
 
   freelist_.Init(
       &forwarder_.Alloc, [this](size_t cl) { return this->max_capacity_[cl]; },
-      true, per_cpu_shift);
+      per_cpu_shift);
 }
 
 // Fetch more items from the central cache, refill our local cache,

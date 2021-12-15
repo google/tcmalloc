@@ -102,12 +102,7 @@ constexpr size_t kStressCapacity = 4;
 constexpr size_t kShift = 18;
 typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
-enum class SlabInit {
-  kEager,
-  kLazy,
-};
-
-class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
+class TcmallocSlabTest : public testing::Test {
  protected:
   TcmallocSlabTest() {
     slab_test_ = &slab_;
@@ -116,8 +111,7 @@ class TcmallocSlabTest : public testing::TestWithParam<SlabInit> {
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003
 #pragma GCC diagnostic ignored "-Wnonnull"
     slab_.Init([&](size_t size) { return this->ByteCountingMalloc(size); },
-               [](size_t) { return kCapacity; }, GetParam() == SlabInit::kLazy,
-               kShift);
+               [](size_t) { return kCapacity; }, kShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -205,51 +199,47 @@ bool TcmallocSlabTest::overflow_called_;
 bool TcmallocSlabTest::underflow_called_;
 TcmallocSlab* TcmallocSlabTest::slab_test_;
 
-TEST_P(TcmallocSlabTest, Metadata) {
+TEST_F(TcmallocSlabTest, Metadata) {
   PerCPUMetadataState r = slab_.MetadataMemoryUsage();
 
   ASSERT_GT(metadata_bytes_, 0);
   EXPECT_EQ(r.virtual_size, metadata_bytes_);
-  if (GetParam() == SlabInit::kLazy) {
-    EXPECT_EQ(r.resident_size, 0);
+  EXPECT_EQ(r.resident_size, 0);
 
-    if (!IsFast()) {
-      GTEST_SKIP() << "Need fast percpu. Skipping.";
-      return;
-    }
-
-    // Initialize a core.  Verify that the increased RSS is proportional to a
-    // core.
-    slab_.InitCPU(0, [](size_t cl) { return kCapacity; });
-
-    r = slab_.MetadataMemoryUsage();
-    // We may fault a whole hugepage, so round up the expected per-core share to
-    // a full hugepage.
-    size_t expected = r.virtual_size / absl::base_internal::NumCPUs();
-    expected = (expected + kHugePageSize - 1) & ~(kHugePageSize - 1);
-
-    // A single core may be less than the full slab for that core, since we do
-    // not touch every page within the slab.
-    EXPECT_GE(expected, r.resident_size);
-
-    // Read stats from the slab.  This will fault additional memory.
-    for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; ++cpu) {
-      // To inhibit optimization, verify the values are sensible.
-      for (int cl = 0; cl < kStressSlabs; ++cl) {
-        EXPECT_EQ(0, slab_.Length(cpu, cl));
-        EXPECT_EQ(0, slab_.Capacity(cpu, cl));
-      }
-    }
-
-    PerCPUMetadataState post_stats = slab_.MetadataMemoryUsage();
-    EXPECT_LE(post_stats.resident_size, metadata_bytes_);
-    EXPECT_GT(post_stats.resident_size, r.resident_size);
-  } else {
-    EXPECT_EQ(r.resident_size, metadata_bytes_);
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
   }
+
+  // Initialize a core.  Verify that the increased RSS is proportional to a
+  // core.
+  slab_.InitCPU(0, [](size_t cl) { return kCapacity; });
+
+  r = slab_.MetadataMemoryUsage();
+  // We may fault a whole hugepage, so round up the expected per-core share to
+  // a full hugepage.
+  size_t expected = r.virtual_size / absl::base_internal::NumCPUs();
+  expected = (expected + kHugePageSize - 1) & ~(kHugePageSize - 1);
+
+  // A single core may be less than the full slab for that core, since we do
+  // not touch every page within the slab.
+  EXPECT_GE(expected, r.resident_size);
+
+  // Read stats from the slab.  This will fault additional memory.
+  for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; ++cpu) {
+    // To inhibit optimization, verify the values are sensible.
+    for (int cl = 0; cl < kStressSlabs; ++cl) {
+      EXPECT_EQ(0, slab_.Length(cpu, cl));
+      EXPECT_EQ(0, slab_.Capacity(cpu, cl));
+    }
+  }
+
+  PerCPUMetadataState post_stats = slab_.MetadataMemoryUsage();
+  EXPECT_LE(post_stats.resident_size, metadata_bytes_);
+  EXPECT_GT(post_stats.resident_size, r.resident_size);
 }
 
-TEST_P(TcmallocSlabTest, Unit) {
+TEST_F(TcmallocSlabTest, Unit) {
   if (MallocExtension::PerCpuCachesActive()) {
     // This test unregisters rseq temporarily, as to decrease flakiness.
     GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
@@ -262,8 +252,7 @@ TEST_P(TcmallocSlabTest, Unit) {
 
   // Decide if we should expect a push or pop to be the first action on the CPU
   // slab to trigger initialization.
-  absl::FixedArray<bool, 0> initialized(absl::base_internal::NumCPUs(),
-                                        GetParam() != SlabInit::kLazy);
+  absl::FixedArray<bool, 0> initialized(absl::base_internal::NumCPUs(), false);
 
   for (auto cpu : AllowedCpus()) {
     SCOPED_TRACE(cpu);
@@ -468,9 +457,6 @@ TEST_P(TcmallocSlabTest, Unit) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(Instant, TcmallocSlabTest,
-                         testing::Values(SlabInit::kEager, SlabInit::kLazy));
-
 static void StressThread(size_t thread_id, TcmallocSlab* slab,
                          std::vector<void*>* block,
                          std::vector<absl::Mutex>* mutexes,
@@ -649,10 +635,13 @@ TEST(TcmallocSlab, Stress) {
 
   EXPECT_LE(kStressSlabs, kStressSlabs);
   TcmallocSlab slab;
-  slab.Init(
-      allocator,
-      [](size_t cl) { return cl < kStressSlabs ? kStressCapacity : 0; }, false,
-      kShift);
+  const auto get_capacity = [](size_t cl) {
+    return cl < kStressSlabs ? kStressCapacity : 0;
+  };
+  slab.Init(allocator, get_capacity, kShift);
+  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+    slab.InitCPU(cpu, get_capacity);
+  }
   std::vector<std::thread> threads;
   const int n_threads = 2 * absl::base_internal::NumCPUs();
 
@@ -806,9 +795,11 @@ static void BM_PushPop(benchmark::State& state) {
     TcmallocSlab slab;
 
 #pragma GCC diagnostic ignored "-Wnonnull"
-    slab.Init(
-        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false,
-        kShift);
+    const auto get_capacity = [](size_t cl) -> size_t { return kBatchSize; };
+    slab.Init(allocator, get_capacity, kShift);
+    for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+      slab.InitCPU(cpu, get_capacity);
+    }
 
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
                     kBatchSize);
@@ -835,9 +826,11 @@ static void BM_PushPopBatch(benchmark::State& state) {
   RunOnSingleCpu([&](int this_cpu) {
     const int kBatchSize = 32;
     TcmallocSlab slab;
-    slab.Init(
-        allocator, [](size_t cl) -> size_t { return kBatchSize; }, false,
-        kShift);
+    const auto get_capacity = [](size_t cl) -> size_t { return kBatchSize; };
+    slab.Init(allocator, get_capacity, kShift);
+    for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+      slab.InitCPU(cpu, get_capacity);
+    }
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
                     kBatchSize);
     void* batch[kBatchSize];

@@ -75,7 +75,6 @@ class TcmallocSlab {
   // Init must be called before any other methods.
   // <alloc> is memory allocation callback (e.g. malloc).
   // <capacity> callback returns max capacity for size class <cl>.
-  // <lazy> indicates that per-CPU slabs should be populated on demand
   // <shift> indicates the number of bits to shift the CPU ID in order to
   //         obtain the location of the per-CPU slab. If this parameter matches
   //         TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT as set in
@@ -84,10 +83,10 @@ class TcmallocSlab {
   //
   // Initial capacity is 0 for all slabs.
   void Init(absl::FunctionRef<void*(size_t)> alloc,
-            absl::FunctionRef<size_t(size_t)> capacity, bool lazy,
-            size_t shift);
+            absl::FunctionRef<size_t(size_t)> capacity, size_t shift);
 
-  // Only may be called if Init(..., lazy = true) was used.
+  // Lazily initializes the slab for a specific cpu.
+  // <capacity> callback returns max capacity for size class <cl>.
   void InitCPU(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
   // For tests.
@@ -949,7 +948,7 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
                                     absl::FunctionRef<size_t(size_t)> capacity,
-                                    bool lazy, size_t shift) {
+                                    size_t shift) {
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
@@ -961,9 +960,6 @@ void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
   void* backing = alloc(mem_size);
   // MSan does not see writes in assembly.
   ANNOTATE_MEMORY_IS_INITIALIZED(backing, mem_size);
-  if (!lazy) {
-    memset(backing, 0, mem_size);
-  }
   slabs_ = static_cast<Slabs*>(backing);
   size_t bytes_used = 0;
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
@@ -978,34 +974,8 @@ void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
         continue;
       }
 
-      if (cap) {
-        if (!lazy) {
-          // In Pop() we prefetch the item a subsequent Pop() would return; this
-          // is slow if it's not a valid pointer. To avoid this problem when
-          // popping the last item, keep one fake item before the actual ones
-          // (that points, safely, to itself.)
-          *elems = elems;
-          elems++;
-        }
-
-        // One extra element for prefetch
-        bytes_used += (cap + 1) * sizeof(void*);
-      }
-
-      if (!lazy) {
-        // TODO(ckennelly): Consolidate this initialization logic with that in
-        // InitCPU.
-        size_t offset = elems - reinterpret_cast<void**>(CpuMemoryStart(cpu));
-        CHECK_CONDITION(static_cast<uint16_t>(offset) == offset);
-
-        Header hdr;
-        hdr.current = offset;
-        hdr.begin = offset;
-        hdr.end = offset;
-        hdr.end_copy = offset;
-
-        StoreHeader(GetHeader(cpu, cl), hdr);
-      }
+      // One extra element for prefetch
+      bytes_used += (cap + 1) * sizeof(void*);
 
       elems += cap;
       CHECK_CONDITION(reinterpret_cast<char*>(elems) -
