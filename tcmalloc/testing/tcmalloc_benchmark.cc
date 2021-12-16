@@ -270,5 +270,63 @@ static void BM_get_stats_pageheap_lock(benchmark::State& state) {
 }
 BENCHMARK(BM_get_stats_pageheap_lock)->Range(1, 1 << 20);
 
+static void BM_get_heap_profile(benchmark::State& state) {
+  std::vector<std::unique_ptr<char[]>> allocations;
+  const int num_allocations = state.range(0);
+  allocations.reserve(num_allocations);
+
+  // Perform randomly sized allocations which will be kept live while we collect
+  // the heap profile.
+  absl::BitGen rand;
+  for (int i = 0; i < num_allocations; i++) {
+    const size_t size = absl::Uniform<size_t>(rand, 1, 1 << 20);
+    allocations.emplace_back(new char[size]);
+  }
+
+  for (auto s : state) {
+    MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+  }
+}
+BENCHMARK(BM_get_heap_profile)->Range(1, 1 << 20);
+
+static void BM_get_heap_profile_while_allocating(benchmark::State& state) {
+  std::vector<std::unique_ptr<char[]>> allocations;
+  const int num_allocations = state.range(0);
+  allocations.reserve(num_allocations);
+
+  // Perform randomly sized allocations which will be kept live while we collect
+  // heap profile.
+  absl::BitGen rand;
+  for (int i = 0; i < num_allocations; i++) {
+    const size_t size = absl::Uniform<size_t>(rand, 1, 1 << 20);
+    allocations.emplace_back(new char[size]);
+  }
+
+  // Create a background thread that keeps collecting the heap profile.
+  absl::Notification done;
+  std::thread profile_thread([&] {
+    while (!done.HasBeenNotified()) {
+      MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+    }
+  });
+
+  // Allocate large objects (> 256KB). This would hit the pageheap lock and
+  // its performance would be affected by how long the profile_thread holds the
+  // pageheap lock.
+  for (auto s : state) {
+    std::vector<std::unique_ptr<char[]>> large_allocations;
+    large_allocations.reserve(100);
+    for (int i = 0; i < 100; i++) {
+      const size_t size = absl::Uniform<size_t>(rand, 256 * 1024, 1 << 20);
+      large_allocations.emplace_back(new char[size]);
+    }
+  }
+
+  // End the background profile_thread.
+  done.Notify();
+  profile_thread.join();
+}
+BENCHMARK(BM_get_heap_profile_while_allocating)->Range(1, 1 << 18);
+
 }  // namespace
 }  // namespace tcmalloc
