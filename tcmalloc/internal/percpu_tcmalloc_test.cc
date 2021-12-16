@@ -112,15 +112,18 @@ class TcmallocSlabTest : public testing::Test {
 // Ignore false-positive warning in GCC. For more information, see:
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003
 #pragma GCC diagnostic ignored "-Wnonnull"
-    slab_.Init([&](size_t size) { return this->ByteCountingMalloc(size); },
-               [](size_t) { return kCapacity; }, kShift);
+    slab_.Init(
+        [&](size_t size, std::align_val_t alignment) {
+          return this->ByteCountingMalloc(size, alignment);
+        },
+        [](size_t) { return kCapacity; }, kShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
     }
   }
 
-  ~TcmallocSlabTest() override { slab_.Destroy(free); }
+  ~TcmallocSlabTest() override { slab_.Destroy(sized_aligned_delete); }
 
   template <int result>
   static int ExpectOverflow(int cpu, size_t cl, void* item, void* arg) {
@@ -159,16 +162,13 @@ class TcmallocSlabTest : public testing::Test {
     return res;
   }
 
-  void* ByteCountingMalloc(size_t size) {
-    const size_t kPageSize = getpagesize();
-    void* ptr;
-    CHECK_CONDITION(posix_memalign(&ptr, kPageSize, size) == 0);
-    if (ptr) {
-      // Emulate obtaining memory as if we got it from mmap (zero'd).
-      memset(ptr, 0, size);
-      madvise(ptr, size, MADV_DONTNEED);
-      metadata_bytes_ += size;
-    }
+  void* ByteCountingMalloc(size_t size, std::align_val_t alignment) {
+    EXPECT_GE(static_cast<size_t>(alignment), getpagesize());
+    void* ptr = ::operator new(size, alignment);
+    // Emulate obtaining memory as if we got it from mmap (zero'd).
+    memset(ptr, 0, size);
+    madvise(ptr, size, MADV_DONTNEED);
+    metadata_bytes_ += size;
     return ptr;
   }
 
@@ -623,11 +623,9 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
   }
 }
 
-static void* allocator(size_t bytes) {
-  void* ptr = malloc(bytes);
-  if (ptr) {
-    memset(ptr, 0, bytes);
-  }
+static void* allocator(size_t bytes, std::align_val_t alignment) {
+  void* ptr = ::operator new(bytes, alignment);
+  memset(ptr, 0, bytes);
   return ptr;
 }
 
@@ -705,7 +703,7 @@ TEST(TcmallocSlab, Stress) {
   }
   EXPECT_EQ(objects.size(), blocks.size() * kStressCapacity);
   EXPECT_EQ(capacity.load(), kTotalCapacity);
-  slab.Destroy(free);
+  slab.Destroy(sized_aligned_delete);
 }
 
 TEST(TcmallocSlab, SMP) {

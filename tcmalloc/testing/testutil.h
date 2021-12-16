@@ -18,6 +18,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <new>
+
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
@@ -36,6 +38,16 @@ inline void sized_delete(void* ptr, size_t size) {
 #else
   (void)size;
   ::operator delete(ptr);
+#endif
+}
+
+inline void sized_aligned_delete(void* ptr, size_t size,
+                                 std::align_val_t alignment) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete(ptr, size, alignment);
+#else
+  (void)size;
+  ::operator delete(ptr, alignment);
 #endif
 }
 

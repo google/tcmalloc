@@ -15,8 +15,11 @@
 #ifndef TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
 #define TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
 
+#include <sys/param.h>
+
 #include <atomic>
 #include <cstring>
+#include <new>
 
 #include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
@@ -82,7 +85,7 @@ class TcmallocSlab {
   //         batch can be used; otherwise batch operations are emulated.
   //
   // Initial capacity is 0 for all slabs.
-  void Init(absl::FunctionRef<void*(size_t)> alloc,
+  void Init(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
             absl::FunctionRef<size_t(size_t)> capacity, size_t shift);
 
   // Lazily initializes the slab for a specific cpu.
@@ -90,7 +93,7 @@ class TcmallocSlab {
   void InitCPU(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
   // For tests.
-  void Destroy(absl::FunctionRef<void(void*)> free);
+  void Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
 
   // Number of elements in cpu/cl slab.
   size_t Length(int cpu, size_t cl) const;
@@ -168,6 +171,16 @@ class TcmallocSlab {
   }
 
  private:
+  // Since we lazily initialize our slab, we expect it to be mmap'd and not
+  // resident.  We align it to a page size so neighboring allocations (from
+  // TCMalloc's internal arena) do not necessarily cause the metadata to be
+  // faulted in.
+  //
+  // We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
+  // size to allow small-but-slow to allocate the slab in the tail of its
+  // existing Arena block.
+  static constexpr std::align_val_t kPhysicalPageSize{EXEC_PAGESIZE};
+
   // Slab header (packed, atomically updated 64-bit).
   // All {begin, current, end} values are pointer offsets from per-CPU region
   // start. The slot array is in [begin, end), and the occupied slots are in
@@ -961,9 +974,9 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
-                                    absl::FunctionRef<size_t(size_t)> capacity,
-                                    size_t shift) {
+void TcmallocSlab<NumClasses>::Init(
+    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+    absl::FunctionRef<size_t(size_t)> capacity, size_t shift) {
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
@@ -972,7 +985,7 @@ void TcmallocSlab<NumClasses>::Init(absl::FunctionRef<void*(size_t)> alloc,
 
   shift_ = shift;
   size_t mem_size = absl::base_internal::NumCPUs() * (1ul << shift);
-  void* backing = alloc(mem_size);
+  void* backing = alloc(mem_size, kPhysicalPageSize);
   // MSan does not see writes in assembly.
   ANNOTATE_MEMORY_IS_INITIALIZED(backing, mem_size);
   slabs_ = static_cast<Slabs*>(backing);
@@ -1088,8 +1101,9 @@ void TcmallocSlab<NumClasses>::InitCPU(
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Destroy(absl::FunctionRef<void(void*)> free) {
-  free(slabs_);
+void TcmallocSlab<NumClasses>::Destroy(
+    absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
+  free(slabs_, absl::base_internal::NumCPUs() << shift_, kPhysicalPageSize);
   slabs_ = nullptr;
 }
 

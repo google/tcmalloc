@@ -49,10 +49,12 @@ namespace cpu_cache_internal {
 // testing.
 class StaticForwarder {
  public:
-  static void* Alloc(size_t size) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  static void* Alloc(size_t size, std::align_val_t alignment)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(Static::IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return Static::arena().Alloc(size);
+    // TODO(ckennelly): Push the stronger alignment type into Alloc.
+    return Static::arena().Alloc(size, static_cast<size_t>(alignment));
   }
 
   static size_t class_to_size(int size_class) {
@@ -547,8 +549,8 @@ inline void CPUCache<Forwarder>::Activate() {
           kBytesAvailable, " need ", bytes_required);
   }
 
-  resize_ = reinterpret_cast<ResizeInfo*>(
-      forwarder_.Alloc(sizeof(ResizeInfo) * num_cpus));
+  resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
+      sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
 
   auto max_cache_size = forwarder_.max_per_cpu_cache_size();
 
