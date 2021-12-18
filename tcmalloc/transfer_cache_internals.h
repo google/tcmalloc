@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_TRANSFER_CACHE_INTERNAL_H_
-#define TCMALLOC_TRANSFER_CACHE_INTERNAL_H_
+#ifndef TCMALLOC_TRANSFER_CACHE_INTERNALS_H_
+#define TCMALLOC_TRANSFER_CACHE_INTERNALS_H_
 
 #include <sched.h>
 #include <stddef.h>
@@ -882,4 +882,4 @@ class RingBufferTransferCache {
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_TRANSFER_CACHE_INTERNAL_H_
+#endif  // TCMALLOC_TRANSFER_CACHE_INTERNALS_H_
