@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <new>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
@@ -55,6 +56,10 @@ class StaticForwarder {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     // TODO(ckennelly): Push the stronger alignment type into Alloc.
     return Static::arena().Alloc(size, static_cast<size_t>(alignment));
+  }
+
+  static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
+    ASSERT(false);
   }
 
   static size_t class_to_size(int size_class) {
@@ -95,6 +100,9 @@ class CPUCache {
   // use in global constructors) so our constructor must be trivial;
   // do all initialization here instead.
   void Activate();
+
+  // For testing
+  void Deactivate();
 
   // Allocate an object of the given size class. When allocation fails
   // (from this cache and after running Refill), OOMHandler(size) is
@@ -555,6 +563,8 @@ inline void CPUCache<Forwarder>::Activate() {
   auto max_cache_size = forwarder_.max_per_cpu_cache_size();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    new (&resize_[cpu]) ResizeInfo();
+
     for (int cl = 1; cl < kNumClasses; ++cl) {
       resize_[cpu].per_class[cl].Init();
     }
@@ -566,6 +576,20 @@ inline void CPUCache<Forwarder>::Activate() {
   freelist_.Init(
       &forwarder_.Alloc, [this](size_t cl) { return this->max_capacity_[cl]; },
       per_cpu_shift);
+}
+
+template <class Forwarder>
+inline void CPUCache<Forwarder>::Deactivate() {
+  int num_cpus = absl::base_internal::NumCPUs();
+  for (int i = 0; i < num_cpus; i++) {
+    Reclaim(i);
+  }
+
+  freelist_.Destroy(&forwarder_.Dealloc);
+  static_assert(std::is_trivially_destructible<decltype(*resize_)>::value,
+                "ResizeInfo is expected to be trivially destructible");
+  forwarder_.Dealloc(resize_, sizeof(*resize_) * num_cpus,
+                     std::align_val_t{alignof(decltype(*resize_))});
 }
 
 // Fetch more items from the central cache, refill our local cache,

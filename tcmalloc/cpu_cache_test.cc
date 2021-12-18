@@ -14,6 +14,9 @@
 
 #include "tcmalloc/cpu_cache.h"
 
+#include <sys/mman.h>
+
+#include <new>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "gmock/gmock.h"
@@ -23,13 +26,82 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
+#include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
+#include "tcmalloc/transfer_cache.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
+
+class TestStaticForwarder {
+ public:
+  TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
+    numa_topology_.Init();
+  }
+
+  static void* Alloc(size_t size, std::align_val_t alignment) {
+    void* ptr = ::operator new(size, alignment);
+    if (static_cast<size_t>(alignment) >= getpagesize()) {
+      // Emulate obtaining memory as if we got it from mmap (zero'd).
+      memset(ptr, 0, size);
+      madvise(ptr, size, MADV_DONTNEED);
+    }
+    return ptr;
+  }
+
+  static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
+    sized_aligned_delete(ptr, size, alignment);
+  }
+
+  size_t class_to_size(int size_class) const {
+    return transfer_cache_.class_to_size(size_class);
+  }
+
+  static absl::Span<const size_t> cold_size_classes() { return {}; }
+
+  static size_t max_per_cpu_cache_size() {
+    // TODO(b/179516472):  Move this to CPUCache itself so it can be informed
+    // when the parameter is changed at runtime.
+    return Parameters::max_per_cpu_cache_size();
+  }
+
+  size_t num_objects_to_move(int size_class) const {
+    return transfer_cache_.num_objects_to_move(size_class);
+  }
+
+  const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
+    return numa_topology_;
+  }
+
+  using ShardedManager = ShardedTransferCacheManagerBase<
+      FakeShardedTransferCacheEnvironment::Manager, FakeCpuLayout,
+      MinimalFakeCentralFreeList>;
+
+  ShardedManager& sharded_transfer_cache() { return sharded_manager_; }
+
+  const ShardedManager& sharded_transfer_cache() const {
+    return sharded_manager_;
+  }
+
+  TwoSizeClassManager<FakeCentralFreeList,
+                      internal_transfer_cache::RingBufferTransferCache>&
+  transfer_cache() {
+    return transfer_cache_;
+  }
+
+ private:
+  NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
+  ArenaBasedFakeTransferCacheManager owner_;
+  FakeCpuLayout cpu_layout_;
+  ShardedManager sharded_manager_;
+  TwoSizeClassManager<FakeCentralFreeList,
+                      internal_transfer_cache::RingBufferTransferCache>
+      transfer_cache_;
+};
+
+using CPUCache = cpu_cache_internal::CPUCache<TestStaticForwarder>;
 
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
@@ -41,7 +113,7 @@ TEST(CpuCacheTest, Metadata) {
 
   const int num_cpus = absl::base_internal::NumCPUs();
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
@@ -61,8 +133,8 @@ TEST(CpuCacheTest, Metadata) {
   EXPECT_EQ(0, count_cores());
 
   int allowed_cpu_id;
-  const size_t kSizeClass = 3;
-  const size_t num_to_move = Static::sizemap().num_objects_to_move(kSizeClass);
+  const size_t kSizeClass = 2;
+  const size_t num_to_move = cache.forwarder().num_objects_to_move(kSizeClass);
   const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
                                            ? offsetof(kernel_rseq, vcpu_id)
                                            : offsetof(kernel_rseq, cpu_id);
@@ -108,16 +180,12 @@ TEST(CpuCacheTest, Metadata) {
   // cache.  It may need to be updated from time to time.  These numbers were
   // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
   // measuring the resident size.
-  //
-  // TODO(ckennelly):  Allow CPUCache::Activate to accept a specific arena
-  // allocator, so we can MADV_NOHUGEPAGE the backing store in testing for
-  // more precise measurements.
   switch (CPUCache::kPerCpuShift) {
     case 12:
       EXPECT_GE(r.resident_size, 4096);
       break;
     case 18:
-      EXPECT_GE(r.resident_size, 110592);
+      EXPECT_GE(r.resident_size, 8192);
       break;
     default:
       ASSUME(false);
@@ -162,13 +230,8 @@ TEST(CpuCacheTest, Metadata) {
   EXPECT_EQ(r.resident_size, post_stats.resident_size);
 
   // Tear down.
-  //
-  // TODO(ckennelly):  We're interacting with the real TransferCache.
   cache.Deallocate(ptr, kSizeClass);
-
-  for (int i = 0; i < num_cpus; i++) {
-    cache.Reclaim(i);
-  }
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, CacheMissStats) {
@@ -178,7 +241,7 @@ TEST(CpuCacheTest, CacheMissStats) {
 
   const int num_cpus = absl::base_internal::NumCPUs();
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
@@ -194,7 +257,7 @@ TEST(CpuCacheTest, CacheMissStats) {
   }
 
   int allowed_cpu_id;
-  const size_t kSizeClass = 3;
+  const size_t kSizeClass = 2;
   const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
                                            ? offsetof(kernel_rseq, vcpu_id)
                                            : offsetof(kernel_rseq, cpu_id);
@@ -237,42 +300,36 @@ TEST(CpuCacheTest, CacheMissStats) {
   }
 
   // Tear down.
-  //
-  // TODO(ckennelly):  We're interacting with the real TransferCache.
   cache.Deallocate(ptr, kSizeClass);
-
-  for (int i = 0; i < num_cpus; i++) {
-    cache.Reclaim(i);
-  }
+  cache.Deactivate();
 }
 
-static void ShuffleThread(const std::atomic<bool>& stop) {
+static void ShuffleThread(CPUCache& cache, const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
   // Wake up every 10ms to shuffle the caches so that we can allow misses to
   // accumulate during that interval
-  while (!stop) {
+  while (!stop.load(std::memory_order_acquire)) {
     cache.ShuffleCpuCaches();
     absl::SleepFor(absl::Milliseconds(10));
   }
 }
 
-static void StressThread(size_t thread_id, const std::atomic<bool>& stop) {
+static void StressThread(CPUCache& cache, size_t thread_id,
+                         const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
   std::vector<std::pair<size_t, void*>> blocks;
   absl::BitGen rnd;
-  while (!stop) {
+  while (!stop.load(std::memory_order_acquire)) {
     const int what = absl::Uniform<int32_t>(rnd, 0, 2);
     if (what) {
       // Allocate an object for a class
-      size_t cl = absl::Uniform<int32_t>(rnd, 1, kStressSlabs + 1);
+      size_t cl = absl::Uniform<int32_t>(rnd, 1, 3);
       void* ptr = cache.Allocate<OOMHandler>(cl);
       blocks.emplace_back(std::make_pair(cl, ptr));
     } else {
@@ -295,7 +352,7 @@ TEST(CpuCacheTest, StealCpuCache) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   std::vector<std::thread> threads;
@@ -304,9 +361,10 @@ TEST(CpuCacheTest, StealCpuCache) {
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
-    threads.push_back(std::thread(StressThread, t, std::ref(stop)));
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
   }
-  shuffle_thread = std::thread(ShuffleThread, std::ref(stop));
+  shuffle_thread = std::thread(ShuffleThread, std::ref(cache), std::ref(stop));
 
   absl::SleepFor(absl::Seconds(5));
   stop = true;
@@ -326,19 +384,17 @@ TEST(CpuCacheTest, StealCpuCache) {
   }
   EXPECT_EQ(capacity, kTotalCapacity);
 
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    cache.Reclaim(cpu);
-  }
+  cache.Deactivate();
 }
 
 // Runs a single allocate and deallocate operation to warm up the cache. Once a
 // few objects are allocated in the cold cache, we can shuffle cpu caches to
 // steal that capacity from the cold cache to the hot cache.
-static void ColdCacheOperations(int cpu_id, size_t size_class) {
+static void ColdCacheOperations(CPUCache& cache, int cpu_id,
+                                size_t size_class) {
   // Temporarily fake being on the given CPU.
   ScopedFakeCpuId fake_cpu_id(cpu_id);
 
-  CPUCache& cache = Static::cpu_cache();
 #if TCMALLOC_PERCPU_USE_RSEQ
   if (subtle::percpu::UsingFlatVirtualCpus()) {
     subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
@@ -352,11 +408,14 @@ static void ColdCacheOperations(int cpu_id, size_t size_class) {
 // Runs multiple allocate and deallocate operation on the cpu cache to collect
 // misses. Once we collect enough misses on this cache, we can shuffle cpu
 // caches to steal capacity from colder caches to the hot cache.
-static void HotCacheOperations(int cpu_id) {
+static void HotCacheOperations(CPUCache& cache, int cpu_id) {
+  constexpr size_t kPtrs = 4096;
+  std::vector<void*> ptrs;
+  ptrs.resize(kPtrs);
+
   // Temporarily fake being on the given CPU.
   ScopedFakeCpuId fake_cpu_id(cpu_id);
 
-  CPUCache& cache = Static::cpu_cache();
 #if TCMALLOC_PERCPU_USE_RSEQ
   if (subtle::percpu::UsingFlatVirtualCpus()) {
     subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
@@ -367,9 +426,13 @@ static void HotCacheOperations(int cpu_id) {
   // cache. This will make sure we have sufficient disparity in misses between
   // the hotter and colder cache, and that we may be able to steal bytes from
   // the colder cache.
-  for (size_t cl = 1; cl <= kStressSlabs; ++cl) {
-    void* ptr = cache.Allocate<OOMHandler>(cl);
-    cache.Deallocate(ptr, cl);
+  for (size_t cl = 1; cl <= 2; ++cl) {
+    for (auto& ptr : ptrs) {
+      ptr = cache.Allocate<OOMHandler>(cl);
+    }
+    for (void* ptr : ptrs) {
+      cache.Deallocate(ptr, cl);
+    }
   }
 
   // We reclaim the cache to reset it so that we record underflows/overflows the
@@ -383,7 +446,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   constexpr int hot_cpu_id = 0;
@@ -400,15 +463,15 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // We allocate and deallocate a single highest cl object.
   // This makes sure that we have a single large object in the cache that faster
   // cache can steal.
-  const size_t size_class = kNumClasses - 1;
+  const size_t size_class = 2;
 
   for (int num_tries = 0;
        num_tries < kMaxStealTries &&
        cache.Capacity(cold_cpu_id) >
            CPUCache::kCacheCapacityThreshold * max_cpu_cache_size;
        ++num_tries) {
-    ColdCacheOperations(cold_cpu_id, size_class);
-    HotCacheOperations(hot_cpu_id);
+    ColdCacheOperations(cache, cold_cpu_id, size_class);
+    HotCacheOperations(cache, hot_cpu_id);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -426,7 +489,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // capacity threshold that we can drain cold cache to.
   EXPECT_GT(cold_cache_capacity,
             CPUCache::kCacheCapacityThreshold * max_cpu_cache_size -
-                Static::sizemap().class_to_size(kNumClasses - 1));
+                cache.forwarder().class_to_size(size_class));
 
   // Check that we have at least stolen some capacity.
   EXPECT_GT(hot_cache_capacity, max_cpu_cache_size);
@@ -435,8 +498,8 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // has been reached for the cold cache. A few more shuffles should not
   // change the capacity of either of the caches.
   for (int i = 0; i < 100; ++i) {
-    ColdCacheOperations(cold_cpu_id, size_class);
-    HotCacheOperations(hot_cpu_id);
+    ColdCacheOperations(cache, cold_cpu_id, size_class);
+    HotCacheOperations(cache, hot_cpu_id);
     cache.ShuffleCpuCaches();
 
     // Check that the capacity is preserved.
@@ -447,7 +510,8 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   }
 
   // Check that the capacity of cold and hot caches is same as before.
-  EXPECT_EQ(cache.Capacity(cold_cpu_id), cold_cache_capacity);
+  EXPECT_EQ(cache.Capacity(cold_cpu_id), cold_cache_capacity)
+      << CPUCache::kCacheCapacityThreshold * max_cpu_cache_size;
   EXPECT_EQ(cache.Capacity(hot_cpu_id), hot_cache_capacity);
 
   // Make sure that the total capacity is preserved.
@@ -455,10 +519,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
             2 * max_cpu_cache_size);
 
   // Reclaim caches.
-  const int num_cpus = absl::base_internal::NumCPUs();
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    cache.Reclaim(cpu);
-  }
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, ReclaimCpuCache) {
@@ -466,7 +527,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
@@ -487,17 +548,18 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     EXPECT_EQ(used_bytes, 0);
   }
 
-  const size_t kSizeClass = 3;
+  const size_t kSizeClass = 2;
 
   // We chose a different size class here so that we can populate different size
   // class slots and change the number of bytes used by the busy cache later in
   // our test.
-  const size_t kBusySizeClass = 4;
+  const size_t kBusySizeClass = 1;
+  ASSERT_NE(kSizeClass, kBusySizeClass);
 
   // Perform some operations to warm up caches and make sure they are populated.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    ColdCacheOperations(cpu, kSizeClass);
+    ColdCacheOperations(cache, cpu, kSizeClass);
     EXPECT_TRUE(cache.HasPopulated(cpu));
   }
 
@@ -543,7 +605,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   const int busy_cpu =
       absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
   const size_t prev_used = cache.UsedBytes(busy_cpu);
-  ColdCacheOperations(busy_cpu, kBusySizeClass);
+  ColdCacheOperations(cache, busy_cpu, kBusySizeClass);
   EXPECT_GT(cache.UsedBytes(busy_cpu), prev_used);
 
   // Try reclaiming caches again.
@@ -575,6 +637,8 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     EXPECT_EQ(cache.UsedBytes(cpu), 0);
     EXPECT_EQ(cache.GetNumReclaims(cpu), 1);
   }
+
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, SizeClassCapacityTest) {
@@ -582,17 +646,17 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
+  CPUCache cache;
   cache.Activate();
 
   const int num_cpus = absl::base_internal::NumCPUs();
-  constexpr size_t kSizeClass = 3;
-  const size_t batch_size = Static::sizemap().num_objects_to_move(kSizeClass);
+  constexpr size_t kSizeClass = 2;
+  const size_t batch_size = cache.forwarder().num_objects_to_move(kSizeClass);
 
   // Perform some operations to warm up caches and make sure they are populated.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    ColdCacheOperations(cpu, kSizeClass);
+    ColdCacheOperations(cache, cpu, kSizeClass);
     EXPECT_TRUE(cache.HasPopulated(cpu));
   }
 
@@ -649,6 +713,8 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   EXPECT_EQ(capacity_stats.min_capacity, 0);
   EXPECT_DOUBLE_EQ(capacity_stats.avg_capacity, 0);
   EXPECT_EQ(capacity_stats.max_capacity, 0);
+
+  cache.Deactivate();
 }
 
 }  // namespace

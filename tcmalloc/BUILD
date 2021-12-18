@@ -1366,14 +1366,15 @@ cc_test(
     name = "cpu_cache_test",
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = ":tcmalloc_deprecated_perthread",
+    malloc = ":tcmalloc",
     tags = [
         # TODO(b/193887621): Add TSan annotations to CPUCache and/or add
         # atomics to PageMap
         "notsan",
     ],
     deps = [
-        ":common_deprecated_perthread",
+        ":common",
+        ":mock_transfer_cache",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:util",
         "//tcmalloc/testing:testutil",

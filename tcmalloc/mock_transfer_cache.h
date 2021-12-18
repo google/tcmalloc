@@ -247,9 +247,9 @@ class TwoSizeClassManager : public FakeTransferCacheManagerBase {
   // places. We only use cl 1 and 2 here.
   static constexpr int kSizeClasses = 3;
   static constexpr size_t kClassSize1 = 8;
-  static constexpr size_t kClassSize2 = 16;
+  static constexpr size_t kClassSize2 = 16 << 10;
   static constexpr size_t kNumToMove1 = 32;
-  static constexpr size_t kNumToMove2 = 16;
+  static constexpr size_t kNumToMove2 = 2;
 
   TwoSizeClassManager() {
     caches_.push_back(absl::make_unique<TransferCache>(this, 0));
