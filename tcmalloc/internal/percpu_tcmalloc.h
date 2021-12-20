@@ -541,6 +541,11 @@ template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
     size_t cl, void* item, OverflowHandler overflow_handler, void* arg) {
   ASSERT(item != nullptr);
+  // Speculatively annotate item as released to TSan.  We may not succeed in
+  // pushing the item, but if we wait for the restartable sequence to succeed,
+  // it may become visible to another thread before we can trigger the
+  // annotation.
+  TSANRelease(item);
 #if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Push<NumClasses>(slabs_, cl, item, shift_,
                                                 overflow_handler, arg,
@@ -662,7 +667,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     goto underflow_path;
   }
 #endif
-
+  TSANAcquire(result);
   return result;
 underflow_path:
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -799,7 +804,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     goto underflow_path;
   }
 #endif
-
+  TSANAcquire(result);
   return result;
 underflow_path:
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -825,13 +830,15 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   return TcmallocSlab_Internal_Pop<NumClasses>(
       slabs_, cl, underflow_handler, arg, shift_, virtual_cpu_id_offset_);
 #else
+  void* ret;
   if (shift_ == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Internal_Pop_FixedShift(slabs_, cl, underflow_handler,
-                                                arg);
+    ret = TcmallocSlab_Internal_Pop_FixedShift(slabs_, cl, underflow_handler,
+                                               arg);
   } else {
-    return TcmallocSlab_Internal_Pop(slabs_, cl, underflow_handler, arg,
-                                     shift_);
+    ret = TcmallocSlab_Internal_Pop(slabs_, cl, underflow_handler, arg, shift_);
   }
+  TSANAcquire(ret);
+  return ret;
 #endif
 }
 
@@ -847,6 +854,13 @@ template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
                                                   size_t len) {
   ASSERT(len != 0);
+  // We need to annotate batch[...] as released before running the restartable
+  // sequence, since those objects become visible to other threads the moment
+  // the restartable sequence is complete and before the annotation potentially
+  // runs.
+  //
+  // This oversynchronizes slightly, since PushBatch may succeed only partially.
+  TSANReleaseBatch(batch, len);
   if (shift_ == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_Internal_PushBatch_FixedShift needs to be
@@ -902,10 +916,12 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
       default:
         __builtin_unreachable();
     }
+    ASSERT(n <= len);
 
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
+    TSANAcquireBatch(batch, n);
 #else   // !TCMALLOC_PERCPU_USE_RSEQ
     __builtin_unreachable();
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
@@ -1160,6 +1176,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
         std::min<uint16_t>(expected_pop, hdr.current - begin);
     void** batch =
         reinterpret_cast<void**>(GetHeader(cpu, 0) + hdr.current - actual_pop);
+    TSANAcquireBatch(batch, actual_pop);
     f(ctx, cl, batch, actual_pop);
     hdr.current -= actual_pop;
     StoreHeader(hdrp, hdr);
@@ -1232,6 +1249,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
     size_t n = hdr.current - begin[cl];
     size_t cap = hdr.end_copy - begin[cl];
     void** batch = reinterpret_cast<void**>(GetHeader(cpu, 0) + begin[cl]);
+    TSANAcquireBatch(batch, n);
     f(ctx, cl, batch, n, cap);
   }
 

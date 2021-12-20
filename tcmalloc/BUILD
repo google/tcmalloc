@@ -1368,9 +1368,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc",
     tags = [
-        # TODO(b/193887621): Add TSan annotations to CPUCache and/or add
-        # atomics to PageMap
-        "notsan",
     ],
     deps = [
         ":common",

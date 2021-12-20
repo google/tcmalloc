@@ -268,7 +268,7 @@ inline void CompilerBarrier() {
 
 // Internal tsan annotations, do not use externally.
 // Required as tsan does not natively understand RSEQ.
-#ifdef THREAD_SANITIZER
+#ifdef ABSL_HAVE_THREAD_SANITIZER
 extern "C" {
 void __tsan_acquire(void* addr);
 void __tsan_release(void* addr);
@@ -280,14 +280,30 @@ void __tsan_release(void* addr);
 // which means it doesn't know about the semantics our sequences
 // enforce.  So if we're under TSAN, add barrier annotations.
 inline void TSANAcquire(void* p) {
-#ifdef THREAD_SANITIZER
+#ifdef ABSL_HAVE_THREAD_SANITIZER
   __tsan_acquire(p);
 #endif
 }
 
+inline void TSANAcquireBatch(void** batch, int n) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  for (int i = 0; i < n; i++) {
+    __tsan_acquire(batch[i]);
+  }
+#endif
+}
+
 inline void TSANRelease(void* p) {
-#ifdef THREAD_SANITIZER
+#ifdef ABSL_HAVE_THREAD_SANITIZER
   __tsan_release(p);
+#endif
+}
+
+inline void TSANReleaseBatch(void** batch, int n) {
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  for (int i = 0; i < n; i++) {
+    __tsan_release(batch[i]);
+  }
 #endif
 }
 

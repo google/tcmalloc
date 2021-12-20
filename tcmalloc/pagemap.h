@@ -362,6 +362,9 @@ class PageMap {
   // Return the size class for p, or 0 if it is not known to tcmalloc
   // or is a page containing large objects.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  //
+  // TODO(b/193887621): Convert to atomics to permit the PageMap to run cleanly
+  // under TSan.
   CompactSizeClass sizeclass(PageId p) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return map_.sizeclass(p.index());
   }
