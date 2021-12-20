@@ -14,17 +14,19 @@
 
 #include "tcmalloc/sampled_allocation.h"
 
-#include "absl/debugging/stacktrace.h"
+#include "gmock/gmock.h"
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace {
 
-void SampledAllocation::PrepareForSampling() {
-  sampled_stack.depth = absl::GetStackTrace(sampled_stack.stack, kMaxStackDepth,
-                                            /* skip_count= */ 0);
+TEST(SampledAllocationTest, PrepareForSampling) {
+  // PrepareForSampling() invoked in the constructor.
+  SampledAllocation sampled_allocation;
+  absl::base_internal::SpinLockHolder sample_lock(&sampled_allocation.lock);
+  EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
 }
 
+}  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END

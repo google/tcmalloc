@@ -1192,6 +1192,18 @@ cc_library(
     deps = [
         ":sampled_allocation_recorder",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/debugging:stacktrace",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_test",
+    srcs = ["sampled_allocation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":sampled_allocation",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
     ],
 )
 
