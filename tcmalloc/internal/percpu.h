@@ -131,7 +131,8 @@ int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
                                           OverflowHandler overflow_handler,
                                           void* arg);
 void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
-                                UnderflowHandler underflow_handler, void* arg);
+                                UnderflowHandler underflow_handler, void* arg,
+                                size_t shift);
 void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
                                            UnderflowHandler underflow_handler,
                                            void* arg);
