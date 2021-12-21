@@ -98,6 +98,18 @@ class ScopedGuardedSamplingRate {
   int64_t previous_;
 };
 
+inline void UnregisterRseq() {
+#if TCMALLOC_PERCPU_USE_RSEQ
+  syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,
+          sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
+          tcmalloc_internal::subtle::percpu::kRseqUnregister,
+          TCMALLOC_PERCPU_RSEQ_SIGNATURE);
+#else
+  // rseq is is unavailable in this build
+  CHECK_CONDITION(false);
+#endif
+}
+
 // ScopedUnregisterRseq unregisters the current thread from rseq.  On
 // destruction, it reregisters it with IsFast().
 class ScopedUnregisterRseq {
@@ -107,15 +119,7 @@ class ScopedUnregisterRseq {
     // the destructor, verify that we can do so now.
     CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
 
-#if TCMALLOC_PERCPU_USE_RSEQ
-    syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,
-            sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
-            tcmalloc_internal::subtle::percpu::kRseqUnregister,
-            TCMALLOC_PERCPU_RSEQ_SIGNATURE);
-#else
-    // rseq is is unavailable in this build
-    CHECK_CONDITION(false);
-#endif
+    UnregisterRseq();
 
     // Unregistering stores kCpuIdUninitialized to the cpu_id field.
     CHECK_CONDITION(tcmalloc_internal::subtle::percpu::RseqCpuId() ==

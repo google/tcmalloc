@@ -77,9 +77,7 @@ cc_library(
     srcs = ["testutil.cc"],
     hdrs = ["testutil.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:percpu",
@@ -943,7 +941,9 @@ create_tcmalloc_testsuite(
     name = "reclaim_test",
     srcs = ["reclaim_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         ":test_allocator_harness",
         ":thread_manager",

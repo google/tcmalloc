@@ -1399,6 +1399,8 @@ cc_test(
     srcs = ["cpu_cache_activate_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc_deprecated_perthread",
+    tags = [
+    ],
     deps = [
         ":common_deprecated_perthread",
         ":malloc_extension",

@@ -464,9 +464,7 @@ cc_library(
         "percpu_rseq_aarch64.S",
         "percpu_rseq_x86_64.S",
     ],
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":atomic_danger",
         ":config",
