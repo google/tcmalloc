@@ -540,6 +540,7 @@ overflow_label:
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
     size_t cl, void* item, OverflowHandler overflow_handler, void* arg) {
+  ASSERT(IsFastNoInit());
   ASSERT(item != nullptr);
   // Speculatively annotate item as released to TSan.  We may not succeed in
   // pushing the item, but if we wait for the restartable sequence to succeed,
@@ -826,6 +827,7 @@ underflow_path:
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t cl, UnderflowHandler underflow_handler, void* arg) {
+  ASSERT(IsFastNoInit());
 #if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Pop<NumClasses>(
       slabs_, cl, underflow_handler, arg, shift_, virtual_cpu_id_offset_);
