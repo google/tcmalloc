@@ -160,20 +160,6 @@ class CPUCache {
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
   static constexpr double kCacheCapacityThreshold = 0.20;
 
-  // Tries to steal <bytes> for the destination <cpu>. It iterates through the
-  // the set of populated cpu caches and steals the bytes from them. A cpu is
-  // considered a good candidate to steal from if:
-  // (1) the cache is populated
-  // (2) the numbers of underflows and overflows are both less than 0.8x those
-  // of the destination per-cpu cache
-  // (3) source cpu is not the same as the destination cpu
-  // (4) capacity of the source cpu/cl is non-zero
-  //
-  // For a given source cpu, we iterate through the size classes to steal from
-  // them. Currently, we use a similar clock-like algorithm from Steal() to
-  // identify the cl to steal from.
-  void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
-
   // Tries to reclaim inactive per-CPU caches. It iterates through the set of
   // populated cpu caches and reclaims the caches that:
   // (1) had same number of used bytes since the last interval,
@@ -236,6 +222,20 @@ class CPUCache {
   Forwarder& forwarder() { return forwarder_; }
 
  private:
+  // Tries to steal <bytes> for the destination <cpu>. It iterates through the
+  // the set of populated cpu caches and steals the bytes from them. A cpu is
+  // considered a good candidate to steal from if:
+  // (1) the cache is populated
+  // (2) the numbers of underflows and overflows are both less than 0.8x those
+  // of the destination per-cpu cache
+  // (3) source cpu is not the same as the destination cpu
+  // (4) capacity of the source cpu/cl is non-zero
+  //
+  // For a given source cpu, we iterate through the size classes to steal from
+  // them. Currently, we use a similar clock-like algorithm from Steal() to
+  // identify the cl to steal from.
+  void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
+
   // Per-size-class freelist resizing info.
   class PerClassResizeInfo {
    public:
