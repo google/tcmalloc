@@ -1379,8 +1379,7 @@ cc_test(
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc",
-    tags = [
-    ],
+    tags = ["no_qemu_user_mode"],
     deps = [
         ":common",
         ":mock_transfer_cache",
