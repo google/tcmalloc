@@ -21,6 +21,8 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/dynamic_annotations.h"
+#include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/random/seed_sequences.h"
 #include "tcmalloc/common.h"
@@ -29,6 +31,7 @@
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/testutil.h"
+#include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache.h"
 
 namespace tcmalloc {
@@ -715,6 +718,182 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   EXPECT_EQ(capacity_stats.max_capacity, 0);
 
   cache.Deactivate();
+}
+
+class CpuCacheEnvironment {
+ public:
+  CpuCacheEnvironment() : num_cpus_(absl::base_internal::NumCPUs()) {}
+  ~CpuCacheEnvironment() { cache_.Deactivate(); }
+
+  void Activate() {
+    cache_.Activate();
+    ready_.store(true, std::memory_order_release);
+  }
+
+  void RandomlyPoke(absl::BitGenRef rng) {
+    // We run a random operation based on our random number generated.
+    const int coin = absl::Uniform(rng, 0, 18);
+    const bool ready = ready_.load(std::memory_order_acquire);
+
+    // Pick a random CPU and size class.  We will likely need one or both.
+    const int cpu = absl::Uniform(rng, 0, num_cpus_);
+    const int size_class = absl::Uniform(rng, 1, 3);
+
+    if (!ready || coin < 1) {
+      benchmark::DoNotOptimize(cache_.CacheLimit());
+      return;
+    }
+
+    // Methods beyond this point require the CPUCache to be activated.
+
+    switch (coin) {
+      case 1: {
+        // Allocate, Deallocate
+        void* ptr = cache_.Allocate<OOMHandler>(size_class);
+        EXPECT_NE(ptr, nullptr);
+        // Touch *ptr to allow sanitizers to see an access (and a potential
+        // race, if synchronization is insufficient).
+        *static_cast<char*>(ptr) = 1;
+        benchmark::DoNotOptimize(*static_cast<char*>(ptr));
+
+        cache_.Deallocate(ptr, size_class);
+        break;
+      }
+      case 2:
+        benchmark::DoNotOptimize(cache_.TotalUsedBytes());
+        break;
+      case 3:
+        benchmark::DoNotOptimize(cache_.UsedBytes(cpu));
+        break;
+      case 4:
+        benchmark::DoNotOptimize(cache_.Allocated(cpu));
+        break;
+      case 5:
+        benchmark::DoNotOptimize(cache_.HasPopulated(cpu));
+        break;
+      case 6: {
+        auto metadata = cache_.MetadataMemoryUsage();
+        EXPECT_GE(metadata.virtual_size, metadata.resident_size);
+        EXPECT_GT(metadata.virtual_size, 0);
+        break;
+      }
+      case 7:
+        benchmark::DoNotOptimize(cache_.TotalObjectsOfClass(size_class));
+        break;
+      case 8:
+        benchmark::DoNotOptimize(cache_.Unallocated(cpu));
+        break;
+      case 9:
+        benchmark::DoNotOptimize(cache_.Capacity(cpu));
+        break;
+      case 10:
+        cache_.ShuffleCpuCaches();
+        break;
+      case 11:
+        cache_.TryReclaimingCaches();
+        break;
+      case 12:
+        cache_.Reclaim(cpu);
+        break;
+      case 13:
+        benchmark::DoNotOptimize(cache_.GetNumReclaims(cpu));
+        break;
+      case 14: {
+        const auto misses = cache_.GetTotalCacheMissStats(cpu);
+        const auto reclaims = cache_.GetReclaimCacheMissStats(cpu);
+        const auto interval = cache_.GetIntervalCacheMissStats(cpu);
+
+        benchmark::DoNotOptimize(misses);
+        benchmark::DoNotOptimize(reclaims);
+        benchmark::DoNotOptimize(interval);
+        break;
+      }
+      case 15: {
+        const auto stats = cache_.GetSizeClassCapacityStats(size_class);
+        EXPECT_GE(stats.max_capacity, stats.avg_capacity);
+        EXPECT_GE(stats.avg_capacity, stats.min_capacity);
+        break;
+      }
+      case 16: {
+        std::string out;
+        out.resize(128 << 10);
+        ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
+        Printer p(out.data(), out.size());
+        PbtxtRegion r(&p, kTop, 0);
+
+        cache_.PrintInPbtxt(&r);
+
+        benchmark::DoNotOptimize(out.data());
+        break;
+      }
+      case 17: {
+        std::string out;
+        out.resize(128 << 10);
+        ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
+        Printer p(out.data(), out.size());
+
+        cache_.Print(&p);
+
+        benchmark::DoNotOptimize(out.data());
+        break;
+      }
+      default:
+        GTEST_FAIL() << "Unexpected value " << coin;
+        break;
+    }
+  }
+
+  CPUCache& cache() { return cache_; }
+
+  int num_cpus() const { return num_cpus_; }
+
+ private:
+  const int num_cpus_;
+  CPUCache cache_;
+  std::atomic<bool> ready_{false};
+};
+
+TEST(CpuCacheTest, Fuzz) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  const int kThreads = 10;
+  struct ABSL_CACHELINE_ALIGNED ThreadState {
+    absl::BitGen rng;
+  };
+  std::vector<ThreadState> thread_state(kThreads);
+
+  CpuCacheEnvironment env;
+  ThreadManager threads;
+  threads.Start(10, [&](int thread_id) {
+    // Ensure this thread has registered itself with the kernel to use
+    // restartable sequences.
+    CHECK_CONDITION(subtle::percpu::IsFast());
+    env.RandomlyPoke(thread_state[thread_id].rng);
+  });
+
+  absl::SleepFor(absl::Seconds(0.1));
+  env.Activate();
+  absl::SleepFor(absl::Seconds(0.3));
+
+  threads.Stop();
+
+  // Inspect the CPUCache and validate invariants.
+
+  // The number of caches * per-core limit should be equivalent to the bytes
+  // managed by the cache.
+  size_t capacity = 0;
+  size_t allocated = 0;
+  size_t unallocated = 0;
+  for (int i = 0, n = env.num_cpus(); i < n; i++) {
+    capacity += env.cache().Capacity(i);
+    allocated += env.cache().Allocated(i);
+    unallocated += env.cache().Unallocated(i);
+  }
+
+  EXPECT_EQ(allocated + unallocated, capacity);
+  EXPECT_EQ(env.num_cpus() * env.cache().CacheLimit(), capacity);
 }
 
 }  // namespace
