@@ -725,13 +725,9 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
   return profile;
 }
 
-// If <unsample> is true, the caller expects a profile where sampling has been
-// compensated for (that is, it reports 8000 16-byte objects iff we believe the
-// program has that many live objects.)  Otherwise, do not adjust for sampling
-// (the caller will do so somehow.)
-static std::unique_ptr<const ProfileBase> DumpHeapProfile(bool unsample) {
+static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   auto profile = absl::make_unique<StackTraceTable>(
-      ProfileType::kHeap, Sampler::GetSamplePeriod(), true, unsample);
+      ProfileType::kHeap, Sampler::GetSamplePeriod(), true, true);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (Span* s : Static::sampled_objects_) {
     profile->AddTrace(1.0, *s->sampled_stack());
@@ -868,7 +864,7 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
     ProfileType type) {
   switch (type) {
     case ProfileType::kHeap:
-      return DumpHeapProfile(true).release();
+      return DumpHeapProfile().release();
     case ProfileType::kFragmentation:
       return DumpFragmentationProfile().release();
     case ProfileType::kPeakHeap:
