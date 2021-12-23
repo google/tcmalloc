@@ -105,6 +105,7 @@ class TestStaticForwarder {
 };
 
 using CPUCache = cpu_cache_internal::CPUCache<TestStaticForwarder>;
+using MissCount = CPUCache::MissCount;
 
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
@@ -251,12 +252,12 @@ TEST(CpuCacheTest, CacheMissStats) {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     CPUCache::CpuCacheMissStats total_misses =
         cache.GetTotalCacheMissStats(cpu);
-    CPUCache::CpuCacheMissStats interval_misses =
-        cache.GetIntervalCacheMissStats(cpu);
+    CPUCache::CpuCacheMissStats shuffle_misses =
+        cache.GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
     EXPECT_EQ(total_misses.underflows, 0);
     EXPECT_EQ(total_misses.overflows, 0);
-    EXPECT_EQ(interval_misses.underflows, 0);
-    EXPECT_EQ(interval_misses.overflows, 0);
+    EXPECT_EQ(shuffle_misses.underflows, 0);
+    EXPECT_EQ(shuffle_misses.overflows, 0);
   }
 
   int allowed_cpu_id;
@@ -289,17 +290,17 @@ TEST(CpuCacheTest, CacheMissStats) {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     CPUCache::CpuCacheMissStats total_misses =
         cache.GetTotalCacheMissStats(cpu);
-    CPUCache::CpuCacheMissStats interval_misses =
-        cache.GetIntervalCacheMissStats(cpu);
+    CPUCache::CpuCacheMissStats shuffle_misses =
+        cache.GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
     if (cpu == allowed_cpu_id) {
       EXPECT_EQ(total_misses.underflows, 1);
-      EXPECT_EQ(interval_misses.underflows, 1);
+      EXPECT_EQ(shuffle_misses.underflows, 1);
     } else {
       EXPECT_EQ(total_misses.underflows, 0);
-      EXPECT_EQ(interval_misses.underflows, 0);
+      EXPECT_EQ(shuffle_misses.underflows, 0);
     }
     EXPECT_EQ(total_misses.overflows, 0);
-    EXPECT_EQ(interval_misses.overflows, 0);
+    EXPECT_EQ(shuffle_misses.overflows, 0);
   }
 
   // Tear down.
@@ -539,7 +540,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     // Check that reclaim miss metrics are reset.
     CPUCache::CpuCacheMissStats reclaim_misses =
-        cache.GetReclaimCacheMissStats(cpu);
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
     EXPECT_EQ(reclaim_misses.underflows, 0);
     EXPECT_EQ(reclaim_misses.overflows, 0);
 
@@ -569,7 +570,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     CPUCache::CpuCacheMissStats misses_last_interval =
-        cache.GetReclaimCacheMissStats(cpu);
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
     CPUCache::CpuCacheMissStats total_misses =
         cache.GetTotalCacheMissStats(cpu);
 
@@ -592,7 +593,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
     // operation, the reclaim misses captured during the last interval (i.e.
     // since the last reclaim) should be zero.
     CPUCache::CpuCacheMissStats reclaim_misses =
-        cache.GetReclaimCacheMissStats(cpu);
+        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
     EXPECT_EQ(reclaim_misses.underflows, 0);
     EXPECT_EQ(reclaim_misses.overflows, 0);
 
@@ -799,13 +800,15 @@ class CpuCacheEnvironment {
         benchmark::DoNotOptimize(cache_.GetNumReclaims(cpu));
         break;
       case 14: {
-        const auto misses = cache_.GetTotalCacheMissStats(cpu);
-        const auto reclaims = cache_.GetReclaimCacheMissStats(cpu);
-        const auto interval = cache_.GetIntervalCacheMissStats(cpu);
+        const auto total_misses = cache_.GetTotalCacheMissStats(cpu);
+        const auto reclaim_misses =
+            cache_.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
+        const auto shuffle_misses =
+            cache_.GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
 
-        benchmark::DoNotOptimize(misses);
-        benchmark::DoNotOptimize(reclaims);
-        benchmark::DoNotOptimize(interval);
+        benchmark::DoNotOptimize(total_misses);
+        benchmark::DoNotOptimize(reclaim_misses);
+        benchmark::DoNotOptimize(shuffle_misses);
         break;
       }
       case 15: {

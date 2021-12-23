@@ -192,13 +192,33 @@ class CPUCache {
   // Reports total cache underflows and overflows for <cpu>.
   CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
 
-  // Reports the cache underflows and overflows for <cpu> that were recorded at
-  // the end of the previous interval. It also records current underflows and
-  // overflows in the reclaim underflow and overflow stats.
-  CpuCacheMissStats GetReclaimCacheMissStats(int cpu) const;
+  // We track the number of overflows/underflows for each of these cases.
+  enum class MissCount {
+    // Tracks total number of misses.
+    kTotal = 0,
+    // Tracks number of misses recorded as of the end of the last shuffle
+    // interval.
+    kShuffle,
+    // Tracks number of misses recorded as of the end of the last resize
+    // interval.
+    kReclaim,
+    kNumCounts,
+  };
 
-  // Reports cache underflows and overflows for <cpu> this interval.
-  CpuCacheMissStats GetIntervalCacheMissStats(int cpu) const;
+  // Reports the cache underflows and overflows for <cpu> that were recorded
+  // during the previous interval for <miss_count>.
+  CpuCacheMissStats GetIntervalCacheMissStats(int cpu,
+                                              MissCount miss_count) const;
+
+  // Records current underflows and overflows in the <miss_count> underflow and
+  // overflow stats.
+  void UpdateIntervalCacheMissStats(int cpu, MissCount miss_count);
+
+  // Reports the cache underflows and overflows for <cpu> that were recorded
+  // during the previous interval for <miss_count>. Records current underflows
+  // and overflows in the <miss_count> underflow and overflow stats.
+  CpuCacheMissStats GetAndUpdateIntervalCacheMissStats(int cpu,
+                                                       MissCount miss_count);
 
   struct SizeClassCapacityStats {
     size_t min_capacity = 0;
@@ -265,6 +285,15 @@ class CPUCache {
 
   subtle::percpu::TcmallocSlab<kNumClasses> freelist_;
 
+  // Helper type so we don't need to sprinkle `static_cast`s everywhere.
+  struct MissCounts {
+    std::atomic<size_t> misses[static_cast<size_t>(MissCount::kNumCounts)];
+
+    std::atomic<size_t>& operator[](MissCount miss_count) {
+      return misses[static_cast<size_t>(miss_count)];
+    }
+  };
+
   struct ResizeInfoUnpadded {
     // cache space on this CPU we're not using.  Modify atomically;
     // we don't want to lose space.
@@ -278,23 +307,13 @@ class CPUCache {
     // For cross-cpu operations.
     absl::base_internal::SpinLock lock;
     PerClassResizeInfo per_class[kNumClasses];
-    // tracks number of underflows on allocate.
-    std::atomic<size_t> total_underflows;
-    // tracks number of overflows on deallocate.
-    std::atomic<size_t> total_overflows;
-    // tracks number of underflows recorded as of the end of the last shuffle
-    // interval.
-    std::atomic<size_t> shuffle_underflows;
-    // tracks number of overflows recorded as of the end of the last shuffle
-    // interval.
-    std::atomic<size_t> shuffle_overflows;
+    // Tracks number of underflows on allocate.
+    MissCounts underflows;
+    // Tracks number of overflows on deallocate.
+    MissCounts overflows;
     // total cache space available on this CPU. This tracks the total
     // allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
-    // Number of underflows as of the end of the last resize interval.
-    std::atomic<size_t> reclaim_underflows;
-    // Number of overflows as of the end of the last resize interval.
-    std::atomic<size_t> reclaim_overflows;
     // Used bytes in the cache as of the end of the last resize interval.
     std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
@@ -795,7 +814,8 @@ inline void CPUCache<Forwarder>::TryReclaimingCaches() {
 
     // Get reclaim miss and used bytes stats that were captured at the end of
     // the previous interval.
-    const CpuCacheMissStats miss_stats = GetReclaimCacheMissStats(cpu);
+    const CpuCacheMissStats miss_stats =
+        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
     uint64_t misses =
         uint64_t{miss_stats.underflows} + uint64_t{miss_stats.overflows};
 
@@ -832,7 +852,8 @@ inline void CPUCache<Forwarder>::ShuffleCpuCaches() {
     if (!HasPopulated(cpu)) {
       continue;
     }
-    const CpuCacheMissStats miss_stats = GetIntervalCacheMissStats(cpu);
+    const CpuCacheMissStats miss_stats =
+        GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
     misses[num_populated_cpus] = {
         cpu, uint64_t{miss_stats.underflows} + uint64_t{miss_stats.overflows}};
     max_populated_cpu = cpu;
@@ -875,16 +896,7 @@ inline void CPUCache<Forwarder>::ShuffleCpuCaches() {
   // Takes a snapshot of underflows and overflows at the end of this interval
   // so that we can calculate the misses that occurred in the next interval.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    size_t underflows =
-        resize_[cpu].total_underflows.load(std::memory_order_relaxed);
-    size_t overflows =
-        resize_[cpu].total_overflows.load(std::memory_order_relaxed);
-
-    // Shuffle occurs on a single thread. So, the relaxed stores to
-    // prev_underflow and pre_overflow counters are safe.
-    resize_[cpu].shuffle_underflows.store(underflows,
-                                          std::memory_order_relaxed);
-    resize_[cpu].shuffle_overflows.store(overflows, std::memory_order_relaxed);
+    UpdateIntervalCacheMissStats(cpu, MissCount::kShuffle);
   }
 }
 
@@ -906,7 +918,8 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
                                                      size_t bytes) {
   constexpr double kCacheMissThreshold = 0.80;
 
-  const CpuCacheMissStats dest_misses = GetIntervalCacheMissStats(cpu);
+  const CpuCacheMissStats dest_misses =
+      GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
 
   // If both underflows and overflows are 0, we should not need to steal.
   if (dest_misses.underflows == 0 && dest_misses.overflows == 0) return;
@@ -950,7 +963,8 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
         kCacheCapacityThreshold * forwarder_.max_per_cpu_cache_size())
       continue;
 
-    const CpuCacheMissStats src_misses = GetIntervalCacheMissStats(src_cpu);
+    const CpuCacheMissStats src_misses =
+        GetIntervalCacheMissStats(src_cpu, MissCount::kShuffle);
 
     // If underflows and overflows from the source cpu are higher, we do not
     // steal from that cache. We consider the cache as a candidate to steal from
@@ -1332,88 +1346,64 @@ inline uint64_t CPUCache<Forwarder>::GetNumReclaims(int cpu) const {
 template <class Forwarder>
 inline void CPUCache<Forwarder>::RecordCacheMissStat(const int cpu,
                                                      const bool is_malloc) {
-  if (is_malloc) {
-    resize_[cpu].total_underflows.fetch_add(1, std::memory_order_relaxed);
-  } else {
-    resize_[cpu].total_overflows.fetch_add(1, std::memory_order_relaxed);
-  }
-}
-
-template <class Forwarder>
-inline typename CPUCache<Forwarder>::CpuCacheMissStats
-CPUCache<Forwarder>::GetReclaimCacheMissStats(int cpu) const {
-  CpuCacheMissStats stats;
-  size_t total_underflows =
-      resize_[cpu].total_underflows.load(std::memory_order_relaxed);
-  size_t prev_reclaim_underflows =
-      resize_[cpu].reclaim_underflows.load(std::memory_order_relaxed);
-  // Takes a snapshot of underflows at the end of this interval so that we can
-  // calculate the misses that occurred in the next interval.
-  //
-  // Reclaim occurs on a single thread. So, a relaxed store to the reclaim
-  // underflow stat is safe.
-  resize_[cpu].reclaim_underflows.store(total_underflows,
-                                        std::memory_order_relaxed);
-
-  // In case of a size_t overflow, we wrap around to 0.
-  stats.underflows = total_underflows > prev_reclaim_underflows
-                         ? total_underflows - prev_reclaim_underflows
-                         : 0;
-
-  size_t total_overflows =
-      resize_[cpu].total_overflows.load(std::memory_order_relaxed);
-  size_t prev_reclaim_overflows =
-      resize_[cpu].reclaim_overflows.load(std::memory_order_relaxed);
-  // Takes a snapshot of overflows at the end of this interval so that we can
-  // calculate the misses that occurred in the next interval.
-  //
-  // Reclaim occurs on a single thread. So, a relaxed store to the reclaim
-  // overflow stat is safe.
-  resize_[cpu].reclaim_overflows.store(total_overflows,
-                                       std::memory_order_relaxed);
-
-  // In case of a size_t overflow, we wrap around to 0.
-  stats.overflows = total_overflows > prev_reclaim_overflows
-                        ? total_overflows - prev_reclaim_overflows
-                        : 0;
-
-  return stats;
-}
-
-template <class Forwarder>
-inline typename CPUCache<Forwarder>::CpuCacheMissStats
-CPUCache<Forwarder>::GetIntervalCacheMissStats(int cpu) const {
-  CpuCacheMissStats stats;
-  size_t total_underflows =
-      resize_[cpu].total_underflows.load(std::memory_order_relaxed);
-  size_t shuffle_underflows =
-      resize_[cpu].shuffle_underflows.load(std::memory_order_relaxed);
-  // In case of a size_t overflow, we wrap around to 0.
-  stats.underflows = total_underflows > shuffle_underflows
-                         ? total_underflows - shuffle_underflows
-                         : 0;
-
-  size_t total_overflows =
-      resize_[cpu].total_overflows.load(std::memory_order_relaxed);
-  size_t shuffle_overflows =
-      resize_[cpu].shuffle_overflows.load(std::memory_order_relaxed);
-  // In case of a size_t overflow, we wrap around to 0.
-  stats.overflows = total_overflows > shuffle_overflows
-                        ? total_overflows - shuffle_overflows
-                        : 0;
-
-  return stats;
+  MissCounts& misses =
+      is_malloc ? resize_[cpu].underflows : resize_[cpu].overflows;
+  misses[MissCount::kTotal].fetch_add(1, std::memory_order_relaxed);
 }
 
 template <class Forwarder>
 inline typename CPUCache<Forwarder>::CpuCacheMissStats
 CPUCache<Forwarder>::GetTotalCacheMissStats(int cpu) const {
   CpuCacheMissStats stats;
-  stats.underflows =
-      resize_[cpu].total_underflows.load(std::memory_order_relaxed);
+  stats.underflows = resize_[cpu].underflows[MissCount::kTotal].load(
+      std::memory_order_relaxed);
   stats.overflows =
-      resize_[cpu].total_overflows.load(std::memory_order_relaxed);
+      resize_[cpu].overflows[MissCount::kTotal].load(std::memory_order_relaxed);
   return stats;
+}
+
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetIntervalCacheMissStats(int cpu,
+                                               MissCount miss_count) const {
+  ASSERT(miss_count != MissCount::kTotal);
+  ASSERT(miss_count < MissCount::kNumCounts);
+  const auto get_safe_miss_diff = [miss_count](MissCounts& misses) {
+    const size_t total_misses =
+        misses[MissCount::kTotal].load(std::memory_order_relaxed);
+    const size_t interval_misses =
+        misses[miss_count].load(std::memory_order_relaxed);
+    // In case of a size_t overflow, we wrap around to 0.
+    return total_misses > interval_misses ? total_misses - interval_misses : 0;
+  };
+  return {get_safe_miss_diff(resize_[cpu].underflows),
+          get_safe_miss_diff(resize_[cpu].overflows)};
+}
+
+template <class Forwarder>
+void CPUCache<Forwarder>::UpdateIntervalCacheMissStats(int cpu,
+                                                       MissCount miss_count) {
+  CpuCacheMissStats total_stats = GetTotalCacheMissStats(cpu);
+  // Takes a snapshot of misses at the end of this interval so that we can
+  // calculate the misses that occurred in the next interval.
+  //
+  // Interval updates occur on a single thread so relaxed stores to interval
+  // miss stats are safe.
+  resize_[cpu].underflows[miss_count].store(total_stats.underflows,
+                                            std::memory_order_relaxed);
+  resize_[cpu].overflows[miss_count].store(total_stats.overflows,
+                                           std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetAndUpdateIntervalCacheMissStats(int cpu,
+                                                        MissCount miss_count) {
+  // Note: it's possible for cache misses to occur between these two calls, but
+  // there's likely to be few of them so we don't handle them specially.
+  CpuCacheMissStats interval_stats = GetIntervalCacheMissStats(cpu, miss_count);
+  UpdateIntervalCacheMissStats(cpu, miss_count);
+  return interval_stats;
 }
 
 template <class Forwarder>
