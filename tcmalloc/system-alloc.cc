@@ -372,7 +372,7 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
         nodemask);
 }
 
-ABSL_CONST_INIT std::atomic<int> system_release_errors = ATOMIC_VAR_INIT(0);
+ABSL_CONST_INIT std::atomic<int> system_release_errors(0);
 
 }  // namespace
 
