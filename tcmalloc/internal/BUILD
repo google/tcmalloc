@@ -412,6 +412,7 @@ cc_test(
     srcs = ["numa_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    tags = ["no_qemu_user_mode"],
     deps = [
         ":logging",
         ":numa",
