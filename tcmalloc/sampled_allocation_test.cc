@@ -24,7 +24,19 @@ TEST(SampledAllocationTest, PrepareForSampling) {
   // PrepareForSampling() invoked in the constructor.
   SampledAllocation sampled_allocation;
   absl::base_internal::SpinLockHolder sample_lock(&sampled_allocation.lock);
+
+  // Now verify some fields.
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
+  EXPECT_EQ(sampled_allocation.allocated_size.load(), 0);
+
+  // Set them to different values.
+  sampled_allocation.sampled_stack.depth = 0;
+  sampled_allocation.allocated_size.store(1, std::memory_order_relaxed);
+
+  // Call PrepareForSampling() again and check the fields.
+  sampled_allocation.PrepareForSampling();
+  EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
+  EXPECT_EQ(sampled_allocation.allocated_size.load(), 0);
 }
 
 }  // namespace
