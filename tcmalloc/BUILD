@@ -961,9 +961,7 @@ cc_test(
     srcs = ["system-alloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":common",
         ":malloc_extension",
@@ -1379,7 +1377,6 @@ cc_test(
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc",
-    tags = ["no_qemu_user_mode"],
     deps = [
         ":common",
         ":mock_transfer_cache",
@@ -1401,8 +1398,6 @@ cc_test(
     srcs = ["cpu_cache_activate_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc_deprecated_perthread",
-    tags = [
-    ],
     deps = [
         ":common_deprecated_perthread",
         ":malloc_extension",

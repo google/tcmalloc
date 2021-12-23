@@ -254,9 +254,7 @@ cc_test(
     srcs = ["outofmemory_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":testutil",
         "//tcmalloc/internal:config",
@@ -349,9 +347,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -851,9 +847,7 @@ cc_test(
     srcs = ["releasing_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
@@ -941,9 +935,7 @@ create_tcmalloc_testsuite(
     name = "reclaim_test",
     srcs = ["reclaim_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":test_allocator_harness",
         ":thread_manager",
