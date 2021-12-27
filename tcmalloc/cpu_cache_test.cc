@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 
 #include <new>
+#include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "gmock/gmock.h"
