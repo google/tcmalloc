@@ -66,6 +66,11 @@ struct PerCPUMetadataState {
 namespace subtle {
 namespace percpu {
 
+// The allocation size for the slabs array.
+inline size_t GetSlabsAllocSize(size_t shift) {
+  return static_cast<size_t>(absl::base_internal::NumCPUs()) << shift;
+}
+
 // Tcmalloc slab for per-cpu caching mode.
 // Conceptually it is equivalent to an array of NumClasses PerCpuSlab's,
 // and in fallback implementation it is implemented that way. But optimized
@@ -1006,7 +1011,7 @@ void TcmallocSlab<NumClasses>::Init(
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
   shift_ = shift;
-  size_t mem_size = absl::base_internal::NumCPUs() * (1ul << shift);
+  size_t mem_size = GetSlabsAllocSize(shift);
   void* backing = alloc(mem_size, kPhysicalPageSize);
   // MSan does not see writes in assembly.
   ANNOTATE_MEMORY_IS_INITIALIZED(backing, mem_size);
@@ -1125,7 +1130,7 @@ void TcmallocSlab<NumClasses>::InitCPU(
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
-  free(slabs_, absl::base_internal::NumCPUs() << shift_, kPhysicalPageSize);
+  free(slabs_, GetSlabsAllocSize(shift_), kPhysicalPageSize);
   slabs_ = nullptr;
 }
 
@@ -1290,7 +1295,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
 template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
-  result.virtual_size = absl::base_internal::NumCPUs() * (1ul << shift_);
+  result.virtual_size = GetSlabsAllocSize(shift_);
   result.resident_size = MInCore::residence(slabs_, result.virtual_size);
   return result;
 }
