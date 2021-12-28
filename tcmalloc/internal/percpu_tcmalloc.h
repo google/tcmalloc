@@ -22,6 +22,7 @@
 #endif
 
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <new>
 #include <utility>
@@ -191,12 +192,32 @@ class TcmallocSlab {
   // existing Arena block.
   static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
 
-  // We store the shift value in the low bits of the slabs pointer. These masks
-  // allow for distinguishing the shift bits from the slabs pointer bits. The
-  // maximum shift value is 18, which is less than kShiftMask, and kShiftMask is
-  // less than kPhysicalPageAlign, so this is safe.
-  static constexpr size_t kShiftMask = 0xFF;
-  static constexpr size_t kSlabsMask = ~kShiftMask;
+  // In order to support dynamic slab metadata sizes, we need to be able to
+  // atomically update both the slabs pointer and the shift value so we store
+  // both together in an atomic SlabsAndShift, which manages the bit operations.
+  class SlabsAndShift {
+    // These masks allow for distinguishing the shift bits from the slabs
+    // pointer bits. The maximum shift value is less than kShiftMask and
+    // kShiftMask is less than kPhysicalPageAlign.
+    static constexpr size_t kShiftMask = 0xFF;
+    static constexpr size_t kSlabsMask = ~kShiftMask;
+
+   public:
+    constexpr explicit SlabsAndShift() : raw_(0) {}
+    SlabsAndShift(const Slabs* slabs, size_t shift)
+        : raw_(reinterpret_cast<uintptr_t>(slabs) | shift) {
+      ASSERT((raw_ & kShiftMask) == shift);
+      ASSERT(reinterpret_cast<Slabs*>(raw_ & kSlabsMask) == slabs);
+    }
+
+    std::pair<Slabs*, size_t> Get() const {
+      return {reinterpret_cast<TcmallocSlab::Slabs*>(raw_ & kSlabsMask),
+              static_cast<size_t>(raw_ & kShiftMask)};
+    }
+
+   private:
+    uintptr_t raw_;
+  };
 
   // Slab header (packed, atomically updated 64-bit).
   // All {begin, current, end} values are pointer offsets from per-CPU region
@@ -227,10 +248,8 @@ class TcmallocSlab {
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
-  std::pair<Slabs*, size_t> GetSlabsAndShift() const {
-    const uintptr_t val = slabs_and_shift_.load(std::memory_order_relaxed);
-    return {reinterpret_cast<TcmallocSlab::Slabs*>(val & kSlabsMask),
-            static_cast<size_t>(val & kShiftMask)};
+  std::pair<Slabs*, size_t> GetSlabsAndShift(std::memory_order order) const {
+    return slabs_and_shift_.load(order).Get();
   }
 
   // We cast Header to std::atomic<int64_t>.
@@ -239,7 +258,7 @@ class TcmallocSlab {
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
-  std::atomic<uintptr_t> slabs_and_shift_ = 0;
+  std::atomic<SlabsAndShift> slabs_and_shift_{};
   // This is in units of bytes.
   size_t virtual_cpu_id_offset_ = offsetof(kernel_rseq, cpu_id);
 
@@ -255,14 +274,14 @@ class TcmallocSlab {
 
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Length(int cpu, size_t cl) const {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
   return hdr.IsLocked() ? 0 : hdr.current - hdr.begin;
 }
 
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu, size_t cl) const {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
   return hdr.IsLocked() ? 0 : hdr.end - hdr.begin;
 }
@@ -270,7 +289,7 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu, size_t cl) const {
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t cl, size_t len,
                                              size_t max_cap) {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
   for (;;) {
@@ -294,7 +313,7 @@ inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t cl, size_t len,
 
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t cl, size_t len) {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
   for (;;) {
@@ -574,7 +593,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // it may become visible to another thread before we can trigger the
   // annotation.
   TSANRelease(item);
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Push<NumClasses>(slabs, cl, item, shift,
                                                 overflow_handler, arg,
@@ -856,7 +875,7 @@ template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t cl, UnderflowHandler underflow_handler, void* arg) {
   ASSERT(IsFastNoInit());
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Pop<NumClasses>(
       slabs, cl, underflow_handler, arg, shift, virtual_cpu_id_offset_);
@@ -892,7 +911,7 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
   //
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_Internal_PushBatch_FixedShift needs to be
@@ -929,7 +948,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
                                                  size_t len) {
   ASSERT(len != 0);
   size_t n = 0;
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_Internal_PopBatch_FixedShift needs to be
@@ -1042,11 +1061,7 @@ void TcmallocSlab<NumClasses>::Init(
   Slabs* slabs = static_cast<Slabs*>(alloc(mem_size, kPhysicalPageAlign));
   // MSan does not see writes in assembly.
   ANNOTATE_MEMORY_IS_INITIALIZED(slabs, mem_size);
-  uintptr_t slabs_and_shift = reinterpret_cast<uintptr_t>(slabs) | shift;
-  // We assert that it's safe to use the low bits of the pointer to store shift.
-  ASSERT((slabs_and_shift & kShiftMask) == shift);
-  ASSERT(reinterpret_cast<Slabs*>(slabs_and_shift & kSlabsMask) == slabs);
-  slabs_and_shift_.store(slabs_and_shift, std::memory_order_relaxed);
+  slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
   size_t bytes_used = 0;
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
     bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
@@ -1080,7 +1095,7 @@ void TcmallocSlab<NumClasses>::Init(
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCPU(
     int cpu, absl::FunctionRef<size_t(size_t)> capacity) {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // TODO(ckennelly): Consolidate this logic with Drain.
@@ -1165,9 +1180,9 @@ void TcmallocSlab<NumClasses>::InitCPU(
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   free(slabs, GetSlabsAllocSize(shift), kPhysicalPageAlign);
-  slabs_and_shift_.store(0, std::memory_order_relaxed);
+  slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
 }
 
 template <size_t NumClasses>
@@ -1176,7 +1191,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
                                                   ShrinkHandler f) {
   ASSERT(cpu >= 0);
   ASSERT(cpu < absl::base_internal::NumCPUs());
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // Phase 1: Collect begin as it will be overwritten by the lock.
@@ -1243,7 +1258,7 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
   CHECK_CONDITION(cpu >= 0);
   CHECK_CONDITION(cpu < absl::base_internal::NumCPUs());
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // Push/Pop/Grow/Shrink can be executed concurrently with Drain.
@@ -1334,7 +1349,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
 template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
-  const auto [slabs, shift] = GetSlabsAndShift();
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   result.virtual_size = GetSlabsAllocSize(shift);
   result.resident_size = MInCore::residence(slabs, result.virtual_size);
   return result;
