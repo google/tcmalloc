@@ -182,16 +182,6 @@ class TcmallocSlab {
   }
 
  private:
-  // Since we lazily initialize our slab, we expect it to be mmap'd and not
-  // resident.  We align it to a page size so neighboring allocations (from
-  // TCMalloc's internal arena) do not necessarily cause the metadata to be
-  // faulted in.
-  //
-  // We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
-  // size to allow small-but-slow to allocate the slab in the tail of its
-  // existing Arena block.
-  static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
-
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store
   // both together in an atomic SlabsAndShift, which manages the bit operations.
@@ -246,30 +236,46 @@ class TcmallocSlab {
     void Lock();
   };
 
+  // We cast Header to std::atomic<int64_t>.
+  static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
+                "bad Header size");
+
+  // Since we lazily initialize our slab, we expect it to be mmap'd and not
+  // resident.  We align it to a page size so neighboring allocations (from
+  // TCMalloc's internal arena) do not necessarily cause the metadata to be
+  // faulted in.
+  //
+  // We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
+  // size to allow small-but-slow to allocate the slab in the tail of its
+  // existing Arena block.
+  static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
+
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
   std::pair<Slabs*, size_t> GetSlabsAndShift(std::memory_order order) const {
     return slabs_and_shift_.load(order).Get();
   }
 
-  // We cast Header to std::atomic<int64_t>.
-  static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
-                "bad Header size");
+  static Slabs* CpuMemoryStart(Slabs* slabs, size_t shift, int cpu);
+  static std::atomic<int64_t>* GetHeader(Slabs* slabs, size_t shift, int cpu,
+                                         size_t cl);
+  static Header LoadHeader(std::atomic<int64_t>* hdrp);
+  static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
+  static void LockHeader(Slabs* slabs, size_t shift, int cpu, size_t cl);
+  static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
+                                  Header old, Header hdr,
+                                  size_t virtual_cpu_id_offset);
+  // Stops concurrent mutations from occurring for <cpu> by locking the
+  // corresponding headers. All allocations/deallocations will miss this cache
+  // for <cpu> until the headers are unlocked.
+  static void StopConcurrentMutations(Slabs* slabs, size_t shift, int cpu,
+                                      size_t virtual_cpu_id_offset);
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
   // This is in units of bytes.
   size_t virtual_cpu_id_offset_ = offsetof(kernel_rseq, cpu_id);
-
-  static Slabs* CpuMemoryStart(Slabs* slabs, size_t shift, int cpu);
-  static std::atomic<int64_t>* GetHeader(Slabs* slabs, size_t shift, int cpu,
-                                         size_t cl);
-  static Header LoadHeader(std::atomic<int64_t>* hdrp);
-  static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
-  static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
-                                  Header old, Header hdr,
-                                  size_t virtual_cpu_id_offset);
 };
 
 template <size_t NumClasses>
@@ -1014,6 +1020,16 @@ inline void TcmallocSlab<NumClasses>::StoreHeader(std::atomic<int64_t>* hdrp,
 }
 
 template <size_t NumClasses>
+inline void TcmallocSlab<NumClasses>::LockHeader(Slabs* slabs, size_t shift,
+                                                 int cpu, size_t cl) {
+  // Note: this reinterpret_cast and write in Lock lead to undefined
+  // behavior, because the actual object type is std::atomic<int64_t>. But
+  // C++ does not allow to legally express what we need here: atomic writes
+  // of different sizes.
+  reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, cl))->Lock();
+}
+
+template <size_t NumClasses>
 inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
     int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
     const size_t virtual_cpu_id_offset) {
@@ -1026,6 +1042,26 @@ inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
 #else
   Crash(kCrash, __FILE__, __LINE__, "This architecture is not supported.");
 #endif
+}
+
+template <size_t NumClasses>
+inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
+    Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset) {
+  for (bool done = false; !done;) {
+    for (size_t cl = 0; cl < NumClasses; ++cl) {
+      LockHeader(slabs, shift, cpu, cl);
+    }
+    FenceCpu(cpu, virtual_cpu_id_offset);
+    done = true;
+    for (size_t cl = 0; cl < NumClasses; ++cl) {
+      Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+      if (!hdr.IsLocked()) {
+        // Header was overwritten by Grow/Shrink. Retry.
+        done = false;
+        break;
+      }
+    }
+  }
 }
 
 template <size_t NumClasses>
@@ -1098,34 +1134,15 @@ void TcmallocSlab<NumClasses>::InitCPU(
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
-  // TODO(ckennelly): Consolidate this logic with Drain.
   // Phase 1: verify no header is locked
   for (size_t cl = 0; cl < NumClasses; ++cl) {
     Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
     CHECK_CONDITION(!hdr.IsLocked());
   }
 
-  // Phase 2: Stop concurrent mutations.  Locking ensures that there exists no
-  // value of current such that begin < current.
-  for (bool done = false; !done;) {
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      // Note: this reinterpret_cast and write in Lock lead to undefined
-      // behavior, because the actual object type is std::atomic<int64_t>. But
-      // C++ does not allow to legally express what we need here: atomic writes
-      // of different sizes.
-      reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, cl))->Lock();
-    }
-    FenceCpu(cpu, virtual_cpu_id_offset);
-    done = true;
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
-      if (!hdr.IsLocked()) {
-        // Header was overwritten by Grow/Shrink. Retry.
-        done = false;
-        break;
-      }
-    }
-  }
+  // Phase 2: stop concurrent mutations for <cpu>. Locking ensures that there
+  // exists no value of current such that begin < current.
+  StopConcurrentMutations(slabs, shift, cpu, virtual_cpu_id_offset);
 
   // Phase 3: Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
@@ -1200,18 +1217,13 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
   CHECK_CONDITION(!hdr.IsLocked());
   const uint16_t begin = hdr.begin;
 
-  // Phase 2: stop concurrent mutations.
-  for (bool done = false; !done;) {
-    reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, cl))->Lock();
+  // Phase 2: stop concurrent mutations for <cpu> for size class <cl>.
+  do {
+    LockHeader(slabs, shift, cpu, cl);
     FenceCpu(cpu, virtual_cpu_id_offset);
-    done = true;
-
     hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
-    if (!hdr.IsLocked()) {
-      // Header was overwritten by Grow/Shrink. Retry.
-      done = false;
-    }
-  }
+    // If the header was overwritten in Grow/Shrink, then we need to try again.
+  } while (!hdr.IsLocked());
 
   // Phase 3: If we do not have len number of items to shrink, we try
   // to pop items from the list first to create enough capacity that can be
@@ -1280,26 +1292,8 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
     begin[cl] = hdr.begin;
   }
 
-  // Phase 2: stop concurrent mutations.
-  for (bool done = false; !done;) {
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      // Note: this reinterpret_cast and write in Lock lead to undefined
-      // behavior, because the actual object type is std::atomic<int64_t>. But
-      // C++ does not allow to legally express what we need here: atomic writes
-      // of different sizes.
-      reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, cl))->Lock();
-    }
-    FenceCpu(cpu, virtual_cpu_id_offset);
-    done = true;
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
-      if (!hdr.IsLocked()) {
-        // Header was overwritten by Grow/Shrink. Retry.
-        done = false;
-        break;
-      }
-    }
-  }
+  // Phase 2: stop concurrent mutations for <cpu>.
+  StopConcurrentMutations(slabs, shift, cpu, virtual_cpu_id_offset);
 
   // Phase 3: execute callbacks.
   for (size_t cl = 0; cl < NumClasses; ++cl) {
