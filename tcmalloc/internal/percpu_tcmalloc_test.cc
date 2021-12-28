@@ -27,6 +27,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/call_once.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_set.h"
@@ -101,9 +102,6 @@ constexpr size_t kStressCapacity = 4;
 
 constexpr size_t kShift = 18;
 typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
-
-void* const kOverflowArg = absl::bit_cast<void*>(uintptr_t{0x12341234});
-void* const kUnderflowArg = absl::bit_cast<void*>(uintptr_t{0x43214321});
 
 class TcmallocSlabTest : public testing::Test {
  public:
@@ -463,12 +461,30 @@ TEST_F(TcmallocSlabTest, Unit) {
   }
 }
 
+static size_t get_capacity(size_t size_class) {
+  return size_class < kStressSlabs ? kStressCapacity : 0;
+}
+
+struct Context {
+  TcmallocSlab* slab;
+  std::vector<void*>* block;
+  std::atomic<size_t>* capacity;
+  absl::Span<absl::once_flag> init;
+};
+
+static void InitCpuOnce(Context& ctx, int cpu) {
+  absl::base_internal::LowLevelCallOnce(
+      &ctx.init[cpu], [&]() { ctx.slab->InitCPU(cpu, get_capacity); });
+}
+
 static void StressThread(size_t thread_id, TcmallocSlab* slab,
                          std::vector<void*>* block,
                          std::vector<absl::Mutex>* mutexes,
-                         std::atomic<size_t>* capacity,
-                         std::atomic<bool>* stop) {
+                         std::atomic<size_t>* capacity, std::atomic<bool>* stop,
+                         absl::Span<absl::once_flag> init) {
   EXPECT_TRUE(IsFast());
+
+  Context ctx{slab, block, capacity, init};
 
   struct Handler {
     static int Overflow(int cpu, size_t cl, void* item, void* arg) {
@@ -476,7 +492,8 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       EXPECT_LT(cpu, absl::base_internal::NumCPUs());
       EXPECT_LT(cl, kStressSlabs);
       EXPECT_NE(item, nullptr);
-      EXPECT_EQ(arg, kOverflowArg);
+      Context& ctx = *static_cast<Context*>(arg);
+      InitCpuOnce(ctx, cpu);
       return -1;
     }
 
@@ -484,8 +501,10 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       EXPECT_GE(cpu, 0);
       EXPECT_LT(cpu, absl::base_internal::NumCPUs());
       EXPECT_LT(cl, kStressSlabs);
-      EXPECT_EQ(arg, kUnderflowArg);
-      return nullptr;
+      Context& ctx = *static_cast<Context*>(arg);
+      InitCpuOnce(ctx, cpu);
+      // Return arg as a sentinel that we reached underflow.
+      return arg;
     }
   };
 
@@ -495,12 +514,18 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
     const int what = absl::Uniform<int32_t>(rnd, 0, 91);
     if (what < 10) {
       if (!block->empty()) {
-        if (slab->Push(cl, block->back(), &Handler::Overflow, kOverflowArg)) {
+        if (slab->Push(cl, block->back(), &Handler::Overflow, &ctx)) {
           block->pop_back();
         }
       }
     } else if (what < 20) {
-      if (void* item = slab->Pop(cl, &Handler::Underflow, kUnderflowArg)) {
+      void* item = slab->Pop(cl, &Handler::Underflow, &ctx);
+      // The test Handler::Underflow returns arg (&ctx) when run.  This is not a
+      // valid item and should not be pushed to block, but it allows us to test
+      // that we never return a null item which could be indicative of a bug in
+      // lazy InitCPU initialization (b/148973091, b/147974701).
+      EXPECT_NE(item, nullptr);
+      if (item != &ctx) {
         block->push_back(item);
       }
     } else if (what < 30) {
@@ -540,15 +565,23 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
         }
       }
       if (n != 0) {
-        size_t res = slab->Grow(slab->GetCurrentVirtualCpuUnsafe(), cl, n,
-                                kStressCapacity);
+        const int cpu = slab->GetCurrentVirtualCpuUnsafe();
+        // Grow mutates the header array and must be operating on an initialized
+        // core.
+        InitCpuOnce(ctx, cpu);
+
+        size_t res = slab->Grow(cpu, cl, n, kStressCapacity);
         EXPECT_LE(res, n);
         capacity->fetch_add(n - res);
       }
     } else if (what < 60) {
-      size_t n =
-          slab->Shrink(slab->GetCurrentVirtualCpuUnsafe(), cl,
-                       absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1);
+      const int cpu = slab->GetCurrentVirtualCpuUnsafe();
+      // Shrink mutates the header array and must be operating on an initialized
+      // core.
+      InitCpuOnce(ctx, cpu);
+
+      size_t n = slab->Shrink(
+          cpu, cl, absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1);
       capacity->fetch_add(n);
     } else if (what < 70) {
       size_t len = slab->Length(
@@ -559,13 +592,12 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
           absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs()), cl);
       EXPECT_LE(cap, kStressCapacity);
     } else if (what < 90) {
-      struct Context {
-        std::vector<void*>* block;
-      };
-      Context ctx = {
-          block,
-      };
       int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+
+      // ShrinkOtherCache mutates the header array and must be operating on an
+      // initialized core.
+      InitCpuOnce(ctx, cpu);
+
       if (mutexes->at(cpu).TryLock()) {
         size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
         size_t total_shrunk = slab->ShrinkOtherCache(
@@ -585,14 +617,13 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
         mutexes->at(cpu).Unlock();
       }
     } else {
-      struct Context {
-        std::vector<void*>* block;
-        std::atomic<size_t>* capacity;
-      };
-      Context ctx = {block, capacity};
       int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
       // Flip coin on whether to unregister rseq on this thread.
       const bool unregister = absl::Bernoulli(rnd, 0.5);
+
+      // Drain mutates the header array and must be operating on an initialized
+      // core.
+      InitCpuOnce(ctx, cpu);
 
       if (mutexes->at(cpu).TryLock()) {
         absl::optional<ScopedUnregisterRseq> scoped_rseq;
@@ -641,15 +672,12 @@ TEST(TcmallocSlab, Stress) {
 
   EXPECT_LE(kStressSlabs, kStressSlabs);
   TcmallocSlab slab;
-  const auto get_capacity = [](size_t cl) {
-    return cl < kStressSlabs ? kStressCapacity : 0;
-  };
   slab.Init(allocator, get_capacity, kShift);
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-    slab.InitCPU(cpu, get_capacity);
-  }
   std::vector<std::thread> threads;
   const int n_threads = 2 * absl::base_internal::NumCPUs();
+
+  // once_flag's protect InitCPU on a CPU
+  std::vector<absl::once_flag> init(absl::base_internal::NumCPUs());
 
   // Mutexes protect Drain operation on a CPU.
   std::vector<absl::Mutex> mutexes(absl::base_internal::NumCPUs());
@@ -668,7 +696,7 @@ TEST(TcmallocSlab, Stress) {
   threads.reserve(n_threads);
   for (size_t t = 0; t < n_threads; ++t) {
     threads.push_back(std::thread(StressThread, t, &slab, &blocks[t], &mutexes,
-                                  &capacity, &stop));
+                                  &capacity, &stop, absl::MakeSpan(init)));
   }
   absl::SleepFor(absl::Seconds(5));
   stop = true;

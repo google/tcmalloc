@@ -101,6 +101,9 @@ class TcmallocSlab {
 
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <cl>.
+  //
+  // Prior to InitCPU being called on a particular `cpu`, non-const operations
+  // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCPU(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
   // For tests.
@@ -1175,6 +1178,9 @@ void TcmallocSlab<NumClasses>::InitCPU(
 
   // Phase 4: Store current.  No restartable sequence will proceed
   // (successfully) as !(begin < current) for all size classes.
+  //
+  // We must write current and complete a fence before storing begin and end
+  // (b/147974701).
   for (size_t cl = 0; cl < NumClasses; ++cl) {
     std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
     Header hdr = LoadHeader(hdrp);
