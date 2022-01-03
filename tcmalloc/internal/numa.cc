@@ -52,7 +52,8 @@ int OpenSysfsCpulist(size_t node) {
   return signal_safe_open(path, O_RDONLY | O_CLOEXEC);
 }
 
-cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char*, size_t)> read) {
+absl::optional<cpu_set_t> ParseCpulist(
+    absl::FunctionRef<ssize_t(char*, size_t)> read) {
   cpu_set_t set;
   CPU_ZERO(&set);
 
@@ -62,7 +63,9 @@ cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char*, size_t)> read) {
 
   while (true) {
     const ssize_t rc = read(buf.data() + carry_over, buf.size() - carry_over);
-    CHECK_CONDITION(rc >= 0);
+    if (ABSL_PREDICT_FALSE(rc < 0)) {
+      return absl::nullopt;
+    }
 
     const absl::string_view current(buf.data(), carry_over + rc);
 
@@ -76,11 +79,15 @@ cpu_set_t ParseCpulist(absl::FunctionRef<ssize_t(char*, size_t)> read) {
     const size_t dash = current.find('-');
     const size_t comma = current.find(',');
     if (dash != absl::string_view::npos && dash < comma) {
-      CHECK_CONDITION(absl::SimpleAtoi(current.substr(0, dash), &cpu_from));
+      if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from)) {
+        return absl::nullopt;
+      }
       consumed = dash + 1;
     } else if (comma != absl::string_view::npos || rc == 0) {
       int cpu;
-      CHECK_CONDITION(absl::SimpleAtoi(current.substr(0, comma), &cpu));
+      if (!absl::SimpleAtoi(current.substr(0, comma), &cpu)) {
+        return absl::nullopt;
+      }
       if (comma == absl::string_view::npos) {
         consumed = current.size();
       } else {
@@ -191,21 +198,25 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     }
 
     // Parse the cpulist file to determine which CPUs are local to this node.
-    const cpu_set_t node_cpus =
+    const absl::optional<cpu_set_t> node_cpus =
         ParseCpulist([&](char* const buf, const size_t count) {
           return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
         });
+    // We are on the same side of an airtight hatchway as the kernel, but we
+    // want to know if we can no longer parse the values the kernel is
+    // providing.
+    CHECK_CONDITION(node_cpus.has_value());
 
     // Assign local CPUs to the appropriate partition.
     for (size_t cpu = 0; cpu < CPU_SETSIZE; cpu++) {
-      if (CPU_ISSET(cpu, &node_cpus)) {
+      if (CPU_ISSET(cpu, &*node_cpus)) {
         cpu_to_scaled_partition[cpu + kNumaCpuFudge] = partition * scale_by;
       }
     }
 
     // If we observed any CPUs for this node then we've now got CPUs assigned
     // to a non-zero partition; report that we're NUMA aware.
-    if (CPU_COUNT(&node_cpus) != 0) {
+    if (CPU_COUNT(&*node_cpus) != 0) {
       numa_aware = true;
     }
 

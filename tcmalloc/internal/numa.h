@@ -20,6 +20,7 @@
 #include <sys/types.h>
 
 #include "absl/functional/function_ref.h"
+#include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/percpu.h"
 
@@ -145,11 +146,13 @@ int OpenSysfsCpulist(size_t node);
 // numbers or ranges in the format <start>-<end> inclusive all joined by comma
 // characters.
 //
+// Returns absl::nullopt on error.
+//
 // The read function is expected to operate much like the read syscall. It
 // should read up to `count` bytes into `buf` and return the number of bytes
 // actually read. If an error occurs during reading it should return -1 with
 // errno set to an appropriate error code.
-cpu_set_t ParseCpulist(
+absl::optional<cpu_set_t> ParseCpulist(
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 
 // Initialize the data members of a NumaTopology<> instance.

@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
@@ -258,7 +259,7 @@ TEST(ParseCpulistTest, Random) {
     // Now parse that string using our ParseCpulist function, randomizing the
     // amount of data we provide to it from each read.
     absl::string_view remaining(serialized);
-    const cpu_set_t parsed =
+    const absl::optional<cpu_set_t> parsed =
         ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
           // Calculate how much data we have left to provide.
           const size_t max = std::min(count, remaining.size());
@@ -275,7 +276,8 @@ TEST(ParseCpulistTest, Random) {
         });
 
     // We ought to have parsed the same set of CPUs that we serialized.
-    EXPECT_TRUE(CPU_EQUAL(&parsed, &reference));
+    ASSERT_THAT(parsed, testing::Ne(absl::nullopt));
+    EXPECT_TRUE(CPU_EQUAL(&*parsed, &reference));
   }
 }
 
