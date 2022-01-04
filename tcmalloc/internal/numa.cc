@@ -74,6 +74,9 @@ absl::optional<cpu_set_t> ParseCpulist(
     if (current.empty() && rc == 0) {
       break;
     }
+    if (current == "\n" && rc == 0) {
+      break;
+    }
 
     size_t consumed;
     const size_t dash = current.find('-');

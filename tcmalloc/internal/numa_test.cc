@@ -173,6 +173,26 @@ TEST_F(NumaTopologyTest, TwoNode) {
   }
 }
 
+// Confirm that an empty node parses correctly (b/212827142).
+TEST_F(NumaTopologyTest, EmptyNode) {
+  std::vector<SyntheticCpuList> nodes;
+  nodes.emplace_back("0-5");
+  nodes.emplace_back("");
+  nodes.emplace_back("6-11");
+
+  const auto nt = CreateNumaTopology<3>(nodes);
+
+  EXPECT_EQ(nt.numa_aware(), true);
+  EXPECT_EQ(nt.active_partitions(), 3);
+
+  for (int cpu = 0; cpu <= 5; cpu++) {
+    EXPECT_EQ(nt.GetCpuPartition(cpu), 0);
+  }
+  for (int cpu = 6; cpu <= 11; cpu++) {
+    EXPECT_EQ(nt.GetCpuPartition(cpu), 2);
+  }
+}
+
 // Test that cpulists too long to fit into the 16 byte buffer used by
 // InitNumaTopology() parse successfully.
 TEST_F(NumaTopologyTest, LongCpuLists) {
@@ -217,6 +237,27 @@ TEST_F(NumaTopologyTest, Host) {
 
   // We don't actually know anything about the host, so there's not much more
   // we can do beyond checking that we didn't crash.
+}
+
+TEST(ParseCpulistTest, Empty) {
+  absl::string_view empty("\n");
+
+  const absl::optional<cpu_set_t> parsed =
+      ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+        // Calculate how much data we have left to provide.
+        const size_t to_copy = std::min(count, empty.size());
+
+        // If none, we have no choice but to provide nothing.
+        if (to_copy == 0) return 0;
+
+        memcpy(buf, empty.data(), to_copy);
+        empty.remove_prefix(to_copy);
+        return to_copy;
+      });
+
+  // No CPUs should be active on this NUMA node.
+  ASSERT_THAT(parsed, testing::Ne(absl::nullopt));
+  EXPECT_EQ(CPU_COUNT(&*parsed), 0);
 }
 
 // Ensure that we can parse randomized cpulists correctly.
