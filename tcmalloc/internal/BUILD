@@ -14,6 +14,7 @@
 #
 # Internal libraries used for the implementation and testing of TCMalloc.
 
+load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 load("@rules_cc//cc:defs.bzl", "cc_proto_library")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
@@ -403,6 +404,16 @@ cc_library(
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
+    ],
+)
+
+cc_fuzz_test(
+    name = "numa_fuzz",
+    testonly = 1,
+    srcs = ["numa_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":numa",
     ],
 )
 
