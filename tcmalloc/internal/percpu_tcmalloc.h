@@ -196,7 +196,7 @@ class TcmallocSlab {
     static constexpr size_t kSlabsMask = ~kShiftMask;
 
    public:
-    constexpr explicit SlabsAndShift() : raw_(0) {}
+    constexpr explicit SlabsAndShift() noexcept : raw_(0) {}
     SlabsAndShift(const Slabs* slabs, size_t shift)
         : raw_(reinterpret_cast<uintptr_t>(slabs) | shift) {
       ASSERT((raw_ & kShiftMask) == shift);
