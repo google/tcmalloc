@@ -367,7 +367,7 @@ Small pages are better able to handle the memory requirements of the application
 with less overhead. For example, a half-used 4KiB page will have 2KiB left over
 versus a 32KiB page which would have 16KiB. Small pages are also more likely to
 become free. For example, a 4KiB page can hold eight 512-byte objects versus 64
-objects on a 32KiB page; and there is much less chance of 32 objects being free
+objects on a 32KiB page; and there is much less chance of 64 objects being free
 at the same time than there is of eight becoming free.
 
 Large pages result in less need to fetch and return memory from the back-end. A
