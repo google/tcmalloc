@@ -81,12 +81,7 @@ struct StackTrace {
         a.cold_allocated != b.cold_allocated) {
       return false;
     }
-    for (int i = 0; i < b.depth; ++i) {
-      if (a.stack[i] != b.stack[i]) {
-        return false;
-      }
-    }
-    return true;
+    return std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
   }
 
   template <typename H>

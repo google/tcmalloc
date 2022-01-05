@@ -102,6 +102,7 @@ create_tcmalloc_testsuite(
 create_tcmalloc_benchmark_suite(
     name = "tcmalloc_benchmark",
     srcs = ["tcmalloc_benchmark.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//visibility:private",
     ],
