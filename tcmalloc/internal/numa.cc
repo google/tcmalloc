@@ -52,6 +52,10 @@ int OpenSysfsCpulist(size_t node) {
   return signal_safe_open(path, O_RDONLY | O_CLOEXEC);
 }
 
+namespace {
+bool IsInBounds(int cpu) { return 0 <= cpu && cpu < CPU_SETSIZE; }
+}  // namespace
+
 absl::optional<cpu_set_t> ParseCpulist(
     absl::FunctionRef<ssize_t(char*, size_t)> read) {
   cpu_set_t set;
@@ -82,13 +86,15 @@ absl::optional<cpu_set_t> ParseCpulist(
     const size_t dash = current.find('-');
     const size_t comma = current.find(',');
     if (dash != absl::string_view::npos && dash < comma) {
-      if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from)) {
+      if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from) ||
+          !IsInBounds(cpu_from)) {
         return absl::nullopt;
       }
       consumed = dash + 1;
     } else if (comma != absl::string_view::npos || rc == 0) {
       int cpu;
-      if (!absl::SimpleAtoi(current.substr(0, comma), &cpu)) {
+      if (!absl::SimpleAtoi(current.substr(0, comma), &cpu) ||
+          !IsInBounds(cpu)) {
         return absl::nullopt;
       }
       if (comma == absl::string_view::npos) {

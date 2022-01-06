@@ -260,6 +260,25 @@ TEST(ParseCpulistTest, Empty) {
   EXPECT_EQ(CPU_COUNT(&*parsed), 0);
 }
 
+TEST(ParseCpulistTest, NotInBounds) {
+  std::string cpulist = absl::StrCat("0-", CPU_SETSIZE);
+
+  const absl::optional<cpu_set_t> parsed =
+      ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+        // Calculate how much data we have left to provide.
+        const size_t to_copy = std::min(count, cpulist.size());
+
+        // If none, we have no choice but to provide nothing.
+        if (to_copy == 0) return 0;
+
+        memcpy(buf, cpulist.data(), to_copy);
+        cpulist.erase(0, to_copy);
+        return to_copy;
+      });
+
+  ASSERT_THAT(parsed, testing::Eq(absl::nullopt));
+}
+
 // Ensure that we can parse randomized cpulists correctly.
 TEST(ParseCpulistTest, Random) {
   absl::BitGen gen;
