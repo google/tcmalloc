@@ -707,7 +707,7 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
       [](CPUCache* cache, int cpu) {
         {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCPU(
+          cache->freelist_.InitCpu(
               cpu, [cache](size_t cl) { return cache->max_capacity_[cl]; });
         }
 
@@ -1324,7 +1324,7 @@ inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   // If we haven't populated this core, freelist_.Drain() will touch the memory
   // (for writing) as part of its locking process.  Avoid faulting new pages as
   // part of a release process.
-  if (!resize_[cpu].populated.load(std::memory_order_relaxed)) {
+  if (!HasPopulated(cpu)) {
     return 0;
   }
 

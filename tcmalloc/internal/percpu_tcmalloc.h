@@ -69,8 +69,8 @@ namespace subtle {
 namespace percpu {
 
 // The allocation size for the slabs array.
-inline size_t GetSlabsAllocSize(size_t shift) {
-  return static_cast<size_t>(absl::base_internal::NumCPUs()) << shift;
+inline size_t GetSlabsAllocSize(size_t shift, int num_cpus) {
+  return static_cast<size_t>(num_cpus) << shift;
 }
 
 // Tcmalloc slab for per-cpu caching mode.
@@ -102,9 +102,9 @@ class TcmallocSlab {
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <cl>.
   //
-  // Prior to InitCPU being called on a particular `cpu`, non-const operations
+  // Prior to InitCpu being called on a particular `cpu`, non-const operations
   // other than Push/Pop/PushBatch/PopBatch are invalid.
-  void InitCPU(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
+  void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
   // For tests.
   void Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
@@ -127,12 +127,12 @@ class TcmallocSlab {
   size_t Shrink(int cpu, size_t cl, size_t len);
 
   // Add an item (which must be non-zero) to the current CPU's slab. Returns
-  // true if add succeeds. Otherwise invokes <f> and returns false (assuming
-  // that <f> returns negative value).
+  // true if add succeeds. Otherwise invokes <overflow_handler> and returns
+  // false (assuming that <overflow_handler> returns negative value).
   bool Push(size_t cl, void* item, OverflowHandler overflow_handler, void* arg);
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
-  // invokes <f> and returns its result.
+  // invokes <underflow_handler> and returns its result.
   void* Pop(size_t cl, UnderflowHandler underflow_handler, void* arg);
 
   // Add up to <len> items to the current cpu slab from the array located at
@@ -157,7 +157,7 @@ class TcmallocSlab {
   // REQUIRES: len > 0.
   typedef void (*ShrinkHandler)(void* arg, size_t cl, void** batch, size_t n);
   size_t ShrinkOtherCache(int cpu, size_t cl, size_t len, void* shrink_ctx,
-                          ShrinkHandler f);
+                          ShrinkHandler shrink_handler);
 
   // Remove all items (of all classes) from <cpu>'s slab; reset capacity for all
   // classes to zero.  Then, for each sizeclass, invoke
@@ -167,7 +167,7 @@ class TcmallocSlab {
   // Push/Pop/Grow/Shrink concurrently (even on the same CPU) is safe.
   typedef void (*DrainHandler)(void* drain_ctx, size_t cl, void** batch,
                                size_t n, size_t cap);
-  void Drain(int cpu, void* drain_ctx, DrainHandler f);
+  void Drain(int cpu, void* drain_ctx, DrainHandler drain_handler);
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
@@ -259,6 +259,9 @@ class TcmallocSlab {
     return slabs_and_shift_.load(order).Get();
   }
 
+  static Slabs* AllocSlabs(
+      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, size_t shift,
+      int num_cpus);
   static Slabs* CpuMemoryStart(Slabs* slabs, size_t shift, int cpu);
   static std::atomic<int64_t>* GetHeader(Slabs* slabs, size_t shift, int cpu,
                                          size_t cl);
@@ -268,6 +271,9 @@ class TcmallocSlab {
   static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
                                   Header old, Header hdr,
                                   size_t virtual_cpu_id_offset);
+  // <begins> is an array of the <begin> values for each size class.
+  static void DrainCpu(Slabs* slabs, size_t shift, int cpu, uint16_t* begins,
+                       void* drain_ctx, DrainHandler drain_handler);
   // Stops concurrent mutations from occurring for <cpu> by locking the
   // corresponding headers. All allocations/deallocations will miss this cache
   // for <cpu> until the headers are unlocked.
@@ -996,6 +1002,17 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
 }
 
 template <size_t NumClasses>
+inline auto TcmallocSlab<NumClasses>::AllocSlabs(
+    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, size_t shift,
+    int num_cpus) -> Slabs* {
+  const size_t size = GetSlabsAllocSize(shift, num_cpus);
+  Slabs* slabs = static_cast<Slabs*>(alloc(size, kPhysicalPageAlign));
+  // MSan does not see writes in assembly.
+  ANNOTATE_MEMORY_IS_INITIALIZED(slabs, size);
+  return slabs;
+}
+
+template <size_t NumClasses>
 inline auto TcmallocSlab<NumClasses>::CpuMemoryStart(Slabs* slabs, size_t shift,
                                                      int cpu) -> Slabs* {
   char* const bytes = reinterpret_cast<char*>(slabs);
@@ -1048,6 +1065,22 @@ inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
 }
 
 template <size_t NumClasses>
+inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, size_t shift,
+                                               int cpu, uint16_t* begins,
+                                               void* drain_ctx,
+                                               DrainHandler drain_handler) {
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    Header header = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
+    const size_t size = header.current - begins[size_class];
+    const size_t cap = header.end_copy - begins[size_class];
+    void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
+                                            begins[size_class]);
+    TSANAcquireBatch(batch, size);
+    drain_handler(drain_ctx, size_class, batch, size, cap);
+  }
+}
+
+template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
     Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset) {
   for (bool done = false; !done;) {
@@ -1096,13 +1129,11 @@ void TcmallocSlab<NumClasses>::Init(
   }
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
-  const size_t mem_size = GetSlabsAllocSize(shift);
-  Slabs* slabs = static_cast<Slabs*>(alloc(mem_size, kPhysicalPageAlign));
-  // MSan does not see writes in assembly.
-  ANNOTATE_MEMORY_IS_INITIALIZED(slabs, mem_size);
+  const int num_cpus = absl::base_internal::NumCPUs();
+  Slabs* slabs = AllocSlabs(alloc, shift, num_cpus);
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
   size_t bytes_used = 0;
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
     bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
     void** elems = CpuMemoryStart(slabs, shift, cpu)->mem;
 
@@ -1125,14 +1156,15 @@ void TcmallocSlab<NumClasses>::Init(
     }
   }
   // Check for less than 90% usage of the reserved memory
-  if (bytes_used * 10 < 9 * mem_size) {
+  if (size_t mem_size = GetSlabsAllocSize(shift, num_cpus);
+      bytes_used * 10 < 9 * mem_size) {
     Log(kLog, __FILE__, __LINE__, "Bytes used per cpu of available", bytes_used,
         mem_size);
   }
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::InitCPU(
+void TcmallocSlab<NumClasses>::InitCpu(
     int cpu, absl::FunctionRef<size_t(size_t)> capacity) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
@@ -1204,14 +1236,15 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift), kPhysicalPageAlign);
+  free(slabs, GetSlabsAllocSize(shift, absl::base_internal::NumCPUs()),
+       kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
 }
 
 template <size_t NumClasses>
-size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
-                                                  size_t len, void* ctx,
-                                                  ShrinkHandler f) {
+size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
+    int cpu, size_t cl, size_t len, void* shrink_ctx,
+    ShrinkHandler shrink_handler) {
   ASSERT(cpu >= 0);
   ASSERT(cpu < absl::base_internal::NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1254,7 +1287,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
     void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
                                             hdr.current - actual_pop);
     TSANAcquireBatch(batch, actual_pop);
-    f(ctx, cl, batch, actual_pop);
+    shrink_handler(shrink_ctx, cl, batch, actual_pop);
     hdr.current -= actual_pop;
     StoreHeader(hdrp, hdr);
     FenceCpu(cpu, virtual_cpu_id_offset);
@@ -1273,7 +1306,8 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(int cpu, size_t cl,
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
+void TcmallocSlab<NumClasses>::Drain(int cpu, void* drain_ctx,
+                                     DrainHandler drain_handler) {
   CHECK_CONDITION(cpu >= 0);
   CHECK_CONDITION(cpu < absl::base_internal::NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1302,17 +1336,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* ctx, DrainHandler f) {
   StopConcurrentMutations(slabs, shift, cpu, virtual_cpu_id_offset);
 
   // Phase 3: execute callbacks.
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
-    // We overwrote begin and end, instead we use our local copy of begin
-    // and end_copy.
-    size_t n = hdr.current - begin[cl];
-    size_t cap = hdr.end_copy - begin[cl];
-    void** batch =
-        reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) + begin[cl]);
-    TSANAcquireBatch(batch, n);
-    f(ctx, cl, batch, n, cap);
-  }
+  DrainCpu(slabs, shift, cpu, begin, drain_ctx, drain_handler);
 
   // Phase 4: reset current to beginning of the region.
   // We can't write all 4 fields at once with a single write, because Pop does
@@ -1350,7 +1374,8 @@ template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  result.virtual_size = GetSlabsAllocSize(shift);
+  result.virtual_size =
+      GetSlabsAllocSize(shift, absl::base_internal::NumCPUs());
   result.resident_size = MInCore::residence(slabs, result.virtual_size);
   return result;
 }

@@ -206,7 +206,7 @@ TEST_F(TcmallocSlabTest, Metadata) {
 
   // Initialize a core.  Verify that the increased RSS is proportional to a
   // core.
-  slab_.InitCPU(0, [](size_t cl) { return kCapacity; });
+  slab_.InitCpu(0, [](size_t cl) { return kCapacity; });
 
   r = slab_.MetadataMemoryUsage();
   // We may fault a whole hugepage, so round up the expected per-core share to
@@ -274,7 +274,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         void* ptr = slab_.Pop(
             cl,
             [](int cpu, size_t cl, void* arg) {
-              static_cast<TcmallocSlab*>(arg)->InitCPU(
+              static_cast<TcmallocSlab*>(arg)->InitCpu(
                   cpu, [](size_t cl) { return kCapacity; });
 
               return arg;
@@ -344,19 +344,20 @@ TEST_F(TcmallocSlabTest, Unit) {
       };
       Context ctx{this, cl};
 
-      slab_.Drain(cpu, &ctx,
-                  [](void* ctx, size_t cl, void** batch, size_t n, size_t cap) {
-                    const Context& c = *static_cast<Context*>(ctx);
-                    if (cl == c.size_class) {
-                      ASSERT_EQ(n, 2);
-                      ASSERT_EQ(cap, 4);
-                      ASSERT_EQ(batch[0], &c.test_slab->objects_[0]);
-                      ASSERT_EQ(batch[1], &c.test_slab->objects_[1]);
-                    } else {
-                      ASSERT_EQ(n, 0);
-                      ASSERT_EQ(cap, 0);
-                    }
-                  });
+      slab_.Drain(
+          cpu, &ctx,
+          [](void* ctx, size_t cl, void** batch, size_t size, size_t cap) {
+            const Context& c = *static_cast<Context*>(ctx);
+            if (cl == c.size_class) {
+              ASSERT_EQ(size, 2);
+              ASSERT_EQ(cap, 4);
+              ASSERT_EQ(batch[0], &c.test_slab->objects_[0]);
+              ASSERT_EQ(batch[1], &c.test_slab->objects_[1]);
+            } else {
+              ASSERT_EQ(size, 0);
+              ASSERT_EQ(cap, 0);
+            }
+          });
       ASSERT_EQ(slab_.Length(cpu, cl), 0);
       ASSERT_EQ(slab_.Capacity(cpu, cl), 0);
 
@@ -468,23 +469,26 @@ static size_t get_capacity(size_t size_class) {
 struct Context {
   TcmallocSlab* slab;
   std::vector<void*>* block;
+  absl::Span<absl::Mutex> mutexes;
   std::atomic<size_t>* capacity;
   absl::Span<absl::once_flag> init;
 };
 
 static void InitCpuOnce(Context& ctx, int cpu) {
-  absl::base_internal::LowLevelCallOnce(
-      &ctx.init[cpu], [&]() { ctx.slab->InitCPU(cpu, get_capacity); });
+  absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
+    absl::MutexLock lock(&ctx.mutexes[cpu]);
+    ctx.slab->InitCpu(cpu, get_capacity);
+  });
 }
 
 static void StressThread(size_t thread_id, TcmallocSlab* slab,
                          std::vector<void*>* block,
-                         std::vector<absl::Mutex>* mutexes,
+                         absl::Span<absl::Mutex> mutexes,
                          std::atomic<size_t>* capacity, std::atomic<bool>* stop,
                          absl::Span<absl::once_flag> init) {
   EXPECT_TRUE(IsFast());
 
-  Context ctx{slab, block, capacity, init};
+  Context ctx{slab, block, mutexes, capacity, init};
 
   struct Handler {
     static int Overflow(int cpu, size_t cl, void* item, void* arg) {
@@ -508,6 +512,7 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
     }
   };
 
+  const int num_cpus = absl::base_internal::NumCPUs();
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*stop) {
     size_t cl = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
@@ -523,7 +528,7 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       // The test Handler::Underflow returns arg (&ctx) when run.  This is not a
       // valid item and should not be pushed to block, but it allows us to test
       // that we never return a null item which could be indicative of a bug in
-      // lazy InitCPU initialization (b/148973091, b/147974701).
+      // lazy InitCpu initialization (b/148973091, b/147974701).
       EXPECT_NE(item, nullptr);
       if (item != &ctx) {
         block->push_back(item);
@@ -584,21 +589,19 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
           cpu, cl, absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1);
       capacity->fetch_add(n);
     } else if (what < 70) {
-      size_t len = slab->Length(
-          absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs()), cl);
+      size_t len = slab->Length(absl::Uniform<int32_t>(rnd, 0, num_cpus), cl);
       EXPECT_LE(len, kStressCapacity);
     } else if (what < 80) {
-      size_t cap = slab->Capacity(
-          absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs()), cl);
+      size_t cap = slab->Capacity(absl::Uniform<int32_t>(rnd, 0, num_cpus), cl);
       EXPECT_LE(cap, kStressCapacity);
     } else if (what < 90) {
-      int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+      int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
 
       // ShrinkOtherCache mutates the header array and must be operating on an
       // initialized core.
       InitCpuOnce(ctx, cpu);
 
-      if (mutexes->at(cpu).TryLock()) {
+      if (mutexes[cpu].TryLock()) {
         size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
         size_t total_shrunk = slab->ShrinkOtherCache(
             cpu, cl, to_shrink, &ctx,
@@ -614,10 +617,10 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
         EXPECT_LE(total_shrunk, to_shrink);
         EXPECT_LE(0, total_shrunk);
         capacity->fetch_add(total_shrunk);
-        mutexes->at(cpu).Unlock();
+        mutexes[cpu].Unlock();
       }
     } else {
-      int cpu = absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+      int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
       // Flip coin on whether to unregister rseq on this thread.
       const bool unregister = absl::Bernoulli(rnd, 0.5);
 
@@ -625,7 +628,7 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       // core.
       InitCpuOnce(ctx, cpu);
 
-      if (mutexes->at(cpu).TryLock()) {
+      if (mutexes[cpu].TryLock()) {
         absl::optional<ScopedUnregisterRseq> scoped_rseq;
         if (unregister) {
           scoped_rseq.emplace();
@@ -634,18 +637,18 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
 
         slab->Drain(
             cpu, &ctx,
-            [](void* arg, size_t cl, void** batch, size_t n, size_t cap) {
+            [](void* arg, size_t cl, void** batch, size_t size, size_t cap) {
               Context* ctx = static_cast<Context*>(arg);
               EXPECT_LT(cl, kStressSlabs);
-              EXPECT_LE(n, kStressCapacity);
+              EXPECT_LE(size, kStressCapacity);
               EXPECT_LE(cap, kStressCapacity);
-              for (size_t i = 0; i < n; ++i) {
+              for (size_t i = 0; i < size; ++i) {
                 EXPECT_NE(batch[i], nullptr);
                 ctx->block->push_back(batch[i]);
               }
               ctx->capacity->fetch_add(cap);
             });
-        mutexes->at(cpu).Unlock();
+        mutexes[cpu].Unlock();
       }
 
       // Verify we re-registered with rseq as required.
@@ -674,13 +677,14 @@ TEST(TcmallocSlab, Stress) {
   TcmallocSlab slab;
   slab.Init(allocator, get_capacity, kShift);
   std::vector<std::thread> threads;
-  const int n_threads = 2 * absl::base_internal::NumCPUs();
+  const int num_cpus = absl::base_internal::NumCPUs();
+  const int n_threads = 2 * num_cpus;
 
-  // once_flag's protect InitCPU on a CPU
-  std::vector<absl::once_flag> init(absl::base_internal::NumCPUs());
+  // once_flag's protect InitCpu on a CPU
+  std::vector<absl::once_flag> init(num_cpus);
 
   // Mutexes protect Drain operation on a CPU.
-  std::vector<absl::Mutex> mutexes(absl::base_internal::NumCPUs());
+  std::vector<absl::Mutex> mutexes(num_cpus);
   // Give each thread an initial set of local objects.
   std::vector<std::vector<void*>> blocks(n_threads);
   for (size_t i = 0; i < blocks.size(); ++i) {
@@ -695,8 +699,9 @@ TEST(TcmallocSlab, Stress) {
   // Create threads and let them work for 5 seconds.
   threads.reserve(n_threads);
   for (size_t t = 0; t < n_threads; ++t) {
-    threads.push_back(std::thread(StressThread, t, &slab, &blocks[t], &mutexes,
-                                  &capacity, &stop, absl::MakeSpan(init)));
+    threads.push_back(std::thread(StressThread, t, &slab, &blocks[t],
+                                  absl::MakeSpan(mutexes), &capacity, &stop,
+                                  absl::MakeSpan(init)));
   }
   absl::SleepFor(absl::Seconds(5));
   stop = true;
@@ -710,11 +715,11 @@ TEST(TcmallocSlab, Stress) {
     std::atomic<size_t>* capacity;
   };
   Context ctx = {&objects, &capacity};
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
     slab.Drain(cpu, &ctx,
-               [](void* arg, size_t cl, void** batch, size_t n, size_t cap) {
+               [](void* arg, size_t cl, void** batch, size_t size, size_t cap) {
                  Context* ctx = static_cast<Context*>(arg);
-                 for (size_t i = 0; i < n; ++i) {
+                 for (size_t i = 0; i < size; ++i) {
                    ctx->objects->insert(batch[i]);
                  }
                  ctx->capacity->fetch_add(cap);
@@ -832,7 +837,7 @@ static void BM_PushPop(benchmark::State& state) {
     const auto get_capacity = [](size_t cl) -> size_t { return kBatchSize; };
     slab.Init(allocator, get_capacity, kShift);
     for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-      slab.InitCPU(cpu, get_capacity);
+      slab.InitCpu(cpu, get_capacity);
     }
 
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
@@ -863,7 +868,7 @@ static void BM_PushPopBatch(benchmark::State& state) {
     const auto get_capacity = [](size_t cl) -> size_t { return kBatchSize; };
     slab.Init(allocator, get_capacity, kShift);
     for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-      slab.InitCPU(cpu, get_capacity);
+      slab.InitCpu(cpu, get_capacity);
     }
     CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, kBatchSize) ==
                     kBatchSize);
