@@ -905,6 +905,7 @@ cc_test(
     srcs = ["numa_locality_test.cc"],
     copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
+    tags = ["requires-net:external"],
     deps = [
         ":testutil",
         "//tcmalloc:common_numa_aware",
