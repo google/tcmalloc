@@ -179,7 +179,8 @@ void SizeMap::Init() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     SetSizeClasses(kExperimentalPow2SizeClassesCount,
                    kExperimentalPow2SizeClasses);
-  } else if (IsExperimentActive(
+  } else if (IsExperimentActive(Experiment::TCMALLOC_POW2_BELOW_64) ||
+             IsExperimentActive(
                  Experiment::TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS)) {
     SetSizeClasses(kExperimentalPow2Below64SizeClassesCount,
                    kExperimentalPow2Below64SizeClasses);
