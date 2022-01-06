@@ -110,12 +110,6 @@ variants = [
         "copts": ["-DTCMALLOC_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
-    {
-        "name": "heterogeneous_per_cpu_cache",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_HETEROGENEOUS_CACHES"},
-    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):

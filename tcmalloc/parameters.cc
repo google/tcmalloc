@@ -47,33 +47,6 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
-// As max_cpu_cache_size() is determined at runtime, we cannot require constant
-// initialization for the atomic.  This avoids an initialization order fiasco.
-static std::atomic<int32_t>& max_cpu_cache_size() {
-  static std::atomic<int32_t> v([]() {
-    int32_t ret = kMaxCpuCacheSize;
-    // When the experiment is enabled, we reduce per-cpu cache size by half and
-    // enable TCMalloc's heterogeneous caches.
-    if (IsExperimentActive(Experiment::TCMALLOC_HETEROGENEOUS_CACHES)) {
-      ret = kMaxCpuCacheSize / 2;
-    }
-
-    return ret;
-  }());
-
-  return v;
-}
-
-// As shuffle_cpu_caches() is determined at runtime, we cannot require constant
-// initialization for the atomic.  This avoids an initialization order fiasco.
-static std::atomic<bool>& shuffle_cpu_caches() {
-  static std::atomic<bool> v([]() {
-    return IsExperimentActive(Experiment::TCMALLOC_HETEROGENEOUS_CACHES);
-  }());
-
-  return v;
-}
-
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
@@ -102,6 +75,10 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
     });
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
+ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
+    true);
+ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
+    kMaxCpuCacheSize);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -116,14 +93,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
-
-int32_t Parameters::max_per_cpu_cache_size() {
-  return max_cpu_cache_size().load(std::memory_order_relaxed);
-}
-
-bool Parameters::shuffle_per_cpu_caches() {
-  return shuffle_cpu_caches().load(std::memory_order_relaxed);
-}
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -244,13 +213,12 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 }
 
 void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::shuffle_cpu_caches().store(
-      v, std::memory_order_relaxed);
+  Parameters::shuffle_per_cpu_caches_enabled_.store(v,
+                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
-  tcmalloc::tcmalloc_internal::max_cpu_cache_size().store(
-      v, std::memory_order_relaxed);
+  Parameters::max_per_cpu_cache_size_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {

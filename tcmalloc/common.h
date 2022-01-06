@@ -115,7 +115,7 @@ inline constexpr bool kHasExpandedClasses = false;
 inline constexpr size_t kMaxSize = 8 << 10;
 inline constexpr size_t kMinThreadCacheSize = 4 * 1024;
 inline constexpr size_t kMaxThreadCacheSize = 64 * 1024;
-inline constexpr size_t kMaxCpuCacheSize = 20 * 1024;
+inline constexpr size_t kMaxCpuCacheSize = 10 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize = kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = kMinThreadCacheSize;
 inline constexpr size_t kDefaultProfileSamplingRate = 1 << 19;
@@ -127,7 +127,7 @@ inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
-inline constexpr size_t kMaxCpuCacheSize = 3 * 1024 * 1024;
+inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
@@ -140,7 +140,7 @@ inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
-inline constexpr size_t kMaxCpuCacheSize = 3 * 1024 * 1024;
+inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
@@ -153,7 +153,7 @@ inline constexpr bool kHasExpandedClasses = true;
 inline constexpr size_t kMaxSize = 256 * 1024;
 inline constexpr size_t kMinThreadCacheSize = kMaxSize * 2;
 inline constexpr size_t kMaxThreadCacheSize = 4 << 20;
-inline constexpr size_t kMaxCpuCacheSize = 3 * 1024 * 1024;
+inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;

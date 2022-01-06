@@ -93,6 +93,14 @@ each CPU, so the total amount of memory for application could be much larger
 than this. Memory on CPUs where the application is no longer able to run can be
 freed by calling `tcmalloc::MallocExtension::ReleaseCpuMemory`.
 
+The heterogeneous per-cpu cache optimization in TCMalloc dynamically sizes
+per-cpu caches so as to balance the miss rate across all the active and
+populated caches. It shuffles and reassigns the capacity from lightly used
+caches to the heavily used caches, using miss rate as the proxy for their usage.
+When enabled, the heavily used per-cpu caches may steal capacity from lightly
+used caches and grow beyond the limit set by `tcmalloc_max_per_cpu_cache_size`
+flag. This optimization is enabled by default in TCMalloc.
+
 Releasing memory held by unuable CPU caches is handled by
 `tcmalloc::MallocExtension::ProcessBackgroundActions`.
 

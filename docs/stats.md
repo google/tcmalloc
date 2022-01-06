@@ -266,7 +266,7 @@ being cached on each CPU.
 
 The first number reported is the maximum size of the per-cpu cache on each CPU.
 This corresponds to the parameter `MallocExtension::GetMaxPerCpuCacheSize()`,
-which defaults to 3MiB. [See tuning](tuning.md)
+which defaults to 1.5MiB. [See tuning](tuning.md)
 
 The following columns are reported for each CPU:
 
