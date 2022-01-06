@@ -61,6 +61,47 @@ TEST(MallocExtension, Properties) {
     // is present.
     EXPECT_THAT(scalar, testing::Ne(absl::nullopt)) << property.first;
   }
+
+  // Test that known GetNumericProperty keys exist under GetProperties.
+  constexpr absl::string_view kKnownProperties[] = {
+      // clang-format off
+      // go/keep-sorted start
+      "generic.bytes_in_use_by_app",
+      "generic.current_allocated_bytes",
+      "generic.heap_size",
+      "generic.physical_memory_used",
+      "generic.virtual_memory_used",
+      "tcmalloc.central_cache_free",
+      "tcmalloc.cpu_free",
+      "tcmalloc.current_total_thread_cache_bytes",
+      "tcmalloc.desired_usage_limit_bytes",
+      "tcmalloc.external_fragmentation_bytes",
+      "tcmalloc.hard_usage_limit_bytes",
+      "tcmalloc.local_bytes",
+      "tcmalloc.max_total_thread_cache_bytes",
+      "tcmalloc.metadata_bytes",
+      "tcmalloc.page_algorithm",
+      "tcmalloc.page_heap_free",
+      "tcmalloc.page_heap_unmapped",
+      "tcmalloc.pageheap_free_bytes",
+      "tcmalloc.pageheap_unmapped_bytes",
+      "tcmalloc.per_cpu_caches_active",
+      "tcmalloc.required_bytes",
+      "tcmalloc.sharded_transfer_cache_free",
+      "tcmalloc.slack_bytes",
+      "tcmalloc.thread_cache_count",
+      "tcmalloc.thread_cache_free",
+      "tcmalloc.transfer_cache_free",
+      // go/keep-sorted end
+      // clang-format on
+  };
+
+  for (const auto& known : kKnownProperties) {
+    absl::optional<size_t> scalar = MallocExtension::GetNumericProperty(known);
+    EXPECT_THAT(scalar, testing::Ne(absl::nullopt));
+    EXPECT_THAT(properties,
+                testing::Contains(testing::Key(testing::Eq(known))));
+  }
 }
 
 }  // namespace

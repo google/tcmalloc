@@ -275,6 +275,26 @@ static uint64_t RequiredBytes(const TCMallocStats& stats) {
   return StatSub(PhysicalMemoryUsed(stats), stats.pageheap.free_bytes);
 }
 
+static size_t ExternalBytes(const TCMallocStats& stats) {
+  return stats.pageheap.free_bytes + stats.central_bytes + stats.per_cpu_bytes +
+         stats.sharded_transfer_bytes + stats.transfer_bytes +
+         stats.thread_bytes + stats.metadata_bytes +
+         stats.arena.bytes_unavailable + stats.arena.bytes_unallocated;
+}
+
+static size_t HeapSizeBytes(const BackingStats& stats) {
+  return StatSub(stats.system_bytes, stats.unmapped_bytes);
+}
+
+static size_t LocalBytes(const TCMallocStats& stats) {
+  return stats.thread_bytes + stats.per_cpu_bytes +
+         stats.sharded_transfer_bytes;
+}
+
+static size_t SlackBytes(const BackingStats& stats) {
+  return stats.free_bytes + stats.unmapped_bytes;
+}
+
 static int CountAllowedCpus() {
   cpu_set_t allowed_cpus;
   if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
@@ -881,6 +901,7 @@ MallocExtension_Internal_StartAllocationProfiling() {
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* value) {
+  // LINT.IfChange
   ASSERT(name_data != nullptr);
   ASSERT(value != nullptr);
   const absl::string_view name(name_data, name_size);
@@ -916,7 +937,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "generic.heap_size") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     BackingStats stats = Static::page_allocator().stats();
-    *value = stats.system_bytes - stats.unmapped_bytes;
+    *value = HeapSizeBytes(stats);
     return true;
   }
 
@@ -946,7 +967,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     BackingStats stats = Static::page_allocator().stats();
-    *value = stats.free_bytes + stats.unmapped_bytes;
+    *value = SlackBytes(stats);
     return true;
   }
 
@@ -994,19 +1015,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.local_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value =
-        stats.thread_bytes + stats.per_cpu_bytes + stats.sharded_transfer_bytes;
-    ;
+    *value = LocalBytes(stats);
     return true;
   }
 
   if (name == "tcmalloc.external_fragmentation_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);
-    *value = (stats.pageheap.free_bytes + stats.central_bytes +
-              stats.per_cpu_bytes + stats.sharded_transfer_bytes +
-              stats.transfer_bytes + stats.thread_bytes + stats.metadata_bytes +
-              stats.arena.bytes_unavailable + stats.arena.bytes_unallocated);
+    *value = ExternalBytes(stats);
     return true;
   }
 
@@ -1054,6 +1070,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     }
   }
 
+  // LINT.ThenChange(//depot/google3/tcmalloc/malloc_extension_test.cc)
   return false;
 }
 
@@ -1208,9 +1225,12 @@ extern "C" void MallocExtension_Internal_GetProperties(
   // Physical Memory used
   (*result)["generic.physical_memory_used"].value = physical_memory_used;
   // Bytes in use By App
+  (*result)["generic.current_allocated_bytes"].value = bytes_in_use_by_app;
   (*result)["generic.bytes_in_use_by_app"].value = bytes_in_use_by_app;
+  (*result)["generic.heap_size"].value = HeapSizeBytes(stats.pageheap);
   // Page Heap Free
   (*result)["tcmalloc.page_heap_free"].value = stats.pageheap.free_bytes;
+  (*result)["tcmalloc.pageheap_free_bytes"].value = stats.pageheap.free_bytes;
   // Metadata Bytes
   (*result)["tcmalloc.metadata_bytes"].value = stats.metadata_bytes;
   // Heaps in Use
@@ -1225,7 +1245,19 @@ extern "C" void MallocExtension_Internal_GetProperties(
       stats.sharded_transfer_bytes;
   (*result)["tcmalloc.per_cpu_caches_active"].value = Static::CPUCacheActive();
   // Thread Cache Free List
+  (*result)["tcmalloc.current_total_thread_cache_bytes"].value =
+      stats.thread_bytes;
   (*result)["tcmalloc.thread_cache_free"].value = stats.thread_bytes;
+  (*result)["tcmalloc.local_bytes"].value = LocalBytes(stats);
+
+  size_t overall_thread_cache_size;
+  {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    overall_thread_cache_size = ThreadCache::overall_thread_cache_size();
+  }
+  (*result)["tcmalloc.max_total_thread_cache_bytes"].value =
+      overall_thread_cache_size;
+
   // Page Unmapped
   (*result)["tcmalloc.pageheap_unmapped_bytes"].value =
       stats.pageheap.unmapped_bytes;
@@ -1234,6 +1266,24 @@ extern "C" void MallocExtension_Internal_GetProperties(
 
   (*result)["tcmalloc.page_algorithm"].value =
       Static::page_allocator().algorithm();
+
+  (*result)["tcmalloc.external_fragmentation_bytes"].value =
+      ExternalBytes(stats);
+  (*result)["tcmalloc.required_bytes"].value = RequiredBytes(stats);
+  (*result)["tcmalloc.slack_bytes"].value = SlackBytes(stats.pageheap);
+
+  size_t amount;
+  bool is_hard;
+  std::tie(amount, is_hard) = Static::page_allocator().limit();
+  if (is_hard) {
+    (*result)["tcmalloc.hard_usage_limit_bytes"].value = amount;
+    (*result)["tcmalloc.desired_usage_limit_bytes"].value =
+        std::numeric_limits<size_t>::max();
+  } else {
+    (*result)["tcmalloc.hard_usage_limit_bytes"].value =
+        std::numeric_limits<size_t>::max();
+    (*result)["tcmalloc.desired_usage_limit_bytes"].value = amount;
+  }
 
   FillExperimentProperties(result);
   tracking::GetProperties(result);
