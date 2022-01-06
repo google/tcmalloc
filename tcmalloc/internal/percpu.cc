@@ -307,14 +307,7 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
 
     // With virtual CPUs, we cannot identify the true physical core we need to
     // interrupt.
-#if TCMALLOC_PERCPU_USE_RSEQ
-    if (using_upstream_fence.load(std::memory_order_relaxed)) {
-      UpstreamRseqFenceCpu(-1);
-      return;
-    }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
-    FenceInterruptCPUs(nullptr);
-    return;
+    FenceAllCpus();
   }
 
 #if TCMALLOC_PERCPU_USE_RSEQ
@@ -328,6 +321,16 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   CPU_ZERO(&set);
   CPU_SET(cpu, &set);
   FenceInterruptCPUs(&set);
+}
+
+void FenceAllCpus() {
+#if TCMALLOC_PERCPU_USE_RSEQ
+  if (using_upstream_fence.load(std::memory_order_relaxed)) {
+    UpstreamRseqFenceCpu(-1);
+    return;
+  }
+#endif  // TCMALLOC_PERCPU_USE_RSEQ
+  FenceInterruptCPUs(nullptr);
 }
 
 }  // namespace percpu

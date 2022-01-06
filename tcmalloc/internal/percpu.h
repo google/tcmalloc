@@ -339,6 +339,7 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
 }
 
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset);
+void FenceAllCpus();
 
 }  // namespace percpu
 }  // namespace subtle
