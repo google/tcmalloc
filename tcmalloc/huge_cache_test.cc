@@ -219,7 +219,7 @@ TEST_F(HugeCacheTest, Regret) {
   uint64_t expected_regret = absl::ToInt64Nanoseconds(d) * cached.raw_num();
   // Not exactly accurate since the mock clock advances with real time, and
   // when we measure regret will be updated.
-  EXPECT_NEAR(cache_.regret(), expected_regret, expected_regret / 1000);
+  EXPECT_NEAR(cache_.regret(), expected_regret, expected_regret / 100);
   EXPECT_GE(cache_.regret(), expected_regret);
 }
 
@@ -364,7 +364,7 @@ TEST_F(HugeCacheTest, Growth) {
     // approximately, given the randomized sizing...
 
     const double ratio = Frac(needed_backing, total);
-    EXPECT_LE(ratio, 0.2);
+    EXPECT_LE(ratio, 0.3);
   }
 }
 
@@ -434,7 +434,7 @@ TEST_F(HugeCacheTest, DipsCached) {
 
     // warmup
     if (i >= 2) {
-      EXPECT_GE(0.06, Frac(uncached, got));
+      EXPECT_GE(0.07, Frac(uncached, got));
     }
   }
 }
