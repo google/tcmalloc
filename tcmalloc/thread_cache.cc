@@ -56,31 +56,33 @@ void ThreadCache::Init(pthread_t tid) {
   prev_ = nullptr;
   tid_ = tid;
   in_setspecific_ = false;
-  for (size_t cl = 0; cl < kNumClasses; ++cl) {
-    list_[cl].Init();
+  for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
+    list_[size_class].Init();
   }
 }
 
 void ThreadCache::Cleanup() {
   // Put unused memory back into central cache
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    if (list_[cl].length() > 0) {
-      ReleaseToCentralCache(&list_[cl], cl, list_[cl].length());
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    if (list_[size_class].length() > 0) {
+      ReleaseToCentralCache(&list_[size_class], size_class,
+                            list_[size_class].length());
     }
   }
 }
 
-// Remove some objects of class "cl" from central cache and add to thread heap.
-// On success, return the first object for immediate use; otherwise return NULL.
-void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
-  FreeList* list = &list_[cl];
+// Remove some objects of class "size_class" from central cache and add to
+// thread heap. On success, return the first object for immediate use; otherwise
+// return NULL.
+void* ThreadCache::FetchFromCentralCache(size_t size_class, size_t byte_size) {
+  FreeList* list = &list_[size_class];
   ASSERT(list->empty());
-  const int batch_size = Static::sizemap().num_objects_to_move(cl);
+  const int batch_size = Static::sizemap().num_objects_to_move(size_class);
 
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
   void* batch[kMaxObjectsToMove];
   int fetch_count =
-      Static::transfer_cache().RemoveRange(cl, batch, num_to_move);
+      Static::transfer_cache().RemoveRange(size_class, batch, num_to_move);
   if (fetch_count == 0) {
     return nullptr;
   }
@@ -111,9 +113,9 @@ void* ThreadCache::FetchFromCentralCache(size_t cl, size_t byte_size) {
   return batch[0];
 }
 
-void ThreadCache::ListTooLong(FreeList* list, size_t cl) {
-  const int batch_size = Static::sizemap().num_objects_to_move(cl);
-  ReleaseToCentralCache(list, cl, batch_size);
+void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
+  const int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  ReleaseToCentralCache(list, size_class, batch_size);
 
   // If the list is too long, we need to transfer some number of
   // objects to the central cache.  Ideally, we would transfer
@@ -135,27 +137,29 @@ void ThreadCache::ListTooLong(FreeList* list, size_t cl) {
   }
 }
 
-// Remove some objects of class "cl" from thread heap and add to central cache
-void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t cl, int N) {
-  ASSERT(src == &list_[cl]);
+// Remove some objects of class "size_class" from thread heap and add to central
+// cache
+void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t size_class,
+                                        int N) {
+  ASSERT(src == &list_[size_class]);
   if (N > src->length()) N = src->length();
-  size_t delta_bytes = N * Static::sizemap().class_to_size(cl);
+  size_t delta_bytes = N * Static::sizemap().class_to_size(size_class);
 
   // We return prepackaged chains of the correct size to the central cache.
   void* batch[kMaxObjectsToMove];
-  int batch_size = Static::sizemap().num_objects_to_move(cl);
+  int batch_size = Static::sizemap().num_objects_to_move(size_class);
   while (N > batch_size) {
     src->PopBatch(batch_size, batch);
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(cl,
+    Static::transfer_cache().InsertRange(size_class,
                                          absl::Span<void*>(batch, batch_size));
     N -= batch_size;
   }
   src->PopBatch(N, batch);
   static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                 "not enough space in batch");
-  Static::transfer_cache().InsertRange(cl, absl::Span<void*>(batch, N));
+  Static::transfer_cache().InsertRange(size_class, absl::Span<void*>(batch, N));
   size_ -= delta_bytes;
 }
 
@@ -167,12 +171,12 @@ void ThreadCache::Scavenge() {
   // that situation by dropping L/2 nodes from the free list.  This
   // may not release much memory, but if so we will call scavenge again
   // pretty soon and the low-water marks will be high on that call.
-  for (int cl = 0; cl < kNumClasses; cl++) {
-    FreeList* list = &list_[cl];
+  for (int size_class = 0; size_class < kNumClasses; size_class++) {
+    FreeList* list = &list_[size_class];
     const int lowmark = list->lowwatermark();
     if (lowmark > 0) {
       const int drop = (lowmark > 1) ? lowmark / 2 : 1;
-      ReleaseToCentralCache(list, cl, drop);
+      ReleaseToCentralCache(list, size_class, drop);
 
       // Shrink the max length if it isn't used.  Only shrink down to
       // batch_size -- if the thread was active enough to get the max_length
@@ -181,7 +185,7 @@ void ThreadCache::Scavenge() {
       // go through the slow-start behavior again.  The slow-start is useful
       // mainly for threads that stay relatively idle for their entire
       // lifetime.
-      const int batch_size = Static::sizemap().num_objects_to_move(cl);
+      const int batch_size = Static::sizemap().num_objects_to_move(size_class);
       if (list->max_length() > batch_size) {
         list->set_max_length(
             std::max<int>(list->max_length() - batch_size, batch_size));
@@ -193,14 +197,14 @@ void ThreadCache::Scavenge() {
   IncreaseCacheLimit();
 }
 
-void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t cl) {
-  tracking::Report(kFreeMiss, cl, 1);
+void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
+  tracking::Report(kFreeMiss, size_class, 1);
   if (ABSL_PREDICT_FALSE(list->length() > list->max_length())) {
-    tracking::Report(kFreeTruncations, cl, 1);
-    ListTooLong(list, cl);
+    tracking::Report(kFreeTruncations, size_class, 1);
+    ListTooLong(list, size_class);
   }
   if (size_ >= max_size_) {
-    tracking::Report(kFreeScavenges, cl, 1);
+    tracking::Report(kFreeScavenges, size_class, 1);
     Scavenge();
   }
 }
@@ -397,8 +401,8 @@ void ThreadCache::GetThreadStats(uint64_t* total_bytes, uint64_t* class_count) {
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
     *total_bytes += h->Size();
     if (class_count) {
-      for (int cl = 0; cl < kNumClasses; ++cl) {
-        class_count[cl] += h->freelist_length(cl);
+      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+        class_count[size_class] += h->freelist_length(size_class);
       }
     }
   }

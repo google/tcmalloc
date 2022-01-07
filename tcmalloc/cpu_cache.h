@@ -113,10 +113,10 @@ class CPUCache {
   // allows Allocate to be used in tail-call position in fast-path,
   // making Allocate use jump (tail-call) to slow path code.
   template <void* OOMHandler(size_t)>
-  void* Allocate(size_t cl);
+  void* Allocate(size_t size_class);
 
   // Free an object of the given class.
-  void Deallocate(void* ptr, size_t cl);
+  void Deallocate(void* ptr, size_t size_class);
 
   // Give the number of bytes in <cpu>'s cache
   uint64_t UsedBytes(int cpu) const;
@@ -133,7 +133,7 @@ class CPUCache {
   uint64_t TotalUsedBytes() const;
 
   // Give the number of objects of a given class in all cpu caches.
-  uint64_t TotalObjectsOfClass(size_t cl) const;
+  uint64_t TotalObjectsOfClass(size_t size_class) const;
 
   // Give the number of bytes unallocated to any sizeclass in <cpu>'s cache.
   uint64_t Unallocated(int cpu) const;
@@ -227,11 +227,8 @@ class CPUCache {
   };
 
   // Scans through populated per-CPU caches, and reports minimum, average and
-  // maximum capacity for size class <cl>.
-  //
-  // TODO(b/205829372): Change cl to size_class here and in rest of TCMalloc to
-  // adhere to C++ style guide.
-  SizeClassCapacityStats GetSizeClassCapacityStats(size_t cl) const;
+  // maximum capacity for size class <size_class>.
+  SizeClassCapacityStats GetSizeClassCapacityStats(size_t size_class) const;
 
   // Report statistics
   void Print(Printer* out) const;
@@ -249,11 +246,11 @@ class CPUCache {
   // (2) the numbers of underflows and overflows are both less than 0.8x those
   // of the destination per-cpu cache
   // (3) source cpu is not the same as the destination cpu
-  // (4) capacity of the source cpu/cl is non-zero
+  // (4) capacity of the source cpu/size_class is non-zero
   //
   // For a given source cpu, we iterate through the size classes to steal from
   // them. Currently, we use a similar clock-like algorithm from Steal() to
-  // identify the cl to steal from.
+  // identify the size_class to steal from.
   void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
 
   // Per-size-class freelist resizing info.
@@ -341,39 +338,40 @@ class CPUCache {
     // The number of slots available for storing objects.
     int count = kMaxToReturn;
     // The size class of the returned object. kNumClasses is the
-    // largest value that needs to be stored in cl.
-    CompactSizeClass cl[kMaxToReturn];
+    // largest value that needs to be stored in size_class.
+    CompactSizeClass size_class[kMaxToReturn];
     void* obj[kMaxToReturn];
   };
 
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes.
-  size_t MaxCapacity(size_t cl) const;
+  size_t MaxCapacity(size_t size_class) const;
 
-  void* Refill(int cpu, size_t cl);
+  void* Refill(int cpu, size_t size_class);
 
   // This is called after finding a full freelist when attempting to push <ptr>
-  // on the freelist for sizeclass <cl>.  The last arg should indicate which
-  // CPU's list was full.  Returns 1.
-  int Overflow(void* ptr, size_t cl, int cpu);
+  // on the freelist for sizeclass <size_class>.  The last arg should indicate
+  // which CPU's list was full.  Returns 1.
+  int Overflow(void* ptr, size_t size_class, int cpu);
 
-  // Called on <cl> freelist overflow/underflow on <cpu> to balance cache
-  // capacity between size classes. Returns number of objects to return/request
-  // from transfer cache. <to_return> will contain objects that need to be
-  // freed.
-  size_t UpdateCapacity(int cpu, size_t cl, size_t batch_length, bool overflow,
-                        ObjectsToReturn* to_return);
+  // Called on <size_class> freelist overflow/underflow on <cpu> to balance
+  // cache capacity between size classes. Returns number of objects to
+  // return/request from transfer cache. <to_return> will contain objects that
+  // need to be freed.
+  size_t UpdateCapacity(int cpu, size_t size_class, size_t batch_length,
+                        bool overflow, ObjectsToReturn* to_return);
 
   // Tries to obtain up to <desired_increase> bytes of freelist space on <cpu>
-  // for <cl> from other <cls>. <to_return> will contain objects that need to be
-  // freed.
-  void Grow(int cpu, size_t cl, size_t desired_increase,
+  // for <size_class> from other <cls>. <to_return> will contain objects that
+  // need to be freed.
+  void Grow(int cpu, size_t size_class, size_t desired_increase,
             ObjectsToReturn* to_return);
 
-  // Tries to steal <bytes> for <cl> on <cpu> from other size classes on that
-  // CPU. Returns acquired bytes. <to_return> will contain objects that need to
-  // be freed.
-  size_t Steal(int cpu, size_t cl, size_t bytes, ObjectsToReturn* to_return);
+  // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
+  // that CPU. Returns acquired bytes. <to_return> will contain objects that
+  // need to be freed.
+  size_t Steal(int cpu, size_t size_class, size_t bytes,
+               ObjectsToReturn* to_return);
 
   // Records a cache underflow or overflow on <cpu>, increments underflow or
   // overflow by 1.
@@ -381,8 +379,10 @@ class CPUCache {
   // underflow or overflow.
   void RecordCacheMissStat(const int cpu, const bool is_malloc);
 
-  static void* NoopUnderflow(int cpu, size_t cl, void* arg) { return nullptr; }
-  static int NoopOverflow(int cpu, size_t cl, void* item, void* arg) {
+  static void* NoopUnderflow(int cpu, size_t size_class, void* arg) {
+    return nullptr;
+  }
+  static int NoopOverflow(int cpu, size_t size_class, void* item, void* arg) {
     return -1;
   }
 };
@@ -390,59 +390,60 @@ class CPUCache {
 template <class Forwarder>
 template <void* OOMHandler(size_t)>
 inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
-CPUCache<Forwarder>::Allocate(size_t cl) {
-  ASSERT(cl > 0);
+CPUCache<Forwarder>::Allocate(size_t size_class) {
+  ASSERT(size_class > 0);
 
-  tracking::Report(kMallocHit, cl, 1);
+  tracking::Report(kMallocHit, size_class, 1);
   struct Helper {
-    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t cl,
+    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t size_class,
                                                    void* arg) {
       // we've optimistically reported hit in Allocate, lets undo it and
       // report miss instead.
-      tracking::Report(kMallocHit, cl, -1);
+      tracking::Report(kMallocHit, size_class, -1);
       CPUCache& cache = *static_cast<CPUCache*>(arg);
       void* ret = nullptr;
-      if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
-        ret = cache.forwarder().sharded_transfer_cache().Pop(cl);
+      if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
+        ret = cache.forwarder().sharded_transfer_cache().Pop(size_class);
       } else {
-        tracking::Report(kMallocMiss, cl, 1);
+        tracking::Report(kMallocMiss, size_class, 1);
         cache.RecordCacheMissStat(cpu, true);
-        ret = cache.Refill(cpu, cl);
+        ret = cache.Refill(cpu, size_class);
       }
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
-        size_t size = cache.forwarder().class_to_size(cl);
+        size_t size = cache.forwarder().class_to_size(size_class);
         return OOMHandler(size);
       }
       return ret;
     }
   };
-  return freelist_.Pop(cl, &Helper::Underflow, this);
+  return freelist_.Pop(size_class, &Helper::Underflow, this);
 }
 
 template <class Forwarder>
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
-CPUCache<Forwarder>::Deallocate(void* ptr, size_t cl) {
-  ASSERT(cl > 0);
-  tracking::Report(kFreeHit, cl, 1);  // Be optimistic; correct later if needed.
+CPUCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
+  ASSERT(size_class > 0);
+  tracking::Report(kFreeHit, size_class,
+                   1);  // Be optimistic; correct later if needed.
 
   struct Helper {
-    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t cl, void* ptr,
-                                                void* arg) {
+    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t size_class,
+                                                void* ptr, void* arg) {
       // When we reach here we've already optimistically bumped FreeHits.
       // Fix that.
-      tracking::Report(kFreeHit, cl, -1);
+      tracking::Report(kFreeHit, size_class, -1);
 
       CPUCache& cache = *static_cast<CPUCache*>(arg);
-      if (cache.forwarder().sharded_transfer_cache().should_use(cl)) {
-        cache.forwarder().sharded_transfer_cache().Push(cl, ptr);
+      if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
+        cache.forwarder().sharded_transfer_cache().Push(size_class, ptr);
         return 1;
       }
-      tracking::Report(kFreeMiss, cl, 1);
+      tracking::Report(kFreeMiss, size_class, 1);
       cache.RecordCacheMissStat(cpu, false);
-      return cache.Overflow(ptr, cl, cpu);
+      return cache.Overflow(ptr, size_class, cpu);
     }
   };
-  freelist_.Push(cl, ptr, Helper::Overflow, this);
+  freelist_.Push(size_class, ptr, Helper::Overflow, this);
 }
 
 static cpu_set_t FillActiveCpuMask() {
@@ -470,7 +471,7 @@ static cpu_set_t FillActiveCpuMask() {
 }
 
 template <class Forwarder>
-inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) const {
+inline size_t CPUCache<Forwarder>::MaxCapacity(size_t size_class) const {
   // The number of size classes that are commonly used and thus should be
   // allocated more slots in the per-cpu cache.
   static constexpr size_t kNumSmall = 10;
@@ -500,19 +501,21 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) const {
   static const uint16_t kSmallObjectDepth = 2048;
   static const uint16_t kLargeObjectDepth = 152;
 #endif
-  if (cl == 0 || cl >= kNumClasses) return 0;
+  if (size_class == 0 || size_class >= kNumClasses) return 0;
 
-  if (forwarder_.sharded_transfer_cache().should_use(cl)) {
+  if (forwarder_.sharded_transfer_cache().should_use(size_class)) {
     return 0;
   }
 
-  if (forwarder_.class_to_size(cl) == 0) {
+  if (forwarder_.class_to_size(size_class) == 0) {
     return 0;
   }
 
-  if (!IsExpandedSizeClass(cl) && (cl % kNumBaseClasses) <= kNumSmall) {
+  if (!IsExpandedSizeClass(size_class) &&
+      (size_class % kNumBaseClasses) <= kNumSmall) {
     // Small object sizes are very heavily used and need very deep caches for
-    // good performance (well over 90% of malloc calls are for cl <= 10.)
+    // good performance (well over 90% of malloc calls are for size_class
+    // <= 10.)
     return kSmallObjectDepth;
   }
 
@@ -524,16 +527,16 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t cl) const {
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     ASSERT(!cold.empty());
-    if (absl::c_binary_search(cold, cl)) {
+    if (absl::c_binary_search(cold, size_class)) {
       return kLargeInterestingObjectDepth;
-    } else if (!IsExpandedSizeClass(cl)) {
+    } else if (!IsExpandedSizeClass(size_class)) {
       return kLargeUninterestingObjectDepth;
     } else {
       return 0;
     }
   }
 
-  if (IsExpandedSizeClass(cl)) {
+  if (IsExpandedSizeClass(size_class)) {
     return 0;
   }
 
@@ -556,16 +559,19 @@ inline void CPUCache<Forwarder>::Activate() {
   // Deal with size classes that correspond only to NUMA partitions that are in
   // use. If NUMA awareness is disabled then we may have a smaller shift than
   // would suffice for all of the unused size classes.
-  for (int cl = 0; cl < topology.active_partitions() * kNumBaseClasses; ++cl) {
-    const uint16_t mc = MaxCapacity(cl);
-    max_capacity_[cl] = mc;
+  for (int size_class = 0;
+       size_class < topology.active_partitions() * kNumBaseClasses;
+       ++size_class) {
+    const uint16_t mc = MaxCapacity(size_class);
+    max_capacity_[size_class] = mc;
     bytes_required += sizeof(void*) * mc;
   }
 
   // Deal with expanded size classes.
-  for (int cl = kExpandedClassesStart; cl < kNumClasses; ++cl) {
-    const uint16_t mc = MaxCapacity(cl);
-    max_capacity_[cl] = mc;
+  for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
+       ++size_class) {
+    const uint16_t mc = MaxCapacity(size_class);
+    max_capacity_[size_class] = mc;
     bytes_required += sizeof(void*) * mc;
   }
 
@@ -584,8 +590,8 @@ inline void CPUCache<Forwarder>::Activate() {
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     new (&resize_[cpu]) ResizeInfo();
 
-    for (int cl = 1; cl < kNumClasses; ++cl) {
-      resize_[cpu].per_class[cl].Init();
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      resize_[cpu].per_class[size_class].Init();
     }
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
@@ -593,7 +599,8 @@ inline void CPUCache<Forwarder>::Activate() {
   }
 
   freelist_.Init(
-      &forwarder_.Alloc, [this](size_t cl) { return this->max_capacity_[cl]; },
+      &forwarder_.Alloc,
+      [this](size_t size_class) { return this->max_capacity_[size_class]; },
       per_cpu_shift);
 }
 
@@ -622,8 +629,8 @@ inline void CPUCache<Forwarder>::Deactivate() {
 // it must be safe to find ourselves migrated (at which point we atomically
 // return memory to the correct CPU.)
 template <class Forwarder>
-inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
-  const size_t batch_length = forwarder_.num_objects_to_move(cl);
+inline void* CPUCache<Forwarder>::Refill(int cpu, size_t size_class) {
+  const size_t batch_length = forwarder_.num_objects_to_move(size_class);
 
   // UpdateCapacity can evict objects from other size classes as it tries to
   // increase capacity of this size class. The objects are returned in
@@ -632,7 +639,7 @@ inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
   // refilling the list).
   ObjectsToReturn to_return;
   const size_t target =
-      UpdateCapacity(cpu, cl, batch_length, false, &to_return);
+      UpdateCapacity(cpu, size_class, batch_length, false, &to_return);
 
   // Refill target objects in batch_length batches.
   size_t total = 0;
@@ -643,7 +650,7 @@ inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
 
   do {
     const size_t want = std::min(batch_length, target - total);
-    got = forwarder_.transfer_cache().RemoveRange(cl, batch, want);
+    got = forwarder_.transfer_cache().RemoveRange(size_class, batch, want);
     if (got == 0) {
       break;
     }
@@ -654,11 +661,11 @@ inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
       result = batch[i];
     }
     if (i) {
-      i -= freelist_.PushBatch(cl, batch, i);
+      i -= freelist_.PushBatch(size_class, batch, i);
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        forwarder_.transfer_cache().InsertRange(cl,
+        forwarder_.transfer_cache().InsertRange(size_class,
                                                 absl::Span<void*>(batch, i));
       }
     }
@@ -667,14 +674,14 @@ inline void* CPUCache<Forwarder>::Refill(int cpu, size_t cl) {
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
     forwarder_.transfer_cache().InsertRange(
-        to_return.cl[i], absl::Span<void*>(&(to_return.obj[i]), 1));
+        to_return.size_class[i], absl::Span<void*>(&(to_return.obj[i]), 1));
   }
 
   return result;
 }
 
 template <class Forwarder>
-inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
+inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
                                                   size_t batch_length,
                                                   bool overflow,
                                                   ObjectsToReturn* to_return) {
@@ -697,8 +704,8 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
   // it again. Also we will shrink it by 1, but grow by a batch. So we should
   // have lots of time until we need to grow it again.
 
-  const size_t max_capacity = max_capacity_[cl];
-  size_t capacity = freelist_.Capacity(cpu, cl);
+  const size_t max_capacity = max_capacity_[size_class];
+  size_t capacity = freelist_.Capacity(cpu, size_class);
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
   // first time.
@@ -707,8 +714,9 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
       [](CPUCache* cache, int cpu) {
         {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCpu(
-              cpu, [cache](size_t cl) { return cache->max_capacity_[cl]; });
+          cache->freelist_.InitCpu(cpu, [cache](size_t size_class) {
+            return cache->max_capacity_[size_class];
+          });
         }
 
         // While we could unconditionally store, a lazy slab population
@@ -718,8 +726,8 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
       this, cpu);
   const bool grow_by_one = capacity < 2 * batch_length;
   uint32_t successive = 0;
-  bool grow_by_batch =
-      resize_[cpu].per_class[cl].Update(overflow, grow_by_one, &successive);
+  bool grow_by_batch = resize_[cpu].per_class[size_class].Update(
+      overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -729,8 +737,8 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
-    Grow(cpu, cl, increase, to_return);
-    capacity = freelist_.Capacity(cpu, cl);
+    Grow(cpu, size_class, increase, to_return);
+    capacity = freelist_.Capacity(cpu, size_class);
   }
   // Calculate number of objects to return/request from transfer cache.
   // Generally we prefer to transfer a single batch, because transfer cache
@@ -762,10 +770,10 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t cl,
 }
 
 template <class Forwarder>
-inline void CPUCache<Forwarder>::Grow(int cpu, size_t cl,
+inline void CPUCache<Forwarder>::Grow(int cpu, size_t size_class,
                                       size_t desired_increase,
                                       ObjectsToReturn* to_return) {
-  const size_t size = forwarder_.class_to_size(cl);
+  const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes;
 
@@ -779,7 +787,8 @@ inline void CPUCache<Forwarder>::Grow(int cpu, size_t cl,
       before, after, std::memory_order_relaxed, std::memory_order_relaxed));
 
   if (acquired_bytes < desired_bytes) {
-    acquired_bytes += Steal(cpu, cl, desired_bytes - acquired_bytes, to_return);
+    acquired_bytes +=
+        Steal(cpu, size_class, desired_bytes - acquired_bytes, to_return);
   }
 
   // We have all the memory we could reserve.  Time to actually do the growth.
@@ -789,7 +798,8 @@ inline void CPUCache<Forwarder>::Grow(int cpu, size_t cl,
   size_t actual_increase = acquired_bytes / size;
   actual_increase = std::min(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
-  size_t increase = freelist_.Grow(cpu, cl, actual_increase, max_capacity_[cl]);
+  size_t increase = freelist_.Grow(cpu, size_class, actual_increase,
+                                   max_capacity_[size_class]);
   size_t increased_bytes = increase * size;
   if (increased_bytes < acquired_bytes) {
     // return whatever we didn't use to the slack.
@@ -961,32 +971,33 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
         src_misses.overflows > kCacheMissThreshold * dest_misses.overflows)
       continue;
 
-    size_t start_cl =
+    size_t start_size_class =
         resize_[src_cpu].last_steal.load(std::memory_order_relaxed);
 
-    ASSERT(start_cl < kNumClasses);
-    ASSERT(0 < start_cl);
-    size_t source_cl = start_cl;
+    ASSERT(start_size_class < kNumClasses);
+    ASSERT(0 < start_size_class);
+    size_t source_size_class = start_size_class;
     for (size_t offset = 1; offset < kNumClasses; ++offset) {
-      source_cl = start_cl + offset;
-      if (source_cl >= kNumClasses) {
-        source_cl -= kNumClasses - 1;
+      source_size_class = start_size_class + offset;
+      if (source_size_class >= kNumClasses) {
+        source_size_class -= kNumClasses - 1;
       }
-      ASSERT(0 < source_cl);
-      ASSERT(source_cl < kNumClasses);
+      ASSERT(0 < source_size_class);
+      ASSERT(source_size_class < kNumClasses);
 
-      const size_t capacity = freelist_.Capacity(src_cpu, source_cl);
+      const size_t capacity = freelist_.Capacity(src_cpu, source_size_class);
       if (capacity == 0) {
         // Nothing to steal.
         continue;
       }
-      const size_t length = freelist_.Length(src_cpu, source_cl);
+      const size_t length = freelist_.Length(src_cpu, source_size_class);
 
       // TODO(vgogte): Currently, scoring is similar to stealing from the
       // same cpu in CPUCache<Forwarder>::Steal(). Revisit this later to tune
       // the knobs.
-      const size_t batch_length = forwarder_.num_objects_to_move(source_cl);
-      size_t size = forwarder_.class_to_size(source_cl);
+      const size_t batch_length =
+          forwarder_.num_objects_to_move(source_size_class);
+      size_t size = forwarder_.class_to_size(source_size_class);
 
       // Clock-like algorithm to prioritize size classes for shrinking.
       //
@@ -1007,7 +1018,7 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
       // size, because shrinking them will disable transfer cache.
       //
       // Finally, we shrink if the ticks counter is >= the score.
-      uint32_t qticks = resize_[src_cpu].per_class[source_cl].Tick();
+      uint32_t qticks = resize_[src_cpu].per_class[source_size_class].Tick();
       uint32_t score = 0;
       // Note: the following numbers are based solely on intuition, common sense
       // and benchmarking results.
@@ -1037,14 +1048,14 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
       {
         absl::base_internal::SpinLockHolder h(&resize_[src_cpu].lock);
         if (freelist_.ShrinkOtherCache(
-                src_cpu, source_cl, 1,
-                [this](size_t cl, void** batch, size_t count) {
+                src_cpu, source_size_class, 1,
+                [this](size_t size_class, void** batch, size_t count) {
                   const size_t batch_length =
-                      forwarder_.num_objects_to_move(cl);
+                      forwarder_.num_objects_to_move(size_class);
                   auto& transfer_cache = forwarder_.transfer_cache();
                   for (size_t i = 0; i < count; i += batch_length) {
                     size_t n = std::min(batch_length, count - i);
-                    transfer_cache.InsertRange(cl,
+                    transfer_cache.InsertRange(size_class,
                                                absl::Span<void*>(batch + i, n));
                   }
                 }) == 1) {
@@ -1057,7 +1068,7 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
         break;
       }
     }
-    resize_[cpu].last_steal.store(source_cl, std::memory_order_relaxed);
+    resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
   }
   // Record the last cpu id we stole from, which would provide a hint to the
   // next time we iterate through the cpus for stealing.
@@ -1079,7 +1090,8 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
 
 // There are rather a lot of policy knobs we could tweak here.
 template <class Forwarder>
-inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
+inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
+                                         size_t bytes,
                                          ObjectsToReturn* to_return) {
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
@@ -1087,27 +1099,28 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
   size_t start = resize_[cpu].last_steal.load(std::memory_order_relaxed);
   ASSERT(start < kNumClasses);
   ASSERT(0 < start);
-  size_t source_cl = start;
+  size_t source_size_class = start;
   for (size_t offset = 1; offset < kNumClasses; ++offset) {
-    source_cl = start + offset;
-    if (source_cl >= kNumClasses) {
-      source_cl -= kNumClasses - 1;
+    source_size_class = start + offset;
+    if (source_size_class >= kNumClasses) {
+      source_size_class -= kNumClasses - 1;
     }
-    ASSERT(0 < source_cl);
-    ASSERT(source_cl < kNumClasses);
-    // Decide if we want to steal source_cl.
-    if (source_cl == dest_cl) {
+    ASSERT(0 < source_size_class);
+    ASSERT(source_size_class < kNumClasses);
+    // Decide if we want to steal source_size_class.
+    if (source_size_class == dest_size_class) {
       // First, no sense in picking your own pocket.
       continue;
     }
-    const size_t capacity = freelist_.Capacity(cpu, source_cl);
+    const size_t capacity = freelist_.Capacity(cpu, source_size_class);
     if (capacity == 0) {
       // Nothing to steal.
       continue;
     }
-    const size_t length = freelist_.Length(cpu, source_cl);
-    const size_t batch_length = forwarder_.num_objects_to_move(source_cl);
-    size_t size = forwarder_.class_to_size(source_cl);
+    const size_t length = freelist_.Length(cpu, source_size_class);
+    const size_t batch_length =
+        forwarder_.num_objects_to_move(source_size_class);
+    size_t size = forwarder_.class_to_size(source_size_class);
 
     // Clock-like algorithm to prioritize size classes for shrinking.
     //
@@ -1128,7 +1141,7 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
     // because shrinking them will disable transfer cache.
     //
     // Finally, we shrink if the ticks counter is >= the score.
-    uint32_t qticks = resize_[cpu].per_class[source_cl].Tick();
+    uint32_t qticks = resize_[cpu].per_class[source_size_class].Tick();
     uint32_t score = 0;
     // Note: the following numbers are based solely on intuition, common sense
     // and benchmarking results.
@@ -1154,10 +1167,10 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
         // Can't steal any more because the to_return set is full.
         break;
       }
-      void* obj = freelist_.Pop(source_cl, NoopUnderflow, nullptr);
+      void* obj = freelist_.Pop(source_size_class, NoopUnderflow, nullptr);
       if (obj) {
         --to_return->count;
-        to_return->cl[to_return->count] = source_cl;
+        to_return->size_class[to_return->count] = source_size_class;
         to_return->obj[to_return->count] = obj;
       }
     }
@@ -1167,7 +1180,7 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
     // shrunk to zero eventually anyway (or they just would not grow in the
     // first place), but for active lists it does not make sense to aggressively
     // shuffle capacity all the time.
-    if (freelist_.Shrink(cpu, source_cl, 1) == 1) {
+    if (freelist_.Shrink(cpu, source_size_class, 1) == 1) {
       acquired += size;
     }
 
@@ -1177,14 +1190,16 @@ inline size_t CPUCache<Forwarder>::Steal(int cpu, size_t dest_cl, size_t bytes,
     }
   }
   // update the hint
-  resize_[cpu].last_steal.store(source_cl, std::memory_order_relaxed);
+  resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
   return acquired;
 }
 
 template <class Forwarder>
-inline int CPUCache<Forwarder>::Overflow(void* ptr, size_t cl, int cpu) {
-  const size_t batch_length = forwarder_.num_objects_to_move(cl);
-  const size_t target = UpdateCapacity(cpu, cl, batch_length, true, nullptr);
+inline int CPUCache<Forwarder>::Overflow(void* ptr, size_t size_class,
+                                         int cpu) {
+  const size_t batch_length = forwarder_.num_objects_to_move(size_class);
+  const size_t target =
+      UpdateCapacity(cpu, size_class, batch_length, true, nullptr);
   // Return target objects in batch_length batches.
   size_t total = 0;
   size_t count = 1;
@@ -1193,19 +1208,19 @@ inline int CPUCache<Forwarder>::Overflow(void* ptr, size_t cl, int cpu) {
   do {
     size_t want = std::min(batch_length, target - total);
     if (count < want) {
-      count += freelist_.PopBatch(cl, batch + count, want - count);
+      count += freelist_.PopBatch(size_class, batch + count, want - count);
     }
     if (!count) break;
 
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    forwarder_.transfer_cache().InsertRange(cl,
+    forwarder_.transfer_cache().InsertRange(size_class,
                                             absl::Span<void*>(batch, count));
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
-  tracking::Report(kFreeTruncations, cl, 1);
+  tracking::Report(kFreeTruncations, size_class, 1);
   return 1;
 }
 
@@ -1217,9 +1232,9 @@ inline uint64_t CPUCache<Forwarder>::Allocated(int target_cpu) const {
   }
 
   uint64_t total = 0;
-  for (int cl = 1; cl < kNumClasses; cl++) {
-    int size = forwarder_.class_to_size(cl);
-    total += size * freelist_.Capacity(target_cpu, cl);
+  for (int size_class = 1; size_class < kNumClasses; size_class++) {
+    int size = forwarder_.class_to_size(size_class);
+    total += size * freelist_.Capacity(target_cpu, size_class);
   }
   return total;
 }
@@ -1232,9 +1247,9 @@ inline uint64_t CPUCache<Forwarder>::UsedBytes(int target_cpu) const {
   }
 
   uint64_t total = 0;
-  for (int cl = 1; cl < kNumClasses; cl++) {
-    int size = forwarder_.class_to_size(cl);
-    total += size * freelist_.Length(target_cpu, cl);
+  for (int size_class = 1; size_class < kNumClasses; size_class++) {
+    int size = forwarder_.class_to_size(size_class);
+    total += size * freelist_.Length(target_cpu, size_class);
   }
   return total;
 }
@@ -1261,15 +1276,16 @@ inline uint64_t CPUCache<Forwarder>::TotalUsedBytes() const {
 }
 
 template <class Forwarder>
-inline uint64_t CPUCache<Forwarder>::TotalObjectsOfClass(size_t cl) const {
-  ASSERT(cl < kNumClasses);
+inline uint64_t CPUCache<Forwarder>::TotalObjectsOfClass(
+    size_t size_class) const {
+  ASSERT(size_class < kNumClasses);
   uint64_t total_objects = 0;
-  if (cl > 0) {
+  if (size_class > 0) {
     for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; cpu++) {
       if (!HasPopulated(cpu)) {
         continue;
       }
-      total_objects += freelist_.Length(cpu, cl);
+      total_objects += freelist_.Length(cpu, size_class);
     }
   }
   return total_objects;
@@ -1302,10 +1318,10 @@ inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   }
 
   uint64_t bytes = 0;
-  freelist_.Drain(cpu, [this, &bytes](int cpu, size_t cl, void** batch,
+  freelist_.Drain(cpu, [this, &bytes](int cpu, size_t size_class, void** batch,
                                       size_t count, size_t cap) {
-    const size_t size = forwarder_.class_to_size(cl);
-    const size_t batch_length = forwarder_.num_objects_to_move(cl);
+    const size_t size = forwarder_.class_to_size(size_class);
+    const size_t batch_length = forwarder_.num_objects_to_move(size_class);
     bytes += count * size;
     // Drain resets capacity to 0, so return the allocated capacity to that
     // CPU's slack.
@@ -1313,7 +1329,7 @@ inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
     auto& transfer_cache = forwarder_.transfer_cache();
     for (size_t i = 0; i < count; i += batch_length) {
       size_t n = std::min(batch_length, count - i);
-      transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
+      transfer_cache.InsertRange(size_class, absl::Span<void*>(batch + i, n));
     }
   });
 
@@ -1394,7 +1410,7 @@ CPUCache<Forwarder>::GetAndUpdateIntervalCacheMissStats(int cpu,
 
 template <class Forwarder>
 inline typename CPUCache<Forwarder>::SizeClassCapacityStats
-CPUCache<Forwarder>::GetSizeClassCapacityStats(size_t cl) const {
+CPUCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
   SizeClassCapacityStats stats;
   int num_populated = 0;
   // We use a local variable here, instead of directly updating min_capacity in
@@ -1403,7 +1419,7 @@ CPUCache<Forwarder>::GetSizeClassCapacityStats(size_t cl) const {
   size_t min_capacity = SIZE_MAX;
 
   // Scan through all per-CPU caches and calculate minimum, average and maximum
-  // capacities for the size class <cl> across all the populated caches.
+  // capacities for the size class <size_class> across all the populated caches.
   for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
        ++cpu) {
     // We do not include stats for non-populated cpus in our average.
@@ -1411,7 +1427,7 @@ CPUCache<Forwarder>::GetSizeClassCapacityStats(size_t cl) const {
       continue;
     }
 
-    size_t cap = freelist_.Capacity(cpu, cl);
+    size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
     min_capacity = std::min(min_capacity, cap);
     stats.avg_capacity += cap;
@@ -1452,16 +1468,16 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
   out->printf("Size class capacity statistics in per-cpu caches\n");
   out->printf("------------------------------------------------\n");
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    SizeClassCapacityStats stats = GetSizeClassCapacityStats(cl);
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     out->printf(
         "class %3d [ %8zu bytes ] : "
         "%6zu (minimum),"
         "%7.1f (average),"
         "%6zu (maximum),"
         "%6zu maximum allowed capacity\n",
-        cl, forwarder_.class_to_size(cl), stats.min_capacity,
-        stats.avg_capacity, stats.max_capacity, max_capacity_[cl]);
+        size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
+        stats.avg_capacity, stats.max_capacity, max_capacity_[size_class]);
   }
 
   out->printf("------------------------------------------------\n");
@@ -1505,13 +1521,13 @@ inline void CPUCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   }
 
   // Record size class capacity statistics.
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    SizeClassCapacityStats stats = GetSizeClassCapacityStats(cl);
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     PbtxtRegion entry = region->CreateSubRegion("size_class_capacity");
     entry.PrintI64("min_capacity", stats.min_capacity);
     entry.PrintDouble("avg_capacity", stats.avg_capacity);
     entry.PrintI64("max_capacity", stats.max_capacity);
-    entry.PrintI64("max_allowed_capacity", max_capacity_[cl]);
+    entry.PrintI64("max_allowed_capacity", max_capacity_[size_class]);
   }
 }
 

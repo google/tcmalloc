@@ -84,16 +84,16 @@ inline size_t GetSlabsAllocSize(size_t shift, int num_cpus) {
 template <size_t NumClasses>
 class TcmallocSlab {
  public:
-  using DrainHandler = absl::FunctionRef<void(int cpu, size_t cl, void** batch,
-                                              size_t size, size_t cap)>;
+  using DrainHandler = absl::FunctionRef<void(
+      int cpu, size_t size_class, void** batch, size_t size, size_t cap)>;
   using ShrinkHandler =
-      absl::FunctionRef<void(size_t cl, void** batch, size_t size)>;
+      absl::FunctionRef<void(size_t size_class, void** batch, size_t size)>;
 
   constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
   // <alloc> is memory allocation callback (e.g. malloc).
-  // <capacity> callback returns max capacity for size class <cl>.
+  // <capacity> callback returns max capacity for size class <size_class>.
   // <shift> indicates the number of bits to shift the CPU ID in order to
   //         obtain the location of the per-CPU slab. If this parameter matches
   //         TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT as set in
@@ -105,7 +105,7 @@ class TcmallocSlab {
             absl::FunctionRef<size_t(size_t)> capacity, size_t shift);
 
   // Lazily initializes the slab for a specific cpu.
-  // <capacity> callback returns max capacity for size class <cl>.
+  // <capacity> callback returns max capacity for size class <size_class>.
   //
   // Prior to InitCpu being called on a particular `cpu`, non-const operations
   // other than Push/Pop/PushBatch/PopBatch are invalid.
@@ -114,58 +114,59 @@ class TcmallocSlab {
   // For tests.
   void Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
 
-  // Number of elements in cpu/cl slab.
-  size_t Length(int cpu, size_t cl) const;
+  // Number of elements in cpu/size_class slab.
+  size_t Length(int cpu, size_t size_class) const;
 
-  // Number of elements (currently) allowed in cpu/cl slab.
-  size_t Capacity(int cpu, size_t cl) const;
+  // Number of elements (currently) allowed in cpu/size_class slab.
+  size_t Capacity(int cpu, size_t size_class) const;
 
-  // If running on cpu, increment the cpu/cl slab's capacity to no greater than
-  // min(capacity+len, max_cap) and return the increment applied. Otherwise
-  // return 0. Note: max_cap must be the same as returned by capacity callback
-  // passed to Init.
-  size_t Grow(int cpu, size_t cl, size_t len, size_t max_cap);
+  // If running on cpu, increment the cpu/size_class slab's capacity to no
+  // greater than min(capacity+len, max_cap) and return the increment applied.
+  // Otherwise return 0. Note: max_cap must be the same as returned by capacity
+  // callback passed to Init.
+  size_t Grow(int cpu, size_t size_class, size_t len, size_t max_cap);
 
-  // If running on cpu, decrement the cpu/cl slab's capacity to no less than
-  // max(capacity-len, 0) and return the actual decrement applied. Otherwise
-  // return 0.
-  size_t Shrink(int cpu, size_t cl, size_t len);
+  // If running on cpu, decrement the cpu/size_class slab's capacity to no less
+  // than max(capacity-len, 0) and return the actual decrement applied.
+  // Otherwise return 0.
+  size_t Shrink(int cpu, size_t size_class, size_t len);
 
   // Add an item (which must be non-zero) to the current CPU's slab. Returns
   // true if add succeeds. Otherwise invokes <overflow_handler> and returns
   // false (assuming that <overflow_handler> returns negative value).
-  bool Push(size_t cl, void* item, OverflowHandler overflow_handler, void* arg);
+  bool Push(size_t size_class, void* item, OverflowHandler overflow_handler,
+            void* arg);
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  void* Pop(size_t cl, UnderflowHandler underflow_handler, void* arg);
+  void* Pop(size_t size_class, UnderflowHandler underflow_handler, void* arg);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
   // items not added will be returned at the start of <batch>. Items are only
   // not added if there is no space on the current cpu.
   // REQUIRES: len > 0.
-  size_t PushBatch(size_t cl, void** batch, size_t len);
+  size_t PushBatch(size_t size_class, void** batch, size_t len);
 
   // Pop up to <len> items from the current cpu slab and return them in <batch>.
   // Returns the number of items actually removed.
   // REQUIRES: len > 0.
-  size_t PopBatch(size_t cl, void** batch, size_t len);
+  size_t PopBatch(size_t size_class, void** batch, size_t len);
 
-  // Decrements the cpu/cl slab's capacity to no less than max(capacity-len, 0)
-  // and returns the actual decrement applied. It attempts to shrink any
-  // unused capacity (i.e end-current) in cpu/cl's slab; if it does not have
-  // enough unused items, it pops up to <len> items from cpu/cl slab and then
-  // shrinks the freed capacity.
+  // Decrements the cpu/size_class slab's capacity to no less than
+  // max(capacity-len, 0) and returns the actual decrement applied. It attempts
+  // to shrink any unused capacity (i.e end-current) in cpu/size_class's slab;
+  // if it does not have enough unused items, it pops up to <len> items from
+  // cpu/size_class slab and then shrinks the freed capacity.
   //
   // May be called from another processor, not just the <cpu>.
   // REQUIRES: len > 0.
-  size_t ShrinkOtherCache(int cpu, size_t cl, size_t len,
+  size_t ShrinkOtherCache(int cpu, size_t size_class, size_t len,
                           ShrinkHandler shrink_handler);
 
   // Remove all items (of all classes) from <cpu>'s slab; reset capacity for all
   // classes to zero.  Then, for each sizeclass, invoke
-  // DrainHandler(cl, <items from slab>, <previous slab capacity>);
+  // DrainHandler(size_class, <items from slab>, <previous slab capacity>);
   //
   // It is invalid to concurrently execute Drain() for the same CPU; calling
   // Push/Pop/Grow/Shrink concurrently (even on the same CPU) is safe.
@@ -266,10 +267,11 @@ class TcmallocSlab {
       int num_cpus);
   static Slabs* CpuMemoryStart(Slabs* slabs, size_t shift, int cpu);
   static std::atomic<int64_t>* GetHeader(Slabs* slabs, size_t shift, int cpu,
-                                         size_t cl);
+                                         size_t size_class);
   static Header LoadHeader(std::atomic<int64_t>* hdrp);
   static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
-  static void LockHeader(Slabs* slabs, size_t shift, int cpu, size_t cl);
+  static void LockHeader(Slabs* slabs, size_t shift, int cpu,
+                         size_t size_class);
   static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
                                   Header old, Header hdr,
                                   size_t virtual_cpu_id_offset);
@@ -290,25 +292,27 @@ class TcmallocSlab {
 };
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Length(int cpu, size_t cl) const {
+inline size_t TcmallocSlab<NumClasses>::Length(int cpu,
+                                               size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+  Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
   return hdr.IsLocked() ? 0 : hdr.current - hdr.begin;
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu, size_t cl) const {
+inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
+                                                 size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+  Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
   return hdr.IsLocked() ? 0 : hdr.end - hdr.begin;
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t cl, size_t len,
-                                             size_t max_cap) {
+inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t size_class,
+                                             size_t len, size_t max_cap) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
     if (old.IsLocked() || old.end - old.begin == max_cap) {
@@ -329,10 +333,11 @@ inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t cl, size_t len,
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t cl, size_t len) {
+inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
+                                               size_t len) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
     if (old.IsLocked() || old.current == old.end) {
@@ -355,8 +360,8 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t cl, size_t len) {
 #if defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl, void* item,
-    const size_t shift, OverflowHandler overflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    void* item, const size_t shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
@@ -421,9 +426,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "shlq %b[shift], %%r10\n"
       "add %[slabs], %%r10\n"
       // r11 = slabs->current;
-      "movzwq (%%r10, %[cl], 8), %%r11\n"
+      "movzwq (%%r10, %[size_class], 8), %%r11\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
-      "cmp 6(%%r10, %[cl], 8), %%r11w\n"
+      "cmp 6(%%r10, %[size_class], 8), %%r11w\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       "jae %l[overflow_label]\n"
 #else
@@ -433,7 +438,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
 #endif
       "mov %[item], (%%r10, %%r11, 8)\n"
       "lea 1(%%r11), %%r11\n"
-      "mov %%r11w, (%%r10, %[cl], 8)\n"
+      "mov %%r11w, (%%r10, %[size_class], 8)\n"
       // Commit
       "5:\n"
       :
@@ -444,7 +449,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "c"(shift),
-        [slabs] "r"(slabs), [cl] "r"(cl), [item] "r"(item)
+        [slabs] "r"(slabs), [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
@@ -461,23 +466,23 @@ overflow_label:
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
-  return overflow_handler(cpu, cl, item, arg);
+  return overflow_handler(cpu, size_class, item, arg);
 }
 #endif  // defined(__x86_64__)
 
 #if defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl, void* item,
-    const size_t shift, OverflowHandler overflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    void* item, const size_t shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
   void* end_ptr;
   uintptr_t current;
   uintptr_t end;
-  // Multiply cl by the bytesize of each header
-  size_t cl_lsl3 = cl * 8;
+  // Multiply size_class by the bytesize of each header
+  size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
@@ -540,10 +545,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "add %[region_start], %[region_start], %[slabs]\n"
       // end_ptr = &(slab_headers[0]->end)
       "add %[end_ptr], %[region_start], #6\n"
-      // current = slab_headers[cl]->current (current index)
-      "ldrh %w[current], [%[region_start], %[cl_lsl3]]\n"
-      // end = slab_headers[cl]->end (end index)
-      "ldrh %w[end], [%[end_ptr], %[cl_lsl3]]\n"
+      // current = slab_headers[size_class]->current (current index)
+      "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
+      // end = slab_headers[size_class]->end (end index)
+      "ldrh %w[end], [%[end_ptr], %[size_class_lsl3]]\n"
       // if (ABSL_PREDICT_FALSE(current >= end)) { goto overflow; }
       "cmp %[end], %[current]\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
@@ -555,7 +560,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
 #endif
       "str %[item], [%[region_start], %[current], LSL #3]\n"
       "add %w[current], %w[current], #1\n"
-      "strh %w[current], [%[region_start], %[cl_lsl3]]\n"
+      "strh %w[current], [%[region_start], %[size_class_lsl3]]\n"
       // Commit
       "5:\n"
       : [end_ptr] "=&r"(end_ptr), [cpu_id] "=&r"(cpu_id),
@@ -567,8 +572,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [overflow] "=@ccae"(overflow)
 #endif
       : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
-        [cl_lsl3] "r"(cl_lsl3), [item] "r"(item), [rseq_abi] "r"(&__rseq_abi),
-        [shift] "r"(shift),
+        [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
+        [rseq_abi] "r"(&__rseq_abi), [shift] "r"(shift),
         // Constants
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
@@ -596,13 +601,14 @@ overflow_label:
   // transformation of cpu_id to the value of scratch.
   int cpu = cpu_id;
 #endif
-  return overflow_handler(cpu, cl, item, arg);
+  return overflow_handler(cpu, size_class, item, arg);
 }
 #endif  // defined (__aarch64__)
 
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
-    size_t cl, void* item, OverflowHandler overflow_handler, void* arg) {
+    size_t size_class, void* item, OverflowHandler overflow_handler,
+    void* arg) {
   ASSERT(IsFastNoInit());
   ASSERT(item != nullptr);
   // Speculatively annotate item as released to TSan.  We may not succeed in
@@ -612,16 +618,16 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   TSANRelease(item);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Internal_Push<NumClasses>(slabs, cl, item, shift,
+  return TcmallocSlab_Internal_Push<NumClasses>(slabs, size_class, item, shift,
                                                 overflow_handler, arg,
                                                 virtual_cpu_id_offset_) >= 0;
 #else
   if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Internal_Push_FixedShift(slabs, cl, item,
+    return TcmallocSlab_Internal_Push_FixedShift(slabs, size_class, item,
                                                  overflow_handler, arg) >= 0;
   } else {
-    return TcmallocSlab_Internal_Push(slabs, cl, item, shift, overflow_handler,
-                                      arg) >= 0;
+    return TcmallocSlab_Internal_Push(slabs, size_class, item, shift,
+                                      overflow_handler, arg) >= 0;
   }
 #endif
 }
@@ -629,7 +635,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 #if defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
     UnderflowHandler underflow_handler, void* arg, const size_t shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
@@ -688,10 +694,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // scratch = slabs + scratch
           "shlq %b[shift], %[scratch]\n"
           "add %[slabs], %[scratch]\n"
-          // current = scratch->header[cl].current;
-          "movzwq (%[scratch], %[cl], 8), %[current]\n"
-          // if (ABSL_PREDICT_FALSE(scratch->header[cl].begin > current))
-          "cmp 4(%[scratch], %[cl], 8), %w[current]\n"
+          // current = scratch->header[size_class].current;
+          "movzwq (%[scratch], %[size_class], 8), %[current]\n"
+          // if (ABSL_PREDICT_FALSE(scratch->header[size_class].begin >
+          //                        current))
+          "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "jbe %l[underflow_path]\n"
 #else
@@ -709,7 +716,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "prefetcht0 (%[result])\n"
           "movq -8(%[scratch], %[current], 8), %[result]\n"
           "lea -1(%[current]), %[current]\n"
-          "mov %w[current], (%[scratch], %[cl], 8)\n"
+          "mov %w[current], (%[scratch], %[size_class], 8)\n"
           // Commit
           "5:\n"
           : [result] "=&r"(result),
@@ -721,7 +728,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "c"(shift),
-            [slabs] "r"(slabs), [cl] "r"(cl)
+            [slabs] "r"(slabs), [size_class] "r"(size_class)
           : "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
@@ -749,14 +756,14 @@ underflow_path:
       (reinterpret_cast<char*>(scratch) - reinterpret_cast<char*>(slabs)) >>
       shift;
 #endif
-  return underflow_handler(cpu, cl, arg);
+  return underflow_handler(cpu, size_class, arg);
 }
 #endif  // defined(__x86_64__)
 
 #if defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t cl,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
     UnderflowHandler underflow_handler, void* arg, const size_t shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
@@ -766,8 +773,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   uintptr_t current;
   uintptr_t new_current;
   uintptr_t begin;
-  // Multiply cl by the bytesize of each header
-  size_t cl_lsl3 = cl * 8;
+  // Multiply size_class by the bytesize of each header
+  size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
@@ -824,10 +831,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "add %[region_start], %[region_start], %[slabs]\n"
           // begin_ptr = &(slab_headers[0]->begin)
           "add %[begin_ptr], %[region_start], #4\n"
-          // current = slab_headers[cl]->current (current index)
-          "ldrh %w[current], [%[region_start], %[cl_lsl3]]\n"
-          // begin = slab_headers[cl]->begin (begin index)
-          "ldrh %w[begin], [%[begin_ptr], %[cl_lsl3]]\n"
+          // current = slab_headers[size_class]->current (current index)
+          "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
+          // begin = slab_headers[size_class]->begin (begin index)
+          "ldrh %w[begin], [%[begin_ptr], %[size_class_lsl3]]\n"
           // if (ABSL_PREDICT_FALSE(begin >= current)) { goto overflow; }
           "cmp %w[begin], %w[current]\n"
           "sub %w[new_current], %w[current], #1\n"
@@ -840,7 +847,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
 #endif
           // current--
           "ldr %[result], [%[region_start], %[new_current], LSL #3]\n"
-          "strh %w[new_current], [%[region_start], %[cl_lsl3]]\n"
+          "strh %w[new_current], [%[region_start], %[size_class_lsl3]]\n"
           // Commit
           "5:\n"
           :
@@ -854,7 +861,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
           // Real inputs
           : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
-            [cl_lsl3] "r"(cl_lsl3), [rseq_abi] "r"(&__rseq_abi),
+            [size_class_lsl3] "r"(size_class_lsl3), [rseq_abi] "r"(&__rseq_abi),
             [shift] "r"(shift),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
@@ -884,42 +891,44 @@ underflow_path:
   // transformation of cpu_id to the value of scratch.
   int cpu = cpu_id;
 #endif
-  return underflow_handler(cpu, cl, arg);
+  return underflow_handler(cpu, size_class, arg);
 }
 #endif  // defined(__aarch64__)
 
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t cl, UnderflowHandler underflow_handler, void* arg) {
+    size_t size_class, UnderflowHandler underflow_handler, void* arg) {
   ASSERT(IsFastNoInit());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Pop<NumClasses>(
-      slabs, cl, underflow_handler, arg, shift, virtual_cpu_id_offset_);
+      slabs, size_class, underflow_handler, arg, shift, virtual_cpu_id_offset_);
 #else
   void* ret;
   if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    ret =
-        TcmallocSlab_Internal_Pop_FixedShift(slabs, cl, underflow_handler, arg);
+    ret = TcmallocSlab_Internal_Pop_FixedShift(slabs, size_class,
+                                               underflow_handler, arg);
   } else {
-    ret = TcmallocSlab_Internal_Pop(slabs, cl, underflow_handler, arg, shift);
+    ret = TcmallocSlab_Internal_Pop(slabs, size_class, underflow_handler, arg,
+                                    shift);
   }
   TSANAcquire(ret);
   return ret;
 #endif
 }
 
-static inline void* NoopUnderflow(int cpu, size_t cl, void* arg) {
+static inline void* NoopUnderflow(int cpu, size_t size_class, void* arg) {
   return nullptr;
 }
 
-static inline int NoopOverflow(int cpu, size_t cl, void* item, void* arg) {
+static inline int NoopOverflow(int cpu, size_t size_class, void* item,
+                               void* arg) {
   return -1;
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
-                                                  size_t len) {
+inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
+                                                  void** batch, size_t len) {
   ASSERT(len != 0);
   // We need to annotate batch[...] as released before running the restartable
   // sequence, since those objects become visible to other threads the moment
@@ -937,12 +946,12 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
     // only minor differences between them.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
-        return TcmallocSlab_Internal_PushBatch_FixedShift(slabs, cl, batch,
-                                                          len);
+        return TcmallocSlab_Internal_PushBatch_FixedShift(slabs, size_class,
+                                                          batch, len);
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
       case offsetof(kernel_rseq, vcpu_id):
-        return TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(slabs, cl, batch,
-                                                               len);
+        return TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(
+            slabs, size_class, batch, len);
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
       default:
         __builtin_unreachable();
@@ -953,7 +962,8 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
   } else {
     size_t n = 0;
     // Push items until either all done or a push fails
-    while (n < len && Push(cl, batch[len - 1 - n], NoopOverflow, nullptr)) {
+    while (n < len &&
+           Push(size_class, batch[len - 1 - n], NoopOverflow, nullptr)) {
       n++;
     }
     return n;
@@ -961,8 +971,8 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t cl, void** batch,
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
-                                                 size_t len) {
+inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
+                                                 void** batch, size_t len) {
   ASSERT(len != 0);
   size_t n = 0;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -974,12 +984,13 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
     // only minor differences between them.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
-        n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, cl, batch, len);
+        n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, size_class, batch,
+                                                      len);
         break;
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
       case offsetof(kernel_rseq, vcpu_id):
-        n = TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(slabs, cl, batch,
-                                                           len);
+        n = TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(slabs, size_class,
+                                                           batch, len);
         break;
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
       default:
@@ -996,7 +1007,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t cl, void** batch,
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
     // Pop items until either all done or a pop fails
-    while (n < len && (batch[n] = Pop(cl, NoopUnderflow, nullptr))) {
+    while (n < len && (batch[n] = Pop(size_class, NoopUnderflow, nullptr))) {
       n++;
     }
   }
@@ -1022,11 +1033,9 @@ inline auto TcmallocSlab<NumClasses>::CpuMemoryStart(Slabs* slabs, size_t shift,
 }
 
 template <size_t NumClasses>
-inline std::atomic<int64_t>* TcmallocSlab<NumClasses>::GetHeader(Slabs* slabs,
-                                                                 size_t shift,
-                                                                 int cpu,
-                                                                 size_t cl) {
-  return &CpuMemoryStart(slabs, shift, cpu)->header[cl];
+inline std::atomic<int64_t>* TcmallocSlab<NumClasses>::GetHeader(
+    Slabs* slabs, size_t shift, int cpu, size_t size_class) {
+  return &CpuMemoryStart(slabs, shift, cpu)->header[size_class];
 }
 
 template <size_t NumClasses>
@@ -1043,12 +1052,12 @@ inline void TcmallocSlab<NumClasses>::StoreHeader(std::atomic<int64_t>* hdrp,
 
 template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::LockHeader(Slabs* slabs, size_t shift,
-                                                 int cpu, size_t cl) {
+                                                 int cpu, size_t size_class) {
   // Note: this reinterpret_cast and write in Lock lead to undefined
   // behavior, because the actual object type is std::atomic<int64_t>. But
   // C++ does not allow to legally express what we need here: atomic writes
   // of different sizes.
-  reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, cl))->Lock();
+  reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, size_class))->Lock();
 }
 
 template <size_t NumClasses>
@@ -1085,13 +1094,13 @@ template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
     Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset) {
   for (bool done = false; !done;) {
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      LockHeader(slabs, shift, cpu, cl);
+    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+      LockHeader(slabs, shift, cpu, size_class);
     }
     FenceCpu(cpu, virtual_cpu_id_offset);
     done = true;
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+      Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
       if (!hdr.IsLocked()) {
         // Header was overwritten by Grow/Shrink. Retry.
         done = false;
@@ -1138,8 +1147,8 @@ void TcmallocSlab<NumClasses>::Init(
     bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
     void** elems = CpuMemoryStart(slabs, shift, cpu)->mem;
 
-    for (size_t cl = 0; cl < NumClasses; ++cl) {
-      size_t cap = capacity(cl);
+    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+      size_t cap = capacity(size_class);
       CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
       if (cap == 0) {
@@ -1171,8 +1180,8 @@ void TcmallocSlab<NumClasses>::InitCpu(
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // Phase 1: verify no header is locked
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
     CHECK_CONDITION(!hdr.IsLocked());
   }
 
@@ -1184,8 +1193,8 @@ void TcmallocSlab<NumClasses>::InitCpu(
   // boundaries of each size class' cache.
   void** elems = CpuMemoryStart(slabs, shift, cpu)->mem;
   uint16_t begin[NumClasses];
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    size_t cap = capacity(cl);
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    size_t cap = capacity(size_class);
     CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
     if (cap) {
@@ -1200,7 +1209,7 @@ void TcmallocSlab<NumClasses>::InitCpu(
     size_t offset =
         elems - reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu));
     CHECK_CONDITION(static_cast<uint16_t>(offset) == offset);
-    begin[cl] = offset;
+    begin[size_class] = offset;
 
     elems += cap;
     CHECK_CONDITION(
@@ -1214,22 +1223,22 @@ void TcmallocSlab<NumClasses>::InitCpu(
   //
   // We must write current and complete a fence before storing begin and end
   // (b/147974701).
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    hdr.current = begin[cl];
+    hdr.current = begin[size_class];
     StoreHeader(hdrp, hdr);
   }
   FenceCpu(cpu, virtual_cpu_id_offset);
 
   // Phase 5: Allow access to this cache.
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     Header hdr;
-    hdr.current = begin[cl];
-    hdr.begin = begin[cl];
-    hdr.end = begin[cl];
-    hdr.end_copy = begin[cl];
-    StoreHeader(GetHeader(slabs, shift, cpu, cl), hdr);
+    hdr.current = begin[size_class];
+    hdr.begin = begin[size_class];
+    hdr.end = begin[size_class];
+    hdr.end_copy = begin[size_class];
+    StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
   }
 }
 
@@ -1244,23 +1253,23 @@ void TcmallocSlab<NumClasses>::Destroy(
 
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
-    int cpu, size_t cl, size_t len, ShrinkHandler shrink_handler) {
+    int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
   ASSERT(cpu >= 0);
   ASSERT(cpu < absl::base_internal::NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
   // Phase 1: Collect begin as it will be overwritten by the lock.
-  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
   CHECK_CONDITION(!hdr.IsLocked());
   const uint16_t begin = hdr.begin;
 
-  // Phase 2: stop concurrent mutations for <cpu> for size class <cl>.
+  // Phase 2: stop concurrent mutations for <cpu> for size class <size_class>.
   do {
-    LockHeader(slabs, shift, cpu, cl);
+    LockHeader(slabs, shift, cpu, size_class);
     FenceCpu(cpu, virtual_cpu_id_offset);
-    hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+    hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
     // If the header was overwritten in Grow/Shrink, then we need to try again.
   } while (!hdr.IsLocked());
 
@@ -1287,7 +1296,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
                                             hdr.current - actual_pop);
     TSANAcquireBatch(batch, actual_pop);
-    shrink_handler(cl, batch, actual_pop);
+    shrink_handler(size_class, batch, actual_pop);
     hdr.current -= actual_pop;
     StoreHeader(hdrp, hdr);
     FenceCpu(cpu, virtual_cpu_id_offset);
@@ -1325,10 +1334,10 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
 
   // Phase 1: collect all begin's (these are not mutated by anybody else).
   uint16_t begin[NumClasses];
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, cl));
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
     CHECK_CONDITION(!hdr.IsLocked());
-    begin[cl] = hdr.begin;
+    begin[size_class] = hdr.begin;
   }
 
   // Phase 2: stop concurrent mutations for <cpu>.
@@ -1348,23 +1357,23 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
   // no Push/Pop will make progress.  Once we Fence below, we know no Push/Pop
   // is using the old current, and can safely update begin/end to be an empty
   // slab.
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
-    hdr.current = begin[cl];
+    hdr.current = begin[size_class];
     StoreHeader(hdrp, hdr);
   }
 
   // Phase 5: fence and reset the remaining fields to beginning of the region.
   // This allows concurrent mutations again.
   FenceCpu(cpu, virtual_cpu_id_offset);
-  for (size_t cl = 0; cl < NumClasses; ++cl) {
-    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, cl);
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr;
-    hdr.current = begin[cl];
-    hdr.begin = begin[cl];
-    hdr.end = begin[cl];
-    hdr.end_copy = begin[cl];
+    hdr.current = begin[size_class];
+    hdr.begin = begin[size_class];
+    hdr.end = begin[size_class];
+    hdr.end_copy = begin[size_class];
     StoreHeader(hdrp, hdr);
   }
 }

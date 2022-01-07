@@ -37,40 +37,42 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
   return -1;
 }
 
-int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
-                               OverflowHandler overflow_handler, void* arg) {
+int TcmallocSlab_Internal_Push(void* ptr, size_t size_class, void* item,
+                               size_t shift, OverflowHandler overflow_handler,
+                               void* arg) {
   Unsupported();
   return -1;
 }
 
-int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
+int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t size_class,
+                                          void* item,
                                           OverflowHandler overflow_handler,
                                           void* arg) {
   Unsupported();
   return -1;
 }
 
-void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t size_class,
                                 UnderflowHandler underflow_handler, void* arg,
                                 size_t shift) {
   Unsupported();
   return nullptr;
 }
 
-void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
+void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t size_class,
                                            UnderflowHandler underflow_handler,
                                            void* arg) {
   Unsupported();
   return nullptr;
 }
 
-size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
                                                   void** batch, size_t len) {
   Unsupported();
   return 0;
 }
 
-size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
                                                  void** batch, size_t len) {
   Unsupported();
   return 0;

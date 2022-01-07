@@ -243,8 +243,8 @@ class TwoSizeClassManager : public FakeTransferCacheManagerBase {
   using FreeList = FreeListT;
   using TransferCache = TransferCacheT<FreeList, TwoSizeClassManager>;
 
-  // This is 3 instead of 2 because we hard code cl == 0 to be invalid in many
-  // places. We only use cl 1 and 2 here.
+  // This is 3 instead of 2 because we hard code size_class == 0 to be invalid
+  // in many places. We only use size_class 1 and 2 here.
   static constexpr int kSizeClasses = 3;
   static constexpr size_t kClassSize1 = 8;
   static constexpr size_t kClassSize2 = 16 << 10;
@@ -286,19 +286,23 @@ class TwoSizeClassManager : public FakeTransferCacheManagerBase {
     return caches_[size_class]->ShrinkCache(size_class);
   }
 
-  FreeList& central_freelist(int cl) { return caches_[cl]->freelist(); }
-
-  void InsertRange(int cl, absl::Span<void*> batch) {
-    caches_[cl]->InsertRange(cl, batch);
+  FreeList& central_freelist(int size_class) {
+    return caches_[size_class]->freelist();
   }
 
-  int RemoveRange(int cl, void** batch, int N) {
-    return caches_[cl]->RemoveRange(cl, batch, N);
+  void InsertRange(int size_class, absl::Span<void*> batch) {
+    caches_[size_class]->InsertRange(size_class, batch);
   }
 
-  bool HasSpareCapacity(int cl) { return caches_[cl]->HasSpareCapacity(cl); }
+  int RemoveRange(int size_class, void** batch, int N) {
+    return caches_[size_class]->RemoveRange(size_class, batch, N);
+  }
 
-  size_t tc_length(int cl) { return caches_[cl]->tc_length(); }
+  bool HasSpareCapacity(int size_class) {
+    return caches_[size_class]->HasSpareCapacity(size_class);
+  }
+
+  size_t tc_length(int size_class) { return caches_[size_class]->tc_length(); }
 
   std::vector<std::unique_ptr<TransferCache>> caches_;
 
@@ -317,29 +321,30 @@ class TwoSizeClassEnv {
 
   ~TwoSizeClassEnv() { Drain(); }
 
-  void Insert(int cl, int n) {
-    const size_t batch_size = Manager::num_objects_to_move(cl);
+  void Insert(int size_class, int n) {
+    const size_t batch_size = Manager::num_objects_to_move(size_class);
     std::vector<void*> bufs;
     while (n > 0) {
       int b = std::min<int>(n, batch_size);
       bufs.resize(b);
-      central_freelist(cl).AllocateBatch(&bufs[0], b);
-      manager_.InsertRange(cl, absl::MakeSpan(bufs));
+      central_freelist(size_class).AllocateBatch(&bufs[0], b);
+      manager_.InsertRange(size_class, absl::MakeSpan(bufs));
       n -= b;
     }
   }
 
-  void Remove(int cl, int n) {
-    const size_t batch_size = Manager::num_objects_to_move(cl);
+  void Remove(int size_class, int n) {
+    const size_t batch_size = Manager::num_objects_to_move(size_class);
     std::vector<void*> bufs;
     while (n > 0) {
       const int b = std::min<int>(n, batch_size);
       bufs.resize(b);
-      const int removed = manager_.RemoveRange(cl, &bufs[0], b);
+      const int removed = manager_.RemoveRange(size_class, &bufs[0], b);
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
-      central_freelist(cl).FreeBatch({&bufs[0], static_cast<size_t>(removed)});
+      central_freelist(size_class)
+          .FreeBatch({&bufs[0], static_cast<size_t>(removed)});
       n -= removed;
     }
   }
@@ -352,7 +357,9 @@ class TwoSizeClassEnv {
 
   Manager& transfer_cache_manager() { return manager_; }
 
-  FreeList& central_freelist(int cl) { return manager_.central_freelist(cl); }
+  FreeList& central_freelist(int size_class) {
+    return manager_.central_freelist(size_class);
+  }
 
  private:
   Manager manager_;

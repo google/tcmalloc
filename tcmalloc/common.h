@@ -300,8 +300,8 @@ inline MemoryTag GetMemoryTag(const void* ptr) {
 
 absl::string_view MemoryTagToLabel(MemoryTag tag);
 
-inline constexpr bool IsExpandedSizeClass(unsigned cl) {
-  return kHasExpandedClasses && (cl >= kExpandedClassesStart);
+inline constexpr bool IsExpandedSizeClass(unsigned size_class) {
+  return kHasExpandedClasses && (size_class >= kExpandedClassesStart);
 }
 
 #if !defined(TCMALLOC_SMALL_BUT_SLOW) && __SIZEOF_POINTER__ != 4
@@ -502,37 +502,37 @@ class SizeMap {
   template <typename Policy>
   inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(Policy policy,
                                                         size_t size,
-                                                        uint32_t* cl) {
+                                                        uint32_t* size_class) {
     const size_t align = policy.align();
     ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
       // TODO(b/172060547): Consider changing this to align > kPageSize.
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
       return false;
     }
 
     uint32_t idx;
     if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, &idx))) {
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
       return false;
     }
     if (kHasExpandedClasses && IsColdHint(policy.access())) {
-      *cl = class_array_[idx + kClassArraySize];
+      *size_class = class_array_[idx + kClassArraySize];
     } else {
-      *cl = class_array_[idx] + policy.scaled_numa_partition();
+      *size_class = class_array_[idx] + policy.scaled_numa_partition();
     }
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
     const size_t mask = (align - 1);
     do {
-      if (ABSL_PREDICT_TRUE((class_to_size(*cl) & mask) == 0)) {
+      if (ABSL_PREDICT_TRUE((class_to_size(*size_class) & mask) == 0)) {
         return true;
       }
-    } while ((++*cl % kNumBaseClasses) != 0);
+    } while ((++*size_class % kNumBaseClasses) != 0);
 
-    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(cl, sizeof(*cl));
+    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
     return false;
   }
 
@@ -547,16 +547,17 @@ class SizeMap {
     return ret;
   }
 
-  // Get the byte-size for a specified class. REQUIRES: cl <= kNumClasses.
-  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE class_to_size(size_t cl) {
-    ASSERT(cl < kNumClasses);
-    return class_to_size_[cl];
+  // Get the byte-size for a specified class. REQUIRES: size_class <=
+  // kNumClasses.
+  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE class_to_size(size_t size_class) {
+    ASSERT(size_class < kNumClasses);
+    return class_to_size_[size_class];
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  inline size_t class_to_pages(size_t cl) {
-    ASSERT(cl < kNumClasses);
-    return class_to_pages_[cl];
+  inline size_t class_to_pages(size_t size_class) {
+    ASSERT(size_class < kNumClasses);
+    return class_to_pages_[size_class];
   }
 
   // Number of objects to move between a per-thread list and a central
@@ -564,9 +565,9 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  inline SizeMap::BatchSize num_objects_to_move(size_t cl) {
-    ASSERT(cl < kNumClasses);
-    return num_objects_to_move_[cl];
+  inline SizeMap::BatchSize num_objects_to_move(size_t size_class) {
+    ASSERT(size_class < kNumClasses);
+    return num_objects_to_move_[size_class];
   }
 
   absl::Span<const size_t> ColdSizeClasses() const {

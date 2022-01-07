@@ -115,8 +115,9 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 }
 #endif
 
-typedef int (*OverflowHandler)(int cpu, size_t cl, void* item, void* arg);
-typedef void* (*UnderflowHandler)(int cpu, size_t cl, void* arg);
+typedef int (*OverflowHandler)(int cpu, size_t size_class, void* item,
+                               void* arg);
+typedef void* (*UnderflowHandler)(int cpu, size_t size_class, void* arg);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
@@ -125,37 +126,41 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
                                           intptr_t old_val, intptr_t new_val);
 
 #if !TCMALLOC_PERCPU_USE_RSEQ_VCPU
-int TcmallocSlab_Internal_Push(void* ptr, size_t cl, void* item, size_t shift,
-                               OverflowHandler overflow_handler, void* arg);
-int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t cl, void* item,
+int TcmallocSlab_Internal_Push(void* ptr, size_t size_class, void* item,
+                               size_t shift, OverflowHandler overflow_handler,
+                               void* arg);
+int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t size_class,
+                                          void* item,
                                           OverflowHandler overflow_handler,
                                           void* arg);
-void* TcmallocSlab_Internal_Pop(void* ptr, size_t cl,
+void* TcmallocSlab_Internal_Pop(void* ptr, size_t size_class,
                                 UnderflowHandler underflow_handler, void* arg,
                                 size_t shift);
-void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t cl,
+void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t size_class,
                                            UnderflowHandler underflow_handler,
                                            void* arg);
 #endif  // !TCMALLOC_PERCPU_USE_RSEQ_VCPU
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
                                                   void** batch, size_t len);
 
 // Pop a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
                                                  void** batch, size_t len);
 
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
                                                intptr_t old_val,
                                                intptr_t new_val);
-size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr,
+                                                       size_t size_class,
                                                        void** batch,
                                                        size_t len);
-size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr, size_t cl,
+size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr,
+                                                      size_t size_class,
                                                       void** batch, size_t len);
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }

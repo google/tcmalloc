@@ -369,10 +369,10 @@ TEST(SizeMapTest, GetSizeClass) {
   // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    uint32_t cl;
-    if (m.GetSizeClass(CppPolicy(), size, &cl)) {
-      EXPECT_EQ(cl % kNumBaseClasses, 0) << size;
-      EXPECT_LT(cl, kExpandedClassesStart) << size;
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+      EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size;
     } else {
       // We should only fail to lookup the size class when size is outside of
       // the size classes.
@@ -385,9 +385,9 @@ TEST(SizeMapTest, GetSizeClass) {
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
-    uint32_t cl;
-    if (m.GetSizeClass(CppPolicy(), size, &cl)) {
-      const size_t mapped_size = m.class_to_size(cl);
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy(), size, &size_class)) {
+      const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
     } else {
@@ -408,10 +408,10 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    uint32_t cl;
-    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &cl)) {
-      EXPECT_EQ(cl % kNumBaseClasses, 0) << size << " " << alignment;
-      EXPECT_LT(cl, kExpandedClassesStart) << size << " " << alignment;
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+      EXPECT_EQ(size_class % kNumBaseClasses, 0) << size << " " << alignment;
+      EXPECT_LT(size_class, kExpandedClassesStart) << size << " " << alignment;
     } else if (alignment < kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
       // TODO(b/172060547): alignment == kPageSize could fit into the size
@@ -428,9 +428,9 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
     const size_t alignment = 1 << absl::Uniform(rng, 0u, kHugePageShift);
-    uint32_t cl;
-    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &cl)) {
-      const size_t mapped_size = m.class_to_size(cl);
+    uint32_t size_class;
+    if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
+      const size_t mapped_size = m.class_to_size(size_class);
       // The size class needs to hold size.
       ASSERT_GE(mapped_size, size);
       // The size needs to be a multiple of alignment.
@@ -455,9 +455,9 @@ TEST(SizeMapTest, SizeClass) {
   // non-zero NUMA partition.
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    const uint32_t cl = m.SizeClass(CppPolicy(), size);
-    EXPECT_EQ(cl % kNumBaseClasses, 0) << size;
-    EXPECT_LT(cl, kExpandedClassesStart) << size;
+    const uint32_t size_class = m.SizeClass(CppPolicy(), size);
+    EXPECT_EQ(size_class % kNumBaseClasses, 0) << size;
+    EXPECT_LT(size_class, kExpandedClassesStart) << size;
   }
 
   // After m.Init(), SizeClass should return a size class.
@@ -465,9 +465,9 @@ TEST(SizeMapTest, SizeClass) {
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
-    uint32_t cl = m.SizeClass(CppPolicy(), size);
+    uint32_t size_class = m.SizeClass(CppPolicy(), size);
 
-    const size_t mapped_size = m.class_to_size(cl);
+    const size_t mapped_size = m.class_to_size(size_class);
     // The size class needs to hold size.
     ASSERT_GE(mapped_size, size);
   }
@@ -476,10 +476,10 @@ TEST(SizeMapTest, SizeClass) {
 TEST(SizeMapTest, Preinit) {
   ABSL_CONST_INIT static SizeMap m;
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    EXPECT_EQ(m.class_to_size(cl), 0) << cl;
-    EXPECT_EQ(m.class_to_pages(cl), 0) << cl;
-    EXPECT_EQ(m.num_objects_to_move(cl), 0) << cl;
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    EXPECT_EQ(m.class_to_size(size_class), 0) << size_class;
+    EXPECT_EQ(m.class_to_pages(size_class), 0) << size_class;
+    EXPECT_EQ(m.num_objects_to_move(size_class), 0) << size_class;
   }
 }
 

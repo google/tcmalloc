@@ -547,8 +547,8 @@ REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
 
 TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
   ShardedTransferCacheManager manager(nullptr, nullptr);
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    EXPECT_FALSE(manager.should_use(cl));
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    EXPECT_FALSE(manager.should_use(size_class));
   }
 }
 
@@ -657,19 +657,24 @@ TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
   // there are multiple size classes interacting by stealing from each other.
 
   // Fill all caches to their maximum without starting to steal from each other.
-  for (int cl = 1; cl < TypeParam::Manager::kSizeClasses; ++cl) {
-    const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
-    while (env.transfer_cache_manager().HasSpareCapacity(cl)) {
-      env.Insert(cl, batch_size);
+  for (int size_class = 1; size_class < TypeParam::Manager::kSizeClasses;
+       ++size_class) {
+    const size_t batch_size =
+        TypeParam::Manager::num_objects_to_move(size_class);
+    while (env.transfer_cache_manager().HasSpareCapacity(size_class)) {
+      env.Insert(size_class, batch_size);
     }
   }
 
   // Count the number of batches currently in the cache.
   auto count_batches = [&env]() {
     int batch_count = 0;
-    for (int cl = 1; cl < TypeParam::Manager::kSizeClasses; ++cl) {
-      const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
-      batch_count += env.transfer_cache_manager().tc_length(cl) / batch_size;
+    for (int size_class = 1; size_class < TypeParam::Manager::kSizeClasses;
+         ++size_class) {
+      const size_t batch_size =
+          TypeParam::Manager::num_objects_to_move(size_class);
+      batch_count +=
+          env.transfer_cache_manager().tc_length(size_class) / batch_size;
     }
     return batch_count;
   };
@@ -680,11 +685,12 @@ TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
   for (int i = 0; i < 100; ++i) {
     {
       // First remove.
-      const int cl =
+      const int size_class =
           absl::Uniform<int>(bitgen, 1, TypeParam::Manager::kSizeClasses);
-      const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
-      if (env.transfer_cache_manager().tc_length(cl) >= batch_size) {
-        env.Remove(cl, batch_size);
+      const size_t batch_size =
+          TypeParam::Manager::num_objects_to_move(size_class);
+      if (env.transfer_cache_manager().tc_length(size_class) >= batch_size) {
+        env.Remove(size_class, batch_size);
         --expected_batches;
       }
       const int current_batches = count_batches();
@@ -692,16 +698,17 @@ TYPED_TEST_P(TwoSizeClassTest, NoLeaks) {
     }
     {
       // Then add in another size class.
-      const int cl =
+      const int size_class =
           absl::Uniform<int>(bitgen, 1, TypeParam::Manager::kSizeClasses);
       // Evict from the "next" size class, skipping 0.
       // This makes sure we are always evicting from somewhere if at all
       // possible.
       env.transfer_cache_manager().evicting_from_ =
-          1 + cl % (TypeParam::Manager::kSizeClasses - 1);
+          1 + size_class % (TypeParam::Manager::kSizeClasses - 1);
       if (expected_batches < max_batches) {
-        const size_t batch_size = TypeParam::Manager::num_objects_to_move(cl);
-        env.Insert(cl, batch_size);
+        const size_t batch_size =
+            TypeParam::Manager::num_objects_to_move(size_class);
+        env.Insert(size_class, batch_size);
         ++expected_batches;
       }
       const int current_batches = count_batches();

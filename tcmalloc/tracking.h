@@ -78,8 +78,8 @@ enum TrackingStat {
 
 namespace tracking {
 
-// Report <count> occurences of <stat> associated with sizeclass <cl>.
-void Report(TrackingStat stat, size_t cl, ssize_t count);
+// Report <count> occurences of <stat> associated with sizeclass <size_class>.
+void Report(TrackingStat stat, size_t size_class, ssize_t count);
 
 // Dump all tracking data to <out>.  We could support various other
 // mechanisms for data delivery without too much trouble...
@@ -94,7 +94,7 @@ void GetProperties(std::map<std::string, MallocExtension::Property>* result);
 
 #if !TCMALLOC_HAVE_TRACKING
 // no tracking, these are all no-ops
-inline void Report(TrackingStat stat, size_t cl, ssize_t count) {}
+inline void Report(TrackingStat stat, size_t size_class, ssize_t count) {}
 inline void Print(Printer* out) {}
 inline void Init() {}
 inline void GetProperties(

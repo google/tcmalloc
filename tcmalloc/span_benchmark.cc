@@ -32,9 +32,9 @@ namespace {
 
 class RawSpan {
  public:
-  void Init(size_t cl) {
-    size_t size = Static::sizemap().class_to_size(cl);
-    auto npages = Length(Static::sizemap().class_to_pages(cl));
+  void Init(size_t size_class) {
+    size_t size = Static::sizemap().class_to_size(size_class);
+    auto npages = Length(Static::sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     void* mem;
@@ -53,15 +53,15 @@ class RawSpan {
   Span span_;
 };
 
-// BM_single_span repeatedly pushes and pops the same num_objects_to_move(cl)
-// objects from the span.
+// BM_single_span repeatedly pushes and pops the same
+// num_objects_to_move(size_class) objects from the span.
 void BM_single_span(benchmark::State& state) {
-  const int cl = state.range(0);
+  const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   RawSpan raw_span;
-  raw_span.Init(cl);
+  raw_span.Init(size_class);
   Span& span = raw_span.span();
 
   void* batch[kMaxObjectsToMove];
@@ -82,14 +82,14 @@ void BM_single_span(benchmark::State& state) {
 // BM_single_span_fulldrain alternates between fully draining and filling the
 // span.
 void BM_single_span_fulldrain(benchmark::State& state) {
-  const int cl = state.range(0);
+  const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t npages = Static::sizemap().class_to_pages(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t npages = Static::sizemap().class_to_pages(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   size_t objects_per_span = npages * kPageSize / size;
   RawSpan raw_span;
-  raw_span.Init(cl);
+  raw_span.Init(size_class);
   Span& span = raw_span.span();
 
   std::vector<void*> objects(objects_per_span, nullptr);
@@ -161,16 +161,16 @@ void BM_NewDelete(benchmark::State& state) {
 BENCHMARK(BM_NewDelete);
 
 void BM_multiple_spans(benchmark::State& state) {
-  const int cl = state.range(0);
+  const int size_class = state.range(0);
 
   // Should be large enough to cause cache misses
   const int num_spans = 10000000;
   std::vector<Span> spans(num_spans);
-  size_t size = Static::sizemap().class_to_size(cl);
-  size_t batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size = Static::sizemap().class_to_size(size_class);
+  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   for (int i = 0; i < num_spans; i++) {
     RawSpan raw_span;
-    raw_span.Init(cl);
+    raw_span.Init(size_class);
     spans[i] = raw_span.span();
   }
   absl::BitGen rng;

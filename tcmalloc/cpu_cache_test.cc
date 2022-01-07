@@ -220,12 +220,12 @@ TEST(CpuCacheTest, Metadata) {
               cache.Capacity(cpu));
   }
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     // This is sensitive to the current growth policies of CPUCache.  It may
     // require updating from time-to-time.
-    EXPECT_EQ(cache.TotalObjectsOfClass(cl),
-              (cl == kSizeClass ? num_to_move - 1 : 0))
-        << cl;
+    EXPECT_EQ(cache.TotalObjectsOfClass(size_class),
+              (size_class == kSizeClass ? num_to_move - 1 : 0))
+        << size_class;
   }
   EXPECT_EQ(cache.TotalUsedBytes(), total_used_bytes);
 
@@ -336,9 +336,9 @@ static void StressThread(CPUCache& cache, size_t thread_id,
     const int what = absl::Uniform<int32_t>(rnd, 0, 2);
     if (what) {
       // Allocate an object for a class
-      size_t cl = absl::Uniform<int32_t>(rnd, 1, 3);
-      void* ptr = cache.Allocate<OOMHandler>(cl);
-      blocks.emplace_back(std::make_pair(cl, ptr));
+      size_t size_class = absl::Uniform<int32_t>(rnd, 1, 3);
+      void* ptr = cache.Allocate<OOMHandler>(size_class);
+      blocks.emplace_back(std::make_pair(size_class, ptr));
     } else {
       // Deallocate an object for a class
       if (!blocks.empty()) {
@@ -433,12 +433,12 @@ static void HotCacheOperations(CPUCache& cache, int cpu_id) {
   // cache. This will make sure we have sufficient disparity in misses between
   // the hotter and colder cache, and that we may be able to steal bytes from
   // the colder cache.
-  for (size_t cl = 1; cl <= 2; ++cl) {
+  for (size_t size_class = 1; size_class <= 2; ++size_class) {
     for (auto& ptr : ptrs) {
-      ptr = cache.Allocate<OOMHandler>(cl);
+      ptr = cache.Allocate<OOMHandler>(size_class);
     }
     for (void* ptr : ptrs) {
-      cache.Deallocate(ptr, cl);
+      cache.Deallocate(ptr, size_class);
     }
   }
 
@@ -467,7 +467,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // if something goes bad.
   constexpr int kMaxStealTries = 1000;
 
-  // We allocate and deallocate a single highest cl object.
+  // We allocate and deallocate a single highest size_class object.
   // This makes sure that we have a single large object in the cache that faster
   // cache can steal.
   const size_t size_class = 2;
@@ -667,11 +667,11 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
     EXPECT_TRUE(cache.HasPopulated(cpu));
   }
 
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    SCOPED_TRACE(absl::StrFormat("Failed cl: %d", cl));
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    SCOPED_TRACE(absl::StrFormat("Failed size_class: %d", size_class));
     CPUCache::SizeClassCapacityStats capacity_stats =
-        cache.GetSizeClassCapacityStats(cl);
-    if (cl == kSizeClass) {
+        cache.GetSizeClassCapacityStats(size_class);
+    if (size_class == kSizeClass) {
       // As all the caches are populated and each cache stores batch_size number
       // of kSizeClass objects, all the stats below should be equal to
       // batch_size.

@@ -34,7 +34,7 @@ namespace central_freelist_internal {
 
 class StaticForwarderTest : public testing::TestWithParam<size_t> {
  protected:
-  size_t cl_;
+  size_t size_class_;
   size_t object_size_;
   Length pages_per_span_;
   size_t batch_size_;
@@ -42,8 +42,8 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
 
  private:
   void SetUp() override {
-    cl_ = GetParam();
-    if (IsExpandedSizeClass(cl_)) {
+    size_class_ = GetParam();
+    if (IsExpandedSizeClass(size_class_)) {
 #if ABSL_HAVE_THREAD_SANITIZER
       GTEST_SKIP() << "Skipping test under sanitizers that conflict with "
                       "address placement";
@@ -56,19 +56,19 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
             << "Skipping expanded size classes without cold experiment";
       }
     }
-    object_size_ = Static::sizemap().class_to_size(cl_);
+    object_size_ = Static::sizemap().class_to_size(size_class_);
     if (object_size_ == 0) {
       GTEST_SKIP() << "Skipping empty size class.";
     }
 
-    pages_per_span_ = Length(Static::sizemap().class_to_pages(cl_));
-    batch_size_ = Static::sizemap().num_objects_to_move(cl_);
+    pages_per_span_ = Length(Static::sizemap().class_to_pages(size_class_));
+    batch_size_ = Static::sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
   }
 };
 
 TEST_P(StaticForwarderTest, Simple) {
-  Span* span = StaticForwarder::AllocateSpan(cl_, pages_per_span_);
+  Span* span = StaticForwarder::AllocateSpan(size_class_, pages_per_span_);
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span_);
@@ -76,8 +76,8 @@ TEST_P(StaticForwarderTest, Simple) {
                                          &batch[0], objects_per_span_);
   ASSERT_EQ(allocated, objects_per_span_);
 
-  EXPECT_EQ(cl_, Static::pagemap().sizeclass(span->first_page()));
-  EXPECT_EQ(cl_, Static::pagemap().sizeclass(span->last_page()));
+  EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->first_page()));
+  EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->last_page()));
 
   // span_test.cc provides test coverage for Span, but we need to obtain several
   // objects to confirm we can map back to the Span pointer from the PageMap.
@@ -89,7 +89,7 @@ TEST_P(StaticForwarderTest, Simple) {
     span->FreelistPush(ptr, object_size_);
   }
 
-  StaticForwarder::DeallocateSpans(cl_, absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(&span, 1));
 }
 
 class StaticForwarderEnvironment {
@@ -248,7 +248,7 @@ TEST_P(StaticForwarderTest, Fuzz) {
 
   const auto page_heap_before = PageHeapStats();
 
-  StaticForwarderEnvironment env(cl_, object_size_, objects_per_span_,
+  StaticForwarderEnvironment env(size_class_, object_size_, objects_per_span_,
                                  pages_per_span_, batch_size_);
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });

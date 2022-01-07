@@ -163,26 +163,30 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
                          TransferCacheStats* tc_stats, bool report_residence) {
   r->central_bytes = 0;
   r->transfer_bytes = 0;
-  for (int cl = 0; cl < kNumClasses; ++cl) {
-    const size_t length = Static::central_freelist(cl).length();
-    const size_t tc_length = Static::transfer_cache().tc_length(cl);
-    const size_t cache_overhead = Static::central_freelist(cl).OverheadBytes();
-    const size_t size = Static::sizemap().class_to_size(cl);
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    const size_t length = Static::central_freelist(size_class).length();
+    const size_t tc_length = Static::transfer_cache().tc_length(size_class);
+    const size_t cache_overhead =
+        Static::central_freelist(size_class).OverheadBytes();
+    const size_t size = Static::sizemap().class_to_size(size_class);
     r->central_bytes += (size * length) + cache_overhead;
     r->transfer_bytes += (size * tc_length);
     if (class_count) {
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
-      class_count[cl] = length + tc_length;
+      class_count[size_class] = length + tc_length;
       if (UsePerCpuCache()) {
-        class_count[cl] += Static::cpu_cache().TotalObjectsOfClass(cl);
+        class_count[size_class] +=
+            Static::cpu_cache().TotalObjectsOfClass(size_class);
       }
     }
     if (span_stats) {
-      span_stats[cl] = Static::central_freelist(cl).GetSpanStats();
+      span_stats[size_class] =
+          Static::central_freelist(size_class).GetSpanStats();
     }
     if (tc_stats) {
-      tc_stats[cl] = Static::transfer_cache().GetHitRateStats(cl);
+      tc_stats[size_class] =
+          Static::transfer_cache().GetHitRateStats(size_class);
     }
   }
 
@@ -439,29 +443,31 @@ static void DumpStats(Printer* out, int level) {
     out->printf("------------------------------------------------\n");
 
     uint64_t cumulative = 0;
-    for (int cl = 1; cl < kNumClasses; ++cl) {
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       uint64_t class_bytes =
-          class_count[cl] * Static::sizemap().class_to_size(cl);
+          class_count[size_class] * Static::sizemap().class_to_size(size_class);
 
       cumulative += class_bytes;
-      // clang-format off
       out->printf(
+          // clang-format off
           "class %3d [ %8zu bytes ] : %8" PRIu64 " objs; %5.1f MiB; %6.1f cum MiB; "
           "%8" PRIu64 " live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
-          cl, Static::sizemap().class_to_size(cl), class_count[cl],
-          class_bytes / MiB, cumulative / MiB,
-          span_stats[cl].num_live_spans()*Static::sizemap().class_to_pages(cl),
-          span_stats[cl].num_spans_returned, span_stats[cl].num_spans_requested,
-          span_stats[cl].prob_returned());
-      // clang-format on
+          // clang-format on
+          size_class, Static::sizemap().class_to_size(size_class),
+          class_count[size_class], class_bytes / MiB, cumulative / MiB,
+          span_stats[size_class].num_live_spans() *
+              Static::sizemap().class_to_pages(size_class),
+          span_stats[size_class].num_spans_returned,
+          span_stats[size_class].num_spans_requested,
+          span_stats[size_class].prob_returned());
     }
 
     out->printf("------------------------------------------------\n");
     out->printf("Central cache freelist: Span utilization histogram\n");
     out->printf("Non-cumulative number of spans with allocated objects < N\n");
     out->printf("------------------------------------------------\n");
-    for (int cl = 1; cl < kNumClasses; ++cl) {
-      Static::central_freelist(cl).PrintSpanUtilStats(out);
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      Static::central_freelist(size_class).PrintSpanUtilStats(out);
     }
 
     out->printf("------------------------------------------------\n");
@@ -471,15 +477,16 @@ static void DumpStats(Printer* out, int level) {
 
     out->printf("------------------------------------------------\n");
     out->printf("Transfer cache insert/remove hits/misses by size class\n");
-    for (int cl = 1; cl < kNumClasses; ++cl) {
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       out->printf(
           "class %3d [ %8zu bytes ] : %8" PRIu64 " insert hits; %8" PRIu64
           " insert misses (%8lu partial); %8" PRIu64 " remove hits; %8" PRIu64
           " remove misses (%8lu partial);\n",
-          cl, Static::sizemap().class_to_size(cl), tc_stats[cl].insert_hits,
-          tc_stats[cl].insert_misses, tc_stats[cl].insert_non_batch_misses,
-          tc_stats[cl].remove_hits, tc_stats[cl].remove_misses,
-          tc_stats[cl].remove_non_batch_misses);
+          size_class, Static::sizemap().class_to_size(size_class),
+          tc_stats[size_class].insert_hits, tc_stats[size_class].insert_misses,
+          tc_stats[size_class].insert_non_batch_misses,
+          tc_stats[size_class].remove_hits, tc_stats[size_class].remove_misses,
+          tc_stats[size_class].remove_non_batch_misses);
     }
 
     if (UsePerCpuCache()) {
@@ -592,32 +599,35 @@ namespace {
 
   if (level >= 2) {
     {
-      for (int cl = 1; cl < kNumClasses; ++cl) {
-        uint64_t class_bytes =
-            class_count[cl] * Static::sizemap().class_to_size(cl);
+      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+        uint64_t class_bytes = class_count[size_class] *
+                               Static::sizemap().class_to_size(size_class);
         PbtxtRegion entry = region.CreateSubRegion("freelist");
-        entry.PrintI64("sizeclass", Static::sizemap().class_to_size(cl));
+        entry.PrintI64("sizeclass",
+                       Static::sizemap().class_to_size(size_class));
         entry.PrintI64("bytes", class_bytes);
         entry.PrintI64("num_spans_requested",
-                       span_stats[cl].num_spans_requested);
-        entry.PrintI64("num_spans_returned", span_stats[cl].num_spans_returned);
-        entry.PrintI64("obj_capacity", span_stats[cl].obj_capacity);
-        Static::central_freelist(cl).PrintSpanUtilStatsInPbtxt(&entry);
+                       span_stats[size_class].num_spans_requested);
+        entry.PrintI64("num_spans_returned",
+                       span_stats[size_class].num_spans_returned);
+        entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
+        Static::central_freelist(size_class).PrintSpanUtilStatsInPbtxt(&entry);
       }
     }
 
     {
-      for (int cl = 1; cl < kNumClasses; ++cl) {
+      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
         PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
-        entry.PrintI64("sizeclass", Static::sizemap().class_to_size(cl));
-        entry.PrintI64("insert_hits", tc_stats[cl].insert_hits);
-        entry.PrintI64("insert_misses", tc_stats[cl].insert_misses);
+        entry.PrintI64("sizeclass",
+                       Static::sizemap().class_to_size(size_class));
+        entry.PrintI64("insert_hits", tc_stats[size_class].insert_hits);
+        entry.PrintI64("insert_misses", tc_stats[size_class].insert_misses);
         entry.PrintI64("insert_non_batch_misses",
-                       tc_stats[cl].insert_non_batch_misses);
-        entry.PrintI64("remove_hits", tc_stats[cl].remove_hits);
-        entry.PrintI64("remove_misses", tc_stats[cl].remove_misses);
+                       tc_stats[size_class].insert_non_batch_misses);
+        entry.PrintI64("remove_hits", tc_stats[size_class].remove_hits);
+        entry.PrintI64("remove_misses", tc_stats[size_class].remove_misses);
         entry.PrintI64("remove_non_batch_misses",
-                       tc_stats[cl].remove_non_batch_misses);
+                       tc_stats[size_class].remove_non_batch_misses);
       }
     }
 
@@ -1176,11 +1186,11 @@ extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
 static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   Static::InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
-  uint32_t cl;
+  uint32_t size_class;
   if (ABSL_PREDICT_TRUE(Static::sizemap().GetSizeClass(
-          CppPolicy().AlignAs(align), size, &cl))) {
-    ASSERT(cl != 0);
-    return Static::sizemap().class_to_size(cl);
+          CppPolicy().AlignAs(align), size, &size_class))) {
+    ASSERT(size_class != 0);
+    return Static::sizemap().class_to_size(size_class);
   } else {
     return BytesToLengthCeil(size).in_bytes();
   }
@@ -1195,11 +1205,11 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(!Static::IsInited() || flags != 0)) {
     return nallocx_slow(size, flags);
   }
-  uint32_t cl;
+  uint32_t size_class;
   if (ABSL_PREDICT_TRUE(
-          Static::sizemap().GetSizeClass(CppPolicy(), size, &cl))) {
-    ASSERT(cl != 0);
-    return Static::sizemap().class_to_size(cl);
+          Static::sizemap().GetSizeClass(CppPolicy(), size, &size_class))) {
+    ASSERT(size_class != 0);
+    return Static::sizemap().class_to_size(size_class);
   } else {
     return BytesToLengthCeil(size).in_bytes();
   }
@@ -1319,7 +1329,7 @@ inline Sampler* GetThreadSampler() {
 
 enum class Hooks { RUN, NO };
 
-static void FreeSmallSlow(void* ptr, size_t cl);
+static void FreeSmallSlow(void* ptr, size_t size_class);
 
 namespace {
 
@@ -1327,20 +1337,21 @@ namespace {
 inline void SetCapacity(size_t size, std::nullptr_t) {}
 inline void SetCapacity(size_t size, size_t* psize) { *psize = size; }
 
-// Sets `*psize` to the size for the size class in `cl`,
+// Sets `*psize` to the size for the size class in `size_class`,
 inline void SetClassCapacity(size_t size, std::nullptr_t) {}
-inline void SetClassCapacity(uint32_t cl, size_t* psize) {
-  *psize = Static::sizemap().class_to_size(cl);
+inline void SetClassCapacity(uint32_t size_class, size_t* psize) {
+  *psize = Static::sizemap().class_to_size(size_class);
 }
 
-// Sets `*psize` to the size for the size class in `cl` if `ptr` is not null,
-// else `*psize` is set to 0. This method is overloaded for `nullptr_t` below,
-// allowing the compiler to optimize code between regular and size returning
-// allocation operations.
+// Sets `*psize` to the size for the size class in `size_class` if `ptr` is not
+// null, else `*psize` is set to 0. This method is overloaded for `nullptr_t`
+// below, allowing the compiler to optimize code between regular and size
+// returning allocation operations.
 inline void SetClassCapacity(const void*, uint32_t, std::nullptr_t) {}
-inline void SetClassCapacity(const void* ptr, uint32_t cl, size_t* psize) {
+inline void SetClassCapacity(const void* ptr, uint32_t size_class,
+                             size_t* psize) {
   if (ABSL_PREDICT_TRUE(ptr != nullptr)) {
-    *psize = Static::sizemap().class_to_size(cl);
+    *psize = Static::sizemap().class_to_size(size_class);
   } else {
     *psize = 0;
   }
@@ -1381,18 +1392,18 @@ static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
   return F(ptr, p);
 }
 
-// Helper for do_free_with_cl
+// Helper for do_free_with_size_class
 template <Hooks hooks_state>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
-                                                          size_t cl) {
-  if (!IsExpandedSizeClass(cl)) {
+                                                          size_t size_class) {
+  if (!IsExpandedSizeClass(size_class)) {
     ASSERT(IsNormalMemory(ptr));
   } else {
     ASSERT(IsColdMemory(ptr));
   }
   if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
     // Take the slow path.
-    invoke_delete_hooks_and_free<FreeSmallSlow, hooks_state>(ptr, cl);
+    invoke_delete_hooks_and_free<FreeSmallSlow, hooks_state>(ptr, size_class);
     return;
   }
 
@@ -1401,18 +1412,18 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   ASSERT(Static::CPUCacheActive());
   ASSERT(subtle::percpu::IsFastNoInit());
 
-  Static::cpu_cache().Deallocate(ptr, cl);
+  Static::cpu_cache().Deallocate(ptr, size_class);
 #else   // TCMALLOC_DEPRECATED_PERTHREAD
   ThreadCache* cache = ThreadCache::GetCacheIfPresent();
 
   // IsOnFastPath does not track whether or not we have an active ThreadCache on
   // this thread, so we need to check cache for nullptr.
   if (ABSL_PREDICT_FALSE(cache == nullptr)) {
-    FreeSmallSlow(ptr, cl);
+    FreeSmallSlow(ptr, size_class);
     return;
   }
 
-  cache->Deallocate(ptr, cl);
+  cache->Deallocate(ptr, size_class);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
 }
 
@@ -1427,18 +1438,19 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
 // that fast-path only has tail-call, so that fast-path doesn't need
 // function prologue/epilogue.
 ABSL_ATTRIBUTE_NOINLINE
-static void FreeSmallSlow(void* ptr, size_t cl) {
+static void FreeSmallSlow(void* ptr, size_t size_class) {
   if (ABSL_PREDICT_TRUE(UsePerCpuCache())) {
-    Static::cpu_cache().Deallocate(ptr, cl);
+    Static::cpu_cache().Deallocate(ptr, size_class);
   } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent()) {
     // TODO(b/134691947):  If we reach this path from the ThreadCache fastpath,
     // we've already checked that UsePerCpuCache is false and cache == nullptr.
     // Consider optimizing this.
-    cache->Deallocate(ptr, cl);
+    cache->Deallocate(ptr, size_class);
   } else {
     // This thread doesn't have thread-cache yet or already. Delete directly
     // into central cache.
-    Static::transfer_cache().InsertRange(cl, absl::Span<void*>(&ptr, 1));
+    Static::transfer_cache().InsertRange(size_class,
+                                         absl::Span<void*>(&ptr, 1));
   }
 }
 
@@ -1451,7 +1463,7 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
   if (num_pages == Length(1) &&
       GetThreadSampler()->ShouldSampleGuardedAllocation()) {
     // The num_pages == 1 constraint ensures that size <= kPageSize.  And since
-    // alignments above kPageSize cause cl == 0, we're also guaranteed
+    // alignments above kPageSize cause size_class == 0, we're also guaranteed
     // alignment <= kPageSize
     //
     // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
@@ -1477,7 +1489,7 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
 // page-aligned addresses. Please change both functions if need to
 // invalidate the assumption.
 //
-// Note that cl might not match requested_size in case of
+// Note that size_class might not match requested_size in case of
 // memalign. I.e. when larger than requested allocation is done to
 // satisfy alignment constraint.
 //
@@ -1486,10 +1498,10 @@ static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
 // object. As if no sampling was requested.
 template <typename Policy>
 static void* SampleifyAllocation(Policy policy, size_t requested_size,
-                                 size_t weight, size_t cl, void* obj,
+                                 size_t weight, size_t size_class, void* obj,
                                  Span* span, size_t* capacity) {
-  CHECK_CONDITION((cl != 0 && obj != nullptr && span == nullptr) ||
-                  (cl == 0 && obj == nullptr && span != nullptr));
+  CHECK_CONDITION((size_class != 0 && obj != nullptr && span == nullptr) ||
+                  (size_class == 0 && obj == nullptr && span != nullptr));
 
   void* proxy = nullptr;
   void* guarded_alloc = nullptr;
@@ -1503,11 +1515,11 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     requested_alignment = 0;
   }
 
-  if (cl != 0) {
-    ASSERT(cl == Static::pagemap().sizeclass(PageIdContaining(obj)));
+  if (size_class != 0) {
+    ASSERT(size_class == Static::pagemap().sizeclass(PageIdContaining(obj)));
 
-    allocated_size = Static::sizemap().class_to_size(cl);
-    allocated_cold = IsExpandedSizeClass(cl);
+    allocated_size = Static::sizemap().class_to_size(size_class);
+    allocated_cold = IsExpandedSizeClass(size_class);
 
     // If the caller didn't provide a span, allocate one:
     Length num_pages = BytesToLengthCeil(allocated_size);
@@ -1530,7 +1542,8 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
       return obj;
     }
 
-    size_t span_size = Length(Static::sizemap().class_to_pages(cl)).in_bytes();
+    size_t span_size =
+        Length(Static::sizemap().class_to_pages(size_class)).in_bytes();
     size_t objects_per_span = span_size / allocated_size;
 
     if (objects_per_span != 1) {
@@ -1579,12 +1592,13 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     // purely internal deletion. We've already (correctly) tracked
     // this allocation as either malloc hit or malloc miss, and we
     // must not count anything else for this allocation.
-    Static::central_freelist(cl).InsertRange(absl::Span<void*>(&obj, 1));
+    Static::central_freelist(size_class)
+        .InsertRange(absl::Span<void*>(&obj, 1));
 #else
     // We are not maintaining precise statistics on malloc hit/miss rates at our
     // cache tiers.  We can deallocate into our ordinary cache.
-    ASSERT(cl != 0);
-    FreeSmallSlow(obj, cl);
+    ASSERT(size_class != 0);
+    FreeSmallSlow(obj, size_class);
 #endif
   }
   return guarded_alloc ? guarded_alloc : span->start_address();
@@ -1630,16 +1644,17 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
 }
 
 template <typename Policy, typename CapacityPtr>
-inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy, size_t cl,
+inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
+                                                     size_t size_class,
                                                      size_t size,
                                                      CapacityPtr capacity) {
-  ASSERT(cl != 0);
+  ASSERT(size_class != 0);
   void* result;
 
   if (UsePerCpuCache()) {
-    result = Static::cpu_cache().Allocate<Policy::handle_oom>(cl);
+    result = Static::cpu_cache().Allocate<Policy::handle_oom>(size_class);
   } else {
-    result = ThreadCache::GetCache()->Allocate<Policy::handle_oom>(cl);
+    result = ThreadCache::GetCache()->Allocate<Policy::handle_oom>(size_class);
   }
 
   if (!Policy::can_return_nullptr()) {
@@ -1652,10 +1667,10 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy, size_t cl,
   }
   size_t weight;
   if (ABSL_PREDICT_FALSE(weight = ShouldSampleAllocation(size))) {
-    return SampleifyAllocation(policy, size, weight, cl, result, nullptr,
-                               capacity);
+    return SampleifyAllocation(policy, size, weight, size_class, result,
+                               nullptr, capacity);
   }
-  SetClassCapacity(cl, capacity);
+  SetClassCapacity(size_class, capacity);
   return result;
 }
 
@@ -1716,13 +1731,13 @@ static void do_free_pages(void* ptr, const PageId p) {
 
   if (proxy) {
     const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
-    size_t cl;
+    size_t size_class;
     if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-      cl = Static::sizemap().SizeClass(policy.AccessAsCold(), size);
+      size_class = Static::sizemap().SizeClass(policy.AccessAsCold(), size);
     } else {
-      cl = Static::sizemap().SizeClass(policy.AccessAsHot(), size);
+      size_class = Static::sizemap().SizeClass(policy.AccessAsHot(), size);
     }
-    FreeSmall<Hooks::NO>(proxy, cl);
+    FreeSmall<Hooks::NO>(proxy, size_class);
   }
 }
 
@@ -1735,29 +1750,30 @@ static size_t GetSizeClass(void* ptr) {
 
 // Helper for the object deletion (free, delete, etc.).  Inputs:
 //   ptr is object to be freed
-//   cl is the size class of that object, or 0 if it's unknown
-//   have_cl is true iff cl is known and is non-0.
+//   size_class is the size class of that object, or 0 if it's unknown
+//   have_size_class is true iff size_class is known and is non-0.
 //
-// Note that since have_cl is compile-time constant, genius compiler
+// Note that since have_size_class is compile-time constant, genius compiler
 // would not need it. Since it would be able to somehow infer that
-// GetSizeClass never produces 0 cl, and so it
+// GetSizeClass never produces 0 size_class, and so it
 // would know that places that call this function with explicit 0 is
-// "have_cl-case" and others are "!have_cl-case". But we certainly
-// don't have such compiler. See also do_free_with_size below.
-template <bool have_cl, Hooks hooks_state>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_cl(void* ptr, size_t cl) {
-  // !have_cl -> cl == 0
-  ASSERT(have_cl || cl == 0);
+// "have_size_class-case" and others are "!have_size_class-case". But we
+// certainly don't have such compiler. See also do_free_with_size below.
+template <bool have_size_class, Hooks hooks_state>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
+    void* ptr, size_t size_class) {
+  // !have_size_class -> size_class == 0
+  ASSERT(have_size_class || size_class == 0);
 
   const PageId p = PageIdContaining(ptr);
 
-  // if we have_cl, then we've excluded ptr == nullptr case. See
+  // if we have_size_class, then we've excluded ptr == nullptr case. See
   // comment in do_free_with_size. Thus we only bother testing nullptr
   // in non-sized case.
   //
-  // Thus: ptr == nullptr -> !have_cl
-  ASSERT(ptr != nullptr || !have_cl);
-  if (!have_cl && ABSL_PREDICT_FALSE(ptr == nullptr)) {
+  // Thus: ptr == nullptr -> !have_size_class
+  ASSERT(ptr != nullptr || !have_size_class);
+  if (!have_size_class && ABSL_PREDICT_FALSE(ptr == nullptr)) {
     return;
   }
 
@@ -1765,25 +1781,25 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_cl(void* ptr, size_t cl) {
   // therefore static initialization must have already occurred.
   ASSERT(Static::IsInited());
 
-  if (!have_cl) {
-    cl = Static::pagemap().sizeclass(p);
+  if (!have_size_class) {
+    size_class = Static::pagemap().sizeclass(p);
   }
-  if (have_cl || ABSL_PREDICT_TRUE(cl != 0)) {
-    ASSERT(cl == GetSizeClass(ptr));
+  if (have_size_class || ABSL_PREDICT_TRUE(size_class != 0)) {
+    ASSERT(size_class == GetSizeClass(ptr));
     ASSERT(ptr != nullptr);
     ASSERT(!Static::pagemap().GetExistingDescriptor(p)->sampled());
-    FreeSmall<hooks_state>(ptr, cl);
+    FreeSmall<hooks_state>(ptr, size_class);
   } else {
     invoke_delete_hooks_and_free<do_free_pages, hooks_state>(ptr, p);
   }
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
-  return do_free_with_cl<false, Hooks::RUN>(ptr, 0);
+  return do_free_with_size_class<false, Hooks::RUN>(ptr, 0);
 }
 
 void do_free_no_hooks(void* ptr) {
-  return do_free_with_cl<false, Hooks::NO>(ptr, 0);
+  return do_free_with_size_class<false, Hooks::NO>(ptr, 0);
 }
 
 template <typename AlignPolicy>
@@ -1821,9 +1837,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       // used more frequently.
       ASSERT(ptr != nullptr);
 
-      uint32_t cl;
+      uint32_t size_class;
       if (ABSL_PREDICT_FALSE(!Static::sizemap().GetSizeClass(
-              CppPolicy().AlignAs(align.align()).AccessAsCold(), size, &cl))) {
+              CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
+              &size_class))) {
         // We couldn't calculate the size class, which means size > kMaxSize.
         ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
         static_assert(kMaxSize >= kPageSize,
@@ -1831,36 +1848,36 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
         return FreePages(ptr);
       }
 
-      return do_free_with_cl<true, Hooks::RUN>(ptr, cl);
+      return do_free_with_size_class<true, Hooks::RUN>(ptr, size_class);
     }
   }
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr !=
   // nullptr. And particularly, since we're only caller of
-  // do_free_with_cl with have_cl == true, it means have_cl implies
-  // ptr != nullptr.
+  // do_free_with_size_class with have_size_class == true, it means
+  // have_size_class implies ptr != nullptr.
   ASSERT(ptr != nullptr);
 
-  uint32_t cl;
+  uint32_t size_class;
   if (ABSL_PREDICT_FALSE(!Static::sizemap().GetSizeClass(
           CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size,
-          &cl))) {
+          &size_class))) {
     // We couldn't calculate the size class, which means size > kMaxSize.
     ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     return FreePages(ptr);
   }
 
-  return do_free_with_cl<true, Hooks::RUN>(ptr, cl);
+  return do_free_with_size_class<true, Hooks::RUN>(ptr, size_class);
 }
 
 inline size_t GetSize(const void* ptr) {
   if (ptr == nullptr) return 0;
   const PageId p = PageIdContaining(ptr);
-  size_t cl = Static::pagemap().sizeclass(p);
-  if (cl != 0) {
-    return Static::sizemap().class_to_size(cl);
+  size_t size_class = Static::pagemap().sizeclass(p);
+  if (size_class != 0) {
+    return Static::sizemap().class_to_size(size_class);
   } else {
     const Span* span = Static::pagemap().GetExistingDescriptor(p);
     if (span->sampled()) {
@@ -1881,13 +1898,13 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   // have an incorrect one.
   if (size == 0) return true;
   if (ptr == nullptr) return true;
-  uint32_t cl = 0;
+  uint32_t size_class = 0;
   // Round-up passed in size to how much tcmalloc allocates for that size.
   if (Static::guardedpage_allocator().PointerIsMine(ptr)) {
     size = Static::guardedpage_allocator().GetRequestedSize(ptr);
   } else if (Static::sizemap().GetSizeClass(CppPolicy().AlignAs(align.align()),
-                                            size, &cl)) {
-    size = Static::sizemap().class_to_size(cl);
+                                            size, &size_class)) {
+    size = Static::sizemap().class_to_size(size_class);
   } else {
     size = BytesToLengthCeil(size).in_bytes();
   }
@@ -1901,14 +1918,15 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   // operator new to benefit from the bytes we are allocating.
   if (actual > size && IsSampledMemory(ptr)) {
     if (Static::sizemap().GetSizeClass(
-            CppPolicy().AlignAs(align.align()).AccessAsCold(), size, &cl)) {
-      size = Static::sizemap().class_to_size(cl);
+            CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
+            &size_class)) {
+      size = Static::sizemap().class_to_size(size_class);
       if (actual == size) {
         return true;
       }
     }
   }
-  Log(kLog, __FILE__, __LINE__, "size check failed", actual, size, cl);
+  Log(kLog, __FILE__, __LINE__, "size check failed", actual, size, size_class);
   return false;
 }
 
@@ -1996,10 +2014,10 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   Static::InitIfNecessary();
   GetThreadSampler()->UpdateFastPathState();
   void* p;
-  uint32_t cl;
-  bool is_small = Static::sizemap().GetSizeClass(policy, size, &cl);
+  uint32_t size_class;
+  bool is_small = Static::sizemap().GetSizeClass(policy, size, &size_class);
   if (ABSL_PREDICT_TRUE(is_small)) {
-    p = AllocSmall(policy, cl, size, capacity);
+    p = AllocSmall(policy, size_class, size, capacity);
   } else {
     p = do_malloc_pages(policy, size);
     // Set capacity to the exact size for a page allocation.
@@ -2020,11 +2038,11 @@ static inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
 fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   // If size is larger than kMaxSize, it's not fast-path anymore. In
   // such case, GetSizeClass will return false, and we'll delegate to the slow
-  // path. If malloc is not yet initialized, we may end up with cl == 0
+  // path. If malloc is not yet initialized, we may end up with size_class == 0
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
-  uint32_t cl;
-  bool is_small = Static::sizemap().GetSizeClass(policy, size, &cl);
+  uint32_t size_class;
+  bool is_small = Static::sizemap().GetSizeClass(policy, size, &size_class);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     return slow_alloc(policy, size, capacity);
   }
@@ -2053,20 +2071,20 @@ fast_alloc(Policy policy, size_t size, CapacityPtr capacity = nullptr) {
   // - cpu / thread cache data has been initialized.
   // - the allocation is not subject to sampling / gwp-asan.
   // - no new/delete hook is installed and required to be called.
-  ASSERT(cl != 0);
+  ASSERT(size_class != 0);
   void* ret;
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU cache should be ready.
-  ret = Static::cpu_cache().Allocate<Policy::handle_oom>(cl);
+  ret = Static::cpu_cache().Allocate<Policy::handle_oom>(size_class);
 #else   // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
   // The ThreadCache should be ready.
   ASSERT(cache != nullptr);
-  ret = cache->Allocate<Policy::handle_oom>(cl);
+  ret = cache->Allocate<Policy::handle_oom>(size_class);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
   if (!Policy::can_return_nullptr()) {
     ASSUME(ret != nullptr);
   }
-  SetClassCapacity(ret, cl, capacity);
+  SetClassCapacity(ret, size_class, capacity);
   return ret;
 }
 

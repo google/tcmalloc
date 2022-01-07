@@ -29,14 +29,14 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace central_freelist_internal {
 
-static MemoryTag MemoryTagFromSizeClass(size_t cl) {
-  if (IsExpandedSizeClass(cl)) {
+static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
+  if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
   }
   if (!Static::numa_topology().numa_aware()) {
     return MemoryTag::kNormal;
   }
-  return NumaNormalTag(cl / kNumBaseClasses);
+  return NumaNormalTag(size_class / kNumBaseClasses);
 }
 
 size_t StaticForwarder::class_to_size(int size_class) {

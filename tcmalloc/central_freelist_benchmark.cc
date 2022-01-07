@@ -34,12 +34,12 @@ namespace {
 // to minimize the time it takes to free them.
 void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = Static::sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(cl);
+  cfl.Init(size_class);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -83,12 +83,12 @@ BENCHMARK(BM_Populate)
 // them is usually done spread over many active spans.
 void BM_MixAndReturn(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = Static::sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(cl);
+  cfl.Init(size_class);
 
   // Allocate an array large enough to hold 64 MiB of objects.
   std::vector<void*> buffer(num_objects);
@@ -131,12 +131,12 @@ BENCHMARK(BM_MixAndReturn)
 // code, and avoids timing the pageheap code.
 void BM_SpanReuse(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t cl = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(cl);
+  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = Static::sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
-  cfl.Init(cl);
+  cfl.Init(size_class);
 
   // Array used to hold onto half of the objects
   std::vector<void*> held_objects(2 * num_objects);

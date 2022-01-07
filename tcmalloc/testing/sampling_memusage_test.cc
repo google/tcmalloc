@@ -174,9 +174,10 @@ std::vector<size_t> InterestingSizes() {
 
   // Only use the first kNumBaseClasses size classes since classes after that
   // are intentionally duplicated.
-  for (size_t cl = 1; cl < tcmalloc_internal::kNumBaseClasses; cl++) {
-    size_t size =
-        tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(cl);
+  for (size_t size_class = 1; size_class < tcmalloc_internal::kNumBaseClasses;
+       size_class++) {
+    size_t size = tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(
+        size_class);
     if (size == 0) {
       continue;
     }

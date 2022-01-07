@@ -87,7 +87,7 @@ class ProdCpuLayout {
 // Forwards calls to the unsharded TransferCache.
 class BackingTransferCache {
  public:
-  void Init(int cl) { size_class_ = cl; }
+  void Init(int size_class) { size_class_ = size_class; }
   void InsertRange(absl::Span<void *> batch) const;
   ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) const;
   int size_class() const { return size_class_; }
@@ -113,36 +113,41 @@ class ShardedTransferCacheManagerBase {
     for (int shard = 0; shard < num_shards_; ++shard) {
       new (&shards_[shard]) Shard;
     }
-    for (int cl = 0; cl < kNumClasses; ++cl) {
-      const int size_per_object = Manager::class_to_size(cl);
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      const int size_per_object = Manager::class_to_size(size_class);
       static constexpr int min_size = 4096;
-      active_for_class_[cl] = size_per_object >= min_size;
+      active_for_class_[size_class] = size_per_object >= min_size;
     }
   }
 
-  bool should_use(int cl) const { return active_for_class_[cl]; }
+  bool should_use(int size_class) const {
+    return active_for_class_[size_class];
+  }
 
   size_t TotalBytes() {
     if (shards_ == nullptr) return 0;
     size_t out = 0;
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
-      for (int cl = 0; cl < kNumClasses; ++cl) {
-        const int bytes_per_entry = Manager::class_to_size(cl);
+      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+        const int bytes_per_entry = Manager::class_to_size(size_class);
         if (bytes_per_entry <= 0) continue;
-        out += shards_[shard].transfer_caches[cl].tc_length() * bytes_per_entry;
+        out += shards_[shard].transfer_caches[size_class].tc_length() *
+               bytes_per_entry;
       }
     }
     return out;
   }
 
-  void *Pop(int cl) {
+  void *Pop(int size_class) {
     void *batch[1];
-    const int got = get_cache(cl).RemoveRange(cl, batch, 1);
+    const int got = get_cache(size_class).RemoveRange(size_class, batch, 1);
     return got == 1 ? batch[0] : nullptr;
   }
 
-  void Push(int cl, void *ptr) { get_cache(cl).InsertRange(cl, {&ptr, 1}); }
+  void Push(int size_class, void *ptr) {
+    get_cache(size_class).InsertRange(size_class, {&ptr, 1});
+  }
 
   // All caches not touched since last attempt will return all objects
   // to the non-sharded TransferCache.
@@ -150,18 +155,18 @@ class ShardedTransferCacheManagerBase {
     if (shards_ == nullptr || num_shards_ == 0) return;
     for (int shard = 0; shard < num_shards_; ++shard) {
       if (!shard_initialized(shard)) continue;
-      for (int cl = 0; cl < kNumClasses; ++cl) {
-        TransferCache &cache = shards_[shard].transfer_caches[cl];
+      for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+        TransferCache &cache = shards_[shard].transfer_caches[size_class];
         cache.TryPlunder(cache.freelist().size_class());
       }
     }
   }
 
-  int tc_length(int cpu, int cl) {
+  int tc_length(int cpu, int size_class) {
     if (shards_ == nullptr) return 0;
     const uint8_t shard = l3_cache_index_[cpu];
     if (!shard_initialized(shard)) return 0;
-    return shards_[shard].transfer_caches[cl].tc_length();
+    return shards_[shard].transfer_caches[size_class].tc_length();
   }
 
   bool shard_initialized(int shard) {
@@ -194,13 +199,13 @@ class ShardedTransferCacheManagerBase {
     TransferCache *new_caches = reinterpret_cast<TransferCache *>(owner_->Alloc(
         sizeof(TransferCache) * kNumClasses, ABSL_CACHELINE_SIZE));
     ASSERT(new_caches != nullptr);
-    for (int cl = 0; cl < kNumClasses; ++cl) {
-      const int size_per_object = Manager::class_to_size(cl);
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      const int size_per_object = Manager::class_to_size(size_class);
       static constexpr int k12MB = 12 << 20;
-      const int capacity = should_use(cl) ? k12MB / size_per_object : 0;
-      new (&new_caches[cl])
-          TransferCache(owner_, capacity > 0 ? cl : 0, {capacity, capacity});
-      new_caches[cl].freelist().Init(cl);
+      const int capacity = should_use(size_class) ? k12MB / size_per_object : 0;
+      new (&new_caches[size_class]) TransferCache(
+          owner_, capacity > 0 ? size_class : 0, {capacity, capacity});
+      new_caches[size_class].freelist().Init(size_class);
     }
     shard.transfer_caches = new_caches;
     shard.initialized.store(true, std::memory_order_release);
@@ -208,7 +213,7 @@ class ShardedTransferCacheManagerBase {
 
   // Returns the cache shard corresponding to the given size class and the
   // current cpu's L3 node. The cache will be initialized if required.
-  TransferCache &get_cache(int cl) {
+  TransferCache &get_cache(int size_class) {
     const int cpu = cpu_layout_->CurrentCpu();
     ASSERT(cpu < 256);
     ASSERT(cpu >= 0);
@@ -216,7 +221,7 @@ class ShardedTransferCacheManagerBase {
     ASSERT(shard_index < num_shards_);
     Shard &shard = shards_[shard_index];
     absl::call_once(shard.once_flag, [this, &shard]() { InitShard(shard); });
-    return shard.transfer_caches[cl];
+    return shard.transfer_caches[size_class];
   }
 
   // Mapping from cpu to the L3 cache used.
@@ -402,12 +407,12 @@ class TransferCacheManager {
 struct ShardedTransferCacheManager {
   constexpr ShardedTransferCacheManager(std::nullptr_t, std::nullptr_t) {}
   static constexpr void Init() {}
-  static constexpr bool should_use(int cl) { return false; }
-  static constexpr void* Pop(int cl) { return nullptr; }
-  static constexpr void Push(int cl, void* ptr) {}
+  static constexpr bool should_use(int size_class) { return false; }
+  static constexpr void* Pop(int size_class) { return nullptr; }
+  static constexpr void Push(int size_class, void* ptr) {}
   static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
-  static int tc_length(int cpu, int cl) { return 0; }
+  static int tc_length(int cpu, int size_class) { return 0; }
 };
 
 #endif

@@ -258,7 +258,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
 
 /* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
  *     void *ptr (x0),
- *     size_t cl (w1),
+ *     size_t size_class (w1),
  *     void** batch (x2),
  *     size_t len (w3) {
  *   uint64_t r8 = __rseq_abi.cpu_id
@@ -362,12 +362,12 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift_VCPU)
 
 /* size_t TcmallocSlab_Internal_PopBatch_FixedShift(
  *     void *ptr (x0),
- *     size_t cl (w1),
+ *     size_t size_class (w1),
  *     void** batch (x2),
  *     size_t len (w3) {
  *   uint64_t r8 = __rseq_abi.cpu_id
  *   uint64_t* r8 = CpuMemoryStart(ptr, r8)
- *   Header* hdr = GetHeader(r8, cl)
+ *   Header* hdr = GetHeader(r8, size_class)
  *   uint64_t r9 = hdr->current
  *   uint64_t r10 = hdr->begin
  *   if (r9 <= r10) return 0
@@ -471,7 +471,7 @@ TcmallocSlab_Internal_Push:
   .cfi_startproc
     // Arguments use:
     //  *  x0: (Argument: Slabs*) cpu_0_slab_ptr
-    //  *  x1: (Argument: uintptr_t) cl
+    //  *  x1: (Argument: uintptr_t) size_class
     //  *  x2: (Argument: uintptr_t) p
     //  *  w3: (Argument: size_t) shift
     //  *  x4: (Argument: uintptr_t) f
@@ -509,7 +509,7 @@ TcmallocSlab_Internal_Push_FixedShift:
   .cfi_startproc
     // Arguments use:
     //  *  x0: (Argument: Slabs*) cpu_0_slab_ptr
-    //  *  x1: (Argument: uintptr_t) cl
+    //  *  x1: (Argument: uintptr_t) size_class
     //  *  x2: (Argument: uintptr_t) p
     //  *  x3: (Argument: uintptr_t) f
     // Return value: current CPU
@@ -544,7 +544,7 @@ TcmallocSlab_Internal_Pop_FixedShift:
   .cfi_startproc
     // Arguments use:
     //  *  x0: (Argument: Slabs*) cpu_0_slab_ptr
-    //  *  x1: (Argument: uintptr_t) cl
+    //  *  x1: (Argument: uintptr_t) size_class
     //  *  x2: (Argument: uintptr_t) f
     // Return value: current CPU
     // Available x3-x15
@@ -579,7 +579,7 @@ TcmallocSlab_Internal_Pop:
   .cfi_startproc
     // Arguments use:
     //  *  x0: (Argument: Slabs*) cpu_0_slab_ptr
-    //  *  x1: (Argument: uintptr_t) cl
+    //  *  x1: (Argument: uintptr_t) size_class
     //  *  x2: (Argument: uintptr_t) f
     //  *  w3: (Argument: size_t) shift
     // Return value: Value

@@ -46,7 +46,9 @@ class ThreadCache {
   void Cleanup();
 
   // Accessors (mostly just for printing stats)
-  int freelist_length(size_t cl) const { return list_[cl].length(); }
+  int freelist_length(size_t size_class) const {
+    return list_[size_class].length();
+  }
 
   // Total byte size in cache
   size_t Size() const { return size_; }
@@ -60,9 +62,9 @@ class ThreadCache {
   // this way allows Allocate to be used in tail-call position in
   // fast-path, making allocate tail-call slow path code.
   template <void* OOMHandler(size_t)>
-  void* Allocate(size_t cl);
+  void* Allocate(size_t size_class);
 
-  void Deallocate(void* ptr, size_t cl);
+  void Deallocate(void* ptr, size_t size_class);
 
   void Scavenge();
 
@@ -96,9 +98,10 @@ class ThreadCache {
   }
 
   template <void* OOMHandler(size_t)>
-  void* ABSL_ATTRIBUTE_NOINLINE AllocateSlow(size_t cl, size_t allocated_size) {
-    tracking::Report(kMallocMiss, cl, 1);
-    void* ret = FetchFromCentralCache(cl, allocated_size);
+  void* ABSL_ATTRIBUTE_NOINLINE AllocateSlow(size_t size_class,
+                                             size_t allocated_size) {
+    tracking::Report(kMallocMiss, size_class, 1);
+    void* ret = FetchFromCentralCache(size_class, allocated_size);
     if (ABSL_PREDICT_TRUE(ret != nullptr)) {
       return ret;
     }
@@ -171,16 +174,16 @@ class ThreadCache {
 
   // Gets and returns an object from the central cache, and, if possible,
   // also adds some objects of that size class to this thread cache.
-  void* FetchFromCentralCache(size_t cl, size_t byte_size);
+  void* FetchFromCentralCache(size_t size_class, size_t byte_size);
 
   // Releases some number of items from src.  Adjusts the list's max_length
-  // to eventually converge on num_objects_to_move(cl).
-  void ListTooLong(FreeList* list, size_t cl);
+  // to eventually converge on num_objects_to_move(size_class).
+  void ListTooLong(FreeList* list, size_t size_class);
 
-  void DeallocateSlow(void* ptr, FreeList* list, size_t cl);
+  void DeallocateSlow(void* ptr, FreeList* list, size_t size_class);
 
   // Releases N items from this thread cache.
-  void ReleaseToCentralCache(FreeList* src, size_t cl, int N);
+  void ReleaseToCentralCache(FreeList* src, size_t size_class, int N);
 
   // Increase max_size_ by reducing unclaimed_cache_space_ or by
   // reducing the max_size_ of some other thread.  In both cases,
@@ -287,24 +290,25 @@ inline Sampler* ThreadCache::GetSampler() { return &sampler_; }
 #endif
 
 template <void* OOMHandler(size_t)>
-inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Allocate(size_t cl) {
-  const size_t allocated_size = Static::sizemap().class_to_size(cl);
+inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
+ThreadCache::Allocate(size_t size_class) {
+  const size_t allocated_size = Static::sizemap().class_to_size(size_class);
 
-  FreeList* list = &list_[cl];
+  FreeList* list = &list_[size_class];
   void* ret;
   if (ABSL_PREDICT_TRUE(list->TryPop(&ret))) {
-    tracking::Report(kMallocHit, cl, 1);
+    tracking::Report(kMallocHit, size_class, 1);
     size_ -= allocated_size;
     return ret;
   }
 
-  return AllocateSlow<OOMHandler>(cl, allocated_size);
+  return AllocateSlow<OOMHandler>(size_class, allocated_size);
 }
 
-inline void ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Deallocate(void* ptr,
-                                                                 size_t cl) {
-  FreeList* list = &list_[cl];
-  size_ += Static::sizemap().class_to_size(cl);
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
+ThreadCache::Deallocate(void* ptr, size_t size_class) {
+  FreeList* list = &list_[size_class];
+  size_ += Static::sizemap().class_to_size(size_class);
   ssize_t size_headroom = max_size_ - size_ - 1;
 
   list->Push(ptr);
@@ -315,9 +319,9 @@ inline void ABSL_ATTRIBUTE_ALWAYS_INLINE ThreadCache::Deallocate(void* ptr,
   // In the common case we're done, and in that case we need a single branch
   // because of the bitwise-or trick that follows.
   if ((list_headroom | size_headroom) < 0) {
-    DeallocateSlow(ptr, list, cl);
+    DeallocateSlow(ptr, list, size_class);
   } else {
-    tracking::Report(kFreeHit, cl, 1);
+    tracking::Report(kFreeHit, size_class, 1);
   }
 }
 

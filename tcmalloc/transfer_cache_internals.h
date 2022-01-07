@@ -67,15 +67,15 @@ class TransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  TransferCache(Manager *owner, int cl)
-      : TransferCache(owner, cl, CapacityNeeded(cl)) {}
+  TransferCache(Manager *owner, int size_class)
+      : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
 
   struct Capacity {
     int capacity;
     int max_capacity;
   };
 
-  TransferCache(Manager *owner, int cl, Capacity capacity)
+  TransferCache(Manager *owner, int size_class, Capacity capacity)
       : owner_(owner),
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(capacity.max_capacity),
@@ -83,7 +83,7 @@ class TransferCache {
         low_water_mark_(std::numeric_limits<int>::max()),
         slots_(nullptr),
         freelist_do_not_access_directly_() {
-    freelist().Init(cl);
+    freelist().Init(size_class);
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
                                       max_capacity_ * sizeof(void *)))
                                 : nullptr;
@@ -93,17 +93,17 @@ class TransferCache {
   TransferCache &operator=(const TransferCache &) = delete;
 
 // Compute initial and max capacity that we should configure this cache for.
-  static Capacity CapacityNeeded(size_t cl) {
+  static Capacity CapacityNeeded(size_t size_class) {
     // We need at least 2 slots to store list head and tail.
     static_assert(kMinObjectsToMove >= 2);
 
-    const size_t bytes = Manager::class_to_size(cl);
-    if (cl <= 0 || bytes <= 0) return {0, 0};
+    const size_t bytes = Manager::class_to_size(size_class);
+    if (size_class <= 0 || bytes <= 0) return {0, 0};
 
     // Limit the maximum size of the cache based on the size class.  If this
     // is not done, large size class objects will consume a lot of memory if
     // they just sit in the transfer cache.
-    const size_t objs_to_move = Manager::num_objects_to_move(cl);
+    const size_t objs_to_move = Manager::num_objects_to_move(size_class);
     ASSERT(objs_to_move > 0);
 
     // Starting point for the maximum number of entries in the transfer cache.
@@ -430,11 +430,12 @@ class RingBufferTransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  RingBufferTransferCache(Manager* owner, int cl)
-      : RingBufferTransferCache(owner, cl, CapacityNeeded(cl)) {}
+  RingBufferTransferCache(Manager *owner, int size_class)
+      : RingBufferTransferCache(owner, size_class, CapacityNeeded(size_class)) {
+  }
 
   RingBufferTransferCache(
-      Manager *owner, int cl,
+      Manager *owner, int size_class,
       typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
           capacity)
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
@@ -442,7 +443,7 @@ class RingBufferTransferCache {
         max_capacity_(capacity.max_capacity),
         freelist_do_not_access_directly_(),
         owner_do_not_access_directly_(owner) {
-    freelist().Init(cl);
+    freelist().Init(size_class);
     if (max_capacity_ == 0) {
       // We don't allocate a buffer. Set slots_bitmask_ to 0 to prevent UB.
       slots_bitmask_ = 0;
@@ -730,11 +731,11 @@ class RingBufferTransferCache {
   // To counteract this, decrease the capacity (but not max capacity).
   // TODO(b/161927252):  Revisit TransferCache rebalancing strategy
   static typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
-  CapacityNeeded(int cl) {
+  CapacityNeeded(int size_class) {
     auto capacity =
         TransferCache<CentralFreeList, TransferCacheManager>::CapacityNeeded(
-            cl);
-    const int N = Manager::num_objects_to_move(cl);
+            size_class);
+    const int N = Manager::num_objects_to_move(size_class);
     if (N == 0) return {0, 0};
     ASSERT(capacity.capacity % N == 0);
     // We still want capacity to be in multiples of batches.
