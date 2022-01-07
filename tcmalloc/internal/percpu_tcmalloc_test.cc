@@ -182,12 +182,12 @@ class TcmallocSlabTest : public testing::Test {
   size_t metadata_bytes_ = 0;
 };
 
-static int ExpectNoOverflow(int cpu, size_t size_class, void* item, void* arg) {
+int ExpectNoOverflow(int cpu, size_t size_class, void* item, void* arg) {
   CHECK_CONDITION(false && "overflow is not expected");
   return 0;
 }
 
-static void* ExpectNoUnderflow(int cpu, size_t size_class, void* arg) {
+void* ExpectNoUnderflow(int cpu, size_t size_class, void* arg) {
   CHECK_CONDITION(false && "underflow is not expected");
   return nullptr;
 }
@@ -471,7 +471,7 @@ TEST_F(TcmallocSlabTest, Unit) {
   }
 }
 
-static size_t get_capacity(size_t size_class) {
+size_t get_capacity(size_t size_class) {
   return size_class < kStressSlabs ? kStressCapacity : 0;
 }
 
@@ -483,18 +483,17 @@ struct Context {
   absl::Span<absl::once_flag> init;
 };
 
-static void InitCpuOnce(Context& ctx, int cpu) {
+void InitCpuOnce(Context& ctx, int cpu) {
   absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
     absl::MutexLock lock(&ctx.mutexes[cpu]);
     ctx.slab->InitCpu(cpu, get_capacity);
   });
 }
 
-static void StressThread(size_t thread_id, TcmallocSlab* slab,
-                         std::vector<void*>* block,
-                         absl::Span<absl::Mutex> mutexes,
-                         std::atomic<size_t>* capacity, std::atomic<bool>* stop,
-                         absl::Span<absl::once_flag> init) {
+void StressThread(size_t thread_id, TcmallocSlab* slab,
+                  std::vector<void*>* block, absl::Span<absl::Mutex> mutexes,
+                  std::atomic<size_t>* capacity, std::atomic<bool>* stop,
+                  absl::Span<absl::once_flag> init) {
   EXPECT_TRUE(IsFast());
 
   Context ctx{slab, block, mutexes, capacity, init};
@@ -666,7 +665,7 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
   }
 }
 
-static void* allocator(size_t bytes, std::align_val_t alignment) {
+void* allocator(size_t bytes, std::align_val_t alignment) {
   void* ptr = ::operator new(bytes, alignment);
   memset(ptr, 0, bytes);
   return ptr;
@@ -750,7 +749,7 @@ TEST(TcmallocSlab, SMP) {
 }
 
 #if ABSL_INTERNAL_HAVE_ELF_SYMBOLIZE
-static int FilterElfHeader(struct dl_phdr_info* info, size_t size, void* data) {
+int FilterElfHeader(struct dl_phdr_info* info, size_t size, void* data) {
   *reinterpret_cast<uintptr_t*>(data) =
       reinterpret_cast<uintptr_t>(info->dlpi_addr);
   // No further iteration wanted.
@@ -832,7 +831,7 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 #endif
 }
 
-static void BM_PushPop(benchmark::State& state) {
+void BM_PushPop(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
   RunOnSingleCpu([&](int this_cpu) {
     const int kBatchSize = 32;
@@ -867,7 +866,7 @@ static void BM_PushPop(benchmark::State& state) {
 }
 BENCHMARK(BM_PushPop);
 
-static void BM_PushPopBatch(benchmark::State& state) {
+void BM_PushPopBatch(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
   RunOnSingleCpu([&](int this_cpu) {
     const int kBatchSize = 32;
