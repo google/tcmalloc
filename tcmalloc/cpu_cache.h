@@ -900,18 +900,6 @@ inline void CPUCache<Forwarder>::ShuffleCpuCaches() {
   }
 }
 
-template <typename Forwarder>
-static void ShrinkHandler(void* arg, size_t cl, void** batch, size_t count) {
-  Forwarder& forwarder = *static_cast<Forwarder*>(arg);
-
-  const size_t batch_length = forwarder.num_objects_to_move(cl);
-  auto& transfer_cache = forwarder.transfer_cache();
-  for (size_t i = 0; i < count; i += batch_length) {
-    size_t n = std::min(batch_length, count - i);
-    transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
-  }
-}
-
 template <class Forwarder>
 inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
                                                      int max_populated_cpu,
@@ -1048,8 +1036,18 @@ inline void CPUCache<Forwarder>::StealFromOtherCache(int cpu,
       // frequent locking overhead.
       {
         absl::base_internal::SpinLockHolder h(&resize_[src_cpu].lock);
-        if (freelist_.ShrinkOtherCache(src_cpu, source_cl, 1, &forwarder_,
-                                       ShrinkHandler<Forwarder>) == 1) {
+        if (freelist_.ShrinkOtherCache(
+                src_cpu, source_cl, 1,
+                [this](size_t cl, void** batch, size_t count) {
+                  const size_t batch_length =
+                      forwarder_.num_objects_to_move(cl);
+                  auto& transfer_cache = forwarder_.transfer_cache();
+                  for (size_t i = 0; i < count; i += batch_length) {
+                    size_t n = std::min(batch_length, count - i);
+                    transfer_cache.InsertRange(cl,
+                                               absl::Span<void*>(batch + i, n));
+                  }
+                }) == 1) {
           acquired += size;
           resize_[src_cpu].capacity.fetch_sub(size, std::memory_order_relaxed);
         }
@@ -1293,31 +1291,6 @@ inline uint64_t CPUCache<Forwarder>::CacheLimit() const {
 }
 
 template <class Forwarder>
-struct DrainContext {
-  Forwarder* forwarder;
-  std::atomic<size_t>* available;
-  uint64_t bytes;
-};
-
-template <class Forwarder>
-static void DrainHandler(void* drain_ctx, size_t cl, void** batch, size_t count,
-                         size_t cap) {
-  DrainContext<Forwarder>* ctx =
-      static_cast<DrainContext<Forwarder>*>(drain_ctx);
-  const size_t size = ctx->forwarder->class_to_size(cl);
-  const size_t batch_length = ctx->forwarder->num_objects_to_move(cl);
-  ctx->bytes += count * size;
-  // Drain resets capacity to 0, so return the allocated capacity to that
-  // CPU's slack.
-  ctx->available->fetch_add(cap * size, std::memory_order_relaxed);
-  auto& transfer_cache = ctx->forwarder->transfer_cache();
-  for (size_t i = 0; i < count; i += batch_length) {
-    size_t n = std::min(batch_length, count - i);
-    transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
-  }
-}
-
-template <class Forwarder>
 inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   absl::base_internal::SpinLockHolder h(&resize_[cpu].lock);
 
@@ -1328,14 +1301,27 @@ inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
     return 0;
   }
 
-  DrainContext<Forwarder> ctx{&forwarder_, &resize_[cpu].available, 0};
-  freelist_.Drain(cpu, &ctx, DrainHandler<Forwarder>);
+  uint64_t bytes = 0;
+  freelist_.Drain(cpu, [this, &bytes](int cpu, size_t cl, void** batch,
+                                      size_t count, size_t cap) {
+    const size_t size = forwarder_.class_to_size(cl);
+    const size_t batch_length = forwarder_.num_objects_to_move(cl);
+    bytes += count * size;
+    // Drain resets capacity to 0, so return the allocated capacity to that
+    // CPU's slack.
+    resize_[cpu].available.fetch_add(cap * size, std::memory_order_relaxed);
+    auto& transfer_cache = forwarder_.transfer_cache();
+    for (size_t i = 0; i < count; i += batch_length) {
+      size_t n = std::min(batch_length, count - i);
+      transfer_cache.InsertRange(cl, absl::Span<void*>(batch + i, n));
+    }
+  });
 
   // Record that the reclaim occurred for this CPU.
   resize_[cpu].num_reclaims.store(
       resize_[cpu].num_reclaims.load(std::memory_order_relaxed) + 1,
       std::memory_order_relaxed);
-  return ctx.bytes;
+  return bytes;
 }
 
 template <class Forwarder>

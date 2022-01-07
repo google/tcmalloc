@@ -338,26 +338,19 @@ TEST_F(TcmallocSlabTest, Unit) {
       // Test Drain.
       ASSERT_EQ(slab_.Grow(cpu, cl, 2, kCapacity), 2);
 
-      struct Context {
-        TcmallocSlabTest* test_slab;
-        size_t size_class;
-      };
-      Context ctx{this, cl};
-
-      slab_.Drain(
-          cpu, &ctx,
-          [](void* ctx, size_t cl, void** batch, size_t size, size_t cap) {
-            const Context& c = *static_cast<Context*>(ctx);
-            if (cl == c.size_class) {
-              ASSERT_EQ(size, 2);
-              ASSERT_EQ(cap, 4);
-              ASSERT_EQ(batch[0], &c.test_slab->objects_[0]);
-              ASSERT_EQ(batch[1], &c.test_slab->objects_[1]);
-            } else {
-              ASSERT_EQ(size, 0);
-              ASSERT_EQ(cap, 0);
-            }
-          });
+      slab_.Drain(cpu, [this, cl, cpu](int cpu_arg, size_t size_class,
+                                       void** batch, size_t size, size_t cap) {
+        ASSERT_EQ(cpu, cpu_arg);
+        if (cl == size_class) {
+          ASSERT_EQ(size, 2);
+          ASSERT_EQ(cap, 4);
+          ASSERT_EQ(batch[0], &objects_[0]);
+          ASSERT_EQ(batch[1], &objects_[1]);
+        } else {
+          ASSERT_EQ(size, 0);
+          ASSERT_EQ(cap, 0);
+        }
+      });
       ASSERT_EQ(slab_.Length(cpu, cl), 0);
       ASSERT_EQ(slab_.Capacity(cpu, cl), 0);
 
@@ -604,14 +597,12 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
       if (mutexes[cpu].TryLock()) {
         size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
         size_t total_shrunk = slab->ShrinkOtherCache(
-            cpu, cl, to_shrink, &ctx,
-            [](void* arg, size_t cl, void** batch, size_t n) {
-              Context* ctx = static_cast<Context*>(arg);
+            cpu, cl, to_shrink, [&ctx](size_t cl, void** batch, size_t n) {
               EXPECT_LT(cl, kStressSlabs);
               EXPECT_LE(n, kStressCapacity);
               for (size_t i = 0; i < n; ++i) {
                 EXPECT_NE(batch[i], nullptr);
-                ctx->block->push_back(batch[i]);
+                ctx.block->push_back(batch[i]);
               }
             });
         EXPECT_LE(total_shrunk, to_shrink);
@@ -635,19 +626,18 @@ static void StressThread(size_t thread_id, TcmallocSlab* slab,
           ASSERT(!IsFastNoInit());
         }
 
-        slab->Drain(
-            cpu, &ctx,
-            [](void* arg, size_t cl, void** batch, size_t size, size_t cap) {
-              Context* ctx = static_cast<Context*>(arg);
-              EXPECT_LT(cl, kStressSlabs);
-              EXPECT_LE(size, kStressCapacity);
-              EXPECT_LE(cap, kStressCapacity);
-              for (size_t i = 0; i < size; ++i) {
-                EXPECT_NE(batch[i], nullptr);
-                ctx->block->push_back(batch[i]);
-              }
-              ctx->capacity->fetch_add(cap);
-            });
+        slab->Drain(cpu, [&ctx, cpu](int cpu_arg, size_t cl, void** batch,
+                                     size_t size, size_t cap) {
+          EXPECT_EQ(cpu, cpu_arg);
+          EXPECT_LT(cl, kStressSlabs);
+          EXPECT_LE(size, kStressCapacity);
+          EXPECT_LE(cap, kStressCapacity);
+          for (size_t i = 0; i < size; ++i) {
+            EXPECT_NE(batch[i], nullptr);
+            ctx.block->push_back(batch[i]);
+          }
+          ctx.capacity->fetch_add(cap);
+        });
         mutexes[cpu].Unlock();
       }
 
@@ -709,20 +699,16 @@ TEST(TcmallocSlab, Stress) {
     t.join();
   }
   // Collect objects and capacity from all slabs.
-  std::set<void*> objects;
-  struct Context {
-    std::set<void*>* objects;
-    std::atomic<size_t>* capacity;
-  };
-  Context ctx = {&objects, &capacity};
+  absl::flat_hash_set<void*> objects;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    slab.Drain(cpu, &ctx,
-               [](void* arg, size_t cl, void** batch, size_t size, size_t cap) {
-                 Context* ctx = static_cast<Context*>(arg);
+    slab.Drain(cpu,
+               [&objects, &capacity, cpu](int cpu_arg, size_t cl, void** batch,
+                                          size_t size, size_t cap) {
+                 EXPECT_EQ(cpu, cpu_arg);
                  for (size_t i = 0; i < size; ++i) {
-                   ctx->objects->insert(batch[i]);
+                   objects.insert(batch[i]);
                  }
-                 ctx->capacity->fetch_add(cap);
+                 capacity.fetch_add(cap);
                });
     for (size_t cl = 0; cl < kStressSlabs; ++cl) {
       EXPECT_EQ(slab.Length(cpu, cl), 0);

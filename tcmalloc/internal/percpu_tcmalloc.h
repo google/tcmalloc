@@ -84,6 +84,11 @@ inline size_t GetSlabsAllocSize(size_t shift, int num_cpus) {
 template <size_t NumClasses>
 class TcmallocSlab {
  public:
+  using DrainHandler = absl::FunctionRef<void(int cpu, size_t cl, void** batch,
+                                              size_t size, size_t cap)>;
+  using ShrinkHandler =
+      absl::FunctionRef<void(size_t cl, void** batch, size_t size)>;
+
   constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
@@ -155,19 +160,16 @@ class TcmallocSlab {
   //
   // May be called from another processor, not just the <cpu>.
   // REQUIRES: len > 0.
-  typedef void (*ShrinkHandler)(void* arg, size_t cl, void** batch, size_t n);
-  size_t ShrinkOtherCache(int cpu, size_t cl, size_t len, void* shrink_ctx,
+  size_t ShrinkOtherCache(int cpu, size_t cl, size_t len,
                           ShrinkHandler shrink_handler);
 
   // Remove all items (of all classes) from <cpu>'s slab; reset capacity for all
   // classes to zero.  Then, for each sizeclass, invoke
-  // DrainHandler(drain_ctx, cl, <items from slab>, <previous slab capacity>);
+  // DrainHandler(cl, <items from slab>, <previous slab capacity>);
   //
   // It is invalid to concurrently execute Drain() for the same CPU; calling
   // Push/Pop/Grow/Shrink concurrently (even on the same CPU) is safe.
-  typedef void (*DrainHandler)(void* drain_ctx, size_t cl, void** batch,
-                               size_t n, size_t cap);
-  void Drain(int cpu, void* drain_ctx, DrainHandler drain_handler);
+  void Drain(int cpu, DrainHandler drain_handler);
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
@@ -273,7 +275,7 @@ class TcmallocSlab {
                                   size_t virtual_cpu_id_offset);
   // <begins> is an array of the <begin> values for each size class.
   static void DrainCpu(Slabs* slabs, size_t shift, int cpu, uint16_t* begins,
-                       void* drain_ctx, DrainHandler drain_handler);
+                       DrainHandler drain_handler);
   // Stops concurrent mutations from occurring for <cpu> by locking the
   // corresponding headers. All allocations/deallocations will miss this cache
   // for <cpu> until the headers are unlocked.
@@ -1067,7 +1069,6 @@ inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
 template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, size_t shift,
                                                int cpu, uint16_t* begins,
-                                               void* drain_ctx,
                                                DrainHandler drain_handler) {
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     Header header = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
@@ -1076,7 +1077,7 @@ inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, size_t shift,
     void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
                                             begins[size_class]);
     TSANAcquireBatch(batch, size);
-    drain_handler(drain_ctx, size_class, batch, size, cap);
+    drain_handler(cpu, size_class, batch, size, cap);
   }
 }
 
@@ -1243,8 +1244,7 @@ void TcmallocSlab<NumClasses>::Destroy(
 
 template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
-    int cpu, size_t cl, size_t len, void* shrink_ctx,
-    ShrinkHandler shrink_handler) {
+    int cpu, size_t cl, size_t len, ShrinkHandler shrink_handler) {
   ASSERT(cpu >= 0);
   ASSERT(cpu < absl::base_internal::NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1287,7 +1287,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
                                             hdr.current - actual_pop);
     TSANAcquireBatch(batch, actual_pop);
-    shrink_handler(shrink_ctx, cl, batch, actual_pop);
+    shrink_handler(cl, batch, actual_pop);
     hdr.current -= actual_pop;
     StoreHeader(hdrp, hdr);
     FenceCpu(cpu, virtual_cpu_id_offset);
@@ -1306,8 +1306,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Drain(int cpu, void* drain_ctx,
-                                     DrainHandler drain_handler) {
+void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
   CHECK_CONDITION(cpu >= 0);
   CHECK_CONDITION(cpu < absl::base_internal::NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
@@ -1336,7 +1335,7 @@ void TcmallocSlab<NumClasses>::Drain(int cpu, void* drain_ctx,
   StopConcurrentMutations(slabs, shift, cpu, virtual_cpu_id_offset);
 
   // Phase 3: execute callbacks.
-  DrainCpu(slabs, shift, cpu, begin, drain_ctx, drain_handler);
+  DrainCpu(slabs, shift, cpu, begin, drain_handler);
 
   // Phase 4: reset current to beginning of the region.
   // We can't write all 4 fields at once with a single write, because Pop does
