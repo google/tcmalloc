@@ -15,6 +15,11 @@
 #ifndef TCMALLOC_INTERNAL_PROFILE_BUILDER_H_
 #define TCMALLOC_INTERNAL_PROFILE_BUILDER_H_
 
+#if defined(__linux__)
+#include <elf.h>
+#include <link.h>
+#endif  // defined(__linux__)
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -29,6 +34,10 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+#if defined(__linux__)
+std::string GetBuildId(const dl_phdr_info* const info);
+#endif  // defined(__linux__)
 
 // ProfileBuilder manages building up a profile.proto instance and populating
 // common parts using the string/pointer table conventions expected by pprof.

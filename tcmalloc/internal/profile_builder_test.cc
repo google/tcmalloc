@@ -14,6 +14,9 @@
 
 #include "tcmalloc/internal/profile_builder.h"
 
+#include <fcntl.h>
+#include <sys/mman.h>
+
 #include <climits>
 #include <cstdint>
 #include <cstdlib>
@@ -25,8 +28,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/variant.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -329,6 +335,37 @@ TEST(ProfileConverterTest, Profile) {
 
   // Period
   EXPECT_EQ(converted.period(), kPeriod);
+}
+
+TEST(BuildId, CorruptImage_b180635896) {
+  std::string image_path;
+  const char* srcdir = thread_safe_getenv("TEST_SRCDIR");
+  if (srcdir) {
+    absl::StrAppend(&image_path, srcdir, "/");
+  }
+  const char* workspace = thread_safe_getenv("TEST_WORKSPACE");
+  if (workspace) {
+    absl::StrAppend(&image_path, workspace, "/");
+  }
+  absl::StrAppend(&image_path,
+                  "tcmalloc/internal/testdata/b180635896.so");
+
+  int fd = open(image_path.c_str(), O_RDONLY);
+  ASSERT_TRUE(fd != -1) << "open: " << errno << " " << image_path;
+  void* p = mmap(nullptr, /*size*/ 4096, PROT_READ, MAP_PRIVATE, fd, /*off*/ 0);
+  ASSERT_TRUE(p != MAP_FAILED) << "mmap: " << errno;
+  close(fd);
+
+  const ElfW(Ehdr)* const ehdr = reinterpret_cast<ElfW(Ehdr)*>(p);
+  dl_phdr_info info = {};
+  info.dlpi_name = image_path.c_str();
+  info.dlpi_addr = reinterpret_cast<ElfW(Addr)>(p);
+  info.dlpi_phdr =
+      reinterpret_cast<ElfW(Phdr)*>(info.dlpi_addr + ehdr->e_phoff);
+  info.dlpi_phnum = ehdr->e_phnum;
+
+  EXPECT_EQ(GetBuildId(&info), "eef53a1c14b9bb601e82514621e51dc58145f1ab");
+  munmap(p, 4096);
 }
 
 }  // namespace

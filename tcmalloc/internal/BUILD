@@ -570,13 +570,18 @@ cc_test(
     name = "profile_builder_test",
     srcs = ["profile_builder_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = [
+        "testdata/b180635896.so",
+    ],
     deps = [
+        ":environment",
         ":fake_profile",
         ":profile_builder",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:variant",
         "@com_google_googletest//:gtest_main",
