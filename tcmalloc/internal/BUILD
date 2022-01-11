@@ -566,6 +566,16 @@ cc_library(
     ],
 )
 
+cc_fuzz_test(
+    name = "profile_builder_fuzz",
+    testonly = 1,
+    srcs = ["profile_builder_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":profile_builder",
+    ],
+)
+
 cc_test(
     name = "profile_builder_test",
     srcs = ["profile_builder_test.cc"],

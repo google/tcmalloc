@@ -121,6 +121,10 @@ std::string GetBuildId(const dl_phdr_info* const info) {
   const char* const last = note + pt_note->p_memsz;
   while (note < last) {
     const ElfW(Nhdr)* const nhdr = reinterpret_cast<const ElfW(Nhdr)*>(note);
+    if (note + sizeof(*nhdr) > last) {
+      // Corrupt PT_NOTE
+      break;
+    }
 
     // Both name and desc are 4-byte aligned (in 32 and 64-bit mode).
     const int name_size = (nhdr->n_namesz + 3) & ~3;
