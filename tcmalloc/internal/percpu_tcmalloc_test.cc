@@ -15,13 +15,23 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 
 #include <fcntl.h>
+#include <linux/kernel-page-flags.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
+#if defined(__linux__)
+#include <linux/param.h>
+#else
+#include <sys/param.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <functional>
+#include <new>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
@@ -690,7 +700,6 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return;
   }
 
-  EXPECT_LE(kStressSlabs, kStressSlabs);
   TcmallocSlab slab;
   size_t shift = Grow() ? 14 : kShift;
   slab.Init(allocator, get_capacity, shift);
@@ -739,6 +748,8 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     }
     capacity.fetch_add(cap);
   };
+  // Keep track of old slabs so we can free the memory.
+  std::vector<std::pair<void*, size_t>> old_slabs_vec;
   for (int i = 0; i < 5; ++i) {
     absl::SleepFor(absl::Seconds(1));
     if (!Grow() || ++shift > kShift) continue;
@@ -747,11 +758,47 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
         shift, allocator, get_capacity,
         [&](int cpu) { return has_init[cpu].load(std::memory_order_relaxed); },
         drain_handler);
+    old_slabs_vec.push_back({old_slabs, old_slabs_size});
     for (int cpu = 0; cpu < num_cpus; ++cpu) mutexes[cpu].Unlock();
     ASSERT_NE(old_slabs, nullptr);
     // It's important that we do this here in order to uncover any potential
     // correctness issues due to madvising away the old slabs.
+    // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
+    // the kernel enables huge zero pages.
+    madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
     madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
+
+    // Verify that old_slabs is now non-resident.
+    const int fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
+    if (fd < 0) continue;
+
+    // /proc/self/pageflags is an array. Each entry is a bitvector of size 64.
+    // To index the array, divide the virtual address by the pagesize. The
+    // 64b word has bit fields set.
+    const uintptr_t start_addr = reinterpret_cast<uintptr_t>(old_slabs);
+    constexpr size_t kPhysicalPageSize = EXEC_PAGESIZE;
+    for (uintptr_t addr = start_addr; addr < start_addr + old_slabs_size;
+         addr += kPhysicalPageSize) {
+      ASSERT_EQ(addr % kPhysicalPageSize, 0);
+      // Offset in /proc/self/pageflags.
+      const off64_t offset = addr / kPhysicalPageSize * 8;
+      uint64_t entry = 0;
+// Ignore false-positive warning in GCC.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattribute-warning"
+#endif
+      const int bytes_read = pread(fd, &entry, sizeof(entry), offset);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+      ASSERT_EQ(bytes_read, sizeof(entry));
+      constexpr uint64_t kExpectedBits =
+          (uint64_t{1} << KPF_ZERO_PAGE) | (uint64_t{1} << KPF_NOPAGE);
+      ASSERT_NE(entry & kExpectedBits, 0)
+          << entry << " " << addr << " " << start_addr;
+    }
+    signal_safe_close(fd);
   }
   stop = true;
   for (auto& t : threads) {
@@ -772,6 +819,10 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   EXPECT_EQ(objects.size(), blocks.size() * kStressCapacity);
   EXPECT_EQ(capacity.load(), kTotalCapacity);
   slab.Destroy(sized_aligned_delete);
+  for (const auto& [old_slabs, old_slabs_size] : old_slabs_vec) {
+    sized_aligned_delete(old_slabs, old_slabs_size,
+                         std::align_val_t{EXEC_PAGESIZE});
+  }
 }
 INSTANTIATE_TEST_SUITE_P(GrowOrNot, StressThreadTest, ::testing::Bool());
 
