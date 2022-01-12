@@ -520,6 +520,7 @@ cc_test(
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/debugging:symbolize",

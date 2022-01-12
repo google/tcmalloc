@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <utility>
 
@@ -110,6 +111,23 @@ class TcmallocSlab {
   // Prior to InitCpu being called on a particular `cpu`, non-const operations
   // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
+
+  // Grows the size of the slabs to use the new <shift> value. First we allocate
+  // new larger slabs, then lock all headers on the old slabs, atomically update
+  // to use the new slabs, and teardown the old slabs. Returns a pointer to old
+  // slabs to be madvised away along with the size.
+  //
+  // <alloc> is memory allocation callback (e.g. malloc).
+  // <capacity> callback returns max capacity for size class <cl>.
+  // <populated> returns whether the corresponding cpu has been populated.
+  //
+  // Caller must ensure that there are no concurrent calls to InitCpu,
+  // ShrinkOtherCache, or Drain.
+  std::pair<void*, size_t> GrowSlabs(
+      size_t new_shift,
+      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+      absl::FunctionRef<size_t(size_t)> capacity,
+      absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
 
   // For tests.
   void Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
@@ -284,6 +302,11 @@ class TcmallocSlab {
   static void StopConcurrentMutations(Slabs* slabs, size_t shift, int cpu,
                                       size_t virtual_cpu_id_offset);
 
+  // Implementation of InitCpu() allowing for reuse in GrowSlabs().
+  static void InitCpuImpl(Slabs* slabs, size_t shift, int cpu,
+                          size_t virtual_cpu_id_offset,
+                          absl::FunctionRef<size_t(size_t)> capacity);
+
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
@@ -315,7 +338,9 @@ inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t size_class,
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
-    if (old.IsLocked() || old.end - old.begin == max_cap) {
+    // We need to check for `old.begin == 0` because `slabs` may have been
+    // MADV_DONTNEEDed after a call to GrowSlabs().
+    if (old.IsLocked() || old.end - old.begin == max_cap || old.begin == 0) {
       return 0;
     }
     uint16_t n = std::min<uint16_t>(len, max_cap - (old.end - old.begin));
@@ -340,7 +365,9 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
-    if (old.IsLocked() || old.current == old.end) {
+    // We need to check for `old.begin == 0` because `slabs` may have been
+    // MADV_DONTNEEDed after a call to GrowSlabs().
+    if (old.IsLocked() || old.current == old.end || old.begin == 0) {
       return 0;
     }
     uint16_t n = std::min<uint16_t>(len, old.end - old.current);
@@ -1177,8 +1204,13 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpu(
     int cpu, absl::FunctionRef<size_t(size_t)> capacity) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+  InitCpuImpl(slabs, shift, cpu, virtual_cpu_id_offset_, capacity);
+}
 
+template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::InitCpuImpl(
+    Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset,
+    absl::FunctionRef<size_t(size_t)> capacity) {
   // Phase 1: verify no header is locked
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
@@ -1240,6 +1272,52 @@ void TcmallocSlab<NumClasses>::InitCpu(
     hdr.end_copy = begin[size_class];
     StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
   }
+}
+
+template <size_t NumClasses>
+std::pair<void*, size_t> TcmallocSlab<NumClasses>::GrowSlabs(
+    size_t new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+    absl::FunctionRef<size_t(size_t)> capacity,
+    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler) {
+  // Phase 1: Allocate new slab array and initialize any cores that have already
+  // been populated in the old slab.
+  const int num_cpus = absl::base_internal::NumCPUs();
+  Slabs* new_slabs = AllocSlabs(alloc, new_shift, num_cpus);
+  const auto [old_slabs, old_shift] =
+      GetSlabsAndShift(std::memory_order_relaxed);
+  ASSERT(new_shift > old_shift);
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    if (populated(cpu)) {
+      InitCpuImpl(new_slabs, new_shift, cpu, virtual_cpu_id_offset, capacity);
+    }
+  }
+
+  // Phase 2: Collect all `begin`s (these are not mutated by anybody else thanks
+  // to the cpu locks) and stop concurrent mutations for all populated CPUs and
+  // size classes.
+  auto begins = std::make_unique<std::array<uint16_t, NumClasses>[]>(num_cpus);
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+      Header header =
+          LoadHeader(GetHeader(old_slabs, old_shift, cpu, size_class));
+      CHECK_CONDITION(!header.IsLocked());
+      begins[cpu][size_class] = header.begin;
+    }
+    StopConcurrentMutations(old_slabs, old_shift, cpu, virtual_cpu_id_offset);
+  }
+
+  // Phase 3: Atomically update slabs and shift.
+  slabs_and_shift_.store({new_slabs, new_shift}, std::memory_order_relaxed);
+
+  // Phase 4: Return pointers from the old slab to the TransferCache.
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    DrainCpu(old_slabs, old_shift, cpu, &begins[cpu][0], drain_handler);
+  }
+
+  return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
 }
 
 template <size_t NumClasses>
