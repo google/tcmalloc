@@ -1448,9 +1448,9 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
 
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
+  const int num_cpus = absl::base_internal::NumCPUs();
 
-  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
-       ++cpu) {
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
     static constexpr double MiB = 1048576.0;
 
     uint64_t rbytes = UsedBytes(cpu);
@@ -1483,8 +1483,7 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Number of per-CPU cache underflows, overflows and reclaims\n");
   out->printf("------------------------------------------------\n");
-  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
-       ++cpu) {
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
     uint64_t reclaims = GetNumReclaims(cpu);
     out->printf(
