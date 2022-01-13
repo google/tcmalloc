@@ -126,9 +126,13 @@ std::string GetBuildId(const dl_phdr_info* const info) {
       break;
     }
 
-    // Both name and desc are 4-byte aligned (in 32 and 64-bit mode).
-    const int name_size = (nhdr->n_namesz + 3) & ~3;
-    const int desc_size = (nhdr->n_descsz + 3) & ~3;
+    ElfW(Word) name_size = nhdr->n_namesz;
+    ElfW(Word) desc_size = nhdr->n_descsz;
+    if (name_size >= static_cast<ElfW(Word)>(-3) ||
+        desc_size >= static_cast<ElfW(Word)>(-3)) {
+      // These would wrap around when aligned.  The PT_NOTE is corrupt.
+      break;
+    }
 
     // Beware of overflows / wrap-around.
     if (name_size >= pt_note->p_memsz || desc_size >= pt_note->p_memsz ||
@@ -140,17 +144,22 @@ std::string GetBuildId(const dl_phdr_info* const info) {
     if (nhdr->n_type == NT_GNU_BUILD_ID) {
       const char* const note_name = note + sizeof(*nhdr);
       // n_namesz is the length of note_name.
-      if (nhdr->n_namesz == 4 && memcmp(note_name, "GNU\0", 4) == 0) {
+      if (name_size == 4 && memcmp(note_name, "GNU\0", 4) == 0) {
         if (!result.empty()) {
           // Repeated build-ids.  Ignore them.
           return "";
         }
-        const char* note_data = reinterpret_cast<const char*>(nhdr) +
-                                sizeof(*nhdr) + nhdr->n_namesz;
-        result = absl::BytesToHexString(
-            absl::string_view(note_data, nhdr->n_descsz));
+        const char* note_data =
+            reinterpret_cast<const char*>(nhdr) + sizeof(*nhdr) + name_size;
+        result =
+            absl::BytesToHexString(absl::string_view(note_data, desc_size));
       }
     }
+
+    // Align name_size, desc_size.
+    name_size = (name_size + 3) & ~3;
+    desc_size = (desc_size + 3) & ~3;
+
     note += name_size + desc_size + sizeof(*nhdr);
   }
   return result;
