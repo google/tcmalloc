@@ -58,12 +58,10 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
   }
   const double scale = total_mem / total;
   std::vector<double> avg_counts;
-  double total_avg_counts = 0;
   // now sum(w.num_live * scale * w.size) = total_mem as desired.
   for (const auto& w : weights) {
     const double count = w.num_live * scale;
     avg_counts.push_back(count);
-    total_avg_counts += count;
   }
 
   // Little's Law says that avg_count = birth rate * (average lifespan).

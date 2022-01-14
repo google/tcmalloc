@@ -147,13 +147,12 @@ TEST(ReclaimTest, ReclaimStable) {
         CHECK_CONDITION(!tcmalloc_internal::subtle::percpu::IsFastNoInit());
       }
 
-      size_t bytes = 0;
       int iter = 0;
       while (!sync->load(std::memory_order_acquire)) {
         iter++;
         for (int i = 0, num_cpus = absl::base_internal::NumCPUs(); i < num_cpus;
              ++i) {
-          bytes += MallocExtension::ReleaseCpuMemory(i);
+          MallocExtension::ReleaseCpuMemory(i);
         }
       }
     }
