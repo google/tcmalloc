@@ -122,8 +122,9 @@ TEST(CpuCacheTest, Metadata) {
   cache.Activate();
 
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(r.virtual_size, subtle::percpu::GetSlabsAllocSize(
-                                CPUCache::kPerCpuShift, num_cpus));
+  EXPECT_EQ(r.virtual_size,
+            subtle::percpu::GetSlabsAllocSize(
+                subtle::percpu::ToShiftType(CPUCache::kPerCpuShift), num_cpus));
   EXPECT_EQ(r.resident_size, 0);
 
   auto count_cores = [&]() {
@@ -169,8 +170,9 @@ TEST(CpuCacheTest, Metadata) {
   EXPECT_EQ(1, count_cores());
 
   r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(r.virtual_size, subtle::percpu::GetSlabsAllocSize(
-                                CPUCache::kPerCpuShift, num_cpus));
+  EXPECT_EQ(r.virtual_size,
+            subtle::percpu::GetSlabsAllocSize(
+                subtle::percpu::ToShiftType(CPUCache::kPerCpuShift), num_cpus));
 
   // We expect to fault in a single core, but we may end up faulting an
   // entire hugepage worth of memory

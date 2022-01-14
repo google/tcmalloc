@@ -125,7 +125,7 @@ class TcmallocSlabTest : public testing::Test {
         [&](size_t size, std::align_val_t alignment) {
           return this->ByteCountingMalloc(size, alignment);
         },
-        [](size_t) { return kCapacity; }, kShift);
+        [](size_t) { return kCapacity; }, subtle::percpu::ToShiftType(kShift));
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -702,7 +702,7 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
   TcmallocSlab slab;
   size_t shift = Grow() ? 14 : kShift;
-  slab.Init(allocator, get_capacity, shift);
+  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(shift));
   std::vector<std::thread> threads;
   const int num_cpus = absl::base_internal::NumCPUs();
   const int n_threads = 2 * num_cpus;
@@ -755,7 +755,7 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
     if (!Grow() || ++shift > kShift) continue;
     for (int cpu = 0; cpu < num_cpus; ++cpu) mutexes[cpu].Lock();
     const auto [old_slabs, old_slabs_size] = slab.GrowSlabs(
-        shift, allocator, get_capacity,
+        subtle::percpu::ToShiftType(shift), allocator, get_capacity,
         [&](int cpu) { return has_init[cpu].load(std::memory_order_relaxed); },
         drain_handler);
     old_slabs_vec.push_back({old_slabs, old_slabs_size});
@@ -924,7 +924,7 @@ void BM_PushPop(benchmark::State& state) {
     const auto get_capacity = [](size_t size_class) -> size_t {
       return kBatchSize;
     };
-    slab.Init(allocator, get_capacity, kShift);
+    slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift));
     for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
       slab.InitCpu(cpu, get_capacity);
     }
@@ -957,7 +957,7 @@ void BM_PushPopBatch(benchmark::State& state) {
     const auto get_capacity = [](size_t size_class) -> size_t {
       return kBatchSize;
     };
-    slab.Init(allocator, get_capacity, kShift);
+    slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift));
     for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
       slab.InitCpu(cpu, get_capacity);
     }

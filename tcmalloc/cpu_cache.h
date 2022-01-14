@@ -601,7 +601,7 @@ inline void CPUCache<Forwarder>::Activate() {
   freelist_.Init(
       &forwarder_.Alloc,
       [this](size_t size_class) { return this->max_capacity_[size_class]; },
-      per_cpu_shift);
+      subtle::percpu::ToShiftType(per_cpu_shift));
 }
 
 template <class Forwarder>

@@ -69,9 +69,16 @@ struct PerCPUMetadataState {
 namespace subtle {
 namespace percpu {
 
+enum class Shift : uint8_t;
+constexpr uint8_t ToUint8(Shift shift) { return static_cast<uint8_t>(shift); }
+constexpr Shift ToShiftType(size_t shift) {
+  ASSERT(ToUint8(static_cast<Shift>(shift)) == shift);
+  return static_cast<Shift>(shift);
+}
+
 // The allocation size for the slabs array.
-inline size_t GetSlabsAllocSize(size_t shift, int num_cpus) {
-  return static_cast<size_t>(num_cpus) << shift;
+inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
+  return static_cast<size_t>(num_cpus) << ToUint8(shift);
 }
 
 // Tcmalloc slab for per-cpu caching mode.
@@ -103,7 +110,7 @@ class TcmallocSlab {
   //
   // Initial capacity is 0 for all slabs.
   void Init(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-            absl::FunctionRef<size_t(size_t)> capacity, size_t shift);
+            absl::FunctionRef<size_t(size_t)> capacity, Shift shift);
 
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <size_class>.
@@ -124,8 +131,7 @@ class TcmallocSlab {
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
   std::pair<void*, size_t> GrowSlabs(
-      size_t new_shift,
-      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+      Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
 
@@ -218,15 +224,21 @@ class TcmallocSlab {
 
    public:
     constexpr explicit SlabsAndShift() noexcept : raw_(0) {}
-    SlabsAndShift(const Slabs* slabs, size_t shift)
-        : raw_(reinterpret_cast<uintptr_t>(slabs) | shift) {
-      ASSERT((raw_ & kShiftMask) == shift);
+    SlabsAndShift(const Slabs* slabs, Shift shift)
+        : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
+      ASSERT((raw_ & kShiftMask) == ToUint8(shift));
       ASSERT(reinterpret_cast<Slabs*>(raw_ & kSlabsMask) == slabs);
     }
 
-    std::pair<Slabs*, size_t> Get() const {
+    std::pair<Slabs*, Shift> Get() const {
+      static_assert(kShiftMask >= 0 && kShiftMask <= UCHAR_MAX,
+                    "kShiftMask must fit in a uint8_t");
+      // Avoid expanding the width of Shift else the compiler will insert an
+      // additional instruction to zero out the upper bits on the critical path
+      // of alloc / free.  Not zeroing out the bits is safe because both ARM and
+      // x86 only use the lowest byte for shift count in variable shifts.
       return {reinterpret_cast<TcmallocSlab::Slabs*>(raw_ & kSlabsMask),
-              static_cast<size_t>(raw_ & kShiftMask)};
+              static_cast<Shift>(raw_ & kShiftMask)};
     }
 
    private:
@@ -276,34 +288,33 @@ class TcmallocSlab {
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
-  std::pair<Slabs*, size_t> GetSlabsAndShift(std::memory_order order) const {
+  std::pair<Slabs*, Shift> GetSlabsAndShift(std::memory_order order) const {
     return slabs_and_shift_.load(order).Get();
   }
 
   static Slabs* AllocSlabs(
-      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, size_t shift,
+      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, Shift shift,
       int num_cpus);
-  static Slabs* CpuMemoryStart(Slabs* slabs, size_t shift, int cpu);
-  static std::atomic<int64_t>* GetHeader(Slabs* slabs, size_t shift, int cpu,
+  static Slabs* CpuMemoryStart(Slabs* slabs, Shift shift, int cpu);
+  static std::atomic<int64_t>* GetHeader(Slabs* slabs, Shift shift, int cpu,
                                          size_t size_class);
   static Header LoadHeader(std::atomic<int64_t>* hdrp);
   static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
-  static void LockHeader(Slabs* slabs, size_t shift, int cpu,
-                         size_t size_class);
+  static void LockHeader(Slabs* slabs, Shift shift, int cpu, size_t size_class);
   static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
                                   Header old, Header hdr,
                                   size_t virtual_cpu_id_offset);
   // <begins> is an array of the <begin> values for each size class.
-  static void DrainCpu(Slabs* slabs, size_t shift, int cpu, uint16_t* begins,
+  static void DrainCpu(Slabs* slabs, Shift shift, int cpu, uint16_t* begins,
                        DrainHandler drain_handler);
   // Stops concurrent mutations from occurring for <cpu> by locking the
   // corresponding headers. All allocations/deallocations will miss this cache
   // for <cpu> until the headers are unlocked.
-  static void StopConcurrentMutations(Slabs* slabs, size_t shift, int cpu,
+  static void StopConcurrentMutations(Slabs* slabs, Shift shift, int cpu,
                                       size_t virtual_cpu_id_offset);
 
   // Implementation of InitCpu() allowing for reuse in GrowSlabs().
-  static void InitCpuImpl(Slabs* slabs, size_t shift, int cpu,
+  static void InitCpuImpl(Slabs* slabs, Shift shift, int cpu,
                           size_t virtual_cpu_id_offset,
                           absl::FunctionRef<size_t(size_t)> capacity);
 
@@ -388,7 +399,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    void* item, const size_t shift, OverflowHandler overflow_handler, void* arg,
+    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
@@ -475,8 +486,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
-        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "c"(shift),
-        [slabs] "r"(slabs), [size_class] "r"(size_class), [item] "r"(item)
+        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+        [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
+        [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
@@ -501,7 +513,7 @@ overflow_label:
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    void* item, const size_t shift, OverflowHandler overflow_handler, void* arg,
+    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
@@ -568,7 +580,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // cpu_id = __rseq_abi.vcpu_id;
       "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
       // region_start = Start of cpu region
-      "lsl %[region_start], %[cpu_id], %[shift]\n"
+      "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
       "add %[region_start], %[region_start], %[slabs]\n"
       // end_ptr = &(slab_headers[0]->end)
       "add %[end_ptr], %[region_start], #6\n"
@@ -600,7 +612,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
 #endif
       : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
         [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
-        [rseq_abi] "r"(&__rseq_abi), [shift] "r"(shift),
+        [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
         // Constants
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
@@ -663,7 +675,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    UnderflowHandler underflow_handler, void* arg, const size_t shift,
+    UnderflowHandler underflow_handler, void* arg, Shift shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* scratch;
@@ -754,8 +766,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
-            [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE), [shift] "c"(shift),
-            [slabs] "r"(slabs), [size_class] "r"(size_class)
+            [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+            [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
+            [size_class] "r"(size_class)
           : "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
@@ -781,7 +794,7 @@ underflow_path:
   // transformation of cpu_id to the value of scratch.
   int cpu =
       (reinterpret_cast<char*>(scratch) - reinterpret_cast<char*>(slabs)) >>
-      shift;
+      ToUint8(shift);
 #endif
   return underflow_handler(cpu, size_class, arg);
 }
@@ -791,7 +804,7 @@ underflow_path:
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    UnderflowHandler underflow_handler, void* arg, const size_t shift,
+    UnderflowHandler underflow_handler, void* arg, Shift shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* region_start;
@@ -854,7 +867,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // cpu_id = __rseq_abi.vcpu_id;
           "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
           // region_start = Start of cpu region
-          "lsl %[region_start], %[cpu_id], %[shift]\n"
+          "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
           "add %[region_start], %[region_start], %[slabs]\n"
           // begin_ptr = &(slab_headers[0]->begin)
           "add %[begin_ptr], %[region_start], #4\n"
@@ -889,7 +902,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // Real inputs
           : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
             [size_class_lsl3] "r"(size_class_lsl3), [rseq_abi] "r"(&__rseq_abi),
-            [shift] "r"(shift),
+            [shift] "r"(ToUint8(shift)),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
@@ -965,7 +978,7 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_Internal_PushBatch_FixedShift needs to be
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
@@ -1003,7 +1016,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
   ASSERT(len != 0);
   size_t n = 0;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
     // TODO(b/159923407): TcmallocSlab_Internal_PopBatch_FixedShift needs to be
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
@@ -1043,7 +1056,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
 
 template <size_t NumClasses>
 inline auto TcmallocSlab<NumClasses>::AllocSlabs(
-    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, size_t shift,
+    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, Shift shift,
     int num_cpus) -> Slabs* {
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   Slabs* slabs = static_cast<Slabs*>(alloc(size, kPhysicalPageAlign));
@@ -1053,15 +1066,15 @@ inline auto TcmallocSlab<NumClasses>::AllocSlabs(
 }
 
 template <size_t NumClasses>
-inline auto TcmallocSlab<NumClasses>::CpuMemoryStart(Slabs* slabs, size_t shift,
+inline auto TcmallocSlab<NumClasses>::CpuMemoryStart(Slabs* slabs, Shift shift,
                                                      int cpu) -> Slabs* {
   char* const bytes = reinterpret_cast<char*>(slabs);
-  return reinterpret_cast<Slabs*>(&bytes[cpu << shift]);
+  return reinterpret_cast<Slabs*>(&bytes[cpu << ToUint8(shift)]);
 }
 
 template <size_t NumClasses>
 inline std::atomic<int64_t>* TcmallocSlab<NumClasses>::GetHeader(
-    Slabs* slabs, size_t shift, int cpu, size_t size_class) {
+    Slabs* slabs, Shift shift, int cpu, size_t size_class) {
   return &CpuMemoryStart(slabs, shift, cpu)->header[size_class];
 }
 
@@ -1078,7 +1091,7 @@ inline void TcmallocSlab<NumClasses>::StoreHeader(std::atomic<int64_t>* hdrp,
 }
 
 template <size_t NumClasses>
-inline void TcmallocSlab<NumClasses>::LockHeader(Slabs* slabs, size_t shift,
+inline void TcmallocSlab<NumClasses>::LockHeader(Slabs* slabs, Shift shift,
                                                  int cpu, size_t size_class) {
   // Note: this reinterpret_cast and write in Lock lead to undefined
   // behavior, because the actual object type is std::atomic<int64_t>. But
@@ -1103,7 +1116,7 @@ inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
 }
 
 template <size_t NumClasses>
-inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, size_t shift,
+inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, Shift shift,
                                                int cpu, uint16_t* begins,
                                                DrainHandler drain_handler) {
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
@@ -1119,7 +1132,7 @@ inline void TcmallocSlab<NumClasses>::DrainCpu(Slabs* slabs, size_t shift,
 
 template <size_t NumClasses>
 inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
-    Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset) {
+    Slabs* slabs, Shift shift, int cpu, size_t virtual_cpu_id_offset) {
   for (bool done = false; !done;) {
     for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
       LockHeader(slabs, shift, cpu, size_class);
@@ -1159,7 +1172,7 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    absl::FunctionRef<size_t(size_t)> capacity, size_t shift) {
+    absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
@@ -1189,7 +1202,7 @@ void TcmallocSlab<NumClasses>::Init(
       CHECK_CONDITION(
           reinterpret_cast<char*>(elems) -
               reinterpret_cast<char*>(CpuMemoryStart(slabs, shift, cpu)) <=
-          (1 << shift));
+          (1 << ToUint8(shift)));
     }
   }
   // Check for less than 90% usage of the reserved memory
@@ -1209,7 +1222,7 @@ void TcmallocSlab<NumClasses>::InitCpu(
 
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
-    Slabs* slabs, size_t shift, int cpu, size_t virtual_cpu_id_offset,
+    Slabs* slabs, Shift shift, int cpu, size_t virtual_cpu_id_offset,
     absl::FunctionRef<size_t(size_t)> capacity) {
   // Phase 1: verify no header is locked
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
@@ -1247,7 +1260,7 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     CHECK_CONDITION(
         reinterpret_cast<char*>(elems) -
             reinterpret_cast<char*>(CpuMemoryStart(slabs, shift, cpu)) <=
-        (1 << shift));
+        (1 << ToUint8(shift)));
   }
 
   // Phase 4: Store current.  No restartable sequence will proceed
@@ -1276,7 +1289,7 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 
 template <size_t NumClasses>
 std::pair<void*, size_t> TcmallocSlab<NumClasses>::GrowSlabs(
-    size_t new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+    Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     absl::FunctionRef<size_t(size_t)> capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler) {
   // Phase 1: Allocate new slab array and initialize any cores that have already
