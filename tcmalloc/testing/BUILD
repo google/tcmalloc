@@ -924,9 +924,6 @@ cc_library(
     testonly = 1,
     hdrs = ["test_allocator_harness.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
     deps = [
         ":testutil",
         "@com_google_absl//absl/base:core_headers",

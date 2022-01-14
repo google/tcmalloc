@@ -27,28 +27,16 @@ TEST(SampledAllocationTest, PrepareForSampling) {
 
   // Now verify some fields.
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_size, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.allocated_size, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.access_hint, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.weight, 0);
+  EXPECT_EQ(sampled_allocation.allocated_size.load(), 0);
 
   // Set them to different values.
   sampled_allocation.sampled_stack.depth = 0;
-  sampled_allocation.sampled_stack.requested_size = 1;
-  sampled_allocation.sampled_stack.requested_alignment = 1;
-  sampled_allocation.sampled_stack.allocated_size = 1;
-  sampled_allocation.sampled_stack.access_hint = 1;
-  sampled_allocation.sampled_stack.weight = 1;
+  sampled_allocation.allocated_size.store(1, std::memory_order_relaxed);
 
   // Call PrepareForSampling() again and check the fields.
   sampled_allocation.PrepareForSampling();
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_size, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.allocated_size, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.access_hint, 0);
-  EXPECT_EQ(sampled_allocation.sampled_stack.weight, 0);
+  EXPECT_EQ(sampled_allocation.allocated_size.load(), 0);
 }
 
 }  // namespace

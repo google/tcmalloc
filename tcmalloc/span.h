@@ -29,7 +29,6 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/sampled_allocation.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -96,21 +95,21 @@ class Span : public SpanList::Elem {
   // There is one-to-one correspondence between a sampled allocation and a span.
   // ---------------------------------------------------------------------------
 
-  // Mark this span as sampling the allocation. Sets state to SAMPLED.
-  void Sample(SampledAllocation* sampled_allocation);
+  // Mark this span as sampling allocation at the stack. Sets state to SAMPLED.
+  void Sample(StackTrace* stack) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Unmark this span as sampling an allocation.
-  // Returns the sampled allocation previously passed to Sample(),
+  // Returns stack trace previously passed to Sample,
   // or nullptr if this is a non-sampling span.
   // REQUIRES: this is a SAMPLED span.
-  SampledAllocation* Unsample();
+  StackTrace* Unsample() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Returns the sampled allocation of the span.
+  // Returns stack for the sampled allocation.
   // pageheap_lock is not required, but caller either needs to hold the lock or
   // ensure by some other means that the sampling state can't be changed
   // concurrently.
   // REQUIRES: this is a SAMPLED span.
-  SampledAllocation* sampled_allocation() const;
+  StackTrace* sampled_stack() const;
 
   // Is it a sampling span?
   // For debug checks. pageheap_lock is not required, but caller needs to ensure
@@ -255,7 +254,7 @@ class Span : public SpanList::Elem {
     Bitmap<64> bitmap_{};
 
     // Used only for sampled spans (SAMPLED state).
-    SampledAllocation* sampled_allocation_;
+    StackTrace* sampled_stack_;
 
     // Used only for spans in PageHeap
     // (ON_NORMAL_FREELIST or ON_RETURNED_FREELIST state).
@@ -512,10 +511,11 @@ inline void Span::set_location(Location loc) {
   location_ = static_cast<uint64_t>(loc);
 }
 
-inline SampledAllocation* Span::sampled_allocation() const {
+inline StackTrace* Span::sampled_stack() const {
   ASSERT(sampled_);
-  return sampled_allocation_;
+  return sampled_stack_;
 }
+
 inline bool Span::sampled() const { return sampled_; }
 
 inline PageId Span::first_page() const { return first_page_; }
