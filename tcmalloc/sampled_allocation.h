@@ -37,10 +37,7 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
   void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
 
   // The stack trace of the sampled allocation.
-  StackTrace sampled_stack ABSL_GUARDED_BY(lock) = {};
-
-  // size after sizeclass/page rounding.
-  std::atomic<uintptr_t> allocated_size{0};
+  StackTrace sampled_stack = {};
 };
 
 }  // namespace tcmalloc_internal

@@ -21,9 +21,16 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 void SampledAllocation::PrepareForSampling() {
+  // Get the current stack trace and reset all the other fields.
   sampled_stack.depth = absl::GetStackTrace(sampled_stack.stack, kMaxStackDepth,
                                             /* skip_count= */ 0);
-  allocated_size.store(0, std::memory_order_relaxed);
+  sampled_stack.proxy = nullptr;
+  sampled_stack.requested_size = 0;
+  sampled_stack.requested_alignment = 0;
+  sampled_stack.allocated_size = 0;
+  sampled_stack.access_hint = 0;
+  sampled_stack.cold_allocated = false;
+  sampled_stack.weight = 0;
 }
 
 }  // namespace tcmalloc_internal

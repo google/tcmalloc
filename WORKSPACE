@@ -18,10 +18,10 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 # Abseil
 http_archive(
-    name = "com_google_absl",  # 2021-05-20T02:59:16Z
-    urls = ["https://github.com/abseil/abseil-cpp/archive/7971fb358ae376e016d2d4fc9327aad95659b25e.zip"],
-    strip_prefix = "abseil-cpp-7971fb358ae376e016d2d4fc9327aad95659b25e",
-    sha256 = "aeba534f7307e36fe084b452299e49b97420667a8d28102cf9a0daeed340b859",
+    name = "com_google_absl",  # 2022-01-10T10:41:45Z
+    urls = ["https://github.com/abseil/abseil-cpp/archive/2a042b082ca6fc8592ec98d800012fc03c965c15.zip"],
+    strip_prefix = "abseil-cpp-2a042b082ca6fc8592ec98d800012fc03c965c15",
+    sha256 = "01bb8de03b11cb257349ff6a0c43c9a4ec1fdd069708e5e484b81332f42c2d89",
 )
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
