@@ -661,11 +661,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
                                                 overflow_handler, arg,
                                                 virtual_cpu_id_offset_) >= 0;
 #else
-  if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     return TcmallocSlab_Internal_Push_FixedShift(slabs, size_class, item,
                                                  overflow_handler, arg) >= 0;
   } else {
-    return TcmallocSlab_Internal_Push(slabs, size_class, item, shift,
+    return TcmallocSlab_Internal_Push(slabs, size_class, item, ToUint8(shift),
                                       overflow_handler, arg) >= 0;
   }
 #endif
@@ -945,12 +945,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
       slabs, size_class, underflow_handler, arg, shift, virtual_cpu_id_offset_);
 #else
   void* ret;
-  if (shift == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
+  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
     ret = TcmallocSlab_Internal_Pop_FixedShift(slabs, size_class,
                                                underflow_handler, arg);
   } else {
     ret = TcmallocSlab_Internal_Pop(slabs, size_class, underflow_handler, arg,
-                                    shift);
+                                    ToUint8(shift));
   }
   TSANAcquire(ret);
   return ret;
