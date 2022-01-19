@@ -110,6 +110,10 @@ void StackTraceTable::Iterate(
       Profile::Sample e;
       // We want sum to be a multiple of allocated_size; pick the nearest
       // multiple rather than always rounding up or down.
+      //
+      // TODO(b/215362992): Revisit this assertion when GWP-ASan guards
+      // zero-byte allocations.
+      ASSERT(allocated_size > 0);
       e.count = (bytes + allocated_size / 2) / allocated_size;
       e.sum = e.count * allocated_size;
       e.requested_size = requested_size;
