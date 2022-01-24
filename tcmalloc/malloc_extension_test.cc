@@ -87,6 +87,7 @@ TEST(MallocExtension, Properties) {
       "tcmalloc.pageheap_unmapped_bytes",
       "tcmalloc.per_cpu_caches_active",
       "tcmalloc.required_bytes",
+      "tcmalloc.sampled_internal_fragmentation",
       "tcmalloc.sharded_transfer_cache_free",
       "tcmalloc.slack_bytes",
       "tcmalloc.thread_cache_count",

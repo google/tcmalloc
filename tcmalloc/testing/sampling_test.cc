@@ -164,5 +164,108 @@ TEST(Sampling, AlwaysSampling) {
   }
 }
 
+TEST(Sampling, InternalFragmentation) {
+  ScopedGuardedSamplingRate gs(-1);
+  ScopedProfileSamplingRate s(1);
+
+  static constexpr size_t kBytes = 1 << 30;
+  // A power of 2 is very likely a size class, but we will check this.
+  static constexpr size_t kLowFragmentationSize = 1 << 13;
+  // A power of 2 + 1 is very unlikely to correspond exactly to a size class.
+  static constexpr size_t kHighFragmentationSize = (1 << 13) + 1;
+
+  static constexpr int kNumLow = kBytes / kLowFragmentationSize;
+  static constexpr int kNumHigh = kBytes / kHighFragmentationSize;
+
+  std::vector<void*> low, high;
+  low.reserve(kNumLow);
+  high.reserve(kNumHigh);
+
+  const absl::optional<size_t> starting_fragmentation =
+      MallocExtension::GetNumericProperty(
+          "tcmalloc.sampled_internal_fragmentation");
+  ASSERT_THAT(starting_fragmentation, testing::Ne(absl::nullopt));
+
+  auto ProfiledFragmentation = [&]() {
+    size_t fragmentation = 0;
+    auto profile = MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+    profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
+      EXPECT_GE(e.allocated_size, e.requested_size);
+      EXPECT_GT(e.allocated_size, 0);
+      fragmentation +=
+          (e.allocated_size - e.requested_size) * (e.sum / e.allocated_size);
+    });
+    return fragmentation;
+  };
+
+  const size_t starting_profiled_fragmentation = ProfiledFragmentation();
+
+  for (int i = 0; i < kNumLow; i++) {
+    low.push_back(::operator new(kLowFragmentationSize));
+  }
+
+  const absl::optional<size_t> actual_low =
+      MallocExtension::GetAllocatedSize(low[0]);
+  ASSERT_THAT(actual_low, testing::Ne(absl::nullopt));
+
+  for (int i = 0; i < kNumHigh; i++) {
+    high.push_back(::operator new(kHighFragmentationSize));
+  }
+
+  const absl::optional<size_t> actual_high =
+      MallocExtension::GetAllocatedSize(high[0]);
+  ASSERT_THAT(actual_high, testing::Ne(absl::nullopt));
+
+  const size_t ending_profiled_fragmentation = ProfiledFragmentation();
+
+  const absl::optional<size_t> ending_fragmentation =
+      MallocExtension::GetNumericProperty(
+          "tcmalloc.sampled_internal_fragmentation");
+  ASSERT_THAT(ending_fragmentation, testing::Ne(absl::nullopt));
+  const std::string stats = MallocExtension::GetStats();
+
+  for (void* p : low) {
+    sized_delete(p, kLowFragmentationSize);
+  }
+  for (void* p : high) {
+    sized_delete(p, kHighFragmentationSize);
+  }
+
+  EXPECT_EQ(*actual_low, kLowFragmentationSize);
+  EXPECT_GT(*actual_high, kHighFragmentationSize);
+
+  // Expect that the two means of computing fragmentation (reading the profile
+  // directly and asking GetNumericProperty) are within a kTolerance fraction of
+  // each other.
+  static constexpr double kTolerance = 0.02;
+  EXPECT_NEAR(*starting_fragmentation, starting_profiled_fragmentation,
+              starting_profiled_fragmentation * kTolerance);
+  EXPECT_NEAR(*ending_fragmentation, ending_profiled_fragmentation,
+              ending_profiled_fragmentation * kTolerance);
+
+  // Compare *ending_fragmentation with what we recorded in GetStats()
+  auto pos = stats.find("MALLOC SAMPLED PROFILES");
+  ASSERT_NE(pos, std::string::npos);
+
+  size_t current, fragmentation, peak;
+  int ret = sscanf(
+      stats.c_str() + pos,
+      "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
+      "fragmentation), %zu bytes (peak)\n",
+      &current, &fragmentation, &peak);
+  ASSERT_EQ(ret, 3);
+
+  EXPECT_GT(current, 0);
+  EXPECT_GT(peak, 0);
+  EXPECT_NEAR(fragmentation, *ending_fragmentation,
+              *ending_fragmentation * kTolerance);
+
+  // ending - starting should be roughly due to allocating
+  // kHighFragmentationSize objects kNumHigh times.
+  EXPECT_NEAR(*starting_fragmentation +
+                  (*actual_high - kHighFragmentationSize) * kNumHigh,
+              *ending_fragmentation, *ending_fragmentation * kTolerance);
+}
+
 }  // namespace
 }  // namespace tcmalloc

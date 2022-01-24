@@ -308,6 +308,10 @@ static int CountAllowedCpus() {
   return CPU_COUNT(&allowed_cpus);
 }
 
+// sampled_internal_fragmentation estimates the amount of memory overhead from
+// allocation sizes being rounded up to size class/page boundaries.
+static std::atomic<ssize_t> sampled_internal_fragmentation(0);
+
 // WRITE stats to "out"
 static void DumpStats(Printer* out, int level) {
   TCMallocStats stats;
@@ -411,8 +415,10 @@ static void DumpStats(Printer* out, int level) {
 
   PrintExperiments(out);
   out->printf(
-      "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (peak)\n",
+      "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
+      "fragmentation), %zu bytes (peak)\n",
       static_cast<size_t>(Static::sampled_objects_size_.value()),
+      sampled_internal_fragmentation.load(std::memory_order_relaxed),
       Static::peak_heap_tracker().CurrentPeakSize());
 
   MemoryStats memstats;
@@ -586,6 +592,9 @@ namespace {
     auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
     sampled_profiles.PrintI64("current_bytes",
                               Static::sampled_objects_size_.value());
+    sampled_profiles.PrintI64(
+        "current_fragmentation_bytes",
+        sampled_internal_fragmentation.load(std::memory_order_relaxed));
     sampled_profiles.PrintI64("peak_bytes",
                               Static::peak_heap_tracker().CurrentPeakSize());
   }
@@ -995,6 +1004,11 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
+  if (name == "tcmalloc.sampled_internal_fragmentation") {
+    *value = sampled_internal_fragmentation.load(std::memory_order_relaxed);
+    return true;
+  }
+
   if (name == "tcmalloc.page_algorithm") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     *value = Static::page_allocator().algorithm();
@@ -1273,6 +1287,8 @@ extern "C" void MallocExtension_Internal_GetProperties(
       stats.pageheap.unmapped_bytes;
   (*result)["tcmalloc.page_heap_unmapped"].value =
       stats.pageheap.unmapped_bytes;
+  (*result)["tcmalloc.sampled_internal_fragmentation"].value =
+      sampled_internal_fragmentation.load(std::memory_order_relaxed);
 
   (*result)["tcmalloc.page_algorithm"].value =
       Static::page_allocator().algorithm();
@@ -1584,6 +1600,19 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     span->Sample(stack);
   }
 
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+
+  // Adjust our estimate of internal fragmentation.
+  ASSERT(requested_size <= allocated_size);
+  if (requested_size < allocated_size) {
+    sampled_internal_fragmentation.fetch_add(
+        allocation_estimate * (allocated_size - requested_size),
+        std::memory_order_relaxed);
+  }
+
   Static::peak_heap_tracker().MaybeSaveSample();
 
   if (obj != nullptr) {
@@ -1681,7 +1710,8 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
 ABSL_ATTRIBUTE_NOINLINE
 static void do_free_pages(void* ptr, const PageId p) {
   void* proxy = nullptr;
-  size_t size;
+  size_t weight;
+  size_t requested_size, allocated_size;
   bool notify_sampled_alloc = false;
 
   Span* span = Static::pagemap().GetExistingDescriptor(p);
@@ -1693,12 +1723,15 @@ static void do_free_pages(void* ptr, const PageId p) {
     ASSERT(span->first_page() == p);
     if (StackTrace* st = span->Unsample()) {
       proxy = st->proxy;
-      size = st->allocated_size;
-      if (proxy == nullptr && size <= kMaxSize) {
-        tracking::Report(kFreeMiss,
-                         Static::sizemap().SizeClass(
-                             CppPolicy().InSameNumaPartitionAs(ptr), size),
-                         1);
+      weight = st->weight;
+      requested_size = st->requested_size;
+      allocated_size = st->allocated_size;
+      if (proxy == nullptr && allocated_size <= kMaxSize) {
+        tracking::Report(
+            kFreeMiss,
+            Static::sizemap().SizeClass(CppPolicy().InSameNumaPartitionAs(ptr),
+                                        allocated_size),
+            1);
       }
       notify_sampled_alloc = true;
       Static::stacktrace_allocator().Delete(st);
@@ -1727,15 +1760,33 @@ static void do_free_pages(void* ptr, const PageId p) {
   }
 
   if (notify_sampled_alloc) {
+    // Adjust our estimate of internal fragmentation.
+    ASSERT(requested_size <= allocated_size);
+    if (requested_size < allocated_size) {
+      // How many allocations does this sample represent, given the sampling
+      // frequency (weight) and its size.
+      const double allocation_estimate =
+          static_cast<double>(weight) / (requested_size + 1);
+      const size_t sampled_fragmentation =
+          allocation_estimate * (allocated_size - requested_size);
+
+      const size_t previous = sampled_internal_fragmentation.fetch_sub(
+          sampled_fragmentation, std::memory_order_relaxed);
+      // Check against wraparound
+      ASSERT(previous >= sampled_fragmentation);
+      (void)previous;
+    }
   }
 
   if (proxy) {
     const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
     size_t size_class;
     if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-      size_class = Static::sizemap().SizeClass(policy.AccessAsCold(), size);
+      size_class =
+          Static::sizemap().SizeClass(policy.AccessAsCold(), allocated_size);
     } else {
-      size_class = Static::sizemap().SizeClass(policy.AccessAsHot(), size);
+      size_class =
+          Static::sizemap().SizeClass(policy.AccessAsHot(), allocated_size);
     }
     FreeSmall<Hooks::NO>(proxy, size_class);
   }
