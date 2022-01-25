@@ -552,7 +552,7 @@ namespace {
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
 
-  PbtxtRegion region(out, kTop, /*indent=*/0);
+  PbtxtRegion region(out, kTop);
   region.PrintI64("in_use_by_app", bytes_in_use_by_app);
   region.PrintI64("page_heap_freelist", stats.pageheap.free_bytes);
   region.PrintI64("central_cache_freelist", stats.central_bytes);

@@ -206,7 +206,7 @@ enum PbtxtRegionType { kTop, kNested };
 // brackets).
 class PbtxtRegion {
  public:
-  PbtxtRegion(Printer* out, PbtxtRegionType type, int indent);
+  PbtxtRegion(Printer* out, PbtxtRegionType type);
   ~PbtxtRegion();
 
   PbtxtRegion(const PbtxtRegion&) = delete;
@@ -223,11 +223,8 @@ class PbtxtRegion {
   PbtxtRegion CreateSubRegion(absl::string_view key);
 
  private:
-  void NewLineAndIndent();
-
   Printer* out_;
   PbtxtRegionType type_;
-  int indent_;
 };
 
 }  // namespace tcmalloc_internal

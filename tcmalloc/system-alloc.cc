@@ -228,7 +228,7 @@ size_t MmapRegionFactory::GetStats(absl::Span<char> buffer) {
 size_t MmapRegionFactory::GetStatsInPbtxt(absl::Span<char> buffer) {
   Printer printer(buffer.data(), buffer.size());
   size_t allocated = bytes_reserved_.load(std::memory_order_relaxed);
-  printer.printf("mmap_sys_allocator: %lld\n", allocated);
+  printer.printf(" mmap_sys_allocator: %lld\n", allocated);
 
   return printer.SpaceRequired();
 }

@@ -187,13 +187,13 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     return ret;
   }
 
-  std::string PrintInPbTxt() {
+  std::string PrintInPbtxt() {
     std::string ret;
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
     Printer p(&ret[0], kSize);
     {
-      PbtxtRegion region(&p, kNested, 0);
+      PbtxtRegion region(&p, kNested);
       allocator_->PrintInPbtxt(&region);
     }
     ret.erase(p.SpaceRequired());
@@ -350,7 +350,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
-  EXPECT_THAT(PrintInPbTxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
 
   // Make a small allocation and then free the large allocation.  Slack should
   // fall, but we've kept alive our donation to the filler.
@@ -365,7 +365,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
-  EXPECT_THAT(PrintInPbTxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
 
   // Make another large allocation.  The number of donated huge pages should
   // continue to increase.
@@ -379,7 +379,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 2"));
-  EXPECT_THAT(PrintInPbTxt(), HasSubstr("filler_donated_huge_pages: 2"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 2"));
 
   // Deallocating the small allocation does not reduce the number of donations,
   // as we were unable to reassemble the VSS for large1.
@@ -393,7 +393,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 2"));
-  EXPECT_THAT(PrintInPbTxt(), HasSubstr("filler_donated_huge_pages: 2"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 2"));
 
   // Deallocating everything should return slack to 0 and allow large2's
   // contiguous VSS to be reassembled.
@@ -407,7 +407,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
-  EXPECT_THAT(PrintInPbTxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
 }
 
 TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {

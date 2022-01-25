@@ -22,6 +22,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/strings/str_replace.h"
 #include "absl/strings/str_split.h"
 #include "absl/synchronization/barrier.h"
 #include "absl/time/time.h"
@@ -316,12 +317,17 @@ TEST_F(LifetimeBasedAllocatorTest, PrintInPbTxt) {
   Printer printer(&*buffer.begin(), buffer.size());
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    PbtxtRegion region(&printer, kTop, /*indent=*/0);
+    PbtxtRegion region(&printer, kTop);
     lifetime_allocator_.PrintInPbtxt(&region);
   }
   buffer.erase(printer.SpaceRequired());
 
-  EXPECT_THAT(buffer, StrEq(R"(
+  auto canonicalize = [](std::string* s) {
+    *s = absl::StrReplaceAll(*s, {{"\n", " "}});
+    absl::RemoveExtraAsciiWhitespace(s);
+  };
+  canonicalize(&buffer);
+  std::string expected(R"(
   lifetime_based_allocator_stats {
     enabled: true
     counterfactual: false
@@ -335,9 +341,9 @@ TEST_F(LifetimeBasedAllocatorTest, PrintInPbTxt) {
     lifetime_region_allocated: 80
     lifetime_region_allocated_pages: 20320
     lifetime_region_freed: 80
-    lifetime_region_freed_pages: 20320
-  }
-)"));
+    lifetime_region_freed_pages: 20320})");
+  canonicalize(&expected);
+  EXPECT_THAT(buffer, StrEq(expected));
 }
 
 INSTANTIATE_TEST_SUITE_P(

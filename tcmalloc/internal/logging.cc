@@ -210,8 +210,8 @@ bool Logger::AddNum(uint64_t num, int base) {
   return AddStr(pos, end - pos);
 }
 
-PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type, int indent)
-    : out_(out), type_(type), indent_(indent) {
+PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type)
+    : out_(out), type_(type) {
   switch (type_) {
     case kTop:
       break;
@@ -219,15 +219,9 @@ PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type, int indent)
       out_->printf("{");
       break;
   }
-  ++indent_;
 }
 
 PbtxtRegion::~PbtxtRegion() {
-  --indent_;
-  out_->printf("\n");
-  for (int i = 0; i < indent_; i++) {
-    out_->printf("  ");
-  }
   switch (type_) {
     case kTop:
       break;
@@ -237,37 +231,25 @@ PbtxtRegion::~PbtxtRegion() {
   }
 }
 
-void PbtxtRegion::NewLineAndIndent() {
-  out_->printf("\n");
-  for (int i = 0; i < indent_; i++) {
-    out_->printf("  ");
-  }
-}
-
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
-  NewLineAndIndent();
-  out_->printf("%s: %" PRIi64, key, value);
+  out_->printf(" %s: %" PRIi64, key, value);
 }
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
-  NewLineAndIndent();
-  out_->printf("%s: %f", key, value);
+  out_->printf(" %s: %f", key, value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
-  NewLineAndIndent();
-  out_->printf("%s: %s", key, value ? "true" : "false");
+  out_->printf(" %s: %s", key, value ? "true" : "false");
 }
 
 void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
-  NewLineAndIndent();
-  out_->printf("%s: %s", key, value);
+  out_->printf(" %s: %s", key, value);
 }
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
-  NewLineAndIndent();
-  out_->printf("%s ", key);
-  PbtxtRegion sub(out_, kNested, indent_);
+  out_->printf(" %s ", key);
+  PbtxtRegion sub(out_, kNested);
   return sub;
 }
 

@@ -827,7 +827,7 @@ class CpuCacheEnvironment {
         out.resize(128 << 10);
         ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
         Printer p(out.data(), out.size());
-        PbtxtRegion r(&p, kTop, 0);
+        PbtxtRegion r(&p, kTop);
 
         cache_.PrintInPbtxt(&r);
 
