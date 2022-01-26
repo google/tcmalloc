@@ -1580,7 +1580,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
 
   ASSERT(span != nullptr);
 
-  // Grab the stack trace outside the heap lock
+  // Grab the stack trace outside the heap lock.
   StackTrace tmp;
   tmp.proxy = proxy;
   tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 0);
@@ -1590,15 +1590,6 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   tmp.access_hint = static_cast<uint8_t>(policy.access());
   tmp.cold_allocated = allocated_cold;
   tmp.weight = weight;
-
-  {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    // Allocate stack trace
-    StackTrace* stack = Static::stacktrace_allocator().New();
-    allocation_samples_.ReportMalloc(tmp);
-    *stack = tmp;
-    span->Sample(stack);
-  }
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
@@ -1611,6 +1602,15 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
     sampled_internal_fragmentation.fetch_add(
         allocation_estimate * (allocated_size - requested_size),
         std::memory_order_relaxed);
+  }
+
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    // Allocate stack trace.
+    StackTrace* stack = Static::stacktrace_allocator().New();
+    allocation_samples_.ReportMalloc(tmp);
+    *stack = tmp;
+    span->Sample(stack);
   }
 
   Static::peak_heap_tracker().MaybeSaveSample();
