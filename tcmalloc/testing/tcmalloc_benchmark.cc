@@ -233,7 +233,9 @@ static void BM_get_stats_internal(benchmark::State& state) {
     MallocExtension_Internal_GetStats(&stats);
   }
 }
-BENCHMARK(BM_get_stats_internal)->Range(1, 1 << 20);
+BENCHMARK(BM_get_stats_internal)
+    ->Range(1, 1 << 20)
+    ->Unit(benchmark::kMillisecond);
 
 static void BM_get_stats_pageheap_lock(benchmark::State& state) {
   std::vector<std::unique_ptr<char[]>> allocations;
@@ -317,7 +319,9 @@ static void BM_get_stats_pbtxt_internal(benchmark::State& state) {
     benchmark::DoNotOptimize(sz);
   }
 }
-BENCHMARK(BM_get_stats_pbtxt_internal)->Range(1, 1 << 20);
+BENCHMARK(BM_get_stats_pbtxt_internal)
+    ->Range(1, 1 << 20)
+    ->Unit(benchmark::kMillisecond);
 
 static void BM_get_stats_pbtxt_pageheap_lock(benchmark::State& state) {
   if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
