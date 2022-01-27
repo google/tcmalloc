@@ -216,7 +216,7 @@ PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type)
     case kTop:
       break;
     case kNested:
-      out_->printf("{");
+      out_->Append("{");
       break;
   }
 }
@@ -226,29 +226,29 @@ PbtxtRegion::~PbtxtRegion() {
     case kTop:
       break;
     case kNested:
-      out_->printf("}");
+      out_->Append("}");
       break;
   }
 }
 
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
-  out_->printf(" %s: %" PRIi64, key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
-  out_->printf(" %s: %f", key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
-  out_->printf(" %s: %s", key, value ? "true" : "false");
+  out_->Append(" ", key, value ? ": true" : ": false");
 }
 
 void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
-  out_->printf(" %s: %s", key, value);
+  out_->Append(" ", key, ": ", value);
 }
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
-  out_->printf(" %s ", key);
+  out_->Append(" ", key, " ");
   PbtxtRegion sub(out_, kNested);
   return sub;
 }

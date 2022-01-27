@@ -20,8 +20,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <initializer_list>
+
 #include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
@@ -163,13 +166,13 @@ extern void (*log_message_writer)(const char* msg, int length);
 class Printer {
  private:
   char* buf_;     // Where should we write next
-  int left_;      // Space left in buffer (including space for \0)
-  int required_;  // Space we needed to complete all printf calls up to this
-                  // point
+  size_t left_;   // Space left in buffer (including space for \0)
+  size_t required_;  // Space we needed to complete all printf calls up to this
+                     // point
 
  public:
   // REQUIRES: "length > 0"
-  Printer(char* buf, int length) : buf_(buf), left_(length), required_(0) {
+  Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
     ASSERT(length > 0);
     buf[0] = '\0';
   }
@@ -196,7 +199,42 @@ class Printer {
     }
   }
 
-  int SpaceRequired() const { return required_; }
+  template <typename... Args>
+  void Append(const Args&... args) {
+
+    AppendPieces({static_cast<const absl::AlphaNum&>(args).Piece()...});
+  }
+
+  size_t SpaceRequired() const { return required_; }
+
+ private:
+  void AppendPieces(std::initializer_list<absl::string_view> pieces) {
+    ASSERT(left_ >= 0);
+    if (left_ <= 0) {
+      return;
+    }
+
+    size_t total_size = 0;
+    for (const absl::string_view piece : pieces) total_size += piece.size();
+
+    required_ += total_size;
+    if (left_ < total_size) {
+      left_ = 0;
+      return;
+    }
+
+    for (const absl::string_view& piece : pieces) {
+      const size_t this_size = piece.size();
+      if (this_size == 0) {
+        continue;
+      }
+
+      memcpy(buf_, piece.data(), this_size);
+      buf_ += this_size;
+    }
+
+    left_ -= total_size;
+  }
 };
 
 enum PbtxtRegionType { kTop, kNested };
