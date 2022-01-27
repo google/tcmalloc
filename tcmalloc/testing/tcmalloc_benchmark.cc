@@ -252,9 +252,11 @@ static void BM_get_stats_pageheap_lock(benchmark::State& state) {
   // Create a background thread which busy-loops calling
   // MallocExtension::GetStats().
   absl::Notification done;
+  std::atomic<size_t> counter = 0;
   std::thread stats_thread([&] {
     while (!done.HasBeenNotified()) {
       const std::string stats = MallocExtension::GetStats();
+      counter.fetch_add(1, std::memory_order_seq_cst);
       benchmark::DoNotOptimize(stats);
     }
   });
@@ -264,15 +266,30 @@ static void BM_get_stats_pageheap_lock(benchmark::State& state) {
   // and release is a reasonable approximation to how long the stats_thread
   // holds pageheap lock.
   for (auto s : state) {
-    tcmalloc_internal::pageheap_lock.Lock();
-    tcmalloc_internal::pageheap_lock.Unlock();
+    absl::Duration elapsed;
+    const size_t start_counter = counter;
+    size_t end_counter;
+    do {
+      const auto start_ts = absl::Now();
+      tcmalloc_internal::pageheap_lock.Lock();
+      tcmalloc_internal::pageheap_lock.Unlock();
+      const auto end_ts = absl::Now();
+      elapsed = end_ts - start_ts;
+      end_counter = counter;
+    } while (start_counter == end_counter);
+
+    state.SetIterationTime(absl::ToDoubleSeconds(elapsed) /
+                           (end_counter - start_counter));
   }
 
   // End the background stats_thread.
   done.Notify();
   stats_thread.join();
 }
-BENCHMARK(BM_get_stats_pageheap_lock)->Range(1, 1 << 20);
+BENCHMARK(BM_get_stats_pageheap_lock)
+    ->Range(1, 1 << 20)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
 
 static void BM_get_stats_pbtxt_internal(benchmark::State& state) {
   if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
@@ -323,11 +340,13 @@ static void BM_get_stats_pbtxt_pageheap_lock(benchmark::State& state) {
   // Create a background thread which busy-loops calling
   // MallocExtension::GetStats().
   absl::Notification done;
+  std::atomic<size_t> counter = 0;
   std::thread stats_thread([&] {
     std::vector<char> buf(3 << 20);
     while (!done.HasBeenNotified()) {
       const int sz =
           MallocExtension_Internal_GetStatsInPbtxt(&buf[0], buf.size());
+      counter.fetch_add(1, std::memory_order_seq_cst);
       benchmark::DoNotOptimize(sz);
     }
   });
@@ -337,15 +356,30 @@ static void BM_get_stats_pbtxt_pageheap_lock(benchmark::State& state) {
   // and release is a reasonable approximation to how long the stats_thread
   // holds pageheap lock.
   for (auto s : state) {
-    tcmalloc_internal::pageheap_lock.Lock();
-    tcmalloc_internal::pageheap_lock.Unlock();
+    absl::Duration elapsed;
+    const size_t start_counter = counter;
+    size_t end_counter;
+    do {
+      const auto start_ts = absl::Now();
+      tcmalloc_internal::pageheap_lock.Lock();
+      tcmalloc_internal::pageheap_lock.Unlock();
+      const auto end_ts = absl::Now();
+      elapsed = end_ts - start_ts;
+      end_counter = counter;
+    } while (start_counter == end_counter);
+
+    state.SetIterationTime(absl::ToDoubleSeconds(elapsed) /
+                           (end_counter - start_counter));
   }
 
   // End the background stats_thread.
   done.Notify();
   stats_thread.join();
 }
-BENCHMARK(BM_get_stats_pbtxt_pageheap_lock)->Range(1, 1 << 20);
+BENCHMARK(BM_get_stats_pbtxt_pageheap_lock)
+    ->Range(1, 1 << 20)
+    ->UseRealTime()
+    ->Unit(benchmark::kMillisecond);
 
 static void BM_get_heap_profile(benchmark::State& state) {
   std::vector<std::unique_ptr<char[]>> allocations;
