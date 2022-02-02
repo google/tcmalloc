@@ -49,12 +49,42 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
-    SampledAllocation, PageHeapAllocator<SampledAllocation>>;
-
 class CPUCache;
 class PageMap;
 class ThreadCache;
+
+// Wrapper around PageHeapAllocator<SampledAllocation> to provide a customized
+// New() and Delete() for SampledAllocation.
+class SampledAllocationAllocator {
+ public:
+  constexpr SampledAllocationAllocator() = default;
+
+  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    allocator_.Init(arena);
+  }
+
+  SampledAllocation* New(const StackTrace& stack_trace) {
+    SampledAllocation* s;
+    {
+      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      s = allocator_.New();
+    }
+    return new (s) SampledAllocation(stack_trace);
+  }
+
+  void Delete(SampledAllocation* s) {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    allocator_.Delete(s);
+  }
+
+ private:
+  PageHeapAllocator<SampledAllocation> allocator_
+      ABSL_GUARDED_BY(pageheap_lock);
+};
+
+using SampledAllocationRecorder =
+    ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,
+                                                  SampledAllocationAllocator>;
 
 class Static {
  public:
@@ -104,7 +134,7 @@ class Static {
     return guardedpage_allocator_;
   }
 
-  static PageHeapAllocator<SampledAllocation>& sampledallocation_allocator() {
+  static SampledAllocationAllocator& sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
@@ -184,7 +214,7 @@ class Static {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CPUCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
-  static PageHeapAllocator<SampledAllocation> sampledallocation_allocator_;
+  static SampledAllocationAllocator sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;

@@ -104,6 +104,7 @@
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/sampled_allocation.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
@@ -733,34 +734,35 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
   auto profile = absl::make_unique<StackTraceTable>(ProfileType::kFragmentation,
                                                     1, true, true);
 
-  {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    for (Span* s : Static::sampled_objects_) {
-      // Compute fragmentation to charge to this sample:
-      StackTrace* const t = s->sampled_stack();
-      if (t->proxy == nullptr) {
-        // There is just one object per-span, and neighboring spans
-        // can be released back to the system, so we charge no
-        // fragmentation to this sampled object.
-        continue;
-      }
+  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  Static::sampled_allocation_recorder().Iterate(
+      [&profile](const SampledAllocation& sampled_allocation) {
+        pageheap_lock.AssertHeld();
 
-      // Fetch the span on which the proxy lives so we can examine its
-      // co-residents.
-      const PageId p = PageIdContaining(t->proxy);
-      Span* span = Static::pagemap().GetDescriptor(p);
-      if (span == nullptr) {
-        // Avoid crashes in production mode code, but report in tests.
-        ASSERT(span != nullptr);
-        continue;
-      }
+        // Compute fragmentation to charge to this sample:
+        const StackTrace& t = sampled_allocation.sampled_stack;
+        if (t.proxy == nullptr) {
+          // There is just one object per-span, and neighboring spans
+          // can be released back to the system, so we charge no
+          // fragmentation to this sampled object.
+          return;
+        }
 
-      const double frag = span->Fragmentation();
-      if (frag > 0) {
-        profile->AddTrace(frag, *t);
-      }
-    }
-  }
+        // Fetch the span on which the proxy lives so we can examine its
+        // co-residents.
+        const PageId p = PageIdContaining(t.proxy);
+        Span* span = Static::pagemap().GetDescriptor(p);
+        if (span == nullptr) {
+          // Avoid crashes in production mode code, but report in tests.
+          ASSERT(span != nullptr);
+          return;
+        }
+
+        const double frag = span->Fragmentation();
+        if (frag > 0) {
+          profile->AddTrace(frag, t);
+        }
+      });
   return profile;
 }
 
@@ -768,9 +770,11 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   auto profile = absl::make_unique<StackTraceTable>(
       ProfileType::kHeap, Sampler::GetSamplePeriod(), true, true);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  for (Span* s : Static::sampled_objects_) {
-    profile->AddTrace(1.0, *s->sampled_stack());
-  }
+  Static::sampled_allocation_recorder().Iterate(
+      [&profile](const SampledAllocation& sampled_allocation) {
+        pageheap_lock.AssertHeld();
+        profile->AddTrace(1.0, sampled_allocation.sampled_stack);
+      });
   return profile;
 }
 
@@ -1606,13 +1610,12 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    // Allocate stack trace.
-    StackTrace* stack = Static::stacktrace_allocator().New();
     allocation_samples_.ReportMalloc(tmp);
-    *stack = tmp;
-    span->Sample(stack);
   }
 
+  SampledAllocation* sampled_allocation =
+      Static::sampled_allocation_recorder().Register(tmp);
+  span->Sample(sampled_allocation);
   Static::peak_heap_tracker().MaybeSaveSample();
 
   if (obj != nullptr) {
@@ -1712,30 +1715,47 @@ static void do_free_pages(void* ptr, const PageId p) {
   void* proxy = nullptr;
   size_t weight;
   size_t requested_size, allocated_size;
-  bool notify_sampled_alloc = false;
 
   Span* span = Static::pagemap().GetExistingDescriptor(p);
   ASSERT(span != nullptr);
   // Prefetch now to avoid a stall accessing *span while under the lock.
   span->Prefetch();
+
+  if (SampledAllocation* sampled_allocation = span->Unsample()) {
+    proxy = sampled_allocation->sampled_stack.proxy;
+    weight = sampled_allocation->sampled_stack.weight;
+    requested_size = sampled_allocation->sampled_stack.requested_size;
+    allocated_size = sampled_allocation->sampled_stack.allocated_size;
+    if (proxy == nullptr && allocated_size <= kMaxSize) {
+      tracking::Report(
+          kFreeMiss,
+          Static::sizemap().SizeClass(CppPolicy().InSameNumaPartitionAs(ptr),
+                                      allocated_size),
+          1);
+    }
+    Static::sampled_allocation_recorder().Unregister(sampled_allocation);
+
+    // Adjust our estimate of internal fragmentation.
+    ASSERT(requested_size <= allocated_size);
+    if (requested_size < allocated_size) {
+      // How many allocations does this sample represent, given the sampling
+      // frequency (weight) and its size.
+      const double allocation_estimate =
+          static_cast<double>(weight) / (requested_size + 1);
+      const size_t sampled_fragmentation =
+          allocation_estimate * (allocated_size - requested_size);
+
+      const size_t previous = sampled_internal_fragmentation.fetch_sub(
+          sampled_fragmentation, std::memory_order_relaxed);
+      // Check against wraparound
+      ASSERT(previous >= sampled_fragmentation);
+      (void)previous;
+    }
+  }
+
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     ASSERT(span->first_page() == p);
-    if (StackTrace* st = span->Unsample()) {
-      proxy = st->proxy;
-      weight = st->weight;
-      requested_size = st->requested_size;
-      allocated_size = st->allocated_size;
-      if (proxy == nullptr && allocated_size <= kMaxSize) {
-        tracking::Report(
-            kFreeMiss,
-            Static::sizemap().SizeClass(CppPolicy().InSameNumaPartitionAs(ptr),
-                                        allocated_size),
-            1);
-      }
-      notify_sampled_alloc = true;
-      Static::stacktrace_allocator().Delete(st);
-    }
     if (IsSampledMemory(ptr)) {
       if (Static::guardedpage_allocator().PointerIsMine(ptr)) {
         // Release lock while calling Deallocate() since it does a system call.
@@ -1756,25 +1776,6 @@ static void do_free_pages(void* ptr, const PageId p) {
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
       Static::page_allocator().Delete(span, MemoryTag::kNormal);
-    }
-  }
-
-  if (notify_sampled_alloc) {
-    // Adjust our estimate of internal fragmentation.
-    ASSERT(requested_size <= allocated_size);
-    if (requested_size < allocated_size) {
-      // How many allocations does this sample represent, given the sampling
-      // frequency (weight) and its size.
-      const double allocation_estimate =
-          static_cast<double>(weight) / (requested_size + 1);
-      const size_t sampled_fragmentation =
-          allocation_estimate * (allocated_size - requested_size);
-
-      const size_t previous = sampled_internal_fragmentation.fetch_sub(
-          sampled_fragmentation, std::memory_order_relaxed);
-      // Check against wraparound
-      ASSERT(previous >= sampled_fragmentation);
-      (void)previous;
     }
   }
 
@@ -1935,7 +1936,7 @@ inline size_t GetSize(const void* ptr) {
       if (Static::guardedpage_allocator().PointerIsMine(ptr)) {
         return Static::guardedpage_allocator().GetRequestedSize(ptr);
       }
-      return span->sampled_stack()->allocated_size;
+      return span->sampled_allocation()->sampled_stack.allocated_size;
     } else {
       return span->bytes_in_span();
     }

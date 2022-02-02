@@ -18,6 +18,7 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/memory/memory.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/parameters.h"
@@ -60,16 +61,17 @@ void PeakHeapTracker::MaybeSaveSample() {
   }
 
   next = nullptr;
-  for (Span* s : Static::sampled_objects_) {
-    t = Static::stacktrace_allocator().New();
-
-    *t = *s->sampled_stack();
-    if (t->depth == kMaxStackDepth) {
-      t->depth = kMaxStackDepth - 1;
-    }
-    t->stack[kMaxStackDepth - 1] = reinterpret_cast<void*>(next);
-    next = t;
-  }
+  Static::sampled_allocation_recorder().Iterate(
+      [&t, &next](const SampledAllocation& sampled_allocation) {
+        pageheap_lock.AssertHeld();
+        t = Static::stacktrace_allocator().New();
+        *t = sampled_allocation.sampled_stack;
+        if (t->depth == kMaxStackDepth) {
+          t->depth = kMaxStackDepth - 1;
+        }
+        t->stack[kMaxStackDepth - 1] = reinterpret_cast<void*>(next);
+        next = t;
+      });
   peak_sampled_span_stacks_ = t;
 }
 
