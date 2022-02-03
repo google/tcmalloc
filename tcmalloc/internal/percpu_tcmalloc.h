@@ -1185,7 +1185,8 @@ void TcmallocSlab<NumClasses>::Init(
   size_t bytes_used = 0;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
-    void** elems = CpuMemoryStart(slabs, shift, cpu)->mem;
+    Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
+    void** elems = curr_slab->mem;
 
     for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
       size_t cap = capacity(size_class);
@@ -1196,13 +1197,16 @@ void TcmallocSlab<NumClasses>::Init(
       }
 
       // One extra element for prefetch
-      bytes_used += (cap + 1) * sizeof(void*);
+      const size_t num_pointers = cap + 1;
+      bytes_used += num_pointers * sizeof(void*);
 
-      elems += cap;
-      CHECK_CONDITION(
-          reinterpret_cast<char*>(elems) -
-              reinterpret_cast<char*>(CpuMemoryStart(slabs, shift, cpu)) <=
-          (1 << ToUint8(shift)));
+      elems += num_pointers;
+      const size_t bytes_used_on_curr_slab =
+          reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
+      if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
+        Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+              1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
+      }
     }
   }
   // Check for less than 90% usage of the reserved memory
@@ -1236,7 +1240,8 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 
   // Phase 3: Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
-  void** elems = CpuMemoryStart(slabs, shift, cpu)->mem;
+  Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
+  void** elems = curr_slab->mem;
   uint16_t begin[NumClasses];
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     size_t cap = capacity(size_class);
@@ -1246,21 +1251,22 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
       // In Pop() we prefetch the item a subsequent Pop() would return; this is
       // slow if it's not a valid pointer. To avoid this problem when popping
       // the last item, keep one fake item before the actual ones (that points,
-      // safely, to itself.)
+      // safely, to itself).
       *elems = elems;
-      elems++;
+      ++elems;
     }
 
-    size_t offset =
-        elems - reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu));
+    size_t offset = elems - reinterpret_cast<void**>(curr_slab);
     CHECK_CONDITION(static_cast<uint16_t>(offset) == offset);
     begin[size_class] = offset;
 
     elems += cap;
-    CHECK_CONDITION(
-        reinterpret_cast<char*>(elems) -
-            reinterpret_cast<char*>(CpuMemoryStart(slabs, shift, cpu)) <=
-        (1 << ToUint8(shift)));
+    const size_t bytes_used_on_curr_slab =
+        reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
+    if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
+      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+            1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
+    }
   }
 
   // Phase 4: Store current.  No restartable sequence will proceed

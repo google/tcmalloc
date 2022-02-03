@@ -543,6 +543,27 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t size_class) const {
   return kLargeObjectDepth;
 }
 
+inline void ValidateEnoughSlabBytes(uint16_t* max_capacities, uint8_t shift) {
+  const size_t kBytesAvailable = 1 << shift;
+  size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
+
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    // Each non-empty size class region in the slab is preceded by one padding
+    // pointer that points to itself. (We do this because prefetches of invalid
+    // pointers are slow.)
+    size_t num_pointers = max_capacities[size_class];
+    if (num_pointers > 0) ++num_pointers;
+    bytes_required += sizeof(void*) * num_pointers;
+  }
+
+  // As we may make certain size classes no-ops by selecting "0" at runtime,
+  // using a compile-time calculation overestimates the worst-case memory usage.
+  if (ABSL_PREDICT_FALSE(bytes_required > kBytesAvailable)) {
+    Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+          kBytesAvailable, " need ", bytes_required);
+  }
+}
+
 template <class Forwarder>
 inline void CPUCache<Forwarder>::Activate() {
   int num_cpus = absl::base_internal::NumCPUs();
@@ -553,9 +574,6 @@ inline void CPUCache<Forwarder>::Activate() {
     per_cpu_shift += absl::bit_ceil(topology.active_partitions() - 1);
   }
 
-  const size_t kBytesAvailable = (1 << per_cpu_shift);
-  size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
-
   // Deal with size classes that correspond only to NUMA partitions that are in
   // use. If NUMA awareness is disabled then we may have a smaller shift than
   // would suffice for all of the unused size classes.
@@ -564,7 +582,6 @@ inline void CPUCache<Forwarder>::Activate() {
        ++size_class) {
     const uint16_t mc = MaxCapacity(size_class);
     max_capacity_[size_class] = mc;
-    bytes_required += sizeof(void*) * mc;
   }
 
   // Deal with expanded size classes.
@@ -572,15 +589,9 @@ inline void CPUCache<Forwarder>::Activate() {
        ++size_class) {
     const uint16_t mc = MaxCapacity(size_class);
     max_capacity_[size_class] = mc;
-    bytes_required += sizeof(void*) * mc;
   }
 
-  // As we may make certain size classes no-ops by selecting "0" at runtime,
-  // using a compile-time calculation overestimates the worst-case memory usage.
-  if (ABSL_PREDICT_FALSE(bytes_required > kBytesAvailable)) {
-    Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-          kBytesAvailable, " need ", bytes_required);
-  }
+  ValidateEnoughSlabBytes(max_capacity_, per_cpu_shift);
 
   resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
