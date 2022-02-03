@@ -846,6 +846,10 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
   GTEST_SKIP() << "--gc-sections cannot be inhibited on this compiler.";
 #endif
 
+#if !TCMALLOC_PERCPU_USE_RSEQ
+  GTEST_SKIP() << "rseq is not enabled in this build.";
+#endif
+
   // We expect that restartable sequence critical sections (rseq_cs) are in the
   // __rseq_cs section (by convention, not hard requirement).  Additionally, for
   // each entry in that section, there should be a pointer to it in
