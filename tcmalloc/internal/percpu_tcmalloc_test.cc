@@ -228,6 +228,9 @@ TEST_F(TcmallocSlabTest, Metadata) {
   // A single core may be less than the full slab for that core, since we do
   // not touch every page within the slab.
   EXPECT_GE(expected, r.resident_size);
+  // We expect to have touched at least one page, so resident size should be a
+  // non-zero number of bytes.
+  EXPECT_GT(r.resident_size, 0);
 
   // Read stats from the slab.  This will fault additional memory.
   for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; ++cpu) {
