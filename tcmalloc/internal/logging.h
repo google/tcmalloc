@@ -132,7 +132,8 @@ class LogItem {
 
 extern void Log(LogMode mode, const char* filename, int line, LogItem a,
                 LogItem b = LogItem(), LogItem c = LogItem(),
-                LogItem d = LogItem());
+                LogItem d = LogItem(), LogItem e = LogItem(),
+                LogItem f = LogItem());
 
 enum CrashMode {
   kCrash,          // Print the message and crash
@@ -141,7 +142,8 @@ enum CrashMode {
 
 ABSL_ATTRIBUTE_NORETURN
 void Crash(CrashMode mode, const char* filename, int line, LogItem a,
-           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem());
+           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem(),
+           LogItem e = LogItem(), LogItem f = LogItem());
 
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);

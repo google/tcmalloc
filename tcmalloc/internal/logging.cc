@@ -65,7 +65,8 @@ class Logger {
 };
 
 static Logger FormatLog(bool with_stack, const char* filename, int line,
-                        LogItem a, LogItem b, LogItem c, LogItem d) {
+                        LogItem a, LogItem b, LogItem c, LogItem d, LogItem e,
+                        LogItem f) {
   Logger state;
   state.p_ = state.buf_;
   state.end_ = state.buf_ + sizeof(state.buf_);
@@ -77,7 +78,9 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
       state.Add(a) &&
       state.Add(b) &&
       state.Add(c) &&
-      state.Add(d);
+      state.Add(d) &&
+      state.Add(e) &&
+      state.Add(f);
   // clang-format on
 
   if (with_stack) {
@@ -101,16 +104,17 @@ static Logger FormatLog(bool with_stack, const char* filename, int line,
 
 ABSL_ATTRIBUTE_NOINLINE
 void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
-         LogItem c, LogItem d) {
-  Logger state = FormatLog(mode == kLogWithStack, filename, line, a, b, c, d);
+         LogItem c, LogItem d, LogItem e, LogItem f) {
+  Logger state =
+      FormatLog(mode == kLogWithStack, filename, line, a, b, c, d, e, f);
   int msglen = state.p_ - state.buf_;
   (*log_message_writer)(state.buf_, msglen);
 }
 
 ABSL_ATTRIBUTE_NOINLINE
 void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
-           LogItem c, LogItem d) {
-  Logger state = FormatLog(true, filename, line, a, b, c, d);
+           LogItem c, LogItem d, LogItem e, LogItem f) {
+  Logger state = FormatLog(true, filename, line, a, b, c, d, e, f);
 
   int msglen = state.p_ - state.buf_;
 

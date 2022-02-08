@@ -106,6 +106,9 @@ TEST(InternalLogging, MessageFormatting) {
       reinterpret_cast<const void*>(static_cast<uintptr_t>(1025)));
   EXPECT_EQ("foo.cc:2] 0x401", *log_buffer);
 
+  Log(kLog, "foo.cc", 100, 1, 2, 3, 4, 5, 6);
+  EXPECT_EQ("foo.cc:100] 1 2 3 4 5 6", *log_buffer);
+
   Log(kLog, "foo.cc", 10, "hello", long_string.c_str());
   EXPECT_THAT(*log_buffer,
               testing::StartsWith(
@@ -131,6 +134,11 @@ TEST(InternalLogging, Assert) {
   ASSERT_DEATH(CHECK_CONDITION((2 + 2) == 5),
                ".*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
                "\\(2 \\+ 2\\) == 5 @( 0x[0-9a-f]+)+");
+}
+
+TEST(InternalLogging, Crash) {
+  EXPECT_DEATH(Crash(kCrash, "foo.cc", 100, "a", "b", "c", "d", "e", "f"),
+               "foo.cc:100] a b c d e f");
 }
 
 TEST(Printer, RequiredSpace) {
