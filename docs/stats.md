@@ -41,7 +41,7 @@ MALLOC: =  12942756418 (12343.2 MiB) Virtual address space used
     the OS minus any bytes that are held in caches and other internal data
     structures.
 *   **Bytes in page heap freelist:** The pageheap is a structure that holds
-    memory ready for TCMalloc to use it. This memory is not actively being used,
+    memory ready for TCMalloc to use. This memory is not actively being used,
     and could be returned to the OS. [See TCMalloc tuning](tuning.md)
 *   **Bytes in central cache freelist:** This is the amount of memory currently
     held in the central freelist. This is a structure that holds partially used
@@ -52,15 +52,15 @@ MALLOC: =  12942756418 (12343.2 MiB) Virtual address space used
     each CPU holds some memory ready to quickly hand to the application. The
     maximum size of this per-cpu cache is tunable.
     [See TCMalloc tuning](tuning.md)
-*   **Bytes in transfer cache freelist:** The transfer cache is can be
-    considered another part of the central freelist. It holds memory that is
-    ready to be provided to the application for use.
+*   **Bytes in transfer cache freelist:** The transfer cache can be considered
+    another part of the central freelist. It holds memory that is ready to be
+    provided to the application for use.
 *   **Bytes in thread cache freelists:** The TC in TCMalloc stands for thread
     cache. Originally each thread held its own cache of memory to provide to the
-    application. Since the change of default the thread caches are used by very
-    few applications. However, TCMalloc starts in per-thread mode, so there may
-    be some memory left in per-thread caches from before it switches into
-    per-cpu mode.
+    application. Since the change of default to per-cpu caches, the thread
+    caches are used by very few applications. However, TCMalloc starts in
+    per-thread mode, so there may be some memory left in per-thread caches from
+    before it switches into per-cpu mode.
 *   **Bytes in malloc metadata:** the size of the data structures used for
     tracking memory allocation. This will grow as the amount of memory used
     grows.
@@ -119,7 +119,7 @@ MALLOC:        4067336 (    3.9 MiB) Pagemap root resident bytes
 *   **Table buckets:** These hold data for stack traces for sampled events.
 *   **Pagemap:** This data structure supports the mapping of object addresses to
     information about the objects held on the page. The pagemap root is a
-    potentially large array, and it is useful to know how much is actually
+    potentially large array, and it is useful to know how much of it is actually
     memory resident.
 
 ### Page Sizes
@@ -135,15 +135,15 @@ to be able to disambiguate them.
     TCMalloc. Objects on the same page are the same number of bytes in size.
     Internally TCMalloc manages memory in chunks of this size. TCMalloc supports
     4 sizes: 4KiB (small but slow), 8KiB (the default), 32 KiB (large), 256 KiB
-    (256 KiB pages). There's trade-offs around the page sizes:
+    (256 KiB pages). There are trade-offs around the page sizes:
     *   Smaller page sizes are more memory efficient because we have less
         fragmentation (ie left over space) when trying to provide the requested
         amount of memory using 4KiB chunks. It's also more likely that all the
         objects on a 4KiB page will be freed allowing the page to be returned
         and used for a different size of data.
     *   Larger pages result in fewer fetches from the page heap to provide a
-        given amount of memory. They also keep memory of the same size in closer
-        proximity.
+        given amount of memory. They also keep allocated objects of the same
+        size in closer proximity.
 *   **TCMalloc hugepage size:** This is the size of a hugepage on the system,
     for x86 this is 2MiB. This size is used as a unit of management by
     temeriare, but not used by the pre-temeraire pageheap.
@@ -190,7 +190,6 @@ sizes. There are various caches in TCMalloc where memory gets held, and the per
 size-class section reports how much memory is being used by cached objects of
 each size. The columns reported for each size-class are:
 
-*   The size
 *   The size of each object in that size-class.
 *   The number of objects of that size currently held in the per-cpu,
     per-thread, transfer, and central caches.
@@ -541,8 +540,9 @@ of continuous pages:
 ### Per Component Information
 
 The Huge Page Aware Allocator has multiple places where pages of memory are
-held. More details of its workings can be found in this document. There are four
-caches where pages of memory can be located:
+held. More details of its workings can be found in
+[the Temeraire design doc](temeraire.md). There are four caches where pages of
+memory can be located:
 
 *   The filler, used for allocating ranges of a few TCMalloc pages in size.
 *   The region cache, used for allocating ranges of multiple pages.
