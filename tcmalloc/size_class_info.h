@@ -13,8 +13,8 @@
 // limitations under the License.
 //
 // Specification of Size classes
-#ifndef TCMALLOC_size_class_info_H_
-#define TCMALLOC_size_class_info_H_
+#ifndef TCMALLOC_SIZE_CLASS_INFO_H_
+#define TCMALLOC_SIZE_CLASS_INFO_H_
 
 #include <stddef.h>
 
@@ -76,4 +76,4 @@ struct SizeClassInfo {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_size_class_info_H_
+#endif  // TCMALLOC_SIZE_CLASS_INFO_H_
