@@ -393,7 +393,7 @@ TEST_P(HugeAllocatorTest, Stats) {
   // TCMalloc's internal use of absl::base_internal::CycleClock down through
   // computing the average age of the spans.  kEpsilon allows for a tiny amount
   // of slop.
-  constexpr absl::Duration kEpsilon = absl::Microseconds(200);
+  constexpr absl::Duration kEpsilon = absl::Microseconds(500);
   EXPECT_LE(kDelay - kEpsilon, avg_age);
 
   allocator_.Release(r2);
