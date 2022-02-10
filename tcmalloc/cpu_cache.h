@@ -176,6 +176,9 @@ class CPUCache {
   // Reports number of times the <cpu> has been reclaimed.
   uint64_t GetNumReclaims(int cpu) const;
 
+  // Reports total number of times any CPU has been reclaimed.
+  uint64_t GetNumReclaims() const;
+
   // Determine number of bits we should use for allocating per-cpu cache
   // The amount of per-cpu cache is 2 ^ kPerCpuShift
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
@@ -185,12 +188,21 @@ class CPUCache {
 #endif
 
   struct CpuCacheMissStats {
-    size_t underflows;
-    size_t overflows;
+    size_t underflows = 0;
+    size_t overflows = 0;
+
+    CpuCacheMissStats& operator+=(const CpuCacheMissStats rhs) {
+      underflows += rhs.underflows;
+      overflows += rhs.overflows;
+      return *this;
+    }
   };
 
   // Reports total cache underflows and overflows for <cpu>.
   CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
+
+  // Reports total cache underflows and overflows for all CPUs.
+  CpuCacheMissStats GetTotalCacheMissStats() const;
 
   // We track the number of overflows/underflows for each of these cases.
   enum class MissCount {
@@ -1357,6 +1369,15 @@ inline uint64_t CPUCache<Forwarder>::GetNumReclaims(int cpu) const {
 }
 
 template <class Forwarder>
+inline uint64_t CPUCache<Forwarder>::GetNumReclaims() const {
+  uint64_t reclaims = 0;
+  const int num_cpus = absl::base_internal::NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu)
+    reclaims += resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
+  return reclaims;
+}
+
+template <class Forwarder>
 inline void CPUCache<Forwarder>::RecordCacheMissStat(const int cpu,
                                                      const bool is_malloc) {
   MissCounts& misses =
@@ -1372,6 +1393,15 @@ CPUCache<Forwarder>::GetTotalCacheMissStats(int cpu) const {
       std::memory_order_relaxed);
   stats.overflows =
       resize_[cpu].overflows[MissCount::kTotal].load(std::memory_order_relaxed);
+  return stats;
+}
+
+template <class Forwarder>
+inline typename CPUCache<Forwarder>::CpuCacheMissStats
+CPUCache<Forwarder>::GetTotalCacheMissStats() const {
+  CpuCacheMissStats stats;
+  const int num_cpus = absl::base_internal::NumCPUs();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) stats += GetTotalCacheMissStats(cpu);
   return stats;
 }
 
@@ -1492,19 +1522,24 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
   }
 
   out->printf("------------------------------------------------\n");
-  out->printf("Number of per-CPU cache underflows, overflows and reclaims\n");
+  out->printf("Number of per-CPU cache underflows, overflows, and reclaims\n");
   out->printf("------------------------------------------------\n");
+  const auto print_miss_stats = [out](CpuCacheMissStats miss_stats,
+                                      uint64_t reclaims) {
+    out->printf("%12" PRIu64
+                " underflows,"
+                "%12" PRIu64
+                " overflows, overflows / underflows: %5.2f, "
+                "%12" PRIu64 " reclaims\n",
+                miss_stats.underflows, miss_stats.overflows,
+                safe_div(miss_stats.overflows, miss_stats.underflows),
+                reclaims);
+  };
+  out->printf("Total  :");
+  print_miss_stats(GetTotalCacheMissStats(), GetNumReclaims());
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
-    uint64_t reclaims = GetNumReclaims(cpu);
-    out->printf(
-        "cpu %3d:"
-        "%12" PRIu64
-        " underflows,"
-        "%12" PRIu64
-        " overflows,"
-        "%12" PRIu64 " reclaims\n",
-        cpu, miss_stats.underflows, miss_stats.overflows, reclaims);
+    out->printf("cpu %3d:", cpu);
+    print_miss_stats(GetTotalCacheMissStats(cpu), GetNumReclaims(cpu));
   }
 }
 

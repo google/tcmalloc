@@ -578,6 +578,15 @@ class SizeMap {
 // Linker initialized, so this lock can be accessed at any time.
 extern absl::base_internal::SpinLock pageheap_lock;
 
+// Evaluates a/b, avoiding division by zero.
+inline double safe_div(double a, double b) {
+  if (b == 0) {
+    return 0.;
+  } else {
+    return a / b;
+  }
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

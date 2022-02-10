@@ -16,6 +16,7 @@
 
 #include <sys/mman.h>
 
+#include <iostream>
 #include <new>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
@@ -902,6 +903,13 @@ TEST(CpuCacheTest, Fuzz) {
 
   EXPECT_EQ(allocated + unallocated, capacity);
   EXPECT_EQ(env.num_cpus() * env.cache().CacheLimit(), capacity);
+
+  // Log mallocz content for manual inspection.
+  std::string mallocz;
+  mallocz.resize(128 << 10);
+  Printer p(mallocz.data(), mallocz.size());
+  env.cache().Print(&p);
+  std::cout << mallocz;
 }
 
 }  // namespace

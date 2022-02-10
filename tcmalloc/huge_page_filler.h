@@ -443,15 +443,7 @@ class FillerStatsTracker {
   absl::Duration last_peak_interval_;
 };
 
-// Evaluate a/b, avoiding division by zero
-inline double safe_div(double a, double b) {
-  if (b == 0) {
-    return 0.;
-  } else {
-    return a / b;
-  }
-}
-
+// Evaluates a/b, avoiding division by zero.
 inline double safe_div(Length a, Length b) {
   return safe_div(a.raw_num(), b.raw_num());
 }

@@ -346,6 +346,33 @@ class   4 [       32 bytes ] :      0 (minimum),  100.0 (average),   542 (maximu
 class   5 [       40 bytes ] :      0 (minimum),   80.6 (average),   467 (maximum),  2048 maximum allowed capacity
 ```
 
+### Number of per-CPU cache underflows, overflows, and reclaims
+
+We also keep track of cache miss counts. Underflows are when the user allocates
+and the cache does not have any pointers to return. Overflows are when the user
+deallocates and the cache is full. The ratio of overflows to underflows gives a
+rough indication of whether the cache is large enough. If the cache had infinite
+capacity, then we would expect to have 0 overflows whereas if the cache had 0
+capacity, we would expect to see roughly equal numbers of overflows and
+underflows. Therefore, if the ratio is close to 1.0, then the cache may not be
+large enough. Reclaims are when we empty out a cache for a specific CPU because
+it has been idle for a period of time. In this section, we report the total
+numbers of each of these metrics across all CPUs as well as the numbers for each
+individual CPU.
+
+```
+------------------------------------------------
+Number of per-CPU cache underflows, overflows, and reclaims
+------------------------------------------------
+Total  :         242 underflows,          12 overflows, overflows / underflows:  0.05,          168 reclaims
+cpu   0:          69 underflows,           5 overflows, overflows / underflows:  0.07,           46 reclaims
+cpu   1:          58 underflows,           0 overflows, overflows / underflows:  0.00,           42 reclaims
+cpu   2:          62 underflows,           7 overflows, overflows / underflows:  0.11,           42 reclaims
+cpu   3:          40 underflows,           0 overflows, overflows / underflows:  0.00,           27 reclaims
+cpu   4:          13 underflows,           0 overflows, overflows / underflows:  0.00,           11 reclaims
+cpu   5:           0 underflows,           0 overflows, overflows / underflows:  0.00,            0 reclaims
+```
+
 ### Pageheap Information
 
 The pageheap holds pages of memory that are not currently being used either by
