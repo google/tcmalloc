@@ -36,11 +36,10 @@ class StackTraceTable final : public ProfileBase {
   // together.  Else they are kept distinct.
   // If unsample is true, Iterate() will scale counts to report estimates
   // of the true total assuming traces were added by the sampler.
-  // REQUIRES: L < pageheap_lock
-  StackTraceTable(ProfileType type, int64_t period, bool merge, bool unsample);
+  StackTraceTable(ProfileType type, int64_t period, bool merge, bool unsample)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  // REQUIRES: L < pageheap_lock
-  ~StackTraceTable() override;
+  ~StackTraceTable() override ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // base::Profile methods.
   void Iterate(
