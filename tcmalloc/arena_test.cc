@@ -44,6 +44,7 @@ TEST(Arena, Stats) {
   EXPECT_EQ(stats.bytes_allocated, 0);
   EXPECT_EQ(stats.bytes_unallocated, 0);
   EXPECT_EQ(stats.bytes_unavailable, 0);
+  EXPECT_EQ(stats.bytes_nonresident, 0);
   EXPECT_EQ(stats.blocks, 0);
 
   // Trigger an allocation and grab new stats.
@@ -59,6 +60,7 @@ TEST(Arena, Stats) {
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 1);
   EXPECT_GE(stats_after_alloc.bytes_unallocated, 0);
   EXPECT_EQ(stats_after_alloc.bytes_unavailable, 0);
+  EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
   EXPECT_EQ(stats_after_alloc.blocks, 1);
 
   // Trigger an allocation that is larger than the remaining free bytes.
@@ -77,7 +79,32 @@ TEST(Arena, Stats) {
   EXPECT_GE(stats_after_alloc2.bytes_unallocated, 0);
   EXPECT_EQ(stats_after_alloc2.bytes_unavailable,
             stats_after_alloc.bytes_unallocated);
+  EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
   EXPECT_EQ(stats_after_alloc2.blocks, 2);
+}
+
+TEST(Arena, ReportUnmapped) {
+  Arena arena;
+  ArenaStats stats_after_alloc;
+  void* ptr;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    ptr = arena.Alloc(10, 1);
+    stats_after_alloc = arena.stats();
+  }
+  EXPECT_NE(ptr, nullptr);
+
+  EXPECT_EQ(stats_after_alloc.bytes_allocated, 10);
+  EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
+
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    arena.ReportNonresident(5);
+    stats_after_alloc = arena.stats();
+  }
+
+  EXPECT_EQ(stats_after_alloc.bytes_allocated, 5);
+  EXPECT_EQ(stats_after_alloc.bytes_nonresident, 5);
 }
 
 }  // namespace

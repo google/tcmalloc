@@ -353,6 +353,7 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unallocated\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unavailable\n"
+      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena non-resident\n"
 
       "MALLOC:   ------------\n"
       "MALLOC: = %12" PRIu64 " (%7.1f MiB) Actual memory used (physical + swap)\n"
@@ -386,6 +387,7 @@ static void DumpStats(Printer* out, int level) {
       stats.metadata_bytes, stats.metadata_bytes / MiB,
       stats.arena.bytes_unallocated, stats.arena.bytes_unallocated / MiB,
       stats.arena.bytes_unavailable, stats.arena.bytes_unavailable / MiB,
+      stats.arena.bytes_nonresident, stats.arena.bytes_nonresident / MiB,
       physical_memory_used, physical_memory_used / MiB,
       stats.pageheap.unmapped_bytes, stats.pageheap.unmapped_bytes / MiB,
       virtual_memory_used, virtual_memory_used / MiB,

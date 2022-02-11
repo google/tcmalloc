@@ -27,13 +27,17 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 struct ArenaStats {
-  // The number of bytes allocated and in-use by calls to Alloc()
+  // The number of bytes allocated and in-use by calls to Alloc().
   size_t bytes_allocated;
   // The number of bytes currently reserved for future calls to Alloc().
   size_t bytes_unallocated;
   // The number of bytes lost and unavailable to calls to Alloc() due to
   // inefficiencies in Arena.
   size_t bytes_unavailable;
+  // The number of allocated bytes that have subsequently become non-resident,
+  // e.g. due to the slab being resized. Note that these bytes are disjoint from
+  // the ones counted in `bytes_allocated`.
+  size_t bytes_nonresident;
 
   // The number of blocks allocated by the Arena.
   size_t blocks;
@@ -43,14 +47,21 @@ struct ArenaStats {
 // spans, profiles, etc.  Always expands.
 class Arena {
  public:
-  constexpr Arena()
-      : free_area_(nullptr), free_avail_(0), bytes_allocated_(0) {}
+  constexpr Arena() {}
 
-  // Return a properly aligned byte array of length "bytes".  Crashes if
+  // Returns a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.
   ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(size_t bytes,
                                              int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  // Reports that bytes previously in use by the arena have become non-resident.
+  void ReportNonresident(size_t bytes)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    ASSERT(bytes_allocated_ >= bytes);
+    bytes_allocated_ -= bytes;
+    bytes_nonresident_ += bytes;
+  }
 
   // Returns statistics about memory allocated and managed by this Arena.
   ArenaStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
@@ -58,6 +69,7 @@ class Arena {
     s.bytes_allocated = bytes_allocated_;
     s.bytes_unallocated = free_avail_;
     s.bytes_unavailable = bytes_unavailable_;
+    s.bytes_nonresident = bytes_nonresident_;
     s.blocks = blocks_;
     return s;
   }
@@ -67,12 +79,13 @@ class Arena {
   static constexpr int kAllocIncrement = 128 << 10;
 
   // Free area from which to carve new objects
-  char* free_area_ ABSL_GUARDED_BY(pageheap_lock);
-  size_t free_avail_ ABSL_GUARDED_BY(pageheap_lock);
+  char* free_area_ ABSL_GUARDED_BY(pageheap_lock) = nullptr;
+  size_t free_avail_ ABSL_GUARDED_BY(pageheap_lock) = 0;
 
   // Total number of bytes allocated from this arena
-  size_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock);
+  size_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock) = 0;
   size_t bytes_unavailable_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  size_t bytes_nonresident_ ABSL_GUARDED_BY(pageheap_lock) = 0;
   // Total number of blocks/free areas managed by this Arena.
   size_t blocks_ ABSL_GUARDED_BY(pageheap_lock) = 0;
 
