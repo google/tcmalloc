@@ -267,11 +267,16 @@ static uint64_t InUseByApp(const TCMallocStats& stats) {
 
 static uint64_t VirtualMemoryUsed(const TCMallocStats& stats) {
   return stats.pageheap.system_bytes + stats.metadata_bytes +
-         stats.arena.bytes_unallocated + stats.arena.bytes_unavailable;
+         stats.arena.bytes_unallocated + stats.arena.bytes_unavailable +
+         stats.arena.bytes_nonresident;
+}
+
+static uint64_t UnmappedBytes(const TCMallocStats& stats) {
+  return stats.pageheap.unmapped_bytes + stats.arena.bytes_nonresident;
 }
 
 static uint64_t PhysicalMemoryUsed(const TCMallocStats& stats) {
-  return StatSub(VirtualMemoryUsed(stats), stats.pageheap.unmapped_bytes);
+  return StatSub(VirtualMemoryUsed(stats), UnmappedBytes(stats));
 }
 
 // The number of bytes either in use by the app or fragmented so that
@@ -334,6 +339,7 @@ static void DumpStats(Printer* out, int level) {
 
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
+  const uint64_t unmapped_bytes = UnmappedBytes(stats);
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
 
 #ifdef TCMALLOC_SMALL_BUT_SLOW
@@ -389,7 +395,7 @@ static void DumpStats(Printer* out, int level) {
       stats.arena.bytes_unavailable, stats.arena.bytes_unavailable / MiB,
       stats.arena.bytes_nonresident, stats.arena.bytes_nonresident / MiB,
       physical_memory_used, physical_memory_used / MiB,
-      stats.pageheap.unmapped_bytes, stats.pageheap.unmapped_bytes / MiB,
+      unmapped_bytes, unmapped_bytes / MiB,
       virtual_memory_used, virtual_memory_used / MiB,
       uint64_t(stats.span_stats.in_use),
       uint64_t(stats.span_stats.total),
@@ -554,6 +560,7 @@ namespace {
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);
+  const uint64_t unmapped_bytes = UnmappedBytes(stats);
 
   PbtxtRegion region(out, kTop);
   region.PrintI64("in_use_by_app", bytes_in_use_by_app);
@@ -570,7 +577,7 @@ namespace {
   region.PrintI64("malloc_metadata_arena_unallocated",
                   stats.arena.bytes_unallocated);
   region.PrintI64("actual_mem_used", physical_memory_used);
-  region.PrintI64("unmapped", stats.pageheap.unmapped_bytes);
+  region.PrintI64("unmapped", unmapped_bytes);
   region.PrintI64("virtual_address_space_used", virtual_memory_used);
   region.PrintI64("num_spans", uint64_t(stats.span_stats.in_use));
   region.PrintI64("num_spans_created", uint64_t(stats.span_stats.total));
