@@ -248,5 +248,25 @@ TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
   SetLimit(std::numeric_limits<size_t>::max(), false);
 }
 
+// Tests interactions between the lifetime-based allocator and memory limits.
+// Since memory limits are global for the entire test binary, we need to run
+// this against the main allocator instead of our own instance.
+TEST_F(LimitTest, LifetimeAllocatorPath) {
+  // Enable subrelease and cause the allocator to eagerly release all memory.
+  bool previous_subrelease = TCMalloc_Internal_GetHPAASubrelease();
+  TCMalloc_Internal_SetHPAASubrelease(true);
+  EXPECT_TRUE(TCMalloc_Internal_GetHPAASubrelease());
+  MallocExtension::SetMemoryLimit({.limit = 0, .hard = false});
+
+  // This will cause a donation that will be immediately subreleased because of
+  // the memory limit. This catches a problem in the allocation path where the
+  // allocator assumed that donated allocations will stay donated until the
+  // allocation has finished.
+  void* ptr = ::operator new(1544 * 1024);  // Slightly larger than 1.5 MiB
+  ::operator delete(ptr);
+
+  TCMalloc_Internal_SetHPAASubrelease(previous_subrelease);
+}
+
 }  // namespace
 }  // namespace tcmalloc

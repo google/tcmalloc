@@ -342,8 +342,14 @@ Span* HugePageAwareAllocator::AllocRawHugepagesAndMaybeTrackLifetime(
     HugePage hp = HugePageContaining(result->last_page());
     FillerType::Tracker* pt = GetTracker(hp);
     ASSERT(pt != nullptr);
-    ASSERT(pt->donated());
-    lifetime_allocator_.MaybeAddTracker(lifetime_alloc, pt->lifetime_tracker());
+
+    // The allocator may shrink the heap in response to allocations, which may
+    // cause the page to be subreleased and not donated anymore once we get
+    // here. If it still is, we attach a lifetime tracker (if enabled).
+    if (ABSL_PREDICT_TRUE(pt->donated())) {
+      lifetime_allocator_.MaybeAddTracker(lifetime_alloc,
+                                          pt->lifetime_tracker());
+    }
   }
 
   return result;
