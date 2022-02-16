@@ -22,11 +22,11 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
-#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/span.h"
@@ -45,6 +45,9 @@ bool decide_subrelease();
 class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
   explicit HugePageAwareAllocator(MemoryTag tag);
+  // For use in testing.
+  HugePageAwareAllocator(MemoryTag tag,
+                         LifetimePredictionOptions lifetime_options);
   ~HugePageAwareAllocator() override = default;
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
@@ -100,9 +103,36 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   const HugeCache* cache() const { return &cache_; }
 
+  LifetimeBasedAllocator& lifetime_based_allocator() {
+    return lifetime_allocator_;
+  }
+
  private:
   typedef HugePageFiller<PageTracker<SystemRelease>> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
+
+  class RegionAllocImpl final : public LifetimeBasedAllocator::RegionAlloc {
+   public:
+    explicit RegionAllocImpl(HugePageAwareAllocator* p) : p_(p) {}
+
+    // We need to explicitly instantiate the destructor here so that it gets
+    // placed within GOOGLE_MALLOC_SECTION.
+    ~RegionAllocImpl() override {}
+
+    HugeRegion* AllocRegion(HugeLength n, HugeRange* range) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      if (!range->valid()) {
+        *range = p_->alloc_.Get(n);
+      }
+      if (!range->valid()) return nullptr;
+      HugeRegion* region = p_->region_allocator_.New();
+      new (region) HugeRegion(*range, SystemRelease);
+      return region;
+    }
+
+   private:
+    HugePageAwareAllocator* p_;
+  };
 
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
   static void UnbackWithoutLock(void* start, size_t length)
@@ -133,6 +163,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // get stuck in the filler).
   HugeLength donated_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
+  // Performs lifetime predictions for large objects and places short-lived
+  // objects into a separate region to reduce filler contention.
+  RegionAllocImpl lifetime_allocator_region_alloc_;
+  LifetimeBasedAllocator lifetime_allocator_;
+
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -151,13 +186,21 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   Span* AllocSmall(Length n, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocLarge(Length n, bool* from_released)
+  Span* AllocLarge(Length n, bool* from_released,
+                   LifetimeStats* lifetime_context)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   Span* AllocEnormous(Length n, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   Span* AllocRawHugepages(Length n, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  // Allocates a span and adds a tracker. This span has to be associated with a
+  // filler donation and have an associated page tracker. A tracker will only be
+  // added if there is an associated lifetime prediction.
+  Span* AllocRawHugepagesAndMaybeTrackLifetime(
+      Length n, const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
+      bool* from_released) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 

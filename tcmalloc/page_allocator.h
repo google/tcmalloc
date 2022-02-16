@@ -98,6 +98,9 @@ class PageAllocator {
 
   Algorithm algorithm() const { return alg_; }
 
+  // Returns the main hugepage-aware heap, or nullptr if not using HPAA.
+  HugePageAwareAllocator* default_hpaa() const { return default_hpaa_; }
+
  private:
   bool ShrinkHardBy(Length pages) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -126,6 +129,8 @@ class PageAllocator {
   size_t limit_{std::numeric_limits<size_t>::max()};
   // The number of times the limit has been hit.
   int64_t limit_hits_{0};
+
+  HugePageAwareAllocator* default_hpaa_{nullptr};
 };
 
 inline PageAllocatorInterface* PageAllocator::impl(MemoryTag tag) const {

@@ -119,6 +119,9 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
 
+  friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
+      absl::string_view s);
+
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;

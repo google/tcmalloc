@@ -42,7 +42,7 @@ class LifetimeTrackerImpl {
 
     // Lifetime statistics associated with this allocation (will be updated when
     // the lifetime is known).
-    LifetimeStatsT* lifetime;
+    LifetimeStatsT* lifetime = nullptr;
 
     // The allocation this stat belongs to was predicted short-lived.
     bool predicted_short_lived = false;

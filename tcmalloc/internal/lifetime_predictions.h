@@ -51,7 +51,7 @@ class LifetimeStats : public TList<LifetimeStats>::Elem {
     }
   }
 
-  Prediction Predict(Certainty certainty) {
+  Prediction Predict(Certainty certainty) const {
     if (certainty == Certainty::kLowCertainty) {
       return (short_lived_ > long_lived_) ? Prediction::kShortLived
                                           : Prediction::kLongLived;

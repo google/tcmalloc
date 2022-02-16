@@ -96,16 +96,12 @@ LifetimePredictionOptions LifetimePredictionOptions::FromFlag(
 }
 
 LifetimeBasedAllocator::LifetimeBasedAllocator(
-    LifetimePredictionOptions lifetime_opts,
-    BackingMemoryAllocFunction alloc_backing_memory,
-    HugeRegionAllocFunction alloc_region, MemoryModifyFunction unback,
+    LifetimePredictionOptions lifetime_opts, RegionAlloc *region_alloc,
     Clock clock)
     : lifetime_opts_(lifetime_opts),
       lifetime_region_(lifetime_opts.counterfactual()),
       lifetime_tracker_(&lifetime_database_, lifetime_opts.threshold(), clock),
-      alloc_backing_memory_(alloc_backing_memory),
-      alloc_region_(alloc_region),
-      unback_(unback),
+      region_alloc_(region_alloc),
       is_active_(lifetime_opts.active()) {
   lifetime_stats_allocator_.Init(&Static::arena());
 }
@@ -120,10 +116,21 @@ LifetimeBasedAllocator::Stats LifetimeBasedAllocator::GetStats() const {
 
 bool LifetimeBasedAllocator::Enable(LifetimePredictionOptions options)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  // We disallow switching lifetime-based allocation off since there may already
+  // be lifetime-based allocations in flight.
   if (lifetime_opts_.active() && !options.active()) return false;
+
+  // We disallow changing the lifetime threshold since the tracker may already
+  // use it to track allocations that are in flight.
+  // TODO(mmaas): This could be relaxed at a later point.
+  if (lifetime_opts_.threshold() != options.threshold()) return false;
+
+  // We only allow switching between counterfactual and enabled mode before the
+  // first lifetime-based allocation.
   if (!lifetime_region_.SwitchCounterfactual(options.counterfactual())) {
     return false;
   }
+
   lifetime_opts_ = options;
   is_active_.store(options.active(), std::memory_order_release);
   return true;
@@ -186,7 +193,8 @@ void LifetimeBasedAllocator::PrintInPbtxt(PbtxtRegion *hpaa) const {
 
 bool LifetimeBasedAllocator::AddLifetimeRegion()
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  HugeRange range;
+  HugeRange range = HugeRange::Nil();
+  HugeRegion *region = nullptr;
   LifetimeBasedRegion::LifetimeMetaData *metadata = nullptr;
 
   if (lifetime_opts_.counterfactual()) {
@@ -195,35 +203,22 @@ bool LifetimeBasedAllocator::AddLifetimeRegion()
     // finalized, we can use the same class but apply it to an unbacked range.
     range = HugeRange::Make(lifetime_region_.NextRegionOffset(),
                             HugeRegion::size());
-  } else {
+  }
+
+  region = region_alloc_->AllocRegion(HugeRegion::size(), &range);
+  if (region == nullptr) {
+    return false;
+  }
+
+  if (!lifetime_opts_.counterfactual()) {
     // When lifetime-based allocations are enabled, run with an actual region.
-    range = alloc_backing_memory_(HugeRegion::size());
-    if (!range.valid()) return false;
     metadata = lifetime_stats_allocator_.New();
     new (metadata) typename LifetimeBasedRegion::LifetimeMetaData();
     metadata->location = range;
   }
 
-  HugeRegion *region = alloc_region_();
-  new (region) HugeRegion(range, unback_);
   lifetime_region_.Contribute(region, metadata);
   return true;
-}
-
-LifetimeBasedAllocator *LifetimeBasedAllocator::main_lifetime_based_allocator_ =
-    nullptr;
-
-void LifetimeBasedAllocator::RegisterMainLifetimeBasedAllocator(
-    LifetimeBasedAllocator *ptr) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  main_lifetime_based_allocator_ = ptr;
-}
-
-void LifetimeBasedAllocator::UpdateMainLifetimeBasedAllocatorOptionsFromFlag(
-    absl::string_view s) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  if (main_lifetime_based_allocator_ != nullptr) {
-    LifetimePredictionOptions opts = LifetimePredictionOptions::FromFlag(s);
-    main_lifetime_based_allocator_->Enable(opts);
-  }
 }
 
 }  // namespace tcmalloc_internal

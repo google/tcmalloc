@@ -18,6 +18,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
@@ -251,6 +252,17 @@ void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
     absl::Duration v) {
   tcmalloc::tcmalloc_internal::skip_subrelease_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetLifetimeAllocatorOptions(absl::string_view s) {
+  absl::base_internal::SpinLockHolder l(
+      &tcmalloc::tcmalloc_internal::pageheap_lock);
+  tcmalloc::tcmalloc_internal::HugePageAwareAllocator* hpaa =
+      Static::page_allocator().default_hpaa();
+  if (hpaa != nullptr) {
+    hpaa->lifetime_based_allocator().Enable(
+        tcmalloc::tcmalloc_internal::LifetimePredictionOptions::FromFlag(s));
+  }
 }
 
 }  // extern "C"

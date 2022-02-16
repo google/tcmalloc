@@ -93,6 +93,8 @@ class LifetimePredictionOptions {
 
   Mode mode() const { return mode_; }
 
+  bool error() const { return contains_parse_error_; }
+
   void Print(Printer *out) const;
 
   // Expects flag to have format "mode[;strategy][;threshold_in_ms]" with
@@ -152,11 +154,11 @@ class LifetimeBasedRegion {
 
   // Tries to allocate from the lifetime region. Fails if counterfactual or if
   // the maximum size of the lifetime region is reached.
-  bool MaybeGet(Length n, PageId *page, LifetimeTracker::Tracker **stats) {
+  bool MaybeGet(Length n, PageId *page, bool *from_released,
+                LifetimeTracker::Tracker **stats) {
     CHECK_CONDITION(n > kPagesPerHugePage / 2);
 
-    bool from_released;
-    if (!regions_.MaybeGet(n, page, &from_released)) {
+    if (!regions_.MaybeGet(n, page, from_released)) {
       return false;
     }
     ++stats_.allocations;
@@ -311,10 +313,22 @@ class LifetimeBasedAllocator {
     size_t database_evictions;
   };
 
+  // This interface needs to be implemented by the allocator that instantiates
+  // the lifetime-based allocator. Since these functions are called very rarely,
+  // the virtual function call overheads are acceptable.
+  class RegionAlloc {
+   public:
+    virtual ~RegionAlloc() = default;
+
+    // Allocates a new HugeRegion of size n. If `range` is valid, uses this
+    // range to back the region. Otherwise, allocates the appropriate amount
+    // of backing memory itself and writes the location of the allocated memory
+    // to the variable pointed to by `range`.
+    virtual HugeRegion *AllocRegion(HugeLength n, HugeRange *range) = 0;
+  };
+
   LifetimeBasedAllocator(
-      LifetimePredictionOptions lifetime_opts,
-      BackingMemoryAllocFunction alloc_backing_memory,
-      HugeRegionAllocFunction alloc_region, MemoryModifyFunction unback,
+      LifetimePredictionOptions lifetime_opts, RegionAlloc *region_allocator,
       Clock clock = {.now = absl::base_internal::CycleClock::Now,
                      .freq = absl::base_internal::CycleClock::Frequency});
 
@@ -347,7 +361,7 @@ class LifetimeBasedAllocator {
 
   // Predicts whether an object is likely short-lived. If so, tries to allocate
   // in the short-lived region (either counterfactually or real).
-  AllocationResult MaybeGet(Length n, LifetimeStats *stats)
+  AllocationResult MaybeGet(Length n, bool *from_released, LifetimeStats *stats)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     // There is a rare corner case where the lifetime stats were reused by
     // another thread between the time we allocated them and reacquiring the
@@ -372,13 +386,15 @@ class LifetimeBasedAllocator {
     // allocation there but not actually allocate backing memory).
     if (result.predicted_short_lived) {
       LifetimeTracker::Tracker *tracker;
-      bool region_allocated = lifetime_region_.MaybeGet(
-          n, &result.page_id, IsCounterfactual() ? nullptr : &tracker);
+      bool region_allocated =
+          lifetime_region_.MaybeGet(n, &result.page_id, from_released,
+                                    IsCounterfactual() ? nullptr : &tracker);
       if (!region_allocated) {
         // If unable to allocate from a lifetime region, try adding a new one.
         if (AddLifetimeRegion()) {
           region_allocated = lifetime_region_.MaybeGet(
-              n, &result.page_id, IsCounterfactual() ? nullptr : &tracker);
+              n, &result.page_id, from_released,
+              IsCounterfactual() ? nullptr : &tracker);
         }
       }
 
@@ -393,6 +409,9 @@ class LifetimeBasedAllocator {
           lifetime_tracker_.AddAllocation(tracker, tracker->lifetime,
                                           result.predicted_short_lived);
         }
+      } else {
+        // Fail gracefully by falling back on the regular allocator.
+        return AllocationResult{.allocated = false, .lifetime = nullptr};
       }
     }
 
@@ -420,6 +439,12 @@ class LifetimeBasedAllocator {
     CHECK_CONDITION(stats != nullptr);
     if (stats->counterfactual_ptr != nullptr) {
       lifetime_region_.MaybePut(PageIdContaining(stats->counterfactual_ptr), n);
+
+      // We need to set counterfactual_ptr to nullptr now since it is possible
+      // that we are looking at a donated hugepage that is not empty yet. If
+      // we do not update the counterfactual_ptr, we may try to release this
+      // counterfactual object a second time when the page becomes free.
+      stats->counterfactual_ptr = nullptr;
     }
     lifetime_tracker_.RemoveAllocation(stats);
   }
@@ -429,6 +454,7 @@ class LifetimeBasedAllocator {
     LifetimeTracker::Tracker *stats;
     if (lifetime_opts_.enabled() && lifetime_region_.MaybePut(p, n, &stats)) {
       ASSERT(stats != nullptr);
+      CHECK_CONDITION(stats->counterfactual_ptr == nullptr);
       lifetime_tracker_.RemoveAllocation(stats);
       return true;
     }
@@ -438,7 +464,7 @@ class LifetimeBasedAllocator {
   // If short-lived allocations are enabled, returns statistics of the short-
   // lived region (for mallocz reporting).
   absl::optional<BackingStats> GetRegionStats() const {
-    if (!IsActive() || !IsCounterfactual()) {
+    if (!IsActive() || IsCounterfactual()) {
       return absl::nullopt;
     } else {
       return lifetime_region_.backing_stats();
@@ -458,13 +484,6 @@ class LifetimeBasedAllocator {
 
   void PrintInPbtxt(PbtxtRegion *hpaa) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // The flag that controls the lifetime-based allocator can only configure the
-  // settings of one instance. This function sets this instance.
-  static void RegisterMainLifetimeBasedAllocator(LifetimeBasedAllocator *ptr)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  static void UpdateMainLifetimeBasedAllocatorOptionsFromFlag(
-      absl::string_view s) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
   // Snapshots the current stack trace and looks the lifetime statistics
@@ -487,14 +506,9 @@ class LifetimeBasedAllocator {
   PageHeapAllocator<typename LifetimeBasedRegion::LifetimeMetaData>
       lifetime_stats_allocator_;
 
-  BackingMemoryAllocFunction alloc_backing_memory_;
-  HugeRegionAllocFunction alloc_region_;
-  MemoryModifyFunction unback_;
+  RegionAlloc *region_alloc_;
 
   std::atomic<bool> is_active_;
-
-  static LifetimeBasedAllocator *main_lifetime_based_allocator_
-      ABSL_GUARDED_BY(pageheap_lock);
 };
 
 }  // namespace tcmalloc_internal

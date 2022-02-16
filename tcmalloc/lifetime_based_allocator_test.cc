@@ -18,7 +18,7 @@
 #include <stdlib.h>
 
 #include <string>
-#include <thread>
+#include <thread>  // NOLINT(build/c++11)
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -62,19 +62,7 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
             absl::Milliseconds(500))) {}
 
   explicit LifetimeBasedAllocatorTest(LifetimePredictionOptions opts)
-      : lifetime_allocator_(opts, BackingMemoryAllocFn, HugeRegionAllocFn,
-                            NopUnbackFn, kFakeClock) {
-    region_metadata_ =
-        BackingMemory{.ptr = calloc(1, sizeof(HugeRegion)), .refcount = 0};
-    region_backing_memory_ = BackingMemory{
-        .ptr = aligned_alloc(kHugePageSize, HugeRegion::size().in_bytes()),
-        .refcount = 0};
-  }
-
-  ~LifetimeBasedAllocatorTest() override {
-    free(region_metadata_.ptr);
-    free(region_backing_memory_.ptr);
-  }
+      : lifetime_allocator_(opts, &region_alloc_, kFakeClock) {}
 
  protected:
   const Clock kFakeClock =
@@ -84,19 +72,39 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
   }
 
-  static HugeRegion* HugeRegionAllocFn() {
-    EXPECT_EQ(region_metadata_.refcount, 0);
-    ++region_metadata_.refcount;
-    return static_cast<HugeRegion*>(region_metadata_.ptr);
-  }
+  class FakeRegionAlloc : public LifetimeBasedAllocator::RegionAlloc {
+   public:
+    explicit FakeRegionAlloc() {
+      region_metadata_ =
+          BackingMemory{.ptr = calloc(1, sizeof(HugeRegion)), .refcount = 0};
+      region_backing_memory_ = BackingMemory{
+          .ptr = aligned_alloc(kHugePageSize, HugeRegion::size().in_bytes()),
+          .refcount = 0};
+    }
+    ~FakeRegionAlloc() override {
+      free(region_metadata_.ptr);
+      free(region_backing_memory_.ptr);
+    }
 
-  static HugeRange BackingMemoryAllocFn(HugeLength size) {
-    EXPECT_EQ(size.in_bytes(), HugeRegion::size().in_bytes());
-    EXPECT_EQ(region_backing_memory_.refcount, 0);
-    ++region_backing_memory_.refcount;
-    return HugeRange::Make(HugePageContaining(region_backing_memory_.ptr),
-                           size);
-  }
+    HugeRegion* AllocRegion(HugeLength n, HugeRange* range) override {
+      if (!range->valid()) {
+        CHECK_CONDITION(n.in_bytes() == HugeRegion::size().in_bytes());
+        CHECK_CONDITION(region_backing_memory_.refcount == 0);
+        ++region_backing_memory_.refcount;
+        *range =
+            HugeRange::Make(HugePageContaining(region_backing_memory_.ptr), n);
+      }
+
+      CHECK_CONDITION(region_metadata_.refcount == 0);
+      ++region_metadata_.refcount;
+      new (region_metadata_.ptr) HugeRegion(*range, NopUnbackFn);
+      return static_cast<HugeRegion*>(region_metadata_.ptr);
+    }
+
+   private:
+    BackingMemory region_backing_memory_;
+    BackingMemory region_metadata_;
+  };
 
   static void NopUnbackFn(void* p, size_t len) {}
 
@@ -105,7 +113,8 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
     Length n = Length(kAllocationSize);
     LifetimeStats* context = lifetime_allocator_.CollectLifetimeContext(n);
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    auto res = lifetime_allocator_.MaybeGet(n, context);
+    bool from_released;
+    auto res = lifetime_allocator_.MaybeGet(n, &from_released, context);
     if (!res.TryGetAllocation(&out->page)) {
       // If not allocated in the short-lived region, do not actually back the
       // memory and return the nullptr span.
@@ -148,6 +157,7 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
     }
   }
 
+  FakeRegionAlloc region_alloc_;
   LifetimeBasedAllocator lifetime_allocator_;
 
  private:
@@ -158,15 +168,9 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
   }
 
   static int64_t clock_;
-  static BackingMemory region_backing_memory_;
-  static BackingMemory region_metadata_;
 };
 
 int64_t LifetimeBasedAllocatorTest::clock_{0};
-LifetimeBasedAllocatorTest::BackingMemory
-    LifetimeBasedAllocatorTest::region_backing_memory_;
-LifetimeBasedAllocatorTest::BackingMemory
-    LifetimeBasedAllocatorTest::region_metadata_;
 
 class ParameterizedLifetimeBasedAllocatorTest
     : public LifetimeBasedAllocatorTest,
