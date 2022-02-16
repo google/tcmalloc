@@ -60,6 +60,13 @@ TEST(HotColdNew, OperatorNew) {
     }
   }
 
+  // Try a single allocation using the new hot_cold_t type from the global
+  // namespace.
+  void* ret = ::operator new(1, static_cast<::hot_cold_t>(0));
+  ASSERT_NE(ret, nullptr);
+  benchmark::DoNotOptimize(memset(ret, 0xBF, 1));
+  ::operator delete(ret);
+
   // Scan sparsely.
   constexpr size_t kSmall = 1 << 10;
   constexpr size_t kLarge = 1 << 20;
@@ -99,6 +106,13 @@ TEST(HotColdNew, OperatorNewNothrow) {
       ::operator delete(ret);
     }
   }
+
+  // Try a single allocation using the new hot_cold_t type from the global
+  // namespace.
+  void* ret = ::operator new(1, std::nothrow, static_cast<::hot_cold_t>(0));
+  ASSERT_NE(ret, nullptr);
+  benchmark::DoNotOptimize(memset(ret, 0xBF, 1));
+  ::operator delete(ret);
 
   // Scan sparsely.
   constexpr size_t kSmall = 1 << 10;
@@ -154,7 +168,7 @@ TEST(HotColdNew, OperatorNewAligned) {
 
   absl::BitGen rng;
   std::vector<SizedAlignedPtr> ptrs;
-  ptrs.reserve(kNum);
+  ptrs.reserve(kNum + 1);
   for (int i = 0; i < kNum; i++) {
     size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     std::align_val_t alignment = static_cast<std::align_val_t>(
@@ -170,6 +184,17 @@ TEST(HotColdNew, OperatorNewAligned) {
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
+
+  // Try a single allocation using the new hot_cold_t type from the global
+  // namespace.
+  void* ptr =
+      ::operator new(kSmall, static_cast<std::align_val_t>(kSmallAlignment),
+                     static_cast<::hot_cold_t>(0));
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
+  ptrs.emplace_back(SizedAlignedPtr{
+      ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});
 
   for (SizedAlignedPtr s : ptrs) {
     if (absl::Bernoulli(rng, 0.2)) {
@@ -202,7 +227,7 @@ TEST(HotColdNew, OperatorNewAlignedNothrow) {
 
   absl::BitGen rng;
   std::vector<SizedAlignedPtr> ptrs;
-  ptrs.reserve(kNum);
+  ptrs.reserve(kNum + 1);
   for (int i = 0; i < kNum; i++) {
     size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
     std::align_val_t alignment = static_cast<std::align_val_t>(
@@ -219,6 +244,17 @@ TEST(HotColdNew, OperatorNewAlignedNothrow) {
     benchmark::DoNotOptimize(memset(ptr, 0xBF, size));
     ptrs.emplace_back(SizedAlignedPtr{ptr, size, alignment});
   }
+
+  // Try a single allocation using the new hot_cold_t type from the global
+  // namespace.
+  void* ptr =
+      ::operator new(kSmall, static_cast<std::align_val_t>(kSmallAlignment),
+                     std::nothrow, static_cast<::hot_cold_t>(0));
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) & (kSmallAlignment - 1u), 0);
+  benchmark::DoNotOptimize(memset(ptr, 0xBF, kSmall));
+  ptrs.emplace_back(SizedAlignedPtr{
+      ptr, kSmall, static_cast<std::align_val_t>(kSmallAlignment)});
 
   for (SizedAlignedPtr s : ptrs) {
     if (absl::Bernoulli(rng, 0.2)) {

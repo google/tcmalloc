@@ -43,8 +43,6 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 
-namespace tcmalloc {
-
 // Indicates how frequently accessed the allocation is expected to be.
 // 0   - The allocation is rarely accessed.
 // ...
@@ -52,6 +50,12 @@ namespace tcmalloc {
 enum class hot_cold_t : uint8_t;
 
 // TODO(ckennelly): Lifetimes
+
+namespace tcmalloc {
+
+// Alias to the newer type in the global namespace, so that existing code works
+// as is.
+using ::hot_cold_t;
 
 }  // namespace tcmalloc
 
