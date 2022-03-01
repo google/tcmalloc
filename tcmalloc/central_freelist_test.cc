@@ -334,16 +334,16 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
 TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   TypeParam e;
 
-  const size_t num_spans = 10;
+  constexpr size_t kNumSpans = 10;
 
-  // Request num_spans spans.
+  // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = num_spans * TypeParam::kObjectsPerSpan;
+  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
   int total_fetched = 0;
   // Tracks object and corresponding span idx from which it was allocated.
   std::vector<std::pair<void*, int>> objects_to_span_idx;
   // Tracks number of objects allocated per span.
-  std::vector<size_t> allocated_per_span(num_spans, 0);
+  std::vector<size_t> allocated_per_span(kNumSpans, 0);
   int span_idx = 0;
 
   while (total_fetched < num_objects_to_fetch) {
@@ -361,14 +361,14 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
     for (int i = 0; i < got; ++i) {
       objects_to_span_idx.push_back(std::make_pair(batch[i], span_idx));
     }
-    ASSERT(span_idx < num_spans);
+    ASSERT(span_idx < kNumSpans);
     allocated_per_span[span_idx] += got;
   }
 
-  // Make sure that we have fetched exactly from num_spans spans.
-  EXPECT_EQ(span_idx + 1, num_spans);
+  // Make sure that we have fetched exactly from kNumSpans spans.
+  EXPECT_EQ(span_idx + 1, kNumSpans);
 
-  // We should have num_spans spans in the histogram with number of allocated
+  // We should have kNumSpans spans in the histogram with number of allocated
   // objects equal to TypeParam::kObjectsPerSpan (i.e. in the last bucket).
   // Rest of the buckets should be empty.
   SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
@@ -376,7 +376,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   ASSERT(last_bucket < kSpanUtilBucketCapacity);
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     if (i == last_bucket) {
-      EXPECT_EQ(histogram.value[last_bucket], num_spans);
+      EXPECT_EQ(histogram.value[last_bucket], kNumSpans);
     } else {
       EXPECT_EQ(histogram.value[i], 0);
     }
@@ -396,7 +396,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
     for (int i = 0; i < size_to_pop; ++i) {
       const auto [ptr, span_idx] = objects_to_span_idx[i + total_returned];
       batch[i] = ptr;
-      ASSERT(span_idx < num_spans);
+      ASSERT(span_idx < kNumSpans);
       --allocated_per_span[span_idx];
     }
     total_returned += size_to_pop;
@@ -404,7 +404,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 
     // Calculate expected histogram.
     SpanUtilHistogram expected;
-    for (int i = 0; i < num_spans; ++i) {
+    for (int i = 0; i < kNumSpans; ++i) {
       size_t allocated = absl::bit_width(allocated_per_span[i]);
       // If span has non-zero allocated objects, include it in the histogram.
       if (allocated) {
@@ -432,11 +432,11 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   TypeParam e;
   std::vector<void*> all_objects;
 
-  const size_t num_spans = 10;
+  constexpr size_t kNumSpans = 10;
 
-  // Request num_spans spans.
+  // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = num_spans * TypeParam::kObjectsPerSpan;
+  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
@@ -448,7 +448,7 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
     total_fetched += got;
   }
 
-  // We should have num_spans spans in the histogram with number of
+  // We should have kNumSpans spans in the histogram with number of
   // allocated objects equal to TypeParam::kObjectsPerSpan (i.e. in the last
   // bucket). Rest of the buckets should be empty.
   SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
@@ -456,14 +456,14 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   ASSERT(last_bucket < kSpanUtilBucketCapacity);
   for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
     if (i == last_bucket) {
-      EXPECT_EQ(histogram.value[last_bucket], num_spans);
+      EXPECT_EQ(histogram.value[last_bucket], kNumSpans);
     } else {
       EXPECT_EQ(histogram.value[i], 0);
     }
   }
 
   SpanStats stats = e.central_freelist().GetSpanStats();
-  EXPECT_EQ(stats.num_spans_requested, num_spans);
+  EXPECT_EQ(stats.num_spans_requested, kNumSpans);
   EXPECT_EQ(stats.num_spans_returned, 0);
 
   EXPECT_EQ(all_objects.size(), num_objects_to_fetch);
