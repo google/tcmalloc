@@ -70,7 +70,6 @@ class StaticForwarder {
 class NoStealingManager : public StaticForwarder {
  public:
   static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
-  static constexpr bool MakeCacheSpace(int) { return false; }
   static constexpr bool ShrinkCache(int) { return false; }
 };
 
@@ -284,18 +283,6 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  // All caches which have not been modified since the last time this method has
-  // been called will return all objects to the freelist.
-  void Plunder() {
-    for (int i = 0; i < kNumClasses; ++i) {
-      if (implementation_ == TransferCacheImplementation::Ring) {
-        cache_[i].rbtc.TryPlunder(i);
-      } else {
-        cache_[i].tc.TryPlunder(i);
-      }
-    }
-  }
-
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
   size_t tc_length(int size_class) {
@@ -311,14 +298,6 @@ class TransferCacheManager : public StaticForwarder {
       return cache_[size_class].rbtc.GetHitRateStats();
     } else {
       return cache_[size_class].tc.GetHitRateStats();
-    }
-  }
-
-  const CentralFreeList &central_freelist(int size_class) const {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.freelist();
-    } else {
-      return cache_[size_class].tc.freelist();
     }
   }
 
