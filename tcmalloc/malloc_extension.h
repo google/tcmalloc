@@ -563,8 +563,6 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept;
 
-// Aligned size returning new is only supported for libc++ because of issues
-// with libstdcxx.so linkage. See http://b/110969867 for background.
 #if defined(__cpp_aligned_new)
 
 // Identical to `tcmalloc_size_returning_operator_new` except that the returned
