@@ -278,9 +278,6 @@ INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
 
 namespace {
 
-using central_freelist_internal::kSpanUtilBucketCapacity;
-using central_freelist_internal::SpanUtilHistogram;
-
 template <typename Env>
 using CentralFreeListTest = ::testing::Test;
 TYPED_TEST_SUITE_P(CentralFreeListTest);
@@ -298,13 +295,12 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
 
   // We should observe span's utilization captured in the histogram. The number
   // of spans in rest of the buckets should be zero.
-  const int bucket = absl::bit_width(static_cast<unsigned>(allocated));
-  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    if (i == bucket) {
-      EXPECT_EQ(histogram.value[i], 1);
+  const int allocated_bw = absl::bit_width(static_cast<unsigned>(allocated));
+  for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+    if (i == allocated_bw) {
+      EXPECT_EQ(e.central_freelist().NumSpansWith(i), 1);
     } else {
-      EXPECT_EQ(histogram.value[i], 0);
+      EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
     }
   }
 
@@ -325,9 +321,8 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
 
   // Span captured in the histogram with the earlier utilization should have
   // been removed.
-  histogram = e.central_freelist().GetSpanUtilHistogram();
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    EXPECT_EQ(histogram.value[i], 0);
+  for (int i = 1; i < absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 }
 
@@ -371,15 +366,10 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   // We should have kNumSpans spans in the histogram with number of allocated
   // objects equal to TypeParam::kObjectsPerSpan (i.e. in the last bucket).
   // Rest of the buckets should be empty.
-  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
-  int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan);
-  ASSERT(last_bucket < kSpanUtilBucketCapacity);
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    if (i == last_bucket) {
-      EXPECT_EQ(histogram.value[last_bucket], kNumSpans);
-    } else {
-      EXPECT_EQ(histogram.value[i], 0);
-    }
+  const int expected_bw = absl::bit_width(TypeParam::kObjectsPerSpan);
+  EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bw), kNumSpans);
+  for (int i = 1; i < expected_bw; ++i) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 
   // Shuffle.
@@ -389,6 +379,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   // Return objects, a fraction at a time, each time checking that histogram is
   // correct.
   int total_returned = 0;
+  const int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan) - 1;
   while (total_returned < num_objects_to_fetch) {
     uint64_t size_to_pop = std::min(objects_to_span_idx.size() - total_returned,
                                     TypeParam::kBatchSize);
@@ -403,28 +394,27 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
     e.central_freelist().InsertRange({batch, size_to_pop});
 
     // Calculate expected histogram.
-    SpanUtilHistogram expected;
+    size_t expected[absl::bit_width(TypeParam::kObjectsPerSpan)] = {0};
     for (int i = 0; i < kNumSpans; ++i) {
-      size_t allocated = absl::bit_width(allocated_per_span[i]);
       // If span has non-zero allocated objects, include it in the histogram.
-      if (allocated) {
-        ASSERT(allocated <= absl::bit_width(TypeParam::kObjectsPerSpan));
-        ++expected.value[allocated];
+      if (allocated_per_span[i]) {
+        const size_t bucket = absl::bit_width(allocated_per_span[i]) - 1;
+        ASSERT(bucket <= last_bucket);
+        ++expected[bucket];
       }
     }
 
-    // Fetch histogram and compare it with the expected histogram that we
-    // calculated using the tracked allocated objects per span.
-    SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
-    for (int i = 0; i < kSpanUtilBucketCapacity; i++) {
-      EXPECT_EQ(histogram.value[i], expected.value[i]);
+    // Fetch number of spans logged in the histogram and compare it with the
+    // expected histogram that we calculated using the tracked allocated
+    // objects per span.
+    for (int i = 1; i <= last_bucket; ++i) {
+      EXPECT_EQ(e.central_freelist().NumSpansWith(i), expected[i - 1]);
     }
   }
 
   // Since no span is live here, histogram must be empty.
-  histogram = e.central_freelist().GetSpanUtilHistogram();
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    EXPECT_EQ(histogram.value[i], 0);
+  for (int i = 1; i <= last_bucket; ++i) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 }
 
@@ -451,15 +441,10 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   // We should have kNumSpans spans in the histogram with number of
   // allocated objects equal to TypeParam::kObjectsPerSpan (i.e. in the last
   // bucket). Rest of the buckets should be empty.
-  SpanUtilHistogram histogram = e.central_freelist().GetSpanUtilHistogram();
-  int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan);
-  ASSERT(last_bucket < kSpanUtilBucketCapacity);
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    if (i == last_bucket) {
-      EXPECT_EQ(histogram.value[last_bucket], kNumSpans);
-    } else {
-      EXPECT_EQ(histogram.value[i], 0);
-    }
+  const int expected_bw = absl::bit_width(TypeParam::kObjectsPerSpan);
+  EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bw), kNumSpans);
+  for (int i = 1; i < expected_bw; ++i) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 
   SpanStats stats = e.central_freelist().GetSpanStats();
@@ -490,10 +475,9 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
       EXPECT_NE(stats.obj_capacity, 0);
       // Total spans recorded in the histogram must be equal to the number of
       // live spans.
-      histogram = e.central_freelist().GetSpanUtilHistogram();
       size_t spans_in_histogram = 0;
-      for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-        spans_in_histogram += histogram.value[i];
+      for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+        spans_in_histogram += e.central_freelist().NumSpansWith(i);
       }
       EXPECT_EQ(spans_in_histogram, stats.num_live_spans());
       checked_half = true;
@@ -503,9 +487,8 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
   // Since no span is live, histogram must be empty.
-  histogram = e.central_freelist().GetSpanUtilHistogram();
-  for (int i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    EXPECT_EQ(histogram.value[i], 0);
+  for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
   EXPECT_EQ(stats.obj_capacity, 0);
 }

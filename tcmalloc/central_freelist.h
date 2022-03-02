@@ -53,16 +53,6 @@ class StaticForwarder {
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
 
-// Records histogram of span utilization. Span utilization represents
-// the number of objects allocated from the span, with maximum number of objects
-// that can be allocated from a span is less than objects_per_span_.
-// Buckets in the histogram correspond to power-of-two number of objects. That
-// is, bucket N tracks number of spans with allocated objects < 2^N.
-static constexpr size_t kSpanUtilBucketCapacity = 17;
-struct SpanUtilHistogram {
-  size_t value[kSpanUtilBucketCapacity] = {0};
-};
-
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
 class CentralFreeList {
@@ -108,10 +98,12 @@ class CentralFreeList {
   void PrintSpanUtilStats(Printer* out) const;
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region) const;
 
-  // Get histogram of span utilization.
-  // Histogram consists of kSpanUtilBucketCapacity number of buckets; bucket N
-  // records number of spans with allocated objects < 2^N.
-  SpanUtilHistogram GetSpanUtilHistogram() const;
+  // Get number of spans in the histogram bucket. We record spans in the
+  // histogram indexed by absl::bit_width(allocated). So, instead of using the
+  // absolute number of allocated objects, it uses absl::bit_width(allocated),
+  // passed as <allocated_bw>, to index and return the number of spans in the
+  // histogram.
+  size_t NumSpansWith(uint16_t allocated_bw) const;
 
   const Forwarder& forwarder() const { return forwarder_; }
 
@@ -170,14 +162,27 @@ class CentralFreeList {
   StatsCounter num_spans_requested_;
   StatsCounter num_spans_returned_;
 
-  // Records current number of spans with corresponding number of allocated
-  // objects. Instead of using the absolute value of number of
-  // allocated objects, we use absl::bit_width(free_objects) to index this
-  // map. As the actual value of objects_per_span_ is not known at compile
-  // time, we use maximum bit_width that objects_per_span_ can have to
-  // construct this map.
-  StatsCounter objects_to_spans_
-      [std::numeric_limits<decltype(objects_per_span_)>::digits];
+  // Records histogram of span utilization.
+  //
+  // Each bucket in the histogram records number of live spans with
+  // corresponding number of allocated objects. Instead of using the absolute
+  // value of number of allocated objects, we use absl::bit_width(allocated) to
+  // index this map. A bucket in the histogram corresponds to power-of-two
+  // number of objects. That is, bucket N tracks number of spans with allocated
+  // objects < 2^(N+1). For instance, objects_to_spans_ map tracks number of
+  // spans with allocated objects in the range [a,b), indexed as: [1,2) in
+  // objects_to_spans_[0], [2,4) in objects_to_spans_[1], [4, 8) in
+  // objects_to_spans_[2] and so on. We can query the objects_to_spans_ map
+  // using NumSpansWith(allocated_bw) to obtain the number of spans associated
+  // with the corresponding bucket in the histogram.
+  //
+  // As the actual value of objects_per_span_ is not known at compile time, we
+  // use maximum value that it can be to initialize this hashmap, and
+  // kSpanUtilBucketCapacity determines this value. We also check during Init
+  // that absl::bit_width(objects_per_span_) is indeed less than or equal to
+  // kSpanUtilBucketCapacity.
+  static constexpr size_t kSpanUtilBucketCapacity = 16;
+  StatsCounter objects_to_spans_[kSpanUtilBucketCapacity];
 
   // Records <span> in objects_to_span_ map.
   // If increase is set to true, includes the span by incrementing the count
@@ -188,9 +193,10 @@ class CentralFreeList {
   // performed using LossyAdd.
   void RecordSpanUtil(Span* span, bool increase)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    const size_t allocated = span->Allocated();
+    const uint16_t allocated = span->Allocated();
     ASSUME(allocated > 0);
-    objects_to_spans_[absl::bit_width(allocated)].LossyAdd(increase ? 1 : -1);
+    objects_to_spans_[absl::bit_width(allocated) - 1].LossyAdd(increase ? 1
+                                                                        : -1);
   }
 
   // Dummy header for non-empty spans
@@ -208,7 +214,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   pages_per_span_ = Forwarder::class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
-  ASSERT(absl::bit_width(objects_per_span_) < kSpanUtilBucketCapacity);
+  ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
 }
 
 template <class Forwarder>
@@ -359,23 +365,19 @@ inline SpanStats CentralFreeList<Forwarder>::GetSpanStats() const {
 }
 
 template <class Forwarder>
-inline SpanUtilHistogram CentralFreeList<Forwarder>::GetSpanUtilHistogram()
-    const {
-  SpanUtilHistogram histogram;
-  for (int i = 0; i <= absl::bit_width(objects_per_span_); ++i) {
-    histogram.value[i] = objects_to_spans_[i].value();
-  }
-  return histogram;
+inline size_t CentralFreeList<Forwarder>::NumSpansWith(
+    uint16_t allocated_bw) const {
+  ASSERT(allocated_bw > 0);
+  const int bucket = allocated_bw - 1;
+  return objects_to_spans_[bucket].value();
 }
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) const {
-  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
-
   out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
-  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
-    out->printf("%6zu < %zu", util_histogram.value[i], 1 << i);
-    if (i < kSpanUtilBucketCapacity - 1) {
+  for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
+    out->printf("%6zu < %zu", NumSpansWith(i), 1 << i);
+    if (i < kSpanUtilBucketCapacity) {
       out->printf(",");
     }
   }
@@ -385,14 +387,11 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) const {
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     PbtxtRegion* region) const {
-  const SpanUtilHistogram util_histogram = GetSpanUtilHistogram();
-
-  for (size_t i = 0; i < kSpanUtilBucketCapacity; ++i) {
+  for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
     PbtxtRegion histogram = region->CreateSubRegion("span_util_histogram");
-    size_t lower_bound = i > 0 ? 1 << (i - 1) : 0;
-    histogram.PrintI64("lower_bound", lower_bound);
+    histogram.PrintI64("lower_bound", 1 << (i - 1));
     histogram.PrintI64("upper_bound", 1 << i);
-    histogram.PrintI64("value", util_histogram.value[i]);
+    histogram.PrintI64("value", NumSpansWith(i));
   }
 }
 
