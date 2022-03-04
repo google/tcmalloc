@@ -211,12 +211,6 @@ class TcmallocSlab {
     return VirtualRseqCpuId(virtual_cpu_id_offset_);
   }
 
-  // Gets the current shift of the slabs. Intended for use by the thread that
-  // calls GrowSlabs().
-  uint8_t GetShift() const {
-    return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
-  }
-
  private:
   // In order to support dynamic slab metadata sizes, we need to be able to
   // atomically update both the slabs pointer and the shift value so we store

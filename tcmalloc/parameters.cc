@@ -91,10 +91,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
     true
 #endif
 );
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::per_cpu_caches_dynamic_slab_enabled_(false);
-ABSL_CONST_INIT std::atomic<double>
-    Parameters::per_cpu_caches_dynamic_slab_threshold_(0.9);
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
@@ -267,24 +263,6 @@ void TCMalloc_Internal_SetLifetimeAllocatorOptions(absl::string_view s) {
     hpaa->lifetime_based_allocator().Enable(
         tcmalloc::tcmalloc_internal::LifetimePredictionOptions::FromFlag(s));
   }
-}
-
-bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled() {
-  return Parameters::per_cpu_caches_dynamic_slab_enabled();
-}
-
-void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
-  Parameters::per_cpu_caches_dynamic_slab_enabled_.store(
-      v, std::memory_order_relaxed);
-}
-
-double TCMalloc_Internal_GetPerCpuCachesDynamicSlabThreshold() {
-  return Parameters::per_cpu_caches_dynamic_slab_threshold();
-}
-
-void TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(double v) {
-  Parameters::per_cpu_caches_dynamic_slab_threshold_.store(
-      v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

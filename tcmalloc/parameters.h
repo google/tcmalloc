@@ -105,21 +105,6 @@ class Parameters {
 
   static absl::Duration filler_skip_subrelease_interval();
 
-  static bool per_cpu_caches_dynamic_slab_enabled() {
-    return per_cpu_caches_dynamic_slab_enabled_.load(std::memory_order_relaxed);
-  }
-  static void set_per_cpu_caches_dynamic_slab_enabled(bool value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
-  }
-
-  static bool per_cpu_caches_dynamic_slab_threshold() {
-    return per_cpu_caches_dynamic_slab_threshold_.load(
-        std::memory_order_relaxed);
-  }
-  static void set_per_cpu_caches_dynamic_slab_threshold(bool value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(value);
-  }
-
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
@@ -133,8 +118,6 @@ class Parameters {
 
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(double v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
@@ -147,8 +130,6 @@ class Parameters {
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
-  static std::atomic<bool> per_cpu_caches_dynamic_slab_enabled_;
-  static std::atomic<double> per_cpu_caches_dynamic_slab_threshold_;
 };
 
 }  // namespace tcmalloc_internal

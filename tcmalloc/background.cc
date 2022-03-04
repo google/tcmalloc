@@ -49,11 +49,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
   absl::Time last_shuffle = absl::Now();
 
-  // See if we should grow the slab once per kCpuCacheSlabGrowthPeriod. This
-  // period is coprime to kCpuCacheShufflePeriod and kCpuCacheReclaimPeriod.
-  constexpr absl::Duration kCpuCacheSlabGrowthPeriod = absl::Seconds(7);
-  absl::Time last_slab_growth_check = absl::Now();
-
   while (true) {
     absl::Time now = absl::Now();
     const ssize_t bytes_to_release =
@@ -81,14 +76,6 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
           now - last_shuffle >= kCpuCacheShufflePeriod) {
         Static::cpu_cache().ShuffleCpuCaches();
         last_shuffle = now;
-      }
-
-      // See if we need to grow the slab once every kCpuCacheSlabGrowthPeriod
-      // when enabled.
-      if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
-          now - last_slab_growth_check >= kCpuCacheSlabGrowthPeriod) {
-        Static::cpu_cache().GrowSlabIfNeeded();
-        last_slab_growth_check = now;
       }
     }
 

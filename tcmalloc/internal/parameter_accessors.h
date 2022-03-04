@@ -53,13 +53,6 @@ ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_PossiblyCold(const void* ptr);
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(
-    bool v);
-ABSL_ATTRIBUTE_WEAK double
-TCMalloc_Internal_GetPerCpuCachesDynamicSlabThreshold();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(
-    double v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_
