@@ -616,7 +616,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         // Constants
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
-      : "cc", "memory"
+      // Add x16 and x17 as an explicit clobber registers:
+      // The RSEQ code above uses non-local branches in the restart sequence
+      // which is located inside .text.unlikely. The maximum distance of B
+      // and BL branches in ARM is limited to 128MB. If the linker detects
+      // the distance being too large, it injects a thunk which may clobber
+      // the x16 or x17 register according to the ARMv8 ABI standard.
+      : "x16", "x17", "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
@@ -906,7 +912,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
-          : "cc", "memory"
+          // Add x16 and x17 as an explicit clobber registers:
+          // The RSEQ code above uses non-local branches in the restart sequence
+          // which is located inside .text.unlikely. The maximum distance of B
+          // and BL branches in ARM is limited to 128MB. If the linker detects
+          // the distance being too large, it injects a thunk which may clobber
+          // the x16 or x17 register according to the ARMv8 ABI standard.
+          : "x16", "x17", "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
