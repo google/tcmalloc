@@ -105,8 +105,6 @@ class CentralFreeList {
   // histogram.
   size_t NumSpansWith(uint16_t allocated_bw) const;
 
-  const Forwarder& forwarder() const { return forwarder_; }
-
   Forwarder& forwarder() { return forwarder_; }
 
  private:

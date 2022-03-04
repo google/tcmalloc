@@ -25,32 +25,25 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// Wraps a variable whose constructor and destructor are explicitly
-// called. It is particularly useful for a global variable, without its
-// constructor and destructor run on start and end of the program lifetime.
-// This circumvents the initial construction order fiasco, while keeping
-// the address of the empty string a compile time constant.
+// Wraps a variable whose constructor is explicitly called. It is particularly
+// useful for a global variable, without its constructor and destructor run on
+// start and end of the program lifetime.  This circumvents the initial
+// construction order fiasco, while keeping the address of the empty string a
+// compile time constant.
 //
 // Pay special attention to the initialization state of the object.
 // 1. The object is "uninitialized" to begin with.
-// 2. Call Construct() or DefaultConstruct() only if the object is
-//    uninitialized. After the call, the object becomes "initialized".
+// 2. Call Construct() only if the object is uninitialized. After the call, the
+//    object becomes "initialized".
 // 3. Call get() and get_mutable() only if the object is initialized.
-// 4. Call Destruct() only if the object is initialized.
-//    After the call, the object becomes uninitialized.
 template <typename T>
 class ExplicitlyConstructed {
  public:
-  void DefaultConstruct() { new (&union_) T(); }
-
   template <typename... Args>
   void Construct(Args&&... args) {
     new (&union_) T(std::forward<Args>(args)...);
   }
 
-  void Destruct() { get_mutable()->~T(); }
-
-  constexpr const T& get() const { return reinterpret_cast<const T&>(union_); }
   T& get_mutable() { return reinterpret_cast<T&>(union_); }
 
  private:

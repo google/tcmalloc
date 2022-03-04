@@ -111,7 +111,6 @@ class ArenaBasedFakeTransferCacheManager {
  public:
   ArenaBasedFakeTransferCacheManager() { bytes_.resize(kTotalSize); }
   static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
-  static constexpr bool MakeCacheSpace(int) { return false; }
   static constexpr bool ShrinkCache(int) { return false; }
   constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
@@ -399,24 +398,12 @@ class FakeShardedTransferCacheEnvironment {
       ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
-  static constexpr int kMaxObjectsToMove =
-      ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
-
   FakeShardedTransferCacheEnvironment()
       : sharded_manager_(&owner_, &cpu_layout_) {
     sharded_manager_.Init();
   }
 
   ~FakeShardedTransferCacheEnvironment() { Drain(); }
-
-  void Insert(int cpu, int n) {
-    cpu_layout_.SetCurrentCpu(cpu);
-    for (int i = 0; i < n; ++i) {
-      void* allocated;
-      central_freelist().AllocateBatch(&allocated, 1);
-      sharded_manager_.Push(kSizeClass, allocated);
-    }
-  }
 
   void Remove(int cpu, int n) {
     cpu_layout_.SetCurrentCpu(cpu);
