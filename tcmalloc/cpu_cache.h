@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/mman.h>
 
 #include <algorithm>
 #include <atomic>
@@ -28,6 +29,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
@@ -43,6 +45,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace cpu_cache_internal {
+
+template <class CPUCache>
+struct DrainHandler;
 
 // StaticForwarder provides access to the SizeMap and transfer caches.
 //
@@ -60,6 +65,21 @@ class StaticForwarder {
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
     ASSERT(false);
+  }
+
+  static void ArenaReportNonresident(size_t bytes)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    ASSERT(Static::IsInited());
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    Static::arena().ReportNonresident(bytes);
+  }
+
+  static bool per_cpu_caches_dynamic_slab_enabled() {
+    return Parameters::per_cpu_caches_dynamic_slab_enabled();
+  }
+
+  static double per_cpu_caches_dynamic_slab_threshold() {
+    return Parameters::per_cpu_caches_dynamic_slab_threshold();
   }
 
   static size_t class_to_size(int size_class) {
@@ -89,6 +109,46 @@ class StaticForwarder {
   static TransferCacheManager& transfer_cache() {
     return Static::transfer_cache();
   }
+};
+
+// Determine number of bits we should use for allocating per-cpu cache.
+// The amount of per-cpu cache is 2 ^ per-cpu-shift.
+// When dynamic slab size is enabled, we start with kInitialPerCpuShift and
+// grow as needed up to kMaxPerCpuShift. When dynamic slab size is disabled,
+// we always use kMaxPerCpuShift.
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
+constexpr inline uint8_t kInitialPerCpuShift = 12;
+constexpr inline uint8_t kMaxPerCpuShift = 12;
+#else
+constexpr inline uint8_t kInitialPerCpuShift = 14;
+constexpr inline uint8_t kMaxPerCpuShift = 18;
+#endif
+
+template <typename NumaTopology>
+uint8_t NumaShift(const NumaTopology& topology) {
+  return absl::bit_ceil(topology.active_partitions() - 1);
+}
+
+struct GetShiftMaxCapacity {
+  size_t operator()(size_t size_class) const {
+    ASSERT(kMaxPerCpuShift + numa_shift >= shift);
+    const uint8_t relative_shift = kMaxPerCpuShift + numa_shift - shift;
+    if (relative_shift == 0) return max_capacities[size_class];
+    int mc = max_capacities[size_class] >> relative_shift;
+    // We decrement by 3 because of (1) cost of per-size-class header, (2) cost
+    // of per-size-class padding pointer, (3) there are a lot of empty size
+    // classes that have headers and whose max capacities can't be decremented.
+    // TODO(b/186636177): try using size_class_to_header_idx array to allow for
+    // not having headers for empty size classes.
+    // TODO(b/219565872): try not doing prefetching for large size classes to
+    // allow for not having padding pointers for large size classes.
+    mc = std::max(mc - 3, 0);
+    return mc;
+  }
+
+  const uint16_t* max_capacities;
+  uint8_t shift;
+  uint8_t numa_shift;
 };
 
 template <typename Forwarder>
@@ -179,13 +239,9 @@ class CPUCache {
   // Reports total number of times any CPU has been reclaimed.
   uint64_t GetNumReclaims() const;
 
-  // Determine number of bits we should use for allocating per-cpu cache
-  // The amount of per-cpu cache is 2 ^ kPerCpuShift
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
-  static const size_t kPerCpuShift = 12;
-#else
-  static constexpr size_t kPerCpuShift = 18;
-#endif
+  // When dynamic slab size is enabled, checks if there is a need to grow the
+  // slab based on miss-counts and grows if so.
+  void GrowSlabIfNeeded();
 
   struct CpuCacheMissStats {
     size_t underflows = 0;
@@ -214,6 +270,9 @@ class CPUCache {
     // Tracks number of misses recorded as of the end of the last resize
     // interval.
     kReclaim,
+    // Tracks number of misses recorded as of the end of the last slab growth
+    // interval.
+    kSlabGrowth,
     kNumCounts,
   };
 
@@ -359,6 +418,11 @@ class CPUCache {
   // class sizes.
   size_t MaxCapacity(size_t size_class) const;
 
+  // Gets the max capacity for the size class using the current per-cpu shift.
+  uint16_t GetMaxCapacity(int size_class) const;
+
+  GetShiftMaxCapacity GetMaxCapacityFunctor() const;
+
   void* Refill(int cpu, size_t size_class);
 
   // This is called after finding a full freelist when attempting to push <ptr>
@@ -397,6 +461,8 @@ class CPUCache {
   static int NoopOverflow(int cpu, size_t size_class, void* item, void* arg) {
     return -1;
   }
+
+  friend struct DrainHandler<CPUCache>;
 };
 
 template <class Forwarder>
@@ -555,15 +621,15 @@ inline size_t CPUCache<Forwarder>::MaxCapacity(size_t size_class) const {
   return kLargeObjectDepth;
 }
 
-inline void ValidateEnoughSlabBytes(uint16_t* max_capacities, uint8_t shift) {
-  const size_t kBytesAvailable = 1 << shift;
+inline void ValidateEnoughSlabBytes(GetShiftMaxCapacity get_shift_capacity) {
+  const size_t kBytesAvailable = 1 << get_shift_capacity.shift;
   size_t bytes_required = sizeof(std::atomic<int64_t>) * kNumClasses;
 
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     // Each non-empty size class region in the slab is preceded by one padding
     // pointer that points to itself. (We do this because prefetches of invalid
     // pointers are slow.)
-    size_t num_pointers = max_capacities[size_class];
+    size_t num_pointers = get_shift_capacity(size_class);
     if (num_pointers > 0) ++num_pointers;
     bytes_required += sizeof(void*) * num_pointers;
   }
@@ -577,13 +643,27 @@ inline void ValidateEnoughSlabBytes(uint16_t* max_capacities, uint8_t shift) {
 }
 
 template <class Forwarder>
+inline uint16_t CPUCache<Forwarder>::GetMaxCapacity(int size_class) const {
+  return GetMaxCapacityFunctor()(size_class);
+}
+
+template <class Forwarder>
+inline GetShiftMaxCapacity CPUCache<Forwarder>::GetMaxCapacityFunctor() const {
+  return {max_capacity_, freelist_.GetShift(),
+          NumaShift(forwarder_.numa_topology())};
+}
+
+template <class Forwarder>
 inline void CPUCache<Forwarder>::Activate() {
   int num_cpus = absl::base_internal::NumCPUs();
 
-  size_t per_cpu_shift = kPerCpuShift;
+  uint8_t per_cpu_shift = forwarder_.per_cpu_caches_dynamic_slab_enabled()
+                              ? kInitialPerCpuShift
+                              : kMaxPerCpuShift;
   const auto& topology = forwarder_.numa_topology();
+  const uint8_t numa_shift = NumaShift(topology);
   if (topology.numa_aware()) {
-    per_cpu_shift += absl::bit_ceil(topology.active_partitions() - 1);
+    per_cpu_shift += numa_shift;
   }
 
   // Deal with size classes that correspond only to NUMA partitions that are in
@@ -592,18 +672,19 @@ inline void CPUCache<Forwarder>::Activate() {
   for (int size_class = 0;
        size_class < topology.active_partitions() * kNumBaseClasses;
        ++size_class) {
-    const uint16_t mc = MaxCapacity(size_class);
-    max_capacity_[size_class] = mc;
+    max_capacity_[size_class] = MaxCapacity(size_class);
   }
 
   // Deal with expanded size classes.
   for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
        ++size_class) {
-    const uint16_t mc = MaxCapacity(size_class);
-    max_capacity_[size_class] = mc;
+    max_capacity_[size_class] = MaxCapacity(size_class);
   }
 
-  ValidateEnoughSlabBytes(max_capacity_, per_cpu_shift);
+  // Verify that all the possible shifts will have valid max capacities.
+  for (uint8_t shift = per_cpu_shift; shift <= kMaxPerCpuShift; ++shift) {
+    ValidateEnoughSlabBytes({max_capacity_, shift, numa_shift});
+  }
 
   resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
@@ -621,10 +702,9 @@ inline void CPUCache<Forwarder>::Activate() {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  freelist_.Init(
-      &forwarder_.Alloc,
-      [this](size_t size_class) { return this->max_capacity_[size_class]; },
-      subtle::percpu::ToShiftType(per_cpu_shift));
+  freelist_.Init(&forwarder_.Alloc,
+                 GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
+                 subtle::percpu::ToShiftType(per_cpu_shift));
 }
 
 template <class Forwarder>
@@ -727,7 +807,7 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // it again. Also we will shrink it by 1, but grow by a batch. So we should
   // have lots of time until we need to grow it again.
 
-  const size_t max_capacity = max_capacity_[size_class];
+  const size_t max_capacity = GetMaxCapacity(size_class);
   size_t capacity = freelist_.Capacity(cpu, size_class);
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
@@ -737,9 +817,7 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
       [](CPUCache* cache, int cpu) {
         {
           absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCpu(cpu, [cache](size_t size_class) {
-            return cache->max_capacity_[size_class];
-          });
+          cache->freelist_.InitCpu(cpu, cache->GetMaxCapacityFunctor());
         }
 
         // While we could unconditionally store, a lazy slab population
@@ -822,7 +900,7 @@ inline void CPUCache<Forwarder>::Grow(int cpu, size_t size_class,
   actual_increase = std::min(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
   size_t increase = freelist_.Grow(cpu, size_class, actual_increase,
-                                   max_capacity_[size_class]);
+                                   GetMaxCapacity(size_class));
   size_t increased_bytes = increase * size;
   if (increased_bytes < acquired_bytes) {
     // return whatever we didn't use to the slack.
@@ -1329,6 +1407,30 @@ inline uint64_t CPUCache<Forwarder>::CacheLimit() const {
   return forwarder_.max_per_cpu_cache_size();
 }
 
+template <class CPUCache>
+struct DrainHandler {
+  void operator()(int cpu, size_t size_class, void** batch, size_t count,
+                  size_t cap) const {
+    const size_t size = cache->forwarder_.class_to_size(size_class);
+    const size_t batch_length =
+        cache->forwarder_.num_objects_to_move(size_class);
+    if (bytes != nullptr) *bytes += count * size;
+    // Drain resets capacity to 0, so return the allocated capacity to that
+    // CPU's slack.
+    cache->resize_[cpu].available.fetch_add(cap * size,
+                                            std::memory_order_relaxed);
+    auto& transfer_cache = cache->forwarder_.transfer_cache();
+    for (size_t i = 0; i < count; i += batch_length) {
+      size_t n = std::min(batch_length, count - i);
+      transfer_cache.InsertRange(size_class, absl::Span<void*>(batch + i, n));
+    }
+  }
+
+  // `cache` must be non-null.
+  CPUCache* cache;
+  uint64_t* bytes;
+};
+
 template <class Forwarder>
 inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   absl::base_internal::SpinLockHolder h(&resize_[cpu].lock);
@@ -1341,20 +1443,7 @@ inline uint64_t CPUCache<Forwarder>::Reclaim(int cpu) {
   }
 
   uint64_t bytes = 0;
-  freelist_.Drain(cpu, [this, &bytes](int cpu, size_t size_class, void** batch,
-                                      size_t count, size_t cap) {
-    const size_t size = forwarder_.class_to_size(size_class);
-    const size_t batch_length = forwarder_.num_objects_to_move(size_class);
-    bytes += count * size;
-    // Drain resets capacity to 0, so return the allocated capacity to that
-    // CPU's slack.
-    resize_[cpu].available.fetch_add(cap * size, std::memory_order_relaxed);
-    auto& transfer_cache = forwarder_.transfer_cache();
-    for (size_t i = 0; i < count; i += batch_length) {
-      size_t n = std::min(batch_length, count - i);
-      transfer_cache.InsertRange(size_class, absl::Span<void*>(batch + i, n));
-    }
-  });
+  freelist_.Drain(cpu, DrainHandler<CPUCache>{this, &bytes});
 
   // Record that the reclaim occurred for this CPU.
   resize_[cpu].num_reclaims.store(
@@ -1375,6 +1464,46 @@ inline uint64_t CPUCache<Forwarder>::GetNumReclaims() const {
   for (int cpu = 0; cpu < num_cpus; ++cpu)
     reclaims += resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
   return reclaims;
+}
+
+template <class Forwarder>
+void CPUCache<Forwarder>::GrowSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  uint8_t per_cpu_shift = freelist_.GetShift();
+  if (per_cpu_shift == kMaxPerCpuShift) return;
+
+  // As a simple heuristic, we decide to grow if the total number of overflows
+  // is large compared to total number of underflows during the growth period.
+  const int num_cpus = absl::base_internal::NumCPUs();
+  CpuCacheMissStats total_misses{};
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    total_misses +=
+        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabGrowth);
+  }
+  // If the slab size was infinite, we would expect 0 overflows. If the slab
+  // size was 0, we would expect approximately equal numbers of underflows and
+  // overflows.
+  if (total_misses.overflows <
+      total_misses.underflows *
+          forwarder_.per_cpu_caches_dynamic_slab_threshold())
+    return;
+
+  ++per_cpu_shift;
+
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
+  const auto [old_slabs, old_slabs_size] = freelist_.GrowSlabs(
+      subtle::percpu::ToShiftType(per_cpu_shift), &forwarder_.Alloc,
+      GetShiftMaxCapacity{max_capacity_, per_cpu_shift,
+                          NumaShift(forwarder_.numa_topology())},
+      [this](int cpu) { return HasPopulated(cpu); },
+      DrainHandler<CPUCache>{this, nullptr});
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
+
+  // madvise away the old slabs memory.
+  // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once the
+  // kernel enables huge zero pages.
+  madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
+  const int madvise_ret = madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
+  if (madvise_ret == 0) forwarder_.ArenaReportNonresident(old_slabs_size);
 }
 
 template <class Forwarder>
@@ -1518,7 +1647,7 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
         "%6zu (maximum),"
         "%6zu maximum allowed capacity\n",
         size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
-        stats.avg_capacity, stats.max_capacity, max_capacity_[size_class]);
+        stats.avg_capacity, stats.max_capacity, GetMaxCapacity(size_class));
   }
 
   out->printf("------------------------------------------------\n");
@@ -1572,7 +1701,7 @@ inline void CPUCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     entry.PrintI64("min_capacity", stats.min_capacity);
     entry.PrintDouble("avg_capacity", stats.avg_capacity);
     entry.PrintI64("max_capacity", stats.max_capacity);
-    entry.PrintI64("max_allowed_capacity", max_capacity_[size_class]);
+    entry.PrintI64("max_allowed_capacity", GetMaxCapacity(size_class));
   }
 }
 
