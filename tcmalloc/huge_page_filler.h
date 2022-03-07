@@ -25,6 +25,7 @@
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
@@ -906,73 +907,14 @@ class HugePageFiller {
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
  private:
-  typedef TList<TrackerType> TrackerList;
-
   // This class wraps an array of N TrackerLists and a Bitmap storing which
   // elements are non-empty.
   template <size_t N>
-  class HintedTrackerLists {
+  class PageTrackerLists : public HintedTrackerLists<TrackerType, N> {
    public:
-    HintedTrackerLists() : nonempty_{}, size_(NHugePages(0)) {}
-
-    // Removes a TrackerType from the first non-empty freelist with index at
-    // least n and returns it. Returns nullptr if there is none.
-    TrackerType* GetLeast(const size_t n) {
-      ASSERT(n < N);
-      size_t i = nonempty_.FindSet(n);
-      if (i == N) {
-        return nullptr;
-      }
-      ASSERT(!lists_[i].empty());
-      TrackerType* pt = lists_[i].first();
-      if (lists_[i].remove(pt)) {
-        nonempty_.ClearBit(i);
-      }
-      --size_;
-      return pt;
+    HugeLength size() const {
+      return NHugePages(HintedTrackerLists<TrackerType, N>::size());
     }
-    void Add(TrackerType* pt, const size_t i) {
-      ASSERT(i < N);
-      ASSERT(pt != nullptr);
-      lists_[i].prepend(pt);
-      nonempty_.SetBit(i);
-      ++size_;
-    }
-    void Remove(TrackerType* pt, const size_t i) {
-      ASSERT(i < N);
-      ASSERT(pt != nullptr);
-      if (lists_[i].remove(pt)) {
-        nonempty_.ClearBit(i);
-      }
-      --size_;
-    }
-    const TrackerList& operator[](const size_t n) const {
-      ASSERT(n < N);
-      return lists_[n];
-    }
-    HugeLength size() const { return size_; }
-    bool empty() const { return size().raw_num() == 0; }
-    // Runs a functor on all HugePages in the TrackerLists.
-    // This method is const but the Functor gets passed a non-const pointer.
-    // This quirk is inherited from TrackerList.
-    template <typename Functor>
-    void Iter(const Functor& func, size_t start) const {
-      size_t i = nonempty_.FindSet(start);
-      while (i < N) {
-        auto& list = lists_[i];
-        ASSERT(!list.empty());
-        for (TrackerType* pt : list) {
-          func(pt);
-        }
-        i++;
-        if (i < N) i = nonempty_.FindSet(i);
-      }
-    }
-
-   private:
-    TrackerList lists_[N];
-    Bitmap<N> nonempty_;
-    HugeLength size_;
   };
 
   SubreleaseStats subrelease_stats_;
@@ -988,8 +930,8 @@ class HugePageFiller {
   static size_t ListFor(Length longest, size_t chunk);
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
-  HintedTrackerLists<kNumLists> regular_alloc_;
-  HintedTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
+  PageTrackerLists<kNumLists> regular_alloc_;
+  PageTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
   // When FillerPartialRerelease == Return:
@@ -1008,12 +950,12 @@ class HugePageFiller {
   // pages in those huge pages that are not free (i.e., allocated).
   Length n_used_partial_released_;
   Length n_used_released_;
-  HintedTrackerLists<kNumLists> regular_alloc_partial_released_;
-  HintedTrackerLists<kNumLists> regular_alloc_released_;
+  PageTrackerLists<kNumLists> regular_alloc_partial_released_;
+  PageTrackerLists<kNumLists> regular_alloc_released_;
 
-  // RemoveFromFillerList pt from the appropriate HintedTrackerList.
+  // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
-  // Put pt in the appropriate HintedTrackerList.
+  // Put pt in the appropriate PageTrackerList.
   void AddToFillerList(TrackerType* pt);
   // Like AddToFillerList(), but for use when donating from the tail of a
   // multi-hugepage allocation.
@@ -1036,7 +978,7 @@ class HugePageFiller {
   template <size_t N>
   static int SelectCandidates(absl::Span<TrackerType*> candidates,
                               int current_candidates,
-                              const HintedTrackerLists<N>& tracker_list,
+                              const PageTrackerLists<N>& tracker_list,
                               size_t tracker_start);
 
   // Release desired pages from the page trackers in candidates.  Returns the
@@ -1279,7 +1221,7 @@ HugePageFiller<TrackerType>::TryGet(Length n) {
   // store each group in a TrackerList. All freshly-donated groups are stored
   // in a "donated" array and the groups with (possibly prior) small allocs are
   // stored in a "regular" array. Each of these arrays is encapsulated in a
-  // HintedTrackerLists object, which stores the array together with a bitmap to
+  // PageTrackerLists object, which stores the array together with a bitmap to
   // quickly find non-empty lists. The lists are ordered to satisfy the
   // following two useful properties:
   //
@@ -1289,8 +1231,8 @@ HugePageFiller<TrackerType>::TryGet(Length n) {
   //   for allocation.
   //
   // So all we have to do is find the first nonempty freelist in the regular
-  // HintedTrackerList that *could* support our allocation, and it will be our
-  // best choice. If there is none we repeat with the donated HintedTrackerList.
+  // PageTrackerList that *could* support our allocation, and it will be our
+  // best choice. If there is none we repeat with the donated PageTrackerList.
   ASSUME(n < kPagesPerHugePage);
   TrackerType* pt;
 
@@ -1430,7 +1372,7 @@ template <class TrackerType>
 template <size_t N>
 inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType*> candidates, int current_candidates,
-    const HintedTrackerLists<N>& tracker_list, size_t tracker_start) {
+    const PageTrackerLists<N>& tracker_list, size_t tracker_start) {
   auto PushCandidate = [&](TrackerType* pt) {
     // If we have few candidates, we can avoid creating a heap.
     //
