@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// This tests ReadStackTraces and ReadGrowthStackTraces.  It does this
-// by doing a bunch of allocations and then calling those functions.
-// A driver shell-script can call this, and then call pprof, and
-// verify the expected output.  The output is written to
-// argv[1].heap and argv[1].growth
+// This tests SnapshotCurrent.  It does this by doing a bunch of allocations and
+// then evaluating the returned profile.
 
 #include <math.h>
 #include <stddef.h>
