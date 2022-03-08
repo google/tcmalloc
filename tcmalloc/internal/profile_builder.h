@@ -45,8 +45,6 @@ class ProfileBuilder {
  public:
   ProfileBuilder();
 
-  const perftools::profiles::Profile& profile() const { return *profile_; }
-
   perftools::profiles::Profile& profile() { return *profile_; }
 
   // Adds the current process mappings to the profile.
