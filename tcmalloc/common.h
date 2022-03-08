@@ -254,12 +254,6 @@ inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
 inline constexpr uintptr_t kTagMask = uintptr_t{kNumaPartitions > 1 ? 0x7 : 0x3}
                                       << kTagShift;
 
-// Returns true if ptr is tagged.
-ABSL_DEPRECATED("Replace with specific tests")
-inline bool IsTaggedMemory(const void* ptr) {
-  return (reinterpret_cast<uintptr_t>(ptr) & kTagMask) == 0;
-}
-
 inline bool IsSampledMemory(const void* ptr) {
   constexpr uintptr_t kSampledNormalMask = kNumaPartitions > 1 ? 0x3 : 0x1;
 

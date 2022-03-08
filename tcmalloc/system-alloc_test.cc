@@ -45,7 +45,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
       void* p = MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
-      EXPECT_EQ(IsTaggedMemory(p), tag == MemoryTag::kSampled);
+      EXPECT_EQ(IsSampledMemory(p), tag == MemoryTag::kSampled);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
       EXPECT_EQ(munmap(p, size), 0);
