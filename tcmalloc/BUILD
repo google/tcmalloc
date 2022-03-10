@@ -47,6 +47,7 @@ cc_library(
         "experiment_config.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//third_party/protobuf:__pkg__"],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:environment",
