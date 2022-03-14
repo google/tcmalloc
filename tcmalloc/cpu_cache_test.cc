@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 
 #include <iostream>
+#include <limits>
 #include <new>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
@@ -27,6 +28,7 @@
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/random/seed_sequences.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/util.h"
@@ -38,6 +40,24 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+class CpuCachePeer {
+ public:
+  template <typename CpuCache>
+  static size_t GetSlabShift(const CpuCache& cpu_cache) {
+    return cpu_cache.freelist_.GetShift();
+  }
+
+  // Validate that we're using >90% of the available slab bytes.
+  template <typename CpuCache>
+  static void ValidateSlabBytes(const CpuCache& cpu_cache) {
+    const auto [bytes_required, bytes_available] =
+        EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor());
+    EXPECT_GT(bytes_required * 10, bytes_available * 9)
+        << bytes_required << " " << bytes_available << " " << kNumaPartitions
+        << " " << kNumBaseClasses << " " << kNumClasses;
+  }
+};
+
 namespace {
 
 class TestStaticForwarder {
@@ -58,6 +78,16 @@ class TestStaticForwarder {
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
     sized_aligned_delete(ptr, size, alignment);
+  }
+
+  void ArenaReportNonresident(size_t bytes) {
+    arena_reported_nonresident_bytes_ += bytes;
+  }
+
+  bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
+
+  double per_cpu_caches_dynamic_slab_threshold() {
+    return grow_slab_ ? 0.0 : std::numeric_limits<double>::max();
   }
 
   size_t class_to_size(int size_class) const {
@@ -96,6 +126,10 @@ class TestStaticForwarder {
     return transfer_cache_;
   }
 
+  size_t arena_reported_nonresident_bytes_ = 0;
+  bool dynamic_slab_enabled_ = false;
+  bool grow_slab_ = false;
+
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
   ArenaBasedFakeTransferCacheManager owner_;
@@ -123,9 +157,11 @@ TEST(CpuCacheTest, Metadata) {
   cache.Activate();
 
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(r.virtual_size,
-            subtle::percpu::GetSlabsAllocSize(
-                subtle::percpu::ToShiftType(CPUCache::kPerCpuShift), num_cpus));
+  EXPECT_EQ(
+      r.virtual_size,
+      subtle::percpu::GetSlabsAllocSize(
+          subtle::percpu::ToShiftType(cpu_cache_internal::kMaxPerCpuShift),
+          num_cpus));
   EXPECT_EQ(r.resident_size, 0);
 
   auto count_cores = [&]() {
@@ -171,9 +207,11 @@ TEST(CpuCacheTest, Metadata) {
   EXPECT_EQ(1, count_cores());
 
   r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(r.virtual_size,
-            subtle::percpu::GetSlabsAllocSize(
-                subtle::percpu::ToShiftType(CPUCache::kPerCpuShift), num_cpus));
+  EXPECT_EQ(
+      r.virtual_size,
+      subtle::percpu::GetSlabsAllocSize(
+          subtle::percpu::ToShiftType(cpu_cache_internal::kMaxPerCpuShift),
+          num_cpus));
 
   // We expect to fault in a single core, but we may end up faulting an
   // entire hugepage worth of memory
@@ -190,7 +228,7 @@ TEST(CpuCacheTest, Metadata) {
   // cache.  It may need to be updated from time to time.  These numbers were
   // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
   // measuring the resident size.
-  switch (CPUCache::kPerCpuShift) {
+  switch (cpu_cache_internal::kMaxPerCpuShift) {
     case 12:
       EXPECT_GE(r.resident_size, 4096);
       break;
@@ -200,7 +238,7 @@ TEST(CpuCacheTest, Metadata) {
     default:
       ASSUME(false);
       break;
-  };
+  }
 
   // Read stats from the CPU caches.  This should not impact resident_size.
   const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
@@ -395,6 +433,106 @@ TEST(CpuCacheTest, StealCpuCache) {
   EXPECT_EQ(capacity, kTotalCapacity);
 
   cache.Deactivate();
+}
+
+// Test that when slab growth is enabled, nothing goes horribly wrong and that
+// arena non-resident bytes increases as expected.
+TEST(CpuCacheTest, SlabGrowth) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CPUCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+
+  size_t prev_reported_nonresident_bytes =
+      forwarder.arena_reported_nonresident_bytes_;
+  forwarder.dynamic_slab_enabled_ = true;
+  forwarder.grow_slab_ = false;
+
+  cache.Activate();
+
+  std::vector<std::thread> threads;
+  const int n_threads = absl::base_internal::NumCPUs();
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+  }
+
+  int shift = cpu_cache_internal::kInitialPerCpuShift;
+  const int numa_shift =
+      cpu_cache_internal::NumaShift(forwarder.numa_topology());
+  for (; shift < cpu_cache_internal::kMaxPerCpuShift + numa_shift; ++shift) {
+    for (bool grow : {false, true}) {
+      EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
+      absl::SleepFor(absl::Milliseconds(100));
+      forwarder.grow_slab_ = grow;
+      cache.GrowSlabIfNeeded();
+      if (grow) {
+        EXPECT_LT(prev_reported_nonresident_bytes,
+                  forwarder.arena_reported_nonresident_bytes_);
+      } else {
+        EXPECT_EQ(prev_reported_nonresident_bytes,
+                  forwarder.arena_reported_nonresident_bytes_);
+      }
+      prev_reported_nonresident_bytes =
+          forwarder.arena_reported_nonresident_bytes_;
+    }
+  }
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  cache.Deactivate();
+}
+
+// Test that when slab growth parameters change, things still work.
+TEST(CpuCacheTest, SlabGrowthParamsChange) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  for (bool initially_enabled : {false, true}) {
+    for (bool initially_grow : {false, true}) {
+      CPUCache cache;
+      TestStaticForwarder& forwarder = cache.forwarder();
+      forwarder.dynamic_slab_enabled_ = initially_enabled;
+      forwarder.grow_slab_ = initially_grow;
+
+      cache.Activate();
+
+      std::vector<std::thread> threads;
+      const int n_threads = absl::base_internal::NumCPUs();
+      std::atomic<bool> stop(false);
+
+      for (size_t t = 0; t < n_threads; ++t) {
+        threads.push_back(
+            std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+      }
+
+      for (bool enabled : {false, true}) {
+        for (bool grow : {false, true}) {
+          absl::SleepFor(absl::Milliseconds(100));
+          forwarder.dynamic_slab_enabled_ = enabled;
+          forwarder.grow_slab_ = grow;
+          cache.GrowSlabIfNeeded();
+        }
+      }
+      stop = true;
+      for (auto& t : threads) {
+        t.join();
+      }
+
+      cache.Deactivate();
+    }
+  }
+}
+
+TEST(CpuCacheTest, SlabUsage) {
+  // Note: we can't do ValidateSlabBytes on the test-cpu-cache because in that
+  // case, the slab only uses size classes 1 and 2.
+  CpuCachePeer::ValidateSlabBytes(Static::cpu_cache());
 }
 
 // Runs a single allocate and deallocate operation to warm up the cache. Once a
