@@ -47,6 +47,14 @@ Length StaticForwarder::class_to_pages(int size_class) {
   return Length(Static::sizemap().class_to_pages(size_class));
 }
 
+void StaticForwarder::SetPrioritizeSpans(bool value) {
+  TCMalloc_Internal_SetPrioritizeSpansEnabled(value);
+}
+
+bool StaticForwarder::PrioritizeSpans() {
+  return TCMalloc_Internal_GetPrioritizeSpansEnabled();
+}
+
 Span* StaticForwarder::MapObjectToSpan(const void* object) {
   const PageId p = PageIdContaining(object);
   Span* span = Static::pagemap().GetExistingDescriptor(p);

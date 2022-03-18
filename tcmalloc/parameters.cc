@@ -78,6 +78,7 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::prioritize_spans_enabled_(false);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
@@ -174,6 +175,10 @@ bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled() {
   return Parameters::shuffle_per_cpu_caches();
 }
 
+bool TCMalloc_Internal_GetPrioritizeSpansEnabled() {
+  return Parameters::prioritize_spans();
+}
+
 double TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction() {
   return Parameters::peak_sampling_heap_growth_fraction();
 }
@@ -220,6 +225,10 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
   Parameters::shuffle_per_cpu_caches_enabled_.store(v,
                                                     std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v) {
+  Parameters::prioritize_spans_enabled_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {

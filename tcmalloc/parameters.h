@@ -83,6 +83,10 @@ class Parameters {
     return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
+  static bool prioritize_spans() {
+    return prioritize_spans_enabled_.load(std::memory_order_relaxed);
+  }
+
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
@@ -125,6 +129,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
@@ -142,6 +147,7 @@ class Parameters {
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
+  static std::atomic<bool> prioritize_spans_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;

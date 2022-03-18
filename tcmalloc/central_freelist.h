@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <cstddef>
 
 #include "absl/base/attributes.h"
@@ -25,9 +26,11 @@
 #include "absl/base/macros.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
@@ -45,6 +48,8 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
+  static void SetPrioritizeSpans(bool value);
+  static bool PrioritizeSpans();
 
   static Span* MapObjectToSpan(const void* object);
   static Span* AllocateSpan(int size_class, Length pages_per_span)
@@ -52,6 +57,9 @@ class StaticForwarder {
   static void DeallocateSpans(int size_class, absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
+
+// Specifies number of nonempty_ lists when span prioritization is enabled.
+static constexpr size_t kNumLists = 8;
 
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
@@ -64,6 +72,7 @@ class CentralFreeList {
         size_class_(0),
         object_size_(0),
         objects_per_span_(0),
+        first_nonempty_index_(0),
         pages_per_span_(0),
         nonempty_() {}
 
@@ -92,6 +101,9 @@ class CentralFreeList {
   // page full of 5-byte objects would have 2 bytes memory overhead).
   size_t OverheadBytes() const;
 
+  // Returns number of live spans currently in the nonempty_[n] list.
+  // REQUIRES: n >= 0 && n < kNumLists.
+  size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
   // Reports span utilization histogram stats.
@@ -101,9 +113,9 @@ class CentralFreeList {
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
   // absolute number of allocated objects, it uses absl::bit_width(allocated),
-  // passed as <allocated_bw>, to index and return the number of spans in the
+  // passed as <bitwidth>, to index and return the number of spans in the
   // histogram.
-  size_t NumSpansWith(uint16_t allocated_bw) const;
+  size_t NumSpansWith(uint16_t bitwidth) const;
 
   Forwarder& forwarder() { return forwarder_; }
 
@@ -119,12 +131,49 @@ class CentralFreeList {
   // freelist. Returns the number of elements removed.
   int Populate(void** batch, int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
+  // Parses nonempty_ lists and returns span from the list with the lowest
+  // possible index when span prioritization is enabled.
+  // Returns the span if one exists in the nonempty_ lists. Else, returns
+  // nullptr.
+  Span* FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+
+  // Returns first index to the nonempty_ lists that may record spans. When span
+  // prioritization is enabled, this returns first_nonempty_index_. When
+  // disabled, this returns kNumLists - 1 as this is the index to the nonempty_
+  // list we use to record all the spans.
+  uint8_t GetFirstNonEmptyIndex();
+
+  // Returns index into nonempty_ based on the number of allocated objects for
+  // the span. Instead of using the absolute number of allocated objects, it
+  // uses absl::bit_width(allocated), passed as bitwidth, to calculate the list
+  // index.
+  uint8_t IndexFor(uint8_t bitwidth);
+
+  // Records span utilization in objects_to_span_ map. Instead of using the
+  // absolute number of allocated objects, it uses
+  // absl::bit_width(allocated), passed as <bitwidth>, to index this map.
+  //
+  // If increase is set to true, includes the span by incrementing the count
+  // in the map. Otherwise, removes the span by decrementing the count in
+  // the map.
+  void RecordSpanUtil(uint8_t bitwidth, bool increase)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
+    ASSUME(bitwidth > 0);
+    // Updates to objects_to_span_ are guarded by lock_, so writes may be
+    // performed using LossyAdd.
+    objects_to_spans_[bitwidth - 1].LossyAdd(increase ? 1 : -1);
+  }
+
   // This lock protects all the mutable data members.
   absl::base_internal::SpinLock lock_;
 
   size_t size_class_;  // My size class (immutable after Init())
   size_t object_size_;
   size_t objects_per_span_;
+  // Hint used for parsing through the nonempty_ lists. This prevents us from
+  // parsing the lists with an index starting zero, if the lowest possible index
+  // is higher than that.
+  size_t first_nonempty_index_;
   Length pages_per_span_;
 
   size_t num_spans() const {
@@ -171,7 +220,7 @@ class CentralFreeList {
   // spans with allocated objects in the range [a,b), indexed as: [1,2) in
   // objects_to_spans_[0], [2,4) in objects_to_spans_[1], [4, 8) in
   // objects_to_spans_[2] and so on. We can query the objects_to_spans_ map
-  // using NumSpansWith(allocated_bw) to obtain the number of spans associated
+  // using NumSpansWith(bitwidth) to obtain the number of spans associated
   // with the corresponding bucket in the histogram.
   //
   // As the actual value of objects_per_span_ is not known at compile time, we
@@ -182,23 +231,12 @@ class CentralFreeList {
   static constexpr size_t kSpanUtilBucketCapacity = 16;
   StatsCounter objects_to_spans_[kSpanUtilBucketCapacity];
 
-  // Records <span> in objects_to_span_ map.
-  // If increase is set to true, includes the span by incrementing the count
-  // in the map. Otherwise, removes the span by decrementing the count in
-  // the map.
-  //
-  // Updates to objects_to_span_ are guarded by lock_, so writes may be
-  // performed using LossyAdd.
-  void RecordSpanUtil(Span* span, bool increase)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    const uint16_t allocated = span->Allocated();
-    ASSUME(allocated > 0);
-    objects_to_spans_[absl::bit_width(allocated) - 1].LossyAdd(increase ? 1
-                                                                        : -1);
-  }
-
-  // Dummy header for non-empty spans
-  SpanList nonempty_ ABSL_GUARDED_BY(lock_);
+  // Non-empty lists that distinguish spans based on the number of objects
+  // allocated from them. When span prioritization is enabled, spans may be
+  // added to any of the kNumLists nonempty_ lists based on their allocated
+  // objects. If span prioritization is disabled, we add spans to the
+  // nonempty_[kNumlists-1] list, leaving other lists unused.
+  HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
 
   TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -212,6 +250,11 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   pages_per_span_ = Forwarder::class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+  // Records nonempty_ list index associated with the span with
+  // objects_per_span_ number of allocated objects. Refer to the comment in
+  // IndexFor(...) below for a detailed description.
+  first_nonempty_index_ =
+      kNumLists - std::min(absl::bit_width(objects_per_span_), kNumLists);
   ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
 }
 
@@ -220,19 +263,92 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
                                                         Span* span,
                                                         size_t object_size) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
-    nonempty_.prepend(span);
+    const uint8_t index = GetFirstNonEmptyIndex();
+    nonempty_.Add(span, index);
+    span->set_nonempty_index(index);
   }
 
+  const uint8_t prev_index = span->nonempty_index();
+  const uint8_t prev_bitwidth = absl::bit_width(span->Allocated());
+  if (ABSL_PREDICT_FALSE(!span->FreelistPush(object, object_size))) {
+    // Update the histogram as the span is full and will be removed from the
+    // nonempty_ list.
+    RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+    nonempty_.Remove(span, prev_index);
+    return span;
+  }
   // As the objects are being added to the span, its utilization might change.
   // We remove the stale utilization from the histogram and add the new
   // utilization to the histogram after we release objects to the span.
-  RecordSpanUtil(span, /*increase=*/false);
-  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
-    RecordSpanUtil(span, /*increase=*/true);
-    return nullptr;
+  const uint8_t cur_bitwidth = absl::bit_width(span->Allocated());
+  if (cur_bitwidth != prev_bitwidth) {
+    RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+    RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+    // If span allocation changes so that it moved to a different nonempty_
+    // list, we remove it from the previous list and add it to the desired
+    // list indexed by cur_index.
+    const uint8_t cur_index = IndexFor(cur_bitwidth);
+    if (cur_index != prev_index) {
+      nonempty_.Remove(span, prev_index);
+      nonempty_.Add(span, cur_index);
+      span->set_nonempty_index(cur_index);
+    }
   }
-  span->RemoveFromList();  // from nonempty_
-  return span;
+  return nullptr;
+}
+
+template <class Forwarder>
+inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
+  // If span prioritization is enabled, scan nonempty_ lists in the range
+  // [first_nonempty_index_, kNumLists) and return the span from a non-empty
+  // list if one exists. If all the lists are empty, return nullptr.
+  // If span prioritization is disabled, we map all the spans to the kNumLists-1
+  // nonempty_ list so that we do not incur the cost of scanning all the lists
+  // between [first_nonempty_index_, kNumLists); we just scan one list.
+  return nonempty_.PeekLeast(GetFirstNonEmptyIndex());
+}
+
+template <class Forwarder>
+inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() {
+  return forwarder_.PrioritizeSpans() ? first_nonempty_index_ : kNumLists - 1;
+}
+
+template <class Forwarder>
+inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint8_t bitwidth) {
+  // If span prioritization is disabled, we map all the spans to a single
+  // nonempty_ list.
+  if (!forwarder_.PrioritizeSpans()) {
+    return kNumLists - 1;
+  }
+
+  // We would like to index into the nonempty_ list based on the number of
+  // allocated objects from the span. Given a span with fewer allocated objects
+  // (i.e. when it is more likely to be freed), we would like to map it to a
+  // higher index in the nonempty_ list. Depending on the number of kNumLists
+  // and the number of objects per span, we may have to clamp multiple buckets
+  // in index 0. It should be ok to do that because it is less beneficial to
+  // differentiate between spans that have 128 vs 256 allocated objects,
+  // compared to those that have 16 vs 32 allocated objects.
+  //
+  // Consider objects_per_span = 1024 and kNumLists = 8. The following examples
+  // show spans with allocated objects in the range [a, b) indexed to the
+  // nonempty_[idx] list using a notation [a, b) -> idx.
+  // [1, 2) -> 7, [2, 4) -> 6, [4, 8) -> 5, [8, 16) -> 4, [16, 32) -> 3, [32,
+  // 64) -> 2, [64, 128) -> 1, [128, 1024) -> 0.
+
+  ASSUME(bitwidth > 0);
+  const uint8_t offset = std::min<size_t>(bitwidth, kNumLists);
+  const uint8_t index = kNumLists - offset;
+  ASSUME(index < kNumLists);
+  return index;
+}
+
+template <class Forwarder>
+inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
+  ASSUME(n >= 0);
+  ASSUME(n < kNumLists);
+  absl::base_internal::SpinLockHolder h(&lock_);
+  return nonempty_.SizeOfList(n);
 }
 
 template <class Forwarder>
@@ -283,25 +399,41 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
   size_t object_size = object_size_;
   int result = 0;
   absl::base_internal::SpinLockHolder h(&lock_);
-  if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
-    result = Populate(batch, N);
-  } else {
-    do {
-      Span* span = nonempty_.first();
-      // As the objects are being popped from the span, its utilization might
-      // change. So, we remove the stale utilization from the histogram here and
-      // add it again once we pop the objects.
-      RecordSpanUtil(span, /*increase=*/false);
-      int here =
-          span->FreelistPopBatch(batch + result, N - result, object_size);
-      RecordSpanUtil(span, /*increase=*/true);
-      ASSERT(here > 0);
-      if (span->FreelistEmpty(object_size)) {
-        span->RemoveFromList();  // from nonempty_
+
+  do {
+    Span* span = FirstNonEmptySpan();
+    if (ABSL_PREDICT_FALSE(!span)) {
+      result += Populate(batch + result, N - result);
+      continue;
+    }
+
+    const uint8_t prev_bitwidth = absl::bit_width(span->Allocated());
+    const uint8_t prev_index = span->nonempty_index();
+    int here = span->FreelistPopBatch(batch + result, N - result, object_size);
+    ASSERT(here > 0);
+    // As the objects are being popped from the span, its utilization might
+    // change. So, we remove the stale utilization from the histogram here and
+    // add it again once we pop the objects.
+    const uint8_t cur_bitwidth = absl::bit_width(span->Allocated());
+    if (cur_bitwidth != prev_bitwidth) {
+      RecordSpanUtil(prev_bitwidth, /*increase=*/false);
+      RecordSpanUtil(cur_bitwidth, /*increase=*/true);
+    }
+    if (span->FreelistEmpty(object_size)) {
+      nonempty_.Remove(span, prev_index);
+    } else if (cur_bitwidth != prev_bitwidth) {
+      // If span allocation changes so that it must be moved to a different
+      // nonempty_ list, we remove it from the previous list and add it to the
+      // desired list indexed by cur_index.
+      const uint8_t cur_index = IndexFor(cur_bitwidth);
+      if (cur_index != prev_index) {
+        nonempty_.Remove(span, prev_index);
+        nonempty_.Add(span, cur_index);
+        span->set_nonempty_index(cur_index);
       }
-      result += here;
-    } while (result < N && !nonempty_.empty());
-  }
+    }
+    result += here;
+  } while (result < N);
   UpdateObjectCounts(-result);
   return result;
 }
@@ -333,9 +465,12 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
   lock_.Lock();
 
   // Update the histogram once we populate the span.
-  RecordSpanUtil(span, /*increase=*/true);
+  const uint8_t bitwidth = absl::bit_width(span->Allocated());
+  RecordSpanUtil(bitwidth, /*increase=*/true);
   if (!span_empty) {
-    nonempty_.prepend(span);
+    const uint8_t index = IndexFor(bitwidth);
+    nonempty_.Add(span, index);
+    span->set_nonempty_index(index);
   }
   RecordSpanAllocated();
   return result;
@@ -364,9 +499,9 @@ inline SpanStats CentralFreeList<Forwarder>::GetSpanStats() const {
 
 template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansWith(
-    uint16_t allocated_bw) const {
-  ASSERT(allocated_bw > 0);
-  const int bucket = allocated_bw - 1;
+    uint16_t bitwidth) const {
+  ASSERT(bitwidth > 0);
+  const int bucket = bitwidth - 1;
   return objects_to_spans_[bucket].value();
 }
 

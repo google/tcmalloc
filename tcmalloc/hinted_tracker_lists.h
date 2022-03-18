@@ -48,6 +48,21 @@ class HintedTrackerLists {
     return pt;
   }
 
+  // Returns a pointer to the TrackerType from the first non-empty freelist with
+  // index at least n and returns it. Returns nullptr if there is none.
+  //
+  // Unlike GetLeast, this does not remove the pointer from the list when it is
+  // found.
+  TrackerType* PeekLeast(const size_t n) {
+    ASSERT(n < N);
+    size_t i = nonempty_.FindSet(n);
+    if (i == N) {
+      return nullptr;
+    }
+    ASSERT(!lists_[i].empty());
+    return lists_[i].first();
+  }
+
   // Adds pointer <pt> to the nonempty_[i] list.
   // REQUIRES: i < N && pt != nullptr.
   void Add(TrackerType* pt, const size_t i) {
@@ -74,6 +89,13 @@ class HintedTrackerLists {
   }
   size_t size() const { return size_; }
   bool empty() const { return size_ == 0; }
+
+  // Returns length of the list at an index <n>.
+  // REQUIRES: n < N.
+  size_t SizeOfList(const size_t n) const {
+    ASSERT(n < N);
+    return lists_[n].length();
+  }
   // Runs a functor on all pointers in the TrackerLists.
   // This method is const but the Functor gets passed a non-const pointer.
   // This quirk is inherited from TrackerList.

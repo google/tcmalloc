@@ -161,6 +161,11 @@ class Span : public SpanList::Elem {
   // Returns number of objects allocated in the span.
   uint16_t Allocated() const { return allocated_; }
 
+  // Returns index of the non-empty list to which this span belongs to.
+  uint8_t nonempty_index() const { return nonempty_index_; }
+  // Records an index of the non-empty list associated with this span.
+  void set_nonempty_index(uint8_t index) { nonempty_index_ = index; }
+
   // ---------------------------------------------------------------------------
   // Freelist management.
   // Used for spans in CentralFreelist to manage free objects.
@@ -241,6 +246,9 @@ class Span : public SpanList::Elem {
     uint16_t reciprocal_;
   };
   uint8_t cache_size_;
+  // TODO(b/130897106): Remove this once we enable span prioritization by
+  // default.
+  uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   uint8_t sampled_ : 1;   // Sampled object?
 
@@ -584,6 +592,7 @@ inline void Span::Init(PageId p, Length n) {
   num_pages_ = n;
   location_ = IN_USE;
   sampled_ = 0;
+  nonempty_index_ = 0;
 }
 
 }  // namespace tcmalloc_internal

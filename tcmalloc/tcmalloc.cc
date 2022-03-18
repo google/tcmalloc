@@ -540,6 +540,8 @@ static void DumpStats(Printer* out, int level) {
                 subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_shuffle_per_cpu_caches %d\n",
                 Parameters::shuffle_per_cpu_caches() ? 1 : 0);
+    out->printf("PARAMETER tcmalloc_prioritize_spans %d\n",
+                Parameters::prioritize_spans() ? 1 : 0);
   }
 }
 
@@ -695,6 +697,7 @@ namespace {
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
+  region.PrintBool("tcmalloc_prioritize_spans", Parameters::prioritize_spans());
 }
 
 }  // namespace
