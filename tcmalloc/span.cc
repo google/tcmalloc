@@ -49,6 +49,7 @@ SampledAllocation* Span::Unsample() {
   if (!sampled_) {
     return nullptr;
   }
+  ASSERT(sampled_ && sampled_allocation_);
   sampled_ = 0;
   SampledAllocation* sampled_allocation = sampled_allocation_;
   sampled_allocation_ = nullptr;
