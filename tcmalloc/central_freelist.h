@@ -250,11 +250,14 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   pages_per_span_ = Forwarder::class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+
   // Records nonempty_ list index associated with the span with
   // objects_per_span_ number of allocated objects. Refer to the comment in
   // IndexFor(...) below for a detailed description.
   first_nonempty_index_ =
-      kNumLists - std::min(absl::bit_width(objects_per_span_), kNumLists);
+      kNumLists -
+      std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
+
   ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
 }
 
