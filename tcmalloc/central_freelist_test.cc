@@ -419,6 +419,34 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   }
 }
 
+// Confirms that a call to RemoveRange returns at most kObjectsPerSpan objects
+// in cases when there are no non-empty spans in the central freelist. This
+// makes sure that we populate, and subsequently allocate from a single span.
+// This avoids memory regression due to multiple Populate calls observed in
+// b/225880278.
+TYPED_TEST_P(CentralFreeListTest, SinglePopulate) {
+  // Make sure that we allocate up to kObjectsPerSpan objects in both the span
+  // prioritization states.
+  for (bool prioritize : {false, true}) {
+    TypeParam e;
+    e.central_freelist().forwarder().SetPrioritizeSpans(prioritize);
+    // Try to fetch sufficiently large number of objects at startup.
+    const int num_objects_to_fetch = 10 * TypeParam::kObjectsPerSpan;
+    void* objects[num_objects_to_fetch];
+    const size_t got =
+        e.central_freelist().RemoveRange(objects, num_objects_to_fetch);
+    // Confirm we allocated at most kObjectsPerSpan number of objects.
+    EXPECT_GT(got, 0);
+    EXPECT_LE(got, TypeParam::kObjectsPerSpan);
+    size_t returned = 0;
+    while (returned < got) {
+      const size_t to_return = std::min(got - returned, TypeParam::kBatchSize);
+      e.central_freelist().InsertRange({&objects[returned], to_return});
+      returned += to_return;
+    }
+  }
+}
+
 // Checks if we are using only one nonempty_ list when span prioritization is
 // disabled.
 TYPED_TEST_P(CentralFreeListTest, SingleNonEmptyList) {
@@ -787,7 +815,8 @@ TYPED_TEST_P(CentralFreeListTest, ToggleSpanPrioritization) {
 REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
                             SingleNonEmptyList, MultiNonEmptyLists,
                             SpanPriority, SpanUtilizationHistogram,
-                            MultipleSpans, ToggleSpanPrioritization);
+                            MultipleSpans, ToggleSpanPrioritization,
+                            SinglePopulate);
 
 namespace unit_tests {
 

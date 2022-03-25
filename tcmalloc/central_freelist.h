@@ -407,7 +407,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
     Span* span = FirstNonEmptySpan();
     if (ABSL_PREDICT_FALSE(!span)) {
       result += Populate(batch + result, N - result);
-      continue;
+      break;
     }
 
     const uint8_t prev_bitwidth = absl::bit_width(span->Allocated());
