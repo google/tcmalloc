@@ -116,11 +116,11 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
   }
 
-  static bool per_cpu_caches_dynamic_slab_threshold() {
+  static double per_cpu_caches_dynamic_slab_threshold() {
     return per_cpu_caches_dynamic_slab_threshold_.load(
         std::memory_order_relaxed);
   }
-  static void set_per_cpu_caches_dynamic_slab_threshold(bool value) {
+  static void set_per_cpu_caches_dynamic_slab_threshold(double value) {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(value);
   }
 
