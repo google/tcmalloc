@@ -64,7 +64,6 @@ tcmalloc_deps = [
     ":experiment",
     ":malloc_extension",
     ":new_extension",
-    ":sampled_allocation",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
@@ -1211,7 +1210,6 @@ cc_test(
     deps = [
         ":sampled_allocation",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_googletest//:gtest_main",
     ],
 )

@@ -34,9 +34,7 @@ using ::testing::UnorderedElementsAre;
 struct Info : public Sample<Info> {
  public:
   Info() { PrepareForSampling(); }
-  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
-    initialized = true;
-  }
+  void PrepareForSampling() { initialized = true; }
   std::atomic<size_t> size;
   absl::Time create_time;
   bool initialized;
@@ -166,7 +164,6 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
           absl::Duration oldest = absl::ZeroDuration();
           sample_recorder_.Iterate([&](const Info& info) {
             oldest = std::max(oldest, absl::Now() - info.create_time);
-            ASSERT_TRUE(info.initialized);
           });
           ASSERT_GE(oldest, absl::ZeroDuration());
           break;

@@ -24,11 +24,7 @@ namespace tcmalloc_internal {
 
 // Stores information about the sampled allocation.
 struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
-  constexpr SampledAllocation() = default;
-
-  explicit SampledAllocation(const StackTrace& stack_trace) {
-    PrepareForSampling(stack_trace);
-  }
+  constexpr SampledAllocation() { PrepareForSampling(); }
 
   SampledAllocation(const SampledAllocation&) = delete;
   SampledAllocation& operator=(const SampledAllocation&) = delete;
@@ -38,11 +34,13 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
 
   // Puts the object into a clean state and blocks any readers currently
   // sampling the object.
-  void PrepareForSampling(const StackTrace& stack_trace)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
+  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
 
   // The stack trace of the sampled allocation.
   StackTrace sampled_stack = {};
+
+  // size after sizeclass/page rounding.
+  std::atomic<uintptr_t> allocated_size{0};
 };
 
 }  // namespace tcmalloc_internal

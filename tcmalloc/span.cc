@@ -33,34 +33,37 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void Span::Sample(SampledAllocation* sampled_allocation) {
-  CHECK_CONDITION(!sampled_ && sampled_allocation);
+void Span::Sample(StackTrace* stack) {
+  CHECK_CONDITION(!sampled_ && stack);
   sampled_ = 1;
-  sampled_allocation_ = sampled_allocation;
+  sampled_stack_ = stack;
+  Static::sampled_objects_.prepend(this);
 
   // The cast to value matches Unsample.
   tcmalloc_internal::StatsCounter::Value allocated_bytes =
       static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(sampled_allocation->sampled_stack, true));
-  Static::sampled_objects_size_.Add(allocated_bytes);
+          AllocatedBytes(*stack, true));
+  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
+  Static::sampled_objects_size_.LossyAdd(allocated_bytes);
 }
 
-SampledAllocation* Span::Unsample() {
+StackTrace* Span::Unsample() {
   if (!sampled_) {
     return nullptr;
   }
-  CHECK_CONDITION(sampled_ && sampled_allocation_);
+  CHECK_CONDITION(sampled_ && sampled_stack_);
   sampled_ = 0;
-  SampledAllocation* sampled_allocation = sampled_allocation_;
-  sampled_allocation_ = nullptr;
-
+  StackTrace* stack = sampled_stack_;
+  sampled_stack_ = nullptr;
+  RemoveFromList();  // from Static::sampled_objects_
   // The cast to Value ensures no funny business happens during the negation if
   // sizeof(size_t) != sizeof(Value).
   tcmalloc_internal::StatsCounter::Value neg_allocated_bytes =
       -static_cast<tcmalloc_internal::StatsCounter::Value>(
-          AllocatedBytes(sampled_allocation->sampled_stack, true));
-  Static::sampled_objects_size_.Add(neg_allocated_bytes);
-  return sampled_allocation;
+          AllocatedBytes(*stack, true));
+  // LossyAdd is ok: writes to sampled_objects_size_ guarded by pageheap_lock.
+  Static::sampled_objects_size_.LossyAdd(neg_allocated_bytes);
+  return stack;
 }
 
 double Span::Fragmentation() const {
