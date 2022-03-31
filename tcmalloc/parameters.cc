@@ -95,7 +95,9 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::per_cpu_caches_dynamic_slab_enabled_(false);
 ABSL_CONST_INIT std::atomic<double>
-    Parameters::per_cpu_caches_dynamic_slab_threshold_(0.9);
+    Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
+ABSL_CONST_INIT std::atomic<double>
+    Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.5);
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
@@ -287,12 +289,21 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
       v, std::memory_order_relaxed);
 }
 
-double TCMalloc_Internal_GetPerCpuCachesDynamicSlabThreshold() {
-  return Parameters::per_cpu_caches_dynamic_slab_threshold();
+double TCMalloc_Internal_GetPerCpuCachesDynamicSlabGrowThreshold() {
+  return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
 }
 
-void TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(double v) {
-  Parameters::per_cpu_caches_dynamic_slab_threshold_.store(
+void TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(double v) {
+  Parameters::per_cpu_caches_dynamic_slab_grow_threshold_.store(
+      v, std::memory_order_relaxed);
+}
+
+double TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold() {
+  return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
+}
+
+void TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v) {
+  Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_.store(
       v, std::memory_order_relaxed);
 }
 

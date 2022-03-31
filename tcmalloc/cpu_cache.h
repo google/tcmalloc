@@ -79,8 +79,12 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_enabled();
   }
 
-  static double per_cpu_caches_dynamic_slab_threshold() {
-    return Parameters::per_cpu_caches_dynamic_slab_threshold();
+  static double per_cpu_caches_dynamic_slab_grow_threshold() {
+    return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
+  }
+
+  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
   }
 
   static size_t class_to_size(int size_class) {
@@ -242,9 +246,9 @@ class CPUCache {
   // Reports total number of times any CPU has been reclaimed.
   uint64_t GetNumReclaims() const;
 
-  // When dynamic slab size is enabled, checks if there is a need to grow the
-  // slab based on miss-counts and grows if so.
-  void GrowSlabIfNeeded();
+  // When dynamic slab size is enabled, checks if there is a need to resize
+  // the slab based on miss-counts and resizes if so.
+  void ResizeSlabIfNeeded();
 
   struct CpuCacheMissStats {
     size_t underflows = 0;
@@ -1473,31 +1477,39 @@ inline uint64_t CPUCache<Forwarder>::GetNumReclaims() const {
 }
 
 template <class Forwarder>
-void CPUCache<Forwarder>::GrowSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+void CPUCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   uint8_t per_cpu_shift = freelist_.GetShift();
   const uint8_t numa_shift = NumaShift(forwarder_.numa_topology());
-  if (per_cpu_shift == kMaxPerCpuShift + numa_shift) return;
 
-  // As a simple heuristic, we decide to grow if the total number of overflows
-  // is large compared to total number of underflows during the growth period.
   const int num_cpus = absl::base_internal::NumCPUs();
   CpuCacheMissStats total_misses{};
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     total_misses +=
         GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabGrowth);
   }
+  // As a simple heuristic, we decide to grow if the total number of overflows
+  // is large compared to total number of underflows during the growth period.
   // If the slab size was infinite, we would expect 0 overflows. If the slab
   // size was 0, we would expect approximately equal numbers of underflows and
   // overflows.
-  if (total_misses.overflows <
+  // TODO(b/186636177): add telemetry for how many times we've grown/shrunk the
+  // slab at each shift value.
+  if (total_misses.overflows >
       total_misses.underflows *
-          forwarder_.per_cpu_caches_dynamic_slab_threshold())
+          forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
+    if (per_cpu_shift == kMaxPerCpuShift + numa_shift) return;
+    ++per_cpu_shift;
+  } else if (total_misses.overflows <
+             total_misses.underflows *
+                 forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
+    if (per_cpu_shift == kInitialPerCpuShift + numa_shift) return;
+    --per_cpu_shift;
+  } else {
     return;
-
-  ++per_cpu_shift;
+  }
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
-  const auto [old_slabs, old_slabs_size] = freelist_.GrowSlabs(
+  const auto [old_slabs, old_slabs_size] = freelist_.ResizeSlabs(
       subtle::percpu::ToShiftType(per_cpu_shift), &forwarder_.Alloc,
       GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
       [this](int cpu) { return HasPopulated(cpu); },
@@ -1508,6 +1520,8 @@ void CPUCache<Forwarder>::GrowSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once the
   // kernel enables huge zero pages.
   madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
+  // TODO(b/186636177): add telemetry for how many bytes are still resident
+  // because MADV_DONTNEED failed.
   const int madvise_ret = madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
   if (madvise_ret == 0) forwarder_.ArenaReportNonresident(old_slabs_size);
 }

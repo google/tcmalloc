@@ -689,7 +689,7 @@ void* allocator(size_t bytes, std::align_val_t alignment) {
 
 class StressThreadTest : public testing::TestWithParam<bool> {
  protected:
-  bool Grow() const { return GetParam(); }
+  bool Resize() const { return GetParam(); }
 };
 
 TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
@@ -704,7 +704,9 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
 
   TcmallocSlab slab;
-  size_t shift = Grow() ? 14 : kShift;
+  constexpr size_t kResizeInitialShift = 14;
+  constexpr size_t kResizeMaxShift = 18;
+  size_t shift = Resize() ? kResizeInitialShift : kShift;
   slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(shift));
   std::vector<std::thread> threads;
   const int num_cpus = absl::base_internal::NumCPUs();
@@ -712,7 +714,7 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
   // once_flag's protect InitCpu on a CPU.
   std::vector<absl::once_flag> init(num_cpus);
-  // Tracks whether init has occurred on a CPU for use in GrowSlabs.
+  // Tracks whether init has occurred on a CPU for use in ResizeSlabs.
   std::vector<std::atomic<bool>> has_init(num_cpus);
 
   // Mutexes protect Drain operation on a CPU.
@@ -741,7 +743,7 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   for (size_t t = 0; t < n_threads; ++t) {
     threads.push_back(std::thread(StressThread, t, std::ref(ctx)));
   }
-  // Collect objects and capacity from all slabs in Drain in GrowSlabs.
+  // Collect objects and capacity from all slabs in Drain in ResizeSlabs.
   absl::flat_hash_set<void*> objects;
   const auto drain_handler = [&objects, &capacity](int cpu, size_t size_class,
                                                    void** batch, size_t size,
@@ -753,11 +755,24 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   };
   // Keep track of old slabs so we can free the memory.
   std::vector<std::pair<void*, size_t>> old_slabs_vec;
-  for (int i = 0; i < 5; ++i) {
-    absl::SleepFor(absl::Seconds(1));
-    if (!Grow() || ++shift > kShift) continue;
+  absl::BitGen rnd;
+  for (int i = 0; i < 10; ++i) {
+    absl::SleepFor(absl::Milliseconds(100));
+    if (!Resize()) continue;
+    if (shift == kResizeInitialShift) {
+      ++shift;
+    } else if (shift == kResizeMaxShift) {
+      --shift;
+    } else {
+      const bool grow = absl::Bernoulli(rnd, 0.5);
+      if (grow) {
+        ++shift;
+      } else {
+        --shift;
+      }
+    }
     for (int cpu = 0; cpu < num_cpus; ++cpu) mutexes[cpu].Lock();
-    const auto [old_slabs, old_slabs_size] = slab.GrowSlabs(
+    const auto [old_slabs, old_slabs_size] = slab.ResizeSlabs(
         subtle::percpu::ToShiftType(shift), allocator, get_capacity,
         [&](int cpu) { return has_init[cpu].load(std::memory_order_relaxed); },
         drain_handler);

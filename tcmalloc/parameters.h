@@ -116,12 +116,20 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
   }
 
-  static double per_cpu_caches_dynamic_slab_threshold() {
-    return per_cpu_caches_dynamic_slab_threshold_.load(
+  static double per_cpu_caches_dynamic_slab_grow_threshold() {
+    return per_cpu_caches_dynamic_slab_grow_threshold_.load(
         std::memory_order_relaxed);
   }
-  static void set_per_cpu_caches_dynamic_slab_threshold(double value) {
-    TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(value);
+  static void set_per_cpu_caches_dynamic_slab_grow_threshold(double value) {
+    TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(value);
+  }
+
+  static double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    return per_cpu_caches_dynamic_slab_shrink_threshold_.load(
+        std::memory_order_relaxed);
+  }
+  static void set_per_cpu_caches_dynamic_slab_shrink_threshold(double value) {
+    TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
  private:
@@ -139,7 +147,10 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabThreshold(double v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(
+      double v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(
+      double v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
@@ -154,7 +165,8 @@ class Parameters {
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_enabled_;
-  static std::atomic<double> per_cpu_caches_dynamic_slab_threshold_;
+  static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
+  static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
 };
 
 }  // namespace tcmalloc_internal

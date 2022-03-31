@@ -60,6 +60,8 @@ class CpuCachePeer {
 
 namespace {
 
+enum class DynamicSlab { kGrow, kShrink, kNoop };
+
 class TestStaticForwarder {
  public:
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
@@ -86,8 +88,16 @@ class TestStaticForwarder {
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
 
-  double per_cpu_caches_dynamic_slab_threshold() {
-    return grow_slab_ ? 0.0 : std::numeric_limits<double>::max();
+  double per_cpu_caches_dynamic_slab_grow_threshold() {
+    return dynamic_slab_ == DynamicSlab::kGrow
+               ? -1.0
+               : std::numeric_limits<double>::max();
+  }
+
+  double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    return dynamic_slab_ == DynamicSlab::kShrink
+               ? std::numeric_limits<double>::max()
+               : -1.0;
   }
 
   size_t class_to_size(int size_class) const {
@@ -128,7 +138,7 @@ class TestStaticForwarder {
 
   size_t arena_reported_nonresident_bytes_ = 0;
   bool dynamic_slab_enabled_ = false;
-  bool grow_slab_ = false;
+  DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -435,9 +445,9 @@ TEST(CpuCacheTest, StealCpuCache) {
   cache.Deactivate();
 }
 
-// Test that when slab growth is enabled, nothing goes horribly wrong and that
+// Test that when dynamic slab is enabled, nothing goes horribly wrong and that
 // arena non-resident bytes increases as expected.
-TEST(CpuCacheTest, SlabGrowth) {
+TEST(CpuCacheTest, DynamicSlab) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -447,7 +457,7 @@ TEST(CpuCacheTest, SlabGrowth) {
   size_t prev_reported_nonresident_bytes =
       forwarder.arena_reported_nonresident_bytes_;
   forwarder.dynamic_slab_enabled_ = true;
-  forwarder.grow_slab_ = false;
+  forwarder.dynamic_slab_ = DynamicSlab::kNoop;
 
   cache.Activate();
 
@@ -463,23 +473,35 @@ TEST(CpuCacheTest, SlabGrowth) {
   int shift = cpu_cache_internal::kInitialPerCpuShift;
   const int numa_shift =
       cpu_cache_internal::NumaShift(forwarder.numa_topology());
-  for (; shift < cpu_cache_internal::kMaxPerCpuShift + numa_shift; ++shift) {
-    for (bool grow : {false, true}) {
-      EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
-      absl::SleepFor(absl::Milliseconds(100));
-      forwarder.grow_slab_ = grow;
-      cache.GrowSlabIfNeeded();
-      if (grow) {
-        EXPECT_LT(prev_reported_nonresident_bytes,
-                  forwarder.arena_reported_nonresident_bytes_);
-      } else {
-        EXPECT_EQ(prev_reported_nonresident_bytes,
-                  forwarder.arena_reported_nonresident_bytes_);
+
+  const auto repeat_dynamic_slab_ops = [&](DynamicSlab op, int shift_update,
+                                           size_t end_shift) {
+    const DynamicSlab ops[2] = {DynamicSlab::kNoop, op};
+    for (; shift != end_shift + numa_shift; shift += shift_update) {
+      for (DynamicSlab dynamic_slab : ops) {
+        EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
+        absl::SleepFor(absl::Milliseconds(100));
+        forwarder.dynamic_slab_ = dynamic_slab;
+        cache.ResizeSlabIfNeeded();
+        if (dynamic_slab == DynamicSlab::kNoop) {
+          EXPECT_EQ(prev_reported_nonresident_bytes,
+                    forwarder.arena_reported_nonresident_bytes_);
+        } else {
+          EXPECT_LT(prev_reported_nonresident_bytes,
+                    forwarder.arena_reported_nonresident_bytes_);
+        }
+        prev_reported_nonresident_bytes =
+            forwarder.arena_reported_nonresident_bytes_;
       }
-      prev_reported_nonresident_bytes =
-          forwarder.arena_reported_nonresident_bytes_;
     }
-  }
+  };
+
+  // First grow the slab to max size, then shrink it to min size.
+  repeat_dynamic_slab_ops(DynamicSlab::kGrow, /*shift_update=*/1,
+                          cpu_cache_internal::kMaxPerCpuShift);
+  repeat_dynamic_slab_ops(DynamicSlab::kShrink, /*shift_update=*/-1,
+                          cpu_cache_internal::kInitialPerCpuShift);
+
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -488,17 +510,18 @@ TEST(CpuCacheTest, SlabGrowth) {
   cache.Deactivate();
 }
 
-// Test that when slab growth parameters change, things still work.
-TEST(CpuCacheTest, SlabGrowthParamsChange) {
+// Test that when dynamic slab parameters change, things still work.
+TEST(CpuCacheTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
   for (bool initially_enabled : {false, true}) {
-    for (bool initially_grow : {false, true}) {
+    for (DynamicSlab initial_dynamic_slab :
+         {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
       CPUCache cache;
       TestStaticForwarder& forwarder = cache.forwarder();
       forwarder.dynamic_slab_enabled_ = initially_enabled;
-      forwarder.grow_slab_ = initially_grow;
+      forwarder.dynamic_slab_ = initial_dynamic_slab;
 
       cache.Activate();
 
@@ -512,11 +535,12 @@ TEST(CpuCacheTest, SlabGrowthParamsChange) {
       }
 
       for (bool enabled : {false, true}) {
-        for (bool grow : {false, true}) {
+        for (DynamicSlab dynamic_slab :
+             {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
           absl::SleepFor(absl::Milliseconds(100));
           forwarder.dynamic_slab_enabled_ = enabled;
-          forwarder.grow_slab_ = grow;
-          cache.GrowSlabIfNeeded();
+          forwarder.dynamic_slab_ = dynamic_slab;
+          cache.ResizeSlabIfNeeded();
         }
       }
       stop = true;

@@ -119,10 +119,10 @@ class TcmallocSlab {
   // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
-  // Grows the size of the slabs to use the new <shift> value. First we allocate
-  // new larger slabs, then lock all headers on the old slabs, atomically update
-  // to use the new slabs, and teardown the old slabs. Returns a pointer to old
-  // slabs to be madvised away along with the size.
+  // Grows or shrinks the size of the slabs to use the new <shift> value. First
+  // we allocate new slabs, then lock all headers on the old slabs, atomically
+  // update to use the new slabs, and teardown the old slabs. Returns a pointer
+  // to old slabs to be madvised away along with the size.
   //
   // <alloc> is memory allocation callback (e.g. malloc).
   // <capacity> callback returns max capacity for size class <cl>.
@@ -130,7 +130,7 @@ class TcmallocSlab {
   //
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
-  std::pair<void*, size_t> GrowSlabs(
+  std::pair<void*, size_t> ResizeSlabs(
       Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
@@ -212,7 +212,7 @@ class TcmallocSlab {
   }
 
   // Gets the current shift of the slabs. Intended for use by the thread that
-  // calls GrowSlabs().
+  // calls ResizeSlabs().
   uint8_t GetShift() const {
     return ToUint8(GetSlabsAndShift(std::memory_order_relaxed).second);
   }
@@ -319,7 +319,7 @@ class TcmallocSlab {
   static void StopConcurrentMutations(Slabs* slabs, Shift shift, int cpu,
                                       size_t virtual_cpu_id_offset);
 
-  // Implementation of InitCpu() allowing for reuse in GrowSlabs().
+  // Implementation of InitCpu() allowing for reuse in ResizeSlabs().
   static void InitCpuImpl(Slabs* slabs, Shift shift, int cpu,
                           size_t virtual_cpu_id_offset,
                           absl::FunctionRef<size_t(size_t)> capacity);
@@ -356,7 +356,7 @@ inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t size_class,
   for (;;) {
     Header old = LoadHeader(hdrp);
     // We need to check for `old.begin == 0` because `slabs` may have been
-    // MADV_DONTNEEDed after a call to GrowSlabs().
+    // MADV_DONTNEEDed after a call to ResizeSlabs().
     if (old.IsLocked() || old.end - old.begin == max_cap || old.begin == 0) {
       return 0;
     }
@@ -383,7 +383,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   for (;;) {
     Header old = LoadHeader(hdrp);
     // We need to check for `old.begin == 0` because `slabs` may have been
-    // MADV_DONTNEEDed after a call to GrowSlabs().
+    // MADV_DONTNEEDed after a call to ResizeSlabs().
     if (old.IsLocked() || old.current == old.end || old.begin == 0) {
       return 0;
     }
@@ -1312,7 +1312,7 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 }
 
 template <size_t NumClasses>
-std::pair<void*, size_t> TcmallocSlab<NumClasses>::GrowSlabs(
+std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
     Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     absl::FunctionRef<size_t(size_t)> capacity,
     absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler) {
@@ -1322,7 +1322,7 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::GrowSlabs(
   Slabs* new_slabs = AllocSlabs(alloc, new_shift, num_cpus);
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
-  ASSERT(new_shift > old_shift);
+  ASSERT(new_shift != old_shift);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     if (populated(cpu)) {
