@@ -959,6 +959,24 @@ cc_library(
 )
 
 create_tcmalloc_testsuite(
+    name = "realized_fragmentation_test",
+    timeout = "long",
+    srcs = ["realized_fragmentation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nosan",
+    ],
+    deps = [
+        ":testutil",
+        "//tcmalloc/internal:linked_list",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "reclaim_test",
     srcs = ["reclaim_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

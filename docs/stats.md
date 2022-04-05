@@ -122,6 +122,31 @@ MALLOC:        4067336 (    3.9 MiB) Pagemap root resident bytes
     potentially large array, and it is useful to know how much of it is actually
     memory resident.
 
+### Realized Fragmentation
+
+```
+MALLOC:    12238113346 (11671.2 MiB) Actual memory used at peak
+MALLOC:    11626207678 (11087.6 MiB) Estimated in-use at peak
+MALLOC:              5.2632          Realized fragmentation (%)
+```
+
+Memory overhead at peak demand is more important than off-peak, since we need to
+provision a process with sufficient memory to run during its peak requirements
+without OOM'ing. After a peak in demand, memory may be deallocated and held in
+caches in anticipation of future reuse. Overhead as a fraction of the remaining
+live allocations rises, but no additional memory is required.
+
+This metric is called "realized fragmentation" and described in ["Adaptive
+Hugepage Subrelease for Non-moving Memory Allocators in Warehouse-Scale
+Computers"](https://research.google/pubs/pub50436/) (ISMM 2021). The realized
+fragmentation metric computed here is a snapshot over the life of the entire
+process.
+
+These realized fragmentation stats in the summary table indicate a snapshot of
+conditions when TCMalloc used a peak in its physical memory. As of April 2022,
+the in-use at peak number is estimated from TCMalloc's periodic allocation
+sampling.
+
 ### Page Sizes
 
 There are three relevant "page" sizes for systems and TCMalloc. It's important
@@ -734,10 +759,8 @@ which is an indication of how much memory could have been "usefully" reclaimed
 (i.e., free for long enough that the OS would likely be able to use the memory
 for another process). The line shows both the total number of free pages in the
 filler (whether or not released to the OS) as well as only those that were
-backed by physical memory for the full 5-min interval. This metric is called
-"realized fragmentation" and described in ["Adaptive Hugepage Subrelease for
-Non-moving Memory Allocators in Warehouse-Scale
-Computers"](https://research.google/pubs/pub50436/) (ISMM 2021).
+backed by physical memory for the full 5-min interval. The realized
+fragmentation metric computed here uses a bounded window.
 
 The next two sections show the state of the filler at peak demand (i.e., when
 the maximum number of pages was in use) and at peak hps (i.e., when the maximum

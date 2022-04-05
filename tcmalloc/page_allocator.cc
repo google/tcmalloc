@@ -131,11 +131,30 @@ PageAllocator::PageAllocator() {
 }
 
 void PageAllocator::ShrinkToUsageLimit() {
+  BackingStats s = stats();
+  const size_t backed =
+      s.system_bytes - s.unmapped_bytes + Static::metadata_bytes();
+  // New high water marks should be rare.
+  if (ABSL_PREDICT_FALSE(backed > peak_backed_bytes_)) {
+    peak_backed_bytes_ = backed;
+    // This estimate may skew slightly low (and overestimate realized
+    // fragmentation), as we allocate successfully from the page heap before
+    // updating the sampled object list.
+    //
+    // TODO(ckennelly): Evaluate passing the current allocation size to the page
+    // heap to adjust this.  This correction would overestimate for many-object
+    // spans from the CentralFreeList, but those are typically a single page so
+    // the error in absolute terms is minimal.
+    peak_sampled_application_bytes_ = Static::sampled_objects_size_.value();
+  }
+  // TODO(ckennelly): Consider updating peak_sampled_application_bytes_ if
+  // backed == peak_backed_bytes_ but application usage has gone up.  This can
+  // occur if we allocate space for many objects preemptively and only later
+  // sample them (incrementing sampled_objects_size_).
+
   if (limit_ == std::numeric_limits<size_t>::max()) {
     return;
   }
-  BackingStats s = stats();
-  size_t backed = s.system_bytes - s.unmapped_bytes + Static::metadata_bytes();
   if (backed <= limit_) {
     // We're already fine.
     return;

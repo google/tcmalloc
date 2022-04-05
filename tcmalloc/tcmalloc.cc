@@ -143,6 +143,7 @@ struct TCMallocStats {
   size_t pagemap_bytes;          // included in metadata bytes
   size_t percpu_metadata_bytes;  // included in metadata bytes
   BackingStats pageheap;         // Stats from page heap
+  PageAllocator::PeakStats peak_stats;
 
   ArenaStats arena;  // Stats from the metadata Arena
 
@@ -202,6 +203,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     r->metadata_bytes = Static::metadata_bytes();
     r->pagemap_bytes = Static::pagemap().bytes();
     r->pageheap = Static::page_allocator().stats();
+    r->peak_stats = Static::page_allocator().peak_stats();
     if (small_spans != nullptr) {
       Static::page_allocator().GetSmallSpanStats(small_spans);
     }
@@ -378,6 +380,9 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) Pagemap root resident bytes\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab bytes used\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab resident bytes\n"
+      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Actual memory used at peak\n"
+      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Estimated in-use at peak\n"
+      "MALLOC:   %12.4f               Realized fragmentation (%%)\n"
       "MALLOC:   %12" PRIu64 "               Tcmalloc page size\n"
       "MALLOC:   %12" PRIu64 "               Tcmalloc hugepage size\n"
       "MALLOC:   %12" PRIu64 "               CPUs Allowed in Mask\n"
@@ -414,6 +419,11 @@ static void DumpStats(Printer* out, int level) {
       uint64_t(stats.percpu_metadata_bytes),
       stats.percpu_metadata_bytes / MiB,
       stats.percpu_metadata_bytes_res, stats.percpu_metadata_bytes_res / MiB,
+      uint64_t(stats.peak_stats.backed_bytes),
+      stats.peak_stats.backed_bytes / MiB,
+      uint64_t(stats.peak_stats.sampled_application_bytes),
+      stats.peak_stats.sampled_application_bytes / MiB,
+      100. * safe_div(stats.peak_stats.backed_bytes - stats.peak_stats.sampled_application_bytes, stats.peak_stats.sampled_application_bytes),
       uint64_t(kPageSize),
       uint64_t(kHugePageSize),
       CountAllowedCpus(),
@@ -594,6 +604,9 @@ namespace {
   region.PrintI64("pagemap_root_residence", stats.pagemap_root_bytes_res);
   region.PrintI64("percpu_slab_size", stats.percpu_metadata_bytes);
   region.PrintI64("percpu_slab_residence", stats.percpu_metadata_bytes_res);
+  region.PrintI64("peak_backed", stats.peak_stats.backed_bytes);
+  region.PrintI64("peak_application_demand",
+                  stats.peak_stats.sampled_application_bytes);
   region.PrintI64("tcmalloc_page_size", uint64_t(kPageSize));
   region.PrintI64("tcmalloc_huge_page_size", uint64_t(kHugePageSize));
   region.PrintI64("cpus_allowed", CountAllowedCpus());
