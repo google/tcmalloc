@@ -1170,6 +1170,7 @@ inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
 
 template <size_t NumClasses>
 inline bool TcmallocSlab<NumClasses>::Header::IsLocked() const {
+  if (begin == 0xffffu) ASSERT(end == 0 && "begin == 0xffffu -> end == 0");
   return begin == 0xffffu;
 }
 
