@@ -21,6 +21,7 @@
 #include <stdlib.h>
 
 #include <initializer_list>
+#include <string>
 
 #include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/optimization.h"
@@ -110,6 +111,7 @@ class LogItem {
  public:
   LogItem() : tag_(kEnd) {}
   LogItem(const char* v) : tag_(kStr) { u_.str = v; }
+  LogItem(const std::string& v) : LogItem(v.c_str()) {}
   LogItem(int v) : tag_(kSigned) { u_.snum = v; }
   LogItem(long v) : tag_(kSigned) { u_.snum = v; }
   LogItem(long long v) : tag_(kSigned) { u_.snum = v; }
