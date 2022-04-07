@@ -277,9 +277,9 @@ class CPUCache {
     // Tracks number of misses recorded as of the end of the last resize
     // interval.
     kReclaim,
-    // Tracks number of misses recorded as of the end of the last slab growth
+    // Tracks number of misses recorded as of the end of the last slab resize
     // interval.
-    kSlabGrowth,
+    kSlabResize,
     kNumCounts,
   };
 
@@ -1485,7 +1485,7 @@ void CPUCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   CpuCacheMissStats total_misses{};
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     total_misses +=
-        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabGrowth);
+        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabResize);
   }
   // As a simple heuristic, we decide to grow if the total number of overflows
   // is large compared to total number of underflows during the growth period.

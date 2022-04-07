@@ -47,6 +47,17 @@ class CpuCachePeer {
     return cpu_cache.freelist_.GetShift();
   }
 
+  template <typename CpuCache>
+  static size_t HasCacheMissesInResizeInterval(const CpuCache& cpu_cache) {
+    const int num_cpus = absl::base_internal::NumCPUs();
+    for (int cpu = 0; cpu < num_cpus; ++cpu) {
+      auto miss_stats = cpu_cache.GetIntervalCacheMissStats(
+          cpu, CpuCache::MissCount::kSlabResize);
+      if (miss_stats.overflows + miss_stats.underflows > 0) return true;
+    }
+    return false;
+  }
+
   // Validate that we're using >90% of the available slab bytes.
   template <typename CpuCache>
   static void ValidateSlabBytes(const CpuCache& cpu_cache) {
@@ -475,19 +486,27 @@ TEST(CpuCacheTest, DynamicSlab) {
       cpu_cache_internal::NumaShift(forwarder.numa_topology());
 
   const auto repeat_dynamic_slab_ops = [&](DynamicSlab op, int shift_update,
-                                           size_t end_shift) {
+                                           int end_shift) {
     const DynamicSlab ops[2] = {DynamicSlab::kNoop, op};
-    for (; shift != end_shift + numa_shift; shift += shift_update) {
+    int iters = end_shift > shift ? end_shift - shift : shift - end_shift;
+    iters += 2;  // Test that we don't resize past end_shift.
+    for (int i = 0; i < iters; ++i) {
       for (DynamicSlab dynamic_slab : ops) {
         EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
         absl::SleepFor(absl::Milliseconds(100));
         forwarder.dynamic_slab_ = dynamic_slab;
+        // If there were no misses in the current resize interval, then we don't
+        // resize. We also don't resize past end_shift.
+        const bool should_do_op =
+            CpuCachePeer::HasCacheMissesInResizeInterval(cache) &&
+            shift != end_shift;
         cache.ResizeSlabIfNeeded();
-        if (dynamic_slab == DynamicSlab::kNoop) {
-          EXPECT_EQ(prev_reported_nonresident_bytes,
-                    forwarder.arena_reported_nonresident_bytes_);
-        } else {
+        if (dynamic_slab != DynamicSlab::kNoop && should_do_op) {
           EXPECT_LT(prev_reported_nonresident_bytes,
+                    forwarder.arena_reported_nonresident_bytes_);
+          shift += shift_update;
+        } else {
+          EXPECT_EQ(prev_reported_nonresident_bytes,
                     forwarder.arena_reported_nonresident_bytes_);
         }
         prev_reported_nonresident_bytes =
