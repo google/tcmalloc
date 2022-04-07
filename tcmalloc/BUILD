@@ -174,6 +174,7 @@ common_srcs = [
     "cpu_cache.h",
     "experimental_pow2_below64_size_class.cc",
     "experimental_pow2_size_class.cc",
+    "experimental_cfl_aware_size_class.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
     "hinted_tracker_lists.h",
