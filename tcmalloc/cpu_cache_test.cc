@@ -48,14 +48,14 @@ class CpuCachePeer {
   }
 
   template <typename CpuCache>
-  static size_t HasCacheMissesInResizeInterval(const CpuCache& cpu_cache) {
+  static size_t HasZeroCacheMissesInResizeInterval(const CpuCache& cpu_cache) {
     const int num_cpus = absl::base_internal::NumCPUs();
+    typename CpuCache::CpuCacheMissStats miss_stats;
     for (int cpu = 0; cpu < num_cpus; ++cpu) {
-      auto miss_stats = cpu_cache.GetIntervalCacheMissStats(
+      miss_stats += cpu_cache.GetIntervalCacheMissStats(
           cpu, CpuCache::MissCount::kSlabResize);
-      if (miss_stats.overflows + miss_stats.underflows > 0) return true;
     }
-    return false;
+    return miss_stats.overflows == 0 || miss_stats.underflows == 0;
   }
 
   // Validate that we're using >90% of the available slab bytes.
@@ -490,29 +490,35 @@ TEST(CpuCacheTest, DynamicSlab) {
     const DynamicSlab ops[2] = {DynamicSlab::kNoop, op};
     int iters = end_shift > shift ? end_shift - shift : shift - end_shift;
     iters += 2;  // Test that we don't resize past end_shift.
+    int non_noop_count = 0;
     for (int i = 0; i < iters; ++i) {
       for (DynamicSlab dynamic_slab : ops) {
         EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
         absl::SleepFor(absl::Milliseconds(100));
         forwarder.dynamic_slab_ = dynamic_slab;
-        // If there were no misses in the current resize interval, then we don't
-        // resize. We also don't resize past end_shift.
-        const bool should_do_op =
-            CpuCachePeer::HasCacheMissesInResizeInterval(cache) &&
-            shift != end_shift;
+        // If there were no misses in the current resize interval, then we may
+        // not resize. We also don't resize past end_shift.
+        const bool has_zero_cache_misses =
+            CpuCachePeer::HasZeroCacheMissesInResizeInterval(cache);
+        const bool should_do_op = !has_zero_cache_misses && shift != end_shift;
         cache.ResizeSlabIfNeeded();
         if (dynamic_slab != DynamicSlab::kNoop && should_do_op) {
           EXPECT_LT(prev_reported_nonresident_bytes,
                     forwarder.arena_reported_nonresident_bytes_);
           shift += shift_update;
-        } else {
+          ++non_noop_count;
+        } else if (!has_zero_cache_misses) {
           EXPECT_EQ(prev_reported_nonresident_bytes,
                     forwarder.arena_reported_nonresident_bytes_);
+        } else {
+          // We can't be sure whether the op took place or not in this case.
+          shift = CpuCachePeer::GetSlabShift(cache) - numa_shift;
         }
         prev_reported_nonresident_bytes =
             forwarder.arena_reported_nonresident_bytes_;
       }
     }
+    EXPECT_GT(non_noop_count, 0);
   };
 
   // First grow the slab to max size, then shrink it to min size.
