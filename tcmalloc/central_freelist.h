@@ -48,8 +48,7 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static void SetPrioritizeSpans(bool value);
-  static bool PrioritizeSpans();
+  static bool PrioritizeSpans() { return Parameters::prioritize_spans(); }
 
   static Span* MapObjectToSpan(const void* object);
   static Span* AllocateSpan(int size_class, Length pages_per_span)
