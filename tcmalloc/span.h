@@ -437,6 +437,7 @@ template <Span::Align align>
 bool Span::FreelistPushSized(void* ptr, size_t size) {
   ObjIdx idx = PtrToIdxSized<align>(ptr, size);
   if (cache_size_ != kCacheSize) {
+    CHECK_CONDITION(!sampled_);
     // Have empty space in the cache, push there.
     cache_[cache_size_] = idx;
     cache_size_++;
@@ -501,6 +502,7 @@ bool Span::BitmapFreelistPush(void* ptr, size_t size) {
   ObjIdx idx = BitmapPtrToIdx<align>(ptr, size);
   // Check that the object is not already returned.
   ASSERT(bitmap_.GetBit(idx) == 0);
+  CHECK_CONDITION(!sampled_);
   // Set the bit indicating where the object was returned.
   bitmap_.SetBit(idx);
 #ifndef NDEBUG
@@ -543,6 +545,7 @@ inline void Span::set_num_pages(Length len) { num_pages_ = len; }
 inline size_t Span::bytes_in_span() const { return num_pages_.in_bytes(); }
 
 inline void Span::set_freelist_added_time(uint64_t t) {
+  CHECK_CONDITION(!sampled_);
   freelist_added_time_ = t;
 }
 

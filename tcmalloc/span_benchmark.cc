@@ -40,8 +40,9 @@ class RawSpan {
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     CHECK_CONDITION(res == 0);
-    span_.set_first_page(PageIdContaining(mem));
-    span_.set_num_pages(npages);
+    // Initializes `Span::sampled_` to avoid msan error when invoking
+    // Span::BuildFreelist() and check the value of `Span::sampled_`.
+    span_.Init(PageIdContaining(mem), npages);
     span_.BuildFreelist(size, objects_per_span, nullptr, 0);
   }
 
