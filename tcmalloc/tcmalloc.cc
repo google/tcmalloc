@@ -486,6 +486,7 @@ static void DumpStats(Printer* out, int level) {
           span_stats[size_class].prob_returned());
     }
 
+#ifndef TCMALLOC_SMALL_BUT_SLOW
     out->printf("------------------------------------------------\n");
     out->printf("Central cache freelist: Span utilization histogram\n");
     out->printf("Non-cumulative number of spans with allocated objects < N\n");
@@ -493,6 +494,7 @@ static void DumpStats(Printer* out, int level) {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       Static::central_freelist(size_class).PrintSpanUtilStats(out);
     }
+#endif
 
     out->printf("------------------------------------------------\n");
     out->printf("Transfer cache implementation: %s\n",
@@ -632,6 +634,7 @@ namespace {
 
   if (level >= 2) {
     {
+#ifndef TCMALLOC_SMALL_BUT_SLOW
       for (int size_class = 1; size_class < kNumClasses; ++size_class) {
         uint64_t class_bytes = class_count[size_class] *
                                Static::sizemap().class_to_size(size_class);
@@ -646,6 +649,7 @@ namespace {
         entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
         Static::central_freelist(size_class).PrintSpanUtilStatsInPbtxt(&entry);
       }
+#endif
     }
 
     {
