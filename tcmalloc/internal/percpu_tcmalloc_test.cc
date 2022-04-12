@@ -385,6 +385,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       for (size_t i = 0; i < kCapacity; ++i) {
         batch[i] = &objects_[i];
       }
+      void* slabs_result[kCapacity + 1];
       ASSERT_EQ(slab_.PopBatch(size_class, batch, kCapacity), 0);
       ASSERT_EQ(slab_.PushBatch(size_class, batch, kCapacity), 0);
       ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2, kCapacity),
@@ -396,9 +397,11 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), expect);
         ASSERT_EQ(slab_.Length(cpu, size_class), expect);
         for (size_t j = 0; j < expect; ++j) {
-          ASSERT_EQ(slab_.Pop(size_class, ExpectNoUnderflow, nullptr),
-                    &objects_[j + (i - expect)]);
+          slabs_result[j] = slab_.Pop(size_class, ExpectNoUnderflow, nullptr);
         }
+        ASSERT_THAT(
+            std::vector<void*>(&slabs_result[0], &slabs_result[expect]),
+            UnorderedElementsAreArray(&object_ptrs_[i - expect], expect));
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, size_class), &objects_[5]);
       }
       // Push a batch of size i into non-empty slab.
@@ -407,14 +410,14 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), i);
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), expect);
         ASSERT_EQ(slab_.Length(cpu, size_class), i + expect);
-        for (size_t j = 0; j < expect; ++j) {
-          ASSERT_EQ(slab_.Pop(size_class, ExpectNoUnderflow, nullptr),
-                    static_cast<void*>(&objects_[j + (i - expect)]));
+        for (size_t j = 0; j < i + expect; ++j) {
+          slabs_result[j] = slab_.Pop(size_class, ExpectNoUnderflow, nullptr);
         }
-        for (size_t j = 0; j < i; ++j) {
-          ASSERT_EQ(slab_.Pop(size_class, ExpectNoUnderflow, nullptr),
-                    static_cast<void*>(&objects_[j]));
-        }
+        ASSERT_THAT(
+            std::vector<void*>(&slabs_result[i], &slabs_result[i + expect]),
+            UnorderedElementsAreArray(&object_ptrs_[i - expect], expect));
+        ASSERT_THAT(std::vector<void*>(&slabs_result[0], &slabs_result[i]),
+                    UnorderedElementsAreArray(&object_ptrs_[0], i));
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, size_class), &objects_[5]);
       }
       for (size_t i = 0; i < kCapacity + 1; ++i) {
