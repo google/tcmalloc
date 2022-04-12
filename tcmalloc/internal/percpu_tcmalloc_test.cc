@@ -410,14 +410,15 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), i);
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), expect);
         ASSERT_EQ(slab_.Length(cpu, size_class), i + expect);
-        for (size_t j = 0; j < i + expect; ++j) {
+        // Because slabs are LIFO fill in this array from the end.
+        for (int j = i + expect - 1; j >= 0; --j) {
           slabs_result[j] = slab_.Pop(size_class, ExpectNoUnderflow, nullptr);
         }
+        ASSERT_THAT(std::vector<void*>(&slabs_result[0], &slabs_result[i]),
+                    UnorderedElementsAreArray(&object_ptrs_[0], i));
         ASSERT_THAT(
             std::vector<void*>(&slabs_result[i], &slabs_result[i + expect]),
             UnorderedElementsAreArray(&object_ptrs_[i - expect], expect));
-        ASSERT_THAT(std::vector<void*>(&slabs_result[0], &slabs_result[i]),
-                    UnorderedElementsAreArray(&object_ptrs_[0], i));
         ASSERT_EQ(PopExpectUnderflow<5>(&slab_, size_class), &objects_[5]);
       }
       for (size_t i = 0; i < kCapacity + 1; ++i) {
