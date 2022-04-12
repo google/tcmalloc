@@ -310,7 +310,7 @@ TcmallocSlab_Internal_PushBatch_FixedShift:
   cmp w10, #1
   beq .LTcmallocSlab_Internal_PushBatch_FixedShift_store
 .LTcmallocSlab_Internal_PushBatch_FixedShift_loop:
-  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -=2 */
+  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -= 2 */
   str q4, [x9], #16         /* [r9 += 2] = q4 */
   cmp x9, x14               /* if current cpu slab address == new current
                                address */
@@ -357,7 +357,7 @@ TcmallocSlab_Internal_PushBatch_FixedShift_VCPU:
   cmp w10, #1
   beq .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_store
 .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop:
-  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -=2 */
+  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -= 2 */
   str q4, [x9], #16         /* [r9 += 2] = q4 */
   cmp x9, x14               /* if current cpu slab address == new current
                                address */
@@ -428,7 +428,7 @@ TcmallocSlab_Internal_PopBatch_FixedShift:
   cmp w11, #1
   beq .LTcmallocSlab_Internal_PopBatch_FixedShift_store
 .LTcmallocSlab_Internal_PopBatch_FixedShift_loop:
-  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -=2 */
+  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -= 2 */
   str q4, [x12], #16        /* [r12 += 2] = q4 */
   cmp x12, x14              /* if current batch == batch + amount we are
                                popping */
@@ -475,7 +475,7 @@ TcmallocSlab_Internal_PopBatch_FixedShift_VCPU:
   cmp w11, #1
   beq .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_store
 .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop:
-  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -=2 */
+  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -= 2 */
   str q4, [x12], #16        /* [r12 += 2] = q4 */
   cmp x12, x14              /* if current batch == batch + amount we are
                                popping */
