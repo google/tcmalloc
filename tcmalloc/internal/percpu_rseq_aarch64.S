@@ -303,12 +303,19 @@ TcmallocSlab_Internal_PushBatch_FixedShift:
   add x13, x9, x10          /* r13 = current + amount we are pushing. */
   add x9, x8, x9, LSL #3    /* r9 = current cpu slab stack */
   add x14, x8, x13, LSL #3  /* r14 = new current address */
-.LTcmallocSlab_Internal_PushBatch_FixedShift_loop:
+  tst w10, #1
+  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_loop
   ldr x12, [x11,  #-8]!     /* r12 = [--r11] */
   str x12, [x9], #8         /* [r9++] = r12 */
+  cmp w10, #1
+  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_store
+.LTcmallocSlab_Internal_PushBatch_FixedShift_loop:
+  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -=2 */
+  str q4, [x9], #16         /* [r9 += 2] = q4 */
   cmp x9, x14               /* if current cpu slab address == new current
                                address */
   bne .LTcmallocSlab_Internal_PushBatch_FixedShift_loop
+.LTcmallocSlab_Internal_PushBatch_FixedShift_store:
   strh w13, [x4] /* store new current index */
 .LTcmallocSlab_Internal_PushBatch_FixedShift_commit:
   mov x0, x10
@@ -343,12 +350,19 @@ TcmallocSlab_Internal_PushBatch_FixedShift_VCPU:
   add x13, x9, x10          /* r13 = current + amount we are pushing. */
   add x9, x8, x9, LSL #3    /* r9 = current cpu slab stack */
   add x14, x8, x13, LSL #3  /* r14 = new current address */
-.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop:
+  tst w10, #1
+  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop
   ldr x12, [x11,  #-8]!     /* r12 = [--r11] */
   str x12, [x9], #8         /* [r9++] = r12 */
+  cmp w10, #1
+  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_store
+.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop:
+  ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -=2 */
+  str q4, [x9], #16         /* [r9 += 2] = q4 */
   cmp x9, x14               /* if current cpu slab address == new current
                                address */
   bne .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_loop
+.LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_store:
   strh w13, [x4] /* store new current index */
 .LTcmallocSlab_Internal_PushBatch_FixedShift_VCPU_commit:
   mov x0, x10
@@ -407,12 +421,19 @@ TcmallocSlab_Internal_PopBatch_FixedShift:
   sub x9, x9, x11           /* update new current  */
   mov x12, x2               /* r12 = batch */
   add x14, x2, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
-.LTcmallocSlab_Internal_PopBatch_FixedShift_loop:
+  tst w11, #1
+  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_loop
   ldr x10, [x13, #-8]!      /* r10 = [--r13] */
   str x10, [x12], #8        /* [r12++] = r10 */
+  cmp w11, #1
+  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_store
+.LTcmallocSlab_Internal_PopBatch_FixedShift_loop:
+  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -=2 */
+  str q4, [x12], #16        /* [r12 += 2] = q4 */
   cmp x12, x14              /* if current batch == batch + amount we are
                                popping */
   bne .LTcmallocSlab_Internal_PopBatch_FixedShift_loop
+.LTcmallocSlab_Internal_PopBatch_FixedShift_store:
   strh w9, [x4]             /* store new current */
 .LTcmallocSlab_Internal_PopBatch_FixedShift_commit:
   mov x0, x11
@@ -447,12 +468,19 @@ TcmallocSlab_Internal_PopBatch_FixedShift_VCPU:
   sub x9, x9, x11           /* update new current  */
   mov x12, x2               /* r12 = batch */
   add x14, x2, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
-.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop:
+  tst w11, #1
+  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop
   ldr x10, [x13, #-8]!      /* r10 = [--r13] */
   str x10, [x12], #8        /* [r12++] = r10 */
+  cmp w11, #1
+  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_store
+.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop:
+  ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -=2 */
+  str q4, [x12], #16        /* [r12 += 2] = q4 */
   cmp x12, x14              /* if current batch == batch + amount we are
                                popping */
   bne .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_loop
+.LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_store:
   strh w9, [x4]             /* store new current */
 .LTcmallocSlab_Internal_PopBatch_FixedShift_VCPU_commit:
   mov x0, x11
