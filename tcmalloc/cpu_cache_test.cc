@@ -16,6 +16,7 @@
 
 #include <sys/mman.h>
 
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <new>
@@ -43,7 +44,7 @@ namespace tcmalloc_internal {
 class CpuCachePeer {
  public:
   template <typename CpuCache>
-  static size_t GetSlabShift(const CpuCache& cpu_cache) {
+  static uint8_t GetSlabShift(const CpuCache& cpu_cache) {
     return cpu_cache.freelist_.GetShift();
   }
 
@@ -61,8 +62,8 @@ class CpuCachePeer {
   // Validate that we're using >90% of the available slab bytes.
   template <typename CpuCache>
   static void ValidateSlabBytes(const CpuCache& cpu_cache) {
-    const auto [bytes_required, bytes_available] =
-        EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor());
+    const auto [bytes_required, bytes_available] = EstimateSlabBytes(
+        cpu_cache.GetMaxCapacityFunctor(cpu_cache.freelist_.GetShift()));
     EXPECT_GT(bytes_required * 10, bytes_available * 9)
         << bytes_required << " " << bytes_available << " " << kNumaPartitions
         << " " << kNumBaseClasses << " " << kNumClasses;

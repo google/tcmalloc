@@ -145,10 +145,15 @@ class TcmallocSlab {
   size_t Capacity(int cpu, size_t size_class) const;
 
   // If running on cpu, increment the cpu/size_class slab's capacity to no
-  // greater than min(capacity+len, max_cap) and return the increment applied.
-  // Otherwise return 0. Note: max_cap must be the same as returned by capacity
-  // callback passed to Init.
-  size_t Grow(int cpu, size_t size_class, size_t len, size_t max_cap);
+  // greater than min(capacity+len, max_capacity(<shift>)) and return the
+  // increment applied. Otherwise return 0.
+  // <max_capacity> is a callback that takes the current slab shift as input and
+  // returns the max capacity of <size_class> for that shift value - this is in
+  // order to ensure that the shift value used is consistent with the one used
+  // in the rest of this function call. Note: max_capacity must be the same as
+  // returned by capacity callback passed to Init.
+  size_t Grow(int cpu, size_t size_class, size_t len,
+              absl::FunctionRef<size_t(uint8_t)> max_capacity);
 
   // If running on cpu, decrement the cpu/size_class slab's capacity to no less
   // than max(capacity-len, 0) and return the actual decrement applied.
@@ -348,9 +353,11 @@ inline size_t TcmallocSlab<NumClasses>::Capacity(int cpu,
 }
 
 template <size_t NumClasses>
-inline size_t TcmallocSlab<NumClasses>::Grow(int cpu, size_t size_class,
-                                             size_t len, size_t max_cap) {
+inline size_t TcmallocSlab<NumClasses>::Grow(
+    int cpu, size_t size_class, size_t len,
+    absl::FunctionRef<size_t(uint8_t)> max_capacity) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  const size_t max_cap = max_capacity(ToUint8(shift));
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {

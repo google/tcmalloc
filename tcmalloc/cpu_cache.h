@@ -426,9 +426,9 @@ class CPUCache {
   size_t MaxCapacity(size_t size_class) const;
 
   // Gets the max capacity for the size class using the current per-cpu shift.
-  uint16_t GetMaxCapacity(int size_class) const;
+  uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
 
-  GetShiftMaxCapacity GetMaxCapacityFunctor() const;
+  GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
   void* Refill(int cpu, size_t size_class);
 
@@ -648,14 +648,15 @@ inline std::pair<size_t, size_t> EstimateSlabBytes(
 }
 
 template <class Forwarder>
-inline uint16_t CPUCache<Forwarder>::GetMaxCapacity(int size_class) const {
-  return GetMaxCapacityFunctor()(size_class);
+inline uint16_t CPUCache<Forwarder>::GetMaxCapacity(int size_class,
+                                                    uint8_t shift) const {
+  return GetMaxCapacityFunctor(shift)(size_class);
 }
 
 template <class Forwarder>
-inline GetShiftMaxCapacity CPUCache<Forwarder>::GetMaxCapacityFunctor() const {
-  return {max_capacity_, freelist_.GetShift(),
-          NumaShift(forwarder_.numa_topology())};
+inline GetShiftMaxCapacity CPUCache<Forwarder>::GetMaxCapacityFunctor(
+    uint8_t shift) const {
+  return {max_capacity_, shift, NumaShift(forwarder_.numa_topology())};
 }
 
 template <class Forwarder>
@@ -817,7 +818,7 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // it again. Also we will shrink it by 1, but grow by a batch. So we should
   // have lots of time until we need to grow it again.
 
-  const size_t max_capacity = GetMaxCapacity(size_class);
+  const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
   size_t capacity = freelist_.Capacity(cpu, size_class);
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
@@ -825,13 +826,10 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   absl::base_internal::LowLevelCallOnce(
       &resize_[cpu].initialized,
       [](CPUCache* cache, int cpu) {
-        {
-          absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
-          cache->freelist_.InitCpu(cpu, cache->GetMaxCapacityFunctor());
-        }
+        absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
+        cache->freelist_.InitCpu(
+            cpu, cache->GetMaxCapacityFunctor(cache->freelist_.GetShift()));
 
-        // While we could unconditionally store, a lazy slab population
-        // implementation will require evaluating a branch.
         cache->resize_[cpu].populated.store(true, std::memory_order_relaxed);
       },
       this, cpu);
@@ -909,8 +907,9 @@ inline void CPUCache<Forwarder>::Grow(int cpu, size_t size_class,
   size_t actual_increase = acquired_bytes / size;
   actual_increase = std::min(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
-  size_t increase = freelist_.Grow(cpu, size_class, actual_increase,
-                                   GetMaxCapacity(size_class));
+  size_t increase = freelist_.Grow(
+      cpu, size_class, actual_increase,
+      [&](uint8_t shift) { return GetMaxCapacity(size_class, shift); });
   size_t increased_bytes = increase * size;
   if (increased_bytes < acquired_bytes) {
     // return whatever we didn't use to the slack.
@@ -1667,7 +1666,8 @@ inline void CPUCache<Forwarder>::Print(Printer* out) const {
         "%6zu (maximum),"
         "%6zu maximum allowed capacity\n",
         size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
-        stats.avg_capacity, stats.max_capacity, GetMaxCapacity(size_class));
+        stats.avg_capacity, stats.max_capacity,
+        GetMaxCapacity(size_class, freelist_.GetShift()));
   }
 
   out->printf("------------------------------------------------\n");
@@ -1721,7 +1721,8 @@ inline void CPUCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     entry.PrintI64("min_capacity", stats.min_capacity);
     entry.PrintDouble("avg_capacity", stats.avg_capacity);
     entry.PrintI64("max_capacity", stats.max_capacity);
-    entry.PrintI64("max_allowed_capacity", GetMaxCapacity(size_class));
+    entry.PrintI64("max_allowed_capacity",
+                   GetMaxCapacity(size_class, freelist_.GetShift()));
   }
 }
 
