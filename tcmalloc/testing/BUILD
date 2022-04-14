@@ -38,7 +38,6 @@ REGTEST_DEPS = [
     "@com_google_absl//absl/synchronization",
     "@com_google_absl//absl/utility",
     "@com_google_absl//absl/numeric:bits",
-    "//tcmalloc:headers_for_tests",
     "//tcmalloc/internal:declarations",
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:parameter_accessors",
@@ -126,6 +125,7 @@ cc_test(
     tags = ["nosan"],
     deps = REGTEST_DEPS + [
         "@com_github_google_benchmark//:benchmark",
+        "//tcmalloc:common",
         "//tcmalloc:want_no_hpaa",
     ],
 )
@@ -140,6 +140,7 @@ cc_test(
     tags = ["nosan"],
     deps = REGTEST_DEPS + [
         "@com_github_google_benchmark//:benchmark",
+        "//tcmalloc:common",
         "//tcmalloc:want_hpaa",
     ],
 )
@@ -154,7 +155,10 @@ cc_test(
     tags = [
         "nosan",
     ],
-    deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
+    deps = REGTEST_DEPS + [
+        "@com_github_google_benchmark//:benchmark",
+        "//tcmalloc:common_deprecated_perthread",
+    ],
 )
 
 create_tcmalloc_testsuite(
@@ -382,7 +386,6 @@ cc_test(
     deps = [
         ":testutil",
         "//tcmalloc:common",
-        "//tcmalloc:headers_for_tests",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/flags:flag",

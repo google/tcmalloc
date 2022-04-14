@@ -324,6 +324,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_DEPRECATED_PERTHREAD"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -606,50 +607,6 @@ package_group(
     packages = [
         "//tcmalloc/...",
     ],
-)
-
-cc_library(
-    name = "headers_for_tests",
-    srcs = [
-        "arena.h",
-        "central_freelist.h",
-        "guarded_page_allocator.h",
-        "hinted_tracker_lists.h",
-        "huge_address_map.h",
-        "huge_allocator.h",
-        "huge_cache.h",
-        "huge_page_aware_allocator.h",
-        "huge_page_filler.h",
-        "huge_pages.h",
-        "huge_region.h",
-        "lifetime_based_allocator.h",
-        "page_allocator.h",
-        "page_allocator_interface.h",
-        "page_heap.h",
-        "page_heap_allocator.h",
-        "pagemap.h",
-        "parameters.h",
-        "peak_heap_tracker.h",
-        "span_stats.h",
-        "stack_trace_table.h",
-        "tracking.h",
-        "transfer_cache.h",
-        "transfer_cache_internals.h",
-        "transfer_cache_stats.h",
-    ],
-    hdrs = [
-        "common.h",
-        "pages.h",
-        "sampler.h",
-        "size_class_info.h",
-        "span.h",
-        "static_vars.h",
-        "stats.h",
-        "system-alloc.h",
-    ],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
-    deps = common_deps,
 )
 
 cc_library(
