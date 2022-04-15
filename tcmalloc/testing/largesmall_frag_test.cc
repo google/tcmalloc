@@ -18,21 +18,15 @@
 #include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
 #include "tcmalloc/internal/linked_list.h"
-#include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
 
-int64_t VirtualProcessSize() {
-  tcmalloc::tcmalloc_internal::MemoryStats stats;
-
-  if (tcmalloc::tcmalloc_internal::GetMemoryStats(&stats)) {
-    return stats.vss;
-  } else {
-    return 0;
-  }
+int64_t PhysicalMemoryUsed() {
+  return MallocExtension::GetNumericProperty("generic.physical_memory_used")
+      .value_or(0);
 }
 
 // This exercises memory fragmentation in the presence of calls to
@@ -61,10 +55,10 @@ TEST(LargeSmallFrag, Test) {
 
   // Chew up all possible memory that could be used to allocate
   // small objects.
-  const int64_t vsize = VirtualProcessSize() / 1024 / 1024;
+  const int64_t vsize = PhysicalMemoryUsed() / 1024 / 1024;
   tcmalloc_internal::LinkedList small;
   small.Init();
-  while (VirtualProcessSize() / 1024 / 1024 == vsize) {
+  while (PhysicalMemoryUsed() / 1024 / 1024 == vsize) {
     small.Push(::operator new(kSmall));
   }
 
@@ -75,7 +69,7 @@ TEST(LargeSmallFrag, Test) {
   // for the second large object.  That will cause the next iteration
   // to allocate a third large-object space. Therefore we allow the
   // virtual memory to grow to 3 * kLarge.
-  int64_t allowed = VirtualProcessSize() + 3 * kLarge + (10 << 20);
+  int64_t allowed = PhysicalMemoryUsed() + 3 * kLarge + (10 << 20);
 
   // Fragmentation loop
   for (int iter = 0; iter < 100; iter++) {
@@ -98,8 +92,8 @@ TEST(LargeSmallFrag, Test) {
     MallocExtension::ReleaseMemoryToSystem(
         std::numeric_limits<size_t>::max());  // Simulate scavenging
     absl::FPrintF(stderr, "Iteration %5d ; Allowed: %d ; VSS %8.0f MB\n", iter,
-                  allowed, VirtualProcessSize() / 1048576.0);
-    EXPECT_LE(VirtualProcessSize(), allowed);
+                  allowed, PhysicalMemoryUsed() / 1048576.0);
+    EXPECT_LE(PhysicalMemoryUsed(), allowed);
   }
 
   void* ptr;
