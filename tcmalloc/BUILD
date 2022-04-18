@@ -126,32 +126,6 @@ cc_library(
     alwayslink = 1,
 )
 
-# An opt tcmalloc build with ASSERTs forced on (by turning off
-# NDEBUG). Useful for tracking down crashes in production binaries.
-# To use add malloc = "//tcmalloc:opt_with_assertions" in your
-# target's build rule.
-cc_library(
-    name = "opt_with_assertions",
-    srcs = [
-        "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
-        "tcmalloc.cc",
-        "tcmalloc.h",
-    ],
-    copts = [
-        "-O2",
-    ] + TCMALLOC_DEFAULT_COPTS,
-    deprecation = "Replace :opt_with_assertions with :tcmalloc",
-    linkstatic = 1,
-    visibility = ["//visibility:public"],
-    deps = tcmalloc_deps + [
-        ":common",
-    ],
-    alwayslink = 1,
-)
-
 cc_library(
     name = "size_class_info",
     hdrs = ["size_class_info.h"],
