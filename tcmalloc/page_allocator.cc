@@ -79,12 +79,7 @@ bool decide_want_hpaa() {
     }
   }
 
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
-  // HPAA is neither small nor slow :)
-  return false;
-#else
   return true;
-#endif
 }
 
 bool want_hpaa() {
