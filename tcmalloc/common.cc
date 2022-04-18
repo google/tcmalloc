@@ -238,7 +238,7 @@ void SizeMap::Init() {
 
   // TODO(b/124707070): Systematically identify candidates for cold allocation
   // and include them explicitly in size_classes.cc.
-  ABSL_CONST_INIT static constexpr size_t kColdCandidates[] = {
+  static constexpr size_t kColdCandidates[] = {
       2048,  4096,  6144,  7168,  8192,   16384,
       20480, 32768, 40960, 65536, 131072, 262144,
   };
