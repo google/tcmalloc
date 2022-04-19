@@ -500,6 +500,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+        // We use "c" for shift because shl requires the c register.
         [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
         [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
@@ -786,6 +787,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
+            // We use "c" for shift because shl requires the c register.
             [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
             [size_class] "r"(size_class)
           : "cc", "memory"
