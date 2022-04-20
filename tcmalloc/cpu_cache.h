@@ -818,8 +818,6 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // it again. Also we will shrink it by 1, but grow by a batch. So we should
   // have lots of time until we need to grow it again.
 
-  const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
-  size_t capacity = freelist_.Capacity(cpu, size_class);
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
   // first time.
@@ -830,9 +828,13 @@ inline size_t CPUCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
         cache->freelist_.InitCpu(
             cpu, cache->GetMaxCapacityFunctor(cache->freelist_.GetShift()));
 
+        // We update this under the lock so it's guaranteed that the populated
+        // CPUs don't change during ResizeSlabs.
         cache->resize_[cpu].populated.store(true, std::memory_order_relaxed);
       },
       this, cpu);
+  const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
+  size_t capacity = freelist_.Capacity(cpu, size_class);
   const bool grow_by_one = capacity < 2 * batch_length;
   uint32_t successive = 0;
   bool grow_by_batch = resize_[cpu].per_class[size_class].Update(
