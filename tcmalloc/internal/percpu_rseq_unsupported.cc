@@ -44,24 +44,9 @@ int TcmallocSlab_Internal_Push(void* ptr, size_t size_class, void* item,
   return -1;
 }
 
-int TcmallocSlab_Internal_Push_FixedShift(void* ptr, size_t size_class,
-                                          void* item,
-                                          OverflowHandler overflow_handler,
-                                          void* arg) {
-  Unsupported();
-  return -1;
-}
-
 void* TcmallocSlab_Internal_Pop(void* ptr, size_t size_class,
                                 UnderflowHandler underflow_handler, void* arg,
                                 size_t shift) {
-  Unsupported();
-  return nullptr;
-}
-
-void* TcmallocSlab_Internal_Pop_FixedShift(void* ptr, size_t size_class,
-                                           UnderflowHandler underflow_handler,
-                                           void* arg) {
   Unsupported();
   return nullptr;
 }

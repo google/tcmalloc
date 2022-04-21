@@ -689,13 +689,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 #else
   // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    return TcmallocSlab_Internal_Push_FixedShift(slabs, size_class, item,
-                                                 overflow_handler, arg) >= 0;
-  } else {
-    return TcmallocSlab_Internal_Push(slabs, size_class, item, ToUint8(shift),
-                                      overflow_handler, arg) >= 0;
-  }
+  return TcmallocSlab_Internal_Push(slabs, size_class, item, ToUint8(shift),
+                                    overflow_handler, arg) >= 0;
 #endif
 }
 
@@ -975,14 +970,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #else
   // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  void* ret;
-  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    ret = TcmallocSlab_Internal_Pop_FixedShift(slabs, size_class,
-                                               underflow_handler, arg);
-  } else {
-    ret = TcmallocSlab_Internal_Pop(slabs, size_class, underflow_handler, arg,
-                                    ToUint8(shift));
-  }
+  void* ret = TcmallocSlab_Internal_Pop(slabs, size_class, underflow_handler,
+                                        arg, ToUint8(shift));
   TSANAcquire(ret);
   return ret;
 #endif
