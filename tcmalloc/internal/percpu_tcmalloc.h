@@ -687,10 +687,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
                                                 item, overflow_handler, arg,
                                                 virtual_cpu_id_offset_) >= 0;
 #else
-  // TODO(b/228190572): load slabs/shift in RSEQ.
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  return TcmallocSlab_Internal_Push(slabs, size_class, item, ToUint8(shift),
-                                    overflow_handler, arg) >= 0;
+  Crash(kCrash, __FILE__, __LINE__,
+        "RSEQ Push called on unsupported platform.");
 #endif
 }
 
@@ -968,12 +966,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
                                                underflow_handler, arg,
                                                virtual_cpu_id_offset_);
 #else
-  // TODO(b/228190572): load slabs/shift in RSEQ.
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  void* ret = TcmallocSlab_Internal_Pop(slabs, size_class, underflow_handler,
-                                        arg, ToUint8(shift));
-  TSANAcquire(ret);
-  return ret;
+  Crash(kCrash, __FILE__, __LINE__, "RSEQ Pop called on unsupported platform.");
 #endif
 }
 
@@ -997,6 +990,7 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   //
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
+  // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
@@ -1035,6 +1029,7 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
                                                  void** batch, size_t len) {
   ASSERT(len != 0);
   size_t n = 0;
+  // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
