@@ -260,7 +260,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
  *     void *ptr (x0),
  *     size_t size_class (w1),
  *     void** batch (x2),
- *     size_t len (w3) {
+ *     size_t len (w3)) {
  *   uint64_t r8 = __rseq_abi.cpu_id
  *   uint64_t* r8 = CpuMemoryStart(x0, r8)
  *   Header* hdr = r8 + w1 * 8
@@ -378,7 +378,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift_VCPU)
  *     void *ptr (x0),
  *     size_t size_class (w1),
  *     void** batch (x2),
- *     size_t len (w3) {
+ *     size_t len (w3)) {
  *   uint64_t r8 = __rseq_abi.cpu_id
  *   uint64_t* r8 = CpuMemoryStart(ptr, r8)
  *   Header* hdr = GetHeader(r8, size_class)
