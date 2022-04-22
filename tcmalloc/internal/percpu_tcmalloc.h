@@ -483,7 +483,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "add %%rcx, %%r10\n"
       // r11 = slabs->current;
       "movzwq (%%r10, %[size_class], 8), %%r11\n"
-      // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow; }
+      // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow_label; }
       "cmp 6(%%r10, %[size_class], 8), %%r11w\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       "jae %l[overflow_label]\n"
@@ -608,7 +608,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
       // end = slab_headers[size_class]->end (end index)
       "ldrh %w[end], [%[end_ptr], %[size_class_lsl3]]\n"
-      // if (ABSL_PREDICT_FALSE(current >= end)) { goto overflow; }
+      // if (ABSL_PREDICT_FALSE(end <= current)) { goto overflow_label; }
       "cmp %[end], %[current]\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       "b.le %l[overflow_label]\n"
@@ -760,8 +760,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "add %%rcx, %[scratch]\n"
           // current = scratch->header[size_class].current;
           "movzwq (%[scratch], %[size_class], 8), %[current]\n"
-          // if (ABSL_PREDICT_FALSE(scratch->header[size_class].begin >
-          //                        current))
+          // if (ABSL_PREDICT_FALSE(current <=
+          //                        scratch->header[size_class].begin))
+          //   goto underflow_path;
           "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "jbe %l[underflow_path]\n"
@@ -888,7 +889,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
           // begin = slab_headers[size_class]->begin (begin index)
           "ldrh %w[begin], [%[begin_ptr], %[size_class_lsl3]]\n"
-          // if (ABSL_PREDICT_FALSE(begin >= current)) { goto overflow; }
+          // if (ABSL_PREDICT_FALSE(begin >= current)) { goto underflow_path; }
           "cmp %w[begin], %w[current]\n"
           "sub %w[new_current], %w[current], #1\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
