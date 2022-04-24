@@ -349,7 +349,7 @@ class MallocExtension final {
   // approximately every rate bytes allocated, subject to implementation
   // limitations in GWP-ASan.
   //
-  // Guarded samples provide probablistic protections against buffer underflow,
+  // Guarded samples provide probabilistic protections against buffer underflow,
   // overflow, and use-after-free when GWP-ASan is active (via calling
   // ActivateGuardedSampling).
   static void SetGuardedSamplingRate(int64_t rate);

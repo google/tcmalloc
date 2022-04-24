@@ -565,7 +565,7 @@ Length HugePageAwareAllocator::ReleaseAtLeastNPages(Length num_pages) {
   Length released;
   released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
 
-  // This is our long term plan but in current state will lead to insufficent
+  // This is our long term plan but in current state will lead to insufficient
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
   // TODO(b/134690769): make this work, remove the flag guard.
@@ -743,7 +743,7 @@ void* HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
 }
 
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {
-  // We desparately need to release memory, and are willing to
+  // We desperately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the filler.
   return filler_.ReleasePages(n, absl::ZeroDuration(), /*hit_limit*/ true);
 }

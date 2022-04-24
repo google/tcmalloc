@@ -312,7 +312,7 @@ ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   if (thread_heaps_ != nullptr) {
     thread_heaps_->prev_ = heap;
   } else {
-    // This is the only thread heap at the momment.
+    // This is the only thread heap at the moment.
     ASSERT(next_memory_steal_ == nullptr);
     next_memory_steal_ = heap;
   }

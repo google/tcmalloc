@@ -1735,7 +1735,7 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
 // Handles freeing object that doesn't have size class, i.e. which
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
-// prologue/epiloge for fast-path freeing functions.
+// prologue/epilogue for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
 static void do_free_pages(void* ptr, const PageId p) {
   void* proxy = nullptr;

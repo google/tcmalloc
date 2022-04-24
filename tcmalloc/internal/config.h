@@ -103,7 +103,7 @@ inline constexpr int kAddressBits =
     (sizeof(void*) < 8 ? (8 * sizeof(void*)) : 48);
 #elif defined __powerpc64__ && defined __linux__
 // Linux(4.12 and above) on powerpc64 supports 128TB user virtual address space
-// by default, and up to 512TB if user space opts in by specifing hint in mmap.
+// by default, and up to 512TB if user space opts in by specifying hint in mmap.
 // See comments in arch/powerpc/include/asm/processor.h
 // and arch/powerpc/mm/mmap.c.
 inline constexpr int kAddressBits =

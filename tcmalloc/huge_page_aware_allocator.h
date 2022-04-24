@@ -39,7 +39,7 @@ namespace tcmalloc_internal {
 
 bool decide_subrelease();
 
-// An implementation of the PageAllocator interface that is hugepage-efficent.
+// An implementation of the PageAllocator interface that is hugepage-efficient.
 // Attempts to pack allocations into full hugepages wherever possible,
 // and aggressively returns empty ones to the system.
 class HugePageAwareAllocator final : public PageAllocatorInterface {

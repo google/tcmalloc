@@ -192,7 +192,7 @@ A few important details:
     touches the last hugepage in the region: we will then waste ~a full hugepage
     per region, and thus waste `R` hugepages. Conclusion: the larger a region we
     use, the less waste (in this case). Originally regions were 32 MiB, and this
-    effect was very noticable. This also allows us to use very few regions in a
+    effect was very noticeable. This also allows us to use very few regions in a
     given binary, which means we can be less careful about how we organize the
     set of regions.
 
@@ -250,7 +250,7 @@ For accounting purposes, we do a bit of tracking whether a given allocation is
 being fulfilled from previously-unbacked memory.
 
 We do wire that information to the point we drop the pageheap lock; we then back
-it without producing lock contention. This made a noticable performance
+it without producing lock contention. This made a noticeable performance
 difference when explicitly backing memory before returning it to the
 application.
 
