@@ -42,6 +42,7 @@ namespace tcmalloc_internal {
 // lines these arrays use.
 //
 // IF YOU ADD TO THIS LIST, ADD TO STATIC_VAR_SIZE TOO!
+// LINT.IfChange(static_vars)
 ABSL_CONST_INIT absl::base_internal::SpinLock pageheap_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT Arena Static::arena_;
@@ -71,11 +72,13 @@ ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
+// LINT.ThenChange(:static_vars_size)
 
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses
   // -- I'd like to put all the above in a struct and take that
   // struct's size.  But we can't due to linking issues.
+  // LINT.IfChange(static_vars_size)
   const size_t static_var_size =
       sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +
       sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
@@ -87,6 +90,7 @@ size_t Static::metadata_bytes() {
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(peak_heap_tracker_) + sizeof(guarded_page_lock) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
+  // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +
                            AddressRegionFactory::InternalBytesAllocated();
