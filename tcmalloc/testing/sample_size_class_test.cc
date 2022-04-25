@@ -76,7 +76,7 @@ TEST(SampleSizeClassTest, Main) {
   free(p);
 
   // Allocate a large amount of data.  We construct a linked list with the
-  // pointers to avoid having to allocate auxillary data for keeping track of
+  // pointers to avoid having to allocate auxiliary data for keeping track of
   // all of the allocations.
   const double start = HeapProfileReport(kActualSize);
   size_t allocated = 0;

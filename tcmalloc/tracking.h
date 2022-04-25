@@ -78,7 +78,7 @@ enum TrackingStat {
 
 namespace tracking {
 
-// Report <count> occurences of <stat> associated with sizeclass <size_class>.
+// Report <count> occurrences of <stat> associated with sizeclass <size_class>.
 void Report(TrackingStat stat, size_t size_class, ssize_t count);
 
 // Dump all tracking data to <out>.  We could support various other

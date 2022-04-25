@@ -139,7 +139,7 @@ void Span::AverageFreelistAddedTime(const Span* other) {
 
 Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   // Object index is an offset from span start divided by a power-of-two.
-  // The divisors are choosen so that
+  // The divisors are chosen so that
   // (1) objects are aligned on the divisor,
   // (2) index fits into 16 bits and
   // (3) the index of the beginning of all objects is strictly less than
