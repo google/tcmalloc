@@ -1323,7 +1323,7 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
       GetSlabsAndShift(std::memory_order_relaxed);
   ASSERT(new_shift != old_shift);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, virtual_cpu_id_offset, capacity);
     }
@@ -1331,9 +1331,9 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
 
   // Phase 2: Collect all `begin`s (these are not mutated by anybody else thanks
   // to the cpu locks) and stop concurrent mutations for all populated CPUs and
-  // size classes.
+  // size classes by locking all the headers.
   auto begins = std::make_unique<std::array<uint16_t, NumClasses>[]>(num_cpus);
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
       Header header =
@@ -1348,10 +1348,29 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
   slabs_and_shift_.store({new_slabs, new_shift}, std::memory_order_relaxed);
 
   // Phase 4: Return pointers from the old slab to the TransferCache.
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     DrainCpu(old_slabs, old_shift, cpu, &begins[cpu][0], drain_handler);
   }
+
+  // Phase 5: Update all the `current` values to 0 and fence all CPUs. In RSEQ
+  // for Pop/PopBatch, we load current before loading begin so it's possible to
+  // get an interleaving of: (Thread 1) load current (>0); (Thread 2)
+  // MADVISE_DONTNEED away slabs; (Thread 1) load begin (now ==0), see
+  // begin<current so we can Pop.
+  // NOTE: we do this after DrainCpu because DrainCpu relies on headers having
+  // accurate `current` values.
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+      std::atomic<int64_t>* header_ptr =
+          GetHeader(old_slabs, old_shift, cpu, size_class);
+      Header header = LoadHeader(header_ptr);
+      header.current = 0;
+      StoreHeader(header_ptr, header);
+    }
+  }
+  FenceAllCpus();
 
   return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
 }
