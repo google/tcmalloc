@@ -97,49 +97,6 @@ class TcmallocSlab {
   using ShrinkHandler =
       absl::FunctionRef<void(size_t size_class, void** batch, size_t size)>;
 
-  // We use a single continuous region of memory for all slabs on all CPUs.
-  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
-  // First NumClasses words of each CPU region are occupied by slab
-  // headers (Header struct). The remaining memory contain slab arrays.
-  struct Slabs {
-    std::atomic<int64_t> header[NumClasses];
-    void* mem[];
-  };
-
-  // In order to support dynamic slab metadata sizes, we need to be able to
-  // atomically update both the slabs pointer and the shift value so we store
-  // both together in an atomic SlabsAndShift, which manages the bit operations.
-  class SlabsAndShift {
-   public:
-    // These masks allow for distinguishing the shift bits from the slabs
-    // pointer bits. The maximum shift value is less than kShiftMask and
-    // kShiftMask is less than kPhysicalPageAlign.
-    // NOTE: we rely on kShiftMask being 0xFF in the assembly for Push/Pop.
-    static constexpr size_t kShiftMask = 0xFF;
-    static constexpr size_t kSlabsMask = ~kShiftMask;
-
-    constexpr explicit SlabsAndShift() noexcept : raw_(0) {}
-    SlabsAndShift(const Slabs* slabs, Shift shift)
-        : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
-      ASSERT((raw_ & kShiftMask) == ToUint8(shift));
-      ASSERT(reinterpret_cast<Slabs*>(raw_ & kSlabsMask) == slabs);
-    }
-
-    std::pair<Slabs*, Shift> Get() const {
-      static_assert(kShiftMask >= 0 && kShiftMask <= UCHAR_MAX,
-                    "kShiftMask must fit in a uint8_t");
-      // Avoid expanding the width of Shift else the compiler will insert an
-      // additional instruction to zero out the upper bits on the critical path
-      // of alloc / free.  Not zeroing out the bits is safe because both ARM and
-      // x86 only use the lowest byte for shift count in variable shifts.
-      return {reinterpret_cast<TcmallocSlab::Slabs*>(raw_ & kSlabsMask),
-              static_cast<Shift>(raw_ & kShiftMask)};
-    }
-
-   private:
-    uintptr_t raw_;
-  };
-
   constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
@@ -246,6 +203,15 @@ class TcmallocSlab {
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
+  // We use a single continuous region of memory for all slabs on all CPUs.
+  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
+  // First NumClasses words of each CPU region are occupied by slab
+  // headers (Header struct). The remaining memory contain slab arrays.
+  struct Slabs {
+    std::atomic<int64_t> header[NumClasses];
+    void* mem[];
+  };
+
   inline int GetCurrentVirtualCpuUnsafe() {
     return VirtualRseqCpuId(virtual_cpu_id_offset_);
   }
@@ -257,6 +223,39 @@ class TcmallocSlab {
   }
 
  private:
+  // In order to support dynamic slab metadata sizes, we need to be able to
+  // atomically update both the slabs pointer and the shift value so we store
+  // both together in an atomic SlabsAndShift, which manages the bit operations.
+  class SlabsAndShift {
+    // These masks allow for distinguishing the shift bits from the slabs
+    // pointer bits. The maximum shift value is less than kShiftMask and
+    // kShiftMask is less than kPhysicalPageAlign.
+    static constexpr size_t kShiftMask = 0xFF;
+    static constexpr size_t kSlabsMask = ~kShiftMask;
+
+   public:
+    constexpr explicit SlabsAndShift() noexcept : raw_(0) {}
+    SlabsAndShift(const Slabs* slabs, Shift shift)
+        : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
+      ASSERT((raw_ & kShiftMask) == ToUint8(shift));
+      ASSERT(reinterpret_cast<Slabs*>(raw_ & kSlabsMask) == slabs);
+    }
+
+    std::pair<Slabs*, Shift> Get() const {
+      static_assert(kShiftMask >= 0 && kShiftMask <= UCHAR_MAX,
+                    "kShiftMask must fit in a uint8_t");
+      // Avoid expanding the width of Shift else the compiler will insert an
+      // additional instruction to zero out the upper bits on the critical path
+      // of alloc / free.  Not zeroing out the bits is safe because both ARM and
+      // x86 only use the lowest byte for shift count in variable shifts.
+      return {reinterpret_cast<TcmallocSlab::Slabs*>(raw_ & kSlabsMask),
+              static_cast<Shift>(raw_ & kShiftMask)};
+    }
+
+   private:
+    uintptr_t raw_;
+  };
+
   // Slab header (packed, atomically updated 64-bit).
   // All {begin, current, end} values are pointer offsets from per-CPU region
   // start. The slot array is in [begin, end), and the occupied slots are in
@@ -412,8 +411,8 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 #if defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    void* slabs_and_shift, size_t size_class, void* item,
-    OverflowHandler overflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
@@ -472,15 +471,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "mov %%r10, %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
-      // We use rcx as scratch for slabs_and_shift. Note: shl requires cl.
-      // rcx = *slabs_and_shift;
-      "movq (%[slabs_and_shift]), %%rcx\n"
       // scratch = __rseq_abi.cpu_id;
       "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %%r10d\n"
       // scratch = slabs + scratch
-      "shlq %%cl, %%r10\n"
-      "and %[slabs_mask], %%rcx\n"
-      "add %%rcx, %%r10\n"
+      "shlq %b[shift], %%r10\n"
+      "add %[slabs], %%r10\n"
       // r11 = slabs->current;
       "movzwq (%%r10, %[size_class], 8), %%r11\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow_label; }
@@ -505,10 +500,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-        [slabs_mask] "n"(TcmallocSlab<NumClasses>::SlabsAndShift::kSlabsMask),
-        [size_class] "r"(size_class), [item] "r"(item),
-        [slabs_and_shift] "r"(slabs_and_shift)
-      : "cc", "memory", "rcx", "r10", "r11"
+        // We use "c" for shift because shl requires the c register.
+        [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
+        [size_class] "r"(size_class), [item] "r"(item)
+      : "cc", "memory", "r10", "r11"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
@@ -531,13 +526,14 @@ overflow_label:
 #if defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    void* slabs_and_shift, size_t size_class, void* item,
-    OverflowHandler overflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
   void* end_ptr;
-  uintptr_t current, end, slabs, shift;
+  uintptr_t current;
+  uintptr_t end;
   // Multiply size_class by the bytesize of each header
   size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
@@ -598,8 +594,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // cpu_id = __rseq_abi.vcpu_id;
       "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
       // region_start = Start of cpu region
-      "ldr %[shift], [%[slabs_and_shift]]\n"
-      "and %[slabs], %[shift], %[slabs_mask]\n"
       "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
       "add %[region_start], %[region_start], %[slabs]\n"
       // end_ptr = &(slab_headers[0]->end)
@@ -624,19 +618,18 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "5:\n"
       : [end_ptr] "=&r"(end_ptr), [cpu_id] "=&r"(cpu_id),
         [current] "=&r"(current), [end] "=&r"(end),
-        [region_start] "=&r"(region_start), [slabs] "=&r"(slabs),
-        [shift] "=&r"(shift)
+        [region_start] "=&r"(region_start)
+
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
             ,
         [overflow] "=@ccae"(overflow)
 #endif
-      : [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
+      : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
         [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
-        [rseq_abi] "r"(&__rseq_abi), [slabs_and_shift] "r"(slabs_and_shift),
+        [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
         // Constants
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-        [slabs_mask] "in"(TcmallocSlab<NumClasses>::SlabsAndShift::kSlabsMask)
+        [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
       // Add x16 and x17 as an explicit clobber registers:
       // The RSEQ code above uses non-local branches in the restart sequence
       // which is located inside .text.unlikely. The maximum distance of B
@@ -682,9 +675,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // it may become visible to another thread before we can trigger the
   // annotation.
   TSANRelease(item);
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Internal_Push<NumClasses>(&slabs_and_shift_, size_class,
-                                                item, overflow_handler, arg,
+  return TcmallocSlab_Internal_Push<NumClasses>(slabs, size_class, item, shift,
+                                                overflow_handler, arg,
                                                 virtual_cpu_id_offset_) >= 0;
 #else
   Crash(kCrash, __FILE__, __LINE__,
@@ -695,8 +689,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 #if defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
-    void* slabs_and_shift, size_t size_class,
-    UnderflowHandler underflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    UnderflowHandler underflow_handler, void* arg, Shift shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* scratch;
@@ -749,15 +743,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
           // Start
           "4:\n"
-          // We use rcx as scratch for slabs_and_shift. Note: shl requires cl.
-          // rcx = *slabs_and_shift;
-          "movq (%[slabs_and_shift]), %%rcx\n"
           // scratch = __rseq_abi.cpu_id;
           "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
           // scratch = slabs + scratch
-          "shlq %%cl, %[scratch]\n"
-          "and %[slabs_mask], %%rcx\n"
-          "add %%rcx, %[scratch]\n"
+          "shlq %b[shift], %[scratch]\n"
+          "add %[slabs], %[scratch]\n"
           // current = scratch->header[size_class].current;
           "movzwq (%[scratch], %[size_class], 8), %[current]\n"
           // if (ABSL_PREDICT_FALSE(current <=
@@ -793,10 +783,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-            [slabs_mask] "n"(
-                TcmallocSlab<NumClasses>::SlabsAndShift::kSlabsMask),
-            [size_class] "r"(size_class), [slabs_and_shift] "r"(slabs_and_shift)
-          : "cc", "memory", "rcx"
+            // We use "c" for shift because shl requires the c register.
+            [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
+            [size_class] "r"(size_class)
+          : "cc", "memory"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
@@ -809,7 +799,20 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   TSANAcquire(result);
   return result;
 underflow_path:
+#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
+  // values for the fallthrough path.  The values on the taken branches are
+  // undefined.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
+#else
+  // With asm goto--without output constraints--the value of scratch is
+  // well-defined by the compiler and our implementation.  As an optimization on
+  // this case, we can avoid looking up cpu_id again, by undoing the
+  // transformation of cpu_id to the value of scratch.
+  int cpu =
+      (reinterpret_cast<char*>(scratch) - reinterpret_cast<char*>(slabs)) >>
+      ToUint8(shift);
+#endif
   return underflow_handler(cpu, size_class, arg);
 }
 #endif  // defined(__x86_64__)
@@ -817,14 +820,16 @@ underflow_path:
 #if defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
-    void* slabs_and_shift, size_t size_class,
-    UnderflowHandler underflow_handler, void* arg,
+    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
+    UnderflowHandler underflow_handler, void* arg, Shift shift,
     const size_t virtual_cpu_id_offset) {
   void* result;
   void* region_start;
   uint64_t cpu_id;
   void* begin_ptr;
-  uintptr_t current, new_current, begin, slabs, shift;
+  uintptr_t current;
+  uintptr_t new_current;
+  uintptr_t begin;
   // Multiply size_class by the bytesize of each header
   size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -879,8 +884,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // cpu_id = __rseq_abi.vcpu_id;
           "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
           // region_start = Start of cpu region
-          "ldr %[shift], [%[slabs_and_shift]]\n"
-          "and %[slabs], %[shift], %[slabs_mask]\n"
           "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
           "add %[region_start], %[region_start], %[slabs]\n"
           // begin_ptr = &(slab_headers[0]->begin)
@@ -912,17 +915,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // Temps
           [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
           [begin] "=&r"(begin), [current] "=&r"(current),
-          [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr),
-          [slabs] "=&r"(slabs), [shift] "=&r"(shift)
+          [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
           // Real inputs
-          : [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
+          : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
             [size_class_lsl3] "r"(size_class_lsl3), [rseq_abi] "r"(&__rseq_abi),
-            [slabs_and_shift] "r"(slabs_and_shift),
+            [shift] "r"(ToUint8(shift)),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
-            [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-            [slabs_mask] "in"(
-                TcmallocSlab<NumClasses>::SlabsAndShift::kSlabsMask)
+            [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
           // Add x16 and x17 as an explicit clobber registers:
           // The RSEQ code above uses non-local branches in the restart sequence
           // which is located inside .text.unlikely. The maximum distance of B
@@ -962,10 +962,10 @@ template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class, UnderflowHandler underflow_handler, void* arg) {
   ASSERT(IsFastNoInit());
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 #if defined(__x86_64__) || defined(__aarch64__)
-  return TcmallocSlab_Internal_Pop<NumClasses>(&slabs_and_shift_, size_class,
-                                               underflow_handler, arg,
-                                               virtual_cpu_id_offset_);
+  return TcmallocSlab_Internal_Pop<NumClasses>(
+      slabs, size_class, underflow_handler, arg, shift, virtual_cpu_id_offset_);
 #else
   Crash(kCrash, __FILE__, __LINE__, "RSEQ Pop called on unsupported platform.");
 #endif
@@ -991,7 +991,6 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   //
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
-  // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
@@ -999,6 +998,8 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
     // needing to dispatch on two separate versions of the same function with
     // only minor differences between them.
+    // TODO(b/186636177): once we use dynamically sized slabs, we should update
+    // PushBatch RSEQ to handle non-fixed shift.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
         return TcmallocSlab_Internal_PushBatch_FixedShift(slabs, size_class,
@@ -1030,7 +1031,6 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
                                                  void** batch, size_t len) {
   ASSERT(len != 0);
   size_t n = 0;
-  // TODO(b/228190572): load slabs/shift in RSEQ.
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
 #if TCMALLOC_PERCPU_USE_RSEQ
@@ -1038,6 +1038,8 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
     // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
     // needing to dispatch on two separate versions of the same function with
     // only minor differences between them.
+    // TODO(b/186636177): once we use dynamically sized slabs, we should update
+    // PopBatch RSEQ to handle non-fixed shift.
     switch (virtual_cpu_id_offset_) {
       case offsetof(kernel_rseq, cpu_id):
         n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, size_class, batch,
