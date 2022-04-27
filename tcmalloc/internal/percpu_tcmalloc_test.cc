@@ -514,7 +514,7 @@ void InitCpuOnce(Context& ctx, int cpu) {
 
 // TODO(b/213923453): move to an environment style of test, as in
 // FakeTransferCacheEnvironment.
-static void StressThread(size_t thread_id, Context& ctx) {
+void StressThread(size_t thread_id, Context& ctx) {
   EXPECT_TRUE(IsFast());
 
   std::vector<void*>& block = (*ctx.blocks)[thread_id];
@@ -693,78 +693,17 @@ void* allocator(size_t bytes, std::align_val_t alignment) {
   return ptr;
 }
 
-class StressThreadTest : public testing::TestWithParam<bool> {
- protected:
-  bool Resize() const { return GetParam(); }
-};
+constexpr size_t kResizeInitialShift = 14;
+constexpr size_t kResizeMaxShift = 18;
 
-TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  // The test creates 2 * NumCPUs() threads each executing all possible
-  // operations on TcmallocSlab. Depending on the test param, we may grow the
-  // slabs a few times while stress threads are running. After that we verify
-  // that no objects lost/duplicated and that total capacity is preserved.
-
-  if (!IsFast()) {
-    GTEST_SKIP() << "Need fast percpu. Skipping.";
-    return;
-  }
-
-  TcmallocSlab slab;
-  constexpr size_t kResizeInitialShift = 14;
-  constexpr size_t kResizeMaxShift = 18;
-  size_t shift = Resize() ? kResizeInitialShift : kShift;
-  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(shift));
-  std::vector<std::thread> threads;
-  const int num_cpus = absl::base_internal::NumCPUs();
-  const int n_threads = 2 * num_cpus;
-
-  // once_flag's protect InitCpu on a CPU.
-  std::vector<absl::once_flag> init(num_cpus);
-  // Tracks whether init has occurred on a CPU for use in ResizeSlabs.
-  std::vector<std::atomic<bool>> has_init(num_cpus);
-
-  // Mutexes protect Drain operation on a CPU.
-  std::vector<absl::Mutex> mutexes(num_cpus);
-  // Give each thread an initial set of local objects.
-  std::vector<std::vector<void*>> blocks(n_threads);
-  for (size_t i = 0; i < blocks.size(); ++i) {
-    for (size_t j = 0; j < kStressCapacity; ++j) {
-      blocks[i].push_back(reinterpret_cast<void*>(i * kStressCapacity + j + 1));
-    }
-  }
-  std::atomic<bool> stop(false);
-  // Total capacity shared between all size classes and all CPUs.
-  const int kTotalCapacity = blocks.size() * kStressCapacity * 3 / 4;
-  std::atomic<size_t> capacity(kTotalCapacity);
-  Context ctx = {&slab,
-                 &blocks,
-                 absl::MakeSpan(mutexes),
-                 &capacity,
-                 &stop,
-                 absl::MakeSpan(init),
-                 absl::MakeSpan(has_init)};
-  // Create threads and let them work for 5 seconds while we grow the slab every
-  // second.
-  threads.reserve(n_threads);
-  for (size_t t = 0; t < n_threads; ++t) {
-    threads.push_back(std::thread(StressThread, t, std::ref(ctx)));
-  }
-  // Collect objects and capacity from all slabs in Drain in ResizeSlabs.
-  absl::flat_hash_set<void*> objects;
-  const auto drain_handler = [&objects, &capacity](int cpu, size_t size_class,
-                                                   void** batch, size_t size,
-                                                   size_t cap) {
-    for (size_t i = 0; i < size; ++i) {
-      objects.insert(batch[i]);
-    }
-    capacity.fetch_add(cap);
-  };
-  // Keep track of old slabs so we can free the memory.
-  std::vector<std::pair<void*, size_t>> old_slabs_vec;
+void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
+                       absl::Span<std::pair<void*, size_t>> old_slabs_span)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
   absl::BitGen rnd;
+  const size_t num_cpus = absl::base_internal::NumCPUs();
+  size_t shift = kResizeInitialShift;
+  size_t old_slabs_idx = 0;
   for (int i = 0; i < 10; ++i) {
-    absl::SleepFor(absl::Milliseconds(100));
-    if (!Resize()) continue;
     if (shift == kResizeInitialShift) {
       ++shift;
     } else if (shift == kResizeMaxShift) {
@@ -777,13 +716,14 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
         --shift;
       }
     }
-    for (int cpu = 0; cpu < num_cpus; ++cpu) mutexes[cpu].Lock();
-    const auto [old_slabs, old_slabs_size] = slab.ResizeSlabs(
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
+    const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
         subtle::percpu::ToShiftType(shift), allocator, get_capacity,
-        [&](int cpu) { return has_init[cpu].load(std::memory_order_relaxed); },
+        [&](size_t cpu) {
+          return ctx.has_init[cpu].load(std::memory_order_relaxed);
+        },
         drain_handler);
-    old_slabs_vec.push_back({old_slabs, old_slabs_size});
-    for (int cpu = 0; cpu < num_cpus; ++cpu) mutexes[cpu].Unlock();
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
     ASSERT_NE(old_slabs, nullptr);
     // It's important that we do this here in order to uncover any potential
     // correctness issues due to madvising away the old slabs.
@@ -812,7 +752,7 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattribute-warning"
 #endif
-      const int bytes_read = pread(fd, &entry, sizeof(entry), offset);
+      const int64_t bytes_read = pread(fd, &entry, sizeof(entry), offset);
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
@@ -823,7 +763,93 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
           << entry << " " << addr << " " << start_addr;
     }
     signal_safe_close(fd);
+
+    // Delete the old slab from 100 iterations ago.
+    if (old_slabs_span[old_slabs_idx].first != nullptr) {
+      sized_aligned_delete(old_slabs_span[old_slabs_idx].first,
+                           old_slabs_span[old_slabs_idx].second,
+                           std::align_val_t{EXEC_PAGESIZE});
+    }
+    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
+    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
   }
+}
+
+class StressThreadTest : public testing::TestWithParam<bool> {
+ protected:
+  bool Resize() const { return GetParam(); }
+};
+
+TEST_P(StressThreadTest, Stress) {
+  // The test creates 2 * NumCPUs() threads each executing all possible
+  // operations on TcmallocSlab. Depending on the test param, we may grow the
+  // slabs a few times while stress threads are running. After that we verify
+  // that no objects lost/duplicated and that total capacity is preserved.
+
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  TcmallocSlab slab;
+  size_t shift = Resize() ? kResizeInitialShift : kShift;
+  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(shift));
+  std::vector<std::thread> threads;
+  const size_t num_cpus = absl::base_internal::NumCPUs();
+  const size_t n_stress_threads = 2 * num_cpus;
+  const size_t n_threads = n_stress_threads + Resize();
+
+  // once_flag's protect InitCpu on a CPU.
+  std::vector<absl::once_flag> init(num_cpus);
+  // Tracks whether init has occurred on a CPU for use in ResizeSlabs.
+  std::vector<std::atomic<bool>> has_init(num_cpus);
+
+  // Mutexes protect Drain operation on a CPU.
+  std::vector<absl::Mutex> mutexes(num_cpus);
+  // Give each thread an initial set of local objects.
+  std::vector<std::vector<void*>> blocks(n_stress_threads);
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    for (size_t j = 0; j < kStressCapacity; ++j) {
+      blocks[i].push_back(reinterpret_cast<void*>(i * kStressCapacity + j + 1));
+    }
+  }
+  std::atomic<bool> stop(false);
+  // Total capacity shared between all size classes and all CPUs.
+  const size_t kTotalCapacity = blocks.size() * kStressCapacity * 3 / 4;
+  std::atomic<size_t> capacity(kTotalCapacity);
+  Context ctx = {&slab,
+                 &blocks,
+                 absl::MakeSpan(mutexes),
+                 &capacity,
+                 &stop,
+                 absl::MakeSpan(init),
+                 absl::MakeSpan(has_init)};
+  // Create threads and let them work for 5 seconds while we may or not also be
+  // resizing the slab.
+  threads.reserve(n_threads);
+  for (size_t t = 0; t < n_stress_threads; ++t) {
+    threads.push_back(std::thread(StressThread, t, std::ref(ctx)));
+  }
+  // Collect objects and capacity from all slabs in Drain in ResizeSlabs.
+  absl::flat_hash_set<void*> objects;
+  const auto drain_handler = [&objects, &ctx](int cpu, size_t size_class,
+                                              void** batch, size_t size,
+                                              size_t cap) {
+    for (size_t i = 0; i < size; ++i) {
+      objects.insert(batch[i]);
+    }
+    ctx.capacity->fetch_add(cap);
+  };
+  // Keep track of old slabs so we can free the memory. We technically could
+  // have a sleeping StressThread access any of the old slabs, but it's very
+  // inefficient to keep all the old slabs around so we just keep 100.
+  std::array<std::pair<void*, size_t>, 100> old_slabs_arr{};
+  if (Resize()) {
+    threads.push_back(std::thread(ResizeSlabsThread, std::ref(ctx),
+                                  std::ref(drain_handler),
+                                  absl::MakeSpan(old_slabs_arr)));
+  }
+  absl::SleepFor(absl::Seconds(5));
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -843,7 +869,8 @@ TEST_P(StressThreadTest, Stress) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   EXPECT_EQ(objects.size(), blocks.size() * kStressCapacity);
   EXPECT_EQ(capacity.load(), kTotalCapacity);
   slab.Destroy(sized_aligned_delete);
-  for (const auto& [old_slabs, old_slabs_size] : old_slabs_vec) {
+  for (const auto& [old_slabs, old_slabs_size] : old_slabs_arr) {
+    if (old_slabs == nullptr) continue;
     sized_aligned_delete(old_slabs, old_slabs_size,
                          std::align_val_t{EXEC_PAGESIZE});
   }
