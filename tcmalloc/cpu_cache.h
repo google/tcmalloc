@@ -458,9 +458,9 @@ class CPUCache {
 
   // Records a cache underflow or overflow on <cpu>, increments underflow or
   // overflow by 1.
-  // <is_malloc> determines whether the associated count corresponds to an
+  // <is_alloc> determines whether the associated count corresponds to an
   // underflow or overflow.
-  void RecordCacheMissStat(const int cpu, const bool is_malloc);
+  void RecordCacheMissStat(int cpu, bool is_alloc);
 
   static void* NoopUnderflow(int cpu, size_t size_class, void* arg) {
     return nullptr;
@@ -1529,9 +1529,9 @@ void CPUCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
 template <class Forwarder>
 inline void CPUCache<Forwarder>::RecordCacheMissStat(const int cpu,
-                                                     const bool is_malloc) {
+                                                     const bool is_alloc) {
   MissCounts& misses =
-      is_malloc ? resize_[cpu].underflows : resize_[cpu].overflows;
+      is_alloc ? resize_[cpu].underflows : resize_[cpu].overflows;
   misses[MissCount::kTotal].fetch_add(1, std::memory_order_relaxed);
 }
 
