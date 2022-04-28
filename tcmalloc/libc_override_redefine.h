@@ -55,6 +55,9 @@ int posix_memalign(void** r, size_t a, size_t s) {
   return TCMallocInternalPosixMemalign(r, a, s);
 }
 size_t malloc_usable_size(void* p) { return TCMallocInternalMallocSize(p); }
+void* aligned_alloc(size_t a, size_t s) {
+  return TCMallocInternalAlignedAlloc(a, s);
+}
 
 // tcmalloc extension
 void sdallocx(void* p, size_t s, int flags) noexcept {
