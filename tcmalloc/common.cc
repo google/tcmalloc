@@ -67,21 +67,27 @@ bool SizeMap::MaybeRunTimeSizeClasses() {
   return true;
 }
 
-void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
+void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed,
+                             bool reduce_below64_classes) {
   CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
 
   class_to_size_[0] = 0;
   class_to_pages_[0] = 0;
   num_objects_to_move_[0] = 0;
 
+  int curr = 1;
   for (int c = 1; c < num_classes; c++) {
-    class_to_size_[c] = parsed[c].size;
-    class_to_pages_[c] = parsed[c].pages;
-    num_objects_to_move_[c] = parsed[c].num_to_move;
+    if (reduce_below64_classes &&
+        !size_map_internal::IsReducedBelow64SizeClass(parsed[c].size))
+      continue;
+    class_to_size_[curr] = parsed[c].size;
+    class_to_pages_[curr] = parsed[c].pages;
+    num_objects_to_move_[curr] = parsed[c].num_to_move;
+    ++curr;
   }
 
   // Fill any unspecified size classes with 0.
-  for (int x = num_classes; x < kNumBaseClasses; x++) {
+  for (int x = curr; x < kNumBaseClasses; x++) {
     class_to_size_[x] = 0;
     class_to_pages_[x] = 0;
     num_objects_to_move_[x] = 0;
@@ -188,6 +194,10 @@ void SizeMap::Init() {
                  Experiment::TEST_ONLY_TCMALLOC_CFL_AWARE_SIZECLASS)) {
     SetSizeClasses(kExperimentalCFLAwareSizeClassesCount,
                    kExperimentalCFLAwareSizeClasses);
+  } else if (IsExperimentActive(
+                 Experiment::TEST_ONLY_TCMALLOC_REDUCED_BELOW64_SIZECLASS)) {
+    SetSizeClasses(kSizeClassesCount, kSizeClasses,
+                   /*reduce_below64_classes=*/true);
   } else {
     SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
