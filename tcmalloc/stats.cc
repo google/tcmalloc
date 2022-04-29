@@ -476,31 +476,10 @@ const PageAllocInfo::Counts& PageAllocInfo::counts_for(Length n) const {
   return large_[i];
 }
 
-// Our current format is really simple. We have an eight-byte version
-// number as a header (currently = 1). We then follow up with a sequence
-// of fixed-size events, each 16 bytes:
-// - 8 byte "id" (really returned page)
-// - 4 byte size (in kib, for compatibility)
-//   (this gets us to 4 TiB; anything larger is reported truncated)
-// - 4 bytes for when (ms since last event) + what
-// We shift up the when by 8 bits, and store what the event is in
-// low 8 bits. (Currently just 0=alloc, 1=free, 2=Release.)
-// This truncates time deltas to 2^24 ms ~= 4 hours.
-// This could be compressed further.  (As is, it compresses well
-// with gzip.)
-// All values are host-order.
-
-struct Entry {
-  uint64_t id;
-  uint32_t kib;
-  uint32_t whenwhat;
-};
-
 using tcmalloc::tcmalloc_internal::signal_safe_write;
 
 void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
-  static_assert(sizeof(Entry) == 16, "bad sizing");
-  Entry e;
+  TraceEntry e;
   // Round the time to ms *before* computing deltas, because this produces more
   // accurate results in the long run.
 
@@ -525,7 +504,7 @@ void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
   }
   e.kib = bytes / KiB;
   const char* ptr = reinterpret_cast<const char*>(&e);
-  const size_t len = sizeof(Entry);
+  const size_t len = sizeof(TraceEntry);
   CHECK_CONDITION(len == signal_safe_write(fd_, ptr, len, nullptr));
 }
 

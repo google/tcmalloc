@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -263,6 +264,29 @@ class PageAllocInfo {
   void LogFree(int64_t when, PageId p, Length n) { Write(when, 1, p, n); }
   void LogRelease(int64_t when, Length n) { Write(when, 2, PageId{0}, n); }
 };
+
+// Our current format is really simple. We have an eight-byte version
+// number as a header (currently = 1). We then follow up with a sequence
+// of fixed-size events, each 16 bytes:
+// - 8 byte "id" (really returned page)
+// - 4 byte size (in kib, for compatibility)
+//   (this gets us to 4 TiB; anything larger is reported truncated)
+// - 4 bytes for when (ms since last event) + what
+// We shift up the when by 8 bits, and store what the event is in
+// low 8 bits. (Currently just 0=alloc, 1=free, 2=Release.)
+// This truncates time deltas to 2^24 ms ~= 4 hours.
+// This could be compressed further.  (As is, it compresses well
+// with gzip.)
+// All values are host-order.
+struct TraceEntry {
+  uint64_t id;
+  uint32_t kib;
+  uint32_t whenwhat;
+} ABSL_ATTRIBUTE_PACKED;  // Avoid padding since we save these structs to file.
+
+// We store TraceEntry objects in binary format in trace files.  Ensure that
+// object size is fixed so that trace files do not break sliently.
+static_assert(sizeof(TraceEntry) == 16, "bad sizing");
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
