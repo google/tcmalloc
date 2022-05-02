@@ -120,6 +120,14 @@ absl::Duration Parameters::filler_skip_subrelease_interval() {
       skip_subrelease_interval_ns().load(std::memory_order_relaxed));
 }
 
+bool Parameters::pass_span_object_count_to_pageheap() {
+  static bool v([]() {
+    return IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_PASS_SPAN_OBJECT_COUNT_TO_PAGEHEAP);
+  }());
+  return v;
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

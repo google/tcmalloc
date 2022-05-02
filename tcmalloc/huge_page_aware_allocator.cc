@@ -175,19 +175,21 @@ void HugePageAwareAllocator::SetTracker(
 }
 
 PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
+                                                  size_t num_objects,
                                                   bool donated) {
   CHECK_CONDITION(p.start_addr() != nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
   new (pt) FillerType::Tracker(p, absl::base_internal::CycleClock::Now());
   ASSERT(pt->longest_free_range() >= n);
-  PageId page = pt->Get(n).page;
+  PageId page = pt->Get(n, num_objects).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated);
   return page;
 }
 
-PageId HugePageAwareAllocator::RefillFiller(Length n, bool* from_released) {
+PageId HugePageAwareAllocator::RefillFiller(Length n, size_t num_objects,
+                                            bool* from_released) {
   HugeRange r = cache_.Get(NHugePages(1), from_released);
   if (!r.valid()) return PageId{0};
   // This is duplicate to Finalize, but if we need to break up
@@ -199,51 +201,54 @@ PageId HugePageAwareAllocator::RefillFiller(Length n, bool* from_released) {
   // isn't very large), and the next allocation will just repeat this
   // process.
   Static::page_allocator().ShrinkToUsageLimit();
-  return AllocAndContribute(r.start(), n, /*donated=*/false);
+  return AllocAndContribute(r.start(), n, num_objects, /*donated=*/false);
 }
 
-Span* HugePageAwareAllocator::Finalize(Length n, PageId page)
+Span* HugePageAwareAllocator::Finalize(Length n, size_t num_objects,
+                                       PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   ASSERT(page != PageId{0});
   Span* ret = Span::New(page, n);
   Static::pagemap().Set(page, ret);
   ASSERT(!ret->sampled());
-  info_.RecordAlloc(page, n);
+  info_.RecordAlloc(page, n, num_objects);
   Static::page_allocator().ShrinkToUsageLimit();
   return ret;
 }
 
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
-Span* HugePageAwareAllocator::AllocSmall(Length n, bool* from_released) {
-  auto [pt, page] = filler_.TryGet(n);
+Span* HugePageAwareAllocator::AllocSmall(Length n, size_t objects_per_span,
+                                         bool* from_released) {
+  auto [pt, page] = filler_.TryGet(n, objects_per_span);
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     *from_released = false;
-    return Finalize(n, page);
+    return Finalize(n, objects_per_span, page);
   }
 
-  page = RefillFiller(n, from_released);
+  page = RefillFiller(n, objects_per_span, from_released);
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return nullptr;
   }
-  return Finalize(n, page);
+  return Finalize(n, objects_per_span, page);
 }
 
-Span* HugePageAwareAllocator::AllocLarge(Length n, bool* from_released,
+Span* HugePageAwareAllocator::AllocLarge(Length n, size_t objects_per_span,
+                                         bool* from_released,
                                          LifetimeStats* lifetime_context) {
   // If it's an exact page multiple, just pull it from pages directly.
   HugeLength hl = HLFromPages(n);
   if (hl.in_pages() == n) {
-    return AllocRawHugepages(n, from_released);
+    return AllocRawHugepages(n, objects_per_span, from_released);
   }
 
   PageId page;
   // If we fit in a single hugepage, try the Filler first.
   if (n < kPagesPerHugePage) {
-    auto [pt, page] = filler_.TryGet(n);
+    auto [pt, page] = filler_.TryGet(n, objects_per_span);
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
       *from_released = false;
-      return Finalize(n, page);
+      return Finalize(n, objects_per_span, page);
     }
   }
 
@@ -256,13 +261,13 @@ Span* HugePageAwareAllocator::AllocLarge(Length n, bool* from_released,
 
   // Was an object allocated in the lifetime region? If so, we return it.
   if (lifetime.TryGetAllocation(&page)) {
-    return Finalize(n, page);
+    return Finalize(n, objects_per_span, page);
   }
 
   // If we're using regions in this binary (see below comment), is
   // there currently available space there?
   if (regions_.MaybeGet(n, &page, from_released)) {
-    return Finalize(n, page);
+    return Finalize(n, objects_per_span, page);
   }
 
   // We have two choices here: allocate a new region or go to
@@ -278,7 +283,8 @@ Span* HugePageAwareAllocator::AllocLarge(Length n, bool* from_released,
   const Length slack = info_.slack();
   // Don't bother at all until the binary is reasonably sized
   if (slack < HLFromBytes(64 * 1024 * 1024).in_pages()) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, lifetime, from_released);
+    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
+                                                  from_released);
   }
 
   // In the vast majority of binaries, we have many small allocations which
@@ -286,24 +292,28 @@ Span* HugePageAwareAllocator::AllocLarge(Length n, bool* from_released,
   // a handful of binaries fall below 1:1.)
   const Length small = info_.small();
   if (slack < small) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, lifetime, from_released);
+    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
+                                                  from_released);
   }
 
   // We couldn't allocate a new region. They're oversized, so maybe we'd get
   // lucky with a smaller request?
   if (!AddRegion()) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, lifetime, from_released);
+    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
+                                                  from_released);
   }
 
   CHECK_CONDITION(regions_.MaybeGet(n, &page, from_released));
-  return Finalize(n, page);
+  return Finalize(n, objects_per_span, page);
 }
 
-Span* HugePageAwareAllocator::AllocEnormous(Length n, bool* from_released) {
-  return AllocRawHugepages(n, from_released);
+Span* HugePageAwareAllocator::AllocEnormous(Length n, size_t objects_per_span,
+                                            bool* from_released) {
+  return AllocRawHugepages(n, objects_per_span, from_released);
 }
 
-Span* HugePageAwareAllocator::AllocRawHugepages(Length n, bool* from_released) {
+Span* HugePageAwareAllocator::AllocRawHugepages(Length n, size_t num_objects,
+                                                bool* from_released) {
   HugeLength hl = HLFromPages(n);
 
   HugeRange r = cache_.Get(hl, from_released);
@@ -320,21 +330,22 @@ Span* HugePageAwareAllocator::AllocRawHugepages(Length n, bool* from_released) {
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
     SetTracker(last, nullptr);
-    return Finalize(total, r.start().first_page());
+    return Finalize(total, num_objects, r.start().first_page());
   }
 
   ++donated_huge_pages_;
 
   Length here = kPagesPerHugePage - slack;
   ASSERT(here > Length(0));
-  AllocAndContribute(last, here, /*donated=*/true);
-  return Finalize(n, r.start().first_page());
+  AllocAndContribute(last, here, num_objects, /*donated=*/true);
+  return Finalize(n, num_objects, r.start().first_page());
 }
 
 Span* HugePageAwareAllocator::AllocRawHugepagesAndMaybeTrackLifetime(
-    Length n, const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
+    Length n, size_t num_objects,
+    const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
     bool* from_released) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  Span* result = AllocRawHugepages(n, from_released);
+  Span* result = AllocRawHugepages(n, num_objects, from_released);
 
   if (result != nullptr) {
     // If this is an object with a lifetime prediction and led to a donation,
@@ -360,10 +371,10 @@ static void BackSpan(Span* span) {
 }
 
 // public
-Span* HugePageAwareAllocator::New(Length n) {
+Span* HugePageAwareAllocator::New(Length n, size_t objects_per_span) {
   CHECK_CONDITION(n > Length(0));
   bool from_released;
-  Span* s = LockAndAlloc(n, &from_released);
+  Span* s = LockAndAlloc(n, objects_per_span, &from_released);
   if (s) {
     // Prefetch for writing, as we anticipate using the memory soon.
     __builtin_prefetch(s->start_address(), 1, 3);
@@ -373,7 +384,8 @@ Span* HugePageAwareAllocator::New(Length n) {
   return s;
 }
 
-Span* HugePageAwareAllocator::LockAndAlloc(Length n, bool* from_released) {
+Span* HugePageAwareAllocator::LockAndAlloc(Length n, size_t objects_per_span,
+                                           bool* from_released) {
   // Check whether we may perform lifetime-based allocation, and if so, collect
   // the allocation context without holding the lock.
   LifetimeStats* lifetime_ctx = lifetime_allocator_.CollectLifetimeContext(n);
@@ -382,24 +394,25 @@ Span* HugePageAwareAllocator::LockAndAlloc(Length n, bool* from_released) {
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
   if (n <= kPagesPerHugePage / 2) {
-    return AllocSmall(n, from_released);
+    return AllocSmall(n, objects_per_span, from_released);
   }
 
   // For anything too big for the filler, we use either a direct hugepage
   // allocation, or possibly the regions if we are worried about slack.
   if (n <= HugeRegion::size().in_pages()) {
-    return AllocLarge(n, from_released, lifetime_ctx);
+    return AllocLarge(n, objects_per_span, from_released, lifetime_ctx);
   }
 
   // In the worst case, we just fall back to directly allocating a run
   // of hugepages.
-  return AllocEnormous(n, from_released);
+  return AllocEnormous(n, objects_per_span, from_released);
 }
 
 // public
-Span* HugePageAwareAllocator::NewAligned(Length n, Length align) {
+Span* HugePageAwareAllocator::NewAligned(Length n, Length align,
+                                         size_t objects_per_span) {
   if (align <= Length(1)) {
-    return New(n);
+    return New(n, objects_per_span);
   }
 
   // we can do better than this, but...
@@ -409,7 +422,7 @@ Span* HugePageAwareAllocator::NewAligned(Length n, Length align) {
   Span* s;
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    s = AllocRawHugepages(n, &from_released);
+    s = AllocRawHugepages(n, objects_per_span, &from_released);
   }
   if (s && from_released) BackSpan(s);
   ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
@@ -417,8 +430,9 @@ Span* HugePageAwareAllocator::NewAligned(Length n, Length align) {
 }
 
 void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker* pt,
-                                                PageId p, Length n) {
-  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n) == nullptr)) return;
+                                                PageId p, Length n,
+                                                size_t num_objects) {
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n, num_objects) == nullptr)) return;
   if (pt->donated()) {
     --donated_huge_pages_;
   }
@@ -435,12 +449,12 @@ bool HugePageAwareAllocator::AddRegion() {
   return true;
 }
 
-void HugePageAwareAllocator::Delete(Span* span) {
+void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
   ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
-  info_.RecordFree(p, n);
+  info_.RecordFree(p, n, objects_per_span);
 
   Span::Delete(span);
 
@@ -451,7 +465,7 @@ void HugePageAwareAllocator::Delete(Span* span) {
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     ASSERT(hp == HugePageContaining(p + n - Length(1)));
-    DeleteFromHugepage(pt, p, n);
+    DeleteFromHugepage(pt, p, n, objects_per_span);
     return;
   }
 
@@ -478,7 +492,7 @@ void HugePageAwareAllocator::Delete(Span* span) {
     // onto the last hugepage.
     PageId virt = last.first_page();
     Length virt_len = kPagesPerHugePage - slack;
-    pt = filler_.Put(pt, virt, virt_len);
+    pt = filler_.Put(pt, virt, virt_len, objects_per_span);
     // We may have used the slack, which would prevent us from returning
     // the entire range now.  If filler returned a Tracker, we are fully empty.
     if (pt == nullptr) {

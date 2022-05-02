@@ -168,6 +168,10 @@ class PageTrackerTest : public testing::Test {
   struct PAlloc {
     PageId p;
     Length n;
+    size_t num_objects;
+
+    PAlloc(PageId pp, Length nn, size_t objects)
+        : p(pp), n(nn), num_objects(objects) {}
   };
 
   void Mark(PAlloc a, size_t mark) {
@@ -244,15 +248,15 @@ class PageTrackerTest : public testing::Test {
     mock_.Expect(ptr, bytes);
   }
 
-  PAlloc Get(Length n) {
+  PAlloc Get(Length n, size_t num_objects) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    PageId p = tracker_.Get(n).page;
-    return {p, n};
+    PageId p = tracker_.Get(n, num_objects).page;
+    return {p, n, num_objects};
   }
 
   void Put(PAlloc a) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    tracker_.Put(a.p, a.n);
+    tracker_.Put(a.p, a.n, a.num_objects);
   }
 
   Length ReleaseFree() {
@@ -279,7 +283,7 @@ TEST_F(PageTrackerTest, AllocSane) {
     ASSERT_LE(n, tracker_.longest_free_range());
     EXPECT_EQ(kPagesPerHugePage - free, tracker_.used_pages());
     EXPECT_EQ(free, tracker_.free_pages());
-    PAlloc a = Get(n);
+    PAlloc a = Get(n, 1);
     Mark(a, n.raw_num());
     allocs.push_back(a);
     free -= n;
@@ -294,10 +298,10 @@ TEST_F(PageTrackerTest, AllocSane) {
 
 TEST_F(PageTrackerTest, ReleasingReturn) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
-  PAlloc a1 = Get(kAllocSize - Length(3));
-  PAlloc a2 = Get(kAllocSize);
-  PAlloc a3 = Get(kAllocSize + Length(1));
-  PAlloc a4 = Get(kAllocSize + Length(2));
+  PAlloc a1 = Get(kAllocSize - Length(3), 1);
+  PAlloc a2 = Get(kAllocSize, 1);
+  PAlloc a3 = Get(kAllocSize + Length(1), 1);
+  PAlloc a4 = Get(kAllocSize + Length(2), 1);
 
   Put(a2);
   Put(a4);
@@ -322,10 +326,10 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
 
 TEST_F(PageTrackerTest, ReleasingRetain) {
   static const Length kAllocSize = kPagesPerHugePage / 4;
-  PAlloc a1 = Get(kAllocSize - Length(3));
-  PAlloc a2 = Get(kAllocSize);
-  PAlloc a3 = Get(kAllocSize + Length(1));
-  PAlloc a4 = Get(kAllocSize + Length(2));
+  PAlloc a1 = Get(kAllocSize - Length(3), 1);
+  PAlloc a2 = Get(kAllocSize, 1);
+  PAlloc a3 = Get(kAllocSize + Length(1), 1);
+  PAlloc a4 = Get(kAllocSize + Length(2), 1);
 
   Put(a2);
   Put(a4);
@@ -363,7 +367,7 @@ TEST_F(PageTrackerTest, Defrag) {
     do {
       n = Length(dist(rng));
     } while (n > tracker_.longest_free_range());
-    PAlloc a = Get(n);
+    PAlloc a = Get(n, 1);
     (absl::Bernoulli(rng, 1.0 / 2) ? allocs : doomed).push_back(a);
   }
 
@@ -406,7 +410,7 @@ TEST_F(PageTrackerTest, Defrag) {
       do {
         n = Length(dist(rng));
       } while (n > tracker_.longest_free_range());
-      allocs.push_back(Get(n));
+      allocs.push_back(Get(n, 1));
     }
   }
 
@@ -484,10 +488,11 @@ TEST_F(PageTrackerTest, Stats) {
   std::vector<Length> small_backed, small_unbacked;
   double avg_age_backed, avg_age_unbacked;
 
-  const PageId p = Get(kPagesPerHugePage).p;
+  const PageId p = Get(kPagesPerHugePage, kPagesPerHugePage.raw_num()).p;
   const PageId end = p + kPagesPerHugePage;
   PageId next = p;
-  Put({next, kMaxPages + Length(1)});
+  Length n = kMaxPages + Length(1);
+  Put({next, n, n.raw_num()});
   next += kMaxPages + Length(1);
 
   absl::SleepFor(absl::Milliseconds(10));
@@ -501,7 +506,7 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_LE(0.01, avg_age_backed);
 
   ++next;
-  Put({next, Length(1)});
+  Put({next, Length(1), 1});
   next += Length(1);
   absl::SleepFor(absl::Milliseconds(20));
   Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
@@ -517,7 +522,7 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_EQ(0, avg_age_unbacked);
 
   ++next;
-  Put({next, Length(2)});
+  Put({next, Length(2), 2});
   next += Length(2);
   absl::SleepFor(absl::Milliseconds(30));
   Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
@@ -533,7 +538,7 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_EQ(0, avg_age_unbacked);
 
   ++next;
-  Put({next, Length(3)});
+  Put({next, Length(3), 3});
   next += Length(3);
   ASSERT_LE(next, end);
   absl::SleepFor(absl::Milliseconds(40));
@@ -551,10 +556,11 @@ TEST_F(PageTrackerTest, Stats) {
             avg_age_backed);
   EXPECT_EQ(0, avg_age_unbacked);
 
-  ExpectPages({p, kMaxPages + Length(1)});
-  ExpectPages({p + kMaxPages + Length(2), Length(1)});
-  ExpectPages({p + kMaxPages + Length(4), Length(2)});
-  ExpectPages({p + kMaxPages + Length(7), Length(3)});
+  n = kMaxPages + Length(1);
+  ExpectPages({p, n, n.raw_num()});
+  ExpectPages({p + kMaxPages + Length(2), Length(1), 1});
+  ExpectPages({p + kMaxPages + Length(4), Length(2), 2});
+  ExpectPages({p + kMaxPages + Length(7), Length(3), 3});
   EXPECT_EQ(kMaxPages + Length(7), ReleaseFree());
   absl::SleepFor(absl::Milliseconds(100));
   Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
@@ -587,7 +593,7 @@ TEST_F(PageTrackerTest, b151915873) {
   std::vector<PAlloc> allocs;
   allocs.reserve(kPagesPerHugePage.raw_num());
   for (int i = 0; i < kPagesPerHugePage.raw_num(); i++) {
-    allocs.push_back(Get(Length(1)));
+    allocs.push_back(Get(Length(1), 1));
   }
 
   std::sort(allocs.begin(), allocs.end(),
@@ -724,7 +730,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     ret.mark = ++next_mark_;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      auto [pt, page] = filler_.TryGet(n);
+      auto [pt, page] = filler_.TryGet(n, 1);
       ret.pt = pt;
       ret.p = page;
     }
@@ -733,7 +739,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
           new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
-        ret.p = ret.pt->Get(n).page;
+        ret.p = ret.pt->Get(n, 1).page;
       }
       filler_.Contribute(ret.pt, donated);
       ++hp_contained_;
@@ -757,7 +763,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     FakeTracker* pt;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      pt = filler_.Put(p.pt, p.p, p.n);
+      pt = filler_.Put(p.pt, p.p, p.n, 1);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {

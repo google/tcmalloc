@@ -48,10 +48,11 @@ void CheckStats(const PageHeap* ph, Length system_pages, Length free_pages,
   ASSERT_EQ(unmapped_pages.in_bytes(), stats.unmapped_bytes);
 }
 
-static void Delete(PageHeap* ph, Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+static void Delete(PageHeap* ph, Span* s, size_t objects_per_span)
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    ph->Delete(s);
+    ph->Delete(s, objects_per_span);
   }
 }
 
@@ -79,17 +80,19 @@ TEST_F(PageHeapTest, Stats) {
   CheckStats(ph, Length(0), Length(0), Length(0));
 
   // Allocate a span 's1'
-  Span* s1 = ph->New(kMinSpanLength);
+  const size_t objects_per_span1 = 10;
+  Span* s1 = ph->New(kMinSpanLength, objects_per_span1);
   CheckStats(ph, kMinSpanLength, Length(0), Length(0));
 
   // Allocate an aligned span 's2'
   static const Length kHalf = kMinSpanLength / 2;
-  Span* s2 = ph->NewAligned(kHalf, kHalf);
+  const size_t objects_per_span2 = 20;
+  Span* s2 = ph->NewAligned(kHalf, kHalf, objects_per_span2);
   ASSERT_EQ(s2->first_page().index() % kHalf.raw_num(), 0);
   CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf);
 
   // Delete the old one
-  Delete(ph, s1);
+  Delete(ph, s1, objects_per_span1);
   CheckStats(ph, kMinSpanLength * 2, kMinSpanLength, kHalf);
 
   // Release the space from there:
@@ -98,7 +101,7 @@ TEST_F(PageHeapTest, Stats) {
   CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf + kMinSpanLength);
 
   // and delete the new one
-  Delete(ph, s2);
+  Delete(ph, s2, objects_per_span2);
   CheckStats(ph, kMinSpanLength * 2, kHalf, kHalf + kMinSpanLength);
 
   free(memory);

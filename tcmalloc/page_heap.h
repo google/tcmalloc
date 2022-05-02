@@ -42,21 +42,23 @@ class PageHeap final : public PageAllocatorInterface {
   PageHeap(PageMap* map, MemoryTag tag);
   ~PageHeap() override = default;
 
-  // Allocate a run of "n" pages.  Returns zero if out of memory.
-  // Caller should not pass "n == 0" -- instead, n should have
-  // been rounded up already.
-  // The returned memory is backed.
-  Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  // Allocate a run of "n" pages. These would used for allocating 'num_objects'
+  // objects. Returns zero if out of memory.  Caller should not pass "n == 0" --
+  // instead, n should have been rounded up already.  The returned memory is
+  // backed.
+  Span* New(Length n, size_t objects_per_span)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* NewAligned(Length n, Length align)
+  Span* NewAligned(Length n, Length align, size_t objects_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span, size_t objects_per_span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   inline BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override {

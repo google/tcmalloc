@@ -63,13 +63,16 @@ class PageAllocatorTest : public testing::Test {
     free(allocator_);
   }
 
-  Span* New(Length n) { return allocator_->New(n, MemoryTag::kNormal); }
-  Span* NewAligned(Length n, Length align) {
-    return allocator_->NewAligned(n, align, MemoryTag::kNormal);
+  Span* New(Length n, size_t objects_per_span) {
+    return allocator_->New(n, objects_per_span, MemoryTag::kNormal);
   }
-  void Delete(Span* s) {
+  Span* NewAligned(Length n, Length align, size_t objects_per_span) {
+    return allocator_->NewAligned(n, align, objects_per_span,
+                                  MemoryTag::kNormal);
+  }
+  void Delete(Span* s, size_t objects_per_span) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocator_->Delete(s, MemoryTag::kNormal);
+    allocator_->Delete(s, objects_per_span, MemoryTag::kNormal);
   }
 
   Length Release(Length n) {
@@ -93,17 +96,18 @@ class PageAllocatorTest : public testing::Test {
 // We've already tested in stats_test that PageAllocInfo keeps good stats;
 // here we're just testing that we make the proper Record calls.
 TEST_F(PageAllocatorTest, Record) {
+  constexpr size_t kObjectsPerSpan = 7;
   for (int i = 0; i < 15; ++i) {
-    Delete(New(Length(1)));
+    Delete(New(Length(1), kObjectsPerSpan), kObjectsPerSpan);
   }
 
   std::vector<Span*> spans;
   for (int i = 0; i < 20; ++i) {
-    spans.push_back(New(Length(2)));
+    spans.push_back(New(Length(2), kObjectsPerSpan));
   }
 
   for (int i = 0; i < 25; ++i) {
-    Delete(NewAligned(Length(3), Length(2)));
+    Delete(NewAligned(Length(3), Length(2), kObjectsPerSpan), kObjectsPerSpan);
   }
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -130,12 +134,13 @@ TEST_F(PageAllocatorTest, Record) {
       CHECK_CONDITION(0 == info.counts_for(i).nfree);
     }
   }
-  for (auto s : spans) Delete(s);
+  for (auto s : spans) Delete(s, kObjectsPerSpan);
 }
 
 // And that we call the print method properly.
 TEST_F(PageAllocatorTest, PrintIt) {
-  Delete(New(Length(1)));
+  constexpr size_t kObjectsPerSpan = 17;
+  Delete(New(Length(1), kObjectsPerSpan), kObjectsPerSpan);
   std::string output = Print();
   EXPECT_THAT(output, testing::ContainsRegex("stats on allocation sizes"));
 }

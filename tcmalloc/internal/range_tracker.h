@@ -111,15 +111,17 @@ class RangeTracker {
   size_t allocs() const;
 
   // REQUIRES: there is a free range of at least n bits
-  // (i.e. n <= longest_free())
-  // finds and marks n free bits, returning index of the first bit.
-  // Chooses by best fit.
-  size_t FindAndMark(size_t n);
+  // (i.e. n <= longest_free()).
+  //
+  // Finds and marks n free bits, returning index of the first bit.  Chooses by
+  // best fit.  Also increments the number of live allocations by num_objects.
+  size_t FindAndMark(size_t n, size_t num_objects);
 
   // REQUIRES: the range [index, index + n) is fully marked, and
   // was the returned value from a call to FindAndMark.
-  // Unmarks it.
-  void Unmark(size_t index, size_t n);
+  // Unmarks it andl also decrements the number of live allocations by
+  // num_objects.
+  void Unmark(size_t index, size_t n, size_t num_objects);
   // If there is at least one free range at or after <start>,
   // put it in *index, *length and return true; else return false.
   bool NextFreeRange(size_t start, size_t* index, size_t* length) const;
@@ -162,7 +164,7 @@ class RangeTracker {
 
   Count longest_free_;
   Count nused_;
-  Count nallocs_;
+  size_t nallocs_;
 };
 
 template <size_t N>
@@ -191,8 +193,9 @@ inline size_t RangeTracker<N>::allocs() const {
 }
 
 template <size_t N>
-inline size_t RangeTracker<N>::FindAndMark(size_t n) {
+inline size_t RangeTracker<N>::FindAndMark(size_t n, size_t num_objects) {
   ASSERT(n > 0);
+  ASSERT(num_objects > 0);
 
   // We keep the two longest ranges in the bitmap since we might allocate
   // from one.
@@ -232,18 +235,21 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
 
   longest_free_ = longest_len;
   nused_ += n;
-  nallocs_++;
+  nallocs_ += num_objects;
   return best_index;
 }
 
 // REQUIRES: the range [index, index + n) is fully marked.
 // Unmarks it.
 template <size_t N>
-inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
+inline void RangeTracker<N>::Unmark(size_t index, size_t n,
+                                    size_t num_objects) {
   ASSERT(bits_.FindClear(index) >= index + n);
   bits_.ClearRange(index, n);
   nused_ -= n;
-  nallocs_--;
+  ASSERT(num_objects > 0);
+  ASSERT(nallocs_ >= num_objects);
+  nallocs_ -= num_objects;
 
   // We just opened up a new free range--it might be the longest.
   size_t lim = bits_.FindSet(index + n - 1);

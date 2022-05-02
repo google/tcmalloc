@@ -38,20 +38,21 @@ class PageAllocatorInterface {
   // For testing: use a non-default pagemap.
   PageAllocatorInterface(const char* label, PageMap* map, MemoryTag tag);
   virtual ~PageAllocatorInterface();
-  // Allocate a run of "n" pages.  Returns zero if out of memory.
-  // Caller should not pass "n == 0" -- instead, n should have
-  // been rounded up already.
-  virtual Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  // Allocate a run of "n" pages. These pages would be allocated to a total of
+  // 'objects_per_span' objects. Returns zero if out of memory.  Caller should
+  // not pass "n == 0" -- instead, n should have been rounded up already.
+  virtual Span* New(Length n, size_t objects_per_span)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  virtual Span* NewAligned(Length n, Length align)
+  virtual Span* NewAligned(Length n, Length align, size_t objects_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  virtual void Delete(Span* span)
+  virtual void Delete(Span* span, size_t objects_per_span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   virtual BackingStats stats() const

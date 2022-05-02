@@ -87,7 +87,7 @@ class LifetimesTest
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.
     for (int i = 0; i < 10000; ++i) {
-      allocator_->New(kPagesPerHugePage / 2 - Length(1));
+      allocator_->New(kPagesPerHugePage / 2 - Length(1), 1);
     }
   }
 
@@ -95,18 +95,18 @@ class LifetimesTest
   // traces (A/B). Inlining and tail call optimizations need to be disabled to
   // ensure that the stack traces are guaranteed to be distinct.
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span* AllocateA() {
-    return allocator_->New(Length(kAllocationSize));
+    return allocator_->New(Length(kAllocationSize), 1);
   }
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span* AllocateB() {
-    return allocator_->New(Length(kAllocationSize));
+    return allocator_->New(Length(kAllocationSize), 1);
   }
 
   // Generates distinct allocation stack traces based on the value of id.
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span*
   AllocateWithStacktraceId(int id) {
     if (id == 0) {
-      return allocator_->New(Length(kAllocationSize));
+      return allocator_->New(Length(kAllocationSize), 1);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);
     } else {
@@ -116,7 +116,7 @@ class LifetimesTest
 
   void Delete(Span* span) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocator_->Delete(span);
+    allocator_->Delete(span, 1);
   }
 
  protected:
@@ -138,7 +138,7 @@ class LifetimesTest
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span*
   AllocateWithStacktraceId_2(int id) {
     if (id == 0) {
-      return allocator_->New(Length(kAllocationSize));
+      return allocator_->New(Length(kAllocationSize), 1);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);
     } else {
@@ -508,8 +508,8 @@ TEST_P(LifetimesTest, CounterfactualDonatedPagesCornerCase) {
   // couterfactual object twice.
   for (int i = 0; i < 10; ++i) {
     Span* donated_object =
-        allocator_->New(Length(kPagesPerHugePage) - Length(8));
-    Span* additional_object = allocator_->New(Length(2));
+        allocator_->New(Length(kPagesPerHugePage) - Length(8), 1);
+    Span* additional_object = allocator_->New(Length(2), 1);
     Delete(donated_object);
     Delete(additional_object);
   }
@@ -517,8 +517,8 @@ TEST_P(LifetimesTest, CounterfactualDonatedPagesCornerCase) {
   // The same operations in the opposite order.
   for (int i = 0; i < 10; ++i) {
     Span* donated_object =
-        allocator_->New(Length(kPagesPerHugePage) - Length(8));
-    Span* additional_object = allocator_->New(Length(2));
+        allocator_->New(Length(kPagesPerHugePage) - Length(8), 1);
+    Span* additional_object = allocator_->New(Length(2), 1);
     Delete(additional_object);
     Delete(donated_object);
   }
@@ -547,7 +547,7 @@ class LifetimeBasedAllocatorEnableAtRuntimeTest : public LifetimesTest {
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.
     for (int i = 0; i < 10000; i++) {
-      allocator_->New(kPagesPerHugePage / 2 - Length(1));
+      allocator_->New(kPagesPerHugePage / 2 - Length(1), 1);
     }
   }
 };

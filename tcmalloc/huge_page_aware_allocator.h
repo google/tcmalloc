@@ -53,17 +53,19 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Allocate a run of "n" pages.  Returns zero if out of memory.
   // Caller should not pass "n == 0" -- instead, n should have
   // been rounded up already.
-  Span* New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  Span* New(Length n, size_t objects_per_span)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // As New, but the returned span is aligned to a <align>-page boundary.
   // <align> must be a power of two.
-  Span* NewAligned(Length n, Length align)
+  Span* NewAligned(Length n, Length align, size_t objects_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span, size_t objects_per_span)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
@@ -172,34 +174,36 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
                     PageAgeHistograms* ages)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  PageId RefillFiller(Length n, bool* from_released)
+  PageId RefillFiller(Length n, size_t num_objects, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocate the first <n> from p, and contribute the rest to the filler.  If
   // "donated" is true, the contribution will be marked as coming from the
   // tail of a multi-hugepage alloc.  Returns the allocated section.
-  PageId AllocAndContribute(HugePage p, Length n, bool donated)
+  PageId AllocAndContribute(HugePage p, Length n, size_t num_objects,
+                            bool donated)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
-  Span* LockAndAlloc(Length n, bool* from_released);
+  Span* LockAndAlloc(Length n, size_t objects_per_span, bool* from_released);
 
-  Span* AllocSmall(Length n, bool* from_released)
+  Span* AllocSmall(Length n, size_t objects_per_span, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocLarge(Length n, bool* from_released,
+  Span* AllocLarge(Length n, size_t objects_per_span, bool* from_released,
                    LifetimeStats* lifetime_context)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocEnormous(Length n, bool* from_released)
+  Span* AllocEnormous(Length n, size_t objects_per_span, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  Span* AllocRawHugepages(Length n, bool* from_released)
+  Span* AllocRawHugepages(Length n, size_t num_objects, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Allocates a span and adds a tracker. This span has to be associated with a
   // filler donation and have an associated page tracker. A tracker will only be
   // added if there is an associated lifetime prediction.
   Span* AllocRawHugepagesAndMaybeTrackLifetime(
-      Length n, const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
+      Length n, size_t num_objects,
+      const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
       bool* from_released) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -207,11 +211,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
-  void DeleteFromHugepage(FillerType::Tracker* pt, PageId p, Length n)
+  void DeleteFromHugepage(FillerType::Tracker* pt, PageId p, Length n,
+                          size_t num_objects)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  Span* Finalize(Length n, PageId page);
+  Span* Finalize(Length n, size_t num_objects, PageId page);
 };
 
 }  // namespace tcmalloc_internal

@@ -201,8 +201,8 @@ class PageAllocInfo {
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
-  void RecordAlloc(PageId p, Length n);
-  void RecordFree(PageId p, Length n);
+  void RecordAlloc(PageId p, Length n, size_t num_objects);
+  void RecordFree(PageId p, Length n, size_t num_objects);
   void RecordRelease(Length n, Length got);
   // And invoking this in their Print() implementation.
   void Print(Printer* out) const;
@@ -258,11 +258,16 @@ class PageAllocInfo {
   // State for page trace logging.
   const int fd_;
   uint64_t last_ms_{0};
-  void Write(uint64_t when, uint8_t what, PageId p, Length n);
+  void Write(uint64_t when, uint8_t what, PageId p, Length n,
+             size_t num_objects);
   bool log_on() const { return fd_ >= 0; }
-  void LogAlloc(int64_t when, PageId p, Length n) { Write(when, 0, p, n); }
-  void LogFree(int64_t when, PageId p, Length n) { Write(when, 1, p, n); }
-  void LogRelease(int64_t when, Length n) { Write(when, 2, PageId{0}, n); }
+  void LogAlloc(int64_t when, PageId p, Length n, size_t num_objects) {
+    Write(when, 0, p, n, num_objects);
+  }
+  void LogFree(int64_t when, PageId p, Length n, size_t num_objects) {
+    Write(when, 1, p, n, num_objects);
+  }
+  void LogRelease(int64_t when, Length n) { Write(when, 2, PageId{0}, n, 0); }
 };
 
 // Our current format is really simple. We have an eight-byte version
@@ -282,11 +287,12 @@ struct TraceEntry {
   uint64_t id;
   uint32_t kib;
   uint32_t whenwhat;
+  uint32_t num_objects;
 } ABSL_ATTRIBUTE_PACKED;  // Avoid padding since we save these structs to file.
 
 // We store TraceEntry objects in binary format in trace files.  Ensure that
 // object size is fixed so that trace files do not break sliently.
-static_assert(sizeof(TraceEntry) == 16, "bad sizing");
+static_assert(sizeof(TraceEntry) == 20, "bad sizing");
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

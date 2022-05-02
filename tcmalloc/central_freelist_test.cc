@@ -68,7 +68,8 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
 };
 
 TEST_P(StaticForwarderTest, Simple) {
-  Span* span = StaticForwarder::AllocateSpan(size_class_, pages_per_span_);
+  Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
+                                             pages_per_span_);
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span_);
@@ -89,7 +90,8 @@ TEST_P(StaticForwarderTest, Simple) {
     span->FreelistPush(ptr, object_size_);
   }
 
-  StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                   absl::MakeSpan(&span, 1));
 }
 
 class StaticForwarderEnvironment {
@@ -151,12 +153,14 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                     absl::MakeSpan(free_spans));
   }
 
   void Grow() {
     // Allocate a Span
-    Span* span = StaticForwarder::AllocateSpan(size_class_, pages_per_span_);
+    Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
+                                               pages_per_span_);
     ASSERT_NE(span, nullptr);
 
     auto d = absl::make_unique<SpanData>();
@@ -208,7 +212,8 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                     absl::MakeSpan(free_spans));
   }
 
   void Shuffle(absl::BitGen& rng) {
@@ -812,11 +817,42 @@ TYPED_TEST_P(CentralFreeListTest, ToggleSpanPrioritization) {
   }
 }
 
+TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
+  ASSERT_GT(TypeParam::kObjectsPerSpan, 1);
+  auto test_function = [&](size_t num_objects, bool pass_object_count) {
+    TypeParam e;
+    std::vector<void*> objects(TypeParam::kObjectsPerSpan);
+    e.central_freelist().forwarder().SetPassSpanObjectCountToPageheap(
+        pass_object_count);
+    EXPECT_CALL(e.forwarder(),
+                AllocateSpan(testing::_, num_objects, testing::_))
+        .Times(1);
+    const size_t to_fetch =
+        std::min(TypeParam::kObjectsPerSpan, TypeParam::kBatchSize);
+    const size_t fetched =
+        e.central_freelist().RemoveRange(&objects[0], to_fetch);
+    size_t returned = 0;
+    while (returned < fetched) {
+      EXPECT_CALL(e.forwarder(),
+                  DeallocateSpans(testing::_, num_objects, testing::_))
+          .Times(1);
+      const size_t to_return =
+          std::min(fetched - returned, TypeParam::kBatchSize);
+      e.central_freelist().InsertRange({&objects[returned], to_return});
+      returned += to_return;
+    }
+  };
+  // Test not passing object count.
+  test_function(1, false);
+  // Test passing object count.
+  test_function(TypeParam::kObjectsPerSpan, true);
+}
+
 REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
                             SingleNonEmptyList, MultiNonEmptyLists,
                             SpanPriority, SpanUtilizationHistogram,
                             MultipleSpans, ToggleSpanPrioritization,
-                            SinglePopulate);
+                            SinglePopulate, PassSpanObjectCountToPageheap);
 
 namespace unit_tests {
 

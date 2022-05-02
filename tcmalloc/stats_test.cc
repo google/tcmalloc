@@ -183,14 +183,14 @@ TEST(PageAllocInfo, Small) {
   PageAllocInfo info("", -1);
   static_assert(kMaxPages >= Length(4), "odd config");
 
-  info.RecordAlloc(PageId{0}, Length(2));
-  info.RecordAlloc(PageId{0}, Length(2));
-  info.RecordAlloc(PageId{0}, Length(2));
+  info.RecordAlloc(PageId{0}, Length(2), 1);
+  info.RecordAlloc(PageId{0}, Length(2), 1);
+  info.RecordAlloc(PageId{0}, Length(2), 1);
 
-  info.RecordAlloc(PageId{0}, Length(3));
-  info.RecordAlloc(PageId{0}, Length(3));
+  info.RecordAlloc(PageId{0}, Length(3), 1);
+  info.RecordAlloc(PageId{0}, Length(3), 1);
 
-  info.RecordFree(PageId{0}, Length(3));
+  info.RecordFree(PageId{0}, Length(3), 1);
 
   auto c2 = info.counts_for(Length(2));
   EXPECT_EQ(3, c2.nalloc);
@@ -214,16 +214,16 @@ TEST(PageAllocInfo, Large) {
 
   // These three should be aggregated
   Length slack;
-  info.RecordAlloc(PageId{0}, kMaxPages + Length(1));
+  info.RecordAlloc(PageId{0}, kMaxPages + Length(1), 1);
   slack += kPagesPerHugePage - kMaxPages - Length(1);
-  info.RecordAlloc(PageId{0}, kMaxPages * 3 / 2);
+  info.RecordAlloc(PageId{0}, kMaxPages * 3 / 2, 1);
   slack += kPagesPerHugePage - kMaxPages * 3 / 2;
-  info.RecordAlloc(PageId{0}, kMaxPages * 2);
+  info.RecordAlloc(PageId{0}, kMaxPages * 2, 1);
   slack += kPagesPerHugePage - kMaxPages * 2;
 
   // This shouldn't
   const Length larger = kMaxPages * 2 + Length(1);
-  info.RecordAlloc(PageId{0}, larger);
+  info.RecordAlloc(PageId{0}, larger, 1);
   slack +=
       (kPagesPerHugePage - (larger % kPagesPerHugePage)) % kPagesPerHugePage;
 

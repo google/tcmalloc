@@ -262,6 +262,7 @@ class RangeTrackerTest : public ::testing::Test {
     return ret;
   }
   static constexpr size_t kBits = 1017;
+  const size_t kNumObjects = 1017;
   RangeTracker<kBits> range_;
 };
 
@@ -270,23 +271,27 @@ TEST_F(RangeTrackerTest, Trivial) {
   EXPECT_EQ(0, range_.used());
   EXPECT_EQ(kBits, range_.longest_free());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, kBits)));
-  ASSERT_EQ(0, range_.FindAndMark(kBits));
+  ASSERT_EQ(0, range_.FindAndMark(kBits, kNumObjects));
+  EXPECT_EQ(kNumObjects, range_.allocs());
   EXPECT_EQ(0, range_.longest_free());
   EXPECT_EQ(kBits, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre());
-  range_.Unmark(0, 100);
+  range_.Unmark(0, 100, 100);
   EXPECT_EQ(100, range_.longest_free());
   EXPECT_EQ(kBits - 100, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 100)));
+  EXPECT_EQ(range_.used(), range_.allocs());
   // non-contiguous - shouldn't increase longest
-  range_.Unmark(200, 100);
+  range_.Unmark(200, 100, 100);
   EXPECT_EQ(100, range_.longest_free());
   EXPECT_EQ(kBits - 200, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 100), Pair(200, 100)));
-  range_.Unmark(100, 100);
+  EXPECT_EQ(range_.used(), range_.allocs());
+  range_.Unmark(100, 100, 100);
   EXPECT_EQ(300, range_.longest_free());
   EXPECT_EQ(kBits - 300, range_.used());
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 300)));
+  EXPECT_EQ(range_.used(), range_.allocs());
 }
 
 }  // namespace

@@ -91,7 +91,7 @@ Span* PageHeap::AllocateSpan(Length n, bool* from_returned) {
   return result;
 }
 
-Span* PageHeap::New(Length n) {
+Span* PageHeap::New(Length n, size_t objects_per_span) {
   ASSERT(n > Length(0));
   bool from_returned;
   Span* result;
@@ -99,7 +99,9 @@ Span* PageHeap::New(Length n) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     result = AllocateSpan(n, &from_returned);
     if (result) Static::page_allocator().ShrinkToUsageLimit();
-    if (result) info_.RecordAlloc(result->first_page(), result->num_pages());
+    if (result)
+      info_.RecordAlloc(result->first_page(), result->num_pages(),
+                        objects_per_span);
   }
 
   if (result != nullptr && from_returned) {
@@ -130,12 +132,12 @@ static bool IsSpanBetter(Span* span, Span* best, Length n) {
 // unnecessary Carves in New) but it's not anywhere
 // close to a fast path, and is going to be replaced soon anyway, so
 // don't bother.
-Span* PageHeap::NewAligned(Length n, Length align) {
+Span* PageHeap::NewAligned(Length n, Length align, size_t objects_per_span) {
   ASSERT(n > Length(0));
   ASSERT(absl::has_single_bit(align.raw_num()));
 
   if (align <= Length(1)) {
-    return New(n);
+    return New(n, objects_per_span);
   }
 
   bool from_returned;
@@ -177,7 +179,7 @@ Span* PageHeap::NewAligned(Length n, Length align) {
       MergeIntoFreeList(extra);
     }
 
-    info_.RecordAlloc(aligned, n);
+    info_.RecordAlloc(aligned, n, objects_per_span);
   }
 
   if (span != nullptr && from_returned) {
@@ -259,9 +261,9 @@ Span* PageHeap::Carve(Span* span, Length n) {
   return span;
 }
 
-void PageHeap::Delete(Span* span) {
+void PageHeap::Delete(Span* span, size_t objects_per_span) {
   ASSERT(GetMemoryTag(span->start_address()) == tag_);
-  info_.RecordFree(span->first_page(), span->num_pages());
+  info_.RecordFree(span->first_page(), span->num_pages(), objects_per_span);
   ASSERT(Check());
   ASSERT(span->location() == Span::IN_USE);
   ASSERT(!span->sampled());

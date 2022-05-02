@@ -424,10 +424,10 @@ static Length RoundUp(Length value, Length alignment) {
                 ~(alignment.raw_num() - 1));
 }
 
-void PageAllocInfo::RecordAlloc(PageId p, Length n) {
+void PageAllocInfo::RecordAlloc(PageId p, Length n, size_t num_objects) {
   if (ABSL_PREDICT_FALSE(log_on())) {
     int64_t t = TimeTicks();
-    LogAlloc(t, p, n);
+    LogAlloc(t, p, n, num_objects);
   }
 
   static_assert(kMaxPages.in_bytes() == 1024 * 1024, "threshold changed?");
@@ -444,10 +444,10 @@ void PageAllocInfo::RecordAlloc(PageId p, Length n) {
   }
 }
 
-void PageAllocInfo::RecordFree(PageId p, Length n) {
+void PageAllocInfo::RecordFree(PageId p, Length n, size_t num_objects) {
   if (ABSL_PREDICT_FALSE(log_on())) {
     int64_t t = TimeTicks();
-    LogFree(t, p, n);
+    LogFree(t, p, n, num_objects);
   }
 
   if (n <= kMaxPages) {
@@ -478,7 +478,8 @@ const PageAllocInfo::Counts& PageAllocInfo::counts_for(Length n) const {
 
 using tcmalloc::tcmalloc_internal::signal_safe_write;
 
-void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
+void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n,
+                          size_t num_objects) {
   TraceEntry e;
   // Round the time to ms *before* computing deltas, because this produces more
   // accurate results in the long run.
@@ -503,6 +504,7 @@ void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n) {
     bytes = kMaxRep;
   }
   e.kib = bytes / KiB;
+  e.num_objects = num_objects;
   const char* ptr = reinterpret_cast<const char*>(&e);
   const size_t len = sizeof(TraceEntry);
   CHECK_CONDITION(len == signal_safe_write(fd_, ptr, len, nullptr));

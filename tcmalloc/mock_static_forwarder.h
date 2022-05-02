@@ -36,6 +36,13 @@ class FakeStaticForwarder {
   void SetPrioritizeSpans(bool value) { prioritize_spans_ = value; }
   bool PrioritizeSpans() const { return prioritize_spans_; }
 
+  void SetPassSpanObjectCountToPageheap(bool value) {
+    pass_span_object_count_to_pageheap_ = value;
+  }
+  bool PassSpanObjectCountToPageheap() const {
+    return pass_span_object_count_to_pageheap_;
+  }
+
   Span* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
@@ -45,14 +52,14 @@ class FakeStaticForwarder {
       --it;
     }
 
-    if (it->first <= page && page <= it->second->last_page()) {
-      return it->second;
+    if (it->first <= page && page <= it->second.span->last_page()) {
+      return it->second.span;
     }
 
     return nullptr;
   }
 
-  Span* AllocateSpan(int, Length pages_per_span) {
+  Span* AllocateSpan(int, size_t objects_per_span, Length pages_per_span) {
     void* backing =
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);
@@ -61,15 +68,22 @@ class FakeStaticForwarder {
     span->Init(page, pages_per_span);
 
     absl::MutexLock l(&mu_);
-    map_.emplace(page, span);
+    SpanInfo info;
+    info.span = span;
+    info.objects_per_span = objects_per_span;
+    map_.emplace(page, info);
     return span;
   }
 
-  void DeallocateSpans(int, absl::Span<Span*> free_spans) {
+  void DeallocateSpans(int, size_t objects_per_span,
+                       absl::Span<Span*> free_spans) {
     {
       absl::MutexLock l(&mu_);
       for (Span* span : free_spans) {
-        map_.erase(span->first_page());
+        auto it = map_.find(span->first_page());
+        EXPECT_NE(it, map_.end());
+        EXPECT_EQ(it->second.objects_per_span, objects_per_span);
+        map_.erase(it);
       }
     }
 
@@ -80,9 +94,15 @@ class FakeStaticForwarder {
   }
 
  private:
+  struct SpanInfo {
+    Span* span;
+    size_t objects_per_span;
+  };
+
   absl::Mutex mu_;
-  std::map<PageId, Span*> map_ ABSL_GUARDED_BY(mu_);
+  std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
   bool prioritize_spans_ = false;
+  bool pass_span_object_count_to_pageheap_ = false;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
@@ -94,27 +114,44 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     ON_CALL(*this, PrioritizeSpans).WillByDefault([this]() {
       return static_cast<FakeStaticForwarder*>(this)->PrioritizeSpans();
     });
+
+    ON_CALL(*this, SetPassSpanObjectCountToPageheap)
+        .WillByDefault([this](bool value) {
+          static_cast<FakeStaticForwarder*>(this)
+              ->SetPassSpanObjectCountToPageheap(value);
+        });
+    ON_CALL(*this, PassSpanObjectCountToPageheap).WillByDefault([this]() {
+      return static_cast<FakeStaticForwarder*>(this)
+          ->PassSpanObjectCountToPageheap();
+    });
+
     ON_CALL(*this, MapObjectToSpan).WillByDefault([this](const void* object) {
       return static_cast<FakeStaticForwarder*>(this)->MapObjectToSpan(object);
     });
     ON_CALL(*this, AllocateSpan)
-        .WillByDefault([this](int size_class, Length pages_per_span) {
+        .WillByDefault([this](int size_class, size_t objects_per_span,
+                              Length pages_per_span) {
           return static_cast<FakeStaticForwarder*>(this)->AllocateSpan(
-              size_class, pages_per_span);
+              size_class, objects_per_span, pages_per_span);
         });
     ON_CALL(*this, DeallocateSpans)
-        .WillByDefault([this](int size_class, absl::Span<Span*> free_spans) {
-          static_cast<FakeStaticForwarder*>(this)->DeallocateSpans(size_class,
-                                                                   free_spans);
+        .WillByDefault([this](int size_class, size_t objects_per_span,
+                              absl::Span<Span*> free_spans) {
+          static_cast<FakeStaticForwarder*>(this)->DeallocateSpans(
+              size_class, objects_per_span, free_spans);
         });
   }
 
   MOCK_METHOD(void, SetPrioritizeSpans, (const bool value));
   MOCK_METHOD(bool, PrioritizeSpans, ());
+  MOCK_METHOD(void, SetPassSpanObjectCountToPageheap, (bool value));
+  MOCK_METHOD(bool, PassSpanObjectCountToPageheap, ());
   MOCK_METHOD(Span*, MapObjectToSpan, (const void* object));
-  MOCK_METHOD(Span*, AllocateSpan, (int size_class, Length pages_per_span));
+  MOCK_METHOD(Span*, AllocateSpan,
+              (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,
-              (int size_class, absl::Span<Span*> free_spans));
+              (int size_class, size_t objects_per_span,
+               absl::Span<Span*> free_spans));
 };
 
 using MockStaticForwarder = testing::NiceMock<RawMockStaticForwarder>;

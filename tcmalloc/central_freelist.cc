@@ -53,9 +53,11 @@ Span* StaticForwarder::MapObjectToSpan(const void* object) {
   return span;
 }
 
-Span* StaticForwarder::AllocateSpan(int size_class, Length pages_per_span) {
+Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
+                                    Length pages_per_span) {
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
-  Span* span = Static::page_allocator().New(pages_per_span, tag);
+  Span* span =
+      Static::page_allocator().New(pages_per_span, objects_per_span, tag);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     return nullptr;
   }
@@ -66,16 +68,17 @@ Span* StaticForwarder::AllocateSpan(int size_class, Length pages_per_span) {
   return span;
 }
 
-static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans)
+static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
+                                  size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (Span* const free_span : free_spans) {
     ASSERT(tag == GetMemoryTag(free_span->start_address()));
-    Static::page_allocator().Delete(free_span, tag);
+    Static::page_allocator().Delete(free_span, objects_per_span, tag);
   }
 }
 
-void StaticForwarder::DeallocateSpans(int size_class,
+void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
                                       absl::Span<Span*> free_spans) {
   // Unregister size class doesn't require holding any locks.
   for (Span* const free_span : free_spans) {
@@ -104,7 +107,7 @@ void StaticForwarder::DeallocateSpans(int size_class,
   }
 
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
-  ReturnSpansToPageHeap(tag, free_spans);
+  ReturnSpansToPageHeap(tag, free_spans, objects_per_span);
 }
 
 }  // namespace central_freelist_internal

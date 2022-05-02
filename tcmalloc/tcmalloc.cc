@@ -1582,7 +1582,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
       // report the requested size for both capacity and GetAllocatedSize().
       if (capacity) allocated_size = requested_size;
     } else if ((span = Static::page_allocator().New(
-                    num_pages, MemoryTag::kSampled)) == nullptr) {
+                    num_pages, 1, MemoryTag::kSampled)) == nullptr) {
       if (capacity) *capacity = allocated_size;
       return obj;
     }
@@ -1673,7 +1673,7 @@ inline size_t ShouldSampleAllocation(size_t size) {
 }
 
 template <typename Policy>
-inline void* do_malloc_pages(Policy policy, size_t size) {
+inline void* do_malloc_pages(Policy policy, size_t size, int num_objects) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
@@ -1684,7 +1684,7 @@ inline void* do_malloc_pages(Policy policy, size_t size) {
     tag = NumaNormalTag(policy.numa_partition());
   }
   Span* span = Static::page_allocator().NewAligned(
-      num_pages, BytesToLengthCeil(policy.align()), tag);
+      num_pages, BytesToLengthCeil(policy.align()), num_objects, tag);
 
   if (span == nullptr) {
     return nullptr;
@@ -1774,17 +1774,17 @@ static void do_free_pages(void* ptr, const PageId p) {
         Span::Delete(span);
       } else if (IsColdMemory(ptr)) {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        Static::page_allocator().Delete(span, MemoryTag::kCold);
+        Static::page_allocator().Delete(span, 1, MemoryTag::kCold);
       } else {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        Static::page_allocator().Delete(span, MemoryTag::kSampled);
+        Static::page_allocator().Delete(span, 1, MemoryTag::kSampled);
       }
     } else if (kNumaPartitions != 1) {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      Static::page_allocator().Delete(span, GetMemoryTag(ptr));
+      Static::page_allocator().Delete(span, 1, GetMemoryTag(ptr));
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      Static::page_allocator().Delete(span, MemoryTag::kNormal);
+      Static::page_allocator().Delete(span, 1, MemoryTag::kNormal);
     }
   }
 
@@ -2099,7 +2099,7 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   if (ABSL_PREDICT_TRUE(is_small)) {
     p = AllocSmall(policy, size_class, size, capacity);
   } else {
-    p = do_malloc_pages(policy, size);
+    p = do_malloc_pages(policy, size, 1);
     // Set capacity to the exact size for a page allocation.
     // This needs to be revisited if we introduce gwp-asan
     // sampling / guarded allocations to do_malloc_pages().

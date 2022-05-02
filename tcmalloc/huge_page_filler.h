@@ -685,10 +685,12 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  PageAllocation Get(Length n, size_t num_objects)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: p was the result of a previous call to Get(n)
-  void Put(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Put(PageId p, Length n, size_t num_objects)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
@@ -847,14 +849,18 @@ class HugePageFiller {
   // needed.  This simplifies using it in a few different contexts (and improves
   // the testing story - no dependencies.)
   //
+  // n is the number of TCMalloc pages to be allocated.  num_objects is the
+  // number of individual objects that would be allocated on these n pages.
+  //
   // On failure, returns nullptr/PageId{0}.
-  TryGetResult TryGet(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  TryGetResult TryGet(Length n, size_t num_objects)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, p, n} was the result of a previous TryGet.
-  TrackerType* Put(TrackerType* pt, PageId p, Length n)
+  TrackerType* Put(TrackerType* pt, PageId p, Length n, size_t num_objects)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -1005,8 +1011,8 @@ class HugePageFiller {
 
 template <MemoryModifyFunction Unback>
 inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
-    Length n) {
-  size_t index = free_.FindAndMark(n.raw_num());
+    Length n, size_t num_objects) {
+  size_t index = free_.FindAndMark(n.raw_num(), num_objects);
 
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
@@ -1031,9 +1037,9 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
 }
 
 template <MemoryModifyFunction Unback>
-inline void PageTracker<Unback>::Put(PageId p, Length n) {
+inline void PageTracker<Unback>::Put(PageId p, Length n, size_t num_objects) {
   Length index = p - location_.first_page();
-  free_.Unmark(index.raw_num(), n.raw_num());
+  free_.Unmark(index.raw_num(), n.raw_num(), num_objects);
 
   when_numerator_ += n.raw_num() * absl::base_internal::CycleClock::Now();
   when_denominator_ += n.raw_num();
@@ -1166,7 +1172,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
-HugePageFiller<TrackerType>::TryGet(Length n) {
+HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   ASSERT(n > Length(0));
 
   // How do we choose which hugepage to allocate from (among those with
@@ -1181,7 +1187,7 @@ HugePageFiller<TrackerType>::TryGet(Length n) {
   //     return them to the OS.)
   //
   // In practice, avoiding fragmentation is by far more important:
-  // space usage can explode if we don't jealously guard large free ranges.
+  // space usage can explode if we don't zealously guard large free ranges.
   //
   // Our primary measure of fragmentation of a hugepage by a proxy measure: the
   // longest free range it contains. If this is short, any free space is
@@ -1270,7 +1276,7 @@ HugePageFiller<TrackerType>::TryGet(Length n) {
   } while (false);
   ASSUME(pt != nullptr);
   ASSERT(pt->longest_free_range() >= n);
-  const auto page_allocation = pt->Get(n);
+  const auto page_allocation = pt->Get(n, num_objects);
   AddToFillerList(pt);
   allocated_ += n;
 
@@ -1291,7 +1297,8 @@ HugePageFiller<TrackerType>::TryGet(Length n) {
 // {pt, p, n} was the result of a previous TryGet.
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
-                                                     Length n) {
+                                                     Length n,
+                                                     size_t num_objects) {
   // Consider releasing [p, p+n).  We do this here:
   // * To unback the memory before we mark it as free.  When partially
   //   unbacking, we release the pageheap_lock.  Another thread could see the
@@ -1309,7 +1316,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 
   RemoveFromFillerList(pt);
 
-  pt->Put(p, n);
+  pt->Put(p, n, num_objects);
 
   allocated_ -= n;
   if (partial_rerelease_ == FillerPartialRerelease::Return && pt->released()) {
@@ -1318,6 +1325,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   }
 
   if (pt->longest_free_range() == kPagesPerHugePage) {
+    ASSERT(pt->nallocs() == 0);
     --size_;
     if (pt->released()) {
       const Length free_pages = pt->free_pages();
