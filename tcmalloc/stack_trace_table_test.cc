@@ -168,9 +168,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t1.weight = 2 << 20;
 
   const AllocationEntry k1 = {
-      1024, 1,    512,
-      16,   1024, 3,
-      true, 2,    {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 1024,
+      .count = 1,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   StackTrace t2 = {};
@@ -185,9 +191,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t2.weight = 1;
 
   const AllocationEntry k2 = {
-      512,   1,   375,
-      0,     512, 254,
-      false, 2,   {reinterpret_cast<void*>(2), reinterpret_cast<void*>(1)},
+      .sum = 512,
+      .count = 1,
+      .requested_size = 375,
+      .requested_alignment = 0,
+      .allocated_size = 512,
+      .access_hint = 254,
+      .cold_allocated = false,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(2), reinterpret_cast<void*>(1)},
   };
 
   // Table w/ just t1
@@ -212,15 +224,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
       static_cast<double>(t1.weight) / (t1.requested_size + 1);
   ASSERT_EQ(t1_sampled_weight, 4088);
   const AllocationEntry k1_unsampled = {
-      t1_sampled_weight * 1024,
-      t1_sampled_weight,
-      512,
-      16,
-      1024,
-      3,
-      true,
-      2,
-      {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = t1_sampled_weight * 1024,
+      .count = t1_sampled_weight,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   // Table w/ just t1 (unsampled)
@@ -236,9 +248,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   }
 
   const AllocationEntry k1_merged = {
-      2048, 2,    512,
-      16,   1024, 3,
-      true, 2,    {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 2048,
+      .count = 2,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   // Table w/ 2x t1 (merge)
@@ -268,15 +286,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   }
 
   const AllocationEntry k1_unsampled_merged = {
-      2 * t1_sampled_weight * 1024,
-      2 * t1_sampled_weight,
-      512,
-      16,
-      1024,
-      3,
-      true,
-      2,
-      {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 2 * t1_sampled_weight * 1024,
+      .count = 2 * t1_sampled_weight,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   {
@@ -316,9 +334,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
     EXPECT_EQ(2, table.bucket_total());
 
     const AllocationEntry scaled_k1 = {
-        2048, 2,    512,
-        16,   1024, 3,
-        true, 2,    {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+        .sum = 2048,
+        .count = 2,
+        .requested_size = 512,
+        .requested_alignment = 16,
+        .allocated_size = 1024,
+        .access_hint = 3,
+        .cold_allocated = true,
+        .depth = 2,
+        .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
     };
 
     CheckTraces(table, {scaled_k1, k2});
@@ -337,9 +361,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t3.weight = 1;
 
   const AllocationEntry k3 = {
-      17,    1,  13,
-      0,     17, 3,
-      false, 2,  {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 17,
+      .count = 1,
+      .requested_size = 13,
+      .requested_alignment = 0,
+      .allocated_size = 17,
+      .access_hint = 3,
+      .cold_allocated = false,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   // Table w/ t1, t3
@@ -368,9 +398,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t4.weight = 1;
 
   const AllocationEntry k4 = {
-      1024,  1,    512,
-      32,    1024, 3,
-      false, 2,    {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 1024,
+      .count = 1,
+      .requested_size = 512,
+      .requested_alignment = 32,
+      .allocated_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = false,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   // Table w/ t1, t4
@@ -399,9 +435,15 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t5.weight = 1;
 
   const AllocationEntry k5 = {
-      1024, 1,    512,
-      32,   1024, 4,
-      true, 2,    {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      .sum = 1024,
+      .count = 1,
+      .requested_size = 512,
+      .requested_alignment = 32,
+      .allocated_size = 1024,
+      .access_hint = 4,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
 
   // Table w/ t1, t5
