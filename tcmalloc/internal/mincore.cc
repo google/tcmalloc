@@ -61,7 +61,10 @@ size_t MInCore::residence_impl(void* addr, size_t size,
   // then handle the case where the object spans more than one page.
   if (remainingPages == kPageSize) {
     // Find out whether the first page is resident.
-    mincore->mincore(reinterpret_cast<void*>(basePage), remainingPages, res);
+    if (mincore->mincore(reinterpret_cast<void*>(basePage), remainingPages,
+                         res) != 0) {
+      return 0;
+    }
     // Residence info is returned in LSB, other bits are undefined.
     if ((res[0] & 1) == 1) {
       return size;

@@ -87,7 +87,7 @@ namespace {
 
 using ::testing::Eq;
 
-TEST(StaticVarsTest, TestResidence) {
+TEST(MInCoreTest, TestResidence) {
   MInCoreTest mct;
   const size_t kPageSize = getpagesize();
 
@@ -141,7 +141,7 @@ TEST(StaticVarsTest, TestResidence) {
 }
 
 // Test whether we are correctly handling multiple calls to mincore.
-TEST(StaticVarsTest, TestLargeResidence) {
+TEST(MInCoreTest, TestLargeResidence) {
   MInCoreTest mct;
   uintptr_t uAddress = 0;
   const size_t kPageSize = getpagesize();
@@ -164,7 +164,7 @@ TEST(StaticVarsTest, TestLargeResidence) {
   }
 }
 
-TEST(StaticVarsTest, UnmappedMemory) {
+TEST(MInCoreTest, UnmappedMemory) {
   const size_t kPageSize = getpagesize();
   const int kNumPages = 16;
 
@@ -181,6 +181,8 @@ TEST(StaticVarsTest, UnmappedMemory) {
   memset(q, 0, kNumPages * kPageSize);
   ::benchmark::DoNotOptimize(q);
 
+  EXPECT_EQ(0, MInCore::residence(nullptr, kPageSize));
+  EXPECT_EQ(0, MInCore::residence(p, kPageSize));
   for (int i = 0; i <= kNumPages; i++) {
     EXPECT_EQ(i * kPageSize, MInCore::residence(q, i * kPageSize));
   }
