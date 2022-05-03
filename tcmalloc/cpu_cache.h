@@ -161,6 +161,42 @@ struct GetShiftMaxCapacity {
 template <typename Forwarder>
 class CPUCache {
  public:
+  struct CpuCacheMissStats {
+    size_t underflows = 0;
+    size_t overflows = 0;
+
+    CpuCacheMissStats& operator+=(const CpuCacheMissStats rhs) {
+      underflows += rhs.underflows;
+      overflows += rhs.overflows;
+      return *this;
+    }
+  };
+
+  // We track the number of overflows/underflows for each of these cases.
+  enum class MissCount {
+    // Tracks total number of misses.
+    kTotal = 0,
+    // Tracks number of misses recorded as of the end of the last shuffle
+    // interval.
+    kShuffle,
+    // Tracks number of misses recorded as of the end of the last resize
+    // interval.
+    kReclaim,
+    // Tracks number of misses recorded as of the end of the last slab resize
+    // interval.
+    kSlabResize,
+    kNumCounts,
+  };
+
+  struct SizeClassCapacityStats {
+    size_t min_capacity = 0;
+    double avg_capacity = 0;
+    size_t max_capacity = 0;
+  };
+
+  // Sets the lower limit on the capacity that can be stolen from the cpu cache.
+  static constexpr double kCacheCapacityThreshold = 0.20;
+
   constexpr CPUCache() = default;
 
   // tcmalloc explicitly initializes its global state (to be safe for
@@ -224,9 +260,6 @@ class CPUCache {
   // ShuffleCpuCaches.
   void ShuffleCpuCaches();
 
-  // Sets the lower limit on the capacity that can be stolen from the cpu cache.
-  static constexpr double kCacheCapacityThreshold = 0.20;
-
   // Tries to reclaim inactive per-CPU caches. It iterates through the set of
   // populated cpu caches and reclaims the caches that:
   // (1) had same number of used bytes since the last interval,
@@ -250,38 +283,11 @@ class CPUCache {
   // the slab based on miss-counts and resizes if so.
   void ResizeSlabIfNeeded();
 
-  struct CpuCacheMissStats {
-    size_t underflows = 0;
-    size_t overflows = 0;
-
-    CpuCacheMissStats& operator+=(const CpuCacheMissStats rhs) {
-      underflows += rhs.underflows;
-      overflows += rhs.overflows;
-      return *this;
-    }
-  };
-
   // Reports total cache underflows and overflows for <cpu>.
   CpuCacheMissStats GetTotalCacheMissStats(int cpu) const;
 
   // Reports total cache underflows and overflows for all CPUs.
   CpuCacheMissStats GetTotalCacheMissStats() const;
-
-  // We track the number of overflows/underflows for each of these cases.
-  enum class MissCount {
-    // Tracks total number of misses.
-    kTotal = 0,
-    // Tracks number of misses recorded as of the end of the last shuffle
-    // interval.
-    kShuffle,
-    // Tracks number of misses recorded as of the end of the last resize
-    // interval.
-    kReclaim,
-    // Tracks number of misses recorded as of the end of the last slab resize
-    // interval.
-    kSlabResize,
-    kNumCounts,
-  };
 
   // Reports the cache underflows and overflows for <cpu> that were recorded
   // during the previous interval for <miss_count>.
@@ -298,12 +304,6 @@ class CPUCache {
   CpuCacheMissStats GetAndUpdateIntervalCacheMissStats(int cpu,
                                                        MissCount miss_count);
 
-  struct SizeClassCapacityStats {
-    size_t min_capacity = 0;
-    double avg_capacity = 0;
-    size_t max_capacity = 0;
-  };
-
   // Scans through populated per-CPU caches, and reports minimum, average and
   // maximum capacity for size class <size_class>.
   SizeClassCapacityStats GetSizeClassCapacityStats(size_t size_class) const;
@@ -317,19 +317,19 @@ class CPUCache {
   Forwarder& forwarder() { return forwarder_; }
 
  private:
-  // Tries to steal <bytes> for the destination <cpu>. It iterates through the
-  // the set of populated cpu caches and steals the bytes from them. A cpu is
-  // considered a good candidate to steal from if:
-  // (1) the cache is populated
-  // (2) the numbers of underflows and overflows are both less than 0.8x those
-  // of the destination per-cpu cache
-  // (3) source cpu is not the same as the destination cpu
-  // (4) capacity of the source cpu/size_class is non-zero
-  //
-  // For a given source cpu, we iterate through the size classes to steal from
-  // them. Currently, we use a similar clock-like algorithm from Steal() to
-  // identify the size_class to steal from.
-  void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
+  friend struct DrainHandler<CPUCache>;
+  friend class ::tcmalloc::tcmalloc_internal::CpuCachePeer;
+
+  // Return a set of objects to be returned to the Transfer Cache.
+  static constexpr int kMaxToReturn = 16;
+  struct ObjectsToReturn {
+    // The number of slots available for storing objects.
+    int count = kMaxToReturn;
+    // The size class of the returned object. kNumClasses is the
+    // largest value that needs to be stored in size_class.
+    CompactSizeClass size_class[kMaxToReturn];
+    void* obj[kMaxToReturn];
+  };
 
   // Per-size-class freelist resizing info.
   class PerClassResizeInfo {
@@ -357,8 +357,6 @@ class CPUCache {
     static_assert(sizeof(State) == sizeof(std::atomic<int32_t>),
                   "size mismatch");
   };
-
-  subtle::percpu::TcmallocSlab<kNumClasses> freelist_;
 
   // Helper type so we don't need to sprinkle `static_cast`s everywhere.
   struct MissCounts {
@@ -397,28 +395,6 @@ class CPUCache {
   struct ResizeInfo : ResizeInfoUnpadded {
     char pad[ABSL_CACHELINE_SIZE -
              sizeof(ResizeInfoUnpadded) % ABSL_CACHELINE_SIZE];
-  };
-  // Tracking data for each CPU's cache resizing efforts.
-  ResizeInfo* resize_ = nullptr;
-
-  // The maximum capacity of each size class within the slab.
-  uint16_t max_capacity_[kNumClasses] = {0};
-
-  // Provides a hint to StealFromOtherCache() so that we can steal from the
-  // caches in a round-robin fashion.
-  std::atomic<int> last_cpu_cache_steal_ = 0;
-
-  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
-
-  // Return a set of objects to be returned to the Transfer Cache.
-  static constexpr int kMaxToReturn = 16;
-  struct ObjectsToReturn {
-    // The number of slots available for storing objects.
-    int count = kMaxToReturn;
-    // The size class of the returned object. kNumClasses is the
-    // largest value that needs to be stored in size_class.
-    CompactSizeClass size_class[kMaxToReturn];
-    void* obj[kMaxToReturn];
   };
 
   // Determines how we distribute memory in the per-cpu cache to the various
@@ -469,8 +445,33 @@ class CPUCache {
     return -1;
   }
 
-  friend struct DrainHandler<CPUCache>;
-  friend class ::tcmalloc::tcmalloc_internal::CpuCachePeer;
+  // Tries to steal <bytes> for the destination <cpu>. It iterates through the
+  // the set of populated cpu caches and steals the bytes from them. A cpu is
+  // considered a good candidate to steal from if:
+  // (1) the cache is populated
+  // (2) the numbers of underflows and overflows are both less than 0.8x those
+  // of the destination per-cpu cache
+  // (3) source cpu is not the same as the destination cpu
+  // (4) capacity of the source cpu/size_class is non-zero
+  //
+  // For a given source cpu, we iterate through the size classes to steal from
+  // them. Currently, we use a similar clock-like algorithm from Steal() to
+  // identify the size_class to steal from.
+  void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
+
+  subtle::percpu::TcmallocSlab<kNumClasses> freelist_;
+
+  // Tracking data for each CPU's cache resizing efforts.
+  ResizeInfo* resize_ = nullptr;
+
+  // The maximum capacity of each size class within the slab.
+  uint16_t max_capacity_[kNumClasses] = {0};
+
+  // Provides a hint to StealFromOtherCache() so that we can steal from the
+  // caches in a round-robin fashion.
+  std::atomic<int> last_cpu_cache_steal_ = 0;
+
+  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
 template <class Forwarder>
