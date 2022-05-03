@@ -956,7 +956,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   // This is near the top since ReleasePerCpuMemoryToOS() calls it frequently.
   if (name == "tcmalloc.per_cpu_caches_active") {
-    *value = Static::CPUCacheActive();
+    *value = Static::CpuCacheActive();
     return true;
   }
 
@@ -1296,7 +1296,7 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.cpu_free"].value = stats.per_cpu_bytes;
   (*result)["tcmalloc.sharded_transfer_cache_free"].value =
       stats.sharded_transfer_bytes;
-  (*result)["tcmalloc.per_cpu_caches_active"].value = Static::CPUCacheActive();
+  (*result)["tcmalloc.per_cpu_caches_active"].value = Static::CpuCacheActive();
   // Thread Cache Free List
   (*result)["tcmalloc.current_total_thread_cache_bytes"].value =
       stats.thread_bytes;
@@ -1346,7 +1346,7 @@ extern "C" void MallocExtension_Internal_GetProperties(
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
   size_t bytes = 0;
-  if (Static::CPUCacheActive()) {
+  if (Static::CpuCacheActive()) {
     bytes = Static::cpu_cache().Reclaim(cpu);
   }
   return bytes;
@@ -1454,7 +1454,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
 
 #ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU Cache is enabled, so we're able to take the fastpath.
-  ASSERT(Static::CPUCacheActive());
+  ASSERT(Static::CpuCacheActive());
   ASSERT(subtle::percpu::IsFastNoInit());
 
   Static::cpu_cache().Deallocate(ptr, size_class);

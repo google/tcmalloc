@@ -38,7 +38,7 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     return;
   }
 
-  CPUCache& cache = Static::cpu_cache();
+  CpuCache& cache = Static::cpu_cache();
 
   absl::Notification done;
 
@@ -48,7 +48,7 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
 
     while (!done.HasBeenNotified()) {
       const double coin = absl::Uniform(rng, 0., 1.);
-      const bool ready = Static::CPUCacheActive();
+      const bool ready = Static::CpuCacheActive();
 
       if (ready && coin < 0.25) {
         const int cpu = absl::Uniform(rng, 0, num_cpus);
@@ -64,13 +64,13 @@ TEST(CpuCacheActivateTest, GlobalInstance) {
     }
   });
 
-  // Trigger initialization of the CPUCache, confirming it was not initialized
+  // Trigger initialization of the CpuCache, confirming it was not initialized
   // at the start of the test and is afterwards.
-  EXPECT_FALSE(Static::CPUCacheActive());
+  EXPECT_FALSE(Static::CpuCacheActive());
   ASSERT_NE(&TCMalloc_Internal_ForceCpuCacheActivation, nullptr);
   Parameters::set_per_cpu_caches(true);
   TCMalloc_Internal_ForceCpuCacheActivation();
-  EXPECT_TRUE(Static::CPUCacheActive());
+  EXPECT_TRUE(Static::CpuCacheActive());
 
   absl::SleepFor(absl::Seconds(0.2));
 

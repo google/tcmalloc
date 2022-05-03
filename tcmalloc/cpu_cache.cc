@@ -36,8 +36,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-static void ActivatePerCPUCaches() {
-  if (tcmalloc::tcmalloc_internal::Static::CPUCacheActive()) {
+static void ActivatePerCpuCaches() {
+  if (tcmalloc::tcmalloc_internal::Static::CpuCacheActive()) {
     // Already active.
     return;
   }
@@ -45,7 +45,7 @@ static void ActivatePerCPUCaches() {
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
     Static::InitIfNecessary();
     Static::cpu_cache().Activate();
-    Static::ActivateCPUCache();
+    Static::ActivateCpuCache();
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:
@@ -56,7 +56,7 @@ static void ActivatePerCPUCaches() {
 class PerCPUInitializer {
  public:
   PerCPUInitializer() {
-   ActivatePerCPUCaches();
+   ActivatePerCpuCaches();
   }
 };
 static PerCPUInitializer module_enter_exit;
@@ -66,11 +66,11 @@ static PerCPUInitializer module_enter_exit;
 GOOGLE_MALLOC_SECTION_END
 
 extern "C" void TCMalloc_Internal_ForceCpuCacheActivation() {
-  tcmalloc::tcmalloc_internal::ActivatePerCPUCaches();
+  tcmalloc::tcmalloc_internal::ActivatePerCpuCaches();
 }
 
 extern "C" bool MallocExtension_Internal_GetPerCpuCachesActive() {
-  return tcmalloc::tcmalloc_internal::Static::CPUCacheActive();
+  return tcmalloc::tcmalloc_internal::Static::CpuCacheActive();
 }
 
 extern "C" int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize() {

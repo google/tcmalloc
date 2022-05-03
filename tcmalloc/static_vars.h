@@ -52,7 +52,7 @@ namespace tcmalloc_internal {
 using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
     SampledAllocation, PageHeapAllocator<SampledAllocation>>;
 
-class CPUCache;
+class CpuCache;
 class PageMap;
 class ThreadCache;
 
@@ -79,7 +79,7 @@ class Static {
 
   static SizeMap& sizemap() { return sizemap_; }
 
-  static CPUCache& cpu_cache() { return cpu_cache_; }
+  static CpuCache& cpu_cache() { return cpu_cache_; }
 
   static PeakHeapTracker& peak_heap_tracker() { return peak_heap_tracker_; }
 
@@ -132,10 +132,10 @@ class Static {
     return bucket_allocator_;
   }
 
-  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CPUCacheActive() {
+  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() {
     return cpu_cache_active_.load(std::memory_order_acquire);
   }
-  static void ActivateCPUCache() {
+  static void ActivateCpuCache() {
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 
@@ -153,10 +153,10 @@ class Static {
         // Checking the current cpu variable here allows us to remove it from
         // the fast-path, since we will fall back to the slow path until this
         // variable is initialized.
-        static_cast<int>(CPUCacheActive()) &
+        static_cast<int>(CpuCacheActive()) &
         static_cast<int>(subtle::percpu::IsFastNoInit());
 #else
-        !CPUCacheActive();
+        !CpuCacheActive();
 #endif
   }
 
@@ -182,7 +182,7 @@ class Static {
   static SizeMap sizemap_;
   ABSL_CONST_INIT static TransferCacheManager transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
-  static CPUCache cpu_cache_;
+  static CpuCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static PageHeapAllocator<SampledAllocation> sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;

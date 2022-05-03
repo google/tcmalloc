@@ -37,7 +37,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// Cacheline-align our SizeMap and CPUCache.  They both have very hot arrays as
+// Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays as
 // their first member variables, and aligning them reduces the number of cache
 // lines these arrays use.
 //
@@ -50,7 +50,7 @@ ABSL_CONST_INIT SizeMap ABSL_CACHELINE_ALIGNED Static::sizemap_;
 ABSL_CONST_INIT TransferCacheManager Static::transfer_cache_;
 ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
-ABSL_CONST_INIT CPUCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
+ABSL_CONST_INIT CpuCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT PageHeapAllocator<SampledAllocation>
     Static::sampledallocation_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
