@@ -25,10 +25,8 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/dynamic_annotations.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
-#include "absl/random/seed_sequences.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/optimization.h"

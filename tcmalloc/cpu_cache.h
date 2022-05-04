@@ -397,6 +397,14 @@ class CpuCache {
              sizeof(ResizeInfoUnpadded) % ABSL_CACHELINE_SIZE];
   };
 
+  struct DynamicSlabInfo {
+    static constexpr size_t kNumPossibleShifts =
+        kMaxPerCpuShift - kInitialPerCpuShift + 1;
+    std::atomic<size_t> grow_count[kNumPossibleShifts];
+    std::atomic<size_t> shrink_count[kNumPossibleShifts];
+    std::atomic<size_t> madvise_failed_bytes;
+  };
+
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes.
   size_t MaxCapacity(size_t size_class) const;
@@ -472,6 +480,8 @@ class CpuCache {
   std::atomic<int> last_cpu_cache_steal_ = 0;
 
   TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+
+  DynamicSlabInfo dynamic_slab_info_{};
 };
 
 template <class Forwarder>
@@ -1494,18 +1504,22 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // If the slab size was infinite, we would expect 0 overflows. If the slab
   // size was 0, we would expect approximately equal numbers of underflows and
   // overflows.
-  // TODO(b/186636177): add telemetry for how many times we've grown/shrunk the
-  // slab at each shift value.
   if (total_misses.overflows >
       total_misses.underflows *
           forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
     if (per_cpu_shift == kMaxPerCpuShift + numa_shift) return;
     ++per_cpu_shift;
+    dynamic_slab_info_
+        .grow_count[per_cpu_shift - kInitialPerCpuShift - numa_shift]
+        .fetch_add(1, std::memory_order_relaxed);
   } else if (total_misses.overflows <
              total_misses.underflows *
                  forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
     if (per_cpu_shift == kInitialPerCpuShift + numa_shift) return;
     --per_cpu_shift;
+    dynamic_slab_info_
+        .shrink_count[per_cpu_shift - kInitialPerCpuShift - numa_shift]
+        .fetch_add(1, std::memory_order_relaxed);
   } else {
     return;
   }
@@ -1521,11 +1535,15 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // madvise away the old slabs memory.
   // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once the
   // kernel enables huge zero pages.
-  madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
-  // TODO(b/186636177): add telemetry for how many bytes are still resident
-  // because MADV_DONTNEED failed.
-  const int madvise_ret = madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
-  if (madvise_ret == 0) forwarder_.ArenaReportNonresident(old_slabs_size);
+  bool madvise_failed = madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
+  madvise_failed =
+      madvise(old_slabs, old_slabs_size, MADV_DONTNEED) || madvise_failed;
+  if (!madvise_failed) {
+    forwarder_.ArenaReportNonresident(old_slabs_size);
+  } else {
+    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
+        old_slabs_size, std::memory_order_relaxed);
+  }
 }
 
 template <class Forwarder>
@@ -1693,6 +1711,22 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
     out->printf("cpu %3d:", cpu);
     print_miss_stats(GetTotalCacheMissStats(cpu), GetNumReclaims(cpu));
   }
+
+  out->printf("------------------------------------------------\n");
+  out->printf("Per-CPU cache slab resizing info:\n");
+  out->printf("------------------------------------------------\n");
+  for (int shift = 0; shift < DynamicSlabInfo::kNumPossibleShifts; ++shift) {
+    out->printf("shift %3d:", shift + kInitialPerCpuShift);
+    out->printf(
+        "%12" PRIu64
+        " growths,"
+        "%12" PRIu64 " shrinkages\n",
+        dynamic_slab_info_.grow_count[shift].load(std::memory_order_relaxed),
+        dynamic_slab_info_.shrink_count[shift].load(std::memory_order_relaxed));
+  }
+  out->printf(
+      "%12" PRIu64 " bytes for which MADVISE_DONTNEED failed\n",
+      dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 }
 
 template <class Forwarder>
@@ -1707,7 +1741,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     uint64_t unallocated = Unallocated(cpu);
     CpuCacheMissStats miss_stats = GetTotalCacheMissStats(cpu);
     uint64_t reclaims = GetNumReclaims(cpu);
-    entry.PrintI64("cpu", uint64_t(cpu));
+    entry.PrintI64("cpu", cpu);
     entry.PrintI64("used", rbytes);
     entry.PrintI64("unused", unallocated);
     entry.PrintBool("active", CPU_ISSET(cpu, &allowed_cpus));
@@ -1727,6 +1761,19 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     entry.PrintI64("max_allowed_capacity",
                    GetMaxCapacity(size_class, freelist_.GetShift()));
   }
+
+  // Record dynamic slab statistics.
+  for (int shift = 0; shift < DynamicSlabInfo::kNumPossibleShifts; ++shift) {
+    PbtxtRegion entry = region->CreateSubRegion("dynamic_slab");
+    entry.PrintI64("shift", shift + kInitialPerCpuShift);
+    entry.PrintI64("grow_count", dynamic_slab_info_.grow_count[shift].load(
+                                     std::memory_order_relaxed));
+    entry.PrintI64("shrink_count", dynamic_slab_info_.shrink_count[shift].load(
+                                       std::memory_order_relaxed));
+  }
+  region->PrintI64(
+      "dynamic_slab_madvise_failed_bytes",
+      dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 }
 
 template <class Forwarder>
