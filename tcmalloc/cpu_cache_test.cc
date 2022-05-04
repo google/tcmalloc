@@ -16,6 +16,7 @@
 
 #include <sys/mman.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -387,7 +388,7 @@ static void StressThread(CpuCache& cache, size_t thread_id,
   }
 
   std::vector<std::pair<size_t, void*>> blocks;
-  absl::BitGen rnd;
+  absl::InsecureBitGen rnd;
   while (!stop.load(std::memory_order_acquire)) {
     const int what = absl::Uniform<int32_t>(rnd, 0, 2);
     if (what) {
@@ -526,6 +527,12 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
+  int n_threads = absl::base_internal::NumCPUs();
+#ifdef UNDEFINED_BEHAVIOR_SANITIZER
+  // Prevent timeout issues by using fewer stress threads with UBSan.
+  n_threads = std::min(n_threads, 2);
+#endif
+
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
@@ -537,7 +544,6 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
       cache.Activate();
 
       std::vector<std::thread> threads;
-      const int n_threads = absl::base_internal::NumCPUs();
       std::atomic<bool> stop(false);
 
       for (size_t t = 0; t < n_threads; ++t) {
