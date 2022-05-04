@@ -93,7 +93,6 @@ double Span::Fragmentation() const {
 }
 
 void Span::AverageFreelistAddedTime(const Span* other) {
-  CHECK_CONDITION(!sampled_);
   // Do this computation as floating-point to avoid overflowing our uint64_t.
   freelist_added_time_ = static_cast<uint64_t>(
       (static_cast<double>(freelist_added_time_) * num_pages_ +
@@ -191,7 +190,6 @@ size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
   size_t before = bitmap_.CountBits(0, 64);
 #endif  // NDEBUG
 
-  CHECK_CONDITION(!sampled_);
   size_t count = 0;
   // Want to fill the batch either with N objects, or the number of objects
   // remaining in the span.
@@ -254,7 +252,6 @@ void Span::BitmapBuildFreelist(size_t size, size_t count) {
 #endif  // NDEBUG
   reciprocal_ = CalcReciprocal(size);
   allocated_ = 0;
-  CHECK_CONDITION(!sampled_);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
   ASSERT(bitmap_.CountBits(0, 64) == count);
@@ -297,7 +294,6 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
 
   // Then, push as much as we can into the cache_.
   int cache_size = 0;
-  CHECK_CONDITION(!sampled_);
   for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
     cache_[cache_size] = idx;
     cache_size++;
