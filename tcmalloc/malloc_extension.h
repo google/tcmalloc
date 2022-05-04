@@ -107,6 +107,10 @@ class Profile final {
     size_t requested_size;
     size_t requested_alignment;
     size_t allocated_size;
+    // This is taken from a single span when we coalesce multiple allocations
+    // from the same stack trace; as such, it isn't particularly accurate, but
+    // offers a cheap peek at what the distribution looks like.
+    size_t sampled_resident_size;
 
     enum class Access {
       Hot,

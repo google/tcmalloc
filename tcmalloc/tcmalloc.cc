@@ -786,7 +786,10 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
 
       const double frag = span->Fragmentation();
       if (frag > 0) {
-        profile->AddTrace(frag, *t);
+        // Associate the memory warmth with the actual object, not the proxy.
+        // The residency information is likely not very useful, but we might as
+        // well pass it along.
+        profile->AddTrace(frag, *t, s->start_address());
       }
     }
   }
@@ -798,7 +801,7 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
       ProfileType::kHeap, Sampler::GetSamplePeriod(), true, true);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (Span* s : Static::sampled_objects_) {
-    profile->AddTrace(1.0, *s->sampled_stack());
+    profile->AddTrace(1.0, *s->sampled_stack(), s->start_address());
   }
   return profile;
 }
@@ -843,7 +846,10 @@ class AllocationSampleList {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     AllocationSample* cur = first_;
     while (cur != nullptr) {
-      cur->mallocs_->AddTrace(1.0, sample);
+      // Even if there were a pointer to pass here, it's unlikely that it's
+      // useful; it won't go out of core in the brief amount of time during the
+      // sample.
+      cur->mallocs_->AddTrace(1.0, sample, nullptr);
       cur = cur->next;
     }
   }

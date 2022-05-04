@@ -183,6 +183,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.requested_size = 2;
     sample.requested_alignment = 4;
     sample.allocated_size = 16;
+    sample.sampled_resident_size = 256;
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
     // mapping.
@@ -204,6 +205,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.requested_size = 4;
     sample.requested_alignment = 0;
     sample.allocated_size = 8;
+    sample.sampled_resident_size = 512;
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
     // mapping.
@@ -308,8 +310,10 @@ TEST(ProfileConverterTest, Profile) {
       UnorderedElementsAre(
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("sampled_resident_bytes", 256),
               Pair("access_hint", 254), Pair("access_allocated", "cold")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+                               Pair("sampled_resident_bytes", 512),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"))));
 

@@ -21,6 +21,7 @@
 #include "absl/hash/hash.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
@@ -62,7 +63,7 @@ StackTraceTable::~StackTraceTable() {
   delete[] table_;
 }
 
-void StackTraceTable::AddTrace(double count, const StackTrace& t) {
+void StackTraceTable::AddTrace(double count, const StackTrace& t, void* span) {
   if (error_) {
     return;
   }
@@ -79,6 +80,7 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
     b->count += count;
     b->total_weight += count * t.weight;
     b->trace.weight = b->total_weight / b->count + 0.5;
+    b->example_span = span;
   } else {
     depth_total_ += t.depth;
     bucket_total_++;
@@ -88,6 +90,10 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
     b->count = count;
     b->total_weight = t.weight * count;
     b->next = table_[idx];
+    if (span > b->example_span) {
+      // Keep only the largest pointer when combining records.
+      b->example_span = span;
+    }
     table_[idx] = b;
   }
 }
@@ -125,6 +131,11 @@ void StackTraceTable::Iterate(
                                : Profile::Sample::Access::Hot;
 
       e.depth = b->trace.depth;
+      // In order to minimize impact on application (and in expectation of
+      // future refactoring), we only pass one span pointer forward from reading
+      // the sampled allocations. Multiply the count by the example.
+      e.sampled_resident_size =
+          e.count * MInCore::residence(b->example_span, allocated_size);
       static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                     "Profile stack size smaller than internal stack sizes");
       memcpy(e.stack, b->trace.stack, sizeof(e.stack[0]) * e.depth);

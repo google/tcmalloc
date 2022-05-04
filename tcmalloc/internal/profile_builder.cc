@@ -389,6 +389,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int access_allocated_id = builder.InternString("access_allocated");
   const int cold_id = builder.InternString("cold");
   const int hot_id = builder.InternString("hot");
+  const int sampled_resident_id =
+      builder.InternString("sampled_resident_bytes");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -440,23 +442,22 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     sample.add_value(entry.sum);
 
     // add fields that are common to all memory profiles
-    if (entry.count > 0) {
-      perftools::profiles::Label& label = *sample.add_label();
-      label.set_key(bytes_id);
-      label.set_num(entry.allocated_size);
-      label.set_num_unit(bytes_id);
-    }
-
-    auto add_positive_label = [&](int key, int unit, size_t value) {
-      if (value == 0) return;
+    auto add_label = [&](int key, int unit, size_t value) {
       perftools::profiles::Label& label = *sample.add_label();
       label.set_key(key);
       label.set_num(value);
       label.set_num_unit(unit);
     };
 
+    auto add_positive_label = [&](int key, int unit, size_t value) {
+      if (value <= 0) return;
+      add_label(key, unit, value);
+    };
+
+    add_positive_label(bytes_id, bytes_id, entry.allocated_size);
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+    add_label(sampled_resident_id, bytes_id, entry.sampled_resident_size);
 
     auto add_access_label = [&](int key,
                                 tcmalloc::Profile::Sample::Access access) {

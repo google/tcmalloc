@@ -15,6 +15,7 @@
 #include "tcmalloc/stack_trace_table.h"
 
 #include <stddef.h>
+#include <sys/mman.h>
 
 #include <algorithm>
 
@@ -41,6 +42,7 @@ struct AllocationEntry {
   size_t requested_size;
   size_t requested_alignment;
   size_t allocated_size;
+  size_t sampled_resident_size;
   uint8_t access_hint;
   bool cold_allocated;
   int depth;
@@ -64,6 +66,7 @@ struct AllocationEntry {
     os << "requested_size = " << e.requested_size << "; ";
     os << "requested_alignment = " << e.requested_alignment << "; ";
     os << "allocated_size = " << e.allocated_size << "; ";
+    os << "sampled_resident_size = " << e.sampled_resident_size << "; ";
     os << "access_hint = " << e.access_hint << "; ";
     os << "cold_allocated = " << e.cold_allocated << "; ";
 
@@ -100,6 +103,10 @@ inline bool operator==(const AllocationEntry& x, const AllocationEntry& y) {
     return false;
   }
 
+  if (x.sampled_resident_size != y.sampled_resident_size) {
+    return false;
+  }
+
   if (x.access_hint != y.access_hint) {
     return false;
   }
@@ -126,6 +133,7 @@ void CheckTraces(const StackTraceTable& table,
     tmp.requested_size = e.requested_size;
     tmp.requested_alignment = e.requested_alignment;
     tmp.allocated_size = e.allocated_size;
+    tmp.sampled_resident_size = e.sampled_resident_size;
     tmp.access_hint = static_cast<uint8_t>(e.access_hint);
     tmp.cold_allocated = e.access_allocated == Profile::Sample::Access::Cold;
 
@@ -135,9 +143,10 @@ void CheckTraces(const StackTraceTable& table,
   EXPECT_THAT(actual, testing::UnorderedElementsAreArray(expected));
 }
 
-void AddTrace(StackTraceTable* table, double count, const StackTrace& t) {
+void AddTrace(StackTraceTable* table, double count, const StackTrace& t,
+              void* span = nullptr) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  table->AddTrace(count, t);
+  table->AddTrace(count, t, span);
 }
 
 TEST(StackTraceTableTest, StackTraceTable) {
@@ -457,6 +466,100 @@ TEST(StackTraceTableTest, StackTraceTable) {
     EXPECT_EQ(2, table.bucket_total());
 
     CheckTraces(table, {k1, k5});
+  }
+}
+
+TEST(StackTraceTableTest, ResidentSizeResident) {
+  Static::InitIfNecessary();
+
+  StackTrace t1 = {};
+  t1.requested_size = static_cast<uintptr_t>(512);
+  t1.requested_alignment = static_cast<uintptr_t>(16);
+  t1.allocated_size = static_cast<uintptr_t>(1024);
+  t1.access_hint = 3;
+  t1.cold_allocated = true;
+  t1.depth = static_cast<uintptr_t>(2);
+  t1.stack[0] = reinterpret_cast<void*>(1);
+  t1.stack[1] = reinterpret_cast<void*>(2);
+  t1.weight = 2 << 20;
+
+  const AllocationEntry k1 = {
+      .sum = 1024,
+      .count = 1,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .sampled_resident_size = 1024,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+  };
+
+  StackTraceTable table(ProfileType::kHeap, 1, true, false);
+
+  std::vector<char> bytes(1024);
+  AddTrace(&table, 1.0, t1, bytes.data());
+  EXPECT_EQ(2, table.depth_total());
+  EXPECT_EQ(1, table.bucket_total());
+
+  CheckTraces(table, {k1});
+}
+
+TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
+  Static::InitIfNecessary();
+
+  for (bool unmap : {false, true}) {
+    SCOPED_TRACE(absl::StrCat("unmap: ", unmap));
+    StackTrace t1 = {};
+    t1.requested_size = static_cast<uintptr_t>(512);
+    t1.requested_alignment = static_cast<uintptr_t>(16);
+    t1.allocated_size = static_cast<uintptr_t>(1024);
+    t1.access_hint = 3;
+    t1.cold_allocated = true;
+    t1.depth = static_cast<uintptr_t>(2);
+    t1.stack[0] = reinterpret_cast<void*>(1);
+    t1.stack[1] = reinterpret_cast<void*>(2);
+    t1.weight = 2 << 20;
+
+    const AllocationEntry k1 = {
+        .sum = 2048,
+        .count = 2,
+        .requested_size = 512,
+        .requested_alignment = 16,
+        .allocated_size = 1024,
+        .sampled_resident_size = unmap ? 0UL : 2048UL,
+        .access_hint = 3,
+        .cold_allocated = true,
+        .depth = 2,
+        .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+    };
+
+    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+
+    size_t kSize = getpagesize();
+    void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+    ASSERT_NE(ptr1, MAP_FAILED) << errno;
+    void* ptr2 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+    ASSERT_NE(ptr2, MAP_FAILED) << errno;
+    if (ptr1 > ptr2) {
+      std::swap(ptr1, ptr2);
+    }
+    if (unmap) {
+      ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+    }
+    AddTrace(&table, 1.0, t1, ptr1);
+    AddTrace(&table, 1.0, t1, ptr2);
+    EXPECT_EQ(2, table.depth_total());
+    EXPECT_EQ(1, table.bucket_total());
+
+    CheckTraces(table, {k1});
+    ASSERT_EQ(munmap(ptr1, kSize), 0) << errno;
+    if (!unmap) {
+      ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+    }
   }
 }
 
