@@ -100,7 +100,32 @@ class HugeCache {
                   Clock{.now = absl::base_internal::CycleClock::Now,
                         .freq = absl::base_internal::CycleClock::Frequency}) {}
 
-  // For testing with mock clock
+  // For testing with mock clock.
+  //
+  // 2s (kCacheTime * 2) looks like an arbitrary window; it mostly is.
+  //
+  // Suffice to say that the below code (see MaybeGrowCacheLimit)
+  // tries to make sure the cache is sized to protect a working set
+  // that ebbs for 1 second, as a reasonable heuristic. This means it
+  // needs 1s of historical data to examine.
+  //
+  // Why 2s duration, then? Two reasons:
+  //
+  // - (minor) granularity of epoch boundaries make me want to err towards
+  //   keeping a bit too much data over a bit too little.
+  //
+  // - (major) hysteresis: in ReleaseCachedPages we try to detect
+  //   mistaken cache expansion and reverse it. I hope that using a
+  //   longer timescale than our expansion will increase stability
+  //   here: I will take some caches staying a bit too big over caches
+  //   oscillating back and forth between two size estimates, so we
+  //   require stronger evidence (longer time) to reverse an expansion
+  //   than to make it.
+  //
+  // We also tried other algorithms, but this one is simple and suffices to
+  // capture the empirical dynamics we've seen.  See "Beyond Malloc
+  // Efficiency..." (https://research.google/pubs/pub50370/) for more
+  // information.
   HugeCache(HugeAllocator* allocator, MetadataAllocFunction meta_allocate,
             MemoryModifyFunction unback, Clock clock)
       : allocator_(allocator),
