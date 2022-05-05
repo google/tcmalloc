@@ -134,6 +134,9 @@ void StackTraceTable::Iterate(
       // In order to minimize impact on application (and in expectation of
       // future refactoring), we only pass one span pointer forward from reading
       // the sampled allocations. Multiply the count by the example.
+      // TODO(b/231251810): Actually, this is inconsistent with `bytes`, which
+      // doesn't pre-multiply the `count`. When we use a more accurate count
+      // (with more example spans), we should consider making these consistent.
       e.sampled_resident_size =
           e.count * MInCore::residence(b->example_span, allocated_size);
       static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,

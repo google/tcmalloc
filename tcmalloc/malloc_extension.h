@@ -110,6 +110,10 @@ class Profile final {
     // This is taken from a single span when we coalesce multiple allocations
     // from the same stack trace; as such, it isn't particularly accurate, but
     // offers a cheap peek at what the distribution looks like.
+    // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
+    // pre-multiplied by count and represents all of the resident memory). We
+    // will consider revisiting this when we determine the need for more
+    // accurate telemetry.
     size_t sampled_resident_size;
 
     enum class Access {
