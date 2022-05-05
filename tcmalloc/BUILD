@@ -287,7 +287,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -432,7 +432,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -464,7 +464,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -500,7 +500,7 @@ cc_library(
         "-DTCMALLOC_NUMA_AWARE",
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -536,7 +536,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -570,7 +570,7 @@ cc_library(
     hdrs = common_hdrs,
     copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = common_deps,
     alwayslink = 1,
 )
@@ -620,7 +620,7 @@ cc_library(
     ],
     hdrs = ["page_allocator_test_util.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:tcmalloc_tests"],
+    visibility = [":tcmalloc_tests"],
     deps = [
         ":common",
         ":malloc_extension",
