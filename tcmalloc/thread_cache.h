@@ -30,7 +30,6 @@
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
-#include "tcmalloc/tracking.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -100,7 +99,6 @@ class ThreadCache {
   template <void* OOMHandler(size_t)>
   void* ABSL_ATTRIBUTE_NOINLINE AllocateSlow(size_t size_class,
                                              size_t allocated_size) {
-    tracking::Report(kMallocMiss, size_class, 1);
     void* ret = FetchFromCentralCache(size_class, allocated_size);
     if (ABSL_PREDICT_TRUE(ret != nullptr)) {
       return ret;
@@ -297,7 +295,6 @@ ThreadCache::Allocate(size_t size_class) {
   FreeList* list = &list_[size_class];
   void* ret;
   if (ABSL_PREDICT_TRUE(list->TryPop(&ret))) {
-    tracking::Report(kMallocHit, size_class, 1);
     size_ -= allocated_size;
     return ret;
   }
@@ -320,8 +317,6 @@ ThreadCache::Deallocate(void* ptr, size_t size_class) {
   // because of the bitwise-or trick that follows.
   if ((list_headroom | size_headroom) < 0) {
     DeallocateSlow(ptr, list, size_class);
-  } else {
-    tracking::Report(kFreeHit, size_class, 1);
   }
 }
 

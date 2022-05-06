@@ -36,6 +36,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
@@ -75,9 +76,7 @@ class NoStealingManager : public StaticForwarder {
 
 class ProdCpuLayout {
  public:
-  static int CurrentCpu() {
-    return tcmalloc::tcmalloc_internal::subtle::percpu::RseqCpuId();
-  }
+  static int CurrentCpu() { return subtle::percpu::RseqCpuId(); }
   static int BuildCacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
     return BuildCpuToL3CacheMap(l3_cache_index);
   }

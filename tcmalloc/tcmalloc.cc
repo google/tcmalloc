@@ -112,7 +112,6 @@
 #include "tcmalloc/system-alloc.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/thread_cache.h"
-#include "tcmalloc/tracking.h"
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
@@ -525,7 +524,6 @@ static void DumpStats(Printer* out, int level) {
     }
     Static::page_allocator().Print(out, MemoryTag::kSampled);
     Static::page_allocator().Print(out, MemoryTag::kCold);
-    tracking::Print(out);
     Static::guardedpage_allocator().Print(out);
 
     uint64_t limit_bytes;
@@ -747,7 +745,7 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
 }
 
 static void PrintStats(int level) {
-  const int kBufferSize = (TCMALLOC_HAVE_TRACKING ? 2 << 20 : 64 << 10);
+  const int kBufferSize = 64 << 10;
   char* buffer = new char[kBufferSize];
   Printer printer(buffer, kBufferSize);
   DumpStats(&printer, level);
@@ -1347,7 +1345,6 @@ extern "C" void MallocExtension_Internal_GetProperties(
   }
 
   FillExperimentProperties(result);
-  tracking::GetProperties(result);
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
@@ -1761,13 +1758,6 @@ static void do_free_pages(void* ptr, const PageId p) {
       weight = st->weight;
       requested_size = st->requested_size;
       allocated_size = st->allocated_size;
-      if (proxy == nullptr && allocated_size <= kMaxSize) {
-        tracking::Report(
-            kFreeMiss,
-            Static::sizemap().SizeClass(CppPolicy().InSameNumaPartitionAs(ptr),
-                                        allocated_size),
-            1);
-      }
       notify_sampled_alloc = true;
       Static::stacktrace_allocator().Delete(st);
     }

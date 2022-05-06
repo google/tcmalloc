@@ -43,7 +43,6 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/tracking.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -150,7 +149,6 @@ class TransferCache {
 
           void **entry = GetSlot(info.used - N);
           memcpy(entry, batch.data(), sizeof(void *) * N);
-          tracking::Report(kTCInsertHit, size_class, 1);
           insert_hits_.LossyAdd(1);
           return;
         }
@@ -161,7 +159,6 @@ class TransferCache {
       insert_non_batch_misses_.Add(1);
     }
 
-    tracking::Report(kTCInsertMiss, size_class, 1);
     freelist().InsertRange(batch);
   }
 
@@ -182,7 +179,6 @@ class TransferCache {
           SetSlotInfo(info);
           void **entry = GetSlot(info.used);
           memcpy(batch, entry, sizeof(void *) * N);
-          tracking::Report(kTCRemoveHit, size_class, 1);
           remove_hits_.LossyAdd(1);
           low_water_mark_.store(
               std::min(low_water_mark_.load(std::memory_order_acquire),
@@ -198,7 +194,6 @@ class TransferCache {
     }
     low_water_mark_.store(0, std::memory_order_release);
 
-    tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
   }
 
@@ -230,7 +225,6 @@ class TransferCache {
       low_water_mark -= num_to_move;
       SetSlotInfo(info);
       lock_.Unlock();
-      tracking::Report(kTCElementsPlunder, size_class, num_to_move);
       freelist().InsertRange({buf, num_to_move});
     }
   }
@@ -486,7 +480,6 @@ class RingBufferTransferCache {
         if (cache_grown) {
           CopyIntoEnd(batch.data(), N, info);
           SetSlotInfo(info);
-          tracking::Report(kTCInsertHit, size_class, 1);
           insert_hits_.LossyAdd(1);
           return;
         }
@@ -527,7 +520,6 @@ class RingBufferTransferCache {
       ASSERT(to_free_num <= kMaxObjectsToMove);
       ASSERT(to_free_num <= B);
       insert_misses_.Add(1);
-      tracking::Report(kTCInsertMiss, size_class, 1);
       freelist().InsertRange(absl::Span<void *>(to_free_buf, to_free_num));
     }
   }
@@ -548,7 +540,6 @@ class RingBufferTransferCache {
         const int copied = std::min<int>(N, info.used);
         CopyOutOfEnd(batch, copied, info);
         SetSlotInfo(info);
-        tracking::Report(kTCRemoveHit, size_class, 1);
         remove_hits_.LossyAdd(1);
         low_water_mark_ = std::min(low_water_mark_, info.used);
         ASSERT(low_water_mark_ <= slot_info_.used);
@@ -558,7 +549,6 @@ class RingBufferTransferCache {
     }
 
     remove_misses_.Add(1);
-    tracking::Report(kTCRemoveMiss, size_class, 1);
     return freelist().RemoveRange(batch, N);
   }
 
@@ -582,7 +572,6 @@ class RingBufferTransferCache {
       ASSERT(low_water_mark_ <= slot_info_.used);
       lock_.Unlock();
       freelist().InsertRange({buf, num_to_move});
-      tracking::Report(kTCElementsPlunder, size_class, num_to_move);
       // If someone is starting to use the cache, stop doing this.
       if (!lock_.TryLock()) {
         return;

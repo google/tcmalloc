@@ -198,13 +198,10 @@ void ThreadCache::Scavenge() {
 }
 
 void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
-  tracking::Report(kFreeMiss, size_class, 1);
   if (ABSL_PREDICT_FALSE(list->length() > list->max_length())) {
-    tracking::Report(kFreeTruncations, size_class, 1);
     ListTooLong(list, size_class);
   }
   if (size_ >= max_size_) {
-    tracking::Report(kFreeScavenges, size_class, 1);
     Scavenge();
   }
 }

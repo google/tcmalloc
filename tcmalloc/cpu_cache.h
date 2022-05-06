@@ -39,7 +39,6 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
-#include "tcmalloc/tracking.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -490,19 +489,14 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
 CpuCache<Forwarder>::Allocate(size_t size_class) {
   ASSERT(size_class > 0);
 
-  tracking::Report(kMallocHit, size_class, 1);
   struct Helper {
     static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t size_class,
                                                    void* arg) {
-      // we've optimistically reported hit in Allocate, lets undo it and
-      // report miss instead.
-      tracking::Report(kMallocHit, size_class, -1);
       CpuCache& cache = *static_cast<CpuCache*>(arg);
       void* ret = nullptr;
       if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
         ret = cache.forwarder().sharded_transfer_cache().Pop(size_class);
       } else {
-        tracking::Report(kMallocMiss, size_class, 1);
         cache.RecordCacheMissStat(cpu, true);
         ret = cache.Refill(cpu, size_class);
       }
@@ -520,22 +514,15 @@ template <class Forwarder>
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
 CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
   ASSERT(size_class > 0);
-  tracking::Report(kFreeHit, size_class,
-                   1);  // Be optimistic; correct later if needed.
 
   struct Helper {
     static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t size_class,
                                                 void* ptr, void* arg) {
-      // When we reach here we've already optimistically bumped FreeHits.
-      // Fix that.
-      tracking::Report(kFreeHit, size_class, -1);
-
       CpuCache& cache = *static_cast<CpuCache*>(arg);
       if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
         cache.forwarder().sharded_transfer_cache().Push(size_class, ptr);
         return 1;
       }
-      tracking::Report(kFreeMiss, size_class, 1);
       cache.RecordCacheMissStat(cpu, false);
       return cache.Overflow(ptr, size_class, cpu);
     }
@@ -1343,7 +1330,6 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
-  tracking::Report(kFreeTruncations, size_class, 1);
   return 1;
 }
 

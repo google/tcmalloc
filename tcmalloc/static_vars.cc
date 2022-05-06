@@ -31,7 +31,6 @@
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/thread_cache.h"
-#include "tcmalloc/tracking.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -108,7 +107,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
 
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {
-    tracking::Init();
     sizemap_.Init();
     numa_topology_.Init();
     sampledallocation_allocator_.Init(&arena_);
