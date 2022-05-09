@@ -631,7 +631,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/memory",
         "@com_google_googletest//:gtest_main",
@@ -674,7 +673,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -690,7 +688,6 @@ cc_test(
         ":mock_central_freelist",
         ":mock_transfer_cache",
         "//tcmalloc/testing:thread_manager",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
@@ -721,7 +718,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
@@ -738,7 +734,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
@@ -808,7 +803,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
@@ -837,7 +831,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
@@ -854,7 +847,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
@@ -880,7 +872,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",
@@ -923,7 +914,6 @@ cc_test(
         ":common",
         ":malloc_extension",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/container:node_hash_set",
         "@com_google_googletest//:gtest_main",
@@ -937,7 +927,6 @@ cc_test(
     malloc = "//tcmalloc/internal:system_malloc",
     deps = [
         ":malloc_extension",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
@@ -953,7 +942,6 @@ cc_test(
     ],
     deps = [
         ":malloc_extension",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
@@ -978,7 +966,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/testing:testutil",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
@@ -996,7 +983,6 @@ cc_test(
         ":malloc_extension",
         ":page_allocator_test_util",
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
@@ -1061,7 +1047,6 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":size_class_info",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1077,7 +1062,6 @@ cc_test(
         ":common",
         ":runtime_size_classes",
         ":size_class_info",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
@@ -1138,7 +1122,6 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":runtime_size_classes",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1162,7 +1145,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":sampled_allocation",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1188,7 +1170,6 @@ cc_test(
         ":explicitly_constructed",
         ":sampled_allocation_recorder",
         "//tcmalloc/testing:thread_manager",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -1201,7 +1182,6 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "//tcmalloc/internal:logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/random",
@@ -1230,7 +1210,6 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":common",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -1243,7 +1222,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1305,7 +1283,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":experiment",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1346,7 +1323,6 @@ cc_test(
         "//tcmalloc/internal:util",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:bit_gen_ref",
         "@com_google_absl//absl/time",
@@ -1380,7 +1356,6 @@ cc_test(
         ":common",
         ":mock_static_forwarder",
         "//tcmalloc/testing:thread_manager",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
@@ -1423,7 +1398,6 @@ cc_test(
         ":profile_marshaler",
         "//tcmalloc/internal:fake_profile",
         "//tcmalloc/internal:profile_cc_proto",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -1439,7 +1413,6 @@ cc_test(
     deps = [
         ":common",
         ":experiment",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_googletest//:gtest_main",
     ],

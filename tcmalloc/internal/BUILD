@@ -95,7 +95,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":environment",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -140,7 +139,6 @@ cc_test(
     deps = [
         ":lifetime_predictions",
         "//tcmalloc/testing:testutil",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/hash:hash_testing",
@@ -176,7 +174,6 @@ cc_test(
     deps = [
         ":lifetime_predictions",
         ":lifetime_tracker",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/time",
@@ -263,7 +260,6 @@ cc_test(
     ],
     deps = [
         ":logging",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/hash:hash_testing",
@@ -301,7 +297,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":memory_stats",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",
     ],
@@ -378,7 +373,6 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":cache_topology",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
@@ -426,7 +420,6 @@ cc_test(
         ":logging",
         ":numa",
         "//tcmalloc:want_numa_aware",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:span",
@@ -590,7 +583,6 @@ cc_test(
         ":profile_builder",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
@@ -652,7 +644,6 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":range_tracker",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
@@ -695,7 +686,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":timeseries_tracker",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
 )
