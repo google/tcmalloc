@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
@@ -130,7 +131,7 @@ class Span : public SpanList::Elem {
   void set_first_page(PageId p);
 
   // Returns start address of the span.
-  void* start_address() const;
+  ABSL_ATTRIBUTE_RETURNS_NONNULL void* start_address() const;
 
   // Returns number of pages in the span.
   Length num_pages() const;
@@ -532,9 +533,15 @@ inline PageId Span::last_page() const {
   return first_page_ + num_pages_ - Length(1);
 }
 
-inline void Span::set_first_page(PageId p) { first_page_ = p; }
+inline void Span::set_first_page(PageId p) {
+  ASSERT(p > PageId{0});
+  first_page_ = p;
+}
 
-inline void* Span::start_address() const { return first_page_.start_addr(); }
+inline void* Span::start_address() const {
+  ASSERT(first_page_ > PageId{0});
+  return first_page_.start_addr();
+}
 
 inline Length Span::num_pages() const { return num_pages_; }
 
@@ -582,6 +589,7 @@ inline void Span::Prefetch() {
 }
 
 inline void Span::Init(PageId p, Length n) {
+  ASSERT(p > PageId{0});
 #ifndef NDEBUG
   // In debug mode we have additional checking of our list ops; these must be
   // initialized.

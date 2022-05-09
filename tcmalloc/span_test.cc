@@ -38,18 +38,18 @@ class RawSpan {
     auto npages = Length(Static::sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
-    void* mem;
-    int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
+    int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
     CHECK_CONDITION(res == 0);
-    span_.Init(PageIdContaining(mem), npages);
+    span_.Init(PageIdContaining(mem_), npages);
     span_.BuildFreelist(size, objects_per_span, nullptr, 0);
   }
 
-  ~RawSpan() { free(span_.start_address()); }
+  ~RawSpan() { free(mem_); }
 
   Span& span() { return span_; }
 
  private:
+  void* mem_ = nullptr;
   Span span_;
 };
 
