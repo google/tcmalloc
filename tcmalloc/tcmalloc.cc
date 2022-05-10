@@ -1648,19 +1648,10 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   Static::peak_heap_tracker().MaybeSaveSample();
 
   if (obj != nullptr) {
-#if TCMALLOC_HAVE_TRACKING
-    // We delete directly into central cache to avoid tracking this as
-    // purely internal deletion. We've already (correctly) tracked
-    // this allocation as either malloc hit or malloc miss, and we
-    // must not count anything else for this allocation.
-    Static::central_freelist(size_class)
-        .InsertRange(absl::Span<void*>(&obj, 1));
-#else
     // We are not maintaining precise statistics on malloc hit/miss rates at our
     // cache tiers.  We can deallocate into our ordinary cache.
     ASSERT(size_class != 0);
     FreeSmallSlow(obj, size_class);
-#endif
   }
   return guarded_alloc ? guarded_alloc : span->start_address();
 }
