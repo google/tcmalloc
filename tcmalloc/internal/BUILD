@@ -70,6 +70,16 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "config_test",
+    srcs = ["config_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":config",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "declarations",
     hdrs = ["declarations.h"],
