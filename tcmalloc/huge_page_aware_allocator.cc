@@ -457,6 +457,9 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
   info_.RecordFree(p, n, objects_per_span);
 
   Span::Delete(span);
+  // Clear the descriptor of the page so a second pass through the same page
+  // could trigger the check on `span != nullptr` in do_free_pages.
+  Static::pagemap().Set(p, nullptr);
 
   // The tricky part, as with so many allocators: where did we come from?
   // There are several possibilities.

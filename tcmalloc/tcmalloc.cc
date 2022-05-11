@@ -1738,7 +1738,7 @@ static void do_free_pages(void* ptr, const PageId p) {
   bool notify_sampled_alloc = false;
 
   Span* span = Static::pagemap().GetExistingDescriptor(p);
-  ASSERT(span != nullptr);
+  CHECK_CONDITION(span != nullptr && "Possible double free detected");
   // Prefetch now to avoid a stall accessing *span while under the lock.
   span->Prefetch();
   {
