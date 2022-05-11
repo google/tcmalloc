@@ -444,12 +444,12 @@ TEST_F(PageTrackerTest, Defrag) {
     printf("Longest free quantiles:\n");
     printf("p10: %zu p25: %zu p50: %zu p75: %zu p90: %zu\n", p10.raw_num(),
            p25.raw_num(), p50.raw_num(), p75.raw_num(), p90.raw_num());
-    // Similarly, we'd really like for there usually (p25) to be a space
+    // Similarly, we'd really like for there usually (p50) to be a space
     // for a large allocation (N - note that we've cooked the books so that
     // the page tracker is going to be something like half empty (ish) and N
     // is small, so that should be doable.)
     // ...but, of course, it isn't.
-    EXPECT_GE(p25, Length(4));
+    EXPECT_GE(p50, Length(4));
   }
 
   for (auto a : allocs) {
@@ -838,7 +838,7 @@ TEST_P(FillerTest, Density) {
     }
   }
 
-  EXPECT_GE(allocs.size() / kPagesPerHugePage.raw_num() + 1,
+  EXPECT_GE(allocs.size() / kPagesPerHugePage.raw_num() + 2,
             filler_.size().raw_num());
 
   // clean up, check for failures
