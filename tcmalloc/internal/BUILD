@@ -227,9 +227,7 @@ cc_test(
     deps = [
         ":linked_list",
         ":mock_span",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/container:node_hash_set",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
@@ -340,7 +338,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
-        ":logging",
         ":mincore",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -526,7 +523,6 @@ cc_test(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/debugging:symbolize",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:seed_sequences",
         "@com_google_absl//absl/strings",

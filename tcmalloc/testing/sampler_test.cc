@@ -28,7 +28,6 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "absl/strings/str_cat.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 

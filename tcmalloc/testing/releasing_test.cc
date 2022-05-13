@@ -27,11 +27,10 @@
 #include <limits>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "absl/random/random.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "benchmark/benchmark.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"

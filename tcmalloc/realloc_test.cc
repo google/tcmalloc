@@ -24,8 +24,6 @@
 #include <utility>
 
 #include "gtest/gtest.h"
-#include "absl/random/random.h"
-#include "benchmark/benchmark.h"
 
 namespace tcmalloc {
 namespace {

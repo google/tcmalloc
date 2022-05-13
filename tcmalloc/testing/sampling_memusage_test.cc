@@ -19,11 +19,10 @@
 #include <string>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"

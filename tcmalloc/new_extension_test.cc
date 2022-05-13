@@ -16,11 +16,11 @@
 
 #include <stdint.h>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {

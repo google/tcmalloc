@@ -23,9 +23,9 @@
 #include <new>
 #include <utility>
 
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"

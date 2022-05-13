@@ -16,12 +16,19 @@
 #include "absl/strings/str_cat.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/testing/empirical_distributions.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
 
 void* alloc(size_t s) { return ::operator new(s); }
+inline void sized_delete(void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete(ptr, size);
+#else
+  (void)size;
+  ::operator delete(ptr);
+#endif
+}
 
 // Not really a test, just summary stats for our distributions.
 

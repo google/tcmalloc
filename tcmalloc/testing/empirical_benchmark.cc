@@ -19,12 +19,19 @@
 
 #include "benchmark/benchmark.h"
 #include "tcmalloc/testing/empirical.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {
 
 void* alloc(size_t s) { return ::operator new(s); }
+inline void sized_delete(void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete(ptr, size);
+#else
+  (void)size;
+  ::operator delete(ptr);
+#endif
+}
 
 void BM_EmpiricalTrivial(benchmark::State& state) {
   std::vector<EmpiricalData::Entry> triv = {{1024, 1, 1}, {2048, 1, 1}};

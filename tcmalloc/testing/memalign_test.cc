@@ -31,10 +31,9 @@
 #include <memory>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
-#include "benchmark/benchmark.h"
-#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace {

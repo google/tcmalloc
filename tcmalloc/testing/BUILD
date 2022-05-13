@@ -81,7 +81,6 @@ cc_library(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base:core_headers",
     ],
 )
 
@@ -95,7 +94,7 @@ create_tcmalloc_testsuite(
         "nosan",
     ],
     visibility = ["//visibility:private"],
-    deps = REGTEST_DEPS,
+    deps = REGTEST_DEPS + ["@com_github_google_benchmark//:benchmark"],
 )
 
 create_tcmalloc_benchmark_suite(
@@ -193,10 +192,8 @@ cc_test(
         "nosan",
     ],
     deps = [
-        ":testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/random:distributions",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -288,7 +285,6 @@ cc_test(
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:symbolize",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
@@ -307,7 +303,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:util",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest",
@@ -327,8 +322,6 @@ cc_test(
         "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -456,7 +449,6 @@ create_tcmalloc_benchmark_suite(
     srcs = ["empirical_benchmark.cc"],
     deps = [
         ":empirical",
-        ":testutil",
         "@com_github_google_benchmark//:benchmark",
     ],
 )
@@ -495,7 +487,6 @@ create_tcmalloc_benchmark_suite(
     srcs = ["empirical_distributions_benchmark.cc"],
     deps = [
         ":empirical_distributions",
-        ":testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
@@ -679,9 +670,7 @@ cc_test(
     tags = ["nosan"],
     deps = [
         "//tcmalloc:malloc_extension",
-        "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/debugging:leak_check",
@@ -888,9 +877,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [
-        "@com_github_google_benchmark//:benchmark",
-    ],
+    deps = ["@com_github_google_benchmark//:benchmark"],
 )
 
 cc_test(

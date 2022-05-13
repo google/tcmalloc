@@ -14,16 +14,10 @@
 
 #include <stdint.h>
 
-#include "gtest/gtest.h"
-#include "absl/base/internal/low_level_alloc.h"
 #include "benchmark/benchmark.h"
-#include "tcmalloc/internal/logging.h"
+#include "gtest/gtest.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/sampled_allocation.h"
-#include "tcmalloc/static_vars.h"
-#include "tcmalloc/testing/test_allocator_harness.h"
-#include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace {

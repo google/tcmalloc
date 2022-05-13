@@ -857,12 +857,7 @@ cc_test(
     srcs = ["realloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    deps = [
-        "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/random",
-        "@com_google_absl//absl/random:distributions",
-        "@com_google_googletest//:gtest_main",
-    ],
+    deps = ["@com_google_googletest//:gtest_main"],
 )
 
 cc_test(
@@ -1035,7 +1030,6 @@ cc_test(
         "//tcmalloc/internal:memory_stats",
         "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
@@ -1081,10 +1075,8 @@ cc_test(
         ":malloc_extension",
         ":sampled_allocation",
         "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/testing:test_allocator_harness",
         "//tcmalloc/testing:thread_manager",
-        "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -1104,11 +1096,7 @@ cc_test(
     deps = [
         ":common",
         ":malloc_extension",
-        ":sampled_allocation",
-        "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",
-        "//tcmalloc/testing:test_allocator_harness",
-        "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],

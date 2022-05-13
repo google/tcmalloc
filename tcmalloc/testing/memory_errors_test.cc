@@ -21,11 +21,11 @@
 #include <cstddef>
 #include <new>
 
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/declarations.h"

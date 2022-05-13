@@ -21,9 +21,7 @@
 
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/container/node_hash_set.h"
 #include "absl/random/random.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/internal/mock_span.h"
 
 namespace tcmalloc {

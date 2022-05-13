@@ -35,6 +35,7 @@
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/call_once.h"
@@ -42,7 +43,6 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/debugging/symbolize.h"
 #include "absl/random/random.h"
 #include "absl/random/seed_sequences.h"
 #include "absl/strings/string_view.h"
@@ -51,7 +51,6 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"

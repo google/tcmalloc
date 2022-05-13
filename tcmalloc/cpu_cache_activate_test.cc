@@ -14,13 +14,13 @@
 
 #include <thread>  // NOLINT(build/c++11)
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
-#include "benchmark/benchmark.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
