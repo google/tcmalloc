@@ -830,8 +830,30 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   uintptr_t current;
   uintptr_t new_current;
   uintptr_t begin;
-  // Multiply size_class by the bytesize of each header
-  size_t size_class_lsl3 = size_class * 8;
+  // The addresses we load/store for %[current] and %[end] in the slab headers
+  // can be computed with loads of the form:
+  //   BASE:   (CPU_num << %[shift]) + %[slabs]
+  //   OFFSET: (%[size_class]<<3)
+  // We can speed up these loads by transforming them into
+  //   BASE:   (CPU_num << %[shift])
+  //   OFFSET: %[slabs] + (%[size_class]<<3)
+  // This removes the addition of %[slabs] from the critical path since we can
+  // compute the OFFSET value while the load of CPU_num is still in flight.
+  // OFFSET for the current index.
+  uint64_t slabs_size_class_lsl3;
+  // OFFSET for the end index, which is 4 bytes after the current index.
+  uint64_t slabs_size_class_lsl3_plus_4;
+  // The allocated item we are going to return is located one item before
+  // %current.  I.e.
+  //   BASE:   (CPU_num << %[shift]) + %[slabs]
+  //   OFFSET: ((%[current] - 1)<<3)
+  // If we transform this as follows
+  //   BASE:   (CPU_num << %[shift]) + %[slabs] - 8
+  //   OFFSET: (%[current]<<3)
+  // we speed this load up as it removes the decrement of %[current] from the
+  // critical path
+  uint64_t slabs_minus_8;
+  uint64_t region_start_slabs_minus_8;
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
@@ -873,9 +895,15 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           ".popsection\n"
           // Prepare
           "3:\n"
+          // Precompute OFFSET for %[current]
+          "add %[slabs_size_class_lsl3], %[slabs], %[size_class], LSL #3\n"
+          // Precompute OFFSET for %[end] (four bytes past %[current] OFFSET)
+          "add %[slabs_size_class_lsl3_plus_4], %[slabs_size_class_lsl3], #4\n"
           // Use current as scratch here to hold address of this function's
           // critical section
           "adrp %[current], __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
+          // First half of precomputing the allocated item BASE (%[slabs] - 8)
+          "sub %[slabs_minus_8], %[slabs], #8\n"
           "add  %[current], %[current], "
           ":lo12:__rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
           "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
@@ -885,16 +913,17 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
           // region_start = Start of cpu region
           "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
-          "add %[region_start], %[region_start], %[slabs]\n"
-          // begin_ptr = &(slab_headers[0]->begin)
-          "add %[begin_ptr], %[region_start], #4\n"
+          // Second half of precomputing the allocated item BASE
+          "add %[region_start_slabs_minus_8], %[slabs_minus_8], "
+          "%[region_start]\n"
           // current = slab_headers[size_class]->current (current index)
-          "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
+          "ldrh %w[current], [%[region_start], %[slabs_size_class_lsl3]]\n"
+          // current--
+          "sub %w[new_current], %w[current], #1\n"
           // begin = slab_headers[size_class]->begin (begin index)
-          "ldrh %w[begin], [%[begin_ptr], %[size_class_lsl3]]\n"
+          "ldrh %w[begin], [%[region_start], %[slabs_size_class_lsl3_plus_4]]\n"
           // if (ABSL_PREDICT_FALSE(begin >= current)) { goto underflow_path; }
           "cmp %w[begin], %w[current]\n"
-          "sub %w[new_current], %w[current], #1\n"
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "b.ge %l[underflow_path]\n"
 #else
@@ -902,9 +931,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   // Important! code below this must not affect any flags (i.e.: ccbe)
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
-          // current--
-          "ldr %[result], [%[region_start], %[new_current], LSL #3]\n"
-          "strh %w[new_current], [%[region_start], %[size_class_lsl3]]\n"
+          "ldr %[result], [%[region_start_slabs_minus_8], %[current], LSL #3]\n"
+          "strh %w[new_current], [%[region_start], %[slabs_size_class_lsl3]]\n"
           // Commit
           "5:\n"
           :
@@ -914,12 +942,16 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           [result] "=&r"(result),
           // Temps
           [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
+          [region_start_slabs_minus_8] "=&r"(region_start_slabs_minus_8),
+          [slabs_minus_8] "=&r"(slabs_minus_8),
+          [slabs_size_class_lsl3_plus_4] "=&r"(slabs_size_class_lsl3_plus_4),
+          [slabs_size_class_lsl3] "=&r"(slabs_size_class_lsl3),
           [begin] "=&r"(begin), [current] "=&r"(current),
           [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
           // Real inputs
           : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
-            [size_class_lsl3] "r"(size_class_lsl3), [rseq_abi] "r"(&__rseq_abi),
-            [shift] "r"(ToUint8(shift)),
+            [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
+            [size_class] "r"(size_class),
             // constants
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
