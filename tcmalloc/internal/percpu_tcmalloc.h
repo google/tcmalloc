@@ -993,28 +993,10 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   TSANReleaseBatch(batch, len);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-#if TCMALLOC_PERCPU_USE_RSEQ
-    // TODO(b/159923407): TcmallocSlab_Internal_PushBatch_FixedShift needs to be
-    // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
-    // needing to dispatch on two separate versions of the same function with
-    // only minor differences between them.
     // TODO(b/186636177): once we use dynamically sized slabs, we should update
     // PushBatch RSEQ to handle non-fixed shift.
-    switch (virtual_cpu_id_offset_) {
-      case offsetof(kernel_rseq, cpu_id):
-        return TcmallocSlab_Internal_PushBatch_FixedShift(slabs, size_class,
-                                                          batch, len);
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
-      case offsetof(kernel_rseq, vcpu_id):
-        return TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(
-            slabs, size_class, batch, len);
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
-      default:
-        __builtin_unreachable();
-    }
-#else   // !TCMALLOC_PERCPU_USE_RSEQ
-    __builtin_unreachable();
-#endif  // !TCMALLOC_PERCPU_USE_RSEQ
+    return TcmallocSlab_Internal_PushBatch_FixedShift(
+        slabs, size_class, batch, len, virtual_cpu_id_offset_);
   } else {
     size_t n = 0;
     // Push items until either all done or a push fails
@@ -1033,36 +1015,16 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
   size_t n = 0;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-#if TCMALLOC_PERCPU_USE_RSEQ
-    // TODO(b/159923407): TcmallocSlab_Internal_PopBatch_FixedShift needs to be
-    // refactored to take a 5th parameter (virtual_cpu_id_offset) to avoid
-    // needing to dispatch on two separate versions of the same function with
-    // only minor differences between them.
     // TODO(b/186636177): once we use dynamically sized slabs, we should update
     // PopBatch RSEQ to handle non-fixed shift.
-    switch (virtual_cpu_id_offset_) {
-      case offsetof(kernel_rseq, cpu_id):
-        n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, size_class, batch,
-                                                      len);
-        break;
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
-      case offsetof(kernel_rseq, vcpu_id):
-        n = TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(slabs, size_class,
-                                                           batch, len);
-        break;
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
-      default:
-        __builtin_unreachable();
-    }
+    n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, size_class, batch, len,
+                                                  virtual_cpu_id_offset_);
     ASSERT(n <= len);
 
     // PopBatch is implemented in assembly, msan does not know that the returned
     // batch is initialized.
     ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
     TSANAcquireBatch(batch, n);
-#else   // !TCMALLOC_PERCPU_USE_RSEQ
-    __builtin_unreachable();
-#endif  // !TCMALLOC_PERCPU_USE_RSEQ
   } else {
     // Pop items until either all done or a pop fails
     while (n < len && (batch[n] = Pop(size_class, NoopUnderflow, nullptr))) {

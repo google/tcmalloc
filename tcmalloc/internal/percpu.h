@@ -128,24 +128,19 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
 size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
-                                                  void** batch, size_t len);
+                                                  void** batch, size_t len,
+                                                  size_t virtual_cpu_id_offset);
 
 // Pop a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
 size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
-                                                 void** batch, size_t len);
+                                                 void** batch, size_t len,
+                                                 size_t virtual_cpu_id_offset);
 
 #if TCMALLOC_PERCPU_USE_RSEQ_VCPU
 int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
                                                intptr_t old_val,
                                                intptr_t new_val);
-size_t TcmallocSlab_Internal_PushBatch_FixedShift_VCPU(void* ptr,
-                                                       size_t size_class,
-                                                       void** batch,
-                                                       size_t len);
-size_t TcmallocSlab_Internal_PopBatch_FixedShift_VCPU(void* ptr,
-                                                      size_t size_class,
-                                                      void** batch, size_t len);
 #endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 
