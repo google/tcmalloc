@@ -32,7 +32,8 @@ static void Unsupported() {
 }
 
 int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
-                                          intptr_t old_val, intptr_t new_val) {
+                                          intptr_t old_val, intptr_t new_val,
+                                          size_t virtual_cpu_id_offset) {
   Unsupported();
   return -1;
 }

@@ -134,9 +134,7 @@ label##_trampoline:                                               \
 /* With PIE;  have initial-exec TLS, even in the presence of position
    independent code. */
 #if !defined(__PIC__) || defined(__PIE__)
-#define FETCH_CPU(dest) movl %fs:__rseq_abi@TPOFF+4, dest;
-#define FETCH_VCPU(dest) movzwl %fs:__rseq_abi@TPOFF+30, dest;
-#define FETCH_CPU_OFFSET(dest, offset)         \
+#define FETCH_CPU(dest, offset)         \
   movzwl %fs:__rseq_abi@TPOFF(offset), dest;
 /* We can use the redzone to save the register. */
 #define SAVE_REG(reg) movq reg, -0x08(%rsp);
@@ -156,11 +154,7 @@ label##_trampoline:                                               \
  * tcmalloc_tls_fetch_pic does not appear in the restartable sequence's address
  * range.
  */
-#define FETCH_CPU(dest) \
-  movl 4(%rax), dest;  /* cpuid is 32-bits */
-#define FETCH_VCPU(dest) \
-  movzwl 30(%rax), dest; /* vcpu_id is 16-bits */
-#define FETCH_CPU_OFFSET(dest, offset) movzwl (%rax, offset), dest;
+#define FETCH_CPU(dest, offset) movzwl (%rax, offset), dest;
 /* We can't use the redzone to save the register because
  * tcmalloc_internal_tls_fetch_pic uses the stack. We also need to use stack. */
 #define SAVE_REG(reg)                       \
@@ -238,8 +232,9 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
  */
 
 /*
- * int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, long *p,
- *                                  long old_val, long new_val)
+ * int TcmallocSlab_Internal_PerCpuCmpxchg64(
+ *     int target_cpu (%rdi), long *p (%rsi), long old_val (%rdx),
+ *     long new_val (%rcx), size_t virtual_cpu_id_offset (%r8))
  */
   .p2align 6; /* aligns to 2^6 with NOP filling */
   .globl TcmallocSlab_Internal_PerCpuCmpxchg64
@@ -247,7 +242,7 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
 TcmallocSlab_Internal_PerCpuCmpxchg64:
   .cfi_startproc
   START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64);
-  FETCH_CPU(%eax);
+  FETCH_CPU(%eax, %r8)
   cmp %eax, %edi; /* check cpu vs current_cpu */
   jne .LTcmallocSlab_Internal_PerCpuCmpxchg64_commit;
   cmp %rdx, (%rsi); /* verify *p == old */
@@ -261,27 +256,6 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
-
-  .p2align 6; /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU
-  .type  TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU, @function
-TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU:
-  .cfi_startproc
-  START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU);
-  FETCH_VCPU(%eax);
-  cmp %eax, %edi; /* check cpu vs current_cpu */
-  jne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit;
-  cmp %rdx, (%rsi); /* verify *p == old */
-  jne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_value_mismatch;
-  mov %rcx, (%rsi);
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit:
-  ret;  /* return current cpu, indicating mismatch OR success */
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_value_mismatch:
-  mov $-1, %eax;  /* mismatch versus "old" or "check", return -1 */
-  ret;
-  .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
 
 /* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
  *     void *ptr (%rdi),
@@ -314,7 +288,7 @@ TcmallocSlab_Internal_PushBatch_FixedShift:
   .cfi_startproc
   SAVE_REG(%r12);
   START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift);
-  FETCH_CPU_OFFSET(%r12d, %r8)
+  FETCH_CPU(%r12d, %r8)
   shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r12;
   	/* multiply cpu by 256k */
   lea (%rdi, %r12), %r12;
@@ -379,7 +353,7 @@ TcmallocSlab_Internal_PopBatch_FixedShift:
   .cfi_startproc
   SAVE_REG(%r12);
   START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift);
-  FETCH_CPU_OFFSET(%r12d, %r8)
+  FETCH_CPU(%r12d, %r8)
   shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r12;
   	/* multiply cpu by 256k */
   lea (%rdi, %r12), %r12;

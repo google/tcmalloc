@@ -141,12 +141,7 @@ label##_trampoline:                                               \
 #endif
 
 /* FETCH_CPU assumes &__rseq_abi is in x5.  */
-#define FETCH_CPU(dest) \
-  ldr dest, [x5, #4] /* cpuid is 32-bits */
-#define FETCH_VCPU(dest) \
-  ldrh dest, [x5, #30] /* vcpuid is 16-bits */
-#define FETCH_CPU_OFFSET(dest, offset) \
-  ldrh dest, [x5, offset]
+#define FETCH_CPU(dest, offset) ldrh dest, [x5, offset]
 
 /* With PIE  have initial-exec TLS, even in the presence of position
    independent code. */
@@ -204,11 +199,13 @@ label##_trampoline:                                               \
 
 /*
  * int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, long *p,
- *                                  long old_val, long new_val)
+ *                                           long old_val, long new_val,
+ *                                           size_t virtual_cpu_id_offset)
  * w0: target_cpu
  * x1: p
  * x2: old_val
  * x3: new_val
+ * x4: virtual_cpu_id_offset
  */
   .p2align 6 /* aligns to 2^6 with NOP filling */
   .globl TcmallocSlab_Internal_PerCpuCmpxchg64
@@ -217,15 +214,15 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
   .cfi_startproc
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64)
-  FETCH_CPU(w4)
-  cmp w0, w4 /* check cpu vs current_cpu */
+  FETCH_CPU(w7, x4)
+  cmp w0, w7 /* check cpu vs current_cpu */
   bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_commit
   ldr x6, [x1]
   cmp x6, x2 /* verify *p == old */
   bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_mismatch
   str x3, [x1]
 .LTcmallocSlab_Internal_PerCpuCmpxchg64_commit:
-  mov x0, x4
+  mov x0, x7
   ret  /* return current cpu, indicating mismatch OR success */
 .LTcmallocSlab_Internal_PerCpuCmpxchg64_mismatch:
   mov x0, #-1 /* mismatch versus "old" or "check", return -1 */
@@ -233,30 +230,6 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
-
-  .p2align 6 /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU
-  .type  TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU, @function
-TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU:
-  .cfi_startproc
-  BTI_C
-  START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
-  FETCH_VCPU(w4)
-  cmp w0, w4 /* check cpu vs current_cpu */
-  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit
-  ldr x6, [x1]
-  cmp x6, x2 /* verify *p == old */
-  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_mismatch
-  str x3, [x1]
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_commit:
-  mov x0, x4
-  ret  /* return current cpu, indicating mismatch OR success */
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_VCPU_mismatch:
-  mov x0, #-1 /* mismatch versus "old" or "check", return -1 */
-  ret
-  .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU)
 
 /* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
  *     void *ptr (x0),
@@ -290,7 +263,7 @@ TcmallocSlab_Internal_PushBatch_FixedShift:
   .cfi_startproc
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift)
-  FETCH_CPU_OFFSET(w8, x4)
+  FETCH_CPU(w8, x4)
   lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
   add x8, x0, x8
   add x15, x8, x1, LSL #3    /* r15 = hdr */
@@ -362,7 +335,7 @@ TcmallocSlab_Internal_PopBatch_FixedShift:
   .cfi_startproc
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift)
-  FETCH_CPU_OFFSET(w8, x4)
+  FETCH_CPU(w8, x4)
   lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
   add x8, x0, x8
   add x15, x8, x1, LSL #3

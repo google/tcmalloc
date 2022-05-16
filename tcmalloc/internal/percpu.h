@@ -123,7 +123,8 @@ typedef void* (*UnderflowHandler)(int cpu, size_t size_class, void* arg);
 // files.
 extern "C" {
 int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
-                                          intptr_t old_val, intptr_t new_val);
+                                          intptr_t old_val, intptr_t new_val,
+                                          size_t virtual_cpu_id_offset);
 
 // Push a batch for a slab which the Shift equal to
 // TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
@@ -136,12 +137,6 @@ size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
 size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
                                                  void** batch, size_t len,
                                                  size_t virtual_cpu_id_offset);
-
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
-int TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(int target_cpu, intptr_t* p,
-                                               intptr_t old_val,
-                                               intptr_t new_val);
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
 }
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
@@ -302,24 +297,9 @@ inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
                                 intptr_t old_val, intptr_t new_val,
                                 const size_t virtual_cpu_id_offset) {
   TSANMemoryBarrierOn(p);
-#if TCMALLOC_PERCPU_USE_RSEQ
-  switch (virtual_cpu_id_offset) {
-    case offsetof(kernel_rseq, cpu_id):
-      return TcmallocSlab_Internal_PerCpuCmpxchg64(
-          target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
-          old_val, new_val);
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
-    case offsetof(kernel_rseq, vcpu_id):
-      return TcmallocSlab_Internal_PerCpuCmpxchg64_VCPU(
-          target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p),
-          old_val, new_val);
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
-    default:
-      __builtin_unreachable();
-  }
-#else   // !TCMALLOC_PERCPU_USE_RSEQ
-  __builtin_unreachable();
-#endif  // !TCMALLOC_PERCPU_USE_RSEQ
+  return TcmallocSlab_Internal_PerCpuCmpxchg64(
+      target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p), old_val,
+      new_val, virtual_cpu_id_offset);
 }
 
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset);
