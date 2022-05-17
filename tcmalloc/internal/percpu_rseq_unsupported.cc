@@ -38,16 +38,16 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
   return -1;
 }
 
-size_t TcmallocSlab_Internal_PushBatch_FixedShift(
-    void* ptr, size_t size_class, void** batch, size_t len,
-    size_t virtual_cpu_id_offset) {
+size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
+                                       size_t len, uintptr_t slabs_and_shift,
+                                       size_t virtual_cpu_id_offset) {
   Unsupported();
   return 0;
 }
 
-size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
-                                                 void** batch, size_t len,
-                                                 size_t virtual_cpu_id_offset) {
+size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
+                                      size_t len, uintptr_t slabs_and_shift,
+                                      size_t virtual_cpu_id_offset) {
   Unsupported();
   return 0;
 }

@@ -15,7 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_PERCPU_H_
 #define TCMALLOC_INTERNAL_PERCPU_H_
 
-#define TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT 18
+#define TCMALLOC_PERCPU_SLABS_MASK 0xFFFFFFFFFFFFFF00
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
@@ -126,18 +126,17 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
                                           intptr_t old_val, intptr_t new_val,
                                           size_t virtual_cpu_id_offset);
 
-// Push a batch for a slab which the Shift equal to
-// TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PushBatch_FixedShift(void* ptr, size_t size_class,
-                                                  void** batch, size_t len,
-                                                  size_t virtual_cpu_id_offset);
-
-// Pop a batch for a slab which the Shift equal to
-// TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT
-size_t TcmallocSlab_Internal_PopBatch_FixedShift(void* ptr, size_t size_class,
-                                                 void** batch, size_t len,
-                                                 size_t virtual_cpu_id_offset);
-}
+// In PushBatch/PopBatch, slabs_and_shift has the shift value in the least
+// significant byte and uses TCMALLOC_PERCPU_SLABS_MASK to get the slab pointer.
+// Note: we pass slabs and shift as the fourth argument because a dynamic shift
+// on x86-64 can only use cl, and the fourth argument is passed in rcx.
+size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
+                                       size_t len, uintptr_t slabs_and_shift,
+                                       size_t virtual_cpu_id_offset);
+size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
+                                      size_t len, uintptr_t slabs_and_shift,
+                                      size_t virtual_cpu_id_offset);
+}  // extern "C"
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
 // increase the visibility of functions embedded into the root-namespace (by

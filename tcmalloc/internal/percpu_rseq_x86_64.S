@@ -257,20 +257,20 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 
-/* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
- *     void *ptr (%rdi),
- *     size_t size_class (%rsi),
- *     void** batch (%rdx),
- *     size_t len (%rcx),
+/* size_t TcmallocSlab_Internal_PushBatch(
+ *     size_t size_class (%rdi),
+ *     void** batch (%rsi),
+ *     size_t len (%rdx),
+ *     uintptr_t slabs_and_shift (%rcx),
  *     size_t virtual_cpu_id_offset (%r8)) {
  *   uint64_t r12 = __rseq_abi.cpu_id;
- *   uint64_t* r12 = CpuMemoryStart(rdi, r12);
- *   Header* hdr = r12 + rsi * 8;
+ *   uint64_t* r12 = CpuMemoryStart(rcx, r12);
+ *   Header* hdr = r12 + rdi * 8;
  *   uint64_t r9 = hdr->current;
  *   uint64_t r10 = hdr->end;
  *   if (r9 >= r10) return 0;
- *   r11 = rcx;
- *   r10 = r9 + min(rcx, r10 - r9);
+ *   r11 = rdx;
+ *   r10 = r9 + min(rdx, r10 - r9);
  * loop:
  *   r11--;
  *   rax = batch[r11];
@@ -278,63 +278,65 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
  *   r9++;
  *   if (r9 != r10) goto loop;
  *   hdr->current = r9;
- *   return rcx - r11;
+ *   return rdx - r11;
  * }
  */
   .p2align 6; /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PushBatch_FixedShift
-  .type  TcmallocSlab_Internal_PushBatch_FixedShift, @function
-TcmallocSlab_Internal_PushBatch_FixedShift:
+  .globl TcmallocSlab_Internal_PushBatch
+  .type  TcmallocSlab_Internal_PushBatch, @function
+TcmallocSlab_Internal_PushBatch:
   .cfi_startproc
   SAVE_REG(%r12);
-  START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift);
-  FETCH_CPU(%r12d, %r8)
-  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r12;
-  	/* multiply cpu by 256k */
-  lea (%rdi, %r12), %r12;
-  movzwq (%r12, %rsi, 8), %r9; /* current */
-  movzwq 6(%r12, %rsi, 8), %r10; /* end */
+  START_RSEQ(TcmallocSlab_Internal_PushBatch);
+  FETCH_CPU(%r12d, %r8);
+  /* r9 = slabs_ptr */
+  movq %rcx, %r9;
+  and $TCMALLOC_PERCPU_SLABS_MASK, %r9;
+  shl %cl, %r12; /* multiply cpu by 2^shift */
+  lea (%r9, %r12), %r12;
+  movzwq (%r12, %rdi, 8), %r9; /* current */
+  movzwq 6(%r12, %rdi, 8), %r10; /* end */
   cmpq %r10, %r9;
-  jae .LTcmallocSlab_Internal_PushBatch_FixedShift_full;
-  movq %rcx, %r11; /* r11 = copy of len */
+  jae .LTcmallocSlab_Internal_PushBatch_full;
+  movq %rdx, %r11; /* r11 = copy of len */
   subq %r9, %r10; /* r10 = free capacity */
-  cmpq %rcx, %r10;
-  cmovaq %rcx, %r10; /* r10 = min(len, free capacity) */
+  cmpq %rdx, %r10;
+  cmovaq %rdx, %r10; /* r10 = min(len, free capacity) */
   addq %r9, %r10;
-.LTcmallocSlab_Internal_PushBatch_FixedShift_loop:
+.LTcmallocSlab_Internal_PushBatch_loop:
   decq %r11;
-  movq (%rdx, %r11, 8), %rax;
+  movq (%rsi, %r11, 8), %rax;
   movq %rax, (%r12, %r9, 8);
   incq %r9;
   cmpq %r9, %r10;
-  jne .LTcmallocSlab_Internal_PushBatch_FixedShift_loop
-  movw %r9w, (%r12, %rsi, 8);
-.LTcmallocSlab_Internal_PushBatch_FixedShift_commit:
-  movq %rcx, %rax;
+  jne .LTcmallocSlab_Internal_PushBatch_loop
+  movw %r9w, (%r12, %rdi, 8);
+.LTcmallocSlab_Internal_PushBatch_commit:
+  movq %rdx, %rax;
   subq %r11, %rax;
   RESTORE_REG(%r12);
   ret;
-.LTcmallocSlab_Internal_PushBatch_FixedShift_full:
+.LTcmallocSlab_Internal_PushBatch_full:
   xor %rax, %rax;
   RESTORE_REG(%r12);
   ret;
   .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PushBatch_FixedShift)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
+ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 
-/* size_t TcmallocSlab_Internal_PopBatch_FixedShift(
- *     void *ptr (%rdi),
- *     size_t size_class (%rsi),
- *     void** batch (%rdx),
- *     size_t len (%rcx),
+/* size_t TcmallocSlab_Internal_PopBatch(
+ *     size_t size_class (%rdi),
+ *     void** batch (%rsi),
+ *     size_t len (%rdx),
+ *     uintptr_t slabs_and_shift (%rcx),
  *     size_t virtual_cpu_id_offset (%r8)) {
  *   uint64_t r12 = __rseq_abi.cpu_id;
- *   uint64_t* r12 = CpuMemoryStart(rdi, r12);
+ *   uint64_t* r12 = CpuMemoryStart(rcx, r12);
  *   Header* hdr = GetHeader(rdi, rax, size_class);
  *   uint64_t r9 = hdr->current;
  *   uint64_t r10 = hdr->begin;
  *   if (r9 <= r10) return 0;
- *   r11 = min(rcx, r9 - r10);
+ *   r11 = min(rdx, r9 - r10);
  *   rax = 0;
  * loop:
  *   r9--;
@@ -347,42 +349,44 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
  * }
  */
   .p2align 6; /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PopBatch_FixedShift
-  .type  TcmallocSlab_Internal_PopBatch_FixedShift, @function
-TcmallocSlab_Internal_PopBatch_FixedShift:
+  .globl TcmallocSlab_Internal_PopBatch
+  .type  TcmallocSlab_Internal_PopBatch, @function
+TcmallocSlab_Internal_PopBatch:
   .cfi_startproc
   SAVE_REG(%r12);
-  START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift);
-  FETCH_CPU(%r12d, %r8)
-  shl $TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT, %r12;
-  	/* multiply cpu by 256k */
-  lea (%rdi, %r12), %r12;
-  movzwq (%r12, %rsi, 8), %r9; /* current */
-  movzwq 4(%r12, %rsi, 8), %r10; /* begin */
+  START_RSEQ(TcmallocSlab_Internal_PopBatch);
+  FETCH_CPU(%r12d, %r8);
+  /* r9 = slabs_ptr */
+  movq %rcx, %r9;
+  and $TCMALLOC_PERCPU_SLABS_MASK, %r9;
+  shl %cl, %r12; /* multiply cpu by 2^shift */
+  lea (%r9, %r12), %r12;
+  movzwq (%r12, %rdi, 8), %r9; /* current */
+  movzwq 4(%r12, %rdi, 8), %r10; /* begin */
   cmp %r10, %r9;
-  jbe .LTcmallocSlab_Internal_PopBatch_FixedShift_empty;
+  jbe .LTcmallocSlab_Internal_PopBatch_empty;
   movq %r9, %r11;
   subq %r10, %r11; /* r11 = available items */
-  cmpq %rcx, %r11;
-  cmovaq %rcx, %r11; /* r11 = min(len, available items) */
+  cmpq %rdx, %r11;
+  cmovaq %rdx, %r11; /* r11 = min(len, available items) */
   xorq %rax, %rax;
-.LTcmallocSlab_Internal_PopBatch_FixedShift_loop:
+.LTcmallocSlab_Internal_PopBatch_loop:
   decq %r9;
   movq (%r12, %r9, 8), %r10;
-  movq %r10, (%rdx, %rax, 8);
+  movq %r10, (%rsi, %rax, 8);
   incq %rax;
   cmpq %rax, %r11;
-  jne .LTcmallocSlab_Internal_PopBatch_FixedShift_loop
-  movw %r9w, (%r12, %rsi, 8);
-.LTcmallocSlab_Internal_PopBatch_FixedShift_commit:
+  jne .LTcmallocSlab_Internal_PopBatch_loop
+  movw %r9w, (%r12, %rdi, 8);
+.LTcmallocSlab_Internal_PopBatch_commit:
   RESTORE_REG(%r12);
   ret;
-.LTcmallocSlab_Internal_PopBatch_FixedShift_empty:
+.LTcmallocSlab_Internal_PopBatch_empty:
   xor %rax, %rax;
   RESTORE_REG(%r12);
   ret;
   .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PopBatch_FixedShift)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch_FixedShift)
+ENCODE_SIZE(TcmallocSlab_Internal_PopBatch)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch)
 
 .section .note.GNU-stack,"",@progbits

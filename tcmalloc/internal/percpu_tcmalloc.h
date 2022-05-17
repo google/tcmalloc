@@ -103,10 +103,7 @@ class TcmallocSlab {
   // <alloc> is memory allocation callback (e.g. malloc).
   // <capacity> callback returns max capacity for size class <size_class>.
   // <shift> indicates the number of bits to shift the CPU ID in order to
-  //         obtain the location of the per-CPU slab. If this parameter matches
-  //         TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT as set in
-  //         percpu_intenal.h then the assembly language versions of push/pop
-  //         batch can be used; otherwise batch operations are emulated.
+  //         obtain the location of the per-CPU slab.
   //
   // Initial capacity is 0 for all slabs.
   void Init(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
@@ -250,6 +247,13 @@ class TcmallocSlab {
       // x86 only use the lowest byte for shift count in variable shifts.
       return {reinterpret_cast<TcmallocSlab::Slabs*>(raw_ & kSlabsMask),
               static_cast<Shift>(raw_ & kShiftMask)};
+    }
+
+    uintptr_t Raw() const {
+      // We depend on this in PushBatch/PopBatch.
+      static_assert(kShiftMask == 0xFF);
+      static_assert(kSlabsMask == TCMALLOC_PERCPU_SLABS_MASK);
+      return raw_;
     }
 
    private:
@@ -1023,46 +1027,26 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   //
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    // TODO(b/186636177): once we use dynamically sized slabs, we should update
-    // PushBatch RSEQ to handle non-fixed shift.
-    return TcmallocSlab_Internal_PushBatch_FixedShift(
-        slabs, size_class, batch, len, virtual_cpu_id_offset_);
-  } else {
-    size_t n = 0;
-    // Push items until either all done or a push fails
-    while (n < len &&
-           Push(size_class, batch[len - 1 - n], NoopOverflow, nullptr)) {
-      n++;
-    }
-    return n;
-  }
+  return TcmallocSlab_Internal_PushBatch(
+      size_class, batch, len,
+      slabs_and_shift_.load(std::memory_order_relaxed).Raw(),
+      virtual_cpu_id_offset_);
 }
 
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
                                                  void** batch, size_t len) {
   ASSERT(len != 0);
-  size_t n = 0;
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  if (ToUint8(shift) == TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT) {
-    // TODO(b/186636177): once we use dynamically sized slabs, we should update
-    // PopBatch RSEQ to handle non-fixed shift.
-    n = TcmallocSlab_Internal_PopBatch_FixedShift(slabs, size_class, batch, len,
-                                                  virtual_cpu_id_offset_);
-    ASSERT(n <= len);
+  const size_t n = TcmallocSlab_Internal_PopBatch(
+      size_class, batch, len,
+      slabs_and_shift_.load(std::memory_order_relaxed).Raw(),
+      virtual_cpu_id_offset_);
+  ASSERT(n <= len);
 
-    // PopBatch is implemented in assembly, msan does not know that the returned
-    // batch is initialized.
-    ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
-    TSANAcquireBatch(batch, n);
-  } else {
-    // Pop items until either all done or a pop fails
-    while (n < len && (batch[n] = Pop(size_class, NoopUnderflow, nullptr))) {
-      n++;
-    }
-  }
+  // PopBatch is implemented in assembly, msan does not know that the returned
+  // batch is initialized.
+  ANNOTATE_MEMORY_IS_INITIALIZED(batch, n * sizeof(batch[0]));
+  TSANAcquireBatch(batch, n);
   return n;
 }
 

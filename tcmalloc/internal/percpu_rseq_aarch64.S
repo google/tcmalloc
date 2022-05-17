@@ -231,86 +231,88 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 
-/* size_t TcmallocSlab_Internal_PushBatch_FixedShift(
- *     void *ptr (x0),
- *     size_t size_class (w1),
- *     void** batch (x2),
- *     size_t len (w3),
+/* size_t TcmallocSlab_Internal_PushBatch(
+ *     size_t size_class (x0),
+ *     void** batch (x1),
+ *     size_t len (x2),
+ *     uintptr_t slabs_and_shift (x3),
  *     size_t virtual_cpu_id_offset (x4)) {
  *   uint64_t r8 = __rseq_abi.cpu_id
- *   uint64_t* r8 = CpuMemoryStart(x0, r8)
- *   Header* hdr = r8 + w1 * 8
+ *   uint64_t* r8 = CpuMemoryStart(r3, r8)
+ *   Header* hdr = r8 + r0 * 8
  *   uint64_t r9 = hdr->current (zero-extend 16bit)
  *   uint64_t r10 = hdr->end    (zero-extend 16bit)
  *   if (r9 >= r10) return 0
- *   r11 = r3
+ *   r11 = r2
  *   r10 = r9 + min(len, r10 - r9)
  *   r13 = r9 + r10
  *   r9 = r8 + r9 * 8
  *   r14 = r8 + r13 * 8
  * loop:
- *   r12 = *(r11-=8) (pre-index) Pop from Batch
- *   *(r9+=8) = r12 (post-index) Push to Slab
+ *   r12 = *(r11 -= 8) (pre-index) Pop from Batch
+ *   *(r9 += 8) = r12 (post-index) Push to Slab
  *   if (r9 != r14) goto loop
  *   hdr->current = r13 (16bit store)
  *   return r10
  * }
  */
   .p2align 6 /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PushBatch_FixedShift
-  .type  TcmallocSlab_Internal_PushBatch_FixedShift, @function
-TcmallocSlab_Internal_PushBatch_FixedShift:
+  .globl TcmallocSlab_Internal_PushBatch
+  .type  TcmallocSlab_Internal_PushBatch, @function
+TcmallocSlab_Internal_PushBatch:
   .cfi_startproc
   BTI_C
-  START_RSEQ(TcmallocSlab_Internal_PushBatch_FixedShift)
+  START_RSEQ(TcmallocSlab_Internal_PushBatch)
   FETCH_CPU(w8, x4)
-  lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
-  add x8, x0, x8
-  add x15, x8, x1, LSL #3    /* r15 = hdr */
+  lsl x8, x8, x3 /* multiply cpu by 2^shift */
+  mov x9, x3
+  and x9, x9, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
+  add x8, x9, x8
+  add x15, x8, x0, LSL #3    /* r15 = hdr */
   ldrh w9, [x15]             /* r9 = current */
   ldrh w10, [x15, #6]        /* r10 = end */
   cmp w9, w10
-  bge .LTcmallocSlab_Internal_PushBatch_FixedShift_no_capacity
-  add  x11, x2, x3, LSL #3  /* r11 = batch + len * 8 */
+  bge .LTcmallocSlab_Internal_PushBatch_no_capacity
+  add  x11, x1, x2, LSL #3  /* r11 = batch + len * 8 */
   sub  w10, w10, w9         /* r10 = free capacity */
-  cmp w3, w10
-  csel w10, w3, w10, ls     /* r10 = min(len, free capacity), amount we are
+  cmp w2, w10
+  csel w10, w2, w10, ls     /* r10 = min(len, free capacity), amount we are
                                pushing */
   add x13, x9, x10          /* r13 = current + amount we are pushing. */
   add x9, x8, x9, LSL #3    /* r9 = current cpu slab stack */
   add x14, x8, x13, LSL #3  /* r14 = new current address */
   tst w10, #1
-  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_loop
+  beq .LTcmallocSlab_Internal_PushBatch_loop
   ldr x12, [x11,  #-8]!     /* r12 = [--r11] */
   str x12, [x9], #8         /* [r9++] = r12 */
   cmp w10, #1
-  beq .LTcmallocSlab_Internal_PushBatch_FixedShift_store
-.LTcmallocSlab_Internal_PushBatch_FixedShift_loop:
+  beq .LTcmallocSlab_Internal_PushBatch_store
+.LTcmallocSlab_Internal_PushBatch_loop:
   ldr q4, [x11,  #-16]!     /* q4 = [r11 - 2], r11 -= 2 */
   str q4, [x9], #16         /* [r9 += 2] = q4 */
   cmp x9, x14               /* if current cpu slab address == new current
                                address */
-  bne .LTcmallocSlab_Internal_PushBatch_FixedShift_loop
-.LTcmallocSlab_Internal_PushBatch_FixedShift_store:
+  bne .LTcmallocSlab_Internal_PushBatch_loop
+.LTcmallocSlab_Internal_PushBatch_store:
   strh w13, [x15] /* store new current index */
-.LTcmallocSlab_Internal_PushBatch_FixedShift_commit:
+.LTcmallocSlab_Internal_PushBatch_commit:
   mov x0, x10
   ret
-.LTcmallocSlab_Internal_PushBatch_FixedShift_no_capacity:
+.LTcmallocSlab_Internal_PushBatch_no_capacity:
   mov x0, #0
   ret
   .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PushBatch_FixedShift)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
+ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 
-/* size_t TcmallocSlab_Internal_PopBatch_FixedShift(
- *     void *ptr (x0),
- *     size_t size_class (w1),
- *     void** batch (x2),
- *     size_t len (w3),
+/* size_t TcmallocSlab_Internal_PopBatch(
+ *     size_t size_class (x0),
+ *     void** batch (x1),
+ *     size_t len (x2),
+ *     uintptr_t slabs_and_shift (x3),
  *     size_t virtual_cpu_id_offset (x4)) {
  *   uint64_t r8 = __rseq_abi.cpu_id
- *   uint64_t* r8 = CpuMemoryStart(ptr, r8)
+ *   uint64_t* r8 = CpuMemoryStart(r3, r8)
  *   Header* hdr = GetHeader(r8, size_class)
  *   uint64_t r9 = hdr->current
  *   uint64_t r10 = hdr->begin
@@ -318,62 +320,64 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch_FixedShift)
  *   r11 = min(len, r9 - r10)
  *   r13 = r8 + r9 * 8
  *   r9 = r9 - r11
- *   r12 = r2
- *   r14 = r2 + r11 * 8
+ *   r12 = r1
+ *   r14 = r1 + r11 * 8
  * loop:
  *   r10 = *(r13 -= 8) (pre-index) Pop from slab
- *   *(r12+=8) = r10  (post-index) Push to Batch
+ *   *(r12 += 8) = r10  (post-index) Push to Batch
  *   if (r12 != r14) goto loop
  *   hdr->current = r9
  *   return r11
  * }
  */
   .p2align 6 /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PopBatch_FixedShift
-  .type  TcmallocSlab_Internal_PopBatch_FixedShift, @function
-TcmallocSlab_Internal_PopBatch_FixedShift:
+  .globl TcmallocSlab_Internal_PopBatch
+  .type  TcmallocSlab_Internal_PopBatch, @function
+TcmallocSlab_Internal_PopBatch:
   .cfi_startproc
   BTI_C
-  START_RSEQ(TcmallocSlab_Internal_PopBatch_FixedShift)
+  START_RSEQ(TcmallocSlab_Internal_PopBatch)
   FETCH_CPU(w8, x4)
-  lsl x8, x8, #TCMALLOC_PERCPU_TCMALLOC_FIXED_SLAB_SHIFT /* multiply cpu by 256k */
-  add x8, x0, x8
-  add x15, x8, x1, LSL #3
+  lsl x8, x8, x3 /* multiply cpu by 2^shift */
+  mov x9, x3
+  and x9, x9, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
+  add x8, x9, x8
+  add x15, x8, x0, LSL #3
   ldrh w9, [x15]             /* current */
   ldrh w10, [x15, #4]        /* begin */
   cmp w10, w9
-  bhs .LTcmallocSlab_Internal_PopBatch_FixedShift_no_items
+  bhs .LTcmallocSlab_Internal_PopBatch_no_items
   sub w11, w9, w10          /* r11 = available items */
-  cmp w3, w11
-  csel w11, w3, w11, ls     /* r11 = min(len, available items), amount we are
+  cmp w2, w11
+  csel w11, w2, w11, ls     /* r11 = min(len, available items), amount we are
                                popping */
   add x13, x8, x9, LSL #3   /* r13 = current cpu slab stack  */
   sub x9, x9, x11           /* update new current  */
-  mov x12, x2               /* r12 = batch */
-  add x14, x2, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
+  mov x12, x1               /* r12 = batch */
+  add x14, x1, x11, LSL #3  /* r14 = batch + amount we are popping*8 */
   tst w11, #1
-  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_loop
+  beq .LTcmallocSlab_Internal_PopBatch_loop
   ldr x10, [x13, #-8]!      /* r10 = [--r13] */
   str x10, [x12], #8        /* [r12++] = r10 */
   cmp w11, #1
-  beq .LTcmallocSlab_Internal_PopBatch_FixedShift_store
-.LTcmallocSlab_Internal_PopBatch_FixedShift_loop:
+  beq .LTcmallocSlab_Internal_PopBatch_store
+.LTcmallocSlab_Internal_PopBatch_loop:
   ldr q4, [x13, #-16]!      /* q4 = [r13 - 2], r13 -= 2 */
   str q4, [x12], #16        /* [r12 += 2] = q4 */
   cmp x12, x14              /* if current batch == batch + amount we are
                                popping */
-  bne .LTcmallocSlab_Internal_PopBatch_FixedShift_loop
-.LTcmallocSlab_Internal_PopBatch_FixedShift_store:
+  bne .LTcmallocSlab_Internal_PopBatch_loop
+.LTcmallocSlab_Internal_PopBatch_store:
   strh w9, [x15]             /* store new current */
-.LTcmallocSlab_Internal_PopBatch_FixedShift_commit:
+.LTcmallocSlab_Internal_PopBatch_commit:
   mov x0, x11
   ret
-.LTcmallocSlab_Internal_PopBatch_FixedShift_no_items:
+.LTcmallocSlab_Internal_PopBatch_no_items:
   mov x0, #0
   ret
   .cfi_endproc
-ENCODE_SIZE(TcmallocSlab_Internal_PopBatch_FixedShift)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch_FixedShift)
+ENCODE_SIZE(TcmallocSlab_Internal_PopBatch)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch)
 
 .section .note.GNU-stack,"",@progbits
 
