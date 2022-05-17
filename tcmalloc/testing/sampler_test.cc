@@ -42,13 +42,9 @@ class SamplerTest {
 
 namespace {
 
-// Note that these tests are stochastic.
-// This mean that the chance of correct code passing the test is,
-// in the case of 5 standard deviations:
-// kSigmas=5:    ~99.99994267%
-// in the case of 4 standard deviations:
-// kSigmas=4:    ~99.993666%
-static const double kSigmas = 4;
+// Note that these tests are stochastic. This mean that the chance of correct
+// code passing the test is ~(1 - 10 ^ -kSigmas).
+static const double kSigmas = 6;
 static const size_t kSamplingInterval =
     MallocExtension::GetProfileSamplingRate();
 static const size_t kGuardedSamplingInterval = 100 * kSamplingInterval;
