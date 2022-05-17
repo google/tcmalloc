@@ -234,7 +234,7 @@ class TransferCache {
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
-  TransferCacheStats GetHitRateStats() const ABSL_LOCKS_EXCLUDED(lock_) {
+  TransferCacheStats GetStats() ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
@@ -250,6 +250,11 @@ class TransferCache {
     // non-batch sized.
     stats.insert_misses += stats.insert_non_batch_misses;
     stats.remove_misses += stats.remove_non_batch_misses;
+
+    auto info = slot_info_.load(std::memory_order_relaxed);
+    stats.used = info.used;
+    stats.capacity = info.capacity;
+    stats.max_capacity = max_capacity_;
 
     return stats;
   }
@@ -457,6 +462,27 @@ class RingBufferTransferCache {
   // inserts and removes efficiently.
   static constexpr bool IsFlexible() { return true; }
 
+  // Due to decreased downward pressure, the ring buffer based transfer cache
+  // contains on average more bytes than the legacy implementation.
+  // To counteract this, decrease the capacity (but not max capacity).
+  // TODO(b/161927252):  Revisit TransferCache rebalancing strategy
+  static typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
+  CapacityNeeded(int size_class) {
+    auto capacity =
+        TransferCache<CentralFreeList, TransferCacheManager>::CapacityNeeded(
+            size_class);
+    const int n = Manager::num_objects_to_move(size_class);
+    if (n == 0) return {.capacity = 0, .max_capacity = 0};
+    ASSERT(capacity.capacity % n == 0);
+    // We still want capacity to be in multiples of batches.
+    const int capacity_in_batches = capacity.capacity / n;
+    // This factor was found by trial and error.
+    const int new_batches =
+        static_cast<int>(std::ceil(capacity_in_batches / 1.5));
+    capacity.capacity = new_batches * n;
+    return capacity;
+  }
+
   // These methods all do internal locking.
 
   // Insert the specified batch into the transfer cache.  N is the number of
@@ -588,7 +614,7 @@ class RingBufferTransferCache {
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
-  TransferCacheStats GetHitRateStats() const ABSL_LOCKS_EXCLUDED(lock_) {
+  TransferCacheStats GetStats() ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
@@ -597,6 +623,13 @@ class RingBufferTransferCache {
     stats.insert_non_batch_misses = 0;
     stats.remove_misses = remove_misses_.value();
     stats.remove_non_batch_misses = 0;
+
+    {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      stats.used = slot_info_.used;
+      stats.capacity = slot_info_.capacity;
+    }
+    stats.max_capacity = max_capacity_;
 
     return stats;
   }
@@ -712,27 +745,6 @@ class RingBufferTransferCache {
   int32_t max_capacity() const { return max_capacity_; }
 
  private:
-  // Due to decreased downward pressure, the ring buffer based transfer cache
-  // contains on average more bytes than the legacy implementation.
-  // To counteract this, decrease the capacity (but not max capacity).
-  // TODO(b/161927252):  Revisit TransferCache rebalancing strategy
-  static typename TransferCache<CentralFreeList, TransferCacheManager>::Capacity
-  CapacityNeeded(int size_class) {
-    auto capacity =
-        TransferCache<CentralFreeList, TransferCacheManager>::CapacityNeeded(
-            size_class);
-    const int N = Manager::num_objects_to_move(size_class);
-    if (N == 0) return {0, 0};
-    ASSERT(capacity.capacity % N == 0);
-    // We still want capacity to be in multiples of batches.
-    const int capacity_in_batches = capacity.capacity / N;
-    // This factor was found by trial and error.
-    const int new_batches =
-        static_cast<int>(std::ceil(capacity_in_batches / 1.5));
-    capacity.capacity = new_batches * N;
-    return capacity;
-  }
-
   // Converts a logical index (i.e. i-th element stored in the ring buffer) into
   // a physical index into slots_.
   size_t GetSlotIndex(size_t start, size_t i) const {

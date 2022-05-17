@@ -27,6 +27,9 @@ struct TransferCacheStats {
   size_t remove_hits;
   size_t remove_misses;
   size_t remove_non_batch_misses;
+  size_t used;
+  size_t capacity;
+  size_t max_capacity;
 };
 
 }  // namespace tcmalloc_internal

@@ -292,11 +292,11 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  TransferCacheStats GetHitRateStats(int size_class) const {
+  TransferCacheStats GetStats(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.GetHitRateStats();
+      return cache_[size_class].rbtc.GetStats();
     } else {
-      return cache_[size_class].tc.GetHitRateStats();
+      return cache_[size_class].tc.GetStats();
     }
   }
 
@@ -361,9 +361,7 @@ class TransferCacheManager {
 
   static constexpr size_t tc_length(int size_class) { return 0; }
 
-  static constexpr TransferCacheStats GetHitRateStats(int size_class) {
-    return {0, 0, 0, 0};
-  }
+  static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
 
   const CentralFreeList& central_freelist(int size_class) const {
     return freelist_[size_class];

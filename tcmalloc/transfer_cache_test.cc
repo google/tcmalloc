@@ -53,41 +53,80 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   EXPECT_CALL(e.central_freelist(), RemoveRange)
       .Times(e.transfer_cache().IsFlexible() ? 0 : 1);
 
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
+  TransferCacheStats stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.insert_hits, 0);
+  EXPECT_EQ(stats.insert_misses, 0);
+  EXPECT_EQ(stats.insert_non_batch_misses, 0);
+  EXPECT_EQ(stats.remove_hits, 0);
+  EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_non_batch_misses, 0);
+  EXPECT_EQ(stats.used, 0);
+
+  int capacity = e.transfer_cache().CapacityNeeded(kSizeClass).capacity;
+  EXPECT_EQ(stats.capacity, capacity);
+  EXPECT_EQ(stats.max_capacity, e.transfer_cache().max_capacity());
 
   e.Insert(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.insert_hits, 1);
+  int used_expected = batch_size;
+  EXPECT_EQ(stats.used, used_expected);
+  EXPECT_EQ(stats.capacity, capacity);
+
   e.Insert(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.insert_hits, 2);
+  used_expected += batch_size;
+  EXPECT_EQ(stats.used, used_expected);
+  EXPECT_EQ(stats.capacity, capacity);
+
   e.Insert(batch_size - 1);
+  stats = e.transfer_cache().GetStats();
   if (e.transfer_cache().IsFlexible()) {
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 3);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
+    EXPECT_EQ(stats.insert_hits, 3);
+    EXPECT_EQ(stats.insert_misses, 0);
+    EXPECT_EQ(stats.insert_non_batch_misses, 0);
+    used_expected += batch_size - 1;
+    EXPECT_EQ(stats.used, used_expected);
   } else {
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 2);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 1);
+    EXPECT_EQ(stats.insert_hits, 2);
+    EXPECT_EQ(stats.insert_misses, 1);
+    EXPECT_EQ(stats.insert_non_batch_misses, 1);
+    EXPECT_EQ(stats.used, used_expected);
   }
+  EXPECT_EQ(stats.capacity, capacity);
+  EXPECT_LE(capacity, e.transfer_cache().max_capacity());
+
   e.Remove(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.remove_hits, 1);
+  used_expected -= batch_size;
+  EXPECT_EQ(stats.used, used_expected);
+  EXPECT_EQ(stats.capacity, capacity);
+
   e.Remove(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.remove_hits, 2);
+  used_expected -= batch_size;
+  EXPECT_EQ(stats.used, used_expected);
+  EXPECT_EQ(stats.capacity, capacity);
+
   e.Remove(batch_size - 1);
+  stats = e.transfer_cache().GetStats();
   if (e.transfer_cache().IsFlexible()) {
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 3);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
+    EXPECT_EQ(stats.remove_hits, 3);
+    EXPECT_EQ(stats.remove_misses, 0);
+    EXPECT_EQ(stats.remove_non_batch_misses, 0);
+    used_expected -= (batch_size - 1);
+    EXPECT_EQ(stats.used, used_expected);
   } else {
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 2);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 1);
+    EXPECT_EQ(stats.remove_hits, 2);
+    EXPECT_EQ(stats.remove_misses, 1);
+    EXPECT_EQ(stats.remove_non_batch_misses, 1);
+    EXPECT_EQ(stats.used, used_expected);
   }
+  EXPECT_EQ(stats.capacity, capacity);
+  EXPECT_EQ(stats.max_capacity, e.transfer_cache().max_capacity());
 }
 
 TYPED_TEST_P(TransferCacheTest, ReadStats) {
@@ -101,12 +140,13 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
   e.Insert(batch_size);
   e.Remove(batch_size);
 
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().insert_non_batch_misses, 0);
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, 1);
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 0);
-  ASSERT_EQ(e.transfer_cache().GetHitRateStats().remove_non_batch_misses, 0);
+  TransferCacheStats stats = e.transfer_cache().GetStats();
+  ASSERT_EQ(stats.insert_hits, 1);
+  ASSERT_EQ(stats.insert_misses, 0);
+  ASSERT_EQ(stats.insert_non_batch_misses, 0);
+  ASSERT_EQ(stats.remove_hits, 1);
+  ASSERT_EQ(stats.remove_misses, 0);
+  ASSERT_EQ(stats.remove_non_batch_misses, 0);
 
   std::atomic<bool> stop{false};
 
@@ -119,7 +159,7 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
 
   std::thread t2([&]() {
     while (!stop.load(std::memory_order_acquire)) {
-      auto stats = e.transfer_cache().GetHitRateStats();
+      TransferCacheStats stats = e.transfer_cache().GetStats();
       CHECK_CONDITION(stats.insert_hits >= 1);
       CHECK_CONDITION(stats.insert_misses == 0);
       CHECK_CONDITION(stats.insert_non_batch_misses == 0);
@@ -148,10 +188,10 @@ TYPED_TEST_P(TransferCacheTest, SingleItemSmoke) {
 
   e.Insert(1);
   e.Insert(1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, actions);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, actions);
   e.Remove(1);
   e.Remove(1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_hits, actions);
+  EXPECT_EQ(e.transfer_cache().GetStats().remove_hits, actions);
 }
 
 TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
@@ -160,7 +200,7 @@ TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
   e.Remove(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetStats().remove_misses, 1);
 }
 
 TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
@@ -178,7 +218,7 @@ TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
         return returned;
       });
   e.Remove(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().remove_misses, 2);
+  EXPECT_EQ(e.transfer_cache().GetStats().remove_misses, 2);
 }
 
 TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
@@ -193,10 +233,10 @@ TYPED_TEST_P(TransferCacheTest, EvictsOtherCaches) {
   while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
     e.Insert(batch_size);
   }
-  size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
+  size_t old_hits = e.transfer_cache().GetStats().insert_hits;
   e.Insert(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, old_hits + 1);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, old_hits + 1);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 0);
 }
 
 TYPED_TEST_P(TransferCacheTest, EvictsOtherCachesFlex) {
@@ -211,8 +251,8 @@ TYPED_TEST_P(TransferCacheTest, EvictsOtherCachesFlex) {
   } else {
     EXPECT_CALL(e.central_freelist(), InsertRange).Times(batch_size - 1);
   }
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 0);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, 0);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 0);
 
   int total = 0;
   for (int i = 1; i <= batch_size; i++) {
@@ -222,13 +262,12 @@ TYPED_TEST_P(TransferCacheTest, EvictsOtherCachesFlex) {
 
   if (e.transfer_cache().IsFlexible()) {
     EXPECT_EQ(e.transfer_cache().tc_length(), total);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, batch_size);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 0);
+    EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, batch_size);
+    EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 0);
   } else {
     EXPECT_EQ(e.transfer_cache().tc_length(), 1 * batch_size);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, 1);
-    EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses,
-              batch_size - 1);
+    EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, 1);
+    EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, batch_size - 1);
   }
 }
 
@@ -267,10 +306,10 @@ TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
     e.Insert(batch_size);
   }
-  size_t old_hits = e.transfer_cache().GetHitRateStats().insert_hits;
+  size_t old_hits = e.transfer_cache().GetStats().insert_hits;
   e.Insert(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_hits, old_hits);
-  EXPECT_EQ(e.transfer_cache().GetHitRateStats().insert_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, old_hits);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 1);
 }
 
 TYPED_TEST_P(TransferCacheTest, WrappingWorks) {

@@ -75,7 +75,7 @@ void BM_CrossThread(benchmark::State& state) {
   if (state.thread_index() == 0) {
     TransferCacheStats stats{};
     for (Cache& c : s->c) {
-      TransferCacheStats other = c.GetHitRateStats();
+      TransferCacheStats other = c.GetStats();
       stats.insert_hits += other.insert_hits;
       stats.insert_misses += other.insert_misses;
       stats.remove_hits += other.remove_hits;
@@ -159,7 +159,7 @@ void BM_RealisticBatchNonBatchMutations(benchmark::State& state) {
     }
   }
 
-  const TransferCacheStats stats = e.transfer_cache().GetHitRateStats();
+  const TransferCacheStats stats = e.transfer_cache().GetStats();
   state.counters["insert_hit_ratio"] =
       static_cast<double>(stats.insert_hits) /
       (stats.insert_hits + stats.insert_misses);

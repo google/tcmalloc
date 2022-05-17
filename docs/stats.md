@@ -259,22 +259,42 @@ class   5 [       40 bytes ] :      0 < 1,     1 < 2,     1 < 4,     0 < 8,     
 ### Transfer Cache Information
 
 Transfer cache is used by TCMalloc, before going to central free list. For each
-size-class we track how often insert or remove requests have been satisfied from
-transfer cache.
+size-class, we track and report the following statistics:
+
+*   The size of each object in that size-class.
+*   The number of objects of that size currently held in the transfer cache.
+*   The total size of those objects in MiB - i.e. size of each object multiplied
+    by the number of objects in the freelist.
+*   The cumulative size of that size-class plus all smaller size-classes.
+*   The current capacity of the freelist.
+*   The maximum capacity to which the freelist is allowed to grow.
+*   The number of hits observed during inserts to the transfer cache.
+*   The total number batched and non-batched misses observed during insert
+    operations.
+*   The number of partial (i.e. non-batch-sized) misses observed during insert
+    operations.
+*   The number of hits observed during removes from the transfer cache.
+*   The total number batched and non-batched misses observed during remove
+    operations.
+*   The number of partial (i.e. non-batch-sized) misses observed during remove
+    operations.
 
 ```
-
-Transfer cache insert/remove hits/misses by size class
-class   1 [        8 bytes ] :        0 insert hits;        2 insert misses (       2 partial);        0 remove hits;        2 remove misses (       2 partial);
-class   2 [       16 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
-class   3 [       24 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
-class   4 [       32 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
-class   5 [       40 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
-class   6 [       48 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        1 remove misses (       1 partial);
-class   7 [       56 bytes ] :        0 insert hits;        0 insert misses (       0 partial);        0 remove hits;        0 remove misses (       0 partial);
-class   8 [       64 bytes ] :        0 insert hits;        6 insert misses (       6 partial);        0 remove hits;        5 remove misses (       2 partial);
-class   9 [       72 bytes ] :       41 insert hits;     1133 insert misses (    1133 partial);       40 remove hits;      133 remove misses (      63 partial);
-class  10 [       80 bytes ] :      132 insert hits;      330 insert misses (     330 partial);      125 remove hits;      228 remove misses (      55 partial);
+------------------------------------------------
+Used bytes, current capacity, and maximum allowed capacity
+of the transfer cache freelists.
+It also reports insert/remove hits/misses by size class.
+------------------------------------------------
+class   1 [        8 bytes ] :     1472 objs;   0.0 MiB;    0.0 cum MiB;  2048 capacity;  2048 max_capacity;      935 insert hits;     8543 insert misses (    4507 partial);      889 remove hits;     6612 remove misses (      86 partial);
+class   2 [       16 bytes ] :      608 objs;   0.0 MiB;    0.0 cum MiB;  2048 capacity;  2048 max_capacity;      575 insert hits;     3739 insert misses (    3602 partial);      556 remove hits;     3368 remove misses (      70 partial);
+class   3 [       24 bytes ] :      864 objs;   0.0 MiB;    0.0 cum MiB;  2048 capacity;  2048 max_capacity;     1533 insert hits;    15594 insert misses (    9417 partial);     1506 remove hits;    11939 remove misses (      74 partial);
+class   4 [       32 bytes ] :       96 objs;   0.0 MiB;    0.0 cum MiB;  2048 capacity;  2048 max_capacity;     1065 insert hits;    21772 insert misses (   19918 partial);     1061 remove hits;     6403 remove misses (     119 partial);
+class   5 [       40 bytes ] :     1408 objs;   0.1 MiB;    0.1 cum MiB;  2048 capacity;  2048 max_capacity;     1475 insert hits;    16018 insert misses (   14943 partial);     1431 remove hits;     3293 remove misses (      60 partial);
+class   6 [       48 bytes ] :     1664 objs;   0.1 MiB;    0.2 cum MiB;  2048 capacity;  2048 max_capacity;     1213 insert hits;    39140 insert misses (   37096 partial);     1160 remove hits;     5909 remove misses (      80 partial);
+class   7 [       56 bytes ] :     1792 objs;   0.1 MiB;    0.3 cum MiB;  2048 capacity;  2048 max_capacity;      466 insert hits;      650 insert misses (     375 partial);      410 remove hits;     1264 remove misses (      55 partial);
+class   8 [       64 bytes ] :     1408 objs;   0.1 MiB;    0.4 cum MiB;  2048 capacity;  2048 max_capacity;     2181 insert hits;     8816 insert misses (    8069 partial);     2137 remove hits;     2024 remove misses (      74 partial);
+class   9 [       72 bytes ] :      960 objs;   0.1 MiB;    0.4 cum MiB;  1600 capacity;  2048 max_capacity;      104 insert hits;      463 insert misses (     463 partial);       74 remove hits;      287 remove misses (      62 partial);
+class  10 [       80 bytes ] :     1056 objs;   0.1 MiB;    0.5 cum MiB;  2048 capacity;  2048 max_capacity;      372 insert hits;     3334 insert misses (    3287 partial);      339 remove hits;      562 remove misses (      80 partial);
 ...
 ```
 

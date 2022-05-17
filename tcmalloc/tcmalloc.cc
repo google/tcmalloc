@@ -185,8 +185,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
           Static::central_freelist(size_class).GetSpanStats();
     }
     if (tc_stats) {
-      tc_stats[size_class] =
-          Static::transfer_cache().GetHitRateStats(size_class);
+      tc_stats[size_class] = Static::transfer_cache().GetStats(size_class);
     }
   }
 
@@ -501,13 +500,24 @@ static void DumpStats(Printer* out, int level) {
                     Static::transfer_cache().implementation()));
 
     out->printf("------------------------------------------------\n");
-    out->printf("Transfer cache insert/remove hits/misses by size class\n");
+    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out->printf("of the transfer cache freelists.\n");
+    out->printf("It also reports insert/remove hits/misses by size class.\n");
+    out->printf("------------------------------------------------\n");
+    uint64_t cumulative_bytes = 0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const uint64_t class_bytes = tc_stats[size_class].used *
+                                   Static::sizemap().class_to_size(size_class);
+      cumulative_bytes += class_bytes;
       out->printf(
-          "class %3d [ %8zu bytes ] : %8" PRIu64 " insert hits; %8" PRIu64
+          "class %3d [ %8zu bytes ] : %8" PRIu64
+          " objs; %5.1f MiB; %6.1f cum MiB; %5" PRIu64 " capacity; %5" PRIu64
+          " max_capacity; %8" PRIu64 " insert hits; %8" PRIu64
           " insert misses (%8lu partial); %8" PRIu64 " remove hits; %8" PRIu64
           " remove misses (%8lu partial);\n",
           size_class, Static::sizemap().class_to_size(size_class),
+          tc_stats[size_class].used, class_bytes / MiB, cumulative_bytes / MiB,
+          tc_stats[size_class].capacity, tc_stats[size_class].max_capacity,
           tc_stats[size_class].insert_hits, tc_stats[size_class].insert_misses,
           tc_stats[size_class].insert_non_batch_misses,
           tc_stats[size_class].remove_hits, tc_stats[size_class].remove_misses,
@@ -663,6 +673,9 @@ namespace {
         entry.PrintI64("remove_misses", tc_stats[size_class].remove_misses);
         entry.PrintI64("remove_non_batch_misses",
                        tc_stats[size_class].remove_non_batch_misses);
+        entry.PrintI64("used", tc_stats[size_class].used);
+        entry.PrintI64("capacity", tc_stats[size_class].capacity);
+        entry.PrintI64("max_capacity", tc_stats[size_class].max_capacity);
       }
     }
 
