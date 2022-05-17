@@ -141,6 +141,10 @@ class ScopedFakeCpuId {
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
+
+    if (tcmalloc_internal::subtle::percpu::UsingFlatVirtualCpus()) {
+      tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
+    }
 #endif
   }
 
@@ -150,6 +154,11 @@ class ScopedFakeCpuId {
     // ~ScopedFakeCpuId.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
         tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+
+    if (tcmalloc_internal::subtle::percpu::UsingFlatVirtualCpus()) {
+      tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id =
+          tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+    }
 #endif
   }
 

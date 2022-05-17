@@ -66,47 +66,6 @@ namespace {
 using testing::Each;
 using testing::UnorderedElementsAreArray;
 
-// Choose an available CPU and executes the passed functor on it. The
-// cpu that is chosen, as long as a valid disjoint remote CPU will be passed
-// as arguments to it.
-//
-// If the functor believes that it has failed in a manner attributable to
-// external modification, then it should return false and we will attempt to
-// retry the operation (up to a constant limit).
-void RunOnSingleCpuWithRemoteCpu(std::function<bool(int, int)> test) {
-  constexpr int kMaxTries = 1000;
-
-  for (int i = 0; i < kMaxTries; i++) {
-    auto allowed = AllowedCpus();
-
-    int target_cpu = allowed[0], remote_cpu;
-
-    // We try to pass something actually within the mask, but, for most tests it
-    // only needs to exist.
-    if (allowed.size() > 1)
-      remote_cpu = allowed[1];
-    else
-      remote_cpu = target_cpu ? 0 : 1;
-
-    ScopedAffinityMask mask(target_cpu);
-
-    // If the test function failed, assert that the mask was tampered with.
-    if (!test(target_cpu, remote_cpu))
-      ASSERT_TRUE(mask.Tampered());
-    else
-      return;
-  }
-
-  ASSERT_TRUE(false);
-}
-
-// Equivalent to RunOnSingleCpuWithRemoteCpu, except that only the CPU the
-// functor is executing on is passed.
-void RunOnSingleCpu(std::function<bool(int)> test) {
-  auto wrapper = [&test](int this_cpu, int unused) { return test(this_cpu); };
-  RunOnSingleCpuWithRemoteCpu(wrapper);
-}
-
 constexpr size_t kStressSlabs = 4;
 constexpr size_t kStressCapacity = 4;
 
@@ -124,7 +83,7 @@ class TcmallocSlabTest : public testing::Test {
         [&](size_t size, std::align_val_t alignment) {
           return this->ByteCountingMalloc(size, alignment);
         },
-        [](size_t) { return kCapacity; }, subtle::percpu::ToShiftType(kShift));
+        [](size_t) { return kCapacity; }, ToShiftType(kShift));
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -265,13 +224,6 @@ TEST_F(TcmallocSlabTest, Unit) {
 
     // Temporarily fake being on the given CPU.
     ScopedFakeCpuId fake_cpu_id(cpu);
-
-    if (UsingFlatVirtualCpus()) {
-#if TCMALLOC_PERCPU_USE_RSEQ
-      __rseq_abi.vcpu_id = cpu ^ 1;
-#endif
-      cpu = cpu ^ 1;
-    }
     current_cpu_ = cpu;
 
     for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
@@ -717,7 +669,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
     }
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
     const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
-        subtle::percpu::ToShiftType(shift), allocator, get_capacity,
+        ToShiftType(shift), allocator, get_capacity,
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
@@ -792,7 +744,7 @@ TEST_P(StressThreadTest, Stress) {
 
   TcmallocSlab slab;
   size_t shift = Resize() ? kResizeInitialShift : kShift;
-  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(shift));
+  slab.Init(allocator, get_capacity, ToShiftType(shift));
   std::vector<std::thread> threads;
   const size_t num_cpus = absl::base_internal::NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
@@ -970,65 +922,74 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 
 void BM_PushPop(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
-  RunOnSingleCpu([&](int this_cpu) {
-    const int kBatchSize = 32;
-    TcmallocSlab slab;
+  constexpr int kCpu = 0;
+  constexpr size_t kSizeClass = 0;
+  // Fake being on the given CPU. This allows Grow to succeed for
+  // kCpu/kSizeClass, and then we Push/Pop repeatedly on kCpu/kSizeClass.
+  // Note that no other thread has access to `slab` so we don't need to worry
+  // about races.
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+  constexpr int kBatchSize = 32;
+  TcmallocSlab slab;
 
 #pragma GCC diagnostic ignored "-Wnonnull"
-    const auto get_capacity = [](size_t size_class) -> size_t {
-      return kBatchSize;
-    };
-    slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift));
-    for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-      slab.InitCpu(cpu, get_capacity);
-    }
+  const auto get_capacity = [](size_t size_class) -> size_t {
+    return kBatchSize;
+  };
+  slab.Init(allocator, get_capacity, ToShiftType(kShift));
+  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+    slab.InitCpu(cpu, get_capacity);
+  }
 
-    CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, [](uint8_t shift) {
-      return kBatchSize;
-    }) == kBatchSize);
-    void* batch[kBatchSize];
-    for (int i = 0; i < kBatchSize; i++) {
-      batch[i] = &batch[i];
+  CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
+    return kBatchSize;
+  }) == kBatchSize);
+  void* batch[kBatchSize];
+  for (int i = 0; i < kBatchSize; i++) {
+    batch[i] = &batch[i];
+  }
+  for (auto _ : state) {
+    for (size_t x = 0; x < kBatchSize; x++) {
+      CHECK_CONDITION(
+          slab.Push(kSizeClass, batch[x], ExpectNoOverflow, nullptr));
     }
-    for (auto _ : state) {
-      for (size_t x = 0; x < kBatchSize; x++) {
-        CHECK_CONDITION(slab.Push(0, batch[x], ExpectNoOverflow, nullptr));
-      }
-      for (size_t x = 0; x < kBatchSize; x++) {
-        CHECK_CONDITION(slab.Pop(0, ExpectNoUnderflow, nullptr) ==
-                        batch[kBatchSize - x - 1]);
-      }
+    for (size_t x = 0; x < kBatchSize; x++) {
+      CHECK_CONDITION(slab.Pop(kSizeClass, ExpectNoUnderflow, nullptr) ==
+                      batch[kBatchSize - x - 1]);
     }
-    return true;
-  });
+  }
 }
 BENCHMARK(BM_PushPop);
 
 void BM_PushPopBatch(benchmark::State& state) {
   CHECK_CONDITION(IsFast());
-  RunOnSingleCpu([&](int this_cpu) {
-    const int kBatchSize = 32;
-    TcmallocSlab slab;
-    const auto get_capacity = [](size_t size_class) -> size_t {
-      return kBatchSize;
-    };
-    slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift));
-    for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-      slab.InitCpu(cpu, get_capacity);
-    }
-    CHECK_CONDITION(slab.Grow(this_cpu, 0, kBatchSize, [](uint8_t shift) {
-      return kBatchSize;
-    }) == kBatchSize);
-    void* batch[kBatchSize];
-    for (int i = 0; i < kBatchSize; i++) {
-      batch[i] = &batch[i];
-    }
-    for (auto _ : state) {
-      CHECK_CONDITION(slab.PushBatch(0, batch, kBatchSize) == kBatchSize);
-      CHECK_CONDITION(slab.PopBatch(0, batch, kBatchSize) == kBatchSize);
-    }
-    return true;
-  });
+  constexpr int kCpu = 0;
+  constexpr size_t kSizeClass = 0;
+  // Fake being on the given CPU. This allows Grow to succeed for
+  // kCpu/kSizeClass, and then we Push/PopBatch repeatedly on kCpu/kSizeClass.
+  // Note that no other thread has access to `slab` so we don't need to worry
+  // about races.
+  constexpr int kBatchSize = 32;
+  TcmallocSlab slab;
+  const auto get_capacity = [](size_t size_class) -> size_t {
+    return kBatchSize;
+  };
+  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift));
+  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+    slab.InitCpu(cpu, get_capacity);
+  }
+  CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
+    return kBatchSize;
+  }) == kBatchSize);
+  void* batch[kBatchSize];
+  for (int i = 0; i < kBatchSize; i++) {
+    batch[i] = &batch[i];
+  }
+  for (auto _ : state) {
+    CHECK_CONDITION(slab.PushBatch(kSizeClass, batch, kBatchSize) ==
+                    kBatchSize);
+    CHECK_CONDITION(slab.PopBatch(kSizeClass, batch, kBatchSize) == kBatchSize);
+  }
 }
 BENCHMARK(BM_PushPopBatch);
 

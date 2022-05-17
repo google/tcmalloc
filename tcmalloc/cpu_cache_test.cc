@@ -583,13 +583,6 @@ static void ColdCacheOperations(CpuCache& cache, int cpu_id,
                                 size_t size_class) {
   // Temporarily fake being on the given CPU.
   ScopedFakeCpuId fake_cpu_id(cpu_id);
-
-#if TCMALLOC_PERCPU_USE_RSEQ
-  if (subtle::percpu::UsingFlatVirtualCpus()) {
-    subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
-  }
-#endif
-
   void* ptr = cache.Allocate<OOMHandler>(size_class);
   cache.Deallocate(ptr, size_class);
 }
@@ -604,12 +597,6 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
 
   // Temporarily fake being on the given CPU.
   ScopedFakeCpuId fake_cpu_id(cpu_id);
-
-#if TCMALLOC_PERCPU_USE_RSEQ
-  if (subtle::percpu::UsingFlatVirtualCpus()) {
-    subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
-  }
-#endif
 
   // Allocate and deallocate objects to make sure we have enough misses on the
   // cache. This will make sure we have sufficient disparity in misses between
