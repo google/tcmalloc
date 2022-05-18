@@ -265,8 +265,7 @@ TcmallocSlab_Internal_PushBatch:
   START_RSEQ(TcmallocSlab_Internal_PushBatch)
   FETCH_CPU(w8, x4)
   lsl x8, x8, x3 /* multiply cpu by 2^shift */
-  mov x9, x3
-  and x9, x9, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
+  and x9, x3, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
   add x8, x9, x8
   add x15, x8, x0, LSL #3    /* r15 = hdr */
   ldrh w9, [x15]             /* r9 = current */
@@ -339,8 +338,7 @@ TcmallocSlab_Internal_PopBatch:
   START_RSEQ(TcmallocSlab_Internal_PopBatch)
   FETCH_CPU(w8, x4)
   lsl x8, x8, x3 /* multiply cpu by 2^shift */
-  mov x9, x3
-  and x9, x9, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
+  and x9, x3, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
   add x8, x9, x8
   add x15, x8, x0, LSL #3
   ldrh w9, [x15]             /* current */
