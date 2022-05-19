@@ -168,6 +168,72 @@ void BM_RealisticBatchNonBatchMutations(benchmark::State& state) {
       (stats.remove_hits + stats.remove_misses);
 }
 
+template <typename Env>
+void BM_RealisticHitRate(benchmark::State& state) {
+  const int kBatchSize = Env::kBatchSize;
+
+  Env e;
+  absl::BitGen gen;
+  // We switch between insert-heavy and remove-heavy access pattern every 5k
+  // iterations. kBias specifies the fraction of insert (or remove) operations
+  // during insert-heavy (or remove-heavy) phase of the microbenchmark. These
+  // constants have been determined through experimentation so that the
+  // resulting insert and remove miss rate matches that of the production.
+  constexpr int kInterval = 5000;
+  constexpr double kBias = 0.85;
+  bool insert_heavy = true;
+  unsigned int iterations = 0;
+  for (auto iter : state) {
+    state.PauseTiming();
+    const double partial = absl::Uniform(gen, 0.0, 1.0);
+    // We perform insert (or remove) operations with a probablity specified by
+    // kBias during the insert-heavy (or remove-heavy) phase of this benchmark.
+    const bool insert = absl::Bernoulli(gen, kBias) == insert_heavy;
+    state.ResumeTiming();
+
+    if (insert) {
+      // These numbers have been determined by looking at production data.
+      if (partial < 0.65) {
+        e.Insert(kBatchSize);
+      } else {
+        e.Insert(1);
+      }
+    } else {
+      // These numbers have been determined by looking at production data.
+      if (partial < 0.99) {
+        e.Remove(kBatchSize);
+      } else {
+        e.Remove(1);
+      }
+    }
+    ++iterations;
+    if (iterations % kInterval == 0) {
+      insert_heavy = !insert_heavy;
+    }
+  }
+
+  const TransferCacheStats stats = e.transfer_cache().GetStats();
+  const size_t total_inserts = stats.insert_hits + stats.insert_misses;
+  const size_t insert_batch_misses =
+      stats.insert_misses - stats.insert_non_batch_misses;
+  state.counters["insert_aggregate_miss_ratio"] =
+      static_cast<double>(stats.insert_misses) / total_inserts;
+  state.counters["insert_batch_miss_ratio"] =
+      static_cast<double>(insert_batch_misses) / total_inserts;
+  state.counters["insert_non_batch_miss_ratio"] =
+      static_cast<double>(stats.insert_non_batch_misses) / total_inserts;
+
+  const size_t total_removes = stats.remove_hits + stats.remove_misses;
+  const size_t remove_batch_misses =
+      stats.remove_misses - stats.remove_non_batch_misses;
+  state.counters["remove_aggregate_miss_ratio"] =
+      static_cast<double>(stats.remove_misses) / total_removes;
+  state.counters["remove_batch_miss_ratio"] =
+      static_cast<double>(remove_batch_misses) / total_removes;
+  state.counters["remove_non_batch_miss_ratio"] =
+      static_cast<double>(stats.remove_non_batch_misses) / total_removes;
+}
+
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_CrossThread, RingBufferTransferCacheEnv)
     ->ThreadRange(2, 64);
@@ -178,6 +244,7 @@ BENCHMARK_TEMPLATE(BM_RemoveRange, RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations,
                    RingBufferTransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_RealisticHitRate, TransferCacheEnv);
 
 }  // namespace
 }  // namespace tcmalloc_internal
