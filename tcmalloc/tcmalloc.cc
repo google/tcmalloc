@@ -210,6 +210,10 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     }
 
     r->arena = Static::arena().stats();
+    if (report_residence) {
+      ASSERT(r->metadata_bytes >= r->arena.bytes_nonresident);
+      r->metadata_bytes -= r->arena.bytes_nonresident;
+    }
   }
   // We can access the pagemap without holding the pageheap_lock since it
   // is static data, and we are only taking address and size which are
