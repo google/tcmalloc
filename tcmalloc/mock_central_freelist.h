@@ -20,9 +20,22 @@
 #include "gmock/gmock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+// CentralFreeList implementation that uses a real central freelist to allocate
+// objects. It implements additional methods used by benchmarks and tests.
+//
+// This is useful for benchmarking in cases where, for instance, we can test the
+// efficiency of TCMalloc's frontend as it has to access real central freelist
+// upon a miss.
+class RealCentralFreeListForTesting : public CentralFreeList {
+ public:
+  void AllocateBatch(void** batch, int n);
+  void FreeBatch(absl::Span<void*> batch);
+};
 
 class FakeCentralFreeListBase {
  public:

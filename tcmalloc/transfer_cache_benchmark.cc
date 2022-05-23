@@ -28,6 +28,9 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using TransferCacheWithRealCFLEnv =
+    FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        RealCentralFreeListForTesting, FakeTransferCacheManager>>;
 using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
@@ -245,6 +248,7 @@ BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations,
                    RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticHitRate, TransferCacheEnv);
+BENCHMARK_TEMPLATE(BM_RealisticHitRate, TransferCacheWithRealCFLEnv);
 
 }  // namespace
 }  // namespace tcmalloc_internal

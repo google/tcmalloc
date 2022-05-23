@@ -20,6 +20,22 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+void RealCentralFreeListForTesting::AllocateBatch(void** batch, int n) {
+  int total = 0;
+
+  while (total < n) {
+    const int to_remove = n - total;
+    const int removed = RemoveRange(batch + total, to_remove);
+    ASSERT_GT(removed, 0);
+    ASSERT_LE(removed, to_remove);
+    total += removed;
+  }
+}
+
+void RealCentralFreeListForTesting::FreeBatch(absl::Span<void*> batch) {
+  InsertRange(batch);
+}
+
 void MinimalFakeCentralFreeList::AllocateBatch(void** batch, int n) {
   for (int i = 0; i < n; ++i) batch[i] = &batch[i];
 }
