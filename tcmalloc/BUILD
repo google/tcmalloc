@@ -47,7 +47,10 @@ cc_library(
         "experiment_config.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//third_party/protobuf:__pkg__"],
+    visibility = [
+        "//assistant/assistant_server/rpcserver/internal:__pkg__",
+        "//third_party/protobuf:__pkg__",
+    ],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:environment",
@@ -735,7 +738,6 @@ cc_test(
         ":common",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -803,7 +805,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -949,7 +950,6 @@ cc_fuzz_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":malloc_extension",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
     ],
 )
@@ -979,7 +979,6 @@ cc_test(
         ":page_allocator_test_util",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
