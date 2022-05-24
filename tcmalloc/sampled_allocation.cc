@@ -20,10 +20,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void SampledAllocation::PrepareForSampling() {
-  sampled_stack.depth = absl::GetStackTrace(sampled_stack.stack, kMaxStackDepth,
-                                            /* skip_count= */ 0);
-  allocated_size.store(0, std::memory_order_relaxed);
+void SampledAllocation::PrepareForSampling(const StackTrace& stack_trace) {
+  sampled_stack = stack_trace;
 }
 
 }  // namespace tcmalloc_internal

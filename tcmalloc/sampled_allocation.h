@@ -24,7 +24,18 @@ namespace tcmalloc_internal {
 
 // Stores information about the sampled allocation.
 struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
-  constexpr SampledAllocation() { PrepareForSampling(); }
+  // We use this constructor to initialize `graveyard_`, which is used to
+  // maintain the freelist of SampledAllocations. When we revive objects from
+  // the freelist, we use `PrepareForSampling()` to update the state of the
+  // object.
+  constexpr SampledAllocation() = default;
+
+  // When no object is available on the freelist, we allocate for a new
+  // SampledAllocation object and invoke this constructor with
+  // `PrepareForSampling()`.
+  explicit SampledAllocation(const StackTrace& stack_trace) {
+    PrepareForSampling(stack_trace);
+  }
 
   SampledAllocation(const SampledAllocation&) = delete;
   SampledAllocation& operator=(const SampledAllocation&) = delete;
@@ -32,15 +43,13 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
   SampledAllocation(SampledAllocation&&) = delete;
   SampledAllocation& operator=(SampledAllocation&&) = delete;
 
-  // Puts the object into a clean state and blocks any readers currently
-  // sampling the object.
-  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
+  // Prepares the state of the object. It is invoked when either a new sampled
+  // allocation is constructed or when an object is revived from the freelist.
+  void PrepareForSampling(const StackTrace& stack_trace)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
 
   // The stack trace of the sampled allocation.
   StackTrace sampled_stack = {};
-
-  // size after sizeclass/page rounding.
-  std::atomic<uintptr_t> allocated_size{0};
 };
 
 }  // namespace tcmalloc_internal

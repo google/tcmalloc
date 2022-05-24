@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <random>
 #include <vector>
 
@@ -34,7 +35,9 @@ using ::testing::UnorderedElementsAre;
 struct Info : public Sample<Info> {
  public:
   Info() { PrepareForSampling(); }
-  void PrepareForSampling() { initialized = true; }
+  void PrepareForSampling() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+    initialized = true;
+  }
   std::atomic<size_t> size;
   absl::Time create_time;
   bool initialized;
@@ -164,6 +167,7 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
           absl::Duration oldest = absl::ZeroDuration();
           sample_recorder_.Iterate([&](const Info& info) {
             oldest = std::max(oldest, absl::Now() - info.create_time);
+            ASSERT_TRUE(info.initialized);
           });
           ASSERT_GE(oldest, absl::ZeroDuration());
           break;
@@ -199,6 +203,45 @@ TEST_F(SampleRecorderTest, Callback) {
   EXPECT_EQ(callback, sample_recorder_.SetDisposeCallback(nullptr));
   expected = nullptr;  // no more calls.
   sample_recorder_.Unregister(info2);
+}
+
+// Similar to Sample<Info> above but requires parameter(s) at initialization.
+struct InfoWithParam : public Sample<InfoWithParam> {
+ public:
+  // Default constructor to initialize |graveyard_|.
+  InfoWithParam() = default;
+  explicit InfoWithParam(size_t size) { PrepareForSampling(size); }
+  void PrepareForSampling(size_t size) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+    info_size = size;
+    initialized = true;
+  }
+  size_t info_size;
+  bool initialized;
+};
+
+class InfoAllocator {
+ public:
+  static InfoWithParam* New(size_t size) { return new InfoWithParam(size); }
+  static void Delete(InfoWithParam* infoWithParam) { delete infoWithParam; }
+};
+
+TEST(SampleRecorderWithParamTest, RegisterWithParam) {
+  InfoAllocator allocator;
+  SampleRecorder<InfoWithParam, InfoAllocator> sample_recorder{&allocator};
+  sample_recorder.Init();
+  // Register() goes though New().
+  InfoWithParam* info = sample_recorder.Register(1);
+  EXPECT_THAT(info->info_size, 1);
+  EXPECT_TRUE(info->initialized);
+  // Set these values to something else.
+  info->info_size = 0;
+  info->initialized = false;
+  sample_recorder.Unregister(info);
+  // |info| is not deleted, just marked as dead. Here, Register() would invoke
+  // PopDead(), revive the same object, with its fields populated by PopDead().
+  sample_recorder.Register(2);
+  EXPECT_THAT(info->info_size, 2);
+  EXPECT_TRUE(info->initialized);
 }
 
 }  // namespace

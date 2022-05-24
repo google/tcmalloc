@@ -1133,6 +1133,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":sampled_allocation",
+        "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_googletest//:gtest_main",
     ],
 )

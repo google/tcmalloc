@@ -69,7 +69,8 @@ class SampleRecorder {
   void Init();
 
   // Registers for sampling.  Returns an opaque registration info.
-  T* Register();
+  template <typename... Targs>
+  T* Register(Targs&&... args);
 
   // Unregisters the sample.
   void Unregister(T* sample);
@@ -87,7 +88,8 @@ class SampleRecorder {
  private:
   void PushNew(T* sample);
   void PushDead(T* sample);
-  T* PopDead();
+  template <typename... Targs>
+  T* PopDead(Targs&&... args);
 
   // Intrusive lock free linked lists for tracking samples.
   //
@@ -169,7 +171,8 @@ void SampleRecorder<T, Allocator>::PushDead(T* sample) {
 }
 
 template <typename T, typename Allocator>
-T* SampleRecorder<T, Allocator>::PopDead() {
+template <typename... Targs>
+T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
   absl::base_internal::SpinLockHolder graveyard_lock(&graveyard_.lock);
 
   // The list is circular, so eventually it collapses down to
@@ -181,16 +184,17 @@ T* SampleRecorder<T, Allocator>::PopDead() {
   absl::base_internal::SpinLockHolder sample_lock(&sample->lock);
   graveyard_.dead = sample->dead;
   sample->dead = nullptr;
-  sample->PrepareForSampling();
+  sample->PrepareForSampling(std::forward<Targs>(args)...);
   return sample;
 }
 
 template <typename T, typename Allocator>
-T* SampleRecorder<T, Allocator>::Register() {
-  T* sample = PopDead();
+template <typename... Targs>
+T* SampleRecorder<T, Allocator>::Register(Targs&&... args) {
+  T* sample = PopDead(args...);
   if (sample == nullptr) {
     // Resurrection failed.  Hire a new warlock.
-    sample = allocator_->New();
+    sample = allocator_->New(std::forward<Targs>(args)...);
     PushNew(sample);
   }
 
