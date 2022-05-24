@@ -1206,6 +1206,17 @@ cc_test(
 )
 
 cc_test(
+    name = "static_vars_test",
+    srcs = ["static_vars_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "huge_address_map_test",
     srcs = ["huge_address_map_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

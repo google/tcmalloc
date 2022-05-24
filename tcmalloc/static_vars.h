@@ -49,12 +49,48 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
-    SampledAllocation, PageHeapAllocator<SampledAllocation>>;
-
 class CpuCache;
 class PageMap;
 class ThreadCache;
+
+// Wrapper around PageHeapAllocator<SampledAllocation> to provide a customized
+// New() and Delete() for SampledAllocation.
+// 1) SampledAllocation is used internally by TCMalloc and can not use normal
+// heap allocation. We rely on PageHeapAllocator that allocates from TCMalloc's
+// arena and requires the pageheap_lock here.
+// 2) PageHeapAllocator only allocates/deallocates memory, so we need to
+// manually invoke the constructor/destructor to initialize/clear some fields.
+class SampledAllocationAllocator {
+ public:
+  constexpr SampledAllocationAllocator() = default;
+
+  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    allocator_.Init(arena);
+  }
+
+  SampledAllocation* New(const StackTrace& stack_trace)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    SampledAllocation* s;
+    {
+      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      s = allocator_.New();
+    }
+    return new (s) SampledAllocation(stack_trace);
+  }
+
+  void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    allocator_.Delete(s);
+  }
+
+ private:
+  PageHeapAllocator<SampledAllocation> allocator_
+      ABSL_GUARDED_BY(pageheap_lock);
+};
+
+using SampledAllocationRecorder =
+    ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,
+                                                  SampledAllocationAllocator>;
 
 class Static {
  public:
@@ -104,7 +140,7 @@ class Static {
     return guardedpage_allocator_;
   }
 
-  static PageHeapAllocator<SampledAllocation>& sampledallocation_allocator() {
+  static SampledAllocationAllocator& sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
@@ -184,7 +220,7 @@ class Static {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CpuCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
-  static PageHeapAllocator<SampledAllocation> sampledallocation_allocator_;
+  static SampledAllocationAllocator sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
