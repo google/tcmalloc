@@ -294,5 +294,16 @@ TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
   EXPECT_TRUE(allocated) << "Failed to allocate with GWP-ASan";
 }
 
+TEST(AlwaysSamplingTest, DoubleFree) {
+  ScopedGuardedSamplingRate gs(-1);
+  ScopedProfileSamplingRate s(1);
+  auto DoubleFree = []() {
+    void* buf = ::operator new(42);
+    ::operator delete(buf);
+    ::operator delete(buf);
+  };
+  EXPECT_DEATH(DoubleFree(), "span != nullptr|Span::Unsample\\(\\)");
+}
+
 }  // namespace
 }  // namespace tcmalloc

@@ -36,10 +36,15 @@
 namespace tcmalloc {
 namespace {
 
+class HeapProfilingTest : public ::testing::TestWithParam<int64_t> {};
+
 // Verify that heap profiling sessions concurrent with allocations/deallocations
 // do not crash, as they all use `Static::sampled_allocation_recorder_`. Also
-// check that the data in the sample make sense.
-TEST(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
+// check that the data in the sample make sense. Here the
+// allocations/deallocations can happen on the same thread or the object is
+// allocated in one thread, transferred to another thread and deleted there.
+TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
+  ScopedProfileSamplingRate s(GetParam());
   const int kThreads = 10;
   ThreadManager manager;
   AllocatorHarness harness(kThreads);
@@ -57,7 +62,7 @@ TEST(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
       MallocExtension::SnapshotCurrent(t).Iterate(
           [&](const Profile::Sample& s) {
             // Inspect a few fields in the sample.
-            EXPECT_GT(s.sum, 0);
+            EXPECT_GE(s.sum, 0);
             EXPECT_GT(s.depth, 0);
             EXPECT_GT(s.requested_size, 0);
             EXPECT_GT(s.allocated_size, 0);
@@ -65,9 +70,17 @@ TEST(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
     });
   }
 
-  absl::SleepFor(absl::Seconds(3));
+  absl::SleepFor(absl::Seconds(1));
   manager.Stop();
 }
+
+// Test at different sampling rates, from always sampling to lower sampling
+// probabilities. This is stress testing and attempts to expose potential
+// failure modes when we only have sampled allocations and when we have a mix of
+// sampled/unsampled allocations.
+INSTANTIATE_TEST_SUITE_P(SamplingRates, HeapProfilingTest,
+                         testing::Values(1, 1 << 7, 1 << 14, 1 << 21),
+                         testing::PrintToStringParamName());
 
 TEST(HeapProfilingTest, AllocateDifferentSizes) {
   const int num_allocations = 1000;

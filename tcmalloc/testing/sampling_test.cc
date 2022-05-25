@@ -21,7 +21,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -29,10 +31,13 @@
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/debugging/symbolize.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
+#include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace {
@@ -157,6 +162,106 @@ TEST(Sampling, AlwaysSampling) {
 
   for (void* p : allocs) {
     ::operator delete(p);
+  }
+}
+
+ABSL_ATTRIBUTE_NOINLINE static void* AllocateRandomBytes() {
+  absl::BitGen rng;
+  return ::operator new(absl::LogUniform<size_t>(rng, 1, 1 << 21));
+}
+
+// TODO(b/197108627): Remove after Census memory accounting changes land.
+TEST(Sampling, AlwaysSamplingMultiThreaded) {
+  // Check data accuracy when we always sample and allocate/deallocate through
+  // multiple threads. It is hard to test for data accuracy when we sample the
+  // the allocation with a probability < 1.
+  ScopedGuardedSamplingRate gs(-1);
+  ScopedProfileSamplingRate s(1);
+
+  struct Allocation {
+    void* ptr = nullptr;
+    bool has_alloc = false;
+    size_t alloc_size = 0;
+  };
+
+  struct AllocsForCleanup {
+    absl::Mutex lock;
+    // Managed by a dedicated thread to take items from other threads and
+    // deallocate them.
+    std::vector<Allocation> allocs ABSL_GUARDED_BY(lock);
+  } allocs_for_cleanup;
+
+  constexpr int kItems = 10000;
+  std::vector<Allocation> allocs(kItems);
+
+  constexpr int kThreads = 10;
+  ThreadManager manager;
+  // `kThreads` threads to allocate/deallocate and another thread to take items
+  // passed from them for deallocation.
+  std::vector<size_t> alloc_size_by_thread(kThreads + 1);
+
+  manager.Start(kThreads, [&](int thread_id) {
+    absl::BitGen rng;
+    // Each thread is responsible for modifying a subsection of the array.
+    const int startIndex = thread_id * kItems / kThreads;
+    const int endIndex = (thread_id + 1) * kItems / kThreads;
+    Allocation& alloc = allocs[absl::Uniform<int>(rng, startIndex, endIndex)];
+    if (alloc.has_alloc) {
+      // Flip a coin to decide whether we deallocate or transfer the item to the
+      // cleanup thread (lower probability to reduce contention and runtime).
+      const double coin = absl::Uniform(rng, 0., 1.);
+      if (coin < 0.9) {
+        ::operator delete(alloc.ptr);
+        alloc.ptr = nullptr;
+        alloc.has_alloc = false;
+        alloc_size_by_thread[thread_id] -= alloc.alloc_size;
+        alloc.alloc_size = 0;
+      } else {
+        alloc_size_by_thread[thread_id] -= alloc.alloc_size;
+        Allocation tmp;
+        std::swap(tmp, alloc);
+        absl::MutexLock m(&allocs_for_cleanup.lock);
+        alloc_size_by_thread[kThreads] += tmp.alloc_size;
+        allocs_for_cleanup.allocs.push_back(std::move(tmp));
+      }
+    } else {
+      alloc.ptr = AllocateRandomBytes();
+      const absl::optional<size_t> alloc_size =
+          MallocExtension::GetAllocatedSize(alloc.ptr);
+      ASSERT_THAT(alloc_size, testing::Ne(std::nullopt));
+      alloc.alloc_size = *alloc_size;
+      alloc_size_by_thread[thread_id] += alloc.alloc_size;
+      alloc.has_alloc = true;
+    }
+  });
+
+  manager.Start(1, [&](int thread_id) {
+    absl::MutexLock m(&allocs_for_cleanup.lock);
+    for (Allocation& alloc : allocs_for_cleanup.allocs) {
+      ::operator delete(alloc.ptr);
+    }
+    allocs_for_cleanup.allocs.clear();
+    alloc_size_by_thread[kThreads] = 0;
+  });
+
+  absl::SleepFor(absl::Milliseconds(500));
+  manager.Stop();
+
+  size_t bytes = CountMatchingBytes<false>(
+      "AllocateRandomBytes",
+      MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+  size_t total_size = 0;
+  for (size_t cur_size : alloc_size_by_thread) total_size += cur_size;
+  EXPECT_EQ(bytes, total_size);
+
+  for (Allocation& alloc : allocs) {
+    if (alloc.has_alloc) {
+      ::operator delete(alloc.ptr);
+    }
+  }
+  absl::MutexLock m(&allocs_for_cleanup.lock);
+  for (Allocation& alloc : allocs_for_cleanup.allocs) {
+    ::operator delete(alloc.ptr);
   }
 }
 
