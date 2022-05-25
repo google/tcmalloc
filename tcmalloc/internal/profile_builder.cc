@@ -27,6 +27,7 @@
 
 #include "tcmalloc/internal/profile.pb.h"
 #include "absl/base/attributes.h"
+#include "absl/base/config.h"
 #include "absl/base/macros.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
@@ -426,6 +427,13 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       default_sample_type_id = objects_id;
       break;
     default:
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+      return absl::UnimplementedError(
+          "Program was built with sanitizers enabled, which do not support "
+          "heap profiling");
+#endif
       return absl::InvalidArgumentError("Unexpected profile format");
   }
 
