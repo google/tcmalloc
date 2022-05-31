@@ -143,10 +143,9 @@ void CheckTraces(const StackTraceTable& table,
   EXPECT_THAT(actual, testing::UnorderedElementsAreArray(expected));
 }
 
-void AddTrace(StackTraceTable* table, double count, const StackTrace& t,
-              void* span = nullptr) {
+void AddTrace(StackTraceTable* table, double count, const StackTrace& t) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  table->AddTrace(count, t, span);
+  table->AddTrace(count, t);
 }
 
 TEST(StackTraceTableTest, StackTraceTable) {
@@ -499,7 +498,8 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   StackTraceTable table(ProfileType::kHeap, 1, true, false);
 
   std::vector<char> bytes(1024);
-  AddTrace(&table, 1.0, t1, bytes.data());
+  t1.span_start_address = bytes.data();
+  AddTrace(&table, 1.0, t1);
   EXPECT_EQ(2, table.depth_total());
   EXPECT_EQ(1, table.bucket_total());
 
@@ -550,8 +550,10 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
     if (unmap) {
       ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
     }
-    AddTrace(&table, 1.0, t1, ptr1);
-    AddTrace(&table, 1.0, t1, ptr2);
+    t1.span_start_address = ptr1;
+    AddTrace(&table, 1.0, t1);
+    t1.span_start_address = ptr2;
+    AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
     EXPECT_EQ(1, table.bucket_total());
 

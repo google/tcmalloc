@@ -805,9 +805,9 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
         const double frag = span->Fragmentation();
         if (frag > 0) {
           // Associate the memory warmth with the actual object, not the proxy.
-          // The residency information is likely not very useful, but we might
-          // as well pass it along.
-          profile->AddTrace(frag, t, sampled_allocation.span_start_address);
+          // The residency information (t.span_start_address) is likely not very
+          // useful, but we might as well pass it along.
+          profile->AddTrace(frag, t);
         }
       });
   return profile;
@@ -820,8 +820,7 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   Static::sampled_allocation_recorder().Iterate(
       [&profile](const SampledAllocation& sampled_allocation) {
         pageheap_lock.AssertHeld();
-        profile->AddTrace(1.0, sampled_allocation.sampled_stack,
-                          sampled_allocation.span_start_address);
+        profile->AddTrace(1.0, sampled_allocation.sampled_stack);
       });
   return profile;
 }
@@ -866,10 +865,7 @@ class AllocationSampleList {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     AllocationSample* cur = first_;
     while (cur != nullptr) {
-      // Even if there were a pointer to pass here, it's unlikely that it's
-      // useful; it won't go out of core in the brief amount of time during the
-      // sample.
-      cur->mallocs_->AddTrace(1.0, sample, nullptr);
+      cur->mallocs_->AddTrace(1.0, sample);
       cur = cur->next;
     }
   }
@@ -1644,6 +1640,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   tmp.access_hint = static_cast<uint8_t>(policy.access());
   tmp.cold_allocated = allocated_cold;
   tmp.weight = weight;
+  tmp.span_start_address = span->start_address();
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
@@ -1667,8 +1664,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   // care about its various metadata (e.g. stack trace, weight) to generate the
   // heap profile, and won't need any information from Span::Sample() next.
   SampledAllocation* sampled_allocation =
-      Static::sampled_allocation_recorder().Register(tmp,
-                                                     span->start_address());
+      Static::sampled_allocation_recorder().Register(tmp);
   // No pageheap_lock required. The span is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);

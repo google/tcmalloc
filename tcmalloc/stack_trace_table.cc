@@ -63,7 +63,7 @@ StackTraceTable::~StackTraceTable() {
   delete[] table_;
 }
 
-void StackTraceTable::AddTrace(double count, const StackTrace& t, void* span) {
+void StackTraceTable::AddTrace(double count, const StackTrace& t) {
   if (error_) {
     return;
   }
@@ -80,7 +80,9 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t, void* span) {
     b->count += count;
     b->total_weight += count * t.weight;
     b->trace.weight = b->total_weight / b->count + 0.5;
-    b->example_span = span;
+    // The span start address is used to determine (later) if the memory is
+    // resident.
+    b->example_span = t.span_start_address;
   } else {
     depth_total_ += t.depth;
     bucket_total_++;
@@ -90,9 +92,9 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t, void* span) {
     b->count = count;
     b->total_weight = t.weight * count;
     b->next = table_[idx];
-    if (span > b->example_span) {
+    if (t.span_start_address > b->example_span) {
       // Keep only the largest pointer when combining records.
-      b->example_span = span;
+      b->example_span = t.span_start_address;
     }
     table_[idx] = b;
   }

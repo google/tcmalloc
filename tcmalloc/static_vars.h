@@ -68,14 +68,14 @@ class SampledAllocationAllocator {
     allocator_.Init(arena);
   }
 
-  SampledAllocation* New(const StackTrace& stack_trace, void* start_address)
+  SampledAllocation* New(const StackTrace& stack_trace)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     SampledAllocation* s;
     {
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       s = allocator_.New();
     }
-    return new (s) SampledAllocation(stack_trace, start_address);
+    return new (s) SampledAllocation(stack_trace);
   }
 
   void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {

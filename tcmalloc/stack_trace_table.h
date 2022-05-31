@@ -55,10 +55,7 @@ class StackTraceTable final : public ProfileBase {
   // Adds stack trace "t" to table with the specified count.
   // The count is a floating point value to reduce rounding
   // errors when accounting for sampling probabilities.
-  // The span is used to determine (later) if the memory is resident. No clue
-  // why Linux wants a void* instead of a const void*, but you're stuck with
-  // that choice.
-  void AddTrace(double count, const StackTrace& t, void* span)
+  void AddTrace(double count, const StackTrace& t)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Exposed for PageHeapAllocator

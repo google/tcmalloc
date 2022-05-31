@@ -65,6 +65,10 @@ void PeakHeapTracker::MaybeSaveSample() {
         pageheap_lock.AssertHeld();
         t = Static::stacktrace_allocator().New();
         *t = sampled_allocation.sampled_stack;
+        // We don't bother saving the pointer for peakheapz. It also doesn't
+        // really make too much sense to do so, as the residency status will
+        // change depending on whether or not the objects still even exist.
+        t->span_start_address = nullptr;
         if (t->depth == kMaxStackDepth) {
           t->depth = kMaxStackDepth - 1;
         }
@@ -81,10 +85,7 @@ std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() const {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (StackTrace* t = peak_sampled_span_stacks_; t != nullptr;
        t = reinterpret_cast<StackTrace*>(t->stack[kMaxStackDepth - 1])) {
-    // We don't bother saving the pointer for peakheapz. It also doesn't really
-    // make too much sense to do so, as the residency status will change
-    // depending on whether or not the objects still even exist.
-    profile->AddTrace(1.0, *t, nullptr);
+    profile->AddTrace(1.0, *t);
   }
   return profile;
 }

@@ -31,7 +31,7 @@ TEST(StaticVarsTest, SampledAllocationAllocator) {
   st.depth = absl::GetStackTrace(st.stack, kMaxStackDepth, /* skip_count= */ 0);
   st.requested_size = 8;
   st.allocated_size = 8;
-  SampledAllocation* sampled_allocation = allocator.New(st, nullptr);
+  SampledAllocation* sampled_allocation = allocator.New(st);
   EXPECT_GT(sampled_allocation->sampled_stack.depth, 0);
   EXPECT_EQ(sampled_allocation->sampled_stack.requested_size, 8);
   EXPECT_EQ(sampled_allocation->sampled_stack.allocated_size, 8);

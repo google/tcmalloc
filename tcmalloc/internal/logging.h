@@ -74,6 +74,11 @@ struct StackTrace {
   // between the previous sample and this one
   size_t weight;
 
+  // If not nullptr, this is the start address of the span corresponding to this
+  // sampled allocation. This may be nullptr for cases where it is not useful
+  // for residency analysis such as for peakheapz.
+  void* span_start_address = nullptr;
+
   friend bool operator==(const StackTrace& a, const StackTrace& b) {
     if (a.depth != b.depth || a.requested_size != b.requested_size ||
         a.requested_alignment != b.requested_alignment ||
