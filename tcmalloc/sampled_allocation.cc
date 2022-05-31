@@ -20,8 +20,10 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void SampledAllocation::PrepareForSampling(const StackTrace& stack_trace) {
+void SampledAllocation::PrepareForSampling(const StackTrace& stack_trace,
+                                           void* start_address) {
   sampled_stack = stack_trace;
+  span_start_address = start_address;
 }
 
 }  // namespace tcmalloc_internal

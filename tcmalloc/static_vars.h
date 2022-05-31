@@ -68,14 +68,14 @@ class SampledAllocationAllocator {
     allocator_.Init(arena);
   }
 
-  SampledAllocation* New(const StackTrace& stack_trace)
+  SampledAllocation* New(const StackTrace& stack_trace, void* start_address)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     SampledAllocation* s;
     {
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       s = allocator_.New();
     }
-    return new (s) SampledAllocation(stack_trace);
+    return new (s) SampledAllocation(stack_trace, start_address);
   }
 
   void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
@@ -158,10 +158,8 @@ class Static {
     return sampled_allocation_recorder_.get_mutable();
   }
 
-  // State kept for sampled allocations (/heapz support). The StatsCounter is
-  // only written while holding pageheap_lock, so writes can safely use
-  // LossyAdd and reads do not require locking.
-  static SpanList sampled_objects_ ABSL_GUARDED_BY(pageheap_lock);
+  // State kept for sampled allocations (/heapz support). No pageheap_lock
+  // required when reading/writing the counters.
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
 
   static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {

@@ -34,7 +34,7 @@ StackTrace PrepareStackTrace() {
 
 TEST(SampledAllocationTest, PrepareForSampling) {
   // PrepareForSampling() invoked in the constructor.
-  SampledAllocation sampled_allocation(PrepareStackTrace());
+  SampledAllocation sampled_allocation(PrepareStackTrace(), nullptr);
   absl::base_internal::SpinLockHolder sample_lock(&sampled_allocation.lock);
 
   // Now verify some fields.
@@ -54,7 +54,7 @@ TEST(SampledAllocationTest, PrepareForSampling) {
   sampled_allocation.sampled_stack.weight = 0;
 
   // Call PrepareForSampling() again and check the fields.
-  sampled_allocation.PrepareForSampling(PrepareStackTrace());
+  sampled_allocation.PrepareForSampling(PrepareStackTrace(), nullptr);
   EXPECT_GT(sampled_allocation.sampled_stack.depth, 0);
   EXPECT_EQ(sampled_allocation.sampled_stack.requested_size, 8);
   EXPECT_EQ(sampled_allocation.sampled_stack.requested_alignment, 4);

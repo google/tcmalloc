@@ -56,7 +56,6 @@ ABSL_CONST_INIT PageHeapAllocator<StackTrace> Static::stacktrace_allocator_;
 ABSL_CONST_INIT PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
 ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
     Static::sampled_allocation_recorder_;
-ABSL_CONST_INIT SpanList Static::sampled_objects_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
 ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::Bucket>
@@ -83,9 +82,9 @@ size_t Static::metadata_bytes() {
       sizeof(cpu_cache_) + sizeof(sampledallocation_allocator_) +
       sizeof(span_allocator_) + sizeof(stacktrace_allocator_) +
       sizeof(threadcache_allocator_) + sizeof(sampled_allocation_recorder_) +
-      sizeof(sampled_objects_) + sizeof(bucket_allocator_) +
-      sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
-      sizeof(pagemap_) + sizeof(sampled_objects_size_) +
+      sizeof(bucket_allocator_) + sizeof(inited_) + sizeof(cpu_cache_active_) +
+      sizeof(page_allocator_) + sizeof(pagemap_) +
+      sizeof(sampled_objects_size_) +
       sizeof(peak_heap_tracker_) + sizeof(guarded_page_lock) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
   // LINT.ThenChange(:static_vars)
