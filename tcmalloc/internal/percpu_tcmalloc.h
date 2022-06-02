@@ -338,6 +338,9 @@ class TcmallocSlab {
   std::atomic<SlabsAndShift> slabs_and_shift_{};
   // This is in units of bytes.
   size_t virtual_cpu_id_offset_ = offsetof(kernel_rseq, cpu_id);
+  // In ResizeSlabs, we need to allocate space to store begin offsets on the
+  // arena. We reuse this space here.
+  uint16_t (*resize_begins_)[NumClasses] = nullptr;
 };
 
 template <size_t NumClasses>
@@ -1298,6 +1301,8 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
   // Phase 1: Allocate new slab array and initialize any cores that have already
   // been populated in the old slab.
   const int num_cpus = absl::base_internal::NumCPUs();
+  // TODO(b/186636177): save the old slab pointers (one of each shift value) to
+  // avoid using unbounded virtual memory.
   Slabs* new_slabs = AllocSlabs(alloc, new_shift, num_cpus);
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
@@ -1312,14 +1317,21 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
   // Phase 2: Collect all `begin`s (these are not mutated by anybody else thanks
   // to the cpu locks) and stop concurrent mutations for all populated CPUs and
   // size classes by locking all the headers.
-  auto begins = std::make_unique<std::array<uint16_t, NumClasses>[]>(num_cpus);
+  // Note: we can't do regular malloc here for resize_begins_ because we may be
+  // holding the CpuCache spinlocks. We allocate memory on the arena and keep
+  // the pointer for reuse.
+  const size_t begins_size = sizeof(uint16_t) * NumClasses * num_cpus;
+  if (resize_begins_ == nullptr) {
+    resize_begins_ = reinterpret_cast<uint16_t(*)[NumClasses]>(
+        alloc(begins_size, std::align_val_t{alignof(uint16_t)}));
+  }
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
       Header header =
           LoadHeader(GetHeader(old_slabs, old_shift, cpu, size_class));
       CHECK_CONDITION(!header.IsLocked());
-      begins[cpu][size_class] = header.begin;
+      resize_begins_[cpu][size_class] = header.begin;
     }
     StopConcurrentMutations(old_slabs, old_shift, cpu, virtual_cpu_id_offset);
   }
@@ -1330,7 +1342,7 @@ std::pair<void*, size_t> TcmallocSlab<NumClasses>::ResizeSlabs(
   // Phase 4: Return pointers from the old slab to the TransferCache.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
-    DrainCpu(old_slabs, old_shift, cpu, &begins[cpu][0], drain_handler);
+    DrainCpu(old_slabs, old_shift, cpu, &resize_begins_[cpu][0], drain_handler);
   }
 
   // Phase 5: Update all the `current` values to 0 and fence all CPUs. In RSEQ
