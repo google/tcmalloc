@@ -83,7 +83,9 @@ class Parameters {
     return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
-  static bool prioritize_spans();
+  static bool prioritize_spans() {
+    return prioritize_spans_enabled_.load(std::memory_order_relaxed);
+  }
 
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
@@ -159,6 +161,7 @@ class Parameters {
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
+  static std::atomic<bool> prioritize_spans_enabled_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;

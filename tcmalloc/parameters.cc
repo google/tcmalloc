@@ -48,16 +48,6 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
-// As prioritize_spans_in_cfl() is determined at runtime, we cannot require
-// constant initialization for the atomic.  This avoids an initialization order
-// fiasco.
-static std::atomic<bool>& prioritize_spans_in_cfl() {
-  static std::atomic<bool> v([]() {
-    return IsExperimentActive(Experiment::TCMALLOC_PRIORITIZE_SPANS);
-  }());
-  return v;
-}
-
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
@@ -90,6 +80,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
+ABSL_CONST_INIT std::atomic<bool> Parameters::prioritize_spans_enabled_(false);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -110,10 +101,6 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
-
-bool Parameters::prioritize_spans() {
-  return prioritize_spans_in_cfl().load(std::memory_order_relaxed);
-}
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -251,8 +238,7 @@ void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::prioritize_spans_in_cfl().store(
-      v, std::memory_order_relaxed);
+  Parameters::prioritize_spans_enabled_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {

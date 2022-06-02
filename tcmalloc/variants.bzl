@@ -110,12 +110,6 @@ variants = [
         "copts": ["-DTCMALLOC_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
-    {
-        "name": "prioritize_spans",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_PRIORITIZE_SPANS"},
-    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):
