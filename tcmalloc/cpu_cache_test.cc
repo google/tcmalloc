@@ -75,17 +75,12 @@ class TestStaticForwarder {
   }
 
   static void* Alloc(size_t size, std::align_val_t alignment) {
-    void* ptr = ::operator new(size, alignment);
-    if (static_cast<size_t>(alignment) >= getpagesize()) {
-      // Emulate obtaining memory as if we got it from mmap (zero'd).
-      memset(ptr, 0, size);
-      madvise(ptr, size, MADV_DONTNEED);
-    }
-    return ptr;
+    return mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   }
 
-  static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
-    sized_aligned_delete(ptr, size, alignment);
+  static void Dealloc(void* ptr, size_t size, std::align_val_t /*alignment*/) {
+    munmap(ptr, size);
   }
 
   void ArenaReportNonresident(size_t bytes) {
@@ -230,15 +225,18 @@ TEST(CpuCacheTest, Metadata) {
           num_cpus));
 
   // We expect to fault in a single core, but we may end up faulting an
-  // entire hugepage worth of memory
+  // entire hugepage worth of memory when we touch that core and another when
+  // touching the header.
   const size_t core_slab_size = r.virtual_size / num_cpus;
   const size_t upper_bound =
-      ((core_slab_size + kHugePageSize - 1) & ~(kHugePageSize - 1));
+      ((core_slab_size + kHugePageSize - 1) & ~(kHugePageSize - 1)) +
+      kHugePageSize;
 
   // A single core may be less than the full slab (core_slab_size), since we
   // do not touch every page within the slab.
   EXPECT_GT(r.resident_size, 0);
-  EXPECT_LE(r.resident_size, upper_bound) << count_cores();
+  EXPECT_LE(r.resident_size, upper_bound)
+      << count_cores() << " " << core_slab_size << " " << kHugePageSize;
 
   // This test is much more sensitive to implementation details of the per-CPU
   // cache.  It may need to be updated from time to time.  These numbers were

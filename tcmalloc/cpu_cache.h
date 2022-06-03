@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <new>
+#include <tuple>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
@@ -48,6 +49,19 @@ class CpuCachePeer;
 namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
+
+// A SpinLockHolder that also enforces no allocations while the lock is held in
+// debug mode. We can't allocate while holding the per-cpu spin locks.
+class AllocationGuardSpinLockHolder {
+ public:
+  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
+      : lock_holder_(l) {}
+
+ private:
+  absl::base_internal::SpinLockHolder lock_holder_;
+  // In debug mode, enforces no allocations.
+  AllocationGuard enforce_no_alloc_;
+};
 
 // StaticForwarder provides access to the SizeMap and transfer caches.
 //
@@ -376,7 +390,8 @@ class CpuCache {
     absl::once_flag initialized;
     // Track whether we have ever populated this CPU.
     std::atomic<bool> populated;
-    // For cross-cpu operations.
+    // For cross-cpu operations. We can't allocate while holding one of these so
+    // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock;
     PerClassResizeInfo per_class[kNumClasses];
     // Tracks number of underflows on allocate.
@@ -822,7 +837,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   absl::base_internal::LowLevelCallOnce(
       &resize_[cpu].initialized,
       [](CpuCache* cache, int cpu) {
-        absl::base_internal::SpinLockHolder h(&cache->resize_[cpu].lock);
+        AllocationGuardSpinLockHolder h(&cache->resize_[cpu].lock);
         cache->freelist_.InitCpu(
             cpu, cache->GetMaxCapacityFunctor(cache->freelist_.GetShift()));
 
@@ -1156,7 +1171,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
       // TODO(vgogte): Maybe we can steal more from a single list to avoid
       // frequent locking overhead.
       {
-        absl::base_internal::SpinLockHolder h(&resize_[src_cpu].lock);
+        AllocationGuardSpinLockHolder h(&resize_[src_cpu].lock);
         if (freelist_.ShrinkOtherCache(
                 src_cpu, source_size_class, 1,
                 [this](size_t size_class, void** batch, size_t count) {
@@ -1441,7 +1456,7 @@ struct DrainHandler {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
-  absl::base_internal::SpinLockHolder h(&resize_[cpu].lock);
+  AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
 
   // If we haven't populated this core, freelist_.Drain() will touch the memory
   // (for writing) as part of its locking process.  Avoid faulting new pages as
@@ -1511,11 +1526,17 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
-  const auto [old_slabs, old_slabs_size] = freelist_.ResizeSlabs(
-      subtle::percpu::ToShiftType(per_cpu_shift), &forwarder_.Alloc,
-      GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
-      [this](int cpu) { return HasPopulated(cpu); },
-      DrainHandler<CpuCache>{this, nullptr});
+  void* old_slabs;
+  size_t old_slabs_size;
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+    std::tie(old_slabs, old_slabs_size) = freelist_.ResizeSlabs(
+        subtle::percpu::ToShiftType(per_cpu_shift), &forwarder_.Alloc,
+        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
+        [this](int cpu) { return HasPopulated(cpu); },
+        DrainHandler<CpuCache>{this, nullptr});
+  }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
   // madvise away the old slabs memory.

@@ -171,6 +171,11 @@ extern void (*log_message_writer)(const char* msg, int length);
 #define ASSERT(cond) ((void)0)
 #endif
 
+// TODO(b/143069684): actually ensure no allocations in debug mode here.
+struct AllocationGuard {
+  AllocationGuard() {}
+};
+
 // Print into buffer
 class Printer {
  private:
@@ -192,7 +197,7 @@ class Printer {
     if (left_ <= 0) {
       return;
     }
-
+    AllocationGuard enforce_no_alloc;
     const int r = absl::SNPrintF(buf_, left_, format, args...);
     if (r < 0) {
       left_ = 0;
@@ -210,7 +215,7 @@ class Printer {
 
   template <typename... Args>
   void Append(const Args&... args) {
-
+    AllocationGuard enforce_no_alloc;
     AppendPieces({static_cast<const absl::AlphaNum&>(args).Piece()...});
   }
 
