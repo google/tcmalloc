@@ -252,7 +252,8 @@ class TcmallocSlab {
     uintptr_t Raw() const {
       // We depend on this in PushBatch/PopBatch.
       static_assert(kShiftMask == 0xFF);
-      static_assert(kSlabsMask == TCMALLOC_PERCPU_SLABS_MASK);
+      static_assert(kSlabsMask ==
+                    static_cast<size_t>(TCMALLOC_PERCPU_SLABS_MASK));
       return raw_;
     }
 
