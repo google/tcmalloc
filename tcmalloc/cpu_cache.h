@@ -392,9 +392,7 @@ class CpuCache {
     std::atomic<bool> populated;
     // For cross-cpu operations. We can't allocate while holding one of these so
     // please use AllocationGuardSpinLockHolder to hold it.
-    // Note: `lock` must be taken before the `pageheap_lock` if both are going
-    // to be held simultaneously.
-    absl::base_internal::SpinLock lock;
+    absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock);
     PerClassResizeInfo per_class[kNumClasses];
     // Tracks number of underflows on allocate.
     MissCounts underflows;
