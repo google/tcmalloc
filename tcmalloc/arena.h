@@ -84,7 +84,11 @@ class Arena {
 
   // Total number of bytes allocated from this arena
   size_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  // The number of bytes that are unused and unavailable for future allocations
+  // because they are at the end of a discarded arena block.
   size_t bytes_unavailable_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  // The number of bytes on the arena that have been MADV_DONTNEEDed away. Note
+  // that these bytes are disjoint from the ones counted in `bytes_allocated`.
   size_t bytes_nonresident_ ABSL_GUARDED_BY(pageheap_lock) = 0;
   // Total number of blocks/free areas managed by this Arena.
   size_t blocks_ ABSL_GUARDED_BY(pageheap_lock) = 0;

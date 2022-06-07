@@ -16,11 +16,28 @@
 
 #include "tcmalloc/malloc_extension.h"
 
+#include <optional>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/time/time.h"
+#include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
+namespace tcmalloc_internal {
+class CpuCachePeer {
+ public:
+  template <typename CpuCache>
+  static void ResizeSlab(CpuCache& cpu_cache, bool should_grow) {
+    for (int i = 0; i < 100000; ++i)
+      cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/!should_grow);
+    // We need at least one of each type of miss for the ratios to be sensical.
+    cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/should_grow);
+    cpu_cache.ResizeSlabIfNeeded();
+  }
+};
+
 namespace {
 
 TEST(MallocExtension, BackgroundReleaseRate) {
@@ -55,11 +72,11 @@ TEST(MallocExtension, Properties) {
   // GetNumericProperty.
   const auto properties = MallocExtension::GetProperties();
   for (const auto& property : properties) {
-    absl::optional<size_t> scalar =
+    std::optional<size_t> scalar =
         MallocExtension::GetNumericProperty(property.first);
     // The value of the property itself may have changed, so just check that it
     // is present.
-    EXPECT_THAT(scalar, testing::Ne(absl::nullopt)) << property.first;
+    EXPECT_THAT(scalar, testing::Ne(std::nullopt)) << property.first;
   }
 
   // Test that known GetNumericProperty keys exist under GetProperties.
@@ -98,12 +115,31 @@ TEST(MallocExtension, Properties) {
   };
 
   for (const auto& known : kKnownProperties) {
-    absl::optional<size_t> scalar = MallocExtension::GetNumericProperty(known);
-    EXPECT_THAT(scalar, testing::Ne(absl::nullopt));
+    std::optional<size_t> scalar = MallocExtension::GetNumericProperty(known);
+    EXPECT_THAT(scalar, testing::Ne(std::nullopt));
     EXPECT_THAT(properties,
                 testing::Contains(testing::Key(testing::Eq(known))));
   }
 }
 
+// Test that when we resize the slab repeatedly, the metadata metric is
+// positive.
+TEST(MallocExtension, DynamicSlabMallocMetadata) {
+  if (!subtle::percpu::IsFast()) {
+    GTEST_SKIP() << "CPU cache disabled.";
+  }
+
+  auto& cpu_cache = Static::cpu_cache();
+  for (int i = 0; i < 100; ++i) {
+    CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/true);
+    CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/false);
+  }
+  auto properties = MallocExtension::GetProperties();
+  EXPECT_THAT(
+      properties["tcmalloc.metadata_bytes"],
+      testing::Field(&MallocExtension::Property::value, testing::Gt(0)));
+}
+
 }  // namespace
+}  // namespace tcmalloc_internal
 }  // namespace tcmalloc

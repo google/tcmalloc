@@ -938,6 +938,7 @@ cc_test(
         "nosan",
     ],
     deps = [
+        ":common",
         ":malloc_extension",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
