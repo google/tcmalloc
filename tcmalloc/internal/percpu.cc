@@ -170,6 +170,9 @@ static bool NeedCpu(int cpu, const cpu_set_t* cpus) {
   return CPU_ISSET(cpu, cpus);
 }
 
+// Interrupt every concurrently running sibling thread on any cpu in "cpus", and
+// guarantee our writes up til now are visible to every other CPU. (cpus == NULL
+// is equivalent to all CPUs.)
 static void SlowFence(const cpu_set_t* cpus) {
   // Necessary, so the point in time mentioned below has visibility
   // of our writes.
@@ -278,17 +281,6 @@ static void UpstreamRseqFenceCpu(int cpu) {
 }
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
 
-// Interrupt every concurrently running sibling thread on any cpu in
-// "cpus", and guarantee our writes up til now are visible to every
-// other CPU. (cpus == NULL is equivalent to all CPUs.)
-static void FenceInterruptCPUs(const cpu_set_t* cpus) {
-  CHECK_CONDITION(IsFast());
-
-  // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
-  // interrupt ongoing restartable sequences.
-  SlowFence(cpus);
-}
-
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   // Prevent compiler re-ordering of code below. In particular, the call to
   // GetCurrentCpu must not appear in assembly program order until after any
@@ -320,7 +312,7 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   cpu_set_t set;
   CPU_ZERO(&set);
   CPU_SET(cpu, &set);
-  FenceInterruptCPUs(&set);
+  SlowFence(&set);
 }
 
 void FenceAllCpus() {
@@ -330,7 +322,7 @@ void FenceAllCpus() {
     return;
   }
 #endif  // TCMALLOC_PERCPU_USE_RSEQ
-  FenceInterruptCPUs(nullptr);
+  SlowFence(nullptr);
 }
 
 }  // namespace percpu
