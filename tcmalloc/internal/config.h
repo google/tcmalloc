@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/config.h"
 #include "absl/base/policy_checks.h"
 
 // TCMALLOC_HAVE_SCHED_GETCPU is defined when the system implements
@@ -79,6 +80,10 @@
 #if !defined(__x86_64__) && !defined(__ppc64__) && !defined(__arm__) && \
     !defined(__aarch64__) && !defined(__riscv)
 #error "Unsupported architecture."
+#endif
+
+#ifndef ABSL_IS_LITTLE_ENDIAN
+#error "TCMalloc only supports little endian architectures"
 #endif
 
 #if !defined(__cplusplus) || __cplusplus < 201703L
