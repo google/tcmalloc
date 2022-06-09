@@ -362,7 +362,6 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unallocated\n"
       "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unavailable\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena non-resident\n"
 
       "MALLOC:   ------------\n"
       "MALLOC: = %12" PRIu64 " (%7.1f MiB) Actual memory used (physical + swap)\n"
@@ -382,6 +381,7 @@ static void DumpStats(Printer* out, int level) {
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) Pagemap root resident bytes\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab bytes used\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab resident bytes\n"
+      "MALLOC:   %12" PRIu64 " (%7.1f MiB) malloc metadata Arena non-resident bytes\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) Actual memory used at peak\n"
       "MALLOC:   %12" PRIu64 " (%7.1f MiB) Estimated in-use at peak\n"
       "MALLOC:   %12.4f               Realized fragmentation (%%)\n"
@@ -399,7 +399,6 @@ static void DumpStats(Printer* out, int level) {
       stats.metadata_bytes, stats.metadata_bytes / MiB,
       stats.arena.bytes_unallocated, stats.arena.bytes_unallocated / MiB,
       stats.arena.bytes_unavailable, stats.arena.bytes_unavailable / MiB,
-      stats.arena.bytes_nonresident, stats.arena.bytes_nonresident / MiB,
       physical_memory_used, physical_memory_used / MiB,
       unmapped_bytes, unmapped_bytes / MiB,
       virtual_memory_used, virtual_memory_used / MiB,
@@ -421,6 +420,7 @@ static void DumpStats(Printer* out, int level) {
       uint64_t(stats.percpu_metadata_bytes),
       stats.percpu_metadata_bytes / MiB,
       stats.percpu_metadata_bytes_res, stats.percpu_metadata_bytes_res / MiB,
+      stats.arena.bytes_nonresident, stats.arena.bytes_nonresident / MiB,
       uint64_t(stats.peak_stats.backed_bytes),
       stats.peak_stats.backed_bytes / MiB,
       uint64_t(stats.peak_stats.sampled_application_bytes),
