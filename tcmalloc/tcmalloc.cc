@@ -1050,7 +1050,9 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.pageheap_unmapped_bytes" ||
       name == "tcmalloc.page_heap_unmapped") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    *value = Static::page_allocator().stats().unmapped_bytes;
+    // Arena non-resident bytes aren't on the page heap, but they are unmapped.
+    *value = Static::page_allocator().stats().unmapped_bytes +
+             Static::arena().stats().bytes_nonresident;
     return true;
   }
 
@@ -1335,8 +1337,9 @@ extern "C" void MallocExtension_Internal_GetProperties(
   // Page Unmapped
   (*result)["tcmalloc.pageheap_unmapped_bytes"].value =
       stats.pageheap.unmapped_bytes;
+  // Arena non-resident bytes aren't on the page heap, but they are unmapped.
   (*result)["tcmalloc.page_heap_unmapped"].value =
-      stats.pageheap.unmapped_bytes;
+      stats.pageheap.unmapped_bytes + stats.arena.bytes_nonresident;
   (*result)["tcmalloc.sampled_internal_fragmentation"].value =
       sampled_internal_fragmentation.load(std::memory_order_relaxed);
 
