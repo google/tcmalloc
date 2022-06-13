@@ -26,6 +26,7 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/optimization.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/time/time.h"
@@ -61,6 +62,11 @@ class CpuCachePeer {
     EXPECT_GT(bytes_required * 10, bytes_available * 9)
         << bytes_required << " " << bytes_available << " " << kNumaPartitions
         << " " << kNumBaseClasses << " " << kNumClasses;
+  }
+
+  template <typename CpuCache>
+  static size_t ResizeInfoSize() {
+    return sizeof(typename CpuCache::ResizeInfo);
   }
 };
 
@@ -156,6 +162,11 @@ using MissCount = CpuCache::MissCount;
 
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
+
+TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
+  const size_t resize_info_size = CpuCachePeer::ResizeInfoSize<CpuCache>();
+  EXPECT_EQ(resize_info_size % ABSL_CACHELINE_SIZE, 0) << resize_info_size;
+}
 
 TEST(CpuCacheTest, Metadata) {
   if (!subtle::percpu::IsFast()) {

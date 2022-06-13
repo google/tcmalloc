@@ -380,7 +380,7 @@ class CpuCache {
     }
   };
 
-  struct ResizeInfoUnpadded {
+  struct ABSL_CACHELINE_ALIGNED ResizeInfo {
     // cache space on this CPU we're not using.  Modify atomically;
     // we don't want to lose space.
     std::atomic<size_t> available;
@@ -405,10 +405,6 @@ class CpuCache {
     std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
     std::atomic<size_t> num_reclaims;
-  };
-  struct ResizeInfo : ResizeInfoUnpadded {
-    char pad[ABSL_CACHELINE_SIZE -
-             sizeof(ResizeInfoUnpadded) % ABSL_CACHELINE_SIZE];
   };
 
   struct DynamicSlabInfo {

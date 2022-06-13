@@ -583,8 +583,8 @@ class SizeMap {
 };
 
 // Linker initialized, so this lock can be accessed at any time.
-// Note: `CpuCache::ResizeInfoUnpadded::lock` must be taken before the
-// `pageheap_lock` if both are going to be held simultaneously.
+// Note: `CpuCache::ResizeInfo::lock` must be taken before the `pageheap_lock`
+// if both are going to be held simultaneously.
 extern absl::base_internal::SpinLock pageheap_lock;
 
 // Evaluates a/b, avoiding division by zero.

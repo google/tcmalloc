@@ -1325,6 +1325,7 @@ cc_test(
         "//tcmalloc/internal:util",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:bit_gen_ref",
         "@com_google_absl//absl/time",
