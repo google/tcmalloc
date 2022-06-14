@@ -81,11 +81,11 @@ class StaticForwarder {
     ASSERT(false);
   }
 
-  static void ArenaReportNonresident(size_t bytes)
+  static void ArenaReportNonresident(size_t unused_bytes, size_t reused_bytes)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(Static::IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    Static::arena().ReportNonresident(bytes);
+    Static::arena().ReportNonresident(unused_bytes, reused_bytes);
   }
 
   static bool per_cpu_caches_dynamic_slab_enabled() {
@@ -129,24 +129,17 @@ class StaticForwarder {
   }
 };
 
-// Determine number of bits we should use for allocating per-cpu cache.
-// The amount of per-cpu cache is 2 ^ per-cpu-shift.
-// When dynamic slab size is enabled, we start with kInitialPerCpuShift and
-// grow as needed up to kMaxPerCpuShift. When dynamic slab size is disabled,
-// we always use kMaxPerCpuShift.
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
-constexpr inline uint8_t kInitialPerCpuShift = 12;
-constexpr inline uint8_t kMaxPerCpuShift = 12;
-#else
-constexpr inline uint8_t kInitialPerCpuShift = 14;
-constexpr inline uint8_t kMaxPerCpuShift = 18;
-#endif
-
 template <typename NumaTopology>
 uint8_t NumaShift(const NumaTopology& topology) {
   return topology.numa_aware()
              ? absl::bit_ceil(topology.active_partitions() - 1)
              : 0;
+}
+
+// Translates from a shift value to the offset of that shift in arrays of
+// possible shift values.
+inline uint8_t ShiftOffset(uint8_t shift, uint8_t numa_shift) {
+  return shift - kInitialPerCpuShift - numa_shift;
 }
 
 struct GetShiftMaxCapacity {
@@ -408,10 +401,8 @@ class CpuCache {
   };
 
   struct DynamicSlabInfo {
-    static constexpr size_t kNumPossibleShifts =
-        kMaxPerCpuShift - kInitialPerCpuShift + 1;
-    std::atomic<size_t> grow_count[kNumPossibleShifts];
-    std::atomic<size_t> shrink_count[kNumPossibleShifts];
+    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
+    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
     std::atomic<size_t> madvise_failed_bytes;
   };
 
@@ -724,7 +715,8 @@ inline void CpuCache<Forwarder>::Activate() {
 
   freelist_.Init(&forwarder_.Alloc,
                  GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
-                 subtle::percpu::ToShiftType(per_cpu_shift));
+                 subtle::percpu::ToShiftType(per_cpu_shift),
+                 ShiftOffset(per_cpu_shift, numa_shift));
 }
 
 template <class Forwarder>
@@ -1506,47 +1498,45 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
           forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
     if (per_cpu_shift == kMaxPerCpuShift + numa_shift) return;
     ++per_cpu_shift;
-    dynamic_slab_info_
-        .grow_count[per_cpu_shift - kInitialPerCpuShift - numa_shift]
+    dynamic_slab_info_.grow_count[ShiftOffset(per_cpu_shift, numa_shift)]
         .fetch_add(1, std::memory_order_relaxed);
   } else if (total_misses.overflows <
              total_misses.underflows *
                  forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
     if (per_cpu_shift == kInitialPerCpuShift + numa_shift) return;
     --per_cpu_shift;
-    dynamic_slab_info_
-        .shrink_count[per_cpu_shift - kInitialPerCpuShift - numa_shift]
+    dynamic_slab_info_.shrink_count[ShiftOffset(per_cpu_shift, numa_shift)]
         .fetch_add(1, std::memory_order_relaxed);
   } else {
     return;
   }
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
-  void* old_slabs;
-  size_t old_slabs_size;
+  ResizeSlabsInfo info;
   {
     // We can't allocate while holding the per-cpu spinlocks.
     AllocationGuard enforce_no_alloc;
-    std::tie(old_slabs, old_slabs_size) = freelist_.ResizeSlabs(
+    info = freelist_.ResizeSlabs(
         subtle::percpu::ToShiftType(per_cpu_shift), &forwarder_.Alloc,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
         [this](int cpu) { return HasPopulated(cpu); },
-        DrainHandler<CpuCache>{this, nullptr});
+        DrainHandler<CpuCache>{this, nullptr},
+        ShiftOffset(per_cpu_shift, numa_shift));
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
   // madvise away the old slabs memory.
   // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once the
   // kernel enables huge zero pages.
-  bool madvise_failed = madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
-  madvise_failed =
-      madvise(old_slabs, old_slabs_size, MADV_DONTNEED) || madvise_failed;
-  if (!madvise_failed) {
-    forwarder_.ArenaReportNonresident(old_slabs_size);
-  } else {
+  // Note: we use bitwise OR to avoid short-circuiting.
+  const bool madvise_failed =
+      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
+      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
+  if (madvise_failed) {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
-        old_slabs_size, std::memory_order_relaxed);
+        info.old_slabs_size, std::memory_order_relaxed);
   }
+  forwarder_.ArenaReportNonresident(info.old_slabs_size, info.reused_bytes);
 }
 
 template <class Forwarder>
@@ -1718,7 +1708,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Per-CPU cache slab resizing info:\n");
   out->printf("------------------------------------------------\n");
-  for (int shift = 0; shift < DynamicSlabInfo::kNumPossibleShifts; ++shift) {
+  for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
     out->printf("shift %3d:", shift + kInitialPerCpuShift);
     out->printf(
         "%12" PRIu64
@@ -1766,7 +1756,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   }
 
   // Record dynamic slab statistics.
-  for (int shift = 0; shift < DynamicSlabInfo::kNumPossibleShifts; ++shift) {
+  for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
     PbtxtRegion entry = region->CreateSubRegion("dynamic_slab");
     entry.PrintI64("shift", shift + kInitialPerCpuShift);
     entry.PrintI64("grow_count", dynamic_slab_info_.grow_count[shift].load(

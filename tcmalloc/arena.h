@@ -55,12 +55,16 @@ class Arena {
                                              int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Reports that bytes previously in use by the arena have become non-resident.
-  void ReportNonresident(size_t bytes)
+  // Reports that bytes previously in use by the arena have become non-resident
+  // and/or that bytes that were previously non-resident have become reused.
+  void ReportNonresident(size_t unused_bytes, size_t reused_bytes)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    ASSERT(bytes_allocated_ >= bytes);
-    bytes_allocated_ -= bytes;
-    bytes_nonresident_ += bytes;
+    ASSERT(bytes_allocated_ >= unused_bytes);
+    bytes_allocated_ -= unused_bytes;
+    bytes_nonresident_ += unused_bytes;
+    ASSERT(bytes_nonresident_ >= reused_bytes);
+    bytes_nonresident_ -= reused_bytes;
+    bytes_allocated_ += reused_bytes;
   }
 
   // Returns statistics about memory allocated and managed by this Arena.

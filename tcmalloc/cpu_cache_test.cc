@@ -89,8 +89,9 @@ class TestStaticForwarder {
     munmap(ptr, size);
   }
 
-  void ArenaReportNonresident(size_t bytes) {
-    arena_reported_nonresident_bytes_ += bytes;
+  void ArenaReportNonresident(size_t unused_bytes, size_t reused_bytes) {
+    arena_reported_nonresident_bytes_ += unused_bytes;
+    arena_reported_nonresident_bytes_ -= reused_bytes;
   }
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
@@ -179,11 +180,9 @@ TEST(CpuCacheTest, Metadata) {
   cache.Activate();
 
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(
-      r.virtual_size,
-      subtle::percpu::GetSlabsAllocSize(
-          subtle::percpu::ToShiftType(cpu_cache_internal::kMaxPerCpuShift),
-          num_cpus));
+  EXPECT_EQ(r.virtual_size,
+            subtle::percpu::GetSlabsAllocSize(
+                subtle::percpu::ToShiftType(kMaxPerCpuShift), num_cpus));
   EXPECT_EQ(r.resident_size, 0);
 
   auto count_cores = [&]() {
@@ -229,11 +228,9 @@ TEST(CpuCacheTest, Metadata) {
   EXPECT_EQ(1, count_cores());
 
   r = cache.MetadataMemoryUsage();
-  EXPECT_EQ(
-      r.virtual_size,
-      subtle::percpu::GetSlabsAllocSize(
-          subtle::percpu::ToShiftType(cpu_cache_internal::kMaxPerCpuShift),
-          num_cpus));
+  EXPECT_EQ(r.virtual_size,
+            subtle::percpu::GetSlabsAllocSize(
+                subtle::percpu::ToShiftType(kMaxPerCpuShift), num_cpus));
 
   // We expect to fault in a single core, but we may end up faulting an
   // entire hugepage worth of memory when we touch that core and another when
@@ -253,7 +250,7 @@ TEST(CpuCacheTest, Metadata) {
   // cache.  It may need to be updated from time to time.  These numbers were
   // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
   // measuring the resident size.
-  switch (cpu_cache_internal::kMaxPerCpuShift) {
+  switch (kMaxPerCpuShift) {
     case 12:
       EXPECT_GE(r.resident_size, 4096);
       break;
@@ -485,7 +482,7 @@ TEST(CpuCacheTest, DynamicSlab) {
         std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
   }
 
-  int shift = cpu_cache_internal::kInitialPerCpuShift;
+  int shift = kInitialPerCpuShift;
   const int numa_shift =
       cpu_cache_internal::NumaShift(forwarder.numa_topology());
 
@@ -519,9 +516,9 @@ TEST(CpuCacheTest, DynamicSlab) {
 
   // First grow the slab to max size, then shrink it to min size.
   repeat_dynamic_slab_ops(DynamicSlab::kGrow, /*shift_update=*/1,
-                          cpu_cache_internal::kMaxPerCpuShift);
+                          kMaxPerCpuShift);
   repeat_dynamic_slab_ops(DynamicSlab::kShrink, /*shift_update=*/-1,
-                          cpu_cache_internal::kInitialPerCpuShift);
+                          kInitialPerCpuShift);
 
   stop = true;
   for (auto& t : threads) {

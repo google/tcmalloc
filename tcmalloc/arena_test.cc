@@ -99,12 +99,21 @@ TEST(Arena, ReportUnmapped) {
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    arena.ReportNonresident(5);
+    arena.ReportNonresident(5, 0);
     stats_after_alloc = arena.stats();
   }
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 5);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 5);
+
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    arena.ReportNonresident(2, 5);
+    stats_after_alloc = arena.stats();
+  }
+
+  EXPECT_EQ(stats_after_alloc.bytes_allocated, 8);
+  EXPECT_EQ(stats_after_alloc.bytes_nonresident, 2);
 }
 
 }  // namespace
