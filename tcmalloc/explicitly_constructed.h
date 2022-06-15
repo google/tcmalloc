@@ -35,7 +35,7 @@ namespace tcmalloc_internal {
 // 1. The object is "uninitialized" to begin with.
 // 2. Call Construct() only if the object is uninitialized. After the call, the
 //    object becomes "initialized".
-// 3. Call get() and get_mutable() only if the object is initialized.
+// 3. Call get_mutable() only if the object is initialized.
 template <typename T>
 class ExplicitlyConstructed {
  public:
