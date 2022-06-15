@@ -29,8 +29,6 @@
 #define TCMALLOC_PERCPU_RSEQ_FLAGS 0x0
 #if defined(__x86_64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x53053053
-#elif defined(__ppc__)
-#define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0x0FE5000B
 #elif defined(__aarch64__)
 #define TCMALLOC_PERCPU_RSEQ_SIGNATURE 0xd428bc00
 #else
