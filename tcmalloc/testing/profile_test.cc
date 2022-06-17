@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <new>
+#include <optional>
 #include <vector>
 
 #include "google/protobuf/io/gzip_stream.h"
@@ -24,6 +25,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/profile_marshaler.h"
 #include "tcmalloc/testing/testutil.h"
@@ -65,14 +67,37 @@ TEST(ProfileTest, HeapProfile) {
   perftools::profiles::Profile converted;
   ASSERT_TRUE(converted.ParseFromCodedStream(&coded));
 
-  size_t count = 0, bytes = 0;
+  // Look for "request" string in string table.
+  std::optional<int> request_id;
+  for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
+    if (converted.string_table(i) == "request") {
+      request_id = i;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(request_id.has_value());
+
+  size_t count = 0, bytes = 0, samples = 0;
   for (const auto& sample : converted.sample()) {
     count += sample.value(0);
     bytes += sample.value(1);
+
+    // Count the number of times we saw an alloc_size-sized allocation.
+    for (const auto& label : sample.label()) {
+      if (label.key() == request_id && label.num() == alloc_size) {
+        samples++;
+      }
+    }
   }
 
-  ASSERT_GT(count, 0);
-  ASSERT_GE(bytes, alloc_size * kAllocs);
+  EXPECT_GT(count, 0);
+  EXPECT_GE(bytes, alloc_size * kAllocs);
+  // To minimize the size of profiles, we expect to coalesce similar allocations
+  // (same call stack, size, alignment, etc.) during generation of the
+  // profile.proto.  Since all of the calls to operator new(alloc_size) are
+  // similar in these dimensions, we expect to see only 1 sample.
+  EXPECT_EQ(samples, 1);
 }
 
 }  // namespace

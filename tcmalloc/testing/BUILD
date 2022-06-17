@@ -962,6 +962,7 @@ create_tcmalloc_testsuite(
         ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:profile_marshaler",
+        "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
