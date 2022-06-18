@@ -86,6 +86,10 @@
 #error "TCMalloc only supports little endian architectures"
 #endif
 
+#ifndef __linux__
+#error "TCMalloc is only supported on Linux."
+#endif
+
 #if !defined(__cplusplus) || __cplusplus < 201703L
 #error "TCMalloc requires C++17 or later."
 #else
