@@ -82,7 +82,7 @@ ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::prioritize_spans_enabled_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_transfer_caches_enabled_(
-    false);
+    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
