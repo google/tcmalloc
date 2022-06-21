@@ -770,6 +770,144 @@ INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TwoSizeClassTest,
 
 }  // namespace leak_tests
 
+namespace resize_tests {
+
+template <typename Env>
+using RealTransferCacheTest = ::testing::Test;
+TYPED_TEST_SUITE_P(RealTransferCacheTest);
+
+TYPED_TEST_P(RealTransferCacheTest, ResizeOccurs) {
+  TypeParam env;
+
+  // Enable background resizing of transfer caches.
+  env.transfer_cache_manager().SetResizeCachesInBackground(true);
+  constexpr int kSizeClass = 1;
+
+  TransferCacheStats stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  EXPECT_EQ(stats.insert_misses, 0);
+  EXPECT_EQ(stats.insert_non_batch_misses, 0);
+  EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_non_batch_misses, 0);
+
+  const int initial_capacity = stats.capacity;
+
+  // Count capacity (measured in batches) currently allowed in the cache.
+  auto count_batches = [&env]() {
+    int batch_count = 0;
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      const size_t batch_size =
+          env.transfer_cache_manager().num_objects_to_move(size_class);
+      const int capacity =
+          env.transfer_cache_manager().GetStats(size_class).capacity;
+      batch_count += batch_size > 0 ? capacity / batch_size : 0;
+    }
+    return batch_count;
+  };
+
+  const int total_capacity = count_batches();
+
+  const size_t batch_size =
+      env.transfer_cache_manager().num_objects_to_move(kSizeClass);
+
+  while (env.transfer_cache_manager().HasSpareCapacity(kSizeClass)) {
+    env.Insert(kSizeClass, batch_size);
+  }
+  stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  EXPECT_EQ(stats.insert_misses, 0);
+  EXPECT_EQ(stats.insert_non_batch_misses, 0);
+  EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_non_batch_misses, 0);
+
+  // Try resizing caches.
+  env.transfer_cache_manager().TryResizingCaches();
+  stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  // As the number of misses encountered yet is zero, capacity shouldn't have
+  // grown.
+  EXPECT_EQ(stats.capacity, initial_capacity);
+  // Make sure we did not lose the overall capacity. The total capacity in
+  // batches should be the same as before.
+  EXPECT_EQ(count_batches(), total_capacity);
+
+  // Try inserting a batch to make sure that the caches are not resized and that
+  // we encounter a miss.
+  env.Insert(kSizeClass, batch_size);
+  stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  EXPECT_EQ(stats.insert_misses, 1);
+  EXPECT_EQ(stats.insert_non_batch_misses, 0);
+  EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_non_batch_misses, 0);
+  EXPECT_EQ(stats.capacity, initial_capacity);
+
+  // Try resizing caches again.
+  env.transfer_cache_manager().TryResizingCaches();
+  stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  // Make sure that the capacity has grown by a batch size.
+  EXPECT_EQ(stats.capacity, initial_capacity + batch_size);
+  // Make sure we did not lose the overall capacity. The total capacity in
+  // batches should be the same as before.
+  EXPECT_EQ(count_batches(), total_capacity);
+
+  env.Insert(kSizeClass, batch_size);
+  stats = env.transfer_cache_manager().GetStats(kSizeClass);
+  // Capacity grew during the last resize operation. So, we shouldn't have
+  // encountered a miss here.
+  EXPECT_EQ(stats.insert_misses, 1);
+  EXPECT_EQ(stats.insert_non_batch_misses, 0);
+  EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_non_batch_misses, 0);
+  EXPECT_EQ(stats.capacity, initial_capacity + batch_size);
+}
+
+TYPED_TEST_P(RealTransferCacheTest, StressResize) {
+  TypeParam env;
+
+  // Enable background resizing of transfer caches.
+  env.transfer_cache_manager().SetResizeCachesInBackground(true);
+
+  // Count capacity (measured in batches) currently allowed in the cache.
+  auto count_batches = [&env]() {
+    int batch_count = 0;
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      const size_t batch_size =
+          env.transfer_cache_manager().num_objects_to_move(size_class);
+      const int capacity =
+          env.transfer_cache_manager().GetStats(size_class).capacity;
+      batch_count += batch_size > 0 ? capacity / batch_size : 0;
+    }
+    return batch_count;
+  };
+
+  const int total_capacity = count_batches();
+
+  ThreadManager threads;
+  threads.Start(5, [&](int) { env.RandomlyPoke(); });
+
+  auto start = absl::Now();
+  while (start + absl::Seconds(5) > absl::Now()) {
+    env.transfer_cache_manager().TryResizingCaches();
+    absl::SleepFor(absl::Milliseconds(10));
+  }
+  threads.Stop();
+
+  EXPECT_EQ(count_batches(), total_capacity);
+}
+
+REGISTER_TYPED_TEST_SUITE_P(RealTransferCacheTest, ResizeOccurs, StressResize);
+
+using TransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
+    internal_transfer_cache::TransferCache<CentralFreeList,
+                                           TransferCacheManager>>;
+INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, RealTransferCacheTest,
+                               ::testing::Types<TransferCacheRealEnv>);
+
+using RingTransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
+    internal_transfer_cache::RingBufferTransferCache<
+        CentralFreeList, FakeMultiClassRingBufferManager>>;
+INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, RealTransferCacheTest,
+                               ::testing::Types<RingTransferCacheRealEnv>);
+
+}  // namespace resize_tests
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -686,6 +686,7 @@ cc_test(
     timeout = "moderate",
     srcs = ["transfer_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
     shard_count = 3,
     deps = [
         ":common",

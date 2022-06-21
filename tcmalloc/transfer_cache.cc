@@ -121,6 +121,75 @@ int TransferCacheManager::DetermineSizeClassToEvict(int current_size_class) {
   return t;
 }
 
+// Tracks misses per size class.
+struct MissInfo {
+  int size_class;
+  uint64_t misses;
+};
+
+void TransferCacheManager::TryResizingCaches() {
+  // Return if resizing caches in background is disabled.
+  if (!ResizeCachesInBackground()) return;
+
+  // We try to grow up to 10% of the total number of size classes during one
+  // resize interval.
+  constexpr double kFractionClassesToResize = 0.1;
+  constexpr int kMaxSizeClassesToResize = std::max<int>(
+      static_cast<int>(kNumClasses * kFractionClassesToResize), 1);
+  absl::FixedArray<MissInfo> misses(kNumClasses);
+
+  // Collect misses for all the size classes that were incurred during the
+  // previous resize interval.
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    size_t miss = GetIntervalMisses(size_class, MissType::kResize);
+    misses[size_class] = {.size_class = size_class, .misses = miss};
+  }
+
+  std::sort(misses.begin(), misses.end(),
+            [](const MissInfo &a, const MissInfo &b) {
+              if (a.misses == b.misses) {
+                return a.size_class < b.size_class;
+              }
+              return a.misses > b.misses;
+            });
+
+  // Prioritize shrinking cache that had least number of misses.
+  int to_shrink = kNumClasses - 1;
+  for (int i = 0; i < kMaxSizeClassesToResize; ++i) {
+    int class_to_grow = misses[i].size_class;
+    if (misses[i].misses == 0) break;
+    // No point in shrinking the other cache if there is no space available in
+    // the cache that we would like to grow.
+    if (!CanIncreaseCapacity(class_to_grow)) continue;
+
+    // Make sure we do not shrink the caches that we would eventually want to
+    // grow during this interval.
+    bool made_space = false;
+    while (to_shrink >= kMaxSizeClassesToResize) {
+      const int to_evict = misses[to_shrink].size_class;
+      made_space = ShrinkCache(to_evict);
+      --to_shrink;
+      if (made_space) {
+        break;
+      }
+    }
+
+    if (made_space) {
+      IncreaseCacheCapacity(class_to_grow);
+    }
+    if (to_shrink == kMaxSizeClassesToResize - 1) {
+      break;
+    }
+  }
+
+  // Finally, take a snapshot of misses at the end of this interval. We would
+  // use this during the next resize operation to calculate the number of misses
+  // incurred over the interval.
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    UpdateResizeIntervalMisses(size_class, MissType::kResize);
+  }
+}
+
 #endif
 
 }  // namespace tcmalloc_internal

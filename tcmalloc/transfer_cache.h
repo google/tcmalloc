@@ -58,12 +58,22 @@ absl::string_view TransferCacheImplementationToLabel(
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
+using MissType = internal_transfer_cache::MissType;
+using MissCounts = internal_transfer_cache::MissCounts;
+
 class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
   static void *Alloc(size_t size, int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  static void SetResizeCachesInBackground(bool value) {
+    TCMalloc_Internal_SetResizeTransferCachesEnabled(value);
+  }
+  static bool ResizeCachesInBackground() {
+    return Parameters::resize_transfer_caches();
+  }
 };
 
 // The NoStealingManager is set up so that stealing is disabled for this
@@ -72,6 +82,7 @@ class NoStealingManager : public StaticForwarder {
  public:
   static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
   static constexpr bool ShrinkCache(int) { return false; }
+  static constexpr bool ResizeCachesInBackground() { return false; }
 };
 
 class ProdCpuLayout {
@@ -249,6 +260,8 @@ class TransferCacheManager : public StaticForwarder {
       internal_transfer_cache::RingBufferTransferCache<
           tcmalloc_internal::CentralFreeList, TransferCacheManager>;
 
+  friend class FakeMultiClassRingBufferManager;
+
  public:
   constexpr TransferCacheManager() : next_to_evict_(1) {}
 
@@ -257,13 +270,7 @@ class TransferCacheManager : public StaticForwarder {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     implementation_ = ChooseImplementation();
-    for (int i = 0; i < kNumClasses; ++i) {
-      if (implementation_ == TransferCacheImplementation::Ring) {
-        new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
-      } else {
-        new (&cache_[i].tc) TransferCache(this, i);
-      }
-    }
+    InitCaches();
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
@@ -292,6 +299,14 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
+  bool HasSpareCapacity(int size_class) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.HasSpareCapacity(size_class);
+    } else {
+      return cache_[size_class].tc.HasSpareCapacity(size_class);
+    }
+  }
+
   TransferCacheStats GetStats(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.GetStats();
@@ -310,8 +325,22 @@ class TransferCacheManager : public StaticForwarder {
 
   TransferCacheImplementation implementation() const { return implementation_; }
 
+  // Tries to resize transfer caches based on the number of misses that they
+  // incurred during the previous resize interval.
+  void TryResizingCaches();
+
  private:
   static TransferCacheImplementation ChooseImplementation();
+
+  void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    for (int i = 0; i < kNumClasses; ++i) {
+      if (implementation_ == TransferCacheImplementation::Ring) {
+        new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
+      } else {
+        new (&cache_[i].tc) TransferCache(this, i);
+      }
+    }
+  }
 
   int DetermineSizeClassToEvict(int size_class);
   bool ShrinkCache(int size_class) {
@@ -319,6 +348,38 @@ class TransferCacheManager : public StaticForwarder {
       return cache_[size_class].rbtc.ShrinkCache(size_class);
     } else {
       return cache_[size_class].tc.ShrinkCache(size_class);
+    }
+  }
+
+  bool IncreaseCacheCapacity(int size_class) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.IncreaseCacheCapacity(size_class);
+    } else {
+      return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
+    }
+  }
+
+  void UpdateResizeIntervalMisses(int size_class, MissType type) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      cache_[size_class].rbtc.UpdateResizeIntervalMisses(type);
+    } else {
+      cache_[size_class].tc.UpdateResizeIntervalMisses(type);
+    }
+  }
+
+  size_t CanIncreaseCapacity(int size_class) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.CanIncreaseCapacity(size_class);
+    } else {
+      return cache_[size_class].tc.CanIncreaseCapacity(size_class);
+    }
+  }
+
+  size_t GetIntervalMisses(int size_class, MissType type) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.GetIntervalMisses(type);
+    } else {
+      return cache_[size_class].tc.GetIntervalMisses(type);
     }
   }
 

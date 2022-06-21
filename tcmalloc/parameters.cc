@@ -81,6 +81,8 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
 ABSL_CONST_INIT std::atomic<bool> Parameters::prioritize_spans_enabled_(true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::resize_transfer_caches_enabled_(
+    false);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -189,6 +191,10 @@ bool TCMalloc_Internal_GetPrioritizeSpansEnabled() {
   return Parameters::prioritize_spans();
 }
 
+bool TCMalloc_Internal_GetResizeTransferCachesEnabled() {
+  return Parameters::resize_transfer_caches();
+}
+
 double TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction() {
   return Parameters::peak_sampling_heap_growth_fraction();
 }
@@ -239,6 +245,11 @@ void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
 
 void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v) {
   Parameters::prioritize_spans_enabled_.store(v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetResizeTransferCachesEnabled(bool v) {
+  Parameters::resize_transfer_caches_enabled_.store(v,
+                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {

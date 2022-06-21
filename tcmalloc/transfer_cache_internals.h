@@ -33,6 +33,7 @@
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/container/fixed_array.h"
 #include "absl/numeric/bits.h"
 #include "absl/synchronization/internal/futex.h"
 #include "absl/types/optional.h"
@@ -54,6 +55,34 @@ struct alignas(8) SizeInfo {
 };
 static constexpr int kMaxCapacityInBatches = 64;
 static constexpr int kInitialCapacityInBatches = 16;
+
+enum class MissType {
+  // Tracks total number of misses.
+  kTotal = 0,
+  // Tracks number of misses measured as of the end of the last resize
+  // operation.
+  kResize,
+  // Tracks total types of misses that we would like to record.
+  kNumTypes,
+};
+
+// Records counters for different types of misses.
+struct MissCounts {
+  std::atomic<size_t> misses[static_cast<size_t>(MissType::kNumTypes)] = {0};
+
+  std::atomic<size_t> &operator[](MissType type) {
+    return misses[static_cast<size_t>(type)];
+  }
+
+  size_t Value(MissType type) const {
+    return misses[static_cast<size_t>(type)].load(std::memory_order_relaxed);
+  }
+
+  size_t Add(MissType type, size_t value) {
+    return misses[static_cast<size_t>(type)].fetch_add(
+        value, std::memory_order_relaxed);
+  }
+};
 
 // TransferCache is used to cache transfers of
 // sizemap.num_objects_to_move(size_class) back and forth between
@@ -141,7 +170,16 @@ class TransferCache {
     if (N == B) {
       if (info.used + N <= max_capacity_) {
         absl::base_internal::SpinLockHolder h(&lock_);
-        if (MakeCacheSpace(size_class, N)) {
+        // If the caches are being resized in the background, we do not attempt
+        // to grow them here. Instead, we just check if they have spare free
+        // capacity. If resizing is not done in the background, we try to make
+        // cache space by stealing capacity from other caches.
+        info = slot_info_.load(std::memory_order_relaxed);
+        const bool has_space = Manager::ResizeCachesInBackground()
+                                   ? (info.capacity - info.used >= N)
+                                   : MakeCacheSpace(size_class, N);
+
+        if (has_space) {
           // MakeCacheSpace can drop the lock, so refetch
           info = slot_info_.load(std::memory_order_relaxed);
           info.used += N;
@@ -154,9 +192,9 @@ class TransferCache {
         }
       }
 
-      insert_misses_.Add(1);
+      insert_misses_.Add(MissType::kTotal, 1);
     } else {
-      insert_non_batch_misses_.Add(1);
+      insert_non_batch_misses_.Add(MissType::kTotal, 1);
     }
 
     freelist().InsertRange(batch);
@@ -188,9 +226,9 @@ class TransferCache {
         }
       }
 
-      remove_misses_.Add(1);
+      remove_misses_.Add(MissType::kTotal, 1);
     } else {
-      remove_non_batch_misses_.Add(1);
+      remove_non_batch_misses_.Add(MissType::kTotal, 1);
     }
     low_water_mark_.store(0, std::memory_order_release);
 
@@ -233,16 +271,58 @@ class TransferCache {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
 
+  // Records a snapshot of insert and remove misses. This is used at the end of
+  // the next interval to determine the misses incurred during that interval.
+  void UpdateResizeIntervalMisses(MissType miss_type)
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    ASSERT(miss_type != MissType::kTotal);
+    ASSERT(miss_type < MissType::kNumTypes);
+
+    const auto record_misses = [miss_type](MissCounts &misses) {
+      ASSERT(miss_type != MissType::kTotal);
+      ASSERT(miss_type < MissType::kNumTypes);
+      const size_t total_misses = misses.Value(MissType::kTotal);
+      misses[miss_type].store(total_misses, std::memory_order_relaxed);
+    };
+
+    record_misses(insert_misses_);
+    record_misses(insert_non_batch_misses_);
+    record_misses(remove_misses_);
+    record_misses(remove_non_batch_misses_);
+  }
+
+  // Returns total insert and remove misses incurred by the transfer cache over
+  // the last interval.
+  size_t GetIntervalMisses(MissType miss_type) const
+      ABSL_LOCKS_EXCLUDED(lock_) {
+    ASSERT(miss_type != MissType::kTotal);
+    ASSERT(miss_type < MissType::kNumTypes);
+
+    const auto get_safe_miss_diff = [miss_type](const MissCounts &misses) {
+      const size_t total_misses = misses.Value(MissType::kTotal);
+      const size_t interval_misses = misses.Value(miss_type);
+      // In case of a size_t overflow, we wrap around to 0.
+      return total_misses > interval_misses ? total_misses - interval_misses
+                                            : 0;
+    };
+    return get_safe_miss_diff(insert_misses_) +
+           get_safe_miss_diff(insert_non_batch_misses_) +
+           get_safe_miss_diff(remove_misses_) +
+           get_safe_miss_diff(remove_non_batch_misses_);
+  }
+
   // Returns the number of transfer cache insert/remove hits/misses.
   TransferCacheStats GetStats() ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
-    stats.insert_misses = insert_misses_.value();
-    stats.insert_non_batch_misses = insert_non_batch_misses_.value();
-    stats.remove_misses = remove_misses_.value();
-    stats.remove_non_batch_misses = remove_non_batch_misses_.value();
+    stats.insert_misses = insert_misses_.Value(MissType::kTotal);
+    stats.insert_non_batch_misses =
+        insert_non_batch_misses_.Value(MissType::kTotal);
+    stats.remove_misses = remove_misses_.Value(MissType::kTotal);
+    stats.remove_non_batch_misses =
+        remove_non_batch_misses_.Value(MissType::kTotal);
 
     // For performance reasons, we only update a single atomic as part of the
     // actual allocation operation.  For reporting, we keep reporting all
@@ -296,7 +376,32 @@ class TransferCache {
     return true;
   }
 
-  bool HasSpareCapacity(int size_class) const {
+  // Increases capacity of the cache by a batch size. Returns true if it
+  // succeeded at growing the cache by a batch size. Else, returns false.
+  bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    int n = Manager::num_objects_to_move(size_class);
+
+    absl::base_internal::SpinLockHolder h(&lock_);
+    auto info = slot_info_.load(std::memory_order_relaxed);
+    // Check if we can expand this cache?
+    if (info.capacity + n > max_capacity_) return false;
+    // Increase capacity of the cache.
+    info.capacity += n;
+    SetSlotInfo(info);
+    return true;
+  }
+
+  // Checks if the cache capacity may be increased by a batch size.
+  bool CanIncreaseCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    int n = Manager::num_objects_to_move(size_class);
+    absl::base_internal::SpinLockHolder h(&lock_);
+    auto info = GetSlotInfo();
+    return max_capacity_ - info.capacity >= n;
+  }
+
+  // Checks if the cache has at least batch size number of free slots. Returns
+  // false if (capacity - used) slots is less than the batch size.
+  bool HasSpareCapacity(int size_class) {
     int n = Manager::num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
@@ -388,10 +493,10 @@ class TransferCache {
   StatsCounter insert_hits_;
   StatsCounter remove_hits_;
   // Miss counters do not hold lock_, so they use Add.
-  StatsCounter insert_misses_;
-  StatsCounter insert_non_batch_misses_;
-  StatsCounter remove_misses_;
-  StatsCounter remove_non_batch_misses_;
+  MissCounts insert_misses_;
+  MissCounts insert_non_batch_misses_;
+  MissCounts remove_misses_;
+  MissCounts remove_non_batch_misses_;
 
   // Number of currently used and available cached entries in slots_. This
   // variable is updated under a lock but can be read without one.
@@ -500,10 +605,13 @@ class RingBufferTransferCache {
       ASSERT(low_water_mark_ <= slot_info_.used);
       RingBufferSizeInfo info = GetSlotInfo();
       if (info.used + N <= max_capacity_) {
-        const bool cache_grown = MakeCacheSpace(size_class, N);
+        const bool has_space = Manager::ResizeCachesInBackground()
+                                   ? (info.capacity - info.used >= N)
+                                   : MakeCacheSpace(size_class, N);
+
         // MakeCacheSpace can drop the lock, so refetch
         info = GetSlotInfo();
-        if (cache_grown) {
+        if (has_space) {
           CopyIntoEnd(batch.data(), N, info);
           SetSlotInfo(info);
           insert_hits_.LossyAdd(1);
@@ -545,7 +653,7 @@ class RingBufferTransferCache {
       }
       ASSERT(to_free_num <= kMaxObjectsToMove);
       ASSERT(to_free_num <= B);
-      insert_misses_.Add(1);
+      insert_misses_.Add(MissType::kTotal, 1);
       freelist().InsertRange(absl::Span<void *>(to_free_buf, to_free_num));
     }
   }
@@ -574,7 +682,7 @@ class RingBufferTransferCache {
       ASSERT(low_water_mark_ == 0);
     }
 
-    remove_misses_.Add(1);
+    remove_misses_.Add(MissType::kTotal, 1);
     return freelist().RemoveRange(batch, N);
   }
 
@@ -613,15 +721,50 @@ class RingBufferTransferCache {
     return static_cast<size_t>(GetSlotInfo().used);
   }
 
+  // Records a snapshot of insert and remove misses. This is used at the end of
+  // the next interval to determine the misses incurred during that interval.
+  void UpdateResizeIntervalMisses(MissType miss_type) {
+    ASSERT(miss_type != MissType::kTotal);
+    ASSERT(miss_type < MissType::kNumTypes);
+
+    const auto record_misses = [miss_type](MissCounts &misses) {
+      ASSERT(miss_type != MissType::kTotal);
+      ASSERT(miss_type < MissType::kNumTypes);
+      const size_t total_misses = misses.Value(MissType::kTotal);
+      misses[miss_type].store(total_misses, std::memory_order_relaxed);
+    };
+
+    record_misses(insert_misses_);
+    record_misses(remove_misses_);
+  }
+
+  // Returns total insert and remove misses incurred by the transfer cache over
+  // the last interval.
+  size_t GetIntervalMisses(MissType miss_type) const {
+    ASSERT(miss_type != MissType::kTotal);
+    ASSERT(miss_type < MissType::kNumTypes);
+
+    const auto get_safe_miss_diff = [miss_type](const MissCounts &misses) {
+      const size_t total_misses = misses.Value(MissType::kTotal);
+      const size_t interval_misses = misses.Value(miss_type);
+      // In case of a size_t overflow, we wrap around to 0.
+      return total_misses > interval_misses ? total_misses - interval_misses
+                                            : 0;
+    };
+
+    return get_safe_miss_diff(insert_misses_) +
+           get_safe_miss_diff(remove_misses_);
+  }
+
   // Returns the number of transfer cache insert/remove hits/misses.
   TransferCacheStats GetStats() ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
-    stats.insert_misses = insert_misses_.value();
+    stats.insert_misses = insert_misses_.Value(MissType::kTotal);
     stats.insert_non_batch_misses = 0;
-    stats.remove_misses = remove_misses_.value();
+    stats.remove_misses = remove_misses_.Value(MissType::kTotal);
     stats.remove_non_batch_misses = 0;
 
     {
@@ -677,6 +820,30 @@ class RingBufferTransferCache {
     return true;
   }
 
+  // Increases capacity of the cache by a batch. Returns true if it succeeded at
+  // growing the cache by a batch size. Else, returns false.
+  bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    int n = Manager::num_objects_to_move(size_class);
+    absl::base_internal::SpinLockHolder h(&lock_);
+    auto info = GetSlotInfo();
+    // Check if we can expand this cache?
+    if (info.capacity + n > max_capacity_) return false;
+    // Increase capacity of the cache.
+    info.capacity += n;
+    SetSlotInfo(info);
+    return true;
+  }
+
+  // Checks if the cache capacity may be increased by a batch size.
+  bool CanIncreaseCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+    const int n = Manager::num_objects_to_move(size_class);
+    absl::base_internal::SpinLockHolder h(&lock_);
+    const auto info = GetSlotInfo();
+    return max_capacity_ - info.capacity >= n;
+  }
+
+  // Checks if the cache has at least batch size number of free slots. Returns
+  // false if (capacity - used) slots is less than batch size.
   bool HasSpareCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     const int n = Manager::num_objects_to_move(size_class);
     absl::base_internal::SpinLockHolder h(&lock_);
@@ -871,8 +1038,8 @@ class RingBufferTransferCache {
   StatsCounter insert_hits_;
   StatsCounter remove_hits_;
   // Miss counters do not hold lock_, so they use Add.
-  StatsCounter insert_misses_;
-  StatsCounter remove_misses_;
+  MissCounts insert_misses_;
+  MissCounts remove_misses_;
 
   FreeList freelist_do_not_access_directly_;
   Manager *const owner_do_not_access_directly_;

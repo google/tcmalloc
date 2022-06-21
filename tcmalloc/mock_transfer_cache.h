@@ -51,6 +51,7 @@ class FakeTransferCacheManagerBase {
     memory_.push_back(std::make_unique<AlignedPtr>(::operator new(size, a), a));
     return memory_.back()->ptr;
   }
+  static constexpr bool ResizeCachesInBackground() { return false; }
 
  private:
   struct AlignedPtr {
@@ -134,6 +135,7 @@ class ArenaBasedFakeTransferCacheManager {
     return aligned;
   }
   size_t used() const { return used_; }
+  static constexpr bool ResizeCachesInBackground() { return false; }
 
  private:
   static constexpr size_t kTotalSize = 10000000;
@@ -389,6 +391,98 @@ class FakeCpuLayout {
 
  private:
   int current_cpu_;
+};
+
+// Defines transfer cache manager for testing ring buffer transfer cache. The
+// real transfer cache manager defaults to legacy transfer cache, and can only
+// switch to the ring buffer transfer cache when environment variables are
+// enabled. This class allows us to test any changes to the manager for ring
+// buffer transfer cache as well.
+class FakeMultiClassRingBufferManager : public TransferCacheManager {
+ public:
+  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    implementation_ = TransferCacheImplementation::Ring;
+    InitCaches();
+  }
+};
+
+// Wires up a largely functional TransferCache + TransferCacheManager +
+// CentralFreeList.
+//
+// Unlike FakeTransferCacheEnvironment, this may be used to perform allocations
+// and deallocations out of transfer cache for multiple size classes. It can
+// also be wired with the real transfer cache manager and be used to test
+// implementations in a real transfer cache, unlike TwoSizeClassEnv.
+template <typename TransferCacheT>
+class MultiSizeClassTransferCacheEnvironment {
+ public:
+  static constexpr int kSizeClasses = 4;
+  using TransferCache = TransferCacheT;
+  using Manager = typename TransferCache::Manager;
+  using FreeList = typename TransferCache::FreeList;
+  MultiSizeClassTransferCacheEnvironment() { manager_.Init(); }
+
+  ~MultiSizeClassTransferCacheEnvironment() { Drain(); }
+
+  void Insert(int size_class, int n) {
+    const size_t batch_size = Manager::num_objects_to_move(size_class);
+    std::vector<void*> bufs;
+    while (n > 0) {
+      int b = std::min<int>(n, batch_size);
+      bufs.resize(b);
+      int removed = central_freelist(size_class).RemoveRange(&bufs[0], b);
+      ASSERT_GT(removed, 0);
+      ASSERT_LE(removed, b);
+      manager_.InsertRange(size_class, absl::MakeSpan(bufs));
+      n -= b;
+    }
+  }
+
+  void Remove(int size_class, int n) {
+    const size_t batch_size = manager_.num_objects_to_move(size_class);
+    std::vector<void*> bufs;
+    while (n > 0) {
+      const int b = std::min<int>(n, batch_size);
+      bufs.resize(b);
+      const int removed = manager_.RemoveRange(size_class, &bufs[0], b);
+      // Ensure we make progress.
+      ASSERT_GT(removed, 0);
+      ASSERT_LE(removed, b);
+      central_freelist(size_class)
+          .InsertRange({&bufs[0], static_cast<size_t>(removed)});
+      n -= removed;
+    }
+  }
+
+  void Drain() {
+    for (int i = 0; i < kNumClasses; ++i) {
+      Remove(i, manager_.tc_length(i));
+    }
+  }
+
+  void RandomlyPoke() {
+    absl::BitGen gen;
+    // Insert or remove from the transfer cache with equal probability.
+    const double choice = absl::Uniform(gen, 0.0, 1.0);
+    const size_t size_class = absl::Uniform<size_t>(gen, 1, kSizeClasses);
+    const size_t batch_size = manager_.num_objects_to_move(size_class);
+    if (choice < 0.5) {
+      Insert(size_class, batch_size);
+    } else {
+      Remove(size_class, batch_size);
+    }
+  }
+
+  void TryResizingCaches() { manager_.TryResizingCaches(); }
+
+  Manager& transfer_cache_manager() { return manager_; }
+
+  FreeList& central_freelist(int size_class) {
+    return manager_.central_freelist(size_class);
+  }
+
+ private:
+  Manager manager_;
 };
 
 class FakeShardedTransferCacheEnvironment {

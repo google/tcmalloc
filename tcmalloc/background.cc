@@ -54,6 +54,12 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(7);
   absl::Time last_slab_resize_check = absl::Now();
 
+#ifndef TCMALLOC_SMALL_BUT_SLOW
+  // Resize transfer caches once per kTransferCacheResizePeriod.
+  constexpr absl::Duration kTransferCacheResizePeriod = absl::Seconds(2);
+  absl::Time last_transfer_cache_resize_check = absl::Now();
+#endif
+
   while (true) {
     absl::Time now = absl::Now();
     const ssize_t bytes_to_release =
@@ -91,6 +97,14 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         last_slab_resize_check = now;
       }
     }
+
+#ifndef TCMALLOC_SMALL_BUT_SLOW
+    if (Parameters::resize_transfer_caches() &&
+        now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
+      Static::transfer_cache().TryResizingCaches();
+      last_transfer_cache_resize_check = now;
+    }
+#endif
 
     Static().sharded_transfer_cache().Plunder();
     prev_time = now;
