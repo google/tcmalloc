@@ -195,7 +195,7 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "TCMallocInternalNew(Array)?(Aligned)?(Nothrow)?|"
     "TCMallocInternalDelete(Array)?(Sized)?(Aligned)?(Nothrow)?|"
     "TCMallocInternalSdallocx|"
-    "(tcmalloc_)?size_returning_operator_new(_nothrow)?|"
+    "(tcmalloc_)?size_returning_operator_new(_hot_cold)?(_nothrow)?|"
 
     // libstdc++ memory allocation routines
     "__gnu_cxx::new_allocator::allocate|"
