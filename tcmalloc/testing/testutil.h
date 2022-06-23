@@ -98,6 +98,29 @@ class ScopedGuardedSamplingRate {
   int64_t previous_;
 };
 
+// Disables both guarded sampling and profile sampling while in scope.
+class ScopedNeverSample {
+ public:
+  ScopedNeverSample() : guarded_sampling_rate_(-1), profile_sampling_rate_(0) {}
+
+ private:
+  ScopedGuardedSamplingRate guarded_sampling_rate_;
+  ScopedProfileSamplingRate profile_sampling_rate_;
+};
+
+// Enables both guarded sampling and profile sampling for all allocations while
+// in scope.
+class ScopedAlwaysSample {
+ public:
+  // See b/201336703: guarded_sampling_rate==0 means every sampled allocation
+  // is guarded.
+  ScopedAlwaysSample() : guarded_sampling_rate_(0), profile_sampling_rate_(1) {}
+
+ private:
+  ScopedGuardedSamplingRate guarded_sampling_rate_;
+  ScopedProfileSamplingRate profile_sampling_rate_;
+};
+
 inline void UnregisterRseq() {
 #if TCMALLOC_PERCPU_USE_RSEQ
   syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,

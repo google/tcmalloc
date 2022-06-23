@@ -199,7 +199,7 @@ TEST(TcmallocTest, Realloc) {
   // reallocs of small sizes do extra work (thus, failing these checks).  Since
   // sampling is random, we turn off sampling to make sure that doesn't happen
   // to us here.
-  ScopedProfileSamplingRate s(0);  // turn off sampling
+  ScopedNeverSample never_sample;
 
   int start_sizes[] = {100, 1000, 10000, 100000};
   int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
@@ -679,13 +679,13 @@ void CheckSizedDelete() {
 TEST(TCMallocTest, SizedDelete) { CheckSizedDelete(); }
 
 TEST(TCMallocTest, SizedDeleteSampled) {
-  ScopedProfileSamplingRate s(1);  // Try to sample more.
+  ScopedAlwaysSample always_sample;
   CheckSizedDelete();
 }
 
 // Check sampled allocations return the proper size.
 TEST(TCMallocTest, SampleAllocatedSize) {
-  ScopedProfileSamplingRate s(1);  // Try to sample more.
+  ScopedAlwaysSample always_sample;
 
   // Do 64 megabytes of allocation; this should (nearly) guarantee we
   // get a sample.

@@ -62,7 +62,7 @@ TEST(NumaLocalityTest, AllocationsAreLocal) {
 
   // We don't currently enforce NUMA locality for sampled allocations; disable
   // sampling for the test.
-  ScopedProfileSamplingRate s(0);
+  ScopedNeverSample never_sample;
 
   absl::BitGen gen;
   constexpr size_t kIterations = 1000;

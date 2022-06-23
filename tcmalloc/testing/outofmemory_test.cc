@@ -34,9 +34,7 @@ class OutOfMemoryTest : public ::testing::Test {
 };
 
 TEST_F(OutOfMemoryTest, TestUntilFailure) {
-  // Disable sampling.
-  ScopedGuardedSamplingRate gs(-1);
-  ScopedProfileSamplingRate s(1);
+  ScopedNeverSample never_sample;
 
   // Check that large allocations fail with NULL instead of crashing.
   static const size_t kIncrement = 100 << 20;
@@ -53,9 +51,7 @@ TEST_F(OutOfMemoryTest, TestUntilFailure) {
 }
 
 TEST_F(OutOfMemoryTest, SmallAllocs) {
-  // Disable sampling.
-  ScopedGuardedSamplingRate gs(-1);
-  ScopedProfileSamplingRate s(1);
+  ScopedNeverSample never_sample;
 
   // Check that large allocations fail with NULL instead of crashing.
   static constexpr size_t kSize = tcmalloc_internal::kHugePageSize / 2 - 1;

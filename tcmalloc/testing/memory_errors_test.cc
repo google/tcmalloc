@@ -268,8 +268,7 @@ TEST_F(TcMallocTest, NonGwpAsanSegv) {
 // Verify memory is aligned suitably according to compiler assumptions
 // (b/201199449).
 TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
-  ScopedProfileSamplingRate s(1);  // Always do heap samples
-  ScopedGuardedSamplingRate g(0);  // TODO(b/201336703): Guard every sample
+  ScopedAlwaysSample always_sample;
 
   struct A {
     char c[__STDCPP_DEFAULT_NEW_ALIGNMENT__ + 1];
