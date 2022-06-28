@@ -178,7 +178,8 @@ class EmpiricalData {
   EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
                 size_t total_mem, absl::FunctionRef<void*(size_t)> alloc,
                 absl::FunctionRef<void(void*, size_t)> dealloc,
-                bool record_and_replay_mode = false);
+                bool record_and_replay_mode = false,
+                bool touch_allocated = false);
 
   ~EmpiricalData();
 
@@ -248,11 +249,11 @@ class EmpiricalData {
     std::vector<void*> objs;
   };
 
-  void DoBirth(const size_t i);
+  void* DoBirth(const size_t i);
   void DoDeath(const size_t i);
 
   void RecordBirth(const size_t i);
-  void ReplayBirth(const size_t i);
+  void* ReplayBirth(const size_t i);
   void RecordDeath(const size_t i);
   void ReplayDeath(const size_t i, const uint64_t index);
   void ReserveSizeClassObjects();
@@ -278,6 +279,8 @@ class EmpiricalData {
   std::vector<void**> death_object_pointers_;
   uint32_t birth_or_death_index_ = 0;
   uint32_t death_object_index_ = 0;
+
+  bool touch_allocated_;
 };
 
 using EmpiricalProfile = absl::Span<const EmpiricalData::Entry>;

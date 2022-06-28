@@ -23,6 +23,22 @@
 
 // Implementations of functions.
 namespace tcmalloc {
+namespace {
+
+inline void PossiblyTouchAllocated(void* allocated, bool touch_allocated) {
+  uint8_t* access_ptr = static_cast<uint8_t*>(allocated);
+  if (touch_allocated) {
+    *access_ptr = 0;
+    // Prevent the compiler from register optimizing the load by telling it that
+    // access_ptr might change
+    asm volatile("" : [access_ptr] "+r"(access_ptr));
+    auto byte = *(access_ptr);
+    // Prevent the compiler from removing the load since the result is unused
+    asm volatile("" : : [byte] "r"(byte));
+  }
+}
+
+}  // namespace
 
 static absl::discrete_distribution<size_t> BirthRateDistribution(
     const absl::Span<const EmpiricalData::Entry> weights) {
@@ -39,7 +55,7 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
                              size_t total_mem,
                              absl::FunctionRef<void*(size_t)> alloc,
                              absl::FunctionRef<void(void*, size_t)> dealloc,
-                             bool record_and_replay_mode)
+                             bool record_and_replay_mode, bool touch_allocated)
     : rng_(absl::SeedSeq{seed}),
       alloc_(alloc),
       dealloc_(dealloc),
@@ -49,7 +65,8 @@ EmpiricalData::EmpiricalData(size_t seed, const absl::Span<const Entry> weights,
       total_bytes_allocated_(0),
       birth_sampler_(BirthRateDistribution(weights)),
       total_birth_rate_(0),
-      death_sampler_(weights.size()) {
+      death_sampler_(weights.size()),
+      touch_allocated_(touch_allocated) {
   // First, compute average live count for each size in a heap of size
   // <total_mem>.
   double total = 0;
@@ -110,7 +127,7 @@ EmpiricalData::~EmpiricalData() {
   }
 }
 
-void EmpiricalData::DoBirth(const size_t i) {
+void* EmpiricalData::DoBirth(const size_t i) {
   SizeState& s = state_[i];
   // We have an extra live object, so the overall death rate goes up.
   death_sampler_.AdjustWeight(i, s.death_rate);
@@ -122,6 +139,7 @@ void EmpiricalData::DoBirth(const size_t i) {
   void* p = alloc_(size);
   s.objs.push_back(p);
   s.total++;
+  return p;
 }
 
 void EmpiricalData::DoDeath(const size_t i) {
@@ -151,7 +169,7 @@ void EmpiricalData::RecordBirth(const size_t i) {
   s.total++;
 }
 
-void EmpiricalData::ReplayBirth(const size_t i) {
+void* EmpiricalData::ReplayBirth(const size_t i) {
   SizeState& s = state_[i];
   const size_t size = s.size;
   usage_ += size;
@@ -161,6 +179,7 @@ void EmpiricalData::ReplayBirth(const size_t i) {
   void* p = alloc_(size);
   s.objs.push_back(p);
   s.total++;
+  return p;
 }
 
 void EmpiricalData::RecordDeath(const size_t i) {
@@ -210,7 +229,8 @@ void EmpiricalData::Next() {
     // Birth :)
     // (3) says that our birth came from size i with probability prop. to b_i.
     size_t i = birth_sampler_(rng_);
-    DoBirth(i);
+    void* allocated = DoBirth(i);
+    PossiblyTouchAllocated(allocated, touch_allocated_);
   } else {
     // Death :(
     // We maintain death_sampler_.weight(i) = t_i = n_i * d_i.
@@ -242,7 +262,8 @@ void EmpiricalData::RecordNext() {
 void EmpiricalData::ReplayNext() {
   bool do_birth = birth_or_death_[birth_or_death_index_];
   if (do_birth) {
-    ReplayBirth(birth_or_death_sizes_[birth_or_death_index_]);
+    void* allocated = ReplayBirth(birth_or_death_sizes_[birth_or_death_index_]);
+    PossiblyTouchAllocated(allocated, touch_allocated_);
   } else {
     ReplayDeath(birth_or_death_sizes_[birth_or_death_index_],
                 death_objects_[death_object_index_]);

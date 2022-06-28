@@ -94,6 +94,10 @@ ABSL_FLAG(bool, record_and_replay, false,
           "drive allocation / deallocation.  Removes (expensive) testbench "
           "overhead from actual performance measurement.");
 
+ABSL_FLAG(bool, touch_allocated, true,
+          "Write the first cache line of each allocated block. Crudely models "
+          "use of the allocated object.");
+
 ABSL_FLAG(size_t, record_and_replay_buffer_size, 100000000,
           "The total number of allocs / deallocs to precalculate for later "
           "replay.  Memory required to store the replay buffers scales with "
@@ -206,7 +210,9 @@ ABSL_CONST_INIT tcmalloc_internal::StatsCounter reps;
 class Spike {
  public:
   explicit Spike(size_t size)
-      : data_(seeds.GetNext(), SpikeProfile(), size, alloc, sized_delete) {
+      : data_(seeds.GetNext(), SpikeProfile(), size, alloc, sized_delete,
+              /*record_and_replay_mode=*/false,
+              absl::GetFlag(FLAGS_touch_allocated)) {
     spike_usage.Add(data_.usage());
     live_spikes.Add(1);
   }
@@ -375,7 +381,7 @@ class SimThread {
   void Run() {
     bool record_and_replay = absl::GetFlag(FLAGS_record_and_replay);
     EmpiricalData load(n_, Profile(), bytes_, alloc, sized_delete,
-                       record_and_replay);
+                       record_and_replay, absl::GetFlag(FLAGS_touch_allocated));
 
     if (transient_ > 0) {
       auto transient = absl::make_unique<EmpiricalData>(
