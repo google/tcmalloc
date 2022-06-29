@@ -404,6 +404,17 @@ class FakeMultiClassRingBufferManager : public TransferCacheManager {
     implementation_ = TransferCacheImplementation::Ring;
     InitCaches();
   }
+  static constexpr int kMaxSizeClassesToResize = 2;
+};
+
+// Defines transfer cache manager for testing legacy transfer cache.
+class FakeMultiClassTransferCacheManager : public TransferCacheManager {
+ public:
+  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    implementation_ = TransferCacheImplementation::Legacy;
+    InitCaches();
+  }
+  static constexpr int kMaxSizeClassesToResize = 2;
 };
 
 // Wires up a largely functional TransferCache + TransferCacheManager +

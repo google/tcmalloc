@@ -17,7 +17,6 @@
 #include <fcntl.h>
 #include <string.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <optional>
@@ -131,11 +130,6 @@ void TransferCacheManager::TryResizingCaches() {
   // Return if resizing caches in background is disabled.
   if (!ResizeCachesInBackground()) return;
 
-  // We try to grow up to 10% of the total number of size classes during one
-  // resize interval.
-  constexpr double kFractionClassesToResize = 0.1;
-  constexpr int kMaxSizeClassesToResize = std::max<int>(
-      static_cast<int>(kNumClasses * kFractionClassesToResize), 1);
   absl::FixedArray<MissInfo> misses(kNumClasses);
 
   // Collect misses for all the size classes that were incurred during the
@@ -154,18 +148,27 @@ void TransferCacheManager::TryResizingCaches() {
             });
 
   // Prioritize shrinking cache that had least number of misses.
+  int to_grow = 0;
   int to_shrink = kNumClasses - 1;
-  for (int i = 0; i < kMaxSizeClassesToResize; ++i) {
-    int class_to_grow = misses[i].size_class;
-    if (misses[i].misses == 0) break;
-    // No point in shrinking the other cache if there is no space available in
-    // the cache that we would like to grow.
-    if (!CanIncreaseCapacity(class_to_grow)) continue;
+  int total_grown = 0;
 
-    // Make sure we do not shrink the caches that we would eventually want to
-    // grow during this interval.
+  // Grow up to kMaxSizeClassesToResize caches and make sure that we never
+  // shrink a cache that we are supposed to grow during this interval.
+  while (total_grown < kMaxSizeClassesToResize && to_grow < to_shrink) {
+    // As the list is sorted, we won't encounter any size class with a non-zero
+    // miss. So, it is ok to break.
+    if (misses[to_grow].misses == 0) break;
+
+    int class_to_grow = misses[to_grow].size_class;
+    // If this cache is already at its maximum capacity, continue to the next
+    // cache.
+    if (!CanIncreaseCapacity(class_to_grow)) {
+      ++to_grow;
+      continue;
+    }
+
     bool made_space = false;
-    while (to_shrink >= kMaxSizeClassesToResize) {
+    while (to_grow < to_shrink) {
       const int to_evict = misses[to_shrink].size_class;
       made_space = ShrinkCache(to_evict);
       --to_shrink;
@@ -176,9 +179,8 @@ void TransferCacheManager::TryResizingCaches() {
 
     if (made_space) {
       IncreaseCacheCapacity(class_to_grow);
-    }
-    if (to_shrink == kMaxSizeClassesToResize - 1) {
-      break;
+      ++to_grow;
+      ++total_grown;
     }
   }
 

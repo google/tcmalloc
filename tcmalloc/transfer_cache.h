@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <limits>
@@ -261,6 +262,7 @@ class TransferCacheManager : public StaticForwarder {
           tcmalloc_internal::CentralFreeList, TransferCacheManager>;
 
   friend class FakeMultiClassRingBufferManager;
+  friend class FakeMultiClassTransferCacheManager;
 
  public:
   constexpr TransferCacheManager() : next_to_evict_(1) {}
@@ -325,6 +327,20 @@ class TransferCacheManager : public StaticForwarder {
 
   TransferCacheImplementation implementation() const { return implementation_; }
 
+  bool CanIncreaseCapacity(int size_class) {
+    if (implementation_ == TransferCacheImplementation::Ring) {
+      return cache_[size_class].rbtc.CanIncreaseCapacity(size_class);
+    } else {
+      return cache_[size_class].tc.CanIncreaseCapacity(size_class);
+    }
+  }
+
+  // We try to grow up to 10% of the total number of size classes during one
+  // resize interval.
+  static constexpr double kFractionClassesToResize = 0.1;
+  static constexpr int kMaxSizeClassesToResize = std::max<int>(
+      static_cast<int>(kNumClasses * kFractionClassesToResize), 1);
+
   // Tries to resize transfer caches based on the number of misses that they
   // incurred during the previous resize interval.
   void TryResizingCaches();
@@ -364,14 +380,6 @@ class TransferCacheManager : public StaticForwarder {
       cache_[size_class].rbtc.UpdateResizeIntervalMisses(type);
     } else {
       cache_[size_class].tc.UpdateResizeIntervalMisses(type);
-    }
-  }
-
-  size_t CanIncreaseCapacity(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.CanIncreaseCapacity(size_class);
-    } else {
-      return cache_[size_class].tc.CanIncreaseCapacity(size_class);
     }
   }
 
