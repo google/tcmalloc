@@ -558,9 +558,11 @@ static cpu_set_t FillActiveCpuMask() {
 
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
-  // The number of size classes that are commonly used and thus should be
-  // allocated more slots in the per-cpu cache.
-  static constexpr size_t kNumSmall = 10;
+  // The threshold in bytes for size classes that are commonly used and thus
+  // should be allocated more slots in the per-cpu cache.
+  const size_t kSmallSizeThreshold =
+      IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS) ? 1024
+                                                                        : 80;
 
   // The memory used for each per-CPU slab is the sum of:
   //   sizeof(std::atomic<int64_t>) * kNumClasses
@@ -593,12 +595,13 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return 0;
   }
 
-  if (forwarder_.class_to_size(size_class) == 0) {
+  const size_t size_class_size = forwarder_.class_to_size(size_class);
+  if (size_class_size == 0) {
     return 0;
   }
 
   if (!IsExpandedSizeClass(size_class) &&
-      (size_class % kNumBaseClasses) <= kNumSmall) {
+      size_class_size <= kSmallSizeThreshold) {
     // Small object sizes are very heavily used and need very deep caches for
     // good performance (well over 90% of malloc calls are for size_class
     // <= 10.)
@@ -612,7 +615,6 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     static constexpr uint16_t kLargeInterestingObjectDepth = 152;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
-    ASSERT(!cold.empty());
     if (absl::c_binary_search(cold, size_class)) {
       return kLargeInterestingObjectDepth;
     } else if (!IsExpandedSizeClass(size_class)) {
