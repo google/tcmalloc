@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/config.h"
 #include "absl/base/policy_checks.h"
 
@@ -63,6 +64,14 @@
 #else
 #define GOOGLE_MALLOC_SECTION_BEGIN
 #define GOOGLE_MALLOC_SECTION_END
+#endif
+
+// TCMALLOC_ATTRIBUTE_NO_DESTROY is defined when clang::no_destroy attribute is
+// present.
+#if ABSL_HAVE_CPP_ATTRIBUTE(clang::no_destroy)
+#define TCMALLOC_ATTRIBUTE_NO_DESTROY [[clang::no_destroy]]
+#else
+#define TCMALLOC_ATTRIBUTE_NO_DESTROY
 #endif
 
 #if defined(__GNUC__) && !defined(__clang__)
