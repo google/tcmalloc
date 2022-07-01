@@ -186,6 +186,12 @@ TEST(MInCoreTest, UnmappedMemory) {
     EXPECT_EQ(i * kPageSize, MInCore::residence(q, i * kPageSize));
   }
 
+  // Note we can only query regions that are entirely mapped, but we should also
+  // test the edge case of incomplete pages.
+  EXPECT_EQ((kNumPages - 1) * kPageSize,
+            MInCore::residence(reinterpret_cast<char*>(q) + 7,
+                               (kNumPages - 1) * kPageSize));
+
   ASSERT_EQ(munmap(q, kNumPages * kPageSize), 0);
 }
 
