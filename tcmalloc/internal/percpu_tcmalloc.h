@@ -871,7 +871,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   void* result;
   void* region_start;
   uint64_t cpu_id;
-  void* begin_ptr;
+  void* prefetch;
   uintptr_t current;
   uintptr_t new_current;
   uintptr_t begin;
@@ -977,9 +977,15 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
           "ldr %[result], [%[region_start_slabs_minus_8], %[current], LSL #3]\n"
+          "ldr %[prefetch], [%[region_start_slabs_minus_8], %[new_current],"
+          "LSL #3]\n"
           "strh %w[new_current], [%[region_start], %[slabs_size_class_lsl3]]\n"
           // Commit
           "5:\n"
+          // This prefetch will appear to be quite expensive, but is generally
+          // profitable. See the comment at the equivalent prefetch in the x86
+          // implementation for further details.
+          "prfm pstl1keep, [%[prefetch]]\n"
           :
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           [underflow] "=@ccbe"(underflow),
@@ -992,7 +998,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           [slabs_size_class_lsl3_plus_4] "=&r"(slabs_size_class_lsl3_plus_4),
           [slabs_size_class_lsl3] "=&r"(slabs_size_class_lsl3),
           [begin] "=&r"(begin), [current] "=&r"(current),
-          [new_current] "=&r"(new_current), [begin_ptr] "=&r"(begin_ptr)
+          [new_current] "=&r"(new_current), [prefetch] "=&r"(prefetch)
           // Real inputs
           : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
             [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
