@@ -15,7 +15,6 @@
 #include "tcmalloc/experiment.h"
 
 #include <string.h>
-#include <sys/auxv.h>
 
 #include <algorithm>
 #include <string>
