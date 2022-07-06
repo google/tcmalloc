@@ -318,7 +318,31 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
-    deps = [":config"],
+    deps = [
+        ":config",
+        ":util",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_library(
+    name = "residency",
+    srcs = ["residency.cc"],
+    hdrs = ["residency.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":util",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
 )
 
 create_tcmalloc_benchmark(
@@ -341,6 +365,20 @@ cc_test(
     deps = [
         ":mincore",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "residency_test",
+    srcs = ["residency_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    deps = [
+        ":residency",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
     ],
 )

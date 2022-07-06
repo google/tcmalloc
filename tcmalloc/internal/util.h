@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_UTIL_H_
 #define TCMALLOC_INTERNAL_UTIL_H_
 
+#include <errno.h>
 #include <poll.h>  // IWYU pragma: keep
 #include <sched.h>
 #include <signal.h>
