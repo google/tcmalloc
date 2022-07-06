@@ -238,11 +238,16 @@ TEST(ProfileConverterTest, Profile) {
 
   // Two sample types: [objects, count] and [space, bytes]
   std::vector<std::pair<std::string, std::string>> extracted_sample_type;
+  absl::flat_hash_set<int> sample_types;
   for (const auto& s : converted.sample_type()) {
     auto& labels = extracted_sample_type.emplace_back();
     labels.first = converted.string_table(s.type());
     labels.second = converted.string_table(s.unit());
+
+    ASSERT_TRUE(sample_types.insert(s.type()).second);
   }
+  // Require that the default_sample_type appeared in sample_type.
+  EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
   EXPECT_THAT(
       extracted_sample_type,
