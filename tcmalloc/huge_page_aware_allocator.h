@@ -152,7 +152,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void SetTracker(HugePage p, FillerType::Tracker* pt);
 
   template <MemoryTag tag>
-  static void* AllocAndReport(size_t bytes, size_t* actual, size_t align)
+  static AddressRange AllocAndReport(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void* MetaDataAlloc(size_t bytes);
   HugeAllocator alloc_ ABSL_GUARDED_BY(pageheap_lock);

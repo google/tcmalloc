@@ -54,14 +54,13 @@ class HugeCacheTest : public testing::Test {
   }
 
   // Use a tiny fraction of actual size so we can test aggressively.
-  static void* AllocateFake(size_t bytes, size_t* actual, size_t align) {
+  static AddressRange AllocateFake(size_t bytes, size_t align) {
     if (bytes % kHugePageSize != 0) {
       Crash(kCrash, __FILE__, __LINE__, "not aligned", bytes, kHugePageSize);
     }
     if (align % kHugePageSize != 0) {
       Crash(kCrash, __FILE__, __LINE__, "not aligned", align, kHugePageSize);
     }
-    *actual = bytes;
     // we'll actually provide hidden backing, one word per hugepage.
     bytes /= kHugePageSize;
     align /= kHugePageSize;
@@ -71,7 +70,7 @@ class HugeCacheTest : public testing::Test {
     }
     backing.resize(index + bytes);
     void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
-    return ptr;
+    return {ptr, bytes * kHugePageSize};
   }
   // This isn't super good form but we'll never have more than one HAT
   // extant at once.

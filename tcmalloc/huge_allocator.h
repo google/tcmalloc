@@ -23,15 +23,15 @@
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // these typedefs allow replacement of tcmalloc::System* for tests.
-typedef void* (*MemoryAllocFunction)(size_t bytes, size_t* actual,
-                                     size_t align);
-typedef void* (*MetadataAllocFunction)(size_t bytes);
+using MemoryAllocFunction = AddressRange (*)(size_t bytes, size_t align);
+using MetadataAllocFunction = void* (*)(size_t bytes);
 
 // This tracks available ranges of hugepages and fulfills requests for
 // usable memory, allocating more from the system as needed.  All

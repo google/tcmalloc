@@ -38,7 +38,7 @@ namespace {
 class HugeAllocatorTest : public testing::TestWithParam<bool> {
  private:
   // Use a tiny fraction of actual size so we can test aggressively.
-  static void* AllocateFake(size_t bytes, size_t* actual, size_t align);
+  static AddressRange AllocateFake(size_t bytes, size_t align);
 
   static constexpr size_t kMaxBacking = 1024 * 1024;
   // This isn't super good form but we'll never have more than one HAT
@@ -104,8 +104,7 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
 };
 
 // Use a tiny fraction of actual size so we can test aggressively.
-void* HugeAllocatorTest::AllocateFake(size_t bytes, size_t* actual,
-                                      size_t align) {
+AddressRange HugeAllocatorTest::AllocateFake(size_t bytes, size_t align) {
   CHECK_CONDITION(bytes % kHugePageSize == 0);
   CHECK_CONDITION(align % kHugePageSize == 0);
   HugeLength req = HLFromBytes(bytes);
@@ -113,7 +112,6 @@ void* HugeAllocatorTest::AllocateFake(size_t bytes, size_t* actual,
   // Test the case where our sys allocator provides too much.
   if (should_overallocate_) ++req;
   huge_pages_received_ += req;
-  *actual = req.in_bytes();
   // we'll actually provide hidden backing, one word per hugepage.
   bytes = req / NHugePages(1);
   align /= kHugePageSize;
@@ -121,10 +119,10 @@ void* HugeAllocatorTest::AllocateFake(size_t bytes, size_t* actual,
   if (index % align != 0) {
     index += (align - (index & align));
   }
-  if (index + bytes > kMaxBacking) return nullptr;
+  if (index + bytes > kMaxBacking) return {nullptr, 0};
   backing_.resize(index + bytes);
   void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
-  return ptr;
+  return {ptr, req.in_bytes()};
 }
 
 // We use actual malloc for metadata allocations, but we track them so they

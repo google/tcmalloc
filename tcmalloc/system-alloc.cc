@@ -376,33 +376,26 @@ ABSL_CONST_INIT std::atomic<int> system_release_errors(0);
 
 }  // namespace
 
-void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
-                  const MemoryTag tag) {
+AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
   // If default alignment is set request the minimum alignment provided by
   // the system.
   alignment = std::max(alignment, pagesize);
 
   // Discard requests that overflow
-  if (bytes + alignment < bytes) return nullptr;
-
-  // This may return significantly more memory than "bytes" by default, so
-  // require callers to know the true amount allocated.
-  ASSERT(actual_bytes != nullptr);
+  if (bytes + alignment < bytes) return {nullptr, 0};
 
   absl::base_internal::SpinLockHolder lock_holder(&spinlock);
 
   InitSystemAllocatorIfNecessary();
 
-  void* result = nullptr;
-  std::tie(result, *actual_bytes) =
-      region_manager->Alloc(bytes, alignment, tag);
+  auto [result, actual_bytes] = region_manager->Alloc(bytes, alignment, tag);
 
   if (result != nullptr) {
     CheckAddressBits<kAddressBits>(reinterpret_cast<uintptr_t>(result) +
-                                   *actual_bytes - 1);
+                                   actual_bytes - 1);
     ASSERT(GetMemoryTag(result) == tag);
   }
-  return result;
+  return {result, actual_bytes};
 }
 
 static bool ReleasePages(void* start, size_t length) {

@@ -744,14 +744,14 @@ void HugePageAwareAllocator::PrintInPbtxt(PbtxtRegion* region) {
 }
 
 template <MemoryTag tag>
-void* HugePageAwareAllocator::AllocAndReport(size_t bytes, size_t* actual,
-                                             size_t align) {
-  void* p = SystemAlloc(bytes, actual, align, tag);
-  if (p == nullptr) return p;
-  const PageId page = PageIdContaining(p);
-  const Length page_len = BytesToLengthFloor(*actual);
+AddressRange HugePageAwareAllocator::AllocAndReport(size_t bytes,
+                                                    size_t align) {
+  auto ret = SystemAlloc(bytes, align, tag);
+  if (ret.ptr == nullptr) return ret;
+  const PageId page = PageIdContaining(ret.ptr);
+  const Length page_len = BytesToLengthFloor(ret.bytes);
   Static::pagemap().Ensure(page, page_len);
-  return p;
+  return ret;
 }
 
 void* HugePageAwareAllocator::MetaDataAlloc(size_t bytes)

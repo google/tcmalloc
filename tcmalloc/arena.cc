@@ -36,7 +36,6 @@ void* Arena::Alloc(size_t bytes, int alignment) {
   char* result;
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
-    size_t actual_size;
     // TODO(b/171081864): Arena allocations should be made relatively
     // infrequently.  Consider tagging this memory with sampled objects which
     // are also infrequently allocated.
@@ -52,8 +51,9 @@ void* Arena::Alloc(size_t bytes, int alignment) {
     } else {
       tag = MemoryTag::kNormal;
     }
-    free_area_ =
-        reinterpret_cast<char*>(SystemAlloc(ask, &actual_size, kPageSize, tag));
+
+    auto [ptr, actual_size] = SystemAlloc(ask, kPageSize, tag);
+    free_area_ = reinterpret_cast<char*>(ptr);
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       Crash(kCrash, __FILE__, __LINE__,
             "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "

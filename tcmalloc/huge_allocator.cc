@@ -99,10 +99,9 @@ void HugeAllocator::CheckFreelist() {
 
 HugeRange HugeAllocator::AllocateRange(HugeLength n) {
   if (n.overflows()) return HugeRange::Nil();
-  size_t actual;
   size_t bytes = n.in_bytes();
   size_t align = kHugePageSize;
-  void* ptr = allocate_(bytes, &actual, align);
+  auto [ptr, actual] = allocate_(bytes, align);
   if (ptr == nullptr) {
     // OOM...
     return HugeRange::Nil();

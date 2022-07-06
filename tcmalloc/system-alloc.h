@@ -27,12 +27,16 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+struct AddressRange {
+  void* ptr;
+  size_t bytes;
+};
+
 // REQUIRES: "alignment" is a power of two or "0" to indicate default alignment
 // REQUIRES: "alignment" and "size" <= kTagMask
 //
 // Allocate and return "bytes" of zeroed memory.  The allocator may optionally
-// return more bytes than asked for (i.e. return an entire "huge" page).  The
-// length of the returned memory area is stored in *actual_bytes.
+// return more bytes than asked for (i.e. return an entire "huge" page).
 //
 // The returned pointer is a multiple of "alignment" if non-zero. The
 // returned pointer will always be aligned suitably for holding a
@@ -41,10 +45,8 @@ namespace tcmalloc_internal {
 // aligned.
 //
 // The returned pointer is guaranteed to satisfy GetMemoryTag(ptr) == "tag".
-//
 // Returns nullptr when out of memory.
-void* SystemAlloc(size_t bytes, size_t* actual_bytes, size_t alignment,
-                  MemoryTag tag);
+AddressRange SystemAlloc(size_t bytes, size_t alignment, MemoryTag tag);
 
 // Returns the number of times we failed to give pages back to the OS after a
 // call to SystemRelease.
