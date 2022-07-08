@@ -17,14 +17,13 @@
 
 #include <stddef.h>
 
-#include <map>
 #include <string>
 
+#include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/experiment_config.h"
-#include "tcmalloc/internal/logging.h"
-#include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/internal/config.h"
 
 // TCMalloc Experiment Controller
 //
@@ -54,16 +53,14 @@ constexpr size_t kNumExperiments =
 const bool* SelectExperiments(bool* buffer, absl::string_view active,
                               absl::string_view disabled);
 
-void FillExperimentProperties(
-    std::map<std::string, MallocExtension::Property>* result);
-
-void PrintExperiments(Printer* printer);
-
 }  // namespace tcmalloc_internal
 
 bool IsExperimentActive(Experiment exp);
 
 absl::optional<Experiment> FindExperimentByName(absl::string_view name);
+
+void WalkExperiments(
+    absl::FunctionRef<void(absl::string_view name, bool active)> callback);
 
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

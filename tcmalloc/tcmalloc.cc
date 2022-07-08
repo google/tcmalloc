@@ -433,7 +433,13 @@ static void DumpStats(Printer* out, int level) {
   );
   // clang-format on
 
-  PrintExperiments(out);
+  out->printf("MALLOC EXPERIMENTS:");
+  WalkExperiments([&](absl::string_view name, bool active) {
+    const char* value = active ? "1" : "0";
+    out->printf(" %s=%s", name, value);
+  });
+  out->printf("\n");
+
   out->printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
       "fragmentation), %zu bytes (peak)\n",
@@ -1367,7 +1373,9 @@ extern "C" void MallocExtension_Internal_GetProperties(
     (*result)["tcmalloc.desired_usage_limit_bytes"].value = amount;
   }
 
-  FillExperimentProperties(result);
+  WalkExperiments([&](absl::string_view name, bool active) {
+    (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;
+  });
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {

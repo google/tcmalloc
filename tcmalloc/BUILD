@@ -52,10 +52,11 @@ cc_library(
         "//third_party/protobuf:__pkg__",
     ],
     deps = [
-        ":malloc_extension",
+        "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
     ],
