@@ -131,11 +131,12 @@ class TcmallocSlabTest : public testing::Test {
   }
 
   void* ByteCountingMalloc(size_t size, std::align_val_t alignment) {
-    EXPECT_GE(static_cast<size_t>(alignment), getpagesize());
     void* ptr = ::operator new(size, alignment);
     // Emulate obtaining memory as if we got it from mmap (zero'd).
     memset(ptr, 0, size);
-    madvise(ptr, size, MADV_DONTNEED);
+    if (static_cast<size_t>(alignment) >= getpagesize()) {
+      madvise(ptr, size, MADV_DONTNEED);
+    }
     metadata_bytes_ += size;
     return ptr;
   }
@@ -679,44 +680,49 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
             /*new_shift_offset=*/shift - kResizeInitialShift);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
     ASSERT_NE(old_slabs, nullptr);
-    // It's important that we do this here in order to uncover any potential
-    // correctness issues due to madvising away the old slabs.
-    // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
-    // the kernel enables huge zero pages.
-    madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
-    madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
+    // We sometimes don't madvise away the old slabs in order to simulate
+    // madvise failing.
+    const bool simulate_madvise_failure = absl::Bernoulli(rnd, 0.1);
+    if (!simulate_madvise_failure) {
+      // It's important that we do this here in order to uncover any potential
+      // correctness issues due to madvising away the old slabs.
+      // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
+      // the kernel enables huge zero pages.
+      madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
+      madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
 
-    // Verify that old_slabs is now non-resident.
-    const int fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
-    if (fd < 0) continue;
+      // Verify that old_slabs is now non-resident.
+      const int fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
+      if (fd < 0) continue;
 
-    // /proc/self/pageflags is an array. Each entry is a bitvector of size 64.
-    // To index the array, divide the virtual address by the pagesize. The
-    // 64b word has bit fields set.
-    const uintptr_t start_addr = reinterpret_cast<uintptr_t>(old_slabs);
-    constexpr size_t kPhysicalPageSize = EXEC_PAGESIZE;
-    for (uintptr_t addr = start_addr; addr < start_addr + old_slabs_size;
-         addr += kPhysicalPageSize) {
-      ASSERT_EQ(addr % kPhysicalPageSize, 0);
-      // Offset in /proc/self/pageflags.
-      const off64_t offset = addr / kPhysicalPageSize * 8;
-      uint64_t entry = 0;
+      // /proc/self/pageflags is an array. Each entry is a bitvector of size 64.
+      // To index the array, divide the virtual address by the pagesize. The
+      // 64b word has bit fields set.
+      const uintptr_t start_addr = reinterpret_cast<uintptr_t>(old_slabs);
+      constexpr size_t kPhysicalPageSize = EXEC_PAGESIZE;
+      for (uintptr_t addr = start_addr; addr < start_addr + old_slabs_size;
+           addr += kPhysicalPageSize) {
+        ASSERT_EQ(addr % kPhysicalPageSize, 0);
+        // Offset in /proc/self/pageflags.
+        const off64_t offset = addr / kPhysicalPageSize * 8;
+        uint64_t entry = 0;
 // Ignore false-positive warning in GCC.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wattribute-warning"
 #endif
-      const int64_t bytes_read = pread(fd, &entry, sizeof(entry), offset);
+        const int64_t bytes_read = pread(fd, &entry, sizeof(entry), offset);
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
-      ASSERT_EQ(bytes_read, sizeof(entry));
-      constexpr uint64_t kExpectedBits =
-          (uint64_t{1} << KPF_ZERO_PAGE) | (uint64_t{1} << KPF_NOPAGE);
-      ASSERT_NE(entry & kExpectedBits, 0)
-          << entry << " " << addr << " " << start_addr;
+        ASSERT_EQ(bytes_read, sizeof(entry));
+        constexpr uint64_t kExpectedBits =
+            (uint64_t{1} << KPF_ZERO_PAGE) | (uint64_t{1} << KPF_NOPAGE);
+        ASSERT_NE(entry & kExpectedBits, 0)
+            << entry << " " << addr << " " << start_addr;
+      }
+      signal_safe_close(fd);
     }
-    signal_safe_close(fd);
 
     // Keep track of old slabs if we aren't already.
     if (!absl::c_any_of(old_slabs_span, [old_slabs = old_slabs](const auto& p) {

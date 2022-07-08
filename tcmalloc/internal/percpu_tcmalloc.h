@@ -1107,11 +1107,7 @@ inline auto TcmallocSlab<NumClasses>::AllocSlabs(
   Slabs*& reused_slabs = slabs_by_shift_[shift_offset];
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   const bool can_reuse = reused_slabs != nullptr;
-  if (can_reuse) {
-    // Force the reused slabs to be zeroed.
-    const bool madvise_failed = madvise(reused_slabs, size, MADV_REMOVE);
-    if (madvise_failed) memset(reinterpret_cast<void*>(reused_slabs), 0, size);
-  } else {
+  if (!can_reuse) {
     reused_slabs = static_cast<Slabs*>(alloc(size, kPhysicalPageAlign));
     // MSan does not see writes in assembly.
     ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);
@@ -1284,17 +1280,11 @@ template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::InitCpuImpl(
     Slabs* slabs, Shift shift, int cpu, size_t virtual_cpu_id_offset,
     absl::FunctionRef<size_t(size_t)> capacity) {
-  // Phase 1: verify no header is locked
-  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
-    Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
-    CHECK_CONDITION(!hdr.IsLocked());
-  }
-
-  // Phase 2: stop concurrent mutations for <cpu>. Locking ensures that there
+  // Phase 1: stop concurrent mutations for <cpu>. Locking ensures that there
   // exists no value of current such that begin < current.
   StopConcurrentMutations(slabs, shift, cpu, virtual_cpu_id_offset);
 
-  // Phase 3: Initialize prefetch target and compute the offsets for the
+  // Phase 2: Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
   Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
   void** elems = curr_slab->mem;
@@ -1325,7 +1315,7 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     }
   }
 
-  // Phase 4: Store current.  No restartable sequence will proceed
+  // Phase 3: Store current.  No restartable sequence will proceed
   // (successfully) as !(begin < current) for all size classes.
   //
   // We must write current and complete a fence before storing begin and end
@@ -1338,7 +1328,7 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
   }
   FenceCpu(cpu, virtual_cpu_id_offset);
 
-  // Phase 5: Allow access to this cache.
+  // Phase 4: Allow access to this cache.
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     Header hdr;
     hdr.current = begin[size_class];
