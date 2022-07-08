@@ -29,6 +29,7 @@
 #include <new>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/sysinfo.h"
@@ -156,7 +157,7 @@ class TcmallocSlab {
   //
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
-  ResizeSlabsInfo ResizeSlabs(
+  ABSL_MUST_USE_RESULT ResizeSlabsInfo ResizeSlabs(
       Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
@@ -195,7 +196,8 @@ class TcmallocSlab {
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  void* Pop(size_t size_class, UnderflowHandler underflow_handler, void* arg);
+  ABSL_MUST_USE_RESULT void* Pop(size_t size_class,
+                                 UnderflowHandler underflow_handler, void* arg);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -334,14 +336,15 @@ class TcmallocSlab {
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
-  std::pair<Slabs*, Shift> GetSlabsAndShift(std::memory_order order) const {
+  ABSL_MUST_USE_RESULT std::pair<Slabs*, Shift> GetSlabsAndShift(
+      std::memory_order order) const {
     return slabs_and_shift_.load(order).Get();
   }
 
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   //     can't calculate this from `shift` directly due to numa shift.
   // Returns the allocated slabs and the number of reused bytes.
-  std::pair<Slabs*, size_t> AllocSlabs(
+  ABSL_MUST_USE_RESULT std::pair<Slabs*, size_t> AllocSlabs(
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, Shift shift,
       int num_cpus, uint8_t shift_offset);
   static Slabs* CpuMemoryStart(Slabs* slabs, Shift shift, int cpu);
