@@ -40,6 +40,7 @@
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/sampled_allocation_allocator.h"
 #include "tcmalloc/sampled_allocation_recorder.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
@@ -52,41 +53,6 @@ namespace tcmalloc_internal {
 class CpuCache;
 class PageMap;
 class ThreadCache;
-
-// Wrapper around PageHeapAllocator<SampledAllocation> to provide a customized
-// New() and Delete() for SampledAllocation.
-// 1) SampledAllocation is used internally by TCMalloc and can not use normal
-// heap allocation. We rely on PageHeapAllocator that allocates from TCMalloc's
-// arena and requires the pageheap_lock here.
-// 2) PageHeapAllocator only allocates/deallocates memory, so we need to
-// manually invoke the constructor/destructor to initialize/clear some fields.
-class SampledAllocationAllocator {
- public:
-  constexpr SampledAllocationAllocator() = default;
-
-  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    allocator_.Init(arena);
-  }
-
-  SampledAllocation* New(const StackTrace& stack_trace)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    SampledAllocation* s;
-    {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      s = allocator_.New();
-    }
-    return new (s) SampledAllocation(stack_trace);
-  }
-
-  void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocator_.Delete(s);
-  }
-
- private:
-  PageHeapAllocator<SampledAllocation> allocator_
-      ABSL_GUARDED_BY(pageheap_lock);
-};
 
 using SampledAllocationRecorder =
     ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,

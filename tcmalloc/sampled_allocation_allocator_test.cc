@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/static_vars.h"
+#include "tcmalloc/sampled_allocation_allocator.h"
 
 #include "gtest/gtest.h"
+#include "absl/debugging/stacktrace.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-TEST(StaticVarsTest, SampledAllocationAllocator) {
+TEST(SampledAllocationAllocatorTest, AllocAndDealloc) {
   Arena arena;
   SampledAllocationAllocator allocator;
   {
