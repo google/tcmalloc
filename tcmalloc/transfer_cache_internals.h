@@ -227,11 +227,10 @@ class TransferCache {
       }
 
       remove_misses_.Add(MissType::kTotal, 1);
+      low_water_mark_.store(0, std::memory_order_release);
     } else {
       remove_non_batch_misses_.Add(MissType::kTotal, 1);
     }
-    low_water_mark_.store(0, std::memory_order_release);
-
     return freelist().RemoveRange(batch, N);
   }
 
