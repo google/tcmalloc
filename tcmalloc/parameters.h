@@ -138,6 +138,14 @@ class Parameters {
 
   static bool pass_span_object_count_to_pageheap();
 
+  static bool madvise_cold_regions_nohugepage() {
+    return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
+  }
+
+  static void set_madvise_cold_regions_nohugepage(bool value) {
+    TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(value);
+  }
+
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
@@ -158,6 +166,7 @@ class Parameters {
       double v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(
       double v);
+  friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
@@ -166,6 +175,7 @@ class Parameters {
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
   static std::atomic<bool> resize_transfer_caches_enabled_;
+  static std::atomic<bool> madvise_cold_regions_nohugepage_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<bool> prioritize_spans_enabled_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 
 // On systems (like freebsd) that don't define MAP_ANONYMOUS, use the old
@@ -62,17 +63,6 @@ extern "C" int madvise(caddr_t, size_t, int);
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-ABSL_CONST_INIT static std::atomic<bool> madvise_cold_regions_nohugepage(true);
-
-extern "C" bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
-  return madvise_cold_regions_nohugepage.load(std::memory_order_relaxed);
-}
-
-extern "C" void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
-  madvise_cold_regions_nohugepage.store(v, std::memory_order_relaxed);
-}
-
 namespace {
 
 // Check that no bit is set at position ADDRESS_BITS or higher.
@@ -198,7 +188,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   }
   (void)hint_;
   if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess &&
-      madvise_cold_regions_nohugepage.load(std::memory_order_relaxed)) {
+      Parameters::madvise_cold_regions_nohugepage()) {
     // This is only advisory, so ignore the error.
     (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
   }
