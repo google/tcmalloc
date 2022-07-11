@@ -84,7 +84,7 @@ class TcmallocSlabTest : public testing::Test {
           return this->ByteCountingMalloc(size, alignment);
         },
         [](size_t) { return kCapacity; }, ToShiftType(kShift),
-        /*shift_offset=*/0);
+        /*shift_offset=*/kShift - kInitialPerCpuShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -441,6 +441,35 @@ TEST_F(TcmallocSlabTest, Unit) {
       ASSERT_EQ(slab_.Shrink(cpu, size_class, kCapacity / 2), kCapacity / 2);
     }
   }
+}
+
+TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+
+  // Initialize a core.
+  slab_.InitCpu(0, [](size_t size_class) { return kCapacity; });
+
+  auto trigger_resize = [&](size_t shift) {
+    // We are deliberately simulating madvise failing, so ignore the return
+    // value.
+    (void)slab_.ResizeSlabs(
+        subtle::percpu::ToShiftType(shift),
+        [&](size_t size, std::align_val_t alignment) {
+          return this->ByteCountingMalloc(size, alignment);
+        },
+        [](size_t) { return kCapacity / 2; }, [](int cpu) { return cpu == 0; },
+        [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
+          EXPECT_EQ(size, 0);
+        },
+        shift - kInitialPerCpuShift);
+  };
+
+  // We need to switch from one size (kShift) to another (kShift - 1) and back.
+  trigger_resize(kShift - 1);
+  trigger_resize(kShift);
 }
 
 size_t get_capacity(size_t size_class) {
