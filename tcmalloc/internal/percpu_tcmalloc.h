@@ -816,6 +816,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // has no deps) and prefetching the line async is better than stalling
           // at the use (which may have deps) to fill the TLB and the cache
           // miss.
+          //
+          // See "Beyond malloc efficiency to fleet efficiency"
+          // (https://research.google/pubs/pub50370/), section 6.4 for
+          // additional details.
           "prefetcht0 (%[result])\n"
           "movq -8(%[scratch], %[current], 8), %[result]\n"
           "lea -1(%[current]), %[current]\n"
