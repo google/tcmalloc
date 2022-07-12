@@ -180,7 +180,7 @@ class Static {
 
   ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
-  ABSL_CONST_INIT TCMALLOC_ATTRIBUTE_NO_DESTROY static TransferCacheManager
+  TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
       transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CpuCache cpu_cache_;
