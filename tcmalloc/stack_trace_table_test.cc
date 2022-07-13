@@ -509,58 +509,61 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
 TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
   Static::InitIfNecessary();
 
-  for (bool unmap : {false, true}) {
-    SCOPED_TRACE(absl::StrCat("unmap: ", unmap));
-    StackTrace t1 = {};
-    t1.requested_size = static_cast<uintptr_t>(512);
-    t1.requested_alignment = static_cast<uintptr_t>(16);
-    t1.allocated_size = static_cast<uintptr_t>(1024);
-    t1.access_hint = 3;
-    t1.cold_allocated = true;
-    t1.depth = static_cast<uintptr_t>(2);
-    t1.stack[0] = reinterpret_cast<void*>(1);
-    t1.stack[1] = reinterpret_cast<void*>(2);
-    t1.weight = 2 << 20;
+  for (bool flip_order : {false, true}) {
+    SCOPED_TRACE(absl::StrCat("flip_order: ", flip_order));
+    for (bool unmap : {false, true}) {
+      SCOPED_TRACE(absl::StrCat("unmap: ", unmap));
+      StackTrace t1 = {};
+      t1.requested_size = static_cast<uintptr_t>(512);
+      t1.requested_alignment = static_cast<uintptr_t>(16);
+      t1.allocated_size = static_cast<uintptr_t>(1024);
+      t1.access_hint = 3;
+      t1.cold_allocated = true;
+      t1.depth = static_cast<uintptr_t>(2);
+      t1.stack[0] = reinterpret_cast<void*>(1);
+      t1.stack[1] = reinterpret_cast<void*>(2);
+      t1.weight = 2 << 20;
 
-    const AllocationEntry k1 = {
-        .sum = 2048,
-        .count = 2,
-        .requested_size = 512,
-        .requested_alignment = 16,
-        .allocated_size = 1024,
-        .sampled_resident_size = unmap ? 0UL : 2048UL,
-        .access_hint = 3,
-        .cold_allocated = true,
-        .depth = 2,
-        .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-    };
+      const AllocationEntry k1 = {
+          .sum = 2048,
+          .count = 2,
+          .requested_size = 512,
+          .requested_alignment = 16,
+          .allocated_size = 1024,
+          .sampled_resident_size = unmap ? 0UL : 2048UL,
+          .access_hint = 3,
+          .cold_allocated = true,
+          .depth = 2,
+          .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      };
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+      StackTraceTable table(ProfileType::kHeap, 1, true, false);
 
-    size_t kSize = getpagesize();
-    void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
-                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
-    ASSERT_NE(ptr1, MAP_FAILED) << errno;
-    void* ptr2 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
-                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
-    ASSERT_NE(ptr2, MAP_FAILED) << errno;
-    if (ptr1 > ptr2) {
-      std::swap(ptr1, ptr2);
-    }
-    if (unmap) {
-      ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
-    }
-    t1.span_start_address = ptr1;
-    AddTrace(&table, 1.0, t1);
-    t1.span_start_address = ptr2;
-    AddTrace(&table, 1.0, t1);
-    EXPECT_EQ(2, table.depth_total());
-    EXPECT_EQ(1, table.bucket_total());
+      size_t kSize = getpagesize();
+      void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                        MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+      ASSERT_NE(ptr1, MAP_FAILED) << errno;
+      void* ptr2 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                        MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+      ASSERT_NE(ptr2, MAP_FAILED) << errno;
+      if (ptr1 > ptr2) {
+        std::swap(ptr1, ptr2);
+      }
+      if (unmap) {
+        ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+      }
+      t1.span_start_address = flip_order ? ptr2 : ptr1;
+      AddTrace(&table, 1.0, t1);
+      t1.span_start_address = flip_order ? ptr1 : ptr2;
+      AddTrace(&table, 1.0, t1);
+      EXPECT_EQ(2, table.depth_total());
+      EXPECT_EQ(1, table.bucket_total());
 
-    CheckTraces(table, {k1});
-    ASSERT_EQ(munmap(ptr1, kSize), 0) << errno;
-    if (!unmap) {
-      ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+      CheckTraces(table, {k1});
+      ASSERT_EQ(munmap(ptr1, kSize), 0) << errno;
+      if (!unmap) {
+        ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+      }
     }
   }
 }
