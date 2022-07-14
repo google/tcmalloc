@@ -333,9 +333,7 @@ cc_library(
     hdrs = ["residency.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = [
-        "//tcmalloc:__subpackages__",
-    ],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
         ":util",
