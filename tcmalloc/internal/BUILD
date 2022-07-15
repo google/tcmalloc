@@ -320,7 +320,6 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
-        ":util",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
