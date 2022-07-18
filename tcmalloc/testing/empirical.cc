@@ -17,6 +17,7 @@
 #include <memory>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "absl/random/discrete_distribution.h"
 #include "absl/random/seed_sequences.h"
 #include "absl/random/uniform_int_distribution.h"
@@ -31,10 +32,10 @@ inline void PossiblyTouchAllocated(void* allocated, bool touch_allocated) {
     *access_ptr = 0;
     // Prevent the compiler from register optimizing the load by telling it that
     // access_ptr might change
-    asm volatile("" : [access_ptr] "+r"(access_ptr));
+    benchmark::DoNotOptimize(access_ptr);
     auto byte = *(access_ptr);
     // Prevent the compiler from removing the load since the result is unused
-    asm volatile("" : : [byte] "r"(byte));
+    benchmark::DoNotOptimize(byte);
   }
 }
 
