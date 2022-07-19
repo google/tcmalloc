@@ -90,7 +90,7 @@ bool want_hpaa() {
 
 PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
-  has_cold_impl_ = ColdExperimentActive();
+  has_cold_impl_ = ColdFeatureActive();
   if (kUseHPAA) {
     default_hpaa_ =
         new (&choices_[0].hpaa) HugePageAwareAllocator(MemoryTag::kNormal);

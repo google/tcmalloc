@@ -608,7 +608,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     return kSmallObjectDepth;
   }
 
-  if (ColdExperimentActive()) {
+  if (ColdFeatureActive()) {
     // We reduce the number of cached objects for some sizes to fit into the
     // slab.
     static constexpr uint16_t kLargeUninterestingObjectDepth = 133;

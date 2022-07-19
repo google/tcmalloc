@@ -61,13 +61,6 @@ variants = [
         "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
     },
     {
-        "name": "8k_pages_not_hotcold",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "copts": [],
-        "env": {"TCMALLOC_HOTCOLD_CONTROL": "0"},
-    },
-    {
         "name": "256k_pages_pow2",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [

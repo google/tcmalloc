@@ -27,8 +27,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-ABSL_CONST_INIT std::atomic<bool> hot_cold_pageheap_active{true};
-
 absl::string_view MemoryTagToLabel(MemoryTag tag) {
   switch (tag) {
     case MemoryTag::kNormal:
@@ -224,24 +222,7 @@ void SizeMap::Init() {
   memset(cold_sizes_, 0, sizeof(cold_sizes_));
   cold_sizes_count_ = 0;
 
-  // Initialize hot_cold_pageheap_active.
-  const char* e = thread_safe_getenv("TCMALLOC_HOTCOLD_CONTROL");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        hot_cold_pageheap_active.store(false, std::memory_order_relaxed);
-        break;
-      case '1':
-        // Do nothing.
-        ASSERT(hot_cold_pageheap_active.load(std::memory_order_relaxed));
-        break;
-      default:
-        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-        break;
-    }
-  }
-
-  if (!ColdExperimentActive()) {
+  if (!ColdFeatureActive()) {
     std::copy(&class_array_[0], &class_array_[kClassArraySize],
               &class_array_[kClassArraySize]);
     return;
@@ -299,10 +280,6 @@ void SizeMap::Init() {
       break;
     }
   }
-}
-
-extern "C" bool TCMalloc_Internal_ColdExperimentActive() {
-  return ColdExperimentActive();
 }
 
 // This only provides correct answer for TCMalloc-allocated memory,

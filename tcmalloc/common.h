@@ -281,12 +281,7 @@ inline bool IsColdMemory(const void* ptr) {
   return r;
 }
 
-ABSL_CONST_INIT extern std::atomic<bool> hot_cold_pageheap_active;
-
-inline bool ColdExperimentActive() {
-  return kHasExpandedClasses &&
-         hot_cold_pageheap_active.load(std::memory_order_relaxed);
-}
+inline constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
 
 inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>

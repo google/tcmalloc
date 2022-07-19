@@ -1726,7 +1726,7 @@ inline void* do_malloc_pages(Policy policy, size_t size, int num_objects) {
   }
 
   void* result = span->start_address();
-  ASSERT(!ColdExperimentActive() || tag == GetMemoryTag(span->start_address()));
+  ASSERT(!ColdFeatureActive() || tag == GetMemoryTag(span->start_address()));
 
   if (size_t weight = ShouldSampleAllocation(size)) {
     CHECK_CONDITION(result == SampleifyAllocation(policy, size, weight, 0,

@@ -49,9 +49,9 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
                       "address placement";
 #endif
 
-      if (!ColdExperimentActive()) {
-        // If !ColdExperimentActive(), we will use the normal page heap, which
-        // will keep us from seeing memory get the expected tags.
+      if (!ColdFeatureActive()) {
+        // If !ColdFeatureActive(), we will use the normal page heap, which will
+        // keep us from seeing memory get the expected tags.
         GTEST_SKIP()
             << "Skipping expanded size classes without cold experiment";
       }

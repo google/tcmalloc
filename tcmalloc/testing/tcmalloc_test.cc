@@ -976,7 +976,7 @@ TEST(SizedDeleteTest, NothrowSizedOperatorDelete) {
 }
 
 TEST(HotColdTest, HotColdNew) {
-  const bool expectColdTags = TCMalloc_Internal_ColdExperimentActive();
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   using tcmalloc_internal::IsColdMemory;
   using tcmalloc_internal::IsSampledMemory;
 
