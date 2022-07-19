@@ -1054,5 +1054,25 @@ TEST(HotColdTest, HotColdNew) {
   }
 }
 
+// Test that when we use size-returning new, we can pass any of the sizes
+// between the requested size and the allocated size to sized-delete.
+// We follow
+// https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p0901r9.html#sizeddelete.
+TEST(MallocExtension, SizeReturningNewAndSizedDelete) {
+#ifndef __cpp_sized_deallocation
+  GTEST_SKIP() << "No sized deallocation.";
+#else
+  for (int i = 0; i < 100; ++i) {
+    tcmalloc::sized_ptr_t sized_ptr = tcmalloc_size_returning_operator_new(i);
+    ::operator delete(sized_ptr.p, sized_ptr.n);
+    for (int j = i, end = sized_ptr.n; j < end; ++j) {
+      sized_ptr = tcmalloc_size_returning_operator_new(i);
+      EXPECT_EQ(end, sized_ptr.n) << i << "," << j;
+      ::operator delete(sized_ptr.p, j);
+    }
+  }
+#endif
+}
+
 }  // namespace
 }  // namespace tcmalloc

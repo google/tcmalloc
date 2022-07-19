@@ -513,6 +513,9 @@ class MallocExtension final {
 // Default weak implementation returns size unchanged, but tcmalloc overrides it
 // and returns rounded up size. See the following link for details:
 // http://www.unix.com/man-page/freebsd/3/nallocx/
+// NOTE: prefer using tcmalloc_size_returning_operator_new over nallocx.
+// tcmalloc_size_returning_operator_new is more efficienct and provides tcmalloc
+// with better telemetry.
 extern "C" size_t nallocx(size_t size, int flags) noexcept;
 
 // The sdallocx function deallocates memory allocated by malloc or memalign.  It
