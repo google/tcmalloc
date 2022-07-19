@@ -15,11 +15,15 @@
 #ifndef TCMALLOC_PEAK_HEAP_TRACKER_H_
 #define TCMALLOC_PEAK_HEAP_TRACKER_H_
 
+#include <atomic>
+#include <memory>
+
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/atomic_stats_counter.h"
-#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/sampled_allocation_allocator.h"
+#include "tcmalloc/sampled_allocation_recorder.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -27,29 +31,61 @@ namespace tcmalloc_internal {
 
 class PeakHeapTracker {
  public:
-  constexpr PeakHeapTracker() : peak_sampled_span_stacks_(nullptr) {}
+  constexpr PeakHeapTracker()
+      : recorder_lock_(absl::kConstInit,
+                       absl::base_internal::SCHEDULE_KERNEL_ONLY),
+        peak_heap_recorder_() {}
+
+  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+      ABSL_LOCKS_EXCLUDED(recorder_lock_) {
+    peak_heap_record_allocator_.Init(arena);
+    absl::base_internal::SpinLockHolder h(&recorder_lock_);
+    peak_heap_recorder_.Construct(&peak_heap_record_allocator_);
+    peak_heap_recorder_.get_mutable().Init();
+  }
 
   // Possibly save high-water-mark allocation stack traces for peak-heap
   // profile. Should be called immediately after sampling an allocation. If
   // the heap has grown by a sufficient amount since the last high-water-mark,
   // it will save a copy of the sample profile.
-  void MaybeSaveSample() ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void MaybeSaveSample() ABSL_LOCKS_EXCLUDED(recorder_lock_);
 
   // Return the saved high-water-mark heap profile, if any.
-  std::unique_ptr<ProfileBase> DumpSample() const
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  std::unique_ptr<ProfileBase> DumpSample() ABSL_LOCKS_EXCLUDED(recorder_lock_);
 
-  size_t CurrentPeakSize() const { return peak_sampled_heap_size_.value(); }
+  size_t CurrentPeakSize() const {
+    return do_not_access_directly_peak_sampled_heap_size_.load(
+        std::memory_order_relaxed);
+  }
 
  private:
-  // Linked list of stack traces from sampled allocations saved (from
-  // sampled_objects_ above) when we allocate memory from the system. The
-  // linked list pointer is stored in StackTrace::stack[kMaxStackDepth-1].
-  StackTrace* peak_sampled_span_stacks_;
+  void SetCurrentPeakSize(int64_t value)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(recorder_lock_) {
+    return do_not_access_directly_peak_sampled_heap_size_.store(
+        value, std::memory_order_relaxed);
+  }
 
-  // Sampled heap size last time peak_sampled_span_stacks_ was saved. Only
-  // written under pageheap_lock; may be read without it.
-  StatsCounter peak_sampled_heap_size_;
+  using PeakHeapRecorder =
+      SampleRecorder<SampledAllocation, SampledAllocationAllocator>;
+
+  SampledAllocationAllocator peak_heap_record_allocator_;
+
+  // Guards the peak heap samples stored in `peak_heap_recorder_`.
+  absl::base_internal::SpinLock recorder_lock_;
+
+  // Linked list that stores the stack traces of the sampled allocation saved
+  // when we allocate memory from the system.
+  // PeakHeapRecorder is based off `tcmalloc::tcmalloc_internal::SampleRecorder`
+  // , which is mainly used as the allocator and also for iteration here. It
+  // reuses memory so we don't have to take the pageheap_lock every time for
+  // allocation. `SampleRecorder` has a non-trivial destructor. So wrapping
+  // `ExplicitlyConstructed` around it to make the destructor never run.
+  ExplicitlyConstructed<PeakHeapRecorder> peak_heap_recorder_
+      ABSL_GUARDED_BY(recorder_lock_);
+
+  // Sampled heap size last time peak_heap_recorder_ was saved. Only written
+  // under `recorder_lock_`; may be read without it.
+  std::atomic<int64_t> do_not_access_directly_peak_sampled_heap_size_{0};
 
   bool IsNewPeak();
 };

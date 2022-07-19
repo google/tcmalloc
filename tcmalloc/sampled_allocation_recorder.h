@@ -82,6 +82,15 @@ class SampleRecorder {
   using DisposeCallback = void (*)(const T&);
   DisposeCallback SetDisposeCallback(DisposeCallback f);
 
+  // Unregisters any live samples starting from `all_`. Note that if there are
+  // any samples added in front of `all_` in other threads after this function
+  // reads `all_`, they won't be cleaned up. External synchronization is
+  // required if the intended outcome is to have no live sample after this call.
+  // Extra care must be taken when `Unregister()` is invoked concurrently with
+  // this function to avoid a dead sample (updated by this function) being
+  // passed to `Unregister()` which assumes the sample is live.
+  void UnregisterAll();
+
   // Iterates over all the registered samples.
   void Iterate(const absl::FunctionRef<void(const T& sample)>& f);
 
@@ -204,6 +213,24 @@ T* SampleRecorder<T, Allocator>::Register(Targs&&... args) {
 template <typename T, typename Allocator>
 void SampleRecorder<T, Allocator>::Unregister(T* sample) {
   PushDead(sample);
+}
+
+template <typename T, typename Allocator>
+void SampleRecorder<T, Allocator>::UnregisterAll() {
+  absl::base_internal::SpinLockHolder graveyard_lock(&graveyard_.lock);
+  T* sample = all_.load(std::memory_order_acquire);
+  auto* dispose = dispose_.load(std::memory_order_relaxed);
+  while (sample != nullptr) {
+    {
+      absl::base_internal::SpinLockHolder sample_lock(&sample->lock);
+      if (sample->dead == nullptr) {
+        if (dispose) dispose(*sample);
+        sample->dead = graveyard_.dead;
+        graveyard_.dead = sample;
+      }
+    }
+    sample = sample->next;
+  }
 }
 
 template <typename T, typename Allocator>

@@ -787,15 +787,17 @@ static void PrintStats(int level) {
 // This function computes a profile that maps a live stack trace to
 // the number of bytes of central-cache memory pinned by an allocation
 // at that stack trace.
+// In the case when span is hosting >= 1 number of small objects (t.proxy !=
+// nullptr), we call span::Fragmentation() and read `span->allocated_`. It is
+// safe to do so since we hold the per-sample lock while iterating over sampled
+// allocations. It prevents the sampled allocation that has the proxy object to
+// complete deallocation, thus `proxy` can not be returned to the span yet. It
+// thus prevents the central free list to return the span to the page heap.
 static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
   auto profile = absl::make_unique<StackTraceTable>(ProfileType::kFragmentation,
                                                     1, true, true);
-
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
   Static::sampled_allocation_recorder().Iterate(
       [&profile](const SampledAllocation& sampled_allocation) {
-        pageheap_lock.AssertHeld();
-
         // Compute fragmentation to charge to this sample:
         const StackTrace& t = sampled_allocation.sampled_stack;
         if (t.proxy == nullptr) {
@@ -829,10 +831,8 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
 static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   auto profile = absl::make_unique<StackTraceTable>(
       ProfileType::kHeap, Sampler::GetSamplePeriod(), true, true);
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
   Static::sampled_allocation_recorder().Iterate(
       [&profile](const SampledAllocation& sampled_allocation) {
-        pageheap_lock.AssertHeld();
         profile->AddTrace(1.0, sampled_allocation.sampled_stack);
       });
   return profile;
@@ -850,47 +850,51 @@ class AllocationSample final : public AllocationProfilingTokenBase {
  private:
   std::unique_ptr<StackTraceTable> mallocs_;
   absl::Time start_;
-  AllocationSample* next ABSL_GUARDED_BY(pageheap_lock);
+  AllocationSample* next_;
   friend class AllocationSampleList;
 };
 
 class AllocationSampleList {
  public:
-  void Add(AllocationSample* as) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    as->next = first_;
+  void Add(AllocationSample* as) {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    as->next_ = first_;
     first_ = as;
   }
 
   // This list is very short and we're nowhere near a hot path, just walk
-  void Remove(AllocationSample* as)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Remove(AllocationSample* as) {
+    absl::base_internal::SpinLockHolder h(&lock_);
     AllocationSample** link = &first_;
     AllocationSample* cur = first_;
     while (cur != as) {
       CHECK_CONDITION(cur != nullptr);
-      link = &cur->next;
-      cur = cur->next;
+      link = &cur->next_;
+      cur = cur->next_;
     }
-    *link = as->next;
+    *link = as->next_;
   }
 
-  void ReportMalloc(const struct StackTrace& sample)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void ReportMalloc(const struct StackTrace& sample) {
+    absl::base_internal::SpinLockHolder h(&lock_);
     AllocationSample* cur = first_;
     while (cur != nullptr) {
       cur->mallocs_->AddTrace(1.0, sample);
-      cur = cur->next;
+      cur = cur->next_;
     }
   }
 
  private:
-  AllocationSample* first_;
-} allocation_samples_ ABSL_GUARDED_BY(pageheap_lock);
+  // Guard against any concurrent modifications on the list of allocation
+  // samples. Invoking `new` while holding this lock can lead to deadlock.
+  absl::base_internal::SpinLock lock_{
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+  AllocationSample* first_ ABSL_GUARDED_BY(lock_);
+} allocation_samples_;
 
 AllocationSample::AllocationSample() : start_(absl::Now()) {
   mallocs_ = absl::make_unique<StackTraceTable>(
       ProfileType::kAllocations, Sampler::GetSamplePeriod(), true, true);
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
   allocation_samples_.Add(this);
 }
 
@@ -900,21 +904,14 @@ AllocationSample::~AllocationSample() {
   }
 
   // deleted before ending profile, do it for them
-  {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocation_samples_.Remove(this);
-  }
+  allocation_samples_.Remove(this);
 }
 
-Profile AllocationSample::Stop() && ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+Profile AllocationSample::Stop() && {
   // We need to remove ourselves from the allocation_samples_ list before we
   // mutate mallocs_;
   if (mallocs_) {
-    {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      allocation_samples_.Remove(this);
-    }
-
+    allocation_samples_.Remove(this);
     mallocs_->SetDuration(absl::Now() - start_);
   }
   return ProfileAccessor::MakeProfile(std::move(mallocs_));
@@ -1672,10 +1669,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
         std::memory_order_relaxed);
   }
 
-  {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocation_samples_.ReportMalloc(tmp);
-  }
+  allocation_samples_.ReportMalloc(tmp);
 
   // The SampledAllocation object is visible to readers after this. Readers only
   // care about its various metadata (e.g. stack trace, weight) to generate the

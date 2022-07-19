@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -45,8 +46,18 @@ struct Info : public Sample<Info> {
 
 class TestAllocator {
  public:
-  static Info* New() { return new Info; }
-  static void Delete(Info* info) { delete info; }
+  static Info* New() {
+    alloc_count_.fetch_add(1, std::memory_order_relaxed);
+    return new Info;
+  }
+  static void Delete(Info* info) {
+    alloc_count_.fetch_sub(1, std::memory_order_relaxed);
+    delete info;
+  }
+  static uint64_t alloc_count() {
+    return alloc_count_.load(std::memory_order_relaxed);
+  }
+  inline static std::atomic<uint64_t> alloc_count_{0};
 };
 
 class SampleRecorderTest : public ::testing::Test {
@@ -136,12 +147,29 @@ TEST_F(SampleRecorderTest, Unregistration) {
   sample_recorder_.Unregister(infos[2]);
   sample_recorder_.Unregister(infos[4]);
   EXPECT_THAT(GetSizes(), IsEmpty());
+
+  for (size_t i = 0; i < 10; ++i) {
+    Register(i);
+  }
+  sample_recorder_.UnregisterAll();
+  // In a single thread, we expect all samples to be cleaned up.
+  EXPECT_THAT(GetSizes(), IsEmpty());
+  // UnregisterAll() marks all the live samples as dead. If we register
+  // another set of samples, we expect the dead samples are reused and
+  // no actual allocation is needed for the new set of samples.
+  const uint64_t alloc_count1 = allocator_.alloc_count();
+  for (size_t i = 0; i < 10; ++i) {
+    Register(i);
+  }
+  const uint64_t alloc_count2 = allocator_.alloc_count();
+  EXPECT_EQ(alloc_count1, alloc_count2);
 }
 
 TEST_F(SampleRecorderTest, MultiThreaded) {
   absl::Notification stop;
   ThreadManager threads;
-  threads.Start(10, [&](int) {
+  const int kThreads = 10;
+  threads.Start(kThreads, [&](int) {
     std::random_device rd;
     std::mt19937 gen(rd());
 
@@ -175,6 +203,20 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
       }
     }
   });
+
+  // Another `SampleRecorder` instance to test `UnregisterAll()`, which does not
+  // work well with the setup above since `infoz` might find itself storing dead
+  // objects as `UnregisterAll()` is running concurrently. And `Unregister()`
+  // assumes the object it is going to mark dead is still alive.
+  SampleRecorder<Info, TestAllocator> sample_recorder{&allocator_};
+  sample_recorder.Init();
+  threads.Start(kThreads, [&](int) { sample_recorder.Register(); });
+  threads.Start(kThreads, [&](int) { sample_recorder.UnregisterAll(); });
+  threads.Start(kThreads, [&](int) {
+    sample_recorder.Iterate(
+        [&](const Info& info) { ASSERT_TRUE(info.initialized); });
+  });
+
   // The threads will hammer away.  Give it a little bit of time for tsan to
   // spot errors.
   absl::SleepFor(absl::Seconds(3));

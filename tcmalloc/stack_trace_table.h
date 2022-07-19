@@ -56,7 +56,7 @@ class StackTraceTable final : public ProfileBase {
   // The count is a floating point value to reduce rounding
   // errors when accounting for sampling probabilities.
   void AddTrace(double count, const StackTrace& t)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Exposed for PageHeapAllocator
   struct Bucket {

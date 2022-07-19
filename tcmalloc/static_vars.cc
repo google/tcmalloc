@@ -111,6 +111,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     sampledallocation_allocator_.Init(&arena_);
     sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
     sampled_allocation_recorder().Init();
+    peak_heap_tracker_.Init(&arena_);
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
     span_allocator_.New();  // Reduce cache conflicts

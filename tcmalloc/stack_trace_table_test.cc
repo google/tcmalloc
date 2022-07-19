@@ -22,7 +22,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
-#include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/strings/str_format.h"
@@ -144,7 +143,6 @@ void CheckTraces(const StackTraceTable& table,
 }
 
 void AddTrace(StackTraceTable* table, double count, const StackTrace& t) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
   table->AddTrace(count, t);
 }
 

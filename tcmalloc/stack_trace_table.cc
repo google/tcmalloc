@@ -49,15 +49,15 @@ StackTraceTable::StackTraceTable(ProfileType type, int64_t period, bool merge,
 }
 
 StackTraceTable::~StackTraceTable() {
-  {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    for (int i = 0; i < num_buckets(); ++i) {
-      Bucket* b = table_[i];
-      while (b != nullptr) {
-        Bucket* next = b->next;
+  for (int i = 0; i < num_buckets(); ++i) {
+    Bucket* b = table_[i];
+    while (b != nullptr) {
+      Bucket* next = b->next;
+      {
+        absl::base_internal::SpinLockHolder h(&pageheap_lock);
         Static::bucket_allocator().Delete(b);
-        b = next;
       }
+      b = next;
     }
   }
   delete[] table_;
@@ -88,7 +88,12 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
   } else {
     depth_total_ += t.depth;
     bucket_total_++;
-    b = Static::bucket_allocator().New();
+    {
+      // TODO(b/239458966): Use heap allocation for bucket after we remove the
+      // need to use StackTraceTable while allocating (e.g. allocationz/).
+      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      b = Static::bucket_allocator().New();
+    }
     b->hash = h;
     b->trace = t;
     b->count = count;
