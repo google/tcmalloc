@@ -222,7 +222,7 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "operator new(\\[\\])?";
 
 ProfileBuilder::ProfileBuilder()
-    : profile_(absl::make_unique<perftools::profiles::Profile>()) {
+    : profile_(std::make_unique<perftools::profiles::Profile>()) {
   // string_table[0] must be ""
   profile_->add_string_table("");
 }

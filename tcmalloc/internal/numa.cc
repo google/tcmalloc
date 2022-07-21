@@ -25,6 +25,7 @@
 
 #include <array>
 #include <cstring>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/sysinfo.h"
@@ -56,7 +57,7 @@ namespace {
 bool IsInBounds(int cpu) { return 0 <= cpu && cpu < CPU_SETSIZE; }
 }  // namespace
 
-absl::optional<cpu_set_t> ParseCpulist(
+std::optional<cpu_set_t> ParseCpulist(
     absl::FunctionRef<ssize_t(char*, size_t)> read) {
   cpu_set_t set;
   CPU_ZERO(&set);
@@ -68,7 +69,7 @@ absl::optional<cpu_set_t> ParseCpulist(
   while (true) {
     const ssize_t rc = read(buf.data() + carry_over, buf.size() - carry_over);
     if (ABSL_PREDICT_FALSE(rc < 0)) {
-      return absl::nullopt;
+      return std::nullopt;
     }
 
     const absl::string_view current(buf.data(), carry_over + rc);
@@ -88,14 +89,14 @@ absl::optional<cpu_set_t> ParseCpulist(
     if (dash != absl::string_view::npos && dash < comma) {
       if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from) ||
           !IsInBounds(cpu_from)) {
-        return absl::nullopt;
+        return std::nullopt;
       }
       consumed = dash + 1;
     } else if (comma != absl::string_view::npos || rc == 0) {
       int cpu;
       if (!absl::SimpleAtoi(current.substr(0, comma), &cpu) ||
           !IsInBounds(cpu)) {
-        return absl::nullopt;
+        return std::nullopt;
       }
       if (comma == absl::string_view::npos) {
         consumed = current.size();

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <optional>
+
 #include "tcmalloc/internal/numa.h"
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  absl::optional<cpu_set_t> r = tcmalloc::tcmalloc_internal::ParseCpulist(
+  std::optional<cpu_set_t> r = tcmalloc::tcmalloc_internal::ParseCpulist(
       [&](char* buf, size_t count) -> ssize_t {
         size_t to_read = std::min(size, count);
         if (to_read > 0) {

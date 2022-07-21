@@ -19,6 +19,8 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <optional>
+
 #include "absl/functional/function_ref.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
@@ -152,7 +154,7 @@ int OpenSysfsCpulist(size_t node);
 // should read up to `count` bytes into `buf` and return the number of bytes
 // actually read. If an error occurs during reading it should return -1 with
 // errno set to an appropriate error code.
-absl::optional<cpu_set_t> ParseCpulist(
+std::optional<cpu_set_t> ParseCpulist(
     absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
 
 // Initialize the data members of a NumaTopology<> instance.

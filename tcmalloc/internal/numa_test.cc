@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <new>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -256,7 +257,7 @@ TEST(ParseCpulistTest, Empty) {
       });
 
   // No CPUs should be active on this NUMA node.
-  ASSERT_THAT(parsed, testing::Ne(absl::nullopt));
+  ASSERT_THAT(parsed, testing::Ne(std::nullopt));
   EXPECT_EQ(CPU_COUNT(&*parsed), 0);
 }
 
@@ -276,7 +277,7 @@ TEST(ParseCpulistTest, NotInBounds) {
         return to_copy;
       });
 
-  ASSERT_THAT(parsed, testing::Eq(absl::nullopt));
+  ASSERT_THAT(parsed, testing::Eq(std::nullopt));
 }
 
 // Ensure that we can parse randomized cpulists correctly.
@@ -336,7 +337,7 @@ TEST(ParseCpulistTest, Random) {
         });
 
     // We ought to have parsed the same set of CPUs that we serialized.
-    ASSERT_THAT(parsed, testing::Ne(absl::nullopt));
+    ASSERT_THAT(parsed, testing::Ne(std::nullopt));
     EXPECT_TRUE(CPU_EQUAL(&*parsed, &reference));
   }
 }

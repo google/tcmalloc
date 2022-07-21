@@ -20,8 +20,10 @@
 #include <climits>
 #include <cstdint>
 #include <cstdlib>
+#include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "tcmalloc/internal/profile.pb.h"
@@ -179,7 +181,7 @@ TEST(ProfileConverterTest, Profile) {
   constexpr int kPeriod = 1000;
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
-  auto fake_profile = absl::make_unique<FakeProfile>();
+  auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetPeriod(kPeriod);
   fake_profile->SetType(ProfileType::kHeap);
   fake_profile->SetDuration(kDuration);
@@ -296,7 +298,7 @@ TEST(ProfileConverterTest, Profile) {
 
   // Samples
   std::vector<
-      std::vector<std::pair<std::string, absl::variant<int, std::string>>>>
+      std::vector<std::pair<std::string, std::variant<int, std::string>>>>
       extracted;
   for (const auto& s : converted.sample()) {
     EXPECT_FALSE(s.location_id().empty());

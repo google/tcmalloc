@@ -39,7 +39,7 @@ void BM_mincore(benchmark::State& state) {
   // 16KiB. So there is no point in benchmarking sizes larger than this.
   const int kMaxArraySize = 16 * 1024;
   CHECK_CONDITION(size <= kMaxArraySize);
-  auto resident = absl::make_unique<unsigned char[]>(kMaxArraySize);
+  auto resident = std::make_unique<unsigned char[]>(kMaxArraySize);
 
   const size_t kPageSize = getpagesize();
   // We want to scan the same amount of memory in all cases
