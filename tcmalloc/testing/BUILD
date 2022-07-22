@@ -967,6 +967,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
         "@com_google_protobuf//:protobuf",

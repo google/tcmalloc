@@ -61,9 +61,8 @@ TEST(ProfileMarshalTest, Smoke) {
   ASSERT_TRUE(converted.ParseFromCodedStream(&coded_stream));
 
   // The conversion of tcmalloc::Profile to perftools::profiles::Profile is more
-  // extensively tested in
-  // tcmalloc/internal/profile_converter_test.cc.  We do limited
-  // tests here to verify the proto likely roundtripped correctly.
+  // extensively tested in tcmalloc/testing/profile_test.cc.  We do
+  // limited tests here to verify the proto likely roundtripped correctly.
 
   EXPECT_EQ(converted.period(), kPeriod);
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");

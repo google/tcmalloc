@@ -24,6 +24,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
@@ -98,6 +99,21 @@ TEST(ProfileTest, HeapProfile) {
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 1 sample.
   EXPECT_EQ(samples, 1);
+
+  absl::flat_hash_set<int> mapping_ids;
+  mapping_ids.reserve(converted.mapping().size());
+  for (const auto& mapping : converted.mapping()) {
+    ASSERT_TRUE(mapping_ids.insert(mapping.id()).second);
+  }
+
+  // Every location should have a mapping.
+  int mappings_seen = 0;
+  for (const auto& location : converted.location()) {
+    const int mapping_id = location.mapping_id();
+    EXPECT_NE(mapping_id, 0);
+    mappings_seen += mapping_ids.contains(mapping_id);
+  }
+  EXPECT_EQ(mappings_seen, converted.location().size());
 }
 
 }  // namespace
