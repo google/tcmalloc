@@ -208,7 +208,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     }
 
     // Parse the cpulist file to determine which CPUs are local to this node.
-    const absl::optional<cpu_set_t> node_cpus =
+    const std::optional<cpu_set_t> node_cpus =
         ParseCpulist([&](char* const buf, const size_t count) {
           return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
         });
