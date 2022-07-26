@@ -79,10 +79,6 @@ class Span : public SpanList::Elem {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Remove this from the linked list in which it resides.
-  // REQUIRES: this span is on some list.
-  void RemoveFromList();
-
   // locations used to track what list a span resides on.
   enum Location {
     IN_USE,                // not on PageHeap lists
@@ -568,8 +564,6 @@ inline bool Span::FreelistEmpty(size_t size) const {
     return (bitmap_.IsZero());
   }
 }
-
-inline void Span::RemoveFromList() { SpanList::Elem::remove(); }
 
 inline void Span::Prefetch() {
   // The first 16 bytes of a Span are the next and previous pointers

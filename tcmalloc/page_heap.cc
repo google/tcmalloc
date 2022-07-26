@@ -331,12 +331,16 @@ void PageHeap::PrependToFreeList(Span* span) {
 
 void PageHeap::RemoveFromFreeList(Span* span) {
   ASSERT(span->location() != Span::IN_USE);
+  SpanListPair* list = (span->num_pages() < kMaxPages)
+                           ? &free_[span->num_pages().raw_num()]
+                           : &large_;
   if (span->location() == Span::ON_NORMAL_FREELIST) {
     stats_.free_bytes -= span->bytes_in_span();
+    list->normal.remove(span);
   } else {
     stats_.unmapped_bytes -= span->bytes_in_span();
+    list->returned.remove(span);
   }
-  span->RemoveFromList();
 }
 
 Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {
