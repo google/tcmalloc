@@ -244,7 +244,6 @@ common_deps = [
     ":explicitly_constructed",
     ":malloc_extension",
     ":new_extension",
-    ":noruntime_size_classes",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
     "@com_google_absl//absl/base",
@@ -376,35 +375,6 @@ cc_library(
     deps = [
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
-)
-
-cc_library(
-    name = "runtime_size_classes",
-    srcs = ["runtime_size_classes.cc"],
-    hdrs = ["runtime_size_classes.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:private"],
-    deps = [
-        ":size_class_info",
-        "//tcmalloc/internal:environment",
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/strings",
-    ],
-    alwayslink = 1,
-)
-
-cc_library(
-    name = "noruntime_size_classes",
-    srcs = ["noruntime_size_classes.cc"],
-    hdrs = ["runtime_size_classes.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":size_class_info",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/strings",
     ],
     alwayslink = 1,
 )
@@ -1051,22 +1021,6 @@ create_tcmalloc_testsuite(
 )
 
 cc_test(
-    name = "size_classes_test_with_runtime_size_classes",
-    srcs = ["size_classes_with_runtime_size_classes_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    malloc = "//tcmalloc",
-    deps = [
-        ":common",
-        ":runtime_size_classes",
-        ":size_class_info",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
     name = "heap_profiling_test",
     srcs = ["heap_profiling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -1103,18 +1057,6 @@ cc_test(
         ":malloc_extension",
         "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "runtime_size_classes_test",
-    srcs = ["runtime_size_classes_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    malloc = "//tcmalloc",
-    deps = [
-        ":runtime_size_classes",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1300,19 +1242,6 @@ cc_fuzz_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":experiment",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_fuzz_test(
-    name = "runtime_size_classes_fuzz",
-    testonly = 1,
-    srcs = ["runtime_size_classes_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":common",
-        ":runtime_size_classes",
-        ":size_class_info",
         "@com_google_absl//absl/strings",
     ],
 )

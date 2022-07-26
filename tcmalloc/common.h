@@ -447,10 +447,6 @@ class SizeMap {
   // Mapping from size class to max size storable in that class
   uint32_t class_to_size_[kNumClasses] = {0};
 
-  // If environment variable defined, use it to override sizes classes.
-  // Returns true if all classes defined correctly.
-  bool MaybeRunTimeSizeClasses();
-
  protected:
   // Set the give size classes to be used by TCMalloc. If reduce_below64_classes
   // is true, then reduce the set of parsed size classes below 64 to powers of

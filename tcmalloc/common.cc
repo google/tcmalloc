@@ -20,7 +20,6 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/runtime_size_classes.h"
 #include "tcmalloc/sampler.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -40,29 +39,6 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
     default:
       ASSUME(false);
   }
-}
-
-// Load sizes classes from environment variable if present
-// and valid, then returns True. If not found or valid, returns
-// False.
-bool SizeMap::MaybeRunTimeSizeClasses() {
-  SizeClassInfo parsed[kNumClasses];
-  int num_classes = MaybeSizeClassesFromEnv(kMaxSize, kNumClasses, parsed);
-  if (!ValidSizeClasses(num_classes, parsed)) {
-    return false;
-  }
-
-  if (num_classes != kSizeClassesCount) {
-    // TODO(b/122839049) - Add tests for num_classes < kSizeClassesCount before
-    // allowing that case.
-    Log(kLog, __FILE__, __LINE__, "Can't change the number of size classes",
-        num_classes, kSizeClassesCount);
-    return false;
-  }
-
-  SetSizeClasses(num_classes, parsed);
-  Log(kLog, __FILE__, __LINE__, "Loaded valid Runtime Size classes");
-  return true;
 }
 
 void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed,
@@ -201,7 +177,6 @@ void SizeMap::Init() {
   } else {
     SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }
-  MaybeRunTimeSizeClasses();
 
   int next_size = 0;
   for (int c = 1; c < kNumClasses; c++) {
