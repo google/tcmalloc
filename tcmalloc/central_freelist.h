@@ -295,7 +295,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
   if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
     return nullptr;
   }
-  span->RemoveFromList();  // from nonempty_
+  nonempty_.remove(span);
   return span;
 #else
   const uint8_t prev_index = span->nonempty_index();
@@ -458,7 +458,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
     int here = span->FreelistPopBatch(batch + result, N - result, object_size);
     ASSERT(here > 0);
     if (span->FreelistEmpty(object_size)) {
-      span->RemoveFromList();  // from nonempty_
+      nonempty_.remove(span);
     }
 #else
     const uint8_t prev_bitwidth = absl::bit_width(span->Allocated());
