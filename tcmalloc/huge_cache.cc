@@ -177,7 +177,6 @@ void HugeCache::IncUsage(HugeLength n) {
   usage_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   off_peak_tracker_.Report(NHugePages(0));
-  if (size() + usage() > max_rss_) max_rss_ = size() + usage();
 }
 
 void HugeCache::DecUsage(HugeLength n) {
@@ -188,13 +187,10 @@ void HugeCache::DecUsage(HugeLength n) {
   ASSERT(max >= usage_);
   const HugeLength off_peak = max - usage_;
   off_peak_tracker_.Report(off_peak);
-  if (size() + usage() > max_rss_) max_rss_ = size() + usage();
 }
 
 void HugeCache::UpdateSize(HugeLength size) {
   size_tracker_.Report(size);
-  if (size > max_size_) max_size_ = size;
-  if (size + usage() > max_rss_) max_rss_ = size + usage();
 
   // TODO(b/134691947): moving this inside the MinMaxTracker would save one call
   // to clock_.now() but all MinMaxTrackers would track regret instead.

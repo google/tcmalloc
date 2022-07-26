@@ -237,8 +237,6 @@ class HugeCache {
   MinMaxTracker<> usage_tracker_;
   MinMaxTracker<> off_peak_tracker_;
   MinMaxTracker<> size_tracker_;
-  HugeLength max_size_{NHugePages(0)};
-  HugeLength max_rss_{NHugePages(0)};
 
   HugeLength total_fast_unbacked_{NHugePages(0)};
   HugeLength total_periodic_unbacked_{NHugePages(0)};
