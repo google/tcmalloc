@@ -1783,15 +1783,15 @@ static void do_free_pages(void* ptr, const PageId p) {
     size_t weight = sampled_allocation->sampled_stack.weight;
     size_t requested_size = sampled_allocation->sampled_stack.requested_size;
     allocated_size = sampled_allocation->sampled_stack.allocated_size;
+    // How many allocations does this sample represent, given the sampling
+    // frequency (weight) and its size.
+    const double allocation_estimate =
+        static_cast<double>(weight) / (requested_size + 1);
     Static::sampled_allocation_recorder().Unregister(sampled_allocation);
 
     // Adjust our estimate of internal fragmentation.
     ASSERT(requested_size <= allocated_size);
     if (requested_size < allocated_size) {
-      // How many allocations does this sample represent, given the sampling
-      // frequency (weight) and its size.
-      const double allocation_estimate =
-          static_cast<double>(weight) / (requested_size + 1);
       const size_t sampled_fragmentation =
           allocation_estimate * (allocated_size - requested_size);
 
