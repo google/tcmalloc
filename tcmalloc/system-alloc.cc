@@ -540,7 +540,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
 
-  rnd = Sampler::NextRandom(rnd);
+  rnd = NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;
   addr |= static_cast<uintptr_t>(tag) << kTagShift;
   ASSERT(GetMemoryTag(reinterpret_cast<const void*>(addr)) == tag);

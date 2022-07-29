@@ -142,20 +142,18 @@ double AndersonDarlingTest(const std::vector<double>& random_sample) {
 // random numbers.
 // Applies the Anderson-Darling test for uniformity
 void TestNextRandom(int n) {
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
   uint64_t x = 1;
   // This assumes that the prng returns 48 bit numbers
   uint64_t max_prng_value = static_cast<uint64_t>(1) << 48;
   // Initialize
   for (int i = 1; i <= 20; i++) {  // 20 mimics sampler.Init()
-    x = sampler.NextRandom(x);
+    x = NextRandom(x);
   }
   std::vector<uint64_t> int_random_sample(n);
   // Collect samples
   for (int i = 0; i < n; i++) {
     int_random_sample[i] = x;
-    x = sampler.NextRandom(x);
+    x = NextRandom(x);
   }
   // First sort them...
   std::sort(int_random_sample.begin(), int_random_sample.end());
@@ -377,15 +375,13 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
 // Test that NextRand is in the right range.  Unfortunately, this is a
 // stochastic test which could miss problems.
 TEST(Sampler, NextRand_range) {
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
   uint64_t one = 1;
   // The next number should be (one << 48) - 1
   uint64_t max_value = (one << 48) - 1;
   uint64_t x = (one << 55);
   int n = 22;                            // 27;
   for (int i = 1; i <= (1 << n); i++) {  // 20 mimics sampler.Init()
-    x = sampler.NextRandom(x);
+    x = NextRandom(x);
     ASSERT_LE(x, max_value);
   }
 }
@@ -393,15 +389,13 @@ TEST(Sampler, NextRand_range) {
 // Tests certain arithmetic operations to make sure they compute what we
 // expect them too (for testing across different platforms)
 TEST(Sampler, arithmetic_1) {
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
   uint64_t rnd;  // our 48 bit random number, which we don't trust
   const uint64_t prng_mod_power = 48;
   uint64_t one = 1;
   rnd = one;
   uint64_t max_value = (one << 48) - 1;
   for (int i = 1; i <= (1 << 27); i++) {  // 20 mimics sampler.Init()
-    rnd = sampler.NextRandom(rnd);
+    rnd = NextRandom(rnd);
     ASSERT_LE(rnd, max_value);
     double q = (rnd >> (prng_mod_power - 26)) + 1.0;
     ASSERT_GE(q, 0) << rnd << "  " << prng_mod_power;
