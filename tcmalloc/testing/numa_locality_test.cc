@@ -23,9 +23,9 @@
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
-#include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 

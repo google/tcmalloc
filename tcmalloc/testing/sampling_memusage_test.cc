@@ -24,8 +24,8 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 

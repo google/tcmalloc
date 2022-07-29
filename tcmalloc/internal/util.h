@@ -25,11 +25,8 @@
 #include <sys/types.h>
 #include <time.h>
 
-#include <vector>
-
 #include "absl/base/internal/sysinfo.h"
 #include "absl/time/time.h"
-#include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 
 #define TCMALLOC_RETRY_ON_TEMP_FAILURE(expression)               \
@@ -95,42 +92,6 @@ ssize_t signal_safe_read(int fd, char* buf, size_t count, size_t* bytes_read);
 // not attempting to re-enable them.  Protecting us from the traditional races
 // involved with the latter.
 int signal_safe_poll(struct ::pollfd* fds, int nfds, absl::Duration timeout);
-
-// Affinity helpers.
-
-// Returns a vector of the which cpus the currently allowed thread is allowed to
-// run on.  There are no guarantees that this will not change before, after, or
-// even during, the call to AllowedCpus().
-std::vector<int> AllowedCpus();
-
-// Enacts a scoped affinity mask on the constructing thread.  Attempts to
-// restore the original affinity mask on destruction.
-//
-// REQUIRES: For test-use only.  Do not use this in production code.
-class ScopedAffinityMask {
- public:
-  // When racing with an external restriction that has a zero-intersection with
-  // "allowed_cpus" we will construct, but immediately register as "Tampered()",
-  // without actual changes to affinity.
-  explicit ScopedAffinityMask(absl::Span<int> allowed_cpus);
-  explicit ScopedAffinityMask(int allowed_cpu);
-
-  // Restores original affinity iff our scoped affinity has not been externally
-  // modified (i.e. Tampered()).  Otherwise, the updated affinity is preserved.
-  ~ScopedAffinityMask();
-
-  // Returns true if the affinity mask no longer matches what was set at point
-  // of construction.
-  //
-  // Note:  This is instantaneous and not fool-proof.  It's possible for an
-  // external affinity modification to subsequently align with our originally
-  // specified "allowed_cpus".  In this case Tampered() will return false when
-  // time may have been spent executing previously on non-specified cpus.
-  bool Tampered();
-
- private:
-  cpu_set_t original_cpus_, specified_cpus_;
-};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

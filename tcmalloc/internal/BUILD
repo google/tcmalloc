@@ -25,6 +25,22 @@ package(default_visibility = ["//visibility:private"])
 licenses(["notice"])  # Apache 2.0
 
 cc_library(
+    name = "affinity",
+    testonly = 1,
+    srcs = ["affinity.cc"],
+    hdrs = ["affinity.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "atomic_danger",
     hdrs = ["atomic_danger.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -549,6 +565,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     deps = [
+        ":affinity",
         ":config",
         ":logging",
         ":percpu_tcmalloc",
@@ -746,8 +763,6 @@ cc_library(
         ":config",
         ":logging",
         "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
     ],
 )

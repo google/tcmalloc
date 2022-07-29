@@ -1254,8 +1254,8 @@ cc_test(
     deps = [
         ":common",
         ":mock_transfer_cache",
+        "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:optimization",
-        "//tcmalloc/internal:util",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",
