@@ -48,6 +48,14 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
+// As experiments are determined at runtime, we cannot require constant
+// initialization for the atomic.  This avoids an initialization order fiasco.
+static std::atomic<bool>& dynamic_slab_enabled() {
+  static std::atomic<bool> v(
+      IsExperimentActive(Experiment::TCMALLOC_DYNAMIC_SLABS));
+  return v;
+}
+
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
@@ -96,8 +104,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
     true
 #endif
 );
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::per_cpu_caches_dynamic_slab_enabled_(false);
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
@@ -117,6 +123,10 @@ bool Parameters::pass_span_object_count_to_pageheap() {
         Experiment::TEST_ONLY_TCMALLOC_PASS_SPAN_OBJECT_COUNT_TO_PAGEHEAP);
   }());
   return v;
+}
+
+bool Parameters::per_cpu_caches_dynamic_slab_enabled() {
+  return dynamic_slab_enabled().load(std::memory_order_relaxed);
 }
 
 }  // namespace tcmalloc_internal
@@ -306,7 +316,7 @@ bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled() {
 }
 
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
-  Parameters::per_cpu_caches_dynamic_slab_enabled_.store(
+  tcmalloc::tcmalloc_internal::dynamic_slab_enabled().store(
       v, std::memory_order_relaxed);
 }
 

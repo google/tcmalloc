@@ -31,6 +31,7 @@ enum class Experiment : int {
   TCMALLOC_POW2_BELOW_64,
   TCMALLOC_REDUCED_BELOW_64,
   TCMALLOC_CFL_AWARE_SIZE_CLASS,
+  TCMALLOC_DYNAMIC_SLABS,
   kMaxExperimentID,
 };
 
@@ -51,6 +52,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_POW2_BELOW_64, "TCMALLOC_POW2_BELOW_64"},
     {Experiment::TCMALLOC_REDUCED_BELOW_64, "TCMALLOC_REDUCED_BELOW_64"},
     {Experiment::TCMALLOC_CFL_AWARE_SIZE_CLASS, "TCMALLOC_CFL_AWARE_SIZE_CLASS"},
+    {Experiment::TCMALLOC_DYNAMIC_SLABS, "TCMALLOC_DYNAMIC_SLABS"},
 };
 // clang-format on
 
