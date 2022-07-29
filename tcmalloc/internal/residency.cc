@@ -21,10 +21,10 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/util.h"
@@ -62,19 +62,17 @@ Residency::~Residency() {
   }
 }
 
-absl::Status Residency::Seek(const uintptr_t vaddr) {
+absl::StatusCode Residency::Seek(const uintptr_t vaddr) {
   size_t offset = vaddr / kPageSize * kPagemapEntrySize;
   // Note: lseek can't be interrupted.
   off_t status = ::lseek(fd_, offset, SEEK_SET);
   if (status != offset) {
-    return absl::UnavailableError(absl::StrCat(
-        "could not seek pagemap to offset ", absl::Hex(offset), " from vaddr ",
-        absl::Hex(vaddr), "; errno ", errno, ", status ", status));
+    return absl::StatusCode::kUnavailable;
   }
-  return absl::OkStatus();
+  return absl::StatusCode::kOk;
 }
 
-absl::StatusOr<uint64_t> Residency::ReadOne() {
+std::optional<uint64_t> Residency::ReadOne() {
   static_assert(sizeof(buf_) >= kPagemapEntrySize);
   // /proc/pid/pagemap is a sequence of 64-bit values in machine endianness, one
   // per page. The style guide really does not want me to do this "unsafe
@@ -83,13 +81,12 @@ absl::StatusOr<uint64_t> Residency::ReadOne() {
   auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
                                  kPagemapEntrySize, nullptr);
   if (status != kPagemapEntrySize) {
-    return absl::UnavailableError(
-        absl::StrCat("could not read pagemap; errno ", errno));
+    return std::nullopt;
   }
   return buf_[0];
 }
 
-absl::Status Residency::ReadMany(int64_t num_pages, Residency::Info& info) {
+absl::StatusCode Residency::ReadMany(int64_t num_pages, Residency::Info& info) {
   while (num_pages > 0) {
     const size_t batch_size = std::min<int64_t>(kEntriesInBuf, num_pages);
     const size_t to_read = kPagemapEntrySize * batch_size;
@@ -99,22 +96,20 @@ absl::Status Residency::ReadMany(int64_t num_pages, Residency::Info& info) {
     auto status =
         signal_safe_read(fd_, reinterpret_cast<char*>(buf_), to_read, nullptr);
     if (status != to_read) {
-      return absl::UnavailableError(absl::StrCat(
-          "could not read ", to_read, " bytes from pagemap; errno ", errno));
+      return absl::StatusCode::kUnavailable;
     }
     for (int i = 0; i < batch_size; ++i) {
       Update(buf_[i], kPageSize, info);
     }
     num_pages -= batch_size;
   }
-  return absl::OkStatus();
+  return absl::StatusCode::kOk;
 }
 
-absl::StatusOr<Residency::Info> Residency::Get(const void* const addr,
-                                               const size_t size) {
+std::optional<Residency::Info> Residency::Get(const void* const addr,
+                                              const size_t size) {
   if (fd_ < 0) {
-    return absl::UnavailableError(
-        absl::StrCat("could not open pagemap; errno ", errno));
+    return std::nullopt;
   }
 
   Residency::Info info;
@@ -129,11 +124,13 @@ absl::StatusOr<Residency::Info> Residency::Get(const void* const addr,
 
   int64_t remainingPages = (endPage - basePage) / kPageSize;
 
-  if (auto res = Seek(basePage); !res.ok()) return res;
+  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) {
+    return std::nullopt;
+  }
 
   if (remainingPages == 1) {
     auto res = ReadOne();
-    if (!res.ok()) return res.status();
+    if (!res.has_value()) return std::nullopt;
     Update(res.value(), size, info);
     return info;
   }
@@ -143,7 +140,7 @@ absl::StatusOr<Residency::Info> Residency::Get(const void* const addr,
   // separately with ReadOne, then read the complete pages with ReadMany, and
   // then read the last page with ReadOne again if needed.
   auto res = ReadOne();
-  if (!res.ok()) return res.status();
+  if (!res.has_value()) return std::nullopt;
 
   // Handle the first page.
   size_t firstPageSize = kPageSize - (uaddr - basePage);
@@ -151,14 +148,16 @@ absl::StatusOr<Residency::Info> Residency::Get(const void* const addr,
   remainingPages--;
 
   // Handle all pages but the last page.
-  if (auto res = ReadMany(remainingPages - 1, info); !res.ok()) return res;
+  if (auto res = ReadMany(remainingPages - 1, info);
+      res != absl::StatusCode::kOk) {
+    return std::nullopt;
+  }
 
   // Check final page
   size_t lastPageSize = kPageSize - (endPage - uaddr - size);
   res = ReadOne();
-  if (!res.ok()) return res.status();
+  if (!res.has_value()) return std::nullopt;
   Update(res.value(), lastPageSize, info);
-
   return info;
 }
 

@@ -19,8 +19,9 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#include <optional>
+
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -39,26 +40,32 @@ class Residency {
   ~Residency();
 
   // Query a span of memory starting from `addr` for `size` bytes.
+  //
+  // We use std::optional for return value as std::optional guarantees that no
+  // dynamic memory allocation would happen.  In contrast, absl::StatusOr may
+  // dynamically allocate memory when needed.  Using std::optional allows us to
+  // use the function in places where memory allocation is prohibited.
+  //
   // This is NOT thread-safe. Do not use multiple copies of this class across
   // threads.
   struct Info {
     size_t bytes_resident = 0;
     size_t bytes_swapped = 0;
   };
-  absl::StatusOr<Info> Get(const void* addr, size_t size);
+  std::optional<Info> Get(const void* addr, size_t size);
 
  private:
   // This helper seeks the internal file to the correct location for the given
   // virtual address.
-  absl::Status Seek(uintptr_t vaddr);
+  absl::StatusCode Seek(uintptr_t vaddr);
   // This helper reads information for a single page. This is useful for the
   // boundaries. It continues the read from the last Seek() or last Read
   // operation.
-  absl::StatusOr<uint64_t> ReadOne();
+  std::optional<uint64_t> ReadOne();
   // This helper reads information for `num_pages` worth of _full_ pages and
   // puts the results into `info`. It continues the read from the last Seek() or
   // last Read operation.
-  absl::Status ReadMany(int64_t num_pages, Info& info);
+  absl::StatusCode ReadMany(int64_t num_pages, Info& info);
 
   // For testing.
   friend class ResidencySpouse;
