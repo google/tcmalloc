@@ -33,12 +33,9 @@ class ProcMapsIterator {
     char buf[kBufSize];
   };
 
-  // Create a new iterator for the specified pid.  pid can be 0 for "self".
-  explicit ProcMapsIterator(pid_t pid);
-
   // Create an iterator with specified storage (for use in signal handler).
-  // "buffer" should point to a ProcMapsIterator::Buffer buffer can be null in
-  // which case a buffer will be allocated.
+  //
+  // pid can be 0 for "self".
   ProcMapsIterator(pid_t pid, Buffer* buffer);
 
   // Returns true if the iterator successfully initialized;
@@ -50,8 +47,6 @@ class ProcMapsIterator {
   ~ProcMapsIterator();
 
  private:
-  void Init(pid_t pid, Buffer* buffer);
-
   char* ibuf_;      // input buffer
   char* stext_;     // start of text
   char* etext_;     // end of text
@@ -60,7 +55,6 @@ class ProcMapsIterator {
   int fd_;          // filehandle on /proc/*/maps
   pid_t pid_;
   char flags_[10];
-  Buffer* dynamic_buffer_;  // dynamically-allocated Buffer
 };
 
 }  // namespace tcmalloc_internal
