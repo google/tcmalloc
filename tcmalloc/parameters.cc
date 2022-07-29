@@ -111,6 +111,7 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
+ABSL_CONST_INIT std::atomic<bool> Parameters::use_new_residency_api_(true);
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -345,6 +346,13 @@ bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
 void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
   Parameters::madvise_cold_regions_nohugepage_.store(v,
                                                      std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetUseNewResidencyApi() {
+  return Parameters::use_new_residency_api();
+}
+void TCMalloc_Internal_SetUseNewResidencyApi(bool v) {
+  Parameters::use_new_residency_api_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

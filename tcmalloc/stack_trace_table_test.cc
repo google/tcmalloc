@@ -142,8 +142,9 @@ void CheckTraces(const StackTraceTable& table,
   EXPECT_THAT(actual, testing::UnorderedElementsAreArray(expected));
 }
 
-void AddTrace(StackTraceTable* table, double count, const StackTrace& t) {
-  table->AddTrace(count, t);
+void AddTrace(StackTraceTable* table, double count, const StackTrace& t,
+              Residency* residency = nullptr) {
+  table->AddTrace(count, t, residency);
 }
 
 TEST(StackTraceTableTest, StackTraceTable) {
@@ -497,7 +498,8 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
-  AddTrace(&table, 1.0, t1);
+  Residency residency;
+  AddTrace(&table, 1.0, t1, &residency);
   EXPECT_EQ(2, table.depth_total());
   EXPECT_EQ(1, table.bucket_total());
 
@@ -506,6 +508,7 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
 
 TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
   Static::InitIfNecessary();
+  Residency residency;
 
   for (bool flip_order : {false, true}) {
     SCOPED_TRACE(absl::StrCat("flip_order: ", flip_order));
@@ -528,7 +531,7 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
           .requested_size = 512,
           .requested_alignment = 16,
           .allocated_size = 1024,
-          .sampled_resident_size = unmap ? 0UL : 2048UL,
+          .sampled_resident_size = unmap ? 1024UL : 2048UL,
           .access_hint = 3,
           .cold_allocated = true,
           .depth = 2,
@@ -551,9 +554,9 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
         ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
       }
       t1.span_start_address = flip_order ? ptr2 : ptr1;
-      AddTrace(&table, 1.0, t1);
+      AddTrace(&table, 1.0, t1, &residency);
       t1.span_start_address = flip_order ? ptr1 : ptr2;
-      AddTrace(&table, 1.0, t1);
+      AddTrace(&table, 1.0, t1, &residency);
       EXPECT_EQ(2, table.depth_total());
       EXPECT_EQ(1, table.bucket_total());
 

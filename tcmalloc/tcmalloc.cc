@@ -829,12 +829,20 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
 }
 
 static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
-  auto profile = absl::make_unique<StackTraceTable>(
+  auto profile = std::make_unique<StackTraceTable>(
       ProfileType::kHeap, Sampler::GetSamplePeriod(), true, true);
-  Static::sampled_allocation_recorder().Iterate(
-      [&profile](const SampledAllocation& sampled_allocation) {
-        profile->AddTrace(1.0, sampled_allocation.sampled_stack);
-      });
+  if (Parameters::use_new_residency_api()) {
+    Residency r;
+    Static::sampled_allocation_recorder().Iterate(
+        [&](const SampledAllocation& sampled_allocation) {
+          profile->AddTrace(1.0, sampled_allocation.sampled_stack, &r);
+        });
+  } else {
+    Static::sampled_allocation_recorder().Iterate(
+        [&profile](const SampledAllocation& sampled_allocation) {
+          profile->AddTrace(1.0, sampled_allocation.sampled_stack, nullptr);
+        });
+  }
   return profile;
 }
 

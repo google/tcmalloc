@@ -17,6 +17,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <limits>
+
 #include "absl/base/internal/spinlock.h"
 #include "absl/hash/hash.h"
 #include "tcmalloc/common.h"
@@ -29,6 +31,24 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace {
+// TODO(patrickx): Use this function in caller instead whenever we get rid of
+// StackTraceTable.
+void MaybeUpdateResidencyInBucket(StackTraceTable::Bucket& bucket,
+                                  Residency* residency, void* span_start,
+                                  double count, size_t allocated_size) {
+  if (residency == nullptr) return;
+
+  auto residency_info = residency->Get(span_start, allocated_size);
+  if (!residency_info.has_value()) {
+    bucket.residency_errors_encountered = true;
+    return;
+  }
+  bucket.total_resident += count * residency_info->bytes_resident;
+  bucket.total_swapped += count * residency_info->bytes_swapped;
+}
+}  // namespace
 
 bool StackTraceTable::Bucket::KeyEqual(uintptr_t h, const StackTrace& t) const {
   return this->hash == h && this->trace == t;
@@ -64,6 +84,11 @@ StackTraceTable::~StackTraceTable() {
 }
 
 void StackTraceTable::AddTrace(double count, const StackTrace& t) {
+  return AddTrace(count, t, nullptr);
+}
+
+void StackTraceTable::AddTrace(double count, const StackTrace& t,
+                               Residency* residency) {
   if (error_) {
     return;
   }
@@ -80,11 +105,8 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
     b->count += count;
     b->total_weight += count * t.weight;
     b->trace.weight = b->total_weight / b->count + 0.5;
-
-    if (t.span_start_address > b->example_span) {
-      // Keep only the largest pointer when combining records.
-      b->example_span = t.span_start_address;
-    }
+    MaybeUpdateResidencyInBucket(*b, residency, t.span_start_address, count,
+                                 t.allocated_size);
   } else {
     depth_total_ += t.depth;
     bucket_total_++;
@@ -99,9 +121,10 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t) {
     b->count = count;
     b->total_weight = t.weight * count;
     b->next = table_[idx];
-    // The span start address is used to determine (later) if the memory is
-    // resident.
-    b->example_span = t.span_start_address;
+    b->total_resident = 0;
+    b->total_swapped = 0;
+    MaybeUpdateResidencyInBucket(*b, residency, t.span_start_address, count,
+                                 t.allocated_size);
     table_[idx] = b;
   }
 }
@@ -139,14 +162,13 @@ void StackTraceTable::Iterate(
                                : Profile::Sample::Access::Hot;
 
       e.depth = b->trace.depth;
-      // In order to minimize impact on application (and in expectation of
-      // future refactoring), we only pass one span pointer forward from reading
-      // the sampled allocations. Multiply the count by the example.
-      // TODO(b/231251810): Actually, this is inconsistent with `bytes`, which
-      // doesn't pre-multiply the `count`. When we use a more accurate count
-      // (with more example spans), we should consider making these consistent.
-      e.sampled_resident_size =
-          e.count * MInCore::residence(b->example_span, allocated_size);
+      // TODO(b/235916219): This is all changing. Do the refactor as mentioned
+      // in the bug and get rid of e.sampled_resident_size. Note "sampled" is
+      // currently a misnomer.
+      e.sampled_resident_size = b->total_resident;
+      if (b->residency_errors_encountered) {
+        e.sampled_resident_size = std::numeric_limits<size_t>::max();
+      }
       static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                     "Profile stack size smaller than internal stack sizes");
       memcpy(e.stack, b->trace.stack, sizeof(e.stack[0]) * e.depth);

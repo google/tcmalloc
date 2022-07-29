@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <stddef.h>
+#include <sys/mman.h>
 
 #include <functional>
 #include <string>
@@ -128,6 +129,49 @@ TEST(HeapProfilingTest, AllocateDifferentSizes) {
 
   for (int i = 0; i < num_allocations; i++) {
     ::operator delete(allocations2[i]);
+  }
+}
+
+TEST(HeapProfilingTest, CheckResidency) {
+  ScopedProfileSamplingRate s(1);
+  const int num_allocations = 1000;
+  const size_t requested_size = (1 << 19) + 1;
+
+  void* allocations[num_allocations];
+  for (int i = 0; i < num_allocations; i++) {
+    allocations[i] = ::operator new(requested_size);
+  }
+
+  bool mlock_failure = false;
+  for (int i = 0; i < num_allocations; i++) {
+    if (::mlock(allocations[i], requested_size) != 0) {
+      mlock_failure = true;
+      for (int j = 0; j < requested_size; ++j) {
+        static_cast<volatile char*>(allocations[i])[j] = 0x20;
+      }
+    }
+  }
+  if (mlock_failure) {
+    absl::FPrintF(
+        stderr,
+        "one or more mlocks failed, which could cause test flakiness\n");
+  }
+
+  size_t resident_size = 0;
+  MallocExtension::SnapshotCurrent(ProfileType::kHeap)
+      .Iterate([&](const Profile::Sample& s) {
+        resident_size += s.sampled_resident_size;
+      });
+
+  EXPECT_GE(resident_size, num_allocations * requested_size);
+  EXPECT_LE(resident_size, num_allocations * requested_size * 2);
+
+  for (int i = 0; i < num_allocations; i++) {
+    // throw away the error
+    ::munlock(allocations[i], requested_size);
+  }
+  for (int i = 0; i < num_allocations; i++) {
+    ::operator delete(allocations[i]);
   }
 }
 

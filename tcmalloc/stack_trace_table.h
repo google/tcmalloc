@@ -23,6 +23,7 @@
 
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -57,6 +58,8 @@ class StackTraceTable final : public ProfileBase {
   // errors when accounting for sampling probabilities.
   void AddTrace(double count, const StackTrace& t)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void AddTrace(double count, const StackTrace& t, Residency* residency)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Exposed for PageHeapAllocator
   struct Bucket {
@@ -67,7 +70,9 @@ class StackTraceTable final : public ProfileBase {
     // Payload
     double count;
     size_t total_weight;
-    void* example_span;
+    size_t total_swapped;
+    size_t total_resident;
+    bool residency_errors_encountered;
     Bucket* next;
 
     bool KeyEqual(uintptr_t h, const StackTrace& t) const;
