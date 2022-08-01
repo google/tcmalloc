@@ -51,7 +51,6 @@ class FakeTransferCacheManagerBase {
     memory_.push_back(std::make_unique<AlignedPtr>(::operator new(size, a), a));
     return memory_.back()->ptr;
   }
-  static constexpr bool ResizeCachesInBackground() { return false; }
 
  private:
   struct AlignedPtr {
@@ -135,7 +134,6 @@ class ArenaBasedFakeTransferCacheManager {
     return aligned;
   }
   size_t used() const { return used_; }
-  static constexpr bool ResizeCachesInBackground() { return false; }
 
  private:
   static constexpr size_t kTotalSize = 10000000;

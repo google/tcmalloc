@@ -68,13 +68,6 @@ class StaticForwarder {
   static size_t num_objects_to_move(int size_class);
   static void *Alloc(size_t size, int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  static void SetResizeCachesInBackground(bool value) {
-    TCMalloc_Internal_SetResizeTransferCachesEnabled(value);
-  }
-  static bool ResizeCachesInBackground() {
-    return Parameters::resize_transfer_caches();
-  }
 };
 
 // The NoStealingManager is set up so that stealing is disabled for this
@@ -83,7 +76,6 @@ class NoStealingManager : public StaticForwarder {
  public:
   static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
   static constexpr bool ShrinkCache(int) { return false; }
-  static constexpr bool ResizeCachesInBackground() { return false; }
 };
 
 class ProdCpuLayout {

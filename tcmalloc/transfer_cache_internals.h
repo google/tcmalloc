@@ -170,18 +170,11 @@ class TransferCache {
     if (N == B) {
       if (info.used + N <= max_capacity_) {
         absl::base_internal::SpinLockHolder h(&lock_);
-        // If the caches are being resized in the background, we do not attempt
-        // to grow them here. Instead, we just check if they have spare free
-        // capacity. If resizing is not done in the background, we try to make
-        // cache space by stealing capacity from other caches.
+        // As caches are resized in the background, we do not attempt to grow
+        // them here. Instead, we just check if they have spare free capacity.
         info = slot_info_.load(std::memory_order_relaxed);
-        const bool has_space = Manager::ResizeCachesInBackground()
-                                   ? (info.capacity - info.used >= N)
-                                   : MakeCacheSpace(size_class, N);
-
+        const bool has_space = (info.capacity - info.used >= N);
         if (has_space) {
-          // MakeCacheSpace can drop the lock, so refetch
-          info = slot_info_.load(std::memory_order_relaxed);
           info.used += N;
           SetSlotInfo(info);
 
@@ -604,12 +597,7 @@ class RingBufferTransferCache {
       ASSERT(low_water_mark_ <= slot_info_.used);
       RingBufferSizeInfo info = GetSlotInfo();
       if (info.used + N <= max_capacity_) {
-        const bool has_space = Manager::ResizeCachesInBackground()
-                                   ? (info.capacity - info.used >= N)
-                                   : MakeCacheSpace(size_class, N);
-
-        // MakeCacheSpace can drop the lock, so refetch
-        info = GetSlotInfo();
+        const bool has_space = (info.capacity - info.used >= N);
         if (has_space) {
           CopyIntoEnd(batch.data(), N, info);
           SetSlotInfo(info);

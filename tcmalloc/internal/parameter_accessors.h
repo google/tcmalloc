@@ -28,7 +28,6 @@ ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetResizeTransferCachesEnabled();
 ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesEnabled();
@@ -41,8 +40,6 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPrioritizeSpansEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetResizeTransferCachesEnabled(
-    bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(
     int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(

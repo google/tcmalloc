@@ -99,8 +99,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     }
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
-    if (Parameters::resize_transfer_caches() &&
-        now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
+    if (now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
       Static::transfer_cache().TryResizingCaches();
       last_transfer_cache_resize_check = now;
     }

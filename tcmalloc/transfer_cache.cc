@@ -127,9 +127,6 @@ struct MissInfo {
 };
 
 void TransferCacheManager::TryResizingCaches() {
-  // Return if resizing caches in background is disabled.
-  if (!ResizeCachesInBackground()) return;
-
   absl::FixedArray<MissInfo> misses(kNumClasses);
 
   // Collect misses for all the size classes that were incurred during the
