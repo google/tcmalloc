@@ -43,6 +43,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+static_assert(sizeof(void*) == 8);
+
 //-------------------------------------------------------------------
 // Configuration
 //-------------------------------------------------------------------
