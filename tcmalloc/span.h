@@ -156,7 +156,7 @@ class Span : public SpanList::Elem {
 
   // Returns internal fragmentation of the span.
   // REQUIRES: this is a SMALL_OBJECT span.
-  double Fragmentation() const;
+  double Fragmentation(size_t object_size) const;
 
   // Returns number of objects allocated in the span.
   uint16_t Allocated() const { return allocated_; }

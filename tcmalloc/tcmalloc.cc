@@ -813,7 +813,7 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
           return;
         }
 
-        const double frag = span->Fragmentation();
+        const double frag = span->Fragmentation(t.allocated_size);
         if (frag > 0) {
           // Associate the memory warmth with the actual object, not the proxy.
           // The residency information (t.span_start_address) is likely not very

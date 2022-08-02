@@ -63,15 +63,13 @@ SampledAllocation* Span::Unsample() {
   return sampled_allocation;
 }
 
-double Span::Fragmentation() const {
-  const size_t size_class = Static::pagemap().sizeclass(first_page_);
-  if (size_class == 0) {
+double Span::Fragmentation(size_t object_size) const {
+  if (object_size == 0) {
     // Avoid crashes in production mode code, but report in tests.
-    ASSERT(size_class != 0);
+    ASSERT(object_size != 0);
     return 0;
   }
-  const size_t obj_size = Static::sizemap().class_to_size(size_class);
-  const size_t span_objects = bytes_in_span() / obj_size;
+  const size_t span_objects = bytes_in_span() / object_size;
   const size_t live = allocated_;
   if (live == 0) {
     // Avoid crashes in production mode code, but report in tests.
