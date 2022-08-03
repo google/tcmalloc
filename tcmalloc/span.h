@@ -159,7 +159,9 @@ class Span : public SpanList::Elem {
   double Fragmentation(size_t object_size) const;
 
   // Returns number of objects allocated in the span.
-  uint16_t Allocated() const { return allocated_; }
+  uint16_t Allocated() const {
+    return allocated_.load(std::memory_order_relaxed);
+  }
 
   // Returns index of the non-empty list to which this span belongs to.
   uint8_t nonempty_index() const { return nonempty_index_; }
@@ -184,11 +186,12 @@ class Span : public SpanList::Elem {
   // Pushes ptr onto freelist unless the freelist becomes full,
   // in which case just return false.
   bool FreelistPush(void* ptr, size_t size) {
-    ASSERT(allocated_ > 0);
-    if (ABSL_PREDICT_FALSE(allocated_ == 1)) {
+    const auto allocated = allocated_.load(std::memory_order_relaxed);
+    ASSERT(allocated > 0);
+    if (ABSL_PREDICT_FALSE(allocated == 1)) {
       return false;
     }
-    allocated_--;
+    allocated_.store(allocated - 1, std::memory_order_relaxed);
     // Bitmaps are used to record object availability when there are fewer than
     // 64 objects in a span.
     if (ABSL_PREDICT_FALSE(size >= kBitmapMinObjectSize)) {
@@ -234,7 +237,7 @@ class Span : public SpanList::Elem {
   // are used here, but the flag could potentially hurt performance in other
   // cases so it is not enabled by default. For more information, please
   // look at b/35680381 and cl/199502226.
-  uint16_t allocated_;  // Number of non-free objects
+  std::atomic<uint16_t> allocated_;  // Number of non-free objects
   uint16_t embed_count_;
   // For available objects stored as a compressed linked list, the index of
   // the first object in recorded in freelist_. When a bitmap is used to
@@ -430,7 +433,8 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
     freelist_ = current;
     embed_count_ = size / sizeof(ObjIdx) - 1;
   }
-  allocated_ += result;
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
+                   std::memory_order_relaxed);
   return result;
 }
 
@@ -507,7 +511,7 @@ bool Span::BitmapFreelistPush(void* ptr, size_t size) {
 #ifndef NDEBUG
   size_t after = bitmap_.CountBits(0, 64);
   ASSERT(before + 1 == after);
-  ASSERT(allocated_ == embed_count_ - after);
+  ASSERT(allocated_.load(std::memory_order_relaxed) == embed_count_ - after);
 #endif
   return true;
 }

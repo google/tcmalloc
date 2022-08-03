@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <utility>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/fixed_array.h"
@@ -848,11 +849,47 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
   test_function(TypeParam::kObjectsPerSpan, true);
 }
 
+TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
+  // This test is primarily exercising Span itself to model how tcmalloc.cc uses
+  // it, but this gives us a self-contained (and sanitizable) implementation of
+  // the CentralFreeList.
+  TypeParam e;
+
+  // Allocate one object from the CFL to allocate a span.
+  void* initial;
+  int got = e.central_freelist().RemoveRange(&initial, 1);
+  ASSERT_EQ(got, 1);
+
+  Span* const span = e.central_freelist().forwarder().MapObjectToSpan(initial);
+  const size_t object_size =
+      e.central_freelist().forwarder().class_to_size(TypeParam::kSizeClass);
+
+  ThreadManager fragmentation;
+  fragmentation.Start(1, [&](int) {
+    benchmark::DoNotOptimize(span->Fragmentation(object_size));
+  });
+
+  ThreadManager cfl;
+  cfl.Start(1, [&](int) {
+    void* next;
+    int got = e.central_freelist().RemoveRange(&next, 1);
+    e.central_freelist().InsertRange(absl::MakeSpan(&next, got));
+  });
+
+  absl::SleepFor(absl::Seconds(0.1));
+
+  fragmentation.Stop();
+  cfl.Stop();
+
+  e.central_freelist().InsertRange(absl::MakeSpan(&initial, 1));
+}
+
 REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
                             SingleNonEmptyList, MultiNonEmptyLists,
                             SpanPriority, SpanUtilizationHistogram,
                             MultipleSpans, ToggleSpanPrioritization,
-                            SinglePopulate, PassSpanObjectCountToPageheap);
+                            SinglePopulate, PassSpanObjectCountToPageheap,
+                            SpanFragmentation);
 
 namespace unit_tests {
 

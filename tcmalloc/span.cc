@@ -70,7 +70,7 @@ double Span::Fragmentation(size_t object_size) const {
     return 0;
   }
   const size_t span_objects = bytes_in_span() / object_size;
-  const size_t live = allocated_;
+  const size_t live = allocated_.load(std::memory_order_relaxed);
   if (live == 0) {
     // Avoid crashes in production mode code, but report in tests.
     ASSERT(live != 0);
@@ -199,9 +199,11 @@ size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
 #ifndef NDEBUG
   size_t after = bitmap_.CountBits(0, 64);
   ASSERT(after + count == before);
-  ASSERT(allocated_ + count == embed_count_ - after);
+  ASSERT(allocated_.load(std::memory_order_relaxed) + count ==
+         embed_count_ - after);
 #endif  // NDEBUG
-  allocated_ += count;
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
+                   std::memory_order_relaxed);
   return count;
 }
 
@@ -246,7 +248,7 @@ void Span::BitmapBuildFreelist(size_t size, size_t count) {
   embed_count_ = count;
 #endif  // NDEBUG
   reciprocal_ = CalcReciprocal(size);
-  allocated_ = 0;
+  allocated_.store(0, std::memory_order_relaxed);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
   ASSERT(bitmap_.CountBits(0, 64) == count);
@@ -267,7 +269,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
     batch[i] = ptr;
     ptr += size;
   }
-  allocated_ = result;
+  allocated_.store(result, std::memory_order_relaxed);
 
   ObjIdx idxStep = size / kAlignment;
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.

@@ -164,13 +164,11 @@ void BM_multiple_spans(benchmark::State& state) {
 
   // Should be large enough to cause cache misses
   const int num_spans = 10000000;
-  std::vector<Span> spans(num_spans);
+  std::vector<RawSpan> spans(num_spans);
   size_t size = Static::sizemap().class_to_size(size_class);
   size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
   for (int i = 0; i < num_spans; i++) {
-    RawSpan raw_span;
-    raw_span.Init(size_class);
-    spans[i] = raw_span.span();
+    spans[i].Init(size_class);
   }
   absl::BitGen rng;
 
@@ -179,11 +177,12 @@ void BM_multiple_spans(benchmark::State& state) {
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
     int current_span = absl::Uniform(rng, 0, num_spans);
-    int n = spans[current_span].FreelistPopBatch(batch, batch_size, size);
+    int n =
+        spans[current_span].span().FreelistPopBatch(batch, batch_size, size);
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      spans[current_span].FreelistPush(batch[j], size);
+      spans[current_span].span().FreelistPush(batch[j], size);
     }
   }
 
