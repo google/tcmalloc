@@ -41,8 +41,7 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
   }
 }
 
-void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed,
-                             bool reduce_below64_classes) {
+void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
 
   class_to_size_[0] = 0;
@@ -51,9 +50,6 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed,
 
   int curr = 1;
   for (int c = 1; c < num_classes; c++) {
-    if (reduce_below64_classes &&
-        !size_map_internal::IsReducedBelow64SizeClass(parsed[c].size))
-      continue;
     class_to_size_[curr] = parsed[c].size;
     class_to_pages_[curr] = parsed[c].pages;
     num_objects_to_move_[curr] = parsed[c].num_to_move;
@@ -169,11 +165,6 @@ void SizeMap::Init() {
                  Experiment::TEST_ONLY_TCMALLOC_CFL_AWARE_SIZECLASS)) {
     SetSizeClasses(kExperimentalCFLAwareSizeClassesCount,
                    kExperimentalCFLAwareSizeClasses);
-  } else if (IsExperimentActive(Experiment::TCMALLOC_REDUCED_BELOW_64) ||
-             IsExperimentActive(
-                 Experiment::TEST_ONLY_TCMALLOC_REDUCED_BELOW64_SIZECLASS)) {
-    SetSizeClasses(kSizeClassesCount, kSizeClasses,
-                   /*reduce_below64_classes=*/true);
   } else {
     SetSizeClasses(kSizeClassesCount, kSizeClasses);
   }

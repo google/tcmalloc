@@ -357,16 +357,6 @@ inline size_t NumaPartitionFromPointer(void* ptr) {
   }
 }
 
-namespace size_map_internal {
-// Reduced below 64 size classes allow for powers of two and multiples of 16.
-inline bool IsReducedBelow64SizeClass(size_t size) {
-  if (size >= 64) return true;
-  if (size % 16 == 0) return true;
-  if ((size & (size - 1)) == 0) return true;
-  return false;
-}
-}  // namespace size_map_internal
-
 // Size-class information + mapping
 class SizeMap {
  public:
@@ -450,11 +440,8 @@ class SizeMap {
   uint32_t class_to_size_[kNumClasses] = {0};
 
  protected:
-  // Set the give size classes to be used by TCMalloc. If reduce_below64_classes
-  // is true, then reduce the set of parsed size classes below 64 to powers of
-  // two and multiples of 16.
-  void SetSizeClasses(int num_classes, const SizeClassInfo* parsed,
-                      bool reduce_below64_classes = false);
+  // Set the give size classes to be used by TCMalloc.
+  void SetSizeClasses(int num_classes, const SizeClassInfo* parsed);
 
   // Check that the size classes meet all requirements.
   bool ValidSizeClasses(int num_classes, const SizeClassInfo* parsed);

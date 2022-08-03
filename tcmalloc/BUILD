@@ -1340,16 +1340,3 @@ cc_test(
         "@com_google_protobuf//:protobuf",
     ],
 )
-
-cc_test(
-    name = "reduced_below64_size_class_test",
-    srcs = ["reduced_below64_size_class_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_REDUCED_BELOW64_SIZECLASS"},
-    deps = [
-        ":common",
-        ":experiment",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
