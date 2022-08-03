@@ -1238,9 +1238,7 @@ void TcmallocSlab<NumClasses>::Init(
   const int num_cpus = absl::base_internal::NumCPUs();
   Slabs* slabs = AllocSlabs(alloc, shift, num_cpus, shift_offset).first;
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
-  size_t bytes_used = 0;
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    bytes_used += sizeof(std::atomic<int64_t>) * NumClasses;
     Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
     void** elems = curr_slab->mem;
 
@@ -1254,7 +1252,6 @@ void TcmallocSlab<NumClasses>::Init(
 
       // One extra element for prefetch
       const size_t num_pointers = cap + 1;
-      bytes_used += num_pointers * sizeof(void*);
 
       elems += num_pointers;
       const size_t bytes_used_on_curr_slab =
@@ -1264,12 +1261,6 @@ void TcmallocSlab<NumClasses>::Init(
               1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
       }
     }
-  }
-  // Check for less than 90% usage of the reserved memory
-  if (size_t mem_size = GetSlabsAllocSize(shift, num_cpus);
-      bytes_used * 10 < 9 * mem_size) {
-    Log(kLog, __FILE__, __LINE__, "Bytes used per cpu of available", bytes_used,
-        mem_size);
   }
 }
 
