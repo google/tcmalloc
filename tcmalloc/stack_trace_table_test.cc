@@ -481,7 +481,16 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  const AllocationEntry k1 = {
+  StackTraceTable table(ProfileType::kHeap, 1, true, false);
+
+  std::vector<char> bytes(1024);
+  t1.span_start_address = bytes.data();
+  Residency residency;
+  AddTrace(&table, 1.0, t1, &residency);
+  EXPECT_EQ(2, table.depth_total());
+  EXPECT_EQ(1, table.bucket_total());
+
+  const AllocationEntry expected = {
       .sum = 1024,
       .count = 1,
       .requested_size = 512,
@@ -493,8 +502,24 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
       .depth = 2,
       .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
   };
+  CheckTraces(table, {expected});
+}
 
-  StackTraceTable table(ProfileType::kHeap, 1, true, false);
+TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
+  Static::InitIfNecessary();
+
+  StackTrace t1 = {};
+  t1.requested_size = static_cast<uintptr_t>(512);
+  t1.requested_alignment = static_cast<uintptr_t>(16);
+  t1.allocated_size = static_cast<uintptr_t>(1024);
+  t1.access_hint = 3;
+  t1.cold_allocated = true;
+  t1.depth = static_cast<uintptr_t>(2);
+  t1.stack[0] = reinterpret_cast<void*>(1);
+  t1.stack[1] = reinterpret_cast<void*>(2);
+  t1.weight = 2 << 20;
+
+  StackTraceTable table(ProfileType::kHeap, 1, true, true);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
@@ -503,7 +528,19 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   EXPECT_EQ(2, table.depth_total());
   EXPECT_EQ(1, table.bucket_total());
 
-  CheckTraces(table, {k1});
+  const AllocationEntry expected = {
+      .sum = 4186112,
+      .count = 4088,
+      .requested_size = 512,
+      .requested_alignment = 16,
+      .allocated_size = 1024,
+      .sampled_resident_size = 4186112,
+      .access_hint = 3,
+      .cold_allocated = true,
+      .depth = 2,
+      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+  };
+  CheckTraces(table, {expected});
 }
 
 TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
@@ -524,19 +561,6 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       t1.stack[0] = reinterpret_cast<void*>(1);
       t1.stack[1] = reinterpret_cast<void*>(2);
       t1.weight = 2 << 20;
-
-      const AllocationEntry k1 = {
-          .sum = 2048,
-          .count = 2,
-          .requested_size = 512,
-          .requested_alignment = 16,
-          .allocated_size = 1024,
-          .sampled_resident_size = unmap ? 1024UL : 2048UL,
-          .access_hint = 3,
-          .cold_allocated = true,
-          .depth = 2,
-          .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-      };
 
       StackTraceTable table(ProfileType::kHeap, 1, true, false);
 
@@ -560,7 +584,20 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       EXPECT_EQ(2, table.depth_total());
       EXPECT_EQ(1, table.bucket_total());
 
-      CheckTraces(table, {k1});
+      // Two traces, each allocating 1024, one possibly unmapped.
+      const AllocationEntry expected = {
+          .sum = 2048,
+          .count = 2,
+          .requested_size = 512,
+          .requested_alignment = 16,
+          .allocated_size = 1024,
+          .sampled_resident_size = unmap ? 1024UL : 2048UL,
+          .access_hint = 3,
+          .cold_allocated = true,
+          .depth = 2,
+          .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      };
+      CheckTraces(table, {expected});
       ASSERT_EQ(munmap(ptr1, kSize), 0) << errno;
       if (!unmap) {
         ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;

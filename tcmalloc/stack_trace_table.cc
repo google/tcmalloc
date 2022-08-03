@@ -165,7 +165,11 @@ void StackTraceTable::Iterate(
       // TODO(b/235916219): This is all changing. Do the refactor as mentioned
       // in the bug and get rid of e.sampled_resident_size. Note "sampled" is
       // currently a misnomer.
-      e.sampled_resident_size = b->total_resident;
+      // e.count is "reported count, possibly stretching for unsample"; b->count
+      // is "number of actual samples (and thus contributors to
+      // total_resident)", which is what we need to scale total_resident by.
+      e.sampled_resident_size =
+          static_cast<double>(e.count) * b->total_resident / b->count;
       if (b->residency_errors_encountered) {
         e.sampled_resident_size = std::numeric_limits<size_t>::max();
       }
