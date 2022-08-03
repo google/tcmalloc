@@ -572,7 +572,7 @@ TEST_F(PageTrackerTest, Stats) {
   EXPECT_EQ(Length(0), large.normal_pages);
   EXPECT_EQ(kMaxPages + Length(1), large.returned_pages);
   EXPECT_EQ(0, avg_age_backed);
-  EXPECT_LE(0.1, avg_age_unbacked);
+  EXPECT_LT(0.099, avg_age_unbacked);
 }
 
 TEST_F(PageTrackerTest, b151915873) {
