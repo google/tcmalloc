@@ -113,6 +113,15 @@ variants = [
         "copts": ["-DTCMALLOC_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
     },
+    {
+        "name": "legacy_size_classes",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common",
+            "//tcmalloc:want_legacy_size_classes",
+        ],
+        "copts": [],
+    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):

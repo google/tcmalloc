@@ -138,6 +138,8 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   return true;
 }
 
+int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
+
 // Initialize the mapping arrays
 void SizeMap::Init() {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]

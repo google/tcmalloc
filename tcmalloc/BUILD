@@ -1341,3 +1341,29 @@ cc_test(
         "@com_google_protobuf//:protobuf",
     ],
 )
+
+# TEMPORARY. WILL BE REMOVED.
+# Add a dep to this if you want your binary to use old size classes.
+cc_library(
+    name = "want_legacy_size_classes",
+    srcs = ["want_legacy_size_classes.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
+    alwayslink = 1,
+)
+
+cc_test(
+    name = "want_legacy_size_classes_test",
+    srcs = ["want_legacy_size_classes_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    deps = [
+        ":common",
+        ":want_legacy_size_classes",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
