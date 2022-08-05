@@ -53,6 +53,10 @@ class SampledAllocationAllocator {
     allocator_.Delete(s);
   }
 
+  AllocatorStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return allocator_.stats();
+  }
+
  private:
   PageHeapAllocator<SampledAllocation> allocator_
       ABSL_GUARDED_BY(pageheap_lock);

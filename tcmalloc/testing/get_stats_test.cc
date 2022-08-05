@@ -38,6 +38,9 @@ using ::testing::HasSubstr;
 class GetStatsTest : public ::testing::Test {};
 
 TEST_F(GetStatsTest, Pbtxt) {
+  // Trigger a sampled allocation.
+  { ScopedAlwaysSample s; }
+
   const std::string buf = GetStatsInPbTxt();
 
   // Expect `buf` to be in pbtxt format.

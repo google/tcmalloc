@@ -197,7 +197,7 @@ static void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
     r->tc_stats = ThreadCache::HeapStats();
     r->span_stats = Static::span_allocator().stats();
-    r->stack_stats = Static::stacktrace_allocator().stats();
+    r->stack_stats = Static::sampledallocation_allocator().stats();
     r->bucket_stats = Static::bucket_allocator().stats();
     r->metadata_bytes = Static::metadata_bytes();
     r->pagemap_bytes = Static::pagemap().bytes();

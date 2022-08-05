@@ -112,10 +112,6 @@ class Static {
 
   static PageHeapAllocator<Span>& span_allocator() { return span_allocator_; }
 
-  static PageHeapAllocator<StackTrace>& stacktrace_allocator() {
-    return stacktrace_allocator_;
-  }
-
   static PageHeapAllocator<ThreadCache>& threadcache_allocator() {
     return threadcache_allocator_;
   }
@@ -187,7 +183,6 @@ class Static {
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static SampledAllocationAllocator sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
-  static PageHeapAllocator<StackTrace> stacktrace_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
   static PageHeapAllocator<StackTraceTable::Bucket> bucket_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
