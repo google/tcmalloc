@@ -249,8 +249,8 @@ class TransferCache {
       }
       const size_t num_to_move = std::min(B, info.used);
       void *buf[kMaxObjectsToMove];
-      void **const entry = GetSlot(info.used - B);
-      memcpy(buf, entry, sizeof(void *) * B);
+      void **const entry = GetSlot(info.used - num_to_move);
+      memcpy(buf, entry, sizeof(void *) * num_to_move);
       info.used -= num_to_move;
       low_water_mark -= num_to_move;
       SetSlotInfo(info);
