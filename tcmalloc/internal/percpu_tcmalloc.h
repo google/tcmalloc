@@ -656,8 +656,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "b.le %l[overflow_label]\n"
 #else
       "b.le 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccae)
-  // If so, the above code needs to explicitly set a ccae return value.
+  // Important! code below this must not affect any flags (i.e.: ccle)
+  // If so, the above code needs to explicitly set a ccle return value.
 #endif
       "str %[item], [%[region_start], %[current], LSL #3]\n"
       "add %w[current], %w[current], #1\n"
@@ -670,7 +670,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
 
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
             ,
-        [overflow] "=@ccae"(overflow)
+        [overflow] "=@ccle"(overflow)
 #endif
       : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
         [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
@@ -980,8 +980,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "b.ge %l[underflow_path]\n"
 #else
           "b.ge 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccbe)
-  // If so, the above code needs to explicitly set a ccbe return value.
+  // Important! code below this must not affect any flags (i.e.: ccge)
+  // If so, the above code needs to explicitly set a ccge return value.
 #endif
           "ldr %[result], [%[region_start_slabs_minus_8], %[current], LSL #3]\n"
           "ldr %[prefetch], [%[region_start_slabs_minus_8], %[new_current],"
@@ -995,7 +995,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "prfm pstl1keep, [%[prefetch]]\n"
           :
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          [underflow] "=@ccbe"(underflow),
+          [underflow] "=@ccge"(underflow),
 #endif
           [result] "=&r"(result),
           // Temps
