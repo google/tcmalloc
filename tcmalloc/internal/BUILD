@@ -40,6 +40,18 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "affinity_test",
+    srcs = ["affinity_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":affinity",
+        ":percpu",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "atomic_danger",
     hdrs = ["atomic_danger.h"],
