@@ -36,7 +36,7 @@ namespace tcmalloc_internal {
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 82;
+static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -44,7 +44,11 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
     {       16,       1,          32},  // 0.59%
+    {       24,       1,          32},  // 0.68%
     {       32,       1,          32},  // 0.59%
+    {       40,       1,          32},  // 0.98%
+    {       48,       1,          32},  // 0.98%
+    {       56,       1,          32},  // 0.78%
     {       64,       1,          32},  // 0.59%
     {       72,       1,          32},  // 1.28%
     {       80,       1,          32},  // 0.98%
@@ -126,7 +130,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 74;
+static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -134,7 +138,11 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
     {       16,       1,          32},  // 0.15%
+    {       24,       1,          32},  // 0.17%
     {       32,       1,          32},  // 0.15%
+    {       40,       1,          32},  // 0.17%
+    {       48,       1,          32},  // 0.24%
+    {       56,       1,          32},  // 0.17%
     {       64,       1,          32},  // 0.15%
     {       72,       1,          32},  // 0.17%
     {       80,       1,          32},  // 0.29%
@@ -208,7 +216,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 85;
+static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -216,7 +224,11 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
     {       16,       1,          32},  // 0.02%
+    {       24,       1,          32},  // 0.02%
     {       32,       1,          32},  // 0.02%
+    {       40,       1,          32},  // 0.03%
+    {       48,       1,          32},  // 0.02%
+    {       56,       1,          32},  // 0.02%
     {       64,       1,          32},  // 0.02%
     {       72,       1,          32},  // 0.04%
     {       80,       1,          32},  // 0.04%
@@ -301,7 +313,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 42;
+static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -309,7 +321,11 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
     {       16,       1,          32},  // 1.17%
+    {       24,       1,          32},  // 1.57%
     {       32,       1,          32},  // 1.17%
+    {       40,       1,          32},  // 1.57%
+    {       48,       1,          32},  // 1.57%
+    {       56,       1,          32},  // 1.37%
     {       64,       1,          32},  // 1.17%
     {       72,       1,          32},  // 2.78%
     {       80,       1,          32},  // 1.57%
@@ -355,7 +371,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 #else
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 85;
+static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -364,6 +380,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        8,       1,          32},  // 0.59%
     {       16,       1,          32},  // 0.59%
     {       32,       1,          32},  // 0.59%
+    {       48,       1,          32},  // 0.98%
     {       64,       1,          32},  // 0.59%
     {       80,       1,          32},  // 0.98%
     {       96,       1,          32},  // 0.98%
@@ -448,7 +465,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 77;
+static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -457,6 +474,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        8,       1,          32},  // 0.15%
     {       16,       1,          32},  // 0.15%
     {       32,       1,          32},  // 0.15%
+    {       48,       1,          32},  // 0.24%
     {       64,       1,          32},  // 0.15%
     {       80,       1,          32},  // 0.29%
     {       96,       1,          32},  // 0.24%
@@ -533,7 +551,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 88;
+static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -542,6 +560,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        8,       1,          32},  // 0.02%
     {       16,       1,          32},  // 0.02%
     {       32,       1,          32},  // 0.02%
+    {       48,       1,          32},  // 0.02%
     {       64,       1,          32},  // 0.02%
     {       80,       1,          32},  // 0.04%
     {       96,       1,          32},  // 0.04%
@@ -629,7 +648,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 45;
+static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
 const int SizeMap::kSizeClassesCount = kCount;
 const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
@@ -638,6 +657,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {        8,       1,          32},  // 1.17%
     {       16,       1,          32},  // 1.17%
     {       32,       1,          32},  // 1.17%
+    {       48,       1,          32},  // 1.57%
     {       64,       1,          32},  // 1.17%
     {       80,       1,          32},  // 1.57%
     {       96,       1,          32},  // 2.78%
