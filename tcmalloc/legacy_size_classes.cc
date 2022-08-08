@@ -36,15 +36,19 @@ namespace tcmalloc_internal {
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 82;
+static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
     {       16,       1,          32},  // 0.59%
+    {       24,       1,          32},  // 0.68%
     {       32,       1,          32},  // 0.59%
+    {       40,       1,          32},  // 0.98%
+    {       48,       1,          32},  // 0.98%
+    {       56,       1,          32},  // 0.78%
     {       64,       1,          32},  // 0.59%
     {       72,       1,          32},  // 1.28%
     {       80,       1,          32},  // 0.98%
@@ -126,15 +130,19 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 74;
+static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
     {       16,       1,          32},  // 0.15%
+    {       24,       1,          32},  // 0.17%
     {       32,       1,          32},  // 0.15%
+    {       40,       1,          32},  // 0.17%
+    {       48,       1,          32},  // 0.24%
+    {       56,       1,          32},  // 0.17%
     {       64,       1,          32},  // 0.15%
     {       72,       1,          32},  // 0.17%
     {       80,       1,          32},  // 0.29%
@@ -208,15 +216,19 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 85;
+static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
     {       16,       1,          32},  // 0.02%
+    {       24,       1,          32},  // 0.02%
     {       32,       1,          32},  // 0.02%
+    {       40,       1,          32},  // 0.03%
+    {       48,       1,          32},  // 0.02%
+    {       56,       1,          32},  // 0.02%
     {       64,       1,          32},  // 0.02%
     {       72,       1,          32},  // 0.04%
     {       80,       1,          32},  // 0.04%
@@ -301,15 +313,19 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 42;
+static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
     {       16,       1,          32},  // 1.17%
+    {       24,       1,          32},  // 1.57%
     {       32,       1,          32},  // 1.17%
+    {       40,       1,          32},  // 1.57%
+    {       48,       1,          32},  // 1.57%
+    {       56,       1,          32},  // 1.37%
     {       64,       1,          32},  // 1.17%
     {       72,       1,          32},  // 2.78%
     {       80,       1,          32},  // 1.57%
@@ -355,15 +371,16 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 #else
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 82;
+static const int kCount = 86;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
     {       16,       1,          32},  // 0.59%
     {       32,       1,          32},  // 0.59%
+    {       48,       1,          32},  // 0.98%
     {       64,       1,          32},  // 0.59%
     {       80,       1,          32},  // 0.98%
     {       96,       1,          32},  // 0.98%
@@ -384,6 +401,7 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {      336,       1,          32},  // 2.18%
     {      352,       1,          32},  // 1.78%
     {      368,       1,          32},  // 1.78%
+    {      384,       1,          32},  // 2.18%
     {      400,       1,          32},  // 3.00%
     {      416,       1,          32},  // 4.25%
     {      448,       1,          32},  // 2.18%
@@ -436,24 +454,27 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {   114688,      14,           2},  // 0.04%
     {   131072,      16,           2},  // 0.04%
     {   139264,      17,           2},  // 0.03%
+    {   147456,      18,           2},  // 0.03%
     {   155648,      19,           2},  // 0.03%
     {   172032,      21,           2},  // 0.03%
     {   188416,      23,           2},  // 0.03%
     {   204800,      25,           2},  // 0.02%
+    {   221184,      27,           2},  // 0.02%
     {   237568,      29,           2},  // 0.02%
     {   262144,      32,           2},  // 0.02%
 };
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 74;
+static const int kCount = 78;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
     {       16,       1,          32},  // 0.15%
     {       32,       1,          32},  // 0.15%
+    {       48,       1,          32},  // 0.24%
     {       64,       1,          32},  // 0.15%
     {       80,       1,          32},  // 0.29%
     {       96,       1,          32},  // 0.24%
@@ -468,12 +489,14 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {      240,       1,          32},  // 0.54%
     {      256,       1,          32},  // 0.15%
     {      272,       1,          32},  // 0.54%
+    {      288,       1,          32},  // 0.84%
     {      304,       1,          32},  // 0.89%
     {      320,       1,          32},  // 0.54%
     {      352,       1,          32},  // 0.24%
     {      384,       1,          32},  // 0.54%
-    {      416,       1,          32},  // 1.13%
-    {      448,       1,          32},  // 0.34%
+    {      400,       1,          32},  // 1.28%
+    {      432,       1,          32},  // 1.28%
+    {      464,       1,          32},  // 1.03%
     {      496,       1,          32},  // 0.24%
     {      512,       1,          32},  // 0.15%
     {      576,       1,          32},  // 1.74%
@@ -485,6 +508,7 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {     1024,       1,          32},  // 0.15%
     {     1152,       1,          32},  // 1.74%
     {     1280,       1,          32},  // 2.55%
+    {     1408,       1,          32},  // 1.33%
     {     1536,       1,          32},  // 1.74%
     {     1664,       1,          32},  // 3.80%
     {     1920,       1,          32},  // 0.54%
@@ -527,15 +551,16 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 };
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 85;
+static const int kCount = 89;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
     {       16,       1,          32},  // 0.02%
     {       32,       1,          32},  // 0.02%
+    {       48,       1,          32},  // 0.02%
     {       64,       1,          32},  // 0.02%
     {       80,       1,          32},  // 0.04%
     {       96,       1,          32},  // 0.04%
@@ -586,6 +611,7 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {     5888,       1,          11},  // 1.20%
     {     6528,       1,          10},  // 0.41%
     {     7168,       1,           9},  // 1.61%
+    {     7680,       1,           8},  // 0.41%
     {     8192,       1,           8},  // 0.02%
     {     8704,       1,           7},  // 0.41%
     {     9344,       1,           7},  // 0.21%
@@ -593,10 +619,12 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {    10880,       1,           6},  // 0.41%
     {    11904,       1,           5},  // 0.12%
     {    13056,       1,           5},  // 0.41%
-    {    14464,       1,           4},  // 0.71%
+    {    13696,       1,           4},  // 0.76%
+    {    15360,       1,           4},  // 0.41%
     {    16384,       1,           4},  // 0.02%
     {    17408,       1,           3},  // 0.41%
     {    18688,       1,           3},  // 0.21%
+    {    20096,       1,           3},  // 0.36%
     {    21760,       1,           3},  // 0.41%
     {    23808,       1,           2},  // 0.12%
     {    26112,       1,           2},  // 0.41%
@@ -620,15 +648,16 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
 };
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 42;
+static const int kCount = 46;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kExperimentalPow2Below64SizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExperimentalPow2Below64SizeClassesCount] = {
+const int SizeMap::kLegacySizeClassesCount = kCount;
+const SizeClassInfo SizeMap::kLegacySizeClasses[SizeMap::kLegacySizeClassesCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
     {       16,       1,          32},  // 1.17%
     {       32,       1,          32},  // 1.17%
+    {       48,       1,          32},  // 1.57%
     {       64,       1,          32},  // 1.17%
     {       80,       1,          32},  // 1.57%
     {       96,       1,          32},  // 2.78%
@@ -639,6 +668,7 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {      176,       1,          32},  // 2.37%
     {      192,       1,          32},  // 2.78%
     {      208,       1,          32},  // 4.86%
+    {      224,       1,          32},  // 2.78%
     {      240,       1,          32},  // 1.57%
     {      256,       1,          32},  // 1.17%
     {      272,       1,          32},  // 1.57%
@@ -662,8 +692,10 @@ const SizeClassInfo SizeMap::kExperimentalPow2Below64SizeClasses[SizeMap::kExper
     {     2304,       4,          28},  // 1.88%
     {     2688,       4,          24},  // 1.88%
     {     3200,       4,          20},  // 2.70%
+    {     3584,       7,          18},  // 0.17%
     {     4096,       4,          16},  // 0.29%
     {     4736,       5,          13},  // 8.36%
+    {     5376,       4,          12},  // 1.88%
     {     6144,       3,          10},  // 0.39%
     {     7168,       7,           9},  // 0.17%
     {     8192,       4,           8},  // 0.29%

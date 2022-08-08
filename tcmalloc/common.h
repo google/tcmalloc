@@ -450,15 +450,13 @@ class SizeMap {
   static const SizeClassInfo kSizeClasses[];
   static const int kSizeClassesCount;
 
-  static const SizeClassInfo kExperimentalPow2Below64SizeClasses[];
-  static const int kExperimentalPow2Below64SizeClassesCount;
-  // kExperimentalPowBelow64SizeClassesCount
+  // Experimental size classes:
   static const SizeClassInfo kExperimentalPow2SizeClasses[];
   static const int kExperimentalPow2SizeClassesCount;
-
-  // kExperimentalCFLAwareSizeClassesCount
   static const SizeClassInfo kExperimentalCFLAwareSizeClasses[];
   static const int kExperimentalCFLAwareSizeClassesCount;
+  static const SizeClassInfo kLegacySizeClasses[];
+  static const int kLegacySizeClassesCount;
 
   size_t cold_sizes_[12] = {0};
   size_t cold_sizes_count_ = 0;
