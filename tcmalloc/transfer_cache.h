@@ -27,7 +27,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
@@ -68,14 +67,6 @@ class StaticForwarder {
   static size_t num_objects_to_move(int size_class);
   static void *Alloc(size_t size, int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-};
-
-// The NoStealingManager is set up so that stealing is disabled for this
-// TransferCache.
-class NoStealingManager : public StaticForwarder {
- public:
-  static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
-  static constexpr bool ShrinkCache(int) { return false; }
 };
 
 class ProdCpuLayout {
@@ -237,7 +228,7 @@ class ShardedTransferCacheManagerBase {
 };
 
 using ShardedTransferCacheManager =
-    ShardedTransferCacheManagerBase<NoStealingManager, ProdCpuLayout,
+    ShardedTransferCacheManagerBase<StaticForwarder, ProdCpuLayout,
                                     BackingTransferCache>;
 
 class TransferCacheManager : public StaticForwarder {
@@ -257,7 +248,7 @@ class TransferCacheManager : public StaticForwarder {
   friend class FakeMultiClassTransferCacheManager;
 
  public:
-  constexpr TransferCacheManager() : next_to_evict_(1) {}
+  constexpr TransferCacheManager() {}
 
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
@@ -350,7 +341,6 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  int DetermineSizeClassToEvict(int size_class);
   bool ShrinkCache(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
       return cache_[size_class].rbtc.ShrinkCache(size_class);
@@ -385,7 +375,6 @@ class TransferCacheManager : public StaticForwarder {
 
   TransferCacheImplementation implementation_ =
       TransferCacheImplementation::Legacy;
-  std::atomic<int32_t> next_to_evict_;
   union Cache {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}

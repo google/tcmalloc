@@ -335,39 +335,6 @@ class TransferCache {
     return slot_info_.load(std::memory_order_relaxed);
   }
 
-  // REQUIRES: lock is held.
-  // Tries to make room for N elements. If the cache is full it will try to
-  // expand it at the cost of some other cache size.  Return false if there is
-  // no space.
-  bool MakeCacheSpace(int size_class, int N)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    auto info = slot_info_.load(std::memory_order_relaxed);
-    // Is there room in the cache?
-    if (info.used + N <= info.capacity) return true;
-    // Check if we can expand this cache?
-    if (info.capacity + N > max_capacity_) return false;
-
-    int to_evict = owner_->DetermineSizeClassToEvict(size_class);
-    if (to_evict == size_class) return false;
-
-    // Release the held lock before the other instance tries to grab its lock.
-    lock_.Unlock();
-    bool made_space = owner_->ShrinkCache(to_evict);
-    lock_.Lock();
-
-    if (!made_space) return false;
-
-    // Succeeded in evicting, we're going to make our cache larger.  However, we
-    // may have dropped and re-acquired the lock, so the cache_size may have
-    // changed.  Therefore, check and verify that it is still OK to increase the
-    // cache_size.
-    info = slot_info_.load(std::memory_order_relaxed);
-    if (info.capacity + N > max_capacity_) return false;
-    info.capacity += N;
-    SetSlotInfo(info);
-    return true;
-  }
-
   // Increases capacity of the cache by a batch size. Returns true if it
   // succeeded at growing the cache by a batch size. Else, returns false.
   bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
@@ -397,13 +364,6 @@ class TransferCache {
     int n = Manager::num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
-  }
-
-  // Takes lock_ and invokes MakeCacheSpace() on this cache.  Returns true if it
-  // succeeded at growing the cache by a batch size.
-  bool GrowCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    return MakeCacheSpace(size_class, Manager::num_objects_to_move(size_class));
   }
 
   // REQUIRES: lock_ is *not* held.
@@ -768,45 +728,6 @@ class RingBufferTransferCache {
     return slot_info_;
   }
 
-  // REQUIRES: lock is held.
-  // Tries to make room for N elements. If the cache is full it will try to
-  // expand it at the cost of some other cache size.  Return false if there is
-  // no space.
-  bool MakeCacheSpace(int size_class, int N)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_) {
-    auto info = GetSlotInfo();
-    // Is there room in the cache?
-    if (info.used + N <= info.capacity) return true;
-
-    // Increase capacity in number of batches, as we do when reducing capacity.
-    const int B = Manager::num_objects_to_move(size_class);
-    ASSERT(B >= N);
-    // Check if we can expand this cache?
-    if (info.capacity + B > max_capacity_) return false;
-
-    // Release the held lock before the other instance tries to grab its lock.
-    lock_.Unlock();
-    int to_evict = manager().DetermineSizeClassToEvict(size_class);
-    if (to_evict == size_class) {
-      lock_.Lock();
-      return false;
-    }
-    bool made_space = manager().ShrinkCache(to_evict);
-    lock_.Lock();
-
-    if (!made_space) return false;
-
-    // Succeeded in evicting, we're going to make our cache larger.  However, we
-    // have dropped and re-acquired the lock, so slot_info_ may have
-    // changed.  Therefore, check and verify that it is still OK to increase the
-    // cache size.
-    info = GetSlotInfo();
-    if (info.capacity + B > max_capacity_) return false;
-    info.capacity += B;
-    SetSlotInfo(info);
-    return true;
-  }
-
   // Increases capacity of the cache by a batch. Returns true if it succeeded at
   // growing the cache by a batch size. Else, returns false.
   bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
@@ -836,14 +757,6 @@ class RingBufferTransferCache {
     absl::base_internal::SpinLockHolder h(&lock_);
     const auto info = GetSlotInfo();
     return info.capacity - info.used >= n;
-  }
-
-  // Takes lock_ and invokes MakeCacheSpace() on this cache.  Returns true if it
-  // succeeded at growing the cache by a batch size.
-  bool GrowCache(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    ASSERT(low_water_mark_ <= slot_info_.used);
-    return MakeCacheSpace(size_class, Manager::num_objects_to_move(size_class));
   }
 
   // REQUIRES: lock_ is *not* held.

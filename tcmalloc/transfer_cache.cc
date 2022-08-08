@@ -96,30 +96,6 @@ TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
   return TransferCacheImplementation::Legacy;
 }
 
-int TransferCacheManager::DetermineSizeClassToEvict(int current_size_class) {
-  int t = next_to_evict_.load(std::memory_order_relaxed);
-  if (t >= kNumClasses) t = 1;
-  next_to_evict_.store(t + 1, std::memory_order_relaxed);
-
-  // Ask nicely first.
-  if (implementation_ == TransferCacheImplementation::Ring) {
-    // HasSpareCapacity may take lock_, but HasSpareCapacity(t) will fail if
-    // we're already evicting from t so we can avoid consulting the lock in
-    // that cases.
-    if (ABSL_PREDICT_FALSE(t == current_size_class) ||
-        cache_[t].rbtc.HasSpareCapacity(t))
-      return t;
-  } else {
-    if (cache_[t].tc.HasSpareCapacity(t)) return t;
-  }
-
-  // But insist on the second try.
-  t = next_to_evict_.load(std::memory_order_relaxed);
-  if (t >= kNumClasses) t = 1;
-  next_to_evict_.store(t + 1, std::memory_order_relaxed);
-  return t;
-}
-
 // Tracks misses per size class.
 struct MissInfo {
   int size_class;

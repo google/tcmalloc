@@ -68,7 +68,6 @@ class FakeTransferCacheManagerBase {
 // Useful for benchmarks where you want to unrelated expensive operations.
 class FakeTransferCacheManager : public FakeTransferCacheManagerBase {
  public:
-  int DetermineSizeClassToEvict(int current_size_class);
   bool ShrinkCache(int);
 };
 
@@ -85,19 +84,9 @@ class RawMockTransferCacheManager : public FakeTransferCacheManagerBase {
       thread_local std::mt19937 gen{0};
       return absl::Bernoulli(gen, 0.8);
     });
-    ON_CALL(*this, GrowCache).WillByDefault([]() {
-      thread_local std::mt19937 gen{0};
-      return absl::Bernoulli(gen, 0.8);
-    });
-    ON_CALL(*this, DetermineSizeClassToEvict).WillByDefault([]() {
-      thread_local std::mt19937 gen{0};
-      return absl::Uniform<size_t>(gen, 1, kNumClasses);
-    });
   }
 
-  MOCK_METHOD(int, DetermineSizeClassToEvict, (int current_size_class));
   MOCK_METHOD(bool, ShrinkCache, (int size_class));
-  MOCK_METHOD(bool, GrowCache, (int size_class));
 };
 
 using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
@@ -110,7 +99,6 @@ using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
 class ArenaBasedFakeTransferCacheManager {
  public:
   ArenaBasedFakeTransferCacheManager() { bytes_.resize(kTotalSize); }
-  static constexpr int DetermineSizeClassToEvict(int size_class) { return -1; }
   static constexpr bool ShrinkCache(int) { return false; }
   constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
@@ -169,7 +157,7 @@ class FakeTransferCacheEnvironment {
   ~FakeTransferCacheEnvironment() { Drain(); }
 
   void Shrink() { cache_.ShrinkCache(kSizeClass); }
-  void Grow() { cache_.GrowCache(kSizeClass); }
+  void Grow() { cache_.IncreaseCacheCapacity(kSizeClass); }
 
   void Insert(int n) {
     std::vector<void*> bufs;
@@ -275,10 +263,6 @@ class TwoSizeClassManager : public FakeTransferCacheManagerBase {
       default:
         return 0;
     }
-  }
-
-  int DetermineSizeClassToEvict(int current_size_class) {
-    return evicting_from_;
   }
 
   bool ShrinkCache(int size_class) {

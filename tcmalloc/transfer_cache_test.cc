@@ -465,8 +465,6 @@ TEST(RingBufferTest, b172283201) {
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
   // We do return items to the freelist, don't try to actually free them.
   ON_CALL(env.central_freelist(), InsertRange).WillByDefault(testing::Return());
-  ON_CALL(env.transfer_cache_manager(), DetermineSizeClassToEvict)
-      .WillByDefault(testing::Return(kSizeClass));
 
   // First fill up the cache to its capacity.
   while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
