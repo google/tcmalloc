@@ -75,11 +75,6 @@ class PageAllocatorTest : public testing::Test {
     allocator_->Delete(s, objects_per_span, MemoryTag::kNormal);
   }
 
-  Length Release(Length n) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    return allocator_->ReleaseAtLeastNPages(n);
-  }
-
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
     Printer out(&buf[0], buf.size());
