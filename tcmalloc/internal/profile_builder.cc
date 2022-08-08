@@ -397,8 +397,11 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int access_allocated_id = builder.InternString("access_allocated");
   const int cold_id = builder.InternString("cold");
   const int hot_id = builder.InternString("hot");
+
+  // NOTE: Do not rely on these string constants. They will be removed!
   const int sampled_resident_id =
       builder.InternString("sampled_resident_bytes");
+  const int swapped_id = builder.InternString("swapped_bytes");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -472,7 +475,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(bytes_id, bytes_id, entry.allocated_size);
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+    // TODO(b/235916219): Remove these when we convert these from tags to sample
+    // types.
     add_label(sampled_resident_id, bytes_id, entry.sampled_resident_size);
+    add_label(swapped_id, bytes_id, entry.swapped_size);
 
     auto add_access_label = [&](int key,
                                 tcmalloc::Profile::Sample::Access access) {
