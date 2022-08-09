@@ -502,6 +502,64 @@ TEST(RingBufferTest, b172283201) {
   ASSERT_EQ(env.transfer_cache().tc_length(), 0);
 }
 
+TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
+  // In this test, we toggle flexibility of the legacy transfer cache to make
+  // sure that we encounter expected number of misses and do not lose capacity
+  // in the process.
+  using EnvType = FakeFlexibleTransferCacheEnvironment<
+      internal_transfer_cache::TransferCache<MockCentralFreeList,
+                                             MockTransferCacheManager>>;
+  EnvType env;
+
+  // Make sure that flexibility is enabled by default in this environment.
+  ASSERT_EQ(env.transfer_cache().IsFlexible(), true);
+
+  const int batch_size = EnvType::kBatchSize;
+  while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
+    env.Insert(batch_size);
+  }
+
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(batch_size / 2);
+  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(batch_size / 2);
+
+  bool flexible = env.transfer_cache().IsFlexible();
+  TransferCacheStats previous_stats = env.transfer_cache().GetStats();
+  for (size_t size = 1; size <= batch_size; size++) {
+    flexible = !flexible;
+    env.transfer_cache_manager().SetPartialLegacyTransferCache(flexible);
+    ASSERT_EQ(env.transfer_cache().IsFlexible(), flexible);
+
+    env.Remove(size);
+    env.Insert(size);
+  }
+
+  // Make sure we haven't lost capacity and the number of used bytes in the
+  // cache is same as before.
+  TransferCacheStats current_stats = env.transfer_cache().GetStats();
+  EXPECT_EQ(current_stats.used, previous_stats.used);
+  EXPECT_EQ(current_stats.capacity, previous_stats.capacity);
+  EXPECT_EQ(current_stats.max_capacity, previous_stats.max_capacity);
+
+  // We should have missed half the number of times when the transfer cache did
+  // not allow partial updates.
+  EXPECT_EQ(current_stats.insert_misses, batch_size / 2);
+  EXPECT_EQ(current_stats.insert_non_batch_misses, batch_size / 2);
+
+  // Enable flexibility.
+  flexible = true;
+  env.transfer_cache_manager().SetPartialLegacyTransferCache(flexible);
+
+  // When flexibility is enabled, we should be able to drain the transfer cache
+  // one object at a time.
+  int used = current_stats.used;
+  while (used > 0) {
+    env.Remove(1);
+    --used;
+    EXPECT_EQ(env.transfer_cache().tc_length(), used);
+  }
+  EXPECT_EQ(env.transfer_cache().tc_length(), 0);
+}
+
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             DoesntEvictOtherCaches, PushesToFreelist,
@@ -647,6 +705,12 @@ using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
                                ::testing::Types<Env>);
 
+using FlexibleTransferCacheEnv =
+    FakeFlexibleTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
+INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
+                               ::testing::Types<FlexibleTransferCacheEnv>);
+
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
                                                      MockTransferCacheManager>>;
@@ -662,6 +726,13 @@ namespace fuzz_tests {
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
     MockCentralFreeList, MockTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
+
+using FlexibleTransferCacheEnv =
+    FakeFlexibleTransferCacheEnvironment<internal_transfer_cache::TransferCache<
+        MockCentralFreeList, MockTransferCacheManager>>;
+
+INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
+                               ::testing::Types<FlexibleTransferCacheEnv>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,

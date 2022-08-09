@@ -67,6 +67,9 @@ class StaticForwarder {
   static size_t num_objects_to_move(int size_class);
   static void *Alloc(size_t size, int alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static bool PartialLegacyTransferCache() {
+    return Parameters::partial_transfer_cache();
+  }
 };
 
 class ProdCpuLayout {

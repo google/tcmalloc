@@ -153,9 +153,11 @@ class TransferCache {
     return {capacity, max_capacity};
   }
 
-  // This transfercache implementation does not deal well with non-batch sized
-  // inserts and removes.
-  static constexpr bool IsFlexible() { return false; }
+  // Historically, this transfer cache implementation did not deal with
+  // non-batch sized inserts and removes. Hence, partial updates are disabled by
+  // default. However, we enable partial updates to the transfer cache when the
+  // corresponding experiment is enabled.
+  bool IsFlexible() const { return Manager::PartialLegacyTransferCache(); }
 
   // These methods all do internal locking.
 
@@ -167,7 +169,7 @@ class TransferCache {
     const int B = Manager::num_objects_to_move(size_class);
     ASSERT(0 < N && N <= B);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B) {
+    if (N == B || IsFlexible()) {
       if (info.used + N <= max_capacity_) {
         absl::base_internal::SpinLockHolder h(&lock_);
         // As caches are resized in the background, we do not attempt to grow
@@ -200,7 +202,7 @@ class TransferCache {
     ASSERT(N > 0);
     const int B = Manager::num_objects_to_move(size_class);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B) {
+    if (N == B || IsFlexible()) {
       if (info.used >= N) {
         absl::base_internal::SpinLockHolder h(&lock_);
         // Refetch with the lock

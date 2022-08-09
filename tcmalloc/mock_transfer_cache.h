@@ -52,6 +52,13 @@ class FakeTransferCacheManagerBase {
     return memory_.back()->ptr;
   }
 
+  static void SetPartialLegacyTransferCache(bool value) {
+    partial_legacy_transfer_cache_ = value;
+  }
+  static bool PartialLegacyTransferCache() {
+    return partial_legacy_transfer_cache_;
+  }
+
  private:
   struct AlignedPtr {
     AlignedPtr(void* ptr, std::align_val_t alignment)
@@ -61,6 +68,7 @@ class FakeTransferCacheManagerBase {
     std::align_val_t alignment;
   };
   std::vector<std::unique_ptr<AlignedPtr>> memory_;
+  static bool partial_legacy_transfer_cache_;
 };
 
 // TransferCacheManager with basic stubs for everything.
@@ -152,7 +160,7 @@ class FakeTransferCacheEnvironment {
       ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
   static constexpr int kBatchSize = Manager::num_objects_to_move(1);
 
-  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) {}
+  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) { Init(); }
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
@@ -215,9 +223,42 @@ class FakeTransferCacheEnvironment {
 
   FreeList& central_freelist() { return cache_.freelist(); }
 
+  // Enables/disables partial updates to the legacy transfer cache.
+  void SetPartialTransferCache(bool is_partial) {
+    Manager::SetPartialLegacyTransferCache(is_partial);
+    ASSERT_EQ(cache_.IsFlexible(), is_partial);
+  }
+
  private:
+  void Init(){};
+
   Manager manager_;
   TransferCache cache_;
+};
+
+// A fake transfer cache environment that enables partial updates to the
+// legacy transfer cache.
+template <typename TransferCacheT>
+class FakeFlexibleTransferCacheEnvironment
+    : public FakeTransferCacheEnvironment<TransferCacheT> {
+ public:
+  FakeFlexibleTransferCacheEnvironment() { Init(); }
+
+  void RandomlyPoke() {
+    absl::BitGen gen;
+    double choice = absl::Uniform(gen, 0.0, 1.0);
+    // Probabilistically toggle flexibility of the cache, or randomly perform
+    // operations from the base class.
+    if (choice < 0.1) {
+      const bool flexible = this->transfer_cache().IsFlexible();
+      this->transfer_cache().SetPartialTransferCache(!flexible);
+    } else {
+      FakeTransferCacheEnvironment<TransferCacheT>::RandomlyPoke();
+    }
+  }
+
+ private:
+  void Init() { this->SetPartialTransferCache(/*is_partial=*/true); }
 };
 
 // A fake transfer cache manager class which supports two size classes instead

@@ -573,6 +573,8 @@ static void DumpStats(Printer* out, int level) {
                 Parameters::prioritize_spans() ? 1 : 0);
     out->printf("PARAMETER madvise_cold_regions_nohugepage %d\n",
                 Parameters::madvise_cold_regions_nohugepage() ? 1 : 0);
+    out->printf("PARAMETER tcmalloc_partial_transfer_cache %d\n",
+                Parameters::partial_transfer_cache() ? 1 : 0);
   }
 }
 
@@ -739,6 +741,8 @@ namespace {
   region.PrintBool("tcmalloc_prioritize_spans", Parameters::prioritize_spans());
   region.PrintBool("madvise_cold_regions_nohugepage",
                    Parameters::madvise_cold_regions_nohugepage());
+  region.PrintBool("tcmalloc_partial_transfer_cache",
+                   Parameters::partial_transfer_cache());
 }
 
 }  // namespace

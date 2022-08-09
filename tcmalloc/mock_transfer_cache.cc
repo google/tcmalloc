@@ -17,6 +17,9 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+ABSL_CONST_INIT bool
+    FakeTransferCacheManagerBase::partial_legacy_transfer_cache_(false);
+
 bool FakeTransferCacheManager::ShrinkCache(int) { return true; }
 
 }  // namespace tcmalloc_internal
