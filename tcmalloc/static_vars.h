@@ -123,6 +123,10 @@ class Static {
   // State kept for sampled allocations (/heapz support). No pageheap_lock
   // required when reading/writing the counters.
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
+  // sampled_internal_fragmentation estimates the amount of memory overhead from
+  // allocation sizes being rounded up to size class/page boundaries.
+  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter
+      sampled_internal_fragmentation_;
 
   static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
     return bucket_allocator_;
