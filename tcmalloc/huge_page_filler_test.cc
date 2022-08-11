@@ -1822,10 +1822,12 @@ HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hug
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: sample released hugepages\n"
                                  "HugePageFiller: page 1: start address: "
-                                 "c00000 end address: e00000 bytes"));
+                                 "c00000 end address: e00000 released pages: 6 "
+                                 "released bytes: 49152"));
   EXPECT_THAT(buffer,
               testing::HasSubstr("HugePageFiller: page 2: start address: "
-                                 "e00000 end address: 1000000"));
+                                 "e00000 end address: 1000000 released pages: "
+                                 "7 released bytes: 57344"));
 
   for (const auto& alloc : allocs) {
     Delete(alloc);
