@@ -230,7 +230,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
     // register. This helps compiler generate slightly more efficient
     // sub <reg>, <mem> instruction for subtraction above.
     volatile ssize_t* ptr = const_cast<volatile ssize_t*>(&bytes_until_sample_);
-    *ptr += k;
+    *ptr = *ptr + k;
     return false;
   }
   return true;
