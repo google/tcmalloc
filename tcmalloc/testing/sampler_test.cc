@@ -441,10 +441,10 @@ TEST(Sampler, stirring) {
   // dealing with Samplers that have same addresses, as we see when thread's TLS
   // areas are reused. b/117296263
 
-  absl::aligned_storage_t<sizeof(Sampler), alignof(Sampler)> place;
+  alignas(Sampler) char place[sizeof(Sampler)];
 
   DoCheckMean(kSamplingInterval, 1000, [&place]() {
-    Sampler* sampler = new (&place) Sampler;
+    Sampler* sampler = new (place) Sampler;
     // Sampler constructor just 0-initializes
     // everything. RecordAllocation really makes sampler initialize
     // itself.
