@@ -29,51 +29,45 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 
-// __THROW is defined in glibc systems.  It means, counter-intuitively,
-// "This function will never throw an exception."  It's an optional
-// optimization tool, but we may need to use it to match glibc prototypes.
-#ifndef __THROW  // I guess we're not on a glibc system
-#define __THROW __attribute__((__nothrow__))
-#endif
-
 #ifdef __cplusplus
 
 extern "C" {
 #endif
-void* TCMallocInternalMalloc(size_t size) __THROW
+void* TCMallocInternalMalloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalFree(void* ptr) __THROW
+void TCMallocInternalFree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalSdallocx(void* ptr, size_t size, int flags) __THROW
+void TCMallocInternalSdallocx(void* ptr, size_t size, int flags) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalRealloc(void* ptr, size_t size) __THROW
+void* TCMallocInternalRealloc(void* ptr, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalCalloc(size_t n, size_t size) __THROW
+void* TCMallocInternalCalloc(size_t n, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalCfree(void* ptr) __THROW
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-
-void* TCMallocInternalAlignedAlloc(size_t align, size_t __size) __THROW
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalMemalign(size_t align, size_t __size) __THROW
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-int TCMallocInternalPosixMemalign(void** ptr, size_t align, size_t size) __THROW
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalValloc(size_t __size) __THROW
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalPvalloc(size_t __size) __THROW
+void TCMallocInternalCfree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-void TCMallocInternalMallocStats(void) __THROW
+void* TCMallocInternalAlignedAlloc(size_t align, size_t __size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+void* TCMallocInternalMemalign(size_t align, size_t __size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+int TCMallocInternalPosixMemalign(void** ptr, size_t align,
+                                  size_t size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+void* TCMallocInternalValloc(size_t __size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+void* TCMallocInternalPvalloc(size_t __size) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+
+void TCMallocInternalMallocStats(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if defined(TCMALLOC_HAVE_MALLOC_TRIM)
-int TCMallocInternalMallocTrim(size_t pad) __THROW
+int TCMallocInternalMallocTrim(size_t pad) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
-int TCMallocInternalMallOpt(int cmd, int value) __THROW
+int TCMallocInternalMallOpt(int cmd, int value) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
-struct mallinfo TCMallocInternalMallocInfo(void) __THROW
+struct mallinfo TCMallocInternalMallocInfo(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
 
@@ -82,44 +76,44 @@ struct mallinfo TCMallocInternalMallocInfo(void) __THROW
 //    OS X: malloc_size()
 //    glibc: malloc_usable_size()
 //    Windows: _msize()
-size_t TCMallocInternalMallocSize(void* ptr) __THROW
+size_t TCMallocInternalMallocSize(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 #ifdef __cplusplus
 void* TCMallocInternalNew(size_t size) ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalNewNothrow(size_t size, const std::nothrow_t&) __THROW
+void* TCMallocInternalNewNothrow(size_t size, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDelete(void* p) __THROW
+void TCMallocInternalDelete(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteAligned(void* p, std::align_val_t alignment) __THROW
+void TCMallocInternalDeleteAligned(void* p, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteSized(void* p, size_t size) __THROW
+void TCMallocInternalDeleteSized(void* p, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteSizedAligned(void* p, size_t t,
-                                        std::align_val_t alignment) __THROW
+                                        std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteNothrow(void* p, const std::nothrow_t&) __THROW
+void TCMallocInternalDeleteNothrow(void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArray(size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArrayAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArrayNothrow(size_t size,
-                                      const std::nothrow_t&) __THROW
+                                      const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteArray(void* p) __THROW
+void TCMallocInternalDeleteArray(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteArrayAligned(void* p,
-                                        std::align_val_t alignment) __THROW
+                                        std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteArraySized(void* p, size_t size) __THROW
+void TCMallocInternalDeleteArraySized(void* p, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteArraySizedAligned(void* p, size_t t,
-                                             std::align_val_t alignment) __THROW
+void TCMallocInternalDeleteArraySizedAligned(
+    void* p, size_t t, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void TCMallocInternalDeleteArrayNothrow(void* p, const std::nothrow_t&) __THROW
+void TCMallocInternalDeleteArrayNothrow(void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 }
 #endif
