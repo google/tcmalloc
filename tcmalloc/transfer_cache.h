@@ -211,7 +211,7 @@ class ShardedTransferCacheManagerBase {
   // current cpu's L3 node. The cache will be initialized if required.
   TransferCache &get_cache(int size_class) {
     const int cpu = cpu_layout_->CurrentCpu();
-    ASSERT(cpu < 256);
+    ASSERT(cpu < ABSL_ARRAYSIZE(l3_cache_index_));
     ASSERT(cpu >= 0);
     const uint8_t shard_index = l3_cache_index_[cpu];
     ASSERT(shard_index < num_shards_);
