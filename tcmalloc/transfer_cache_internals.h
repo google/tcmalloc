@@ -27,20 +27,15 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
-#include "absl/base/casts.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/container/fixed_array.h"
 #include "absl/numeric/bits.h"
-#include "absl/synchronization/internal/futex.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -314,7 +309,6 @@ class TransferCache {
   // Checks if the cache capacity may be increased by a batch size.
   bool CanIncreaseCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int n = Manager::num_objects_to_move(size_class);
-    absl::base_internal::SpinLockHolder h(&lock_);
     auto info = GetSlotInfo();
     return max_capacity_ - info.capacity >= n;
   }
@@ -893,6 +887,7 @@ void TryResizingCaches(Manager &manager) {
     misses[size_class] = {.size_class = size_class, .misses = miss};
   }
 
+  // Prioritize shrinking cache that had least number of misses.
   std::sort(misses.begin(), misses.end(),
             [](const MissInfo &a, const MissInfo &b) {
               if (a.misses == b.misses) {
@@ -901,41 +896,46 @@ void TryResizingCaches(Manager &manager) {
               return a.misses > b.misses;
             });
 
-  // Prioritize shrinking cache that had least number of misses.
-  int to_grow = 0;
-  int to_shrink = Manager::kNumClasses - 1;
   int total_grown = 0;
-
-  // Grow up to kMaxSizeClassesToResize caches and make sure that we never
-  // shrink a cache that we are supposed to grow during this interval.
-  while (total_grown < Manager::kMaxSizeClassesToResize &&
-         to_grow < to_shrink) {
-    // As the list is sorted, we won't encounter any size class with a non-zero
-    // miss. So, it is ok to break.
-    if (misses[to_grow].misses == 0) break;
-
-    int class_to_grow = misses[to_grow].size_class;
-    // If this cache is already at its maximum capacity, continue to the next
-    // cache.
-    if (!manager.CanIncreaseCapacity(class_to_grow)) {
-      ++to_grow;
+  int total_shrunk = 0;
+  for (int to_grow = 0, to_shrink = Manager::kNumClasses - 1;
+       to_grow < to_shrink; ++to_grow, --to_shrink) {
+    if (total_grown == Manager::kMaxSizeClassesToResize) break;
+    if (!manager.CanIncreaseCapacity(misses[to_grow].size_class)) {
+      ++to_shrink;
       continue;
     }
 
-    bool made_space = false;
-    while (to_grow < to_shrink) {
-      const int to_evict = misses[to_shrink].size_class;
-      made_space = manager.ShrinkCache(to_evict);
-      --to_shrink;
-      if (made_space) {
+    // No one else wants to grow, so stop here.
+    if (misses[to_grow].misses == 0) break;
+
+    for (; to_grow < to_shrink; --to_shrink) {
+      int shrink_size_class = misses[to_shrink].size_class;
+      if (manager.ShrinkCache(shrink_size_class)) {
+        ++total_shrunk;
         break;
       }
     }
 
-    if (made_space) {
-      manager.IncreaseCacheCapacity(class_to_grow);
-      ++to_grow;
-      ++total_grown;
+    for (; to_grow < to_shrink; ++to_grow) {
+      int grow_size_class = misses[to_grow].size_class;
+      if (manager.IncreaseCacheCapacity(grow_size_class)) {
+        ++total_grown;
+        break;
+      }
+    }
+  }
+
+  // It is possible that we successfully shrank our last shrink but were unable
+  // to grow our last grow, which would leave us with one spare capacity.  If we
+  // don't find someone to grow, the entire system loses capacity.
+  while (ABSL_PREDICT_FALSE(total_grown < total_shrunk)) {
+    for (int i = 0; i < Manager::kNumClasses; ++i) {
+      int grow_size_class = misses[i].size_class;
+      if (manager.IncreaseCacheCapacity(grow_size_class)) {
+        ++total_grown;
+        break;
+      }
     }
   }
 }

@@ -694,6 +694,24 @@ TEST(RealTransferCacheTest, ResizeOccurs) {
   testing::Mock::VerifyAndClear(&m);
 }
 
+TEST(RealTransferCacheTest, DoesNotLeakCapacity) {
+  testing::StrictMock<MockTransferCacheManager> m;
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
+        .Times(6)
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity)
+        .Times(30)  // large enough to force scans across all size_classes
+        .WillRepeatedly(Return(false));
+    EXPECT_CALL(m, IncreaseCacheCapacity).WillOnce(Return(true));
+  }
+  internal_transfer_cache::TryResizingCaches(m);
+  testing::Mock::VerifyAndClear(&m);
+}
+
 template <typename Env>
 using RealTransferCacheTest = ::testing::Test;
 TYPED_TEST_SUITE_P(RealTransferCacheTest);
