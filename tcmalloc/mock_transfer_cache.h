@@ -39,7 +39,10 @@ inline constexpr size_t kClassSize = 8;
 inline constexpr size_t kNumToMove = 32;
 inline constexpr int kSizeClass = 1;
 
-class FakeTransferCacheManagerBase {
+// TransferCacheManager with basic stubs for everything.
+//
+// Useful for benchmarks where you want to unrelated expensive operations.
+class FakeTransferCacheManager {
  public:
   constexpr static size_t class_to_size(int size_class) { return kClassSize; }
   constexpr static size_t num_objects_to_move(int size_class) {
@@ -70,34 +73,6 @@ class FakeTransferCacheManagerBase {
   std::vector<std::unique_ptr<AlignedPtr>> memory_;
   static bool partial_legacy_transfer_cache_;
 };
-
-// TransferCacheManager with basic stubs for everything.
-//
-// Useful for benchmarks where you want to unrelated expensive operations.
-class FakeTransferCacheManager : public FakeTransferCacheManagerBase {
- public:
-  bool ShrinkCache(int);
-};
-
-// TransferCacheManager which allows intercepting intersting methods.
-//
-// Useful for intrusive unit tests that want to verify internal behavior.
-class RawMockTransferCacheManager : public FakeTransferCacheManagerBase {
- public:
-  RawMockTransferCacheManager() : FakeTransferCacheManagerBase() {
-    // We want single threaded tests to be deterministic, so we use a
-    // deterministic generator.  Because we don't know about the threading for
-    // our tests we cannot keep the generator in a local variable.
-    ON_CALL(*this, ShrinkCache).WillByDefault([]() {
-      thread_local std::mt19937 gen{0};
-      return absl::Bernoulli(gen, 0.8);
-    });
-  }
-
-  MOCK_METHOD(bool, ShrinkCache, (int size_class));
-};
-
-using MockTransferCacheManager = testing::NiceMock<RawMockTransferCacheManager>;
 
 // A transfer cache manager which allocates memory from a fixed size arena. This
 // is necessary to prevent running into deadlocks in some cases, e.g. when the
@@ -266,7 +241,7 @@ class FakeFlexibleTransferCacheEnvironment
 // inside the cache manager, like in production code.
 template <typename FreeListT,
           template <typename FreeList, typename Manager> class TransferCacheT>
-class TwoSizeClassManager : public FakeTransferCacheManagerBase {
+class TwoSizeClassManager : public FakeTransferCacheManager {
  public:
   using FreeList = FreeListT;
   using TransferCache = TransferCacheT<FreeList, TwoSizeClassManager>;

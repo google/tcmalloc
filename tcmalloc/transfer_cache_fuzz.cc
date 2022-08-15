@@ -25,14 +25,14 @@ namespace {
 
 using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
     tcmalloc_internal::MockCentralFreeList,
-    tcmalloc_internal::MockTransferCacheManager>;
+    tcmalloc_internal::FakeTransferCacheManager>;
 using TransferCacheEnv =
     tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
 using RingBufferTransferCache =
     tcmalloc_internal::internal_transfer_cache::RingBufferTransferCache<
         tcmalloc_internal::MockCentralFreeList,
-        tcmalloc_internal::MockTransferCacheManager>;
+        tcmalloc_internal::FakeTransferCacheManager>;
 using RingBufferTransferCacheEnv =
     tcmalloc_internal::FakeTransferCacheEnvironment<RingBufferTransferCache>;
 

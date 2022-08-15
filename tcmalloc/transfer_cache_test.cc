@@ -223,74 +223,10 @@ TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
   EXPECT_EQ(e.transfer_cache().GetStats().remove_misses, 2);
 }
 
-TYPED_TEST_P(TransferCacheTest, DoesntEvictOtherCaches) {
-  const int batch_size = TypeParam::kBatchSize;
-  TypeParam e;
-
-  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).Times(0);
-  EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
-
-  const int capacity = e.transfer_cache().GetStats().capacity;
-  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
-    e.Insert(batch_size);
-  }
-  size_t old_hits = e.transfer_cache().GetStats().insert_hits;
-  e.Insert(batch_size);
-  EXPECT_EQ(e.transfer_cache().GetStats().capacity, capacity);
-  EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, old_hits);
-  EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 1);
-}
-
-TYPED_TEST_P(TransferCacheTest, DoesntEvictOtherCachesFlex) {
-  const int batch_size = TypeParam::kBatchSize;
-  TypeParam e;
-
-  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).Times(0);
-  if (e.transfer_cache().IsFlexible()) {
-    EXPECT_CALL(e.central_freelist(), InsertRange)
-        .Times(AtLeast(batch_size / 2 - 1));
-  } else {
-    EXPECT_CALL(e.central_freelist(), InsertRange).Times(AtLeast(batch_size));
-  }
-
-  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
-    e.Insert(batch_size);
-  }
-
-  const int capacity = e.transfer_cache().GetStats().capacity;
-  for (int i = 1; i <= batch_size; i++) {
-    e.Insert(i);
-  }
-
-  EXPECT_EQ(e.transfer_cache().GetStats().capacity, capacity);
-}
-
-// Similar to DoesntEvictOtherCachesFlex, but with full cache.
-TYPED_TEST_P(TransferCacheTest, FullCacheFlex) {
-  const int batch_size = TypeParam::kBatchSize;
-  TypeParam e;
-
-  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).Times(0);
-  if (e.transfer_cache().IsFlexible()) {
-    EXPECT_CALL(e.central_freelist(), InsertRange)
-        .Times(AtLeast(batch_size / 2 - 1));
-  } else {
-    EXPECT_CALL(e.central_freelist(), InsertRange).Times(AtLeast(batch_size));
-  }
-
-  while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
-    e.Insert(batch_size);
-  }
-  for (int i = 1; i < batch_size + 2; i++) {
-    e.Insert(i);
-  }
-}
-
 TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   const int batch_size = TypeParam::kBatchSize;
   TypeParam e;
 
-  EXPECT_CALL(e.transfer_cache_manager(), ShrinkCache).Times(0);
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(1);
 
   while (e.transfer_cache().HasSpareCapacity(kSizeClass)) {
@@ -304,9 +240,10 @@ TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
 
 TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   const int batch_size = TypeParam::kBatchSize;
-
   TypeParam env;
-  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
+
+  EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
+  EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
 
   while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
     env.Insert(batch_size);
@@ -315,22 +252,7 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
     env.Remove(batch_size);
     env.Insert(batch_size);
   }
-}
-
-TYPED_TEST_P(TransferCacheTest, WrappingFlex) {
-  const int batch_size = TypeParam::kBatchSize;
-
-  TypeParam env;
-  EXPECT_CALL(env.transfer_cache_manager(), ShrinkCache).Times(0);
   if (env.transfer_cache().IsFlexible()) {
-    EXPECT_CALL(env.central_freelist(), InsertRange).Times(0);
-    EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
-  }
-
-  while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
-    env.Insert(batch_size);
-  }
-  for (int i = 0; i < 100; ++i) {
     for (size_t size = 1; size < batch_size + 2; size++) {
       env.Remove(size);
       env.Insert(size);
@@ -438,7 +360,7 @@ TEST(RingBufferTest, b172283201) {
 
   using EnvType = FakeTransferCacheEnvironment<
       internal_transfer_cache::RingBufferTransferCache<
-          MockCentralFreeList, MockTransferCacheManager>>;
+          MockCentralFreeList, FakeTransferCacheManager>>;
   EnvType env;
 
   // We pick the largest value <= EnvType::kBatchSize to use as a batch size,
@@ -508,7 +430,7 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
   // in the process.
   using EnvType = FakeFlexibleTransferCacheEnvironment<
       internal_transfer_cache::TransferCache<MockCentralFreeList,
-                                             MockTransferCacheManager>>;
+                                             FakeTransferCacheManager>>;
   EnvType env;
 
   // Make sure that flexibility is enabled by default in this environment.
@@ -562,10 +484,8 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
 
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
-                            DoesntEvictOtherCaches, PushesToFreelist,
-                            WrappingWorks, SingleItemSmoke,
-                            DoesntEvictOtherCachesFlex, FullCacheFlex,
-                            WrappingFlex, Plunder);
+                            PushesToFreelist, WrappingWorks, SingleItemSmoke,
+                            Plunder);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;
@@ -701,19 +621,19 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
 
 namespace unit_tests {
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, MockTransferCacheManager>>;
+    MockCentralFreeList, FakeTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, TransferCacheTest,
                                ::testing::Types<Env>);
 
 using FlexibleTransferCacheEnv =
     FakeFlexibleTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
+        MockCentralFreeList, FakeTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
                                ::testing::Types<FlexibleTransferCacheEnv>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
-                                                     MockTransferCacheManager>>;
+                                                     FakeTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TransferCacheTest,
                                ::testing::Types<RingBufferEnv>);
 
@@ -724,19 +644,19 @@ namespace fuzz_tests {
 // as it avoids the overheads of mocks and allows more iterations of the fuzzing
 // itself.
 using Env = FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-    MockCentralFreeList, MockTransferCacheManager>>;
+    MockCentralFreeList, FakeTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, FuzzTest, ::testing::Types<Env>);
 
 using FlexibleTransferCacheEnv =
     FakeFlexibleTransferCacheEnvironment<internal_transfer_cache::TransferCache<
-        MockCentralFreeList, MockTransferCacheManager>>;
+        MockCentralFreeList, FakeTransferCacheManager>>;
 
 INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
                                ::testing::Types<FlexibleTransferCacheEnv>);
 
 using RingBufferEnv = FakeTransferCacheEnvironment<
     internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
-                                                     MockTransferCacheManager>>;
+                                                     FakeTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, FuzzTest,
                                ::testing::Types<RingBufferEnv>);
 }  // namespace fuzz_tests
