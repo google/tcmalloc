@@ -43,6 +43,10 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
 
 bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
                                size_t num_objects_to_move) {
+  if (size == 0) {
+    Log(kLog, __FILE__, __LINE__, "size class is 0", size);
+    return false;
+  }
   if (size > kMaxSize) {
     Log(kLog, __FILE__, __LINE__, "size class too big", size, kMaxSize);
     return false;
