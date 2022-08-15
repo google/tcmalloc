@@ -58,9 +58,6 @@ absl::string_view TransferCacheImplementationToLabel(
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
-using MissType = internal_transfer_cache::MissType;
-using MissCounts = internal_transfer_cache::MissCounts;
-
 class StaticForwarder {
  public:
   static constexpr size_t kNumClasses =
@@ -364,19 +361,11 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void UpdateResizeIntervalMisses(int size_class, MissType type) {
+  size_t FetchCommitIntervalMisses(int size_class) {
     if (implementation_ == TransferCacheImplementation::Ring) {
-      cache_[size_class].rbtc.UpdateResizeIntervalMisses(type);
+      return cache_[size_class].rbtc.FetchCommitIntervalMisses();
     } else {
-      cache_[size_class].tc.UpdateResizeIntervalMisses(type);
-    }
-  }
-
-  size_t GetIntervalMisses(int size_class, MissType type) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.GetIntervalMisses(type);
-    } else {
-      return cache_[size_class].tc.GetIntervalMisses(type);
+      return cache_[size_class].tc.FetchCommitIntervalMisses();
     }
   }
 

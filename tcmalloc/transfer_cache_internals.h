@@ -56,32 +56,27 @@ struct alignas(8) SizeInfo {
 static constexpr int kMaxCapacityInBatches = 64;
 static constexpr int kInitialCapacityInBatches = 16;
 
-enum class MissType {
-  // Tracks total number of misses.
-  kTotal = 0,
-  // Tracks number of misses measured as of the end of the last resize
-  // operation.
-  kResize,
-  // Tracks total types of misses that we would like to record.
-  kNumTypes,
-};
-
 // Records counters for different types of misses.
-struct MissCounts {
-  std::atomic<size_t> misses[static_cast<size_t>(MissType::kNumTypes)] = {0};
+class MissCounts {
+ public:
+  void Inc() { total_.fetch_add(1, std::memory_order_relaxed); }
 
-  std::atomic<size_t> &operator[](MissType type) {
-    return misses[static_cast<size_t>(type)];
+  size_t Total() { return total_.load(std::memory_order_relaxed); }
+
+  // Returns the number of misses since the last commit call.
+  size_t Commit() {
+    size_t t = total_.load(std::memory_order_relaxed);
+    size_t c = total_committed_.exchange(t, std::memory_order_relaxed);
+    if (ABSL_PREDICT_TRUE(t > c)) {
+      return t - c;
+    }
+    // In case of a size_t overflow, we wrap around to 0.
+    return 0;
   }
 
-  size_t Value(MissType type) const {
-    return misses[static_cast<size_t>(type)].load(std::memory_order_relaxed);
-  }
-
-  size_t Add(MissType type, size_t value) {
-    return misses[static_cast<size_t>(type)].fetch_add(
-        value, std::memory_order_relaxed);
-  }
+ private:
+  std::atomic<size_t> total_ = {0};
+  std::atomic<size_t> total_committed_ = {0};
 };
 
 // TransferCache is used to cache transfers of
@@ -187,9 +182,9 @@ class TransferCache {
         }
       }
 
-      insert_misses_.Add(MissType::kTotal, 1);
+      insert_misses_.Inc();
     } else {
-      insert_non_batch_misses_.Add(MissType::kTotal, 1);
+      insert_non_batch_misses_.Inc();
     }
 
     freelist().InsertRange(batch);
@@ -221,10 +216,10 @@ class TransferCache {
         }
       }
 
-      remove_misses_.Add(MissType::kTotal, 1);
+      remove_misses_.Inc();
       low_water_mark_.store(0, std::memory_order_release);
     } else {
-      remove_non_batch_misses_.Add(MissType::kTotal, 1);
+      remove_non_batch_misses_.Inc();
     }
     return freelist().RemoveRange(batch, N);
   }
@@ -265,44 +260,10 @@ class TransferCache {
     return static_cast<size_t>(slot_info_.load(std::memory_order_relaxed).used);
   }
 
-  // Records a snapshot of insert and remove misses. This is used at the end of
-  // the next interval to determine the misses incurred during that interval.
-  void UpdateResizeIntervalMisses(MissType miss_type)
-      ABSL_LOCKS_EXCLUDED(lock_) {
-    ASSERT(miss_type != MissType::kTotal);
-    ASSERT(miss_type < MissType::kNumTypes);
-
-    const auto record_misses = [miss_type](MissCounts &misses) {
-      ASSERT(miss_type != MissType::kTotal);
-      ASSERT(miss_type < MissType::kNumTypes);
-      const size_t total_misses = misses.Value(MissType::kTotal);
-      misses[miss_type].store(total_misses, std::memory_order_relaxed);
-    };
-
-    record_misses(insert_misses_);
-    record_misses(insert_non_batch_misses_);
-    record_misses(remove_misses_);
-    record_misses(remove_non_batch_misses_);
-  }
-
-  // Returns total insert and remove misses incurred by the transfer cache over
-  // the last interval.
-  size_t GetIntervalMisses(MissType miss_type) const
-      ABSL_LOCKS_EXCLUDED(lock_) {
-    ASSERT(miss_type != MissType::kTotal);
-    ASSERT(miss_type < MissType::kNumTypes);
-
-    const auto get_safe_miss_diff = [miss_type](const MissCounts &misses) {
-      const size_t total_misses = misses.Value(MissType::kTotal);
-      const size_t interval_misses = misses.Value(miss_type);
-      // In case of a size_t overflow, we wrap around to 0.
-      return total_misses > interval_misses ? total_misses - interval_misses
-                                            : 0;
-    };
-    return get_safe_miss_diff(insert_misses_) +
-           get_safe_miss_diff(insert_non_batch_misses_) +
-           get_safe_miss_diff(remove_misses_) +
-           get_safe_miss_diff(remove_non_batch_misses_);
+  // Fetches the misses for the latest interval and commits them to the total.
+  size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
+    return insert_misses_.Commit() + insert_non_batch_misses_.Commit() +
+           remove_misses_.Commit() + remove_non_batch_misses_.Commit();
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
@@ -311,12 +272,10 @@ class TransferCache {
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
-    stats.insert_misses = insert_misses_.Value(MissType::kTotal);
-    stats.insert_non_batch_misses =
-        insert_non_batch_misses_.Value(MissType::kTotal);
-    stats.remove_misses = remove_misses_.Value(MissType::kTotal);
-    stats.remove_non_batch_misses =
-        remove_non_batch_misses_.Value(MissType::kTotal);
+    stats.insert_misses = insert_misses_.Total();
+    stats.insert_non_batch_misses = insert_non_batch_misses_.Total();
+    stats.remove_misses = remove_misses_.Total();
+    stats.remove_non_batch_misses = remove_non_batch_misses_.Total();
 
     // For performance reasons, we only update a single atomic as part of the
     // actual allocation operation.  For reporting, we keep reporting all
@@ -602,7 +561,7 @@ class RingBufferTransferCache {
       }
       ASSERT(to_free_num <= kMaxObjectsToMove);
       ASSERT(to_free_num <= B);
-      insert_misses_.Add(MissType::kTotal, 1);
+      insert_misses_.Inc();
       freelist().InsertRange(absl::Span<void *>(to_free_buf, to_free_num));
     }
   }
@@ -631,7 +590,7 @@ class RingBufferTransferCache {
       ASSERT(low_water_mark_ == 0);
     }
 
-    remove_misses_.Add(MissType::kTotal, 1);
+    remove_misses_.Inc();
     return freelist().RemoveRange(batch, N);
   }
 
@@ -670,39 +629,9 @@ class RingBufferTransferCache {
     return static_cast<size_t>(GetSlotInfo().used);
   }
 
-  // Records a snapshot of insert and remove misses. This is used at the end of
-  // the next interval to determine the misses incurred during that interval.
-  void UpdateResizeIntervalMisses(MissType miss_type) {
-    ASSERT(miss_type != MissType::kTotal);
-    ASSERT(miss_type < MissType::kNumTypes);
-
-    const auto record_misses = [miss_type](MissCounts &misses) {
-      ASSERT(miss_type != MissType::kTotal);
-      ASSERT(miss_type < MissType::kNumTypes);
-      const size_t total_misses = misses.Value(MissType::kTotal);
-      misses[miss_type].store(total_misses, std::memory_order_relaxed);
-    };
-
-    record_misses(insert_misses_);
-    record_misses(remove_misses_);
-  }
-
-  // Returns total insert and remove misses incurred by the transfer cache over
-  // the last interval.
-  size_t GetIntervalMisses(MissType miss_type) const {
-    ASSERT(miss_type != MissType::kTotal);
-    ASSERT(miss_type < MissType::kNumTypes);
-
-    const auto get_safe_miss_diff = [miss_type](const MissCounts &misses) {
-      const size_t total_misses = misses.Value(MissType::kTotal);
-      const size_t interval_misses = misses.Value(miss_type);
-      // In case of a size_t overflow, we wrap around to 0.
-      return total_misses > interval_misses ? total_misses - interval_misses
-                                            : 0;
-    };
-
-    return get_safe_miss_diff(insert_misses_) +
-           get_safe_miss_diff(remove_misses_);
+  // Fetches the misses for the latest interval and commits them to the total.
+  size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
+    return insert_misses_.Commit() + remove_misses_.Commit();
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
@@ -711,9 +640,9 @@ class RingBufferTransferCache {
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
-    stats.insert_misses = insert_misses_.Value(MissType::kTotal);
+    stats.insert_misses = insert_misses_.Total();
     stats.insert_non_batch_misses = 0;
-    stats.remove_misses = remove_misses_.Value(MissType::kTotal);
+    stats.remove_misses = remove_misses_.Total();
     stats.remove_non_batch_misses = 0;
 
     {
@@ -955,12 +884,12 @@ void TryResizingCaches(Manager &manager) {
     uint64_t misses;
   };
 
-  absl::FixedArray<MissInfo> misses(Manager::kNumClasses);
+  std::array<MissInfo, Manager::kNumClasses> misses;
 
   // Collect misses for all the size classes that were incurred during the
   // previous resize interval.
   for (int size_class = 0; size_class < Manager::kNumClasses; ++size_class) {
-    size_t miss = manager.GetIntervalMisses(size_class, MissType::kResize);
+    size_t miss = manager.FetchCommitIntervalMisses(size_class);
     misses[size_class] = {.size_class = size_class, .misses = miss};
   }
 
@@ -1008,13 +937,6 @@ void TryResizingCaches(Manager &manager) {
       ++to_grow;
       ++total_grown;
     }
-  }
-
-  // Finally, take a snapshot of misses at the end of this interval. We would
-  // use this during the next resize operation to calculate the number of misses
-  // incurred over the interval.
-  for (int size_class = 0; size_class < Manager::kNumClasses; ++size_class) {
-    manager.UpdateResizeIntervalMisses(size_class, MissType::kResize);
   }
 }
 

@@ -670,19 +670,16 @@ struct MockTransferCacheManager {
   MOCK_METHOD(bool, ShrinkCache, (int size_class));
   MOCK_METHOD(bool, CanIncreaseCapacity, (int size_class));
   MOCK_METHOD(bool, IncreaseCacheCapacity, (int size_class));
-  MOCK_METHOD(void, UpdateResizeIntervalMisses,
-              (int size_class, MissType type));
-  MOCK_METHOD(size_t, GetIntervalMisses, (int size_class, MissType type));
+  MOCK_METHOD(size_t, FetchCommitIntervalMisses, (int size_class));
 };
 
 TEST(RealTransferCacheTest, ResizeOccurs) {
   testing::StrictMock<MockTransferCacheManager> m;
   {
     testing::InSequence seq;
-    EXPECT_CALL(m, GetIntervalMisses)
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
         .Times(6)
-        .WillRepeatedly(
-            [](int size_class, MissType) { return size_class + 1; });
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
     EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
     EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
     EXPECT_CALL(m, IncreaseCacheCapacity(5)).WillOnce(Return(true));
@@ -692,8 +689,6 @@ TEST(RealTransferCacheTest, ResizeOccurs) {
     EXPECT_CALL(m, ShrinkCache(1)).WillOnce(Return(false));
     EXPECT_CALL(m, ShrinkCache(2)).WillOnce(Return(true));
     EXPECT_CALL(m, IncreaseCacheCapacity(3)).WillOnce(Return(true));
-
-    EXPECT_CALL(m, UpdateResizeIntervalMisses).Times(6);
   }
   internal_transfer_cache::TryResizingCaches(m);
   testing::Mock::VerifyAndClear(&m);
