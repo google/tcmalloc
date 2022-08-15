@@ -42,6 +42,7 @@ namespace tcmalloc_internal {
 namespace {
 
 using ::testing::AtLeast;
+using ::testing::Return;
 
 template <typename Env>
 using TransferCacheTest = ::testing::Test;
@@ -662,189 +663,45 @@ INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, FuzzTest,
 }  // namespace fuzz_tests
 
 namespace resize_tests {
+struct MockTransferCacheManager {
+  static constexpr size_t kNumClasses = 6;
+  static constexpr size_t kMaxSizeClassesToResize = 2;
+
+  MOCK_METHOD(bool, ShrinkCache, (int size_class));
+  MOCK_METHOD(bool, CanIncreaseCapacity, (int size_class));
+  MOCK_METHOD(bool, IncreaseCacheCapacity, (int size_class));
+  MOCK_METHOD(void, UpdateResizeIntervalMisses,
+              (int size_class, MissType type));
+  MOCK_METHOD(size_t, GetIntervalMisses, (int size_class, MissType type));
+};
+
+TEST(RealTransferCacheTest, ResizeOccurs) {
+  testing::StrictMock<MockTransferCacheManager> m;
+  {
+    testing::InSequence seq;
+    EXPECT_CALL(m, GetIntervalMisses)
+        .Times(6)
+        .WillRepeatedly(
+            [](int size_class, MissType) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity(5)).WillOnce(Return(true));
+
+    EXPECT_CALL(m, CanIncreaseCapacity(4)).WillOnce(Return(false));
+    EXPECT_CALL(m, CanIncreaseCapacity(3)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(1)).WillOnce(Return(false));
+    EXPECT_CALL(m, ShrinkCache(2)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity(3)).WillOnce(Return(true));
+
+    EXPECT_CALL(m, UpdateResizeIntervalMisses).Times(6);
+  }
+  internal_transfer_cache::TryResizingCaches(m);
+  testing::Mock::VerifyAndClear(&m);
+}
 
 template <typename Env>
 using RealTransferCacheTest = ::testing::Test;
 TYPED_TEST_SUITE_P(RealTransferCacheTest);
-
-TYPED_TEST_P(RealTransferCacheTest, ResizeOccurs) {
-  TypeParam env;
-
-  constexpr int kSizeClass = 1;
-
-  TransferCacheStats stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  EXPECT_EQ(stats.insert_misses, 0);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-
-  const int initial_capacity = stats.capacity;
-
-  // Count capacity (measured in batches) currently allowed in the cache.
-  auto count_batches = [&env]() {
-    int batch_count = 0;
-    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-      const size_t batch_size =
-          env.transfer_cache_manager().num_objects_to_move(size_class);
-      const int capacity =
-          env.transfer_cache_manager().GetStats(size_class).capacity;
-      batch_count += batch_size > 0 ? capacity / batch_size : 0;
-    }
-    return batch_count;
-  };
-
-  const int total_capacity = count_batches();
-
-  const size_t batch_size =
-      env.transfer_cache_manager().num_objects_to_move(kSizeClass);
-
-  while (env.transfer_cache_manager().HasSpareCapacity(kSizeClass)) {
-    env.Insert(kSizeClass, batch_size);
-  }
-  stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  EXPECT_EQ(stats.insert_misses, 0);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-
-  // Try resizing caches.
-  env.transfer_cache_manager().TryResizingCaches();
-  stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  // As the number of misses encountered yet is zero, capacity shouldn't have
-  // grown.
-  EXPECT_EQ(stats.capacity, initial_capacity);
-  // Make sure we did not lose the overall capacity. The total capacity in
-  // batches should be the same as before.
-  EXPECT_EQ(count_batches(), total_capacity);
-
-  // Try inserting a batch to make sure that the caches are not resized and that
-  // we encounter a miss.
-  env.Insert(kSizeClass, batch_size);
-  stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  EXPECT_EQ(stats.insert_misses, 1);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-  EXPECT_EQ(stats.capacity, initial_capacity);
-
-  // Try resizing caches again.
-  env.transfer_cache_manager().TryResizingCaches();
-  stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  // Make sure that the capacity has grown by a batch size.
-  EXPECT_EQ(stats.capacity, initial_capacity + batch_size);
-  // Make sure we did not lose the overall capacity. The total capacity in
-  // batches should be the same as before.
-  EXPECT_EQ(count_batches(), total_capacity);
-
-  env.Insert(kSizeClass, batch_size);
-  stats = env.transfer_cache_manager().GetStats(kSizeClass);
-  // Capacity grew during the last resize operation. So, we shouldn't have
-  // encountered a miss here.
-  EXPECT_EQ(stats.insert_misses, 1);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-  EXPECT_EQ(stats.capacity, initial_capacity + batch_size);
-}
-
-TYPED_TEST_P(RealTransferCacheTest, ResizeMaxSizeClasses) {
-  // The point of this test is to make sure that we resize up to
-  // kMaxSizeClassesToResize number of transfer caches. Specifically, we want to
-  // check that, even if we have some caches that have been resized to
-  // their maximum capacity and have suffered higher misses during this resize
-  // interval, we continue to grow up to kMaxSizeClassesToResize caches even if
-  // it means growing caches that might have suffered fewer misses.
-
-  TypeParam env;
-
-  // First, we resize kMaxSizeClassesToResize transfer caches to their maximum
-  // capacity. We keep inserting objects to these transfer caches until none of
-  // the caches may further be resized.
-  bool done = false;
-  while (!done) {
-    done = true;
-    for (int size_class = 1;
-         size_class <= TypeParam::Manager::kMaxSizeClassesToResize;
-         ++size_class) {
-      if (env.transfer_cache_manager().CanIncreaseCapacity(size_class) ||
-          env.transfer_cache_manager().HasSpareCapacity(size_class)) {
-        const size_t batch_size =
-            env.transfer_cache_manager().num_objects_to_move(size_class);
-        env.Insert(size_class, batch_size);
-        done = false;
-      }
-    }
-    env.transfer_cache_manager().TryResizingCaches();
-  }
-
-  // Collect the stats to check that we have indeed grown capacity of
-  // kMaxSizeClassesToResize transfer caches to their maximum capacity.
-  for (int size_class = 1;
-       size_class <= TypeParam::Manager::kMaxSizeClassesToResize;
-       ++size_class) {
-    TransferCacheStats stats =
-        env.transfer_cache_manager().GetStats(size_class);
-    EXPECT_EQ(stats.capacity, stats.max_capacity);
-  }
-
-  // Insert objects to the previous transfer caches. We perform two insert
-  // operations so that they incur two additional misses.
-  for (int size_class = 1;
-       size_class <= TypeParam::Manager::kMaxSizeClassesToResize;
-       ++size_class) {
-    TransferCacheStats stats =
-        env.transfer_cache_manager().GetStats(size_class);
-    const int misses = stats.insert_misses;
-    const size_t batch_size =
-        env.transfer_cache_manager().num_objects_to_move(size_class);
-    env.Insert(size_class, batch_size);
-    env.Insert(size_class, batch_size);
-    stats = env.transfer_cache_manager().GetStats(size_class);
-    EXPECT_EQ(stats.insert_misses, misses + 2);
-  }
-
-  // We insert objects for the size class kMaxSizeClassesToResize + 1.
-  // Eventually, we want to make sure that we can resize this transfer cache
-  // even though other tranfer caches (which were resized to their maximum
-  // capacity) suffered more misses.
-  const int class_to_resize = TypeParam::Manager::kMaxSizeClassesToResize + 1;
-  const size_t batch_size =
-      env.transfer_cache_manager().num_objects_to_move(class_to_resize);
-  TransferCacheStats stats =
-      env.transfer_cache_manager().GetStats(class_to_resize);
-  const int initial_capacity = stats.capacity;
-  while (env.transfer_cache_manager().HasSpareCapacity(class_to_resize)) {
-    env.Insert(class_to_resize, batch_size);
-  }
-
-  // Number of misses should be zero.
-  stats = env.transfer_cache_manager().GetStats(class_to_resize);
-  EXPECT_EQ(stats.insert_misses, 0);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-
-  // Insert a single batch_size number of objects for the size class we want to
-  // resize.
-  env.Insert(class_to_resize, batch_size);
-
-  // We should have incurred one insert miss.
-  stats = env.transfer_cache_manager().GetStats(class_to_resize);
-  EXPECT_EQ(stats.insert_misses, 1);
-  EXPECT_EQ(stats.insert_non_batch_misses, 0);
-  EXPECT_EQ(stats.remove_misses, 0);
-  EXPECT_EQ(stats.remove_non_batch_misses, 0);
-  EXPECT_EQ(stats.capacity, initial_capacity);
-
-  // Try resizing caches again. Transfer caches [1, kMaxSizeClassesToResize +
-  // 1) were grown to their full capacity; so they can not be further resized
-  // even though they incurred more misses. Our resize mechanism should continue
-  // to look for caches that suffered misses during the interval and grow them.
-  env.transfer_cache_manager().TryResizingCaches();
-  stats = env.transfer_cache_manager().GetStats(class_to_resize);
-  // Make sure that the capacity has grown by a batch size.
-  EXPECT_EQ(stats.capacity, initial_capacity + batch_size);
-}
 
 TYPED_TEST_P(RealTransferCacheTest, StressResize) {
   TypeParam env;
@@ -877,8 +734,7 @@ TYPED_TEST_P(RealTransferCacheTest, StressResize) {
   EXPECT_EQ(count_batches(), total_capacity);
 }
 
-REGISTER_TYPED_TEST_SUITE_P(RealTransferCacheTest, ResizeOccurs,
-                            ResizeMaxSizeClasses, StressResize);
+REGISTER_TYPED_TEST_SUITE_P(RealTransferCacheTest, StressResize);
 
 using TransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
     internal_transfer_cache::TransferCache<CentralFreeList,

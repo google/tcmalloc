@@ -63,6 +63,9 @@ using MissCounts = internal_transfer_cache::MissCounts;
 
 class StaticForwarder {
  public:
+  static constexpr size_t kNumClasses =
+      tcmalloc::tcmalloc_internal::kNumClasses;
+
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
   static void *Alloc(size_t size, int alignment = kAlignment)
@@ -329,9 +332,10 @@ class TransferCacheManager : public StaticForwarder {
 
   // Tries to resize transfer caches based on the number of misses that they
   // incurred during the previous resize interval.
-  void TryResizingCaches();
+  void TryResizingCaches() {
+    internal_transfer_cache::TryResizingCaches(*this);
+  }
 
- private:
   static TransferCacheImplementation ChooseImplementation();
 
   void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
@@ -376,6 +380,7 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
+ private:
   TransferCacheImplementation implementation_ =
       TransferCacheImplementation::Legacy;
   union Cache {

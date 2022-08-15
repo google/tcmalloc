@@ -947,6 +947,77 @@ class RingBufferTransferCache {
   Manager *const owner_do_not_access_directly_;
 } ABSL_CACHELINE_ALIGNED;
 
+template <typename Manager>
+void TryResizingCaches(Manager &manager) {
+  // Tracks misses per size class.
+  struct MissInfo {
+    int size_class;
+    uint64_t misses;
+  };
+
+  absl::FixedArray<MissInfo> misses(Manager::kNumClasses);
+
+  // Collect misses for all the size classes that were incurred during the
+  // previous resize interval.
+  for (int size_class = 0; size_class < Manager::kNumClasses; ++size_class) {
+    size_t miss = manager.GetIntervalMisses(size_class, MissType::kResize);
+    misses[size_class] = {.size_class = size_class, .misses = miss};
+  }
+
+  std::sort(misses.begin(), misses.end(),
+            [](const MissInfo &a, const MissInfo &b) {
+              if (a.misses == b.misses) {
+                return a.size_class < b.size_class;
+              }
+              return a.misses > b.misses;
+            });
+
+  // Prioritize shrinking cache that had least number of misses.
+  int to_grow = 0;
+  int to_shrink = Manager::kNumClasses - 1;
+  int total_grown = 0;
+
+  // Grow up to kMaxSizeClassesToResize caches and make sure that we never
+  // shrink a cache that we are supposed to grow during this interval.
+  while (total_grown < Manager::kMaxSizeClassesToResize &&
+         to_grow < to_shrink) {
+    // As the list is sorted, we won't encounter any size class with a non-zero
+    // miss. So, it is ok to break.
+    if (misses[to_grow].misses == 0) break;
+
+    int class_to_grow = misses[to_grow].size_class;
+    // If this cache is already at its maximum capacity, continue to the next
+    // cache.
+    if (!manager.CanIncreaseCapacity(class_to_grow)) {
+      ++to_grow;
+      continue;
+    }
+
+    bool made_space = false;
+    while (to_grow < to_shrink) {
+      const int to_evict = misses[to_shrink].size_class;
+      made_space = manager.ShrinkCache(to_evict);
+      --to_shrink;
+      if (made_space) {
+        break;
+      }
+    }
+
+    if (made_space) {
+      manager.IncreaseCacheCapacity(class_to_grow);
+      ++to_grow;
+      ++total_grown;
+    }
+  }
+
+  // Finally, take a snapshot of misses at the end of this interval. We would
+  // use this during the next resize operation to calculate the number of misses
+  // incurred over the interval.
+  for (int size_class = 0; size_class < Manager::kNumClasses; ++size_class) {
+    manager.UpdateResizeIntervalMisses(size_class, MissType::kResize);
+  }
+}
+
 }  // namespace tcmalloc::tcmalloc_internal::internal_transfer_cache
 GOOGLE_MALLOC_SECTION_END
 
