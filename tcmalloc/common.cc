@@ -41,6 +41,45 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
   }
 }
 
+bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
+                               size_t num_objects_to_move) {
+  if (size > kMaxSize) {
+    Log(kLog, __FILE__, __LINE__, "size class too big", size, kMaxSize);
+    return false;
+  }
+  // Check required alignment
+  size_t alignment = 128;
+  if (size <= kMultiPageSize) {
+    alignment = kAlignment;
+  } else if (size <= SizeMap::kMaxSmallSize) {
+    alignment = kMultiPageAlignment;
+  }
+  if ((size & (alignment - 1)) != 0) {
+    Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
+    return false;
+  }
+  if (size <= kMultiPageSize && pages != 1) {
+    Log(kLog, __FILE__, __LINE__, "Multiple pages not allowed", size, pages,
+        kMultiPageSize);
+    return false;
+  }
+  if (pages == 0) {
+    Log(kLog, __FILE__, __LINE__, "pages should not be 0", pages);
+    return false;
+  }
+  if (pages >= 256) {
+    Log(kLog, __FILE__, __LINE__, "pages limited to 255", pages);
+    return false;
+  }
+  if (num_objects_to_move > kMaxObjectsToMove) {
+    Log(kLog, __FILE__, __LINE__, "num objects to move too large",
+        num_objects_to_move, kMaxObjectsToMove);
+    return false;
+  }
+
+  return true;
+}
+
 void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
 
@@ -94,35 +133,7 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
           parsed[c - 1].size, class_size);
       return false;
     }
-    if (class_size > kMaxSize) {
-      Log(kLog, __FILE__, __LINE__, "size class too big", c, class_size,
-          kMaxSize);
-      return false;
-    }
-    // Check required alignment
-    size_t alignment = 128;
-    if (class_size <= kMultiPageSize) {
-      alignment = kAlignment;
-    } else if (class_size <= SizeMap::kMaxSmallSize) {
-      alignment = kMultiPageAlignment;
-    }
-    if ((class_size & (alignment - 1)) != 0) {
-      Log(kLog, __FILE__, __LINE__, "Not aligned properly", c, class_size,
-          alignment);
-      return false;
-    }
-    if (class_size <= kMultiPageSize && pages != 1) {
-      Log(kLog, __FILE__, __LINE__, "Multiple pages not allowed", class_size,
-          pages, kMultiPageSize);
-      return false;
-    }
-    if (pages >= 256) {
-      Log(kLog, __FILE__, __LINE__, "pages limited to 255", pages);
-      return false;
-    }
-    if (num_objects_to_move > kMaxObjectsToMove) {
-      Log(kLog, __FILE__, __LINE__, "num objects to move too large",
-          num_objects_to_move, kMaxObjectsToMove);
+    if (!IsValidSizeClass(class_size, pages, num_objects_to_move)) {
       return false;
     }
   }

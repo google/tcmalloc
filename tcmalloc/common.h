@@ -559,6 +559,9 @@ class SizeMap {
   absl::Span<const size_t> ColdSizeClasses() const {
     return {cold_sizes_, cold_sizes_count_};
   }
+
+  static bool IsValidSizeClass(size_t size, size_t num_pages,
+                               size_t num_objects_to_move);
 };
 
 // Linker initialized, so this lock can be accessed at any time.

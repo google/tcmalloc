@@ -632,6 +632,19 @@ cc_library(
 )
 
 cc_fuzz_test(
+    name = "span_fuzz",
+    testonly = 1,
+    srcs = ["span_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        "//tcmalloc/internal:logging",
+    ],
+)
+
+cc_fuzz_test(
     name = "transfer_cache_fuzz",
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
