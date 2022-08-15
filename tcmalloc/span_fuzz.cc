@@ -59,10 +59,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   size_t popped = 0;
   while (popped < objects_per_span) {
     size_t want = std::min(num_to_move, objects_per_span - popped);
+    CHECK_CONDITION(want > 0);
     void* batch[kMaxObjectsToMove];
     CHECK_CONDITION(!span.FreelistEmpty(object_size));
     size_t n = span.FreelistPopBatch(batch, want, object_size);
 
+    CHECK_CONDITION(n > 0);
     CHECK_CONDITION(n <= want);
     CHECK_CONDITION(n <= kMaxObjectsToMove);
     ptrs.insert(ptrs.end(), batch, batch + n);

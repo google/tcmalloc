@@ -75,6 +75,11 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     Log(kLog, __FILE__, __LINE__, "pages limited to 255", pages);
     return false;
   }
+  if (num_objects_to_move < 2) {
+    Log(kLog, __FILE__, __LINE__, "num objects to move too small (<2)",
+        num_objects_to_move);
+    return false;
+  }
   if (num_objects_to_move > kMaxObjectsToMove) {
     Log(kLog, __FILE__, __LINE__, "num objects to move too large",
         num_objects_to_move, kMaxObjectsToMove);
