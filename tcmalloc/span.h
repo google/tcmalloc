@@ -183,8 +183,10 @@ class Span : public SpanList::Elem {
   // to hold available objects.
   bool FreelistEmpty(size_t size) const;
 
-  // Pushes ptr onto freelist unless the freelist becomes full,
-  // in which case just return false.
+  // Pushes ptr onto freelist unless the freelist becomes full, in which case
+  // just return false.
+  //
+  // If the freelist becomes full, we do not push the object onto the freelist.
   bool FreelistPush(void* ptr, size_t size) {
     const auto allocated = allocated_.load(std::memory_order_relaxed);
     ASSERT(allocated > 0);

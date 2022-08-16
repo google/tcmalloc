@@ -78,7 +78,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
     bool ok = span.FreelistPush(ptrs[i], object_size);
     CHECK_CONDITION(ok == (i != popped - 1));
-    CHECK_CONDITION(!span.FreelistEmpty(object_size));
+    // If the freelist becomes full, then the span does not actually push the
+    // element onto the freelist.
+    //
+    // For single object spans, the freelist always stays "empty" as a result.
+    CHECK_CONDITION(popped == 1 || !span.FreelistEmpty(object_size));
   }
 
   free(mem);
