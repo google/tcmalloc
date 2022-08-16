@@ -144,7 +144,7 @@ class PageAllocator {
   // memory) in the page heap and metadata.
   //
   // peak_sampled_application_bytes_ is a snapshot of
-  // Static::sampled_objects_size_ at the time of the most recent
+  // tc_globals.sampled_objects_size_ at the time of the most recent
   // peak_backed_bytes_ high water mark.  While this is an estimate of true
   // in-use by application demand, it is generally accurate at scale and
   // requires minimal work to compute.

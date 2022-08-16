@@ -37,15 +37,15 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 static void ActivatePerCpuCaches() {
-  if (tcmalloc::tcmalloc_internal::Static::CpuCacheActive()) {
+  if (tcmalloc::tcmalloc_internal::tc_globals.CpuCacheActive()) {
     // Already active.
     return;
   }
 
   if (Parameters::per_cpu_caches() && subtle::percpu::IsFast()) {
-    Static::InitIfNecessary();
-    Static::cpu_cache().Activate();
-    Static::ActivateCpuCache();
+    tc_globals.InitIfNecessary();
+    tc_globals.cpu_cache().Activate();
+    tc_globals.ActivateCpuCache();
     // no need for this thread cache anymore, I guess.
     ThreadCache::BecomeIdle();
     // If there's a problem with this code, let's notice it right away:
@@ -70,7 +70,7 @@ extern "C" void TCMalloc_Internal_ForceCpuCacheActivation() {
 }
 
 extern "C" bool MallocExtension_Internal_GetPerCpuCachesActive() {
-  return tcmalloc::tcmalloc_internal::Static::CpuCacheActive();
+  return tcmalloc::tcmalloc_internal::tc_globals.CpuCacheActive();
 }
 
 extern "C" int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize() {

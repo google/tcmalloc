@@ -56,7 +56,7 @@ size_t BackingNode(void* const ptr) {
 // Test that allocations are performed using memory within the appropriate NUMA
 // partition.
 TEST(NumaLocalityTest, AllocationsAreLocal) {
-  if (!Static::numa_topology().numa_aware()) {
+  if (!tc_globals.numa_topology().numa_aware()) {
     GTEST_SKIP() << "NUMA awareness is disabled";
   }
 

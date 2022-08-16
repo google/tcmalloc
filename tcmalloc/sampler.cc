@@ -37,7 +37,7 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
 
   // do_malloc comes here without having initialized statics, and
   // PickNextSamplingPoint uses data initialized in static vars.
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   // Initialize PRNG
   rnd_ = seed;
@@ -47,7 +47,7 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
   }
   // Initialize counters
   true_bytes_until_sample_ = PickNextSamplingPoint();
-  if (Static::IsOnFastPath()) {
+  if (tc_globals.IsOnFastPath()) {
     bytes_until_sample_ = true_bytes_until_sample_;
     was_on_fast_path_ = true;
   } else {
@@ -138,7 +138,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
     Init(reinterpret_cast<uintptr_t>(this) ^ global_seed);
     if (static_cast<size_t>(true_bytes_until_sample_) > k) {
       true_bytes_until_sample_ -= k;
-      if (Static::IsOnFastPath()) {
+      if (tc_globals.IsOnFastPath()) {
         bytes_until_sample_ -= k;
         was_on_fast_path_ = true;
       }
@@ -151,7 +151,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
     // don't want to sample yet since true_bytes_until_sample_ >= k.
     true_bytes_until_sample_ -= k;
 
-    if (ABSL_PREDICT_TRUE(Static::IsOnFastPath())) {
+    if (ABSL_PREDICT_TRUE(tc_globals.IsOnFastPath())) {
       // We've moved from the slow path to the fast path since the last sampling
       // point was picked.
       bytes_until_sample_ = true_bytes_until_sample_;
@@ -180,7 +180,7 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
       sample_period_ + k -
       (was_on_fast_path_ ? bytes_until_sample_ : true_bytes_until_sample_);
   const auto point = PickNextSamplingPoint();
-  if (ABSL_PREDICT_TRUE(Static::IsOnFastPath())) {
+  if (ABSL_PREDICT_TRUE(tc_globals.IsOnFastPath())) {
     bytes_until_sample_ = point;
     true_bytes_until_sample_ = 0;
     was_on_fast_path_ = true;

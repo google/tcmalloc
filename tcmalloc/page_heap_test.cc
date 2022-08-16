@@ -66,7 +66,7 @@ class PageHeapTest : public ::testing::Test {
   PageHeapTest() {
     // If this test is not linked against TCMalloc, the global arena used for
     // metadata will not be initialized.
-    Static::InitIfNecessary();
+    tc_globals.InitIfNecessary();
   }
 };
 

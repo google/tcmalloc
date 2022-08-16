@@ -193,10 +193,10 @@ struct LocalNumaPartitionPolicy {
   // thread migrates between NUMA nodes & partitions. Users of this function
   // should not rely upon multiple invocations returning the same partition.
   size_t partition() const {
-    return Static::numa_topology().GetCurrentPartition();
+    return tc_globals.numa_topology().GetCurrentPartition();
   }
   size_t scaled_partition() const {
-    return Static::numa_topology().GetCurrentScaledPartition();
+    return tc_globals.numa_topology().GetCurrentScaledPartition();
   }
 };
 

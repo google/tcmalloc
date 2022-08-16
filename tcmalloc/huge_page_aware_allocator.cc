@@ -157,13 +157,13 @@ HugePageAwareAllocator::HugePageAwareAllocator(
       cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}),
       lifetime_allocator_region_alloc_(this),
       lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_) {
-  tracker_allocator_.Init(&Static::arena());
-  region_allocator_.Init(&Static::arena());
+  tracker_allocator_.Init(&tc_globals.arena());
+  region_allocator_.Init(&tc_globals.arena());
 }
 
 HugePageAwareAllocator::FillerType::Tracker* HugePageAwareAllocator::GetTracker(
     HugePage p) {
-  void* v = Static::pagemap().GetHugepage(p.first_page());
+  void* v = tc_globals.pagemap().GetHugepage(p.first_page());
   FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
   ASSERT(pt == nullptr || pt->location() == p);
   return pt;
@@ -171,7 +171,7 @@ HugePageAwareAllocator::FillerType::Tracker* HugePageAwareAllocator::GetTracker(
 
 void HugePageAwareAllocator::SetTracker(
     HugePage p, HugePageAwareAllocator::FillerType::Tracker* pt) {
-  Static::pagemap().SetHugepage(p.first_page(), pt);
+  tc_globals.pagemap().SetHugepage(p.first_page(), pt);
 }
 
 PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
@@ -200,7 +200,7 @@ PageId HugePageAwareAllocator::RefillFiller(Length n, size_t num_objects,
   // pages. Otherwise, we're nearly guaranteed to release r (if n
   // isn't very large), and the next allocation will just repeat this
   // process.
-  Static::page_allocator().ShrinkToUsageLimit();
+  tc_globals.page_allocator().ShrinkToUsageLimit();
   return AllocAndContribute(r.start(), n, num_objects, /*donated=*/false);
 }
 
@@ -209,10 +209,10 @@ Span* HugePageAwareAllocator::Finalize(Length n, size_t num_objects,
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   ASSERT(page != PageId{0});
   Span* ret = Span::New(page, n);
-  Static::pagemap().Set(page, ret);
+  tc_globals.pagemap().Set(page, ret);
   ASSERT(!ret->sampled());
   info_.RecordAlloc(page, n, num_objects);
-  Static::page_allocator().ShrinkToUsageLimit();
+  tc_globals.page_allocator().ShrinkToUsageLimit();
   return ret;
 }
 
@@ -459,7 +459,7 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
   Span::Delete(span);
   // Clear the descriptor of the page so a second pass through the same page
   // could trigger the check on `span != nullptr` in do_free_pages.
-  Static::pagemap().Set(p, nullptr);
+  tc_globals.pagemap().Set(p, nullptr);
 
   // The tricky part, as with so many allocators: where did we come from?
   // There are several possibilities.
@@ -750,13 +750,13 @@ AddressRange HugePageAwareAllocator::AllocAndReport(size_t bytes,
   if (ret.ptr == nullptr) return ret;
   const PageId page = PageIdContaining(ret.ptr);
   const Length page_len = BytesToLengthFloor(ret.bytes);
-  Static::pagemap().Ensure(page, page_len);
+  tc_globals.pagemap().Ensure(page, page_len);
   return ret;
 }
 
 void* HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  return Static::arena().Alloc(bytes);
+  return tc_globals.arena().Alloc(bytes);
 }
 
 Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {

@@ -57,13 +57,13 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
             << "Skipping expanded size classes without cold experiment";
       }
     }
-    object_size_ = Static::sizemap().class_to_size(size_class_);
+    object_size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (object_size_ == 0) {
       GTEST_SKIP() << "Skipping empty size class.";
     }
 
-    pages_per_span_ = Length(Static::sizemap().class_to_pages(size_class_));
-    batch_size_ = Static::sizemap().num_objects_to_move(size_class_);
+    pages_per_span_ = Length(tc_globals.sizemap().class_to_pages(size_class_));
+    batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
   }
 };
@@ -78,8 +78,8 @@ TEST_P(StaticForwarderTest, Simple) {
                                          &batch[0], objects_per_span_);
   ASSERT_EQ(allocated, objects_per_span_);
 
-  EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->first_page()));
-  EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->last_page()));
+  EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
+  EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
 
   // span_test.cc provides test coverage for Span, but we need to obtain several
   // objects to confirm we can map back to the Span pointer from the PageMap.
@@ -145,9 +145,9 @@ class StaticForwarderEnvironment {
     std::vector<Span*> free_spans;
     for (const auto& data : spans) {
       EXPECT_EQ(size_class_,
-                Static::pagemap().sizeclass(data->span->first_page()));
+                tc_globals.pagemap().sizeclass(data->span->first_page()));
       EXPECT_EQ(size_class_,
-                Static::pagemap().sizeclass(data->span->last_page()));
+                tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
       EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
 
@@ -171,8 +171,8 @@ class StaticForwarderEnvironment {
                                            d->batch, batch_size_);
     EXPECT_LE(allocated, objects_per_span_);
 
-    EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->first_page()));
-    EXPECT_EQ(size_class_, Static::pagemap().sizeclass(span->last_page()));
+    EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
+    EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
     // Confirm we can map at least one object back.
     EXPECT_EQ(span, StaticForwarder::MapObjectToSpan(d->batch[0]));
 
@@ -204,9 +204,9 @@ class StaticForwarderEnvironment {
     std::vector<Span*> free_spans;
     for (auto& data : spans) {
       EXPECT_EQ(size_class_,
-                Static::pagemap().sizeclass(data->span->first_page()));
+                tc_globals.pagemap().sizeclass(data->span->first_page()));
       EXPECT_EQ(size_class_,
-                Static::pagemap().sizeclass(data->span->last_page()));
+                tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
       EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
 
@@ -242,7 +242,7 @@ class StaticForwarderEnvironment {
 
 static BackingStats PageHeapStats() {
   absl::base_internal::SpinLockHolder l(&pageheap_lock);
-  return Static::page_allocator().stats();
+  return tc_globals.page_allocator().stats();
 }
 
 TEST_P(StaticForwarderTest, Fuzz) {

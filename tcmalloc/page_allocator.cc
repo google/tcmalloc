@@ -95,7 +95,7 @@ PageAllocator::PageAllocator() {
     default_hpaa_ =
         new (&choices_[0].hpaa) HugePageAwareAllocator(MemoryTag::kNormal);
     normal_impl_[0] = default_hpaa_;
-    if (Static::numa_topology().numa_aware()) {
+    if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] =
           new (&choices_[1].hpaa) HugePageAwareAllocator(MemoryTag::kNormalP1);
     }
@@ -110,7 +110,7 @@ PageAllocator::PageAllocator() {
     alg_ = HPAA;
   } else {
     normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
-    if (Static::numa_topology().numa_aware()) {
+    if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] = new (&choices_[1].ph) PageHeap(MemoryTag::kNormalP1);
     }
     sampled_impl_ =
@@ -128,7 +128,7 @@ PageAllocator::PageAllocator() {
 void PageAllocator::ShrinkToUsageLimit() {
   BackingStats s = stats();
   const size_t backed =
-      s.system_bytes - s.unmapped_bytes + Static::metadata_bytes();
+      s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
   // New high water marks should be rare.
   if (ABSL_PREDICT_FALSE(backed > peak_backed_bytes_)) {
     peak_backed_bytes_ = backed;
@@ -140,7 +140,7 @@ void PageAllocator::ShrinkToUsageLimit() {
     // heap to adjust this.  This correction would overestimate for many-object
     // spans from the CentralFreeList, but those are typically a single page so
     // the error in absolute terms is minimal.
-    peak_sampled_application_bytes_ = Static::sampled_objects_size_.value();
+    peak_sampled_application_bytes_ = tc_globals.sampled_objects_size_.value();
   }
   // TODO(ckennelly): Consider updating peak_sampled_application_bytes_ if
   // backed == peak_backed_bytes_ but application usage has gone up.  This can
@@ -223,7 +223,7 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
 }
 
 size_t PageAllocator::active_numa_partitions() const {
-  return Static::numa_topology().active_partitions();
+  return tc_globals.numa_topology().active_partitions();
 }
 
 }  // namespace tcmalloc_internal

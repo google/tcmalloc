@@ -34,8 +34,8 @@ namespace {
 class RawSpan {
  public:
   void Init(size_t size_class) {
-    size_t size = Static::sizemap().class_to_size(size_class);
-    auto npages = Length(Static::sizemap().class_to_pages(size_class));
+    size_t size = tc_globals.sizemap().class_to_size(size_class);
+    auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
@@ -65,13 +65,13 @@ class SpanTest : public testing::TestWithParam<size_t> {
  private:
   void SetUp() override {
     size_class_ = GetParam();
-    size_ = Static::sizemap().class_to_size(size_class_);
+    size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (size_ == 0) {
       GTEST_SKIP() << "Skipping empty size class.";
     }
 
-    npages_ = Static::sizemap().class_to_pages(size_class_);
-    batch_size_ = Static::sizemap().num_objects_to_move(size_class_);
+    npages_ = tc_globals.sizemap().class_to_pages(size_class_);
+    batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = npages_ * kPageSize / size_;
 
     raw_span_.Init(size_class_);

@@ -160,8 +160,9 @@ std::vector<size_t> InterestingSizes() {
   // are intentionally duplicated.
   for (size_t size_class = 1; size_class < tcmalloc_internal::kNumBaseClasses;
        size_class++) {
-    size_t size = tcmalloc::tcmalloc_internal::Static::sizemap().class_to_size(
-        size_class);
+    size_t size =
+        tcmalloc::tcmalloc_internal::tc_globals.sizemap().class_to_size(
+            size_class);
     if (size == 0) {
       continue;
     }

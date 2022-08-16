@@ -49,7 +49,7 @@ class PageAllocatorTest : public testing::Test {
   void SetUp() override {
     // If this test is not linked against TCMalloc, the global arena used for
     // metadata will not be initialized.
-    Static::InitIfNecessary();
+    tc_globals.InitIfNecessary();
 
     before_ = MallocExtension::GetRegionFactory();
     extra_ = new ExtraRegionFactory(before_);

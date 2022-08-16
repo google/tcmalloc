@@ -55,22 +55,22 @@ absl::string_view TransferCacheImplementationToLabel(
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
 size_t StaticForwarder::class_to_size(int size_class) {
-  return Static::sizemap().class_to_size(size_class);
+  return tc_globals.sizemap().class_to_size(size_class);
 }
 size_t StaticForwarder::num_objects_to_move(int size_class) {
-  return Static::sizemap().num_objects_to_move(size_class);
+  return tc_globals.sizemap().num_objects_to_move(size_class);
 }
 void *StaticForwarder::Alloc(size_t size, int alignment) {
-  return Static::arena().Alloc(size, alignment);
+  return tc_globals.arena().Alloc(size, alignment);
 }
 
 void BackingTransferCache::InsertRange(absl::Span<void *> batch) const {
-  Static::transfer_cache().InsertRange(size_class_, batch);
+  tc_globals.transfer_cache().InsertRange(size_class_, batch);
 }
 
 ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
                                                            int n) const {
-  return Static::transfer_cache().RemoveRange(size_class_, batch, n);
+  return tc_globals.transfer_cache().RemoveRange(size_class_, batch, n);
 }
 
 TransferCacheImplementation TransferCacheManager::ChooseImplementation() {

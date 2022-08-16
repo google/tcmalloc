@@ -57,11 +57,11 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->central_bytes = 0;
   r->transfer_bytes = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    const size_t length = Static::central_freelist(size_class).length();
-    const size_t tc_length = Static::transfer_cache().tc_length(size_class);
+    const size_t length = tc_globals.central_freelist(size_class).length();
+    const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
     const size_t cache_overhead =
-        Static::central_freelist(size_class).OverheadBytes();
-    const size_t size = Static::sizemap().class_to_size(size_class);
+        tc_globals.central_freelist(size_class).OverheadBytes();
+    const size_t size = tc_globals.sizemap().class_to_size(size_class);
     r->central_bytes += (size * length) + cache_overhead;
     r->transfer_bytes += (size * tc_length);
     if (class_count) {
@@ -70,15 +70,15 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       class_count[size_class] = length + tc_length;
       if (UsePerCpuCache()) {
         class_count[size_class] +=
-            Static::cpu_cache().TotalObjectsOfClass(size_class);
+            tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
       }
     }
     if (span_stats) {
       span_stats[size_class] =
-          Static::central_freelist(size_class).GetSpanStats();
+          tc_globals.central_freelist(size_class).GetSpanStats();
     }
     if (tc_stats) {
-      tc_stats[size_class] = Static::transfer_cache().GetStats(size_class);
+      tc_stats[size_class] = tc_globals.transfer_cache().GetStats(size_class);
     }
   }
 
@@ -88,21 +88,21 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
     r->tc_stats = ThreadCache::HeapStats();
-    r->span_stats = Static::span_allocator().stats();
-    r->stack_stats = Static::sampledallocation_allocator().stats();
-    r->bucket_stats = Static::bucket_allocator().stats();
-    r->metadata_bytes = Static::metadata_bytes();
-    r->pagemap_bytes = Static::pagemap().bytes();
-    r->pageheap = Static::page_allocator().stats();
-    r->peak_stats = Static::page_allocator().peak_stats();
+    r->span_stats = tc_globals.span_allocator().stats();
+    r->stack_stats = tc_globals.sampledallocation_allocator().stats();
+    r->bucket_stats = tc_globals.bucket_allocator().stats();
+    r->metadata_bytes = tc_globals.metadata_bytes();
+    r->pagemap_bytes = tc_globals.pagemap().bytes();
+    r->pageheap = tc_globals.page_allocator().stats();
+    r->peak_stats = tc_globals.page_allocator().peak_stats();
     if (small_spans != nullptr) {
-      Static::page_allocator().GetSmallSpanStats(small_spans);
+      tc_globals.page_allocator().GetSmallSpanStats(small_spans);
     }
     if (large_spans != nullptr) {
-      Static::page_allocator().GetLargeSpanStats(large_spans);
+      tc_globals.page_allocator().GetLargeSpanStats(large_spans);
     }
 
-    r->arena = Static::arena().stats();
+    r->arena = tc_globals.arena().stats();
     if (!report_residence) {
       r->metadata_bytes += r->arena.bytes_nonresident;
     }
@@ -111,7 +111,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   // is static data, and we are only taking address and size which are
   // constants.
   if (report_residence) {
-    auto resident_bytes = Static::pagemap_residence();
+    auto resident_bytes = tc_globals.pagemap_residence();
     r->pagemap_root_bytes_res = resident_bytes;
     ASSERT(r->metadata_bytes >= r->pagemap_bytes);
     r->metadata_bytes = r->metadata_bytes - r->pagemap_bytes + resident_bytes;
@@ -124,11 +124,12 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->percpu_metadata_bytes_res = 0;
   r->percpu_metadata_bytes = 0;
   if (UsePerCpuCache()) {
-    r->per_cpu_bytes = Static::cpu_cache().TotalUsedBytes();
-    r->sharded_transfer_bytes = Static::sharded_transfer_cache().TotalBytes();
+    r->per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
+    r->sharded_transfer_bytes =
+        tc_globals.sharded_transfer_cache().TotalBytes();
 
     if (report_residence) {
-      auto percpu_metadata = Static::cpu_cache().MetadataMemoryUsage();
+      auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
       r->percpu_metadata_bytes_res = percpu_metadata.resident_size;
       r->percpu_metadata_bytes = percpu_metadata.virtual_size;
 
@@ -330,9 +331,9 @@ void DumpStats(Printer* out, int level) {
   out->printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
       "fragmentation), %zu bytes (peak)\n",
-      static_cast<size_t>(Static::sampled_objects_size_.value()),
-      Static::sampled_internal_fragmentation_.value(),
-      Static::peak_heap_tracker().CurrentPeakSize());
+      static_cast<size_t>(tc_globals.sampled_objects_size_.value()),
+      tc_globals.sampled_internal_fragmentation_.value(),
+      tc_globals.peak_heap_tracker().CurrentPeakSize());
 
   MemoryStats memstats;
   if (GetMemoryStats(&memstats)) {
@@ -363,8 +364,8 @@ void DumpStats(Printer* out, int level) {
 
     uint64_t cumulative = 0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      uint64_t class_bytes =
-          class_count[size_class] * Static::sizemap().class_to_size(size_class);
+      uint64_t class_bytes = class_count[size_class] *
+                             tc_globals.sizemap().class_to_size(size_class);
 
       cumulative += class_bytes;
       out->printf(
@@ -372,10 +373,10 @@ void DumpStats(Printer* out, int level) {
           "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; %6.1f cum MiB; "
           "%8u live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
           // clang-format on
-          size_class, Static::sizemap().class_to_size(size_class),
+          size_class, tc_globals.sizemap().class_to_size(size_class),
           class_count[size_class], class_bytes / MiB, cumulative / MiB,
           span_stats[size_class].num_live_spans() *
-              Static::sizemap().class_to_pages(size_class),
+              tc_globals.sizemap().class_to_pages(size_class),
           span_stats[size_class].num_spans_returned,
           span_stats[size_class].num_spans_requested,
           span_stats[size_class].prob_returned());
@@ -387,14 +388,14 @@ void DumpStats(Printer* out, int level) {
     out->printf("Non-cumulative number of spans with allocated objects < N\n");
     out->printf("------------------------------------------------\n");
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      Static::central_freelist(size_class).PrintSpanUtilStats(out);
+      tc_globals.central_freelist(size_class).PrintSpanUtilStats(out);
     }
 #endif
 
     out->printf("------------------------------------------------\n");
     out->printf("Transfer cache implementation: %s\n",
                 TransferCacheImplementationToLabel(
-                    Static::transfer_cache().implementation()));
+                    tc_globals.transfer_cache().implementation()));
 
     out->printf("------------------------------------------------\n");
     out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
@@ -403,8 +404,9 @@ void DumpStats(Printer* out, int level) {
     out->printf("------------------------------------------------\n");
     uint64_t cumulative_bytes = 0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      const uint64_t class_bytes = tc_stats[size_class].used *
-                                   Static::sizemap().class_to_size(size_class);
+      const uint64_t class_bytes =
+          tc_stats[size_class].used *
+          tc_globals.sizemap().class_to_size(size_class);
       cumulative_bytes += class_bytes;
       out->printf(
           "class %3d [ %8zu bytes ] : %8u"
@@ -412,7 +414,7 @@ void DumpStats(Printer* out, int level) {
           " max_capacity; %8u insert hits; %8u"
           " insert misses (%8lu partial); %8u remove hits; %8u"
           " remove misses (%8lu partial);\n",
-          size_class, Static::sizemap().class_to_size(size_class),
+          size_class, tc_globals.sizemap().class_to_size(size_class),
           tc_stats[size_class].used, class_bytes / MiB, cumulative_bytes / MiB,
           tc_stats[size_class].capacity, tc_stats[size_class].max_capacity,
           tc_stats[size_class].insert_hits, tc_stats[size_class].insert_misses,
@@ -422,24 +424,24 @@ void DumpStats(Printer* out, int level) {
     }
 
     if (UsePerCpuCache()) {
-      Static::cpu_cache().Print(out);
+      tc_globals.cpu_cache().Print(out);
     }
 
-    Static::page_allocator().Print(out, MemoryTag::kNormal);
-    if (Static::numa_topology().active_partitions() > 1) {
-      Static::page_allocator().Print(out, MemoryTag::kNormalP1);
+    tc_globals.page_allocator().Print(out, MemoryTag::kNormal);
+    if (tc_globals.numa_topology().active_partitions() > 1) {
+      tc_globals.page_allocator().Print(out, MemoryTag::kNormalP1);
     }
-    Static::page_allocator().Print(out, MemoryTag::kSampled);
-    Static::page_allocator().Print(out, MemoryTag::kCold);
-    Static::guardedpage_allocator().Print(out);
+    tc_globals.page_allocator().Print(out, MemoryTag::kSampled);
+    tc_globals.page_allocator().Print(out, MemoryTag::kCold);
+    tc_globals.guardedpage_allocator().Print(out);
 
     uint64_t limit_bytes;
     bool is_hard;
-    std::tie(limit_bytes, is_hard) = Static::page_allocator().limit();
+    std::tie(limit_bytes, is_hard) = tc_globals.page_allocator().limit();
     out->printf("PARAMETER desired_usage_limit_bytes %u %s\n", limit_bytes,
                 is_hard ? "(hard)" : "");
     out->printf("Number of times limit was hit: %lld\n",
-                Static::page_allocator().limit_hits());
+                tc_globals.page_allocator().limit_hits());
 
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 Parameters::per_cpu_caches() ? 1 : 0);
@@ -524,11 +526,12 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   {
     auto sampled_profiles = region.CreateSubRegion("sampled_profiles");
     sampled_profiles.PrintI64("current_bytes",
-                              Static::sampled_objects_size_.value());
-    sampled_profiles.PrintI64("current_fragmentation_bytes",
-                              Static::sampled_internal_fragmentation_.value());
+                              tc_globals.sampled_objects_size_.value());
+    sampled_profiles.PrintI64(
+        "current_fragmentation_bytes",
+        tc_globals.sampled_internal_fragmentation_.value());
     sampled_profiles.PrintI64("peak_bytes",
-                              Static::peak_heap_tracker().CurrentPeakSize());
+                              tc_globals.peak_heap_tracker().CurrentPeakSize());
   }
 
   // Print total process stats (inclusive of non-malloc sources).
@@ -543,17 +546,18 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
       for (int size_class = 1; size_class < kNumClasses; ++size_class) {
         uint64_t class_bytes = class_count[size_class] *
-                               Static::sizemap().class_to_size(size_class);
+                               tc_globals.sizemap().class_to_size(size_class);
         PbtxtRegion entry = region.CreateSubRegion("freelist");
         entry.PrintI64("sizeclass",
-                       Static::sizemap().class_to_size(size_class));
+                       tc_globals.sizemap().class_to_size(size_class));
         entry.PrintI64("bytes", class_bytes);
         entry.PrintI64("num_spans_requested",
                        span_stats[size_class].num_spans_requested);
         entry.PrintI64("num_spans_returned",
                        span_stats[size_class].num_spans_returned);
         entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
-        Static::central_freelist(size_class).PrintSpanUtilStatsInPbtxt(&entry);
+        tc_globals.central_freelist(size_class)
+            .PrintSpanUtilStatsInPbtxt(&entry);
       }
 #endif
     }
@@ -562,7 +566,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
       for (int size_class = 1; size_class < kNumClasses; ++size_class) {
         PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
         entry.PrintI64("sizeclass",
-                       Static::sizemap().class_to_size(size_class));
+                       tc_globals.sizemap().class_to_size(size_class));
         entry.PrintI64("insert_hits", tc_stats[size_class].insert_hits);
         entry.PrintI64("insert_misses", tc_stats[size_class].insert_misses);
         entry.PrintI64("insert_non_batch_misses",
@@ -579,30 +583,30 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 
     region.PrintRaw("transfer_cache_implementation",
                     TransferCacheImplementationToLabel(
-                        Static::transfer_cache().implementation()));
+                        tc_globals.transfer_cache().implementation()));
 
     if (UsePerCpuCache()) {
-      Static::cpu_cache().PrintInPbtxt(&region);
+      tc_globals.cpu_cache().PrintInPbtxt(&region);
     }
   }
-  Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kNormal);
-  if (Static::numa_topology().active_partitions() > 1) {
-    Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kNormalP1);
+  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kNormal);
+  if (tc_globals.numa_topology().active_partitions() > 1) {
+    tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kNormalP1);
   }
-  Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
-  Static::page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
+  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
+  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
   // We do not collect tracking information in pbtxt.
 
   size_t limit_bytes;
   bool is_hard;
-  std::tie(limit_bytes, is_hard) = Static::page_allocator().limit();
+  std::tie(limit_bytes, is_hard) = tc_globals.page_allocator().limit();
   region.PrintI64("desired_usage_limit_bytes", limit_bytes);
   region.PrintBool("hard_limit", is_hard);
-  region.PrintI64("limit_hits", Static::page_allocator().limit_hits());
+  region.PrintI64("limit_hits", tc_globals.page_allocator().limit_hits());
 
   {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
-    Static::guardedpage_allocator().PrintInPbtxt(&gwp_asan);
+    tc_globals.guardedpage_allocator().PrintInPbtxt(&gwp_asan);
   }
 
   region.PrintI64("memory_release_failures", SystemReleaseErrors());
@@ -638,7 +642,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   // This is near the top since ReleasePerCpuMemoryToOS() calls it frequently.
   if (name == "tcmalloc.per_cpu_caches_active") {
-    *value = Static::CpuCacheActive();
+    *value = tc_globals.CpuCacheActive();
     return true;
   }
 
@@ -666,7 +670,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "generic.heap_size") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    BackingStats stats = Static::page_allocator().stats();
+    BackingStats stats = tc_globals.page_allocator().stats();
     *value = HeapSizeBytes(stats);
     return true;
   }
@@ -696,7 +700,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     // Kept for backwards compatibility.  Now defined externally as:
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    BackingStats stats = Static::page_allocator().stats();
+    BackingStats stats = tc_globals.page_allocator().stats();
     *value = SlackBytes(stats);
     return true;
   }
@@ -704,7 +708,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.pageheap_free_bytes" ||
       name == "tcmalloc.page_heap_free") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    *value = Static::page_allocator().stats().free_bytes;
+    *value = tc_globals.page_allocator().stats().free_bytes;
     return true;
   }
 
@@ -712,19 +716,19 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
       name == "tcmalloc.page_heap_unmapped") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     // Arena non-resident bytes aren't on the page heap, but they are unmapped.
-    *value = Static::page_allocator().stats().unmapped_bytes +
-             Static::arena().stats().bytes_nonresident;
+    *value = tc_globals.page_allocator().stats().unmapped_bytes +
+             tc_globals.arena().stats().bytes_nonresident;
     return true;
   }
 
   if (name == "tcmalloc.sampled_internal_fragmentation") {
-    *value = Static::sampled_internal_fragmentation_.value();
+    *value = tc_globals.sampled_internal_fragmentation_.value();
     return true;
   }
 
   if (name == "tcmalloc.page_algorithm") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    *value = Static::page_allocator().algorithm();
+    *value = tc_globals.page_allocator().algorithm();
     return true;
   }
 
@@ -781,7 +785,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (want_hard_limit || name == "tcmalloc.desired_usage_limit_bytes") {
     size_t amount;
     bool is_hard;
-    std::tie(amount, is_hard) = Static::page_allocator().limit();
+    std::tie(amount, is_hard) = tc_globals.page_allocator().limit();
     if (want_hard_limit != is_hard) {
       amount = std::numeric_limits<size_t>::max();
     }

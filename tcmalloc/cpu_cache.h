@@ -71,10 +71,10 @@ class StaticForwarder {
  public:
   static void* Alloc(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(Static::IsInited());
+    ASSERT(tc_globals.IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     // TODO(ckennelly): Push the stronger alignment type into Alloc.
-    return Static::arena().Alloc(size, static_cast<size_t>(alignment));
+    return tc_globals.arena().Alloc(size, static_cast<size_t>(alignment));
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
@@ -83,9 +83,9 @@ class StaticForwarder {
 
   static void ArenaReportNonresident(size_t unused_bytes, size_t reused_bytes)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(Static::IsInited());
+    ASSERT(tc_globals.IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    Static::arena().ReportNonresident(unused_bytes, reused_bytes);
+    tc_globals.arena().ReportNonresident(unused_bytes, reused_bytes);
   }
 
   static bool per_cpu_caches_dynamic_slab_enabled() {
@@ -101,11 +101,11 @@ class StaticForwarder {
   }
 
   static size_t class_to_size(int size_class) {
-    return Static::sizemap().class_to_size(size_class);
+    return tc_globals.sizemap().class_to_size(size_class);
   }
 
   static absl::Span<const size_t> cold_size_classes() {
-    return Static::sizemap().ColdSizeClasses();
+    return tc_globals.sizemap().ColdSizeClasses();
   }
 
   static size_t max_per_cpu_cache_size() {
@@ -113,19 +113,19 @@ class StaticForwarder {
   }
 
   static size_t num_objects_to_move(int size_class) {
-    return Static::sizemap().num_objects_to_move(size_class);
+    return tc_globals.sizemap().num_objects_to_move(size_class);
   }
 
   static const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
-    return Static::numa_topology();
+    return tc_globals.numa_topology();
   }
 
   static ShardedTransferCacheManager& sharded_transfer_cache() {
-    return Static::sharded_transfer_cache();
+    return tc_globals.sharded_transfer_cache();
   }
 
   static TransferCacheManager& transfer_cache() {
-    return Static::transfer_cache();
+    return tc_globals.transfer_cache();
   }
 };
 
@@ -1811,7 +1811,7 @@ class CpuCache final
 inline bool UsePerCpuCache() {
   // We expect a fast path of per-CPU caches being active and the thread being
   // registered with rseq.
-  if (ABSL_PREDICT_FALSE(!Static::CpuCacheActive())) {
+  if (ABSL_PREDICT_FALSE(!tc_globals.CpuCacheActive())) {
     return false;
   }
 

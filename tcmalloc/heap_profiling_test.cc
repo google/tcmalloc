@@ -40,7 +40,7 @@ namespace {
 class HeapProfilingTest : public ::testing::TestWithParam<int64_t> {};
 
 // Verify that heap profiling sessions concurrent with allocations/deallocations
-// do not crash, as they all use `Static::sampled_allocation_recorder_`. Also
+// do not crash, as they all use `tc_globals.sampled_allocation_recorder_`. Also
 // check that the data in the sample make sense. Here the
 // allocations/deallocations can happen on the same thread or the object is
 // allocated in one thread, transferred to another thread and deleted there.

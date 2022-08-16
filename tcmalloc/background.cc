@@ -28,7 +28,7 @@
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
   using ::tcmalloc::tcmalloc_internal::Parameters;
-  using ::tcmalloc::tcmalloc_internal::Static;
+  using ::tcmalloc::tcmalloc_internal::tc_globals;
 
   tcmalloc::MallocExtension::MarkThreadIdle();
 
@@ -79,13 +79,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       // Try to reclaim per-cpu caches once every kCpuCacheReclaimPeriod
       // when enabled.
       if (now - last_reclaim >= kCpuCacheReclaimPeriod) {
-        Static::cpu_cache().TryReclaimingCaches();
+        tc_globals.cpu_cache().TryReclaimingCaches();
         last_reclaim = now;
       }
 
       if (Parameters::shuffle_per_cpu_caches() &&
           now - last_shuffle >= kCpuCacheShufflePeriod) {
-        Static::cpu_cache().ShuffleCpuCaches();
+        tc_globals.cpu_cache().ShuffleCpuCaches();
         last_shuffle = now;
       }
 
@@ -93,19 +93,19 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       // when enabled.
       if (Parameters::per_cpu_caches_dynamic_slab_enabled() &&
           now - last_slab_resize_check >= kCpuCacheSlabResizePeriod) {
-        Static::cpu_cache().ResizeSlabIfNeeded();
+        tc_globals.cpu_cache().ResizeSlabIfNeeded();
         last_slab_resize_check = now;
       }
     }
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
     if (now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
-      Static::transfer_cache().TryResizingCaches();
+      tc_globals.transfer_cache().TryResizingCaches();
       last_transfer_cache_resize_check = now;
     }
 #endif
 
-    Static().sharded_transfer_cache().Plunder();
+    tc_globals.sharded_transfer_cache().Plunder();
     prev_time = now;
     absl::SleepFor(kSleepTime);
   }

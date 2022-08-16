@@ -58,8 +58,10 @@ using SampledAllocationRecorder =
     ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,
                                                   SampledAllocationAllocator>;
 
-class Static {
+class Static final {
  public:
+  constexpr Static() = default;
+
   // True if InitIfNecessary() has run to completion.
   static bool IsInited();
   // Must be called before calling any of the accessors below.
@@ -213,6 +215,8 @@ class Static {
   static ExplicitlyConstructed<SampledAllocationRecorder>
       sampled_allocation_recorder_;
 };
+
+ABSL_CONST_INIT extern Static tc_globals;
 
 inline bool Static::IsInited() {
   return inited_.load(std::memory_order_acquire);

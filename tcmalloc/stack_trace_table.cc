@@ -75,7 +75,7 @@ StackTraceTable::~StackTraceTable() {
       Bucket* next = b->next;
       {
         absl::base_internal::SpinLockHolder h(&pageheap_lock);
-        Static::bucket_allocator().Delete(b);
+        tc_globals.bucket_allocator().Delete(b);
       }
       b = next;
     }
@@ -114,7 +114,7 @@ void StackTraceTable::AddTrace(double count, const StackTrace& t,
       // TODO(b/239458966): Use heap allocation for bucket after we remove the
       // need to use StackTraceTable while allocating (e.g. allocationz/).
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      b = Static::bucket_allocator().New();
+      b = tc_globals.bucket_allocator().New();
     }
     b->hash = h;
     b->trace = t;

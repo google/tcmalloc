@@ -59,7 +59,7 @@ static std::atomic<bool>& dynamic_slab_enabled() {
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
-  std::tie(amount, is_hard) = Static::page_allocator().limit();
+  std::tie(amount, is_hard) = tc_globals.page_allocator().limit();
   if (!is_hard) {
     amount = 0;
   }
@@ -140,7 +140,7 @@ GOOGLE_MALLOC_SECTION_END
 using tcmalloc::tcmalloc_internal::kLog;
 using tcmalloc::tcmalloc_internal::Log;
 using tcmalloc::tcmalloc_internal::Parameters;
-using tcmalloc::tcmalloc_internal::Static;
+using tcmalloc::tcmalloc_internal::tc_globals;
 
 extern "C" {
 
@@ -229,7 +229,7 @@ ABSL_CONST_INIT static absl::base_internal::SpinLock update_lock(
 
 void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // Ensure that page allocator is set up.
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   absl::base_internal::SpinLockHolder l(&update_lock);
 
@@ -240,10 +240,10 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
     active = true;
   }
 
-  bool currently_hard = Static::page_allocator().limit().second;
+  bool currently_hard = tc_globals.page_allocator().limit().second;
   if (active || currently_hard) {
     // Avoid resetting limit when current limit is soft.
-    Static::page_allocator().set_limit(limit, active /* is_hard */);
+    tc_globals.page_allocator().set_limit(limit, active /* is_hard */);
     Log(kLog, __FILE__, __LINE__, "[tcmalloc] set page heap hard limit to",
         limit, "bytes");
   }
@@ -308,7 +308,7 @@ void TCMalloc_Internal_SetLifetimeAllocatorOptions(absl::string_view s) {
   absl::base_internal::SpinLockHolder l(
       &tcmalloc::tcmalloc_internal::pageheap_lock);
   tcmalloc::tcmalloc_internal::HugePageAwareAllocator* hpaa =
-      Static::page_allocator().default_hpaa();
+      tc_globals.page_allocator().default_hpaa();
   if (hpaa != nullptr) {
     hpaa->lifetime_based_allocator().Enable(
         tcmalloc::tcmalloc_internal::LifetimePredictionOptions::FromFlag(s));

@@ -73,10 +73,16 @@ ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
 // LINT.ThenChange(:static_vars_size)
 
+ABSL_CONST_INIT Static tc_globals;
+
 size_t Static::metadata_bytes() {
   // This is ugly and doesn't nicely account for e.g. alignment losses
   // -- I'd like to put all the above in a struct and take that
   // struct's size.  But we can't due to linking issues.
+  //
+  // TODO(b/242550501):  Progress on constant initialization guarantees allow
+  // state to be consolidated directly into an instance, rather than as a
+  // collection of static variables.  Simplify this.
   // LINT.IfChange(static_vars_size)
   const size_t static_var_size =
       sizeof(pageheap_lock) + sizeof(arena_) + sizeof(sizemap_) +

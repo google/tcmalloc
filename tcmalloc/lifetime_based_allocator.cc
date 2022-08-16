@@ -103,7 +103,7 @@ LifetimeBasedAllocator::LifetimeBasedAllocator(
       lifetime_tracker_(&lifetime_database_, lifetime_opts.threshold(), clock),
       region_alloc_(region_alloc),
       is_active_(lifetime_opts.active()) {
-  lifetime_stats_allocator_.Init(&Static::arena());
+  lifetime_stats_allocator_.Init(&tc_globals.arena());
 }
 
 LifetimeBasedAllocator::Stats LifetimeBasedAllocator::GetStats() const {

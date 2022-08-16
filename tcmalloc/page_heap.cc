@@ -42,7 +42,7 @@ void PageHeap::RecordSpan(Span* span) {
   }
 }
 
-PageHeap::PageHeap(MemoryTag tag) : PageHeap(&Static::pagemap(), tag) {}
+PageHeap::PageHeap(MemoryTag tag) : PageHeap(&tc_globals.pagemap(), tag) {}
 
 PageHeap::PageHeap(PageMap* map, MemoryTag tag)
     : PageAllocatorInterface("PageHeap", map, tag),
@@ -98,7 +98,7 @@ Span* PageHeap::New(Length n, size_t objects_per_span) {
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     result = AllocateSpan(n, &from_returned);
-    if (result) Static::page_allocator().ShrinkToUsageLimit();
+    if (result) tc_globals.page_allocator().ShrinkToUsageLimit();
     if (result)
       info_.RecordAlloc(result->first_page(), result->num_pages(),
                         objects_per_span);

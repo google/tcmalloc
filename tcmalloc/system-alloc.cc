@@ -334,7 +334,7 @@ void InitSystemAllocatorIfNecessary() {
 // nodes assigned to `partition`. Returns zero upon success, or a standard
 // error code upon failure.
 void BindMemory(void* const base, const size_t size, const size_t partition) {
-  auto& topology = Static::numa_topology();
+  auto& topology = tc_globals.numa_topology();
 
   // If NUMA awareness is unavailable or disabled, or the user requested that
   // we don't bind memory then do nothing.

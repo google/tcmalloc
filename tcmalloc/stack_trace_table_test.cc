@@ -150,7 +150,7 @@ void AddTrace(StackTraceTable* table, double count, const StackTrace& t,
 TEST(StackTraceTableTest, StackTraceTable) {
   // If this test is not linked against TCMalloc, the global arena used for
   // StackTraceTable's buckets will not be initialized.
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   // Empty table
   {
@@ -468,7 +468,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
 }
 
 TEST(StackTraceTableTest, ResidentSizeResident) {
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   StackTrace t1 = {};
   t1.requested_size = static_cast<uintptr_t>(512);
@@ -506,7 +506,7 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
 }
 
 TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   StackTrace t1 = {};
   t1.requested_size = static_cast<uintptr_t>(512);
@@ -544,7 +544,7 @@ TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
 }
 
 TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
   Residency residency;
 
   for (bool flip_order : {false, true}) {

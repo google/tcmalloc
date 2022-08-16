@@ -129,7 +129,7 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
     GTEST_SKIP() << "CPU cache disabled.";
   }
 
-  auto& cpu_cache = Static::cpu_cache();
+  auto& cpu_cache = tc_globals.cpu_cache();
   for (int i = 0; i < 100; ++i) {
     CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/true);
     CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/false);

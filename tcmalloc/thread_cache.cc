@@ -77,12 +77,12 @@ void ThreadCache::Cleanup() {
 void* ThreadCache::FetchFromCentralCache(size_t size_class, size_t byte_size) {
   FreeList* list = &list_[size_class];
   ASSERT(list->empty());
-  const int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
 
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
   void* batch[kMaxObjectsToMove];
   int fetch_count =
-      Static::transfer_cache().RemoveRange(size_class, batch, num_to_move);
+      tc_globals.transfer_cache().RemoveRange(size_class, batch, num_to_move);
   if (fetch_count == 0) {
     return nullptr;
   }
@@ -114,7 +114,7 @@ void* ThreadCache::FetchFromCentralCache(size_t size_class, size_t byte_size) {
 }
 
 void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
-  const int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   ReleaseToCentralCache(list, size_class, batch_size);
 
   // If the list is too long, we need to transfer some number of
@@ -143,23 +143,24 @@ void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t size_class,
                                         int N) {
   ASSERT(src == &list_[size_class]);
   if (N > src->length()) N = src->length();
-  size_t delta_bytes = N * Static::sizemap().class_to_size(size_class);
+  size_t delta_bytes = N * tc_globals.sizemap().class_to_size(size_class);
 
   // We return prepackaged chains of the correct size to the central cache.
   void* batch[kMaxObjectsToMove];
-  int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   while (N > batch_size) {
     src->PopBatch(batch_size, batch);
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    Static::transfer_cache().InsertRange(size_class,
-                                         absl::Span<void*>(batch, batch_size));
+    tc_globals.transfer_cache().InsertRange(
+        size_class, absl::Span<void*>(batch, batch_size));
     N -= batch_size;
   }
   src->PopBatch(N, batch);
   static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                 "not enough space in batch");
-  Static::transfer_cache().InsertRange(size_class, absl::Span<void*>(batch, N));
+  tc_globals.transfer_cache().InsertRange(size_class,
+                                          absl::Span<void*>(batch, N));
   size_ -= delta_bytes;
 }
 
@@ -185,7 +186,8 @@ void ThreadCache::Scavenge() {
       // go through the slow-start behavior again.  The slow-start is useful
       // mainly for threads that stay relatively idle for their entire
       // lifetime.
-      const int batch_size = Static::sizemap().num_objects_to_move(size_class);
+      const int batch_size =
+          tc_globals.sizemap().num_objects_to_move(size_class);
       if (list->max_length() > batch_size) {
         list->set_max_length(
             std::max<int>(list->max_length() - batch_size, batch_size));
@@ -248,7 +250,7 @@ void ThreadCache::InitTSD() {
 
 ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   // Initialize per-thread data if necessary
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
   ThreadCache* heap = nullptr;
 
 #ifdef ABSL_HAVE_TLS
@@ -302,7 +304,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
 
 ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   // Create the heap and add it to the linked list
-  ThreadCache* heap = Static::threadcache_allocator().New();
+  ThreadCache* heap = tc_globals.threadcache_allocator().New();
   heap->Init(tid);
   heap->next_ = thread_heaps_;
   heap->prev_ = nullptr;
@@ -368,7 +370,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
   if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;
   unclaimed_cache_space_ += heap->max_size_;
 
-  Static::threadcache_allocator().Delete(heap);
+  tc_globals.threadcache_allocator().Delete(heap);
 }
 
 void ThreadCache::RecomputePerThreadCacheSize() {

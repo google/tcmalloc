@@ -34,8 +34,8 @@ namespace {
 // to minimize the time it takes to free them.
 void BM_Populate(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
@@ -83,8 +83,8 @@ BENCHMARK(BM_Populate)
 // them is usually done spread over many active spans.
 void BM_MixAndReturn(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
@@ -131,8 +131,8 @@ BENCHMARK(BM_MixAndReturn)
 // code, and avoids timing the pageheap code.
 void BM_SpanReuse(benchmark::State& state) {
   size_t object_size = state.range(0);
-  size_t size_class = Static::sizemap().SizeClass(CppPolicy(), object_size);
-  int batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
+  int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.

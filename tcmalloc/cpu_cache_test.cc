@@ -579,7 +579,7 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
 TEST(CpuCacheTest, SlabUsage) {
   // Note: we can't do ValidateSlabBytes on the test-cpu-cache because in that
   // case, the slab only uses size classes 1 and 2.
-  CpuCachePeer::ValidateSlabBytes(Static::cpu_cache());
+  CpuCachePeer::ValidateSlabBytes(tc_globals.cpu_cache());
 }
 
 // Runs a single allocate and deallocate operation to warm up the cache. Once a

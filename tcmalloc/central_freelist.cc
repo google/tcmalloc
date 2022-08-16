@@ -33,23 +33,23 @@ static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   if (IsExpandedSizeClass(size_class)) {
     return MemoryTag::kCold;
   }
-  if (!Static::numa_topology().numa_aware()) {
+  if (!tc_globals.numa_topology().numa_aware()) {
     return MemoryTag::kNormal;
   }
   return NumaNormalTag(size_class / kNumBaseClasses);
 }
 
 size_t StaticForwarder::class_to_size(int size_class) {
-  return Static::sizemap().class_to_size(size_class);
+  return tc_globals.sizemap().class_to_size(size_class);
 }
 
 Length StaticForwarder::class_to_pages(int size_class) {
-  return Length(Static::sizemap().class_to_pages(size_class));
+  return Length(tc_globals.sizemap().class_to_pages(size_class));
 }
 
 Span* StaticForwarder::MapObjectToSpan(const void* object) {
   const PageId p = PageIdContaining(object);
-  Span* span = Static::pagemap().GetExistingDescriptor(p);
+  Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   return span;
 }
 
@@ -57,14 +57,14 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
                                     Length pages_per_span) {
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
   Span* span =
-      Static::page_allocator().New(pages_per_span, objects_per_span, tag);
+      tc_globals.page_allocator().New(pages_per_span, objects_per_span, tag);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     return nullptr;
   }
   ASSERT(tag == GetMemoryTag(span->start_address()));
   ASSERT(span->num_pages() == pages_per_span);
 
-  Static::pagemap().RegisterSizeClass(span, size_class);
+  tc_globals.pagemap().RegisterSizeClass(span, size_class);
   return span;
 }
 
@@ -74,7 +74,7 @@ static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   for (Span* const free_span : free_spans) {
     ASSERT(tag == GetMemoryTag(free_span->start_address()));
-    Static::page_allocator().Delete(free_span, objects_per_span, tag);
+    tc_globals.page_allocator().Delete(free_span, objects_per_span, tag);
   }
 }
 
@@ -84,7 +84,7 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
   for (Span* const free_span : free_spans) {
     ASSERT(IsNormalMemory(free_span->start_address()) ||
            IsColdMemory(free_span->start_address()));
-    Static::pagemap().UnregisterSizeClass(free_span);
+    tc_globals.pagemap().UnregisterSizeClass(free_span);
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
     // on.
@@ -96,7 +96,7 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
 
     // In huge_page_filler.h, we static_assert that PageTracker's key elements
     // for deallocation are within the first two cachelines.
-    void* pt = Static::pagemap().GetHugepage(p);
+    void* pt = tc_globals.pagemap().GetHugepage(p);
     // Prefetch for writing, as we will issue stores to the PageTracker
     // instance.
     __builtin_prefetch(pt, 1, 3);

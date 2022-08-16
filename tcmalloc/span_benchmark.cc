@@ -33,8 +33,8 @@ namespace {
 class RawSpan {
  public:
   void Init(size_t size_class) {
-    size_t size = Static::sizemap().class_to_size(size_class);
-    auto npages = Length(Static::sizemap().class_to_pages(size_class));
+    size_t size = tc_globals.sizemap().class_to_size(size_class);
+    auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     void* mem;
@@ -57,8 +57,8 @@ class RawSpan {
 void BM_single_span(benchmark::State& state) {
   const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(size_class);
-  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size = tc_globals.sizemap().class_to_size(size_class);
+  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   RawSpan raw_span;
   raw_span.Init(size_class);
   Span& span = raw_span.span();
@@ -83,9 +83,9 @@ void BM_single_span(benchmark::State& state) {
 void BM_single_span_fulldrain(benchmark::State& state) {
   const int size_class = state.range(0);
 
-  size_t size = Static::sizemap().class_to_size(size_class);
-  size_t npages = Static::sizemap().class_to_pages(size_class);
-  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size = tc_globals.sizemap().class_to_size(size_class);
+  size_t npages = tc_globals.sizemap().class_to_pages(size_class);
+  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   size_t objects_per_span = npages * kPageSize / size;
   RawSpan raw_span;
   raw_span.Init(size_class);
@@ -165,8 +165,8 @@ void BM_multiple_spans(benchmark::State& state) {
   // Should be large enough to cause cache misses
   const int num_spans = 10000000;
   std::vector<RawSpan> spans(num_spans);
-  size_t size = Static::sizemap().class_to_size(size_class);
-  size_t batch_size = Static::sizemap().num_objects_to_move(size_class);
+  size_t size = tc_globals.sizemap().class_to_size(size_class);
+  size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   for (int i = 0; i < num_spans; i++) {
     spans[i].Init(size_class);
   }

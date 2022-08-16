@@ -105,8 +105,8 @@ class Sampler {
   // point and returns true.  Otherwise returns false.
   bool ShouldSampleGuardedAllocation();
 
-  // Returns the Sampler's cached Static::IsOnFastPath state.  This may differ
-  // from a fresh computation due to activating per-CPU mode or the
+  // Returns the Sampler's cached tc_globals.IsOnFastPath state.  This may
+  // differ from a fresh computation due to activating per-CPU mode or the
   // addition/removal of hooks.
   bool IsOnFastPath() const;
   void UpdateFastPathState();
@@ -150,7 +150,7 @@ class Sampler {
   ssize_t sample_period_;
 
   // true_bytes_until_sample_ tracks the sampling point when we are on the slow
-  // path when picking sampling points (!Static::IsOnFastPath()) up until we
+  // path when picking sampling points (!tc_globals.IsOnFastPath()) up until we
   // notice (due to another allocation) that this state has changed.
   ssize_t true_bytes_until_sample_;
 
@@ -173,7 +173,7 @@ inline size_t Sampler::RecordAllocation(size_t k) {
   // The first time we enter this function we expect bytes_until_sample_
   // to be zero, and we must call SampleAllocationSlow() to ensure
   // proper initialization of static vars.
-  ASSERT(Static::IsInited() || bytes_until_sample_ == 0);
+  ASSERT(tc_globals.IsInited() || bytes_until_sample_ == 0);
 
   // Avoid missampling 0.
   k++;
@@ -184,11 +184,11 @@ inline size_t Sampler::RecordAllocation(size_t k) {
   // merged with DecrementFast code below.
   if (static_cast<size_t>(bytes_until_sample_) <= k) {
     size_t result = RecordAllocationSlow(k);
-    ASSERT(Static::IsInited());
+    ASSERT(tc_globals.IsInited());
     return result;
   } else {
     bytes_until_sample_ -= k;
-    ASSERT(Static::IsInited());
+    ASSERT(tc_globals.IsInited());
     return 0;
   }
 }
@@ -252,7 +252,7 @@ Sampler::ShouldSampleGuardedAllocation() {
 inline bool Sampler::IsOnFastPath() const { return was_on_fast_path_; }
 
 inline void Sampler::UpdateFastPathState() {
-  const bool is_on_fast_path = Static::IsOnFastPath();
+  const bool is_on_fast_path = tc_globals.IsOnFastPath();
   if (ABSL_PREDICT_TRUE(was_on_fast_path_ == is_on_fast_path)) {
     return;
   }

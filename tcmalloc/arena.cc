@@ -45,7 +45,7 @@ void* Arena::Alloc(size_t bytes, int alignment) {
     // single partition we choose might only contain nodes that the process is
     // unable to allocate from due to cgroup restrictions.
     MemoryTag tag;
-    const auto& numa_topology = Static::numa_topology();
+    const auto& numa_topology = tc_globals.numa_topology();
     if (numa_topology.numa_aware()) {
       tag = NumaNormalTag(numa_topology.GetCurrentPartition());
     } else {

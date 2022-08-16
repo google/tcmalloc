@@ -34,7 +34,7 @@ namespace tcmalloc_internal {
 bool PeakHeapTracker::IsNewPeak() {
   size_t current_peak_size = CurrentPeakSize();
   return current_peak_size == 0 ||
-         (static_cast<double>(Static::sampled_objects_size_.value()) /
+         (static_cast<double>(tc_globals.sampled_objects_size_.value()) /
               current_peak_size >
           Parameters::peak_sampling_heap_growth_fraction());
 }
@@ -51,12 +51,12 @@ void PeakHeapTracker::MaybeSaveSample() {
   if (!IsNewPeak()) {
     return;
   }
-  SetCurrentPeakSize(Static::sampled_objects_size_.value());
+  SetCurrentPeakSize(tc_globals.sampled_objects_size_.value());
 
   // Guaranteed to have no live sample after this call since we are doing this
   // under `recorder_lock_`.
   peak_heap_recorder_.get_mutable().UnregisterAll();
-  Static::sampled_allocation_recorder().Iterate(
+  tc_globals.sampled_allocation_recorder().Iterate(
       [this](const SampledAllocation& sampled_allocation) {
         recorder_lock_.AssertHeld();
         peak_heap_recorder_.get_mutable().Register(
