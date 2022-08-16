@@ -255,6 +255,7 @@ void Span::BitmapBuildFreelist(size_t size, size_t count) {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
+  ASSERT(count > 0);
   freelist_ = kListEnd;
 
   if (size >= kBitmapMinObjectSize) {

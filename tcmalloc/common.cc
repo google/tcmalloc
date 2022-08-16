@@ -75,6 +75,11 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     Log(kLog, __FILE__, __LINE__, "pages limited to 255", pages);
     return false;
   }
+  const size_t objects_per_span = Length(pages).in_bytes() / size;
+  if (objects_per_span < 1) {
+    Log(kLog, __FILE__, __LINE__, "each span must have at least one object");
+    return false;
+  }
   if (num_objects_to_move < 2) {
     Log(kLog, __FILE__, __LINE__, "num objects to move too small (<2)",
         num_objects_to_move);
