@@ -326,7 +326,7 @@ void PageAgeHistograms::Histogram::Print(Printer* out) const {
   const double mean = avg_age();
   out->printf(" %7.1f", mean);
   for (int b = 0; b < kNumBuckets; ++b) {
-    out->printf(" %7" PRIu32, buckets_[b]);
+    out->printf(" %7u", buckets_[b]);
   }
 
   out->printf("\n");

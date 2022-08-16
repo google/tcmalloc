@@ -1645,7 +1645,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 template <class Forwarder>
 inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
-  out->printf("Bytes in per-CPU caches (per cpu limit: %" PRIu64 " bytes)\n",
+  out->printf("Bytes in per-CPU caches (per cpu limit: %u bytes)\n",
               CacheLimit());
   out->printf("------------------------------------------------\n");
 
@@ -1658,12 +1658,13 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
-    out->printf("cpu %3d: %12" PRIu64
-                " bytes (%7.1f MiB) with"
-                "%12" PRIu64 " bytes unallocated %s%s\n",
-                cpu, rbytes, rbytes / MiB, unallocated,
-                CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
-                populated ? " populated" : "");
+    out->printf(
+        "cpu %3d: %12u"
+        " bytes (%7.1f MiB) with"
+        "%12u bytes unallocated %s%s\n",
+        cpu, rbytes, rbytes / MiB, unallocated,
+        CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
+        populated ? " populated" : "");
   }
 
   out->printf("------------------------------------------------\n");
@@ -1688,14 +1689,12 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   const auto print_miss_stats = [out](CpuCacheMissStats miss_stats,
                                       uint64_t reclaims) {
-    out->printf("%12" PRIu64
-                " underflows,"
-                "%12" PRIu64
-                " overflows, overflows / underflows: %5.2f, "
-                "%12" PRIu64 " reclaims\n",
-                miss_stats.underflows, miss_stats.overflows,
-                safe_div(miss_stats.overflows, miss_stats.underflows),
-                reclaims);
+    out->printf(
+        "%12u underflows,"
+        "%12u overflows, overflows / underflows: %5.2f, "
+        "%12u reclaims\n",
+        miss_stats.underflows, miss_stats.overflows,
+        safe_div(miss_stats.overflows, miss_stats.underflows), reclaims);
   };
   out->printf("Total  :");
   print_miss_stats(GetTotalCacheMissStats(), GetNumReclaims());
@@ -1710,14 +1709,12 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
     out->printf("shift %3d:", shift + kInitialPerCpuShift);
     out->printf(
-        "%12" PRIu64
-        " growths,"
-        "%12" PRIu64 " shrinkages\n",
+        "%12u growths, %12u shrinkages\n",
         dynamic_slab_info_.grow_count[shift].load(std::memory_order_relaxed),
         dynamic_slab_info_.shrink_count[shift].load(std::memory_order_relaxed));
   }
   out->printf(
-      "%12" PRIu64 " bytes for which MADVISE_DONTNEED failed\n",
+      "%12u bytes for which MADVISE_DONTNEED failed\n",
       dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 }
 

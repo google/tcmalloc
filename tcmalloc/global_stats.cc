@@ -239,43 +239,43 @@ void DumpStats(Printer* out, int level) {
   // Avoid clang-format complaining about the way that this text is laid out.
   out->printf(
       "------------------------------------------------\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Bytes in use by application\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in page heap freelist\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in central cache freelist\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in per-CPU cache freelist\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in Sharded cache freelist\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in transfer cache freelist\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in thread cache freelists\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unallocated\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes in malloc metadata Arena unavailable\n"
+      "MALLOC:   %12u (%7.1f MiB) Bytes in use by application\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in page heap freelist\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in central cache freelist\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in per-CPU cache freelist\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in Sharded cache freelist\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in transfer cache freelist\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in thread cache freelists\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in malloc metadata\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in malloc metadata Arena unallocated\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes in malloc metadata Arena unavailable\n"
 
       "MALLOC:   ------------\n"
-      "MALLOC: = %12" PRIu64 " (%7.1f MiB) Actual memory used (physical + swap)\n"
-      "MALLOC: + %12" PRIu64 " (%7.1f MiB) Bytes released to OS (aka unmapped)\n"
+      "MALLOC: = %12u (%7.1f MiB) Actual memory used (physical + swap)\n"
+      "MALLOC: + %12u (%7.1f MiB) Bytes released to OS (aka unmapped)\n"
       "MALLOC:   ------------\n"
-      "MALLOC: = %12" PRIu64 " (%7.1f MiB) Virtual address space used\n"
+      "MALLOC: = %12u (%7.1f MiB) Virtual address space used\n"
       "MALLOC:\n"
-      "MALLOC:   %12" PRIu64 "               Spans in use\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Spans created\n"
-      "MALLOC:   %12" PRIu64 "               Thread heaps in use\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Thread heaps created\n"
-      "MALLOC:   %12" PRIu64 "               Stack traces in use\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Stack traces created\n"
-      "MALLOC:   %12" PRIu64 "               Table buckets in use\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Table buckets created\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Pagemap bytes used\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Pagemap root resident bytes\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab bytes used\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) per-CPU slab resident bytes\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) malloc metadata Arena non-resident bytes\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Actual memory used at peak\n"
-      "MALLOC:   %12" PRIu64 " (%7.1f MiB) Estimated in-use at peak\n"
+      "MALLOC:   %12u               Spans in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Spans created\n"
+      "MALLOC:   %12u               Thread heaps in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Thread heaps created\n"
+      "MALLOC:   %12u               Stack traces in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Stack traces created\n"
+      "MALLOC:   %12u               Table buckets in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Table buckets created\n"
+      "MALLOC:   %12u (%7.1f MiB) Pagemap bytes used\n"
+      "MALLOC:   %12u (%7.1f MiB) Pagemap root resident bytes\n"
+      "MALLOC:   %12u (%7.1f MiB) per-CPU slab bytes used\n"
+      "MALLOC:   %12u (%7.1f MiB) per-CPU slab resident bytes\n"
+      "MALLOC:   %12u (%7.1f MiB) malloc metadata Arena non-resident bytes\n"
+      "MALLOC:   %12u (%7.1f MiB) Actual memory used at peak\n"
+      "MALLOC:   %12u (%7.1f MiB) Estimated in-use at peak\n"
       "MALLOC:   %12.4f               Realized fragmentation (%%)\n"
-      "MALLOC:   %12" PRIu64 "               Tcmalloc page size\n"
-      "MALLOC:   %12" PRIu64 "               Tcmalloc hugepage size\n"
-      "MALLOC:   %12" PRIu64 "               CPUs Allowed in Mask\n"
-      "MALLOC:   %12" PRIu64 "               Arena blocks\n",
+      "MALLOC:   %12u               Tcmalloc page size\n"
+      "MALLOC:   %12u               Tcmalloc hugepage size\n"
+      "MALLOC:   %12u               CPUs Allowed in Mask\n"
+      "MALLOC:   %12u               Arena blocks\n",
       bytes_in_use_by_app, bytes_in_use_by_app / MiB,
       stats.pageheap.free_bytes, stats.pageheap.free_bytes / MiB,
       stats.central_bytes, stats.central_bytes / MiB,
@@ -342,8 +342,8 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "\n"
         "Total process stats (inclusive of non-malloc sources):\n"
-        "TOTAL: %12" PRIu64 " (%7.1f MiB) Bytes resident (physical memory used)\n"
-        "TOTAL: %12" PRIu64 " (%7.1f MiB) Bytes mapped (virtual memory used)\n",
+        "TOTAL: %12u (%7.1f MiB) Bytes resident (physical memory used)\n"
+        "TOTAL: %12u (%7.1f MiB) Bytes mapped (virtual memory used)\n",
         rss, rss / MiB, vss, vss / MiB);
     // clang-format on
   }
@@ -369,8 +369,8 @@ void DumpStats(Printer* out, int level) {
       cumulative += class_bytes;
       out->printf(
           // clang-format off
-          "class %3d [ %8zu bytes ] : %8" PRIu64 " objs; %5.1f MiB; %6.1f cum MiB; "
-          "%8" PRIu64 " live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
+          "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; %6.1f cum MiB; "
+          "%8u live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
           // clang-format on
           size_class, Static::sizemap().class_to_size(size_class),
           class_count[size_class], class_bytes / MiB, cumulative / MiB,
@@ -407,10 +407,10 @@ void DumpStats(Printer* out, int level) {
                                    Static::sizemap().class_to_size(size_class);
       cumulative_bytes += class_bytes;
       out->printf(
-          "class %3d [ %8zu bytes ] : %8" PRIu64
-          " objs; %5.1f MiB; %6.1f cum MiB; %5" PRIu64 " capacity; %5" PRIu64
-          " max_capacity; %8" PRIu64 " insert hits; %8" PRIu64
-          " insert misses (%8lu partial); %8" PRIu64 " remove hits; %8" PRIu64
+          "class %3d [ %8zu bytes ] : %8u"
+          " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
+          " max_capacity; %8u insert hits; %8u"
+          " insert misses (%8lu partial); %8u remove hits; %8u"
           " remove misses (%8lu partial);\n",
           size_class, Static::sizemap().class_to_size(size_class),
           tc_stats[size_class].used, class_bytes / MiB, cumulative_bytes / MiB,
@@ -436,8 +436,8 @@ void DumpStats(Printer* out, int level) {
     uint64_t limit_bytes;
     bool is_hard;
     std::tie(limit_bytes, is_hard) = Static::page_allocator().limit();
-    out->printf("PARAMETER desired_usage_limit_bytes %" PRIu64 " %s\n",
-                limit_bytes, is_hard ? "(hard)" : "");
+    out->printf("PARAMETER desired_usage_limit_bytes %u %s\n", limit_bytes,
+                is_hard ? "(hard)" : "");
     out->printf("Number of times limit was hit: %lld\n",
                 Static::page_allocator().limit_hits());
 
