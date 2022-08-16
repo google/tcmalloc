@@ -67,6 +67,18 @@ static void BM_size_returning_new_delete(benchmark::State& state) {
 }
 BENCHMARK(BM_size_returning_new_delete)->Range(1, 1 << 20);
 
+static void BM_nallocx_new_sized_delete(benchmark::State& state) {
+  const int arg = state.range(0);
+
+  for (auto s : state) {
+    size_t size = nallocx(arg, 0);
+    benchmark::DoNotOptimize(size);
+    void* ptr = ::operator new(size);
+    ::operator delete(ptr, size);
+  }
+}
+BENCHMARK(BM_nallocx_new_sized_delete)->Range(1, 1 << 20);
+
 static void BM_aligned_new(benchmark::State& state) {
   const int size = state.range(0);
   const int alignment = state.range(1);
