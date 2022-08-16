@@ -335,7 +335,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateBatchSize) {
 TEST_F(RunTimeSizeClassesTest, ValidatePageSize) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
-      {1024, 255, kMaxObjectsToMove},
+      {1024, 2, kMaxObjectsToMove},
       {kMaxSize, 64, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(3, parsed));
