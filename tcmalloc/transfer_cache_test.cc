@@ -41,7 +41,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-using ::testing::AtLeast;
 using ::testing::Return;
 
 template <typename Env>
