@@ -14,6 +14,8 @@
 
 #include "tcmalloc/internal/profile_builder.h"
 
+#include "tcmalloc/malloc_extension.h"
+
 #if defined(__linux__)
 #include <elf.h>
 #include <link.h>
