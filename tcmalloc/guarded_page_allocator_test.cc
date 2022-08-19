@@ -238,6 +238,9 @@ TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
   }
 }
 
+ABSL_CONST_INIT ABSL_ATTRIBUTE_UNUSED GuardedPageAllocator
+    gpa_is_constant_initializable;
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

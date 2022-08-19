@@ -66,8 +66,6 @@ ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
 ABSL_CONST_INIT PageMap Static::pagemap_;
-ABSL_CONST_INIT absl::base_internal::SpinLock guarded_page_lock(
-    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
@@ -93,8 +91,8 @@ size_t Static::metadata_bytes() {
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(sampled_internal_fragmentation_) +
-      sizeof(peak_heap_tracker_) + sizeof(guarded_page_lock) +
-      sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
+      sizeof(peak_heap_tracker_) + sizeof(guardedpage_allocator_) +
+      sizeof(numa_topology_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

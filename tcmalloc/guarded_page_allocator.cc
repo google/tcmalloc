@@ -65,7 +65,7 @@ void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
 }
 
 void GuardedPageAllocator::Destroy() {
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   if (initialized_) {
     size_t len = pages_end_addr_ - pages_base_addr_;
     int err = munmap(reinterpret_cast<void*>(pages_base_addr_), len);
@@ -86,7 +86,7 @@ void* GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");
-    absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
     num_failed_allocations_++;
     FreeSlot(free_slot);
     return nullptr;
@@ -113,7 +113,7 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
   size_t slot = AddrToSlot(page_addr);
 
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   if (IsFreed(slot)) {
     double_free_detected_ = true;
   } else if (WriteOverflowOccurred(slot)) {
@@ -176,7 +176,7 @@ static int GetChainedRate() {
 }
 
 void GuardedPageAllocator::Print(Printer* out) {
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   out->printf(
       "\n"
       "------------------------------------------------\n"
@@ -194,8 +194,8 @@ void GuardedPageAllocator::Print(Printer* out) {
       max_alloced_pages_, GetChainedRate());
 }
 
-void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) const {
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   gwp_asan->PrintI64("successful_allocations",
                      num_allocation_requests_ - num_failed_allocations_);
   gwp_asan->PrintI64("failed_allocations", num_failed_allocations_);
@@ -210,7 +210,7 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) const {
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   ASSERT(!first_page_addr_);
   ASSERT(page_size_ % getpagesize() == 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
@@ -246,7 +246,7 @@ void GuardedPageAllocator::MapPages() {
 
 // Selects a random slot in O(total_pages_) time.
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
   num_allocation_requests_++;
   if (num_alloced_pages_ == max_alloced_pages_) {
