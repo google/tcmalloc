@@ -734,12 +734,34 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 #endif
 }
 
+// PrefetchNextObject provides a common code path across architectures for
+// generating a prefetch of the next object.
+//
+// It is in a distinct, always-lined method to make its cost more transparent
+// when profiling with debug information.
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
+    void* prefetch_target) {
+  // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
+  // trace analysis shows the target is frequently used (b/70294962). Stalling
+  // on a TLB miss at the prefetch site (which has no deps) and prefetching the
+  // line async is better than stalling at the use (which may have deps) to fill
+  // the TLB and the cache miss.
+  //
+  // See "Beyond malloc efficiency to fleet efficiency"
+  // (https://research.google/pubs/pub50370/), section 6.4 for additional
+  // details.
+  //
+  // TODO(b/214608320): Evaluate prefetch for write.
+  __builtin_prefetch(prefetch_target, 0, 3);
+}
+
 #if defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
     UnderflowHandler underflow_handler, void* arg, Shift shift,
     const size_t virtual_cpu_id_offset) {
+  void* prefetch_target;
   void* result;
   void* scratch;
   uintptr_t current;
@@ -809,24 +831,13 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   // Important! code below this must not affect any flags (i.e.: ccbe)
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
-          "mov -16(%[scratch], %[current], 8), %[result]\n"
-          // A note about prefetcht0 in Pop:  While this prefetch may appear
-          // costly, trace analysis shows the target is frequently used
-          // (b/70294962). Stalling on a TLB miss at the prefetch site (which
-          // has no deps) and prefetching the line async is better than stalling
-          // at the use (which may have deps) to fill the TLB and the cache
-          // miss.
-          //
-          // See "Beyond malloc efficiency to fleet efficiency"
-          // (https://research.google/pubs/pub50370/), section 6.4 for
-          // additional details.
-          "prefetcht0 (%[result])\n"
+          "mov -16(%[scratch], %[current], 8), %[prefetch_target]\n"
           "movq -8(%[scratch], %[current], 8), %[result]\n"
           "lea -1(%[current]), %[current]\n"
           "mov %w[current], (%[scratch], %[size_class], 8)\n"
           // Commit
           "5:\n"
-          : [result] "=&r"(result),
+          : [result] "=&r"(result), [prefetch_target] "=&r"(prefetch_target),
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
             [underflow] "=@ccbe"(underflow),
 #endif
@@ -849,6 +860,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   }
 #endif
   TSANAcquire(result);
+
+  PrefetchNextObject(prefetch_target);
   return result;
 underflow_path:
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -989,15 +1002,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "strh %w[new_current], [%[region_start], %[slabs_size_class_lsl3]]\n"
           // Commit
           "5:\n"
-          // This prefetch will appear to be quite expensive, but is generally
-          // profitable. See the comment at the equivalent prefetch in the x86
-          // implementation for further details.
-          "prfm pstl1keep, [%[prefetch]]\n"
           :
 #if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           [underflow] "=@ccge"(underflow),
 #endif
-          [result] "=&r"(result),
+          [result] "=&r"(result), [prefetch] "=&r"(prefetch),
           // Temps
           [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
           [region_start_slabs_minus_8] "=&r"(region_start_slabs_minus_8),
@@ -1005,7 +1014,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           [slabs_size_class_lsl3_plus_4] "=&r"(slabs_size_class_lsl3_plus_4),
           [slabs_size_class_lsl3] "=&r"(slabs_size_class_lsl3),
           [begin] "=&r"(begin), [current] "=&r"(current),
-          [new_current] "=&r"(new_current), [prefetch] "=&r"(prefetch)
+          [new_current] "=&r"(new_current)
           // Real inputs
           : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
             [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
@@ -1030,6 +1039,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   }
 #endif
   TSANAcquire(result);
+  PrefetchNextObject(prefetch);
   return result;
 underflow_path:
 #if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
