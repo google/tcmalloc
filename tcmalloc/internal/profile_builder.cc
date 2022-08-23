@@ -479,8 +479,13 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
     // TODO(b/235916219): Remove these when we convert these from tags to sample
     // types.
-    add_label(sampled_resident_id, bytes_id, entry.sampled_resident_size);
-    add_label(swapped_id, bytes_id, entry.swapped_size);
+    // If there is no issue getting the residency info, these two fields in
+    // `Profile::Sample` are populated so we add them to the proto.
+    if (entry.sampled_resident_size.has_value()) {
+      add_label(sampled_resident_id, bytes_id,
+                entry.sampled_resident_size.value());
+      add_label(swapped_id, bytes_id, entry.swapped_size.value());
+    }
 
     auto add_access_label = [&](int key,
                                 tcmalloc::Profile::Sample::Access access) {

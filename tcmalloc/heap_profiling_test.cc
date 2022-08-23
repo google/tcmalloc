@@ -160,7 +160,11 @@ TEST(HeapProfilingTest, CheckResidency) {
   size_t resident_size = 0;
   MallocExtension::SnapshotCurrent(ProfileType::kHeap)
       .Iterate([&](const Profile::Sample& s) {
-        resident_size += s.sampled_resident_size;
+        CHECK_CONDITION(
+            s.sampled_resident_size.has_value() &&
+            "Sampled resident size must be available when using the Residency "
+            "API for heap residency queries.");
+        resident_size += s.sampled_resident_size.value();
       });
 
   EXPECT_GE(resident_size, num_allocations * requested_size);

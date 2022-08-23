@@ -168,13 +168,11 @@ void StackTraceTable::Iterate(
       // e.count is "reported count, possibly stretching for unsample"; b->count
       // is "number of actual samples (and thus contributors to
       // total_resident)", which is what we need to scale total_resident by.
-      e.sampled_resident_size =
-          static_cast<double>(e.count) * b->total_resident / b->count;
-      e.swapped_size =
-          static_cast<double>(e.count) * b->total_swapped / b->count;
-      if (b->residency_errors_encountered) {
-        e.sampled_resident_size = std::numeric_limits<size_t>::max();
-        e.swapped_size = std::numeric_limits<size_t>::max();
+      if (!b->residency_errors_encountered) {
+        e.sampled_resident_size =
+            static_cast<double>(e.count) * b->total_resident / b->count;
+        e.swapped_size =
+            static_cast<double>(e.count) * b->total_swapped / b->count;
       }
       static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                     "Profile stack size smaller than internal stack sizes");

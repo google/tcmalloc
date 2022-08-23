@@ -132,7 +132,9 @@ void CheckTraces(const StackTraceTable& table,
     tmp.requested_size = e.requested_size;
     tmp.requested_alignment = e.requested_alignment;
     tmp.allocated_size = e.allocated_size;
-    tmp.sampled_resident_size = e.sampled_resident_size;
+    // If `sampled_resident_size` data is not available, just give it a 0. Since
+    // when we care about it in the test, we set it to a non-zero value anyways.
+    tmp.sampled_resident_size = e.sampled_resident_size.value_or(0);
     tmp.access_hint = static_cast<uint8_t>(e.access_hint);
     tmp.cold_allocated = e.access_allocated == Profile::Sample::Access::Cold;
 

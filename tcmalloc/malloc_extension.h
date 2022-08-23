@@ -108,11 +108,12 @@ class Profile final {
     size_t requested_alignment;
     size_t allocated_size;
     // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
-    // pre-multiplied by count and represents all of the resident memory). The
-    // name `sampled_resident_size` is a bit of a misnomer and will be fixed
-    // when we switch to separate sample types for these.
-    size_t sampled_resident_size;
-    size_t swapped_size;
+    // pre-multiplied by count and represents all of the resident memory).
+    // TODO(b/235916219): The name `sampled_resident_size` is a bit of a
+    // misnomer and will be fixed when we switch to separate sample types for
+    // these.
+    std::optional<size_t> sampled_resident_size;
+    std::optional<size_t> swapped_size;
 
     enum class Access {
       Hot,

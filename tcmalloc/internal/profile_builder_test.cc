@@ -233,6 +233,27 @@ TEST(ProfileConverterTest, Profile) {
     sample.access_allocated = Profile::Sample::Access::Hot;
   }
 
+  {
+    // This sample does not populate `sampled_resident_size` and `swapped_size`,
+    // we don't expect to see that in the proto either.
+    auto& sample = samples.emplace_back();
+
+    sample.sum = 2345;
+    sample.count = 8;
+    sample.requested_size = 16;
+    sample.requested_alignment = 0;
+    sample.allocated_size = 16;
+    // This stack is mostly artificial, but we include a real symbol from the
+    // binary to confirm that at least one location was indexed into its
+    // mapping.
+    sample.depth = 3;
+    sample.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
+    sample.stack[1] = absl::bit_cast<void*>(uintptr_t{0x23451});
+    sample.stack[2] = reinterpret_cast<void*>(&RealPath);
+    sample.access_hint = hot_cold_t{128};
+    sample.access_allocated = Profile::Sample::Access::Hot;
+  }
+
   fake_profile->SetSamples(std::move(samples));
 
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
@@ -335,10 +356,13 @@ TEST(ProfileConverterTest, Profile) {
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
               Pair("sampled_resident_bytes", 512), Pair("swapped_bytes", 0),
-              Pair("access_hint", 1), Pair("access_allocated", "hot"))));
+              Pair("access_hint", 1), Pair("access_allocated", "hot")),
+          UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
+                               Pair("access_hint", 128),
+                               Pair("access_allocated", "hot"))));
 
+  ASSERT_GE(converted.sample().size(), 3);
   // The addresses for the samples at stack[0], stack[1] should match.
-  ASSERT_GE(converted.sample().size(), 2);
   ASSERT_GE(converted.sample(0).location_id().size(), 2);
   ASSERT_GE(converted.sample(1).location_id().size(), 2);
   EXPECT_EQ(converted.sample(0).location_id(0),
