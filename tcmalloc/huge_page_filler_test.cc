@@ -700,6 +700,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     PageId p;
     Length n;
     size_t mark;
+    int32_t objects;
   };
 
   void Mark(const PAlloc& alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
@@ -722,15 +723,17 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     EXPECT_EQ((hp_contained_.in_pages() - total_allocated_).in_bytes(),
               freelist_bytes);
   }
-  PAlloc AllocateRaw(Length n, bool donated = false) {
+
+  PAlloc AllocateRaw(Length n, int objects, bool donated) {
     EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
     ret.n = n;
+    ret.objects = objects;
     ret.pt = nullptr;
     ret.mark = ++next_mark_;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      auto [pt, page] = filler_.TryGet(n, 1);
+      auto [pt, page] = filler_.TryGet(n, objects);
       ret.pt = pt;
       ret.p = page;
     }
@@ -739,7 +742,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
           new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
-        ret.p = ret.pt->Get(n, 1).page;
+        ret.p = ret.pt->Get(n, objects).page;
       }
       filler_.Contribute(ret.pt, donated);
       ++hp_contained_;
@@ -747,6 +750,10 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
     total_allocated_ += n;
     return ret;
+  }
+
+  PAlloc AllocateRaw(Length n, bool donated = false) {
+    return AllocateRaw(n, 1, donated);
   }
 
   PAlloc Allocate(Length n, bool donated = false) {
@@ -763,7 +770,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     FakeTracker* pt;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      pt = filler_.Put(p.pt, p.p, p.n, 1);
+      pt = filler_.Put(p.pt, p.p, p.n, p.objects);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -804,6 +811,86 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 };
 
 int64_t FillerTest::clock_{1234};
+
+TEST_P(FillerTest, HugePagePriority) {
+  {
+    const int linear_search_length_tracker_list =
+        Parameters::linear_search_length_tracker_list();
+    Parameters::set_linear_search_length_tracker_list(0);
+    static const Length kAlloc = kPagesPerHugePage / 2;
+    PAlloc p1 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/1024, /*donated=*/false);
+    PAlloc p2 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/512, /*donated=*/false);
+    ASSERT_NE(p1.pt, p2.pt);
+    // The page order at this point should be [p2, p1].
+    PAlloc p3 =
+        AllocateRaw(kAlloc - Length(1), /*objects=*/1024, /*donated=*/false);
+    EXPECT_EQ(p2.pt, p3.pt);
+    DeleteRaw(p1);
+    DeleteRaw(p2);
+    DeleteRaw(p3);
+    Parameters::set_linear_search_length_tracker_list(
+        linear_search_length_tracker_list);
+  }
+  {
+    const int linear_search_length_tracker_list =
+        Parameters::linear_search_length_tracker_list();
+    Parameters::set_linear_search_length_tracker_list(10);
+    static const Length kAlloc = kPagesPerHugePage / 2;
+    PAlloc p1 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/1024, /*donated=*/false);
+    PAlloc p2 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/512, /*donated=*/false);
+    ASSERT_NE(p1.pt, p2.pt);
+    // The page order at this point should be [p1, p2].
+    PAlloc p3 =
+        AllocateRaw(kAlloc - Length(1), /*objects=*/1024, /*donated=*/false);
+    EXPECT_EQ(p1.pt, p3.pt);
+    DeleteRaw(p1);
+    DeleteRaw(p2);
+    DeleteRaw(p3);
+    Parameters::set_linear_search_length_tracker_list(
+        linear_search_length_tracker_list);
+  }
+  {
+    const int linear_search_length_tracker_list =
+        Parameters::linear_search_length_tracker_list();
+    Parameters::set_linear_search_length_tracker_list(0);
+    static const Length kAlloc = kPagesPerHugePage / 2;
+    PAlloc p1 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/1024, /*donated=*/false);
+    PAlloc p2 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/512, /*donated=*/false);
+    ASSERT_NE(p1.pt, p2.pt);
+    // The page order at this point should be [p2, p1].
+    PAlloc p3 =
+        AllocateRaw(kAlloc - Length(1), /*objects=*/1024, /*donated=*/false);
+    EXPECT_EQ(p2.pt, p3.pt);
+    Parameters::set_linear_search_length_tracker_list(10);
+    PAlloc p4 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/256, /*donated=*/false);
+    PAlloc p5 =
+        AllocateRaw(kAlloc + Length(1), /*objects=*/512, /*donated=*/false);
+    // The page order at this point should be [p1, p5, p4].
+    PAlloc p6 =
+        AllocateRaw(kAlloc - Length(1), /*objects=*/512, /*donated=*/false);
+    EXPECT_EQ(p1.pt, p6.pt);
+    // The page order at this point should [p5, p4].
+    PAlloc p7 =
+        AllocateRaw(kAlloc - Length(1), /*objects=*/512, /*donated=*/false);
+    EXPECT_EQ(p5.pt, p7.pt);
+    DeleteRaw(p1);
+    DeleteRaw(p2);
+    DeleteRaw(p3);
+    DeleteRaw(p4);
+    DeleteRaw(p5);
+    DeleteRaw(p6);
+    DeleteRaw(p7);
+    Parameters::set_linear_search_length_tracker_list(
+        linear_search_length_tracker_list);
+  }
+}
 
 TEST_P(FillerTest, Density) {
   absl::BitGen rng;

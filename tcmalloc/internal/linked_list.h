@@ -188,6 +188,20 @@ class TList {
     return result;
   }
 
+  void prepend_with_linear_search(T* item, int32_t search_length) {
+    int i = 0;
+    Elem* e;
+    T* s = static_cast<T*>(item);
+    for (e = head_.next_; e != &head_ && i < search_length; e = e->next_, ++i) {
+      T* t = static_cast<T*>(e);
+      if (T::compare(t, s)) {
+        e->prepend(item);
+        return;
+      }
+    }
+    e->prepend(item);
+  }
+
   // Returns first element in the list. The list must not be empty.
   ABSL_ATTRIBUTE_RETURNS_NONNULL T* first() const {
     ASSERT(!empty());

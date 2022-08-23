@@ -33,6 +33,10 @@ class MockSpan : public MockSpanList::Elem {
     return ret;
   }
 
+  static bool compare(const MockSpan* a, const MockSpan* b) {
+    return a->index_ < b->index_;
+  }
+
   int index_;
 };
 
