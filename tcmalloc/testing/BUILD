@@ -689,6 +689,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
+        "nompu64",  # until b/243344691 is fixed
         "nosan",
     ],
     deps = [
