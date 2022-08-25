@@ -271,7 +271,14 @@ class FillerStatsTracker {
         window_(w),
         epoch_length_(window_ / kEpochs),
         tracker_(clock, w),
-        skipped_subrelease_correctness_(clock, w) {}
+        skipped_subrelease_correctness_(clock, w) {
+    // The summary_interval is used in two trackers: FillerStatsTracker for
+    // evaluating realized fragmentation, and
+    // SkippedSubreleaseCorrectnessTracker for evaluating the correctness of
+    // skipped subrelease. Here we check the length of the two trackers are
+    // sufficient for the evaluation.
+    ASSERT(summary_interval <= w);
+  }
 
   // Not copyable or movable
   FillerStatsTracker(const FillerStatsTracker&) = delete;
@@ -318,15 +325,24 @@ class FillerStatsTracker {
     return recent_peak;
   }
 
-  void ReportSkippedSubreleasePages(
-      Length pages, Length peak_pages,
-      absl::Duration expected_time_until_next_peak) {
+  // Reports a skipped subrelease, which is evaluated by coming peaks within the
+  // realized fragmentation interval. The purpose is these skipped pages would
+  // only create realized fragmentation if peaks in that interval are
+  // smaller than peak_pages.
+  void ReportSkippedSubreleasePages(Length pages, Length peak_pages) {
+    ReportSkippedSubreleasePages(pages, peak_pages, summary_interval_);
+  }
+
+  // Reports a skipped subrelease, which is evaluated by coming peaks within the
+  // given time interval.
+  void ReportSkippedSubreleasePages(Length pages, Length peak_pages,
+                                    absl::Duration next_peak_interval) {
     if (pages == Length(0)) {
       return;
     }
-
+    last_next_peak_interval_ = next_peak_interval;
     skipped_subrelease_correctness_.ReportSkippedSubreleasePages(
-        pages, peak_pages, expected_time_until_next_peak);
+        pages, peak_pages, next_peak_interval);
   }
 
   inline typename SkippedSubreleaseCorrectnessTracker<
@@ -435,7 +451,9 @@ class FillerStatsTracker {
   };
 
   // The tracker reports pages that have been free for at least this interval,
-  // as well as peaks within this interval.
+  // as well as peaks within this interval. The interval is also used for
+  // deciding correctness of skipped subreleases by associating past skipping
+  // decisions to peaks within this interval.
   const absl::Duration summary_interval_;
 
   const absl::Duration window_;
@@ -444,8 +462,11 @@ class FillerStatsTracker {
   TimeSeriesTracker<FillerStatsEntry, FillerStats, kEpochs> tracker_;
   SkippedSubreleaseCorrectnessTracker<kEpochs> skipped_subrelease_correctness_;
 
-  // Records the last peak_interval value, for reporting and debugging only.
+  // Records the last peak_interval (for skipping subreleases) and expected next
+  // peak_interval (for evaluating skipped subreleases) values, for reporting
+  // and debugging only.
   absl::Duration last_peak_interval_;
+  absl::Duration last_next_peak_interval_;
 };
 
 // Evaluates a/b, avoiding division by zero.
@@ -519,9 +540,9 @@ void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
 
   out->printf(
       "\nHugePageFiller: Since the start of the execution, %zu subreleases (%zu"
-      " pages) were skipped due to recent (%llds) peaks.\n",
+      " pages) were skipped due to recent (%ds) peaks.\n",
       total_skipped().count, total_skipped().pages.raw_num(),
-      static_cast<long long>(absl::ToInt64Seconds(last_peak_interval_)));
+      absl::ToInt64Seconds(last_peak_interval_));
 
   Length skipped_pages = total_skipped().pages - pending_skipped().pages;
   double correctly_skipped_pages_percentage =
@@ -533,9 +554,11 @@ void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
 
   out->printf(
       "HugePageFiller: %.4f%% of decisions confirmed correct, %zu "
-      "pending (%.4f%% of pages, %zu pending).\n",
+      "pending (%.4f%% of pages, %zu pending), as per anticipated %ds realized "
+      "fragmentation.\n",
       correctly_skipped_count_percentage, pending_skipped().count,
-      correctly_skipped_pages_percentage, pending_skipped().pages.raw_num());
+      correctly_skipped_pages_percentage, pending_skipped().pages.raw_num(),
+      absl::ToInt64Seconds(last_next_peak_interval_));
 
   // Print subrelease stats
   Length total_subreleased;
@@ -570,6 +593,9 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                              correctly_skipped().count);
     skip_subrelease.PrintI64("pending_skipped_subrelease_count",
                              pending_skipped().count);
+    skip_subrelease.PrintI64(
+        "next_peak_interval_ms",
+        absl::ToInt64Milliseconds(last_next_peak_interval_));
   }
 
   auto filler_stats = hpaa->CreateSubRegion("filler_stats_timeseries");
@@ -1501,8 +1527,8 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // been able to release that much memory with or without this mechanism
     // (i.e., reporting more would be confusing).
     Length skipped_pages = std::min(free_pages(), (desired - new_desired));
-    fillerstats_tracker_.ReportSkippedSubreleasePages(
-        skipped_pages, current_pages, peak_interval);
+    fillerstats_tracker_.ReportSkippedSubreleasePages(skipped_pages,
+                                                      current_pages);
     return new_desired;
   }
 

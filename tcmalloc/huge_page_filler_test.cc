@@ -1530,7 +1530,7 @@ TEST_P(FillerTest, SkipSubrelease) {
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
 HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to recent (120s) peaks.
-HugePageFiller: 25.0000% of decisions confirmed correct, 0 pending (25.0000% of pages, 0 pending).
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -1638,7 +1638,7 @@ HugePageFiller: at peak hps: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased, 0 hugepages broken
 )"));
   }
@@ -1696,8 +1696,7 @@ TEST_F(FillerStatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   // Incorrect subrelease: Subrelease to 1000
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(100), Length(1000));
-  tracker_.ReportSkippedSubreleasePages(Length(900), Length(1000),
-                                        absl::Minutes(3));
+  tracker_.ReportSkippedSubreleasePages(Length(900), Length(1000));
 
   // Second peak (small)
   Advance(absl::Minutes(1));
@@ -1713,11 +1712,9 @@ TEST_F(FillerStatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   // Correct subrelease: Subrelease to 500
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(500), Length(100));
-  tracker_.ReportSkippedSubreleasePages(Length(50), Length(550),
-                                        absl::Minutes(3));
+  tracker_.ReportSkippedSubreleasePages(Length(50), Length(550));
   GenerateDemandPoint(Length(500), Length(50));
-  tracker_.ReportSkippedSubreleasePages(Length(50), Length(500),
-                                        absl::Minutes(3));
+  tracker_.ReportSkippedSubreleasePages(Length(50), Length(500));
   GenerateDemandPoint(Length(500), Length(0));
 
   EXPECT_EQ(tracker_.total_skipped().pages, Length(1000));
@@ -1728,7 +1725,7 @@ TEST_F(FillerStatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   EXPECT_EQ(tracker_.pending_skipped().count, 3);
 
   // Third peak (large, too late for first peak)
-  Advance(absl::Minutes(1));
+  Advance(absl::Minutes(4));
   GenerateDemandPoint(Length(1100), Length(1000));
 
   Advance(absl::Minutes(5));
@@ -1902,7 +1899,7 @@ HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
-HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
+HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
 )"));
 
