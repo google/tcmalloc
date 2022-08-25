@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include <memory>
+#include <utility>
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/memory/memory.h"
@@ -59,8 +60,8 @@ void PeakHeapTracker::MaybeSaveSample() {
   tc_globals.sampled_allocation_recorder().Iterate(
       [this](const SampledAllocation& sampled_allocation) {
         recorder_lock_.AssertHeld();
-        peak_heap_recorder_.get_mutable().Register(
-            sampled_allocation.sampled_stack);
+        StackTrace st = sampled_allocation.sampled_stack;
+        peak_heap_recorder_.get_mutable().Register(std::move(st));
       });
 }
 

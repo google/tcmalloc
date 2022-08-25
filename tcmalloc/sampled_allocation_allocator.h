@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_SAMPLED_ALLOCATION_ALLOCATOR_H_
 #define TCMALLOC_SAMPLED_ALLOCATION_ALLOCATOR_H_
 
+#include <utility>
+
 #include "tcmalloc/arena.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/sampled_allocation.h"
@@ -38,14 +40,14 @@ class SampledAllocationAllocator {
     allocator_.Init(arena);
   }
 
-  SampledAllocation* New(const StackTrace& stack_trace)
+  SampledAllocation* New(StackTrace stack_trace)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     SampledAllocation* s;
     {
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       s = allocator_.New();
     }
-    return new (s) SampledAllocation(stack_trace);
+    return new (s) SampledAllocation(std::move(stack_trace));
   }
 
   void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {

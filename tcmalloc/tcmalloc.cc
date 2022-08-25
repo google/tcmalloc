@@ -882,7 +882,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   // care about its various metadata (e.g. stack trace, weight) to generate the
   // heap profile, and won't need any information from Span::Sample() next.
   SampledAllocation* sampled_allocation =
-      tc_globals.sampled_allocation_recorder().Register(tmp);
+      tc_globals.sampled_allocation_recorder().Register(std::move(tmp));
   // No pageheap_lock required. The span is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);

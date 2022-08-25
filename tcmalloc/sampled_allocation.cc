@@ -14,14 +14,16 @@
 
 #include "tcmalloc/sampled_allocation.h"
 
+#include <utility>
+
 #include "absl/debugging/stacktrace.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void SampledAllocation::PrepareForSampling(const StackTrace& stack_trace) {
-  sampled_stack = stack_trace;
+void SampledAllocation::PrepareForSampling(StackTrace stack_trace) {
+  sampled_stack = std::move(stack_trace);
 }
 
 }  // namespace tcmalloc_internal

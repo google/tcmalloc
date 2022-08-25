@@ -200,7 +200,7 @@ T* SampleRecorder<T, Allocator>::PopDead(Targs&&... args) {
 template <typename T, typename Allocator>
 template <typename... Targs>
 T* SampleRecorder<T, Allocator>::Register(Targs&&... args) {
-  T* sample = PopDead(args...);
+  T* sample = PopDead(std::forward<Targs>(args)...);
   if (sample == nullptr) {
     // Resurrection failed.  Hire a new warlock.
     sample = allocator_->New(std::forward<Targs>(args)...);
