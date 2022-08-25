@@ -67,6 +67,7 @@ cc_library(
 tcmalloc_deps = [
     ":experiment",
     ":malloc_extension",
+    ":malloc_tracing_extension",
     ":new_extension",
     ":sampled_allocation",
     "@com_google_absl//absl/base",
@@ -77,6 +78,8 @@ tcmalloc_deps = [
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/memory",
+    "@com_google_absl//absl/status",
+    "@com_google_absl//absl/status:statusor",
     "@com_google_absl//absl/strings",
     "@com_google_absl//absl/numeric:bits",
     "//tcmalloc/internal:config",
@@ -244,6 +247,7 @@ common_deps = [
     ":experiment",
     ":explicitly_constructed",
     ":malloc_extension",
+    ":malloc_tracing_extension",
     ":new_extension",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
@@ -934,6 +938,38 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "malloc_tracing_extension_system_malloc_test",
+    srcs = ["malloc_tracing_extension_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    local_defines = ["MALLOC_TRACING_EXTENSION_NOT_SUPPORTED"],
+    malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "nosan",
+    ],
+    deps = [
+        ":common",
+        ":malloc_tracing_extension",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "malloc_tracing_extension_test",
+    srcs = ["malloc_tracing_extension_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nosan",
+    ],
+    deps = [
+        ":malloc_tracing_extension",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_fuzz_test(
     name = "malloc_extension_fuzz",
     testonly = 1,
@@ -1211,6 +1247,20 @@ cc_library(
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
+    name = "malloc_tracing_extension",
+    srcs = ["malloc_tracing_extension.cc"],
+    hdrs = [
+        "internal_malloc_tracing_extension.h",
+        "malloc_tracing_extension.h",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 

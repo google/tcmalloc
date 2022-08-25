@@ -29,10 +29,14 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <optional>
+#include <vector>
+
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -90,6 +94,20 @@ class PageMap2 {
       return nullptr;
     }
     return root_[i1]->span[i2];
+  }
+
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  std::optional<Number> get_next_set_page(Number k) const {
+    Number next_k = k + 1;
+    Number i1 = next_k >> kLeafBits;
+    Number i2 = next_k & (kLeafLength - 1);
+    for (; i1 < kRootLength; ++i1, i2 = 0) {
+      if (root_[i1] == nullptr) continue;
+      for (; i2 < kLeafLength; ++i2) {
+        if (root_[i1]->span[i2] != nullptr) return (i1 << kLeafBits) | i2;
+      }
+    }
+    return std::nullopt;
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -244,6 +262,25 @@ class PageMap3 {
       return nullptr;
     }
     return root_[i1]->leafs[i2]->span[i3];
+  }
+
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  std::optional<Number> get_next_set_page(Number k) const {
+    Number next_k = k + 1;
+    Number i1 = next_k >> (kLeafBits + kMidBits);
+    Number i2 = (next_k >> kLeafBits) & (kMidLength - 1);
+    Number i3 = next_k & (kLeafLength - 1);
+    for (; i1 < kRootLength; ++i1, i2 = 0, i3 = 0) {
+      if (root_[i1] == nullptr) continue;
+      for (; i2 < kMidLength; ++i2, i3 = 0) {
+        if (root_[i1]->leafs[i2] == nullptr) continue;
+        for (; i3 < kLeafLength; ++i3) {
+          if (root_[i1]->leafs[i2]->span[i3] != nullptr)
+            return (i1 << (kLeafBits + kMidBits)) | (i2 << kLeafBits) | i3;
+        }
+      }
+    }
+    return std::nullopt;
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -418,6 +455,43 @@ class PageMap {
   // amount of unused memory. So it is better to map the root node with
   // small pages to minimise the amount of unused memory.
   void MapRootWithSmallPages();
+
+  // Returns the count of the currently allocated Spans and also adds details
+  // of such Spans in the provided allocated_spans vector. This routine avoids
+  // allocation events since we hold the pageheap_lock, so no more elements will
+  // be added to allocated_spans after it reaches its already reserved capacity.
+  int GetAllocatedSpans(
+      std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
+                      SpanDetails>& allocated_spans) {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    int allocated_span_count = 0;
+    for (std::optional<uintptr_t> i = 0; i.has_value();
+         i = map_.get_next_set_page(i.value())) {
+      PageId page_id = PageId{i.value()};
+      Span* s = GetDescriptor(page_id);
+      if (s == nullptr) {
+        // The value returned by get_next_set_page should belong to a Span.
+        ASSERT(i == 0);
+        continue;
+      }
+      // Free'd up Span that's not yet removed from PageMap.
+      if (page_id < s->first_page() || s->last_page() < page_id) continue;
+      CompactSizeClass size_class = sizeclass(page_id);
+      ASSERT(s->first_page().index() == i);
+      // As documented, GetAllocatedSpans wants to avoid allocating more memory
+      // for the output vector while holding the pageheap_lock. So, we stop
+      // adding more entries after we reach its existing capacity. Note that the
+      // count returned will still be the total number of allocated Spans.
+      if (allocated_spans.capacity() > allocated_spans.size()) {
+        allocated_spans.push_back(
+            {s->first_page().start_uintptr(), s->bytes_in_span(),
+             Static::sizemap().class_to_size(size_class)});
+      }
+      ++allocated_span_count;
+      i = s->last_page().index();
+    }
+    return allocated_span_count;
+  }
 
  private:
 #ifdef TCMALLOC_USE_PAGEMAP3
