@@ -50,12 +50,14 @@ http_archive(
 
 # Python rules
 #
-# This is explicitly added to workaround
-# https://github.com/bazelbuild/rules_python/issues/437.
+# This is explicitly added to work around
+# https://github.com/bazelbuild/rules_fuzzing/issues/207
+# and https://github.com/google/tcmalloc/issues/127
 http_archive(
     name = "rules_python",
-    urls = ["https://github.com/bazelbuild/rules_python/releases/download/0.1.0/rules_python-0.1.0.tar.gz"],
-    sha256 = "b6d46438523a3ec0f3cead544190ee13223a52f6a6765a29eae7b7cc24cc83a0",
+    urls = ["https://github.com/bazelbuild/rules_python/archive/refs/tags/0.11.0.tar.gz"],
+    sha256 = "c03246c11efd49266e8e41e12931090b613e12a59e6f55ba2efd29a7cb8b4258",
+    strip_prefix = "rules_python-0.11.0",
 )
 
 # Proto rules for Bazel and Protobuf
