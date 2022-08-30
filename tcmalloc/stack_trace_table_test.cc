@@ -151,16 +151,15 @@ void AddTrace(StackTraceTable* table, double count, const StackTrace& t,
 
 TEST(StackTraceTableTest, StackTraceTable) {
   // If this test is not linked against TCMalloc, the global arena used for
-  // StackTraceTable's buckets will not be initialized.
+  // StackTraceTable's profile samples will not be initialized.
   tc_globals.InitIfNecessary();
 
   // Empty table
   {
     SCOPED_TRACE("empty");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     EXPECT_EQ(0, table.depth_total());
-    EXPECT_EQ(0, table.bucket_total());
 
     CheckTraces(table, {});
   }
@@ -215,10 +214,9 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
-    EXPECT_EQ(1, table.bucket_total());
 
     CheckTraces(table, {k1});
   }
@@ -248,113 +246,47 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1 unsampled");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, true);
+    StackTraceTable table(ProfileType::kHeap, 1, true);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
-    EXPECT_EQ(1, table.bucket_total());
 
     CheckTraces(table, {k1_unsampled});
   }
 
-  const AllocationEntry k1_merged = {
-      .sum = 2048,
-      .count = 2,
-      .requested_size = 512,
-      .requested_alignment = 16,
-      .allocated_size = 1024,
-      .access_hint = 3,
-      .cold_allocated = true,
-      .depth = 2,
-      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-  };
-
-  // Table w/ 2x t1 (merge)
+  // Table w/ 2x t1
   {
-    SCOPED_TRACE("2x t1 merge");
+    SCOPED_TRACE("2x t1");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
-    AddTrace(&table, 1.0, t1);
-    AddTrace(&table, 1.0, t1);
-    EXPECT_EQ(2, table.depth_total());
-    EXPECT_EQ(1, table.bucket_total());
-
-    CheckTraces(table, {k1_merged});
-  }
-
-  // Table w/ 2x t1 (no merge)
-  {
-    SCOPED_TRACE("2x t1 no merge");
-
-    StackTraceTable table(ProfileType::kHeap, 1, false, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
 
     CheckTraces(table, {k1, k1});
-  }
-
-  const AllocationEntry k1_unsampled_merged = {
-      .sum = 2 * t1_sampled_weight * 1024,
-      .count = 2 * t1_sampled_weight,
-      .requested_size = 512,
-      .requested_alignment = 16,
-      .allocated_size = 1024,
-      .access_hint = 3,
-      .cold_allocated = true,
-      .depth = 2,
-      .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-  };
-
-  {
-    SCOPED_TRACE("2x t1 unsampled");
-
-    StackTraceTable table(ProfileType::kHeap, 1, true, true);
-    AddTrace(&table, 1.0, t1);
-    AddTrace(&table, 1.0, t1);
-    EXPECT_EQ(2, table.depth_total());
-    EXPECT_EQ(1, table.bucket_total());
-
-    CheckTraces(table, {k1_unsampled_merged});
   }
 
   // Table w/ t1, t2
   {
     SCOPED_TRACE("t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t2);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
     CheckTraces(table, {k1, k2});
   }
 
-  // Table w/ 1.6 x t1, 1 x t2.
-  // Note that t1's 1.6 count will be rounded-up to 2.0.
+  // Table w/ 1.2 x t1, 1 x t2.
+  // Note that t1's 1.2 count will be rounded to 1.0.
   {
-    SCOPED_TRACE("1.6 t1, t2");
+    SCOPED_TRACE("1.2 t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
-    AddTrace(&table, 0.4, t1);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t2);
     AddTrace(&table, 1.2, t1);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
 
-    const AllocationEntry scaled_k1 = {
-        .sum = 2048,
-        .count = 2,
-        .requested_size = 512,
-        .requested_alignment = 16,
-        .allocated_size = 1024,
-        .access_hint = 3,
-        .cold_allocated = true,
-        .depth = 2,
-        .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-    };
-
-    CheckTraces(table, {scaled_k1, k2});
+    CheckTraces(table, {k1, k2});
   }
 
   // Same stack as t1, but w/ different size
@@ -385,11 +317,10 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t3");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t3);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
 
     CheckTraces(table, {k1, k3});
   }
@@ -422,11 +353,10 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t4");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t4);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
 
     CheckTraces(table, {k1, k4});
   }
@@ -459,11 +389,10 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t5");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true, false);
+    StackTraceTable table(ProfileType::kHeap, 1, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t5);
     EXPECT_EQ(4, table.depth_total());
-    EXPECT_EQ(2, table.bucket_total());
 
     CheckTraces(table, {k1, k5});
   }
@@ -483,14 +412,13 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  StackTraceTable table(ProfileType::kHeap, 1, true, false);
+  StackTraceTable table(ProfileType::kHeap, 1, false);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
   Residency residency;
   AddTrace(&table, 1.0, t1, &residency);
   EXPECT_EQ(2, table.depth_total());
-  EXPECT_EQ(1, table.bucket_total());
 
   const AllocationEntry expected = {
       .sum = 1024,
@@ -521,14 +449,13 @@ TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  StackTraceTable table(ProfileType::kHeap, 1, true, true);
+  StackTraceTable table(ProfileType::kHeap, 1, true);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
   Residency residency;
   AddTrace(&table, 1.0, t1, &residency);
   EXPECT_EQ(2, table.depth_total());
-  EXPECT_EQ(1, table.bucket_total());
 
   const AllocationEntry expected = {
       .sum = 4186112,
@@ -564,7 +491,23 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       t1.stack[1] = reinterpret_cast<void*>(2);
       t1.weight = 2 << 20;
 
-      StackTraceTable table(ProfileType::kHeap, 1, true, false);
+      AllocationEntry k1 = {
+          .sum = 1024,
+          .count = 1,
+          .requested_size = 512,
+          .requested_alignment = 16,
+          .allocated_size = 1024,
+          .sampled_resident_size = 1024UL,
+          .access_hint = 3,
+          .cold_allocated = true,
+          .depth = 2,
+          .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
+      };
+
+      AllocationEntry k1_unmap = k1;
+      k1_unmap.sampled_resident_size = 0;
+
+      StackTraceTable table(ProfileType::kHeap, 1, false);
 
       size_t kSize = getpagesize();
       void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
@@ -583,23 +526,13 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       AddTrace(&table, 1.0, t1, &residency);
       t1.span_start_address = flip_order ? ptr1 : ptr2;
       AddTrace(&table, 1.0, t1, &residency);
-      EXPECT_EQ(2, table.depth_total());
-      EXPECT_EQ(1, table.bucket_total());
+      EXPECT_EQ(4, table.depth_total());
 
-      // Two traces, each allocating 1024, one possibly unmapped.
-      const AllocationEntry expected = {
-          .sum = 2048,
-          .count = 2,
-          .requested_size = 512,
-          .requested_alignment = 16,
-          .allocated_size = 1024,
-          .sampled_resident_size = unmap ? 1024UL : 2048UL,
-          .access_hint = 3,
-          .cold_allocated = true,
-          .depth = 2,
-          .stack = {reinterpret_cast<void*>(1), reinterpret_cast<void*>(2)},
-      };
-      CheckTraces(table, {expected});
+      if (unmap) {
+        CheckTraces(table, {k1, k1_unmap});
+      } else {
+        CheckTraces(table, {k1, k1});
+      }
       ASSERT_EQ(munmap(ptr1, kSize), 0) << errno;
       if (!unmap) {
         ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;

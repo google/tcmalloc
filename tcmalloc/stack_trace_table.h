@@ -37,7 +37,7 @@ class StackTraceTable final : public ProfileBase {
   // together.  Else they are kept distinct.
   // If unsample is true, Iterate() will scale counts to report estimates
   // of the true total assuming traces were added by the sampler.
-  StackTraceTable(ProfileType type, int64_t period, bool merge, bool unsample)
+  StackTraceTable(ProfileType type, int64_t period, bool unsample)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   ~StackTraceTable() override ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -53,48 +53,36 @@ class StackTraceTable final : public ProfileBase {
   void SetDuration(absl::Duration duration) { duration_ = duration; }
   absl::Duration Duration() const override { return duration_; }
 
-  // Adds stack trace "t" to table with the specified count.
-  // The count is a floating point value to reduce rounding
-  // errors when accounting for sampling probabilities.
-  void AddTrace(double count, const StackTrace& t)
+  // Adds stack trace "t" of the sample to table with the given weight of the
+  // sample. `sample_weight` is a floating point value used to calculate the
+  // the expected number of objects allocated (might be fractional considering
+  // fragmentation) corresponding to a given sample.
+  void AddTrace(double sample_weight, const StackTrace& t)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  void AddTrace(double count, const StackTrace& t, Residency* residency)
+  void AddTrace(double sample_weight, const StackTrace& t, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Exposed for PageHeapAllocator
+  // TODO(b/239458966): Give a better name to this struct, since it is no longer
+  // representing a bucket of merged samples, but instead an individual sample.
+  // We might also need to update names of its allocator, TCMalloc stats
+  // reporting, and fields in google3/perftools/profiles/proto/mallocz.proto (
+  // which currently have fields as `num_table_buckets*`).
   struct Bucket {
-    // Key
-    uintptr_t hash;
-    StackTrace trace;
-
-    // Payload
-    double count;
-    size_t total_weight;
-    size_t total_swapped;
-    size_t total_resident;
-    bool residency_errors_encountered;
+    Profile::Sample sample;
     Bucket* next;
-
-    bool KeyEqual(uintptr_t h, const StackTrace& t) const;
   };
 
   // For testing
   int depth_total() const { return depth_total_; }
-  int bucket_total() const { return bucket_total_; }
 
  private:
   ProfileType type_;
   int64_t period_;
   absl::Duration duration_ = absl::ZeroDuration();
-  int bucket_mask_;
   int depth_total_;
-  Bucket** table_;
-  int bucket_total_;
-  bool merge_;
-  bool error_;
+  Bucket* all_;
   bool unsample_;
-
-  int num_buckets() const { return bucket_mask_ + 1; }
 };
 
 }  // namespace tcmalloc_internal

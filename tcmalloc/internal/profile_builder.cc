@@ -22,9 +22,12 @@
 #endif  // defined(__linux__)
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 
 #include "tcmalloc/internal/profile.pb.h"
@@ -95,6 +98,63 @@ uintptr_t RoundUpToPageSize(uintptr_t address) {
 
   address = address + pagesize_all_bits;
   return address & ~pagesize_all_bits;
+}
+
+struct SampleMergedData {
+  int64_t count = 0;
+  int64_t sum = 0;
+  std::optional<size_t> sampled_resident_size;
+  std::optional<size_t> swapped_size;
+};
+
+// The equality and hash methods of Profile::Sample only use a subset of its
+// member fields.
+// TODO(b/239458966): Consider merging sample when building the profile proto,
+// as sample label and location id should uniquely identify the sample and cover
+// the fields below. This is best when labels on `sampled_resident_size` and
+// `swapped_size` are removed to avoid handling them specially.
+struct SampleEqWithSubFields {
+  bool operator()(const Profile::Sample& a, const Profile::Sample& b) const {
+    auto fields = [](const Profile::Sample& s) {
+      return std::tie(s.depth, s.requested_size, s.requested_alignment,
+                      s.allocated_size,
+                      s.access_hint, s.access_allocated);
+    };
+    return fields(a) == fields(b) &&
+           std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
+  }
+};
+
+struct SampleHashWithSubFields {
+  size_t operator()(const Profile::Sample& s) const {
+    return absl::HashOf(absl::MakeConstSpan(s.stack, s.depth), s.depth,
+                        s.requested_size, s.requested_alignment,
+                        s.allocated_size,
+                        s.access_hint, s.access_allocated);
+  }
+};
+
+using SampleMergedMap =
+    absl::flat_hash_map<const tcmalloc::Profile::Sample, SampleMergedData,
+                        SampleHashWithSubFields, SampleEqWithSubFields>;
+
+SampleMergedMap MergeProfileSamples(const tcmalloc::Profile& profile) {
+  SampleMergedMap map;
+  profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
+    SampleMergedData& data = map[entry];
+    data.count += entry.count;
+    data.sum += entry.sum;
+    // As long as some entries have values on `sampled_resident_size` and
+    // `swapped_size`, the merged data will have their sums.
+    if (!data.sampled_resident_size.has_value()) {
+      data.sampled_resident_size = entry.sampled_resident_size;
+      data.swapped_size = entry.swapped_size;
+    } else if (entry.sampled_resident_size.has_value()) {
+      data.sampled_resident_size.value() += entry.sampled_resident_size.value();
+      data.swapped_size.value() += entry.swapped_size.value();
+    }
+  });
+  return map;
 }
 
 }  // namespace
@@ -451,15 +511,16 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   converted.set_default_sample_type(default_sample_type_id);
 
-  profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
+  SampleMergedMap samples = MergeProfileSamples(profile);
+  for (const auto& [entry, data] : samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
 
     CHECK_CONDITION(entry.depth <= ABSL_ARRAYSIZE(entry.stack));
     builder.InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
 
-    sample.add_value(entry.count);
-    sample.add_value(entry.sum);
+    sample.add_value(data.count);
+    sample.add_value(data.sum);
 
     // add fields that are common to all memory profiles
     auto add_label = [&](int key, int unit, size_t value) {
@@ -481,10 +542,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     // types.
     // If there is no issue getting the residency info, these two fields in
     // `Profile::Sample` are populated so we add them to the proto.
-    if (entry.sampled_resident_size.has_value()) {
+    if (data.sampled_resident_size.has_value()) {
       add_label(sampled_resident_id, bytes_id,
-                entry.sampled_resident_size.value());
-      add_label(swapped_id, bytes_id, entry.swapped_size.value());
+                data.sampled_resident_size.value());
+      add_label(swapped_id, bytes_id, data.swapped_size.value());
     }
 
     auto add_access_label = [&](int key,
@@ -510,7 +571,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(access_hint_id, 0,
                        static_cast<uint8_t>(entry.access_hint));
     add_access_label(access_allocated_id, entry.access_allocated);
-  });
+  }
 
   return std::move(builder).Finalize();
 }

@@ -189,7 +189,10 @@ TEST(ProfileConverterTest, Profile) {
   std::vector<Profile::Sample> samples;
 
   {
-    auto& sample = samples.emplace_back();
+    // We have three samples here that will be merged. The second sample does
+    // not have `sampled_resident_size` and `swapped_size` set, so the merged
+    // data just have the sum from two other samples.
+    Profile::Sample sample;
 
     sample.sum = 1234;
     sample.count = 2;
@@ -209,10 +212,21 @@ TEST(ProfileConverterTest, Profile) {
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{254};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    samples.push_back(sample);
+
+    Profile::Sample sample2 = sample;
+    sample2.sampled_resident_size.reset();
+    sample2.swapped_size.reset();
+    samples.push_back(sample2);
+
+    Profile::Sample sample3 = sample;
+    sample3.sampled_resident_size = 1024;
+    sample3.swapped_size = 512;
+    samples.push_back(sample3);
   }
 
   {
-    auto& sample = samples.emplace_back();
+    Profile::Sample sample;
 
     sample.sum = 2345;
     sample.count = 5;
@@ -231,6 +245,14 @@ TEST(ProfileConverterTest, Profile) {
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    samples.push_back(sample);
+
+    // Both samples have `sampled_resident_size` and `swapped_size` set, the
+    // merged data should get their sums.
+    Profile::Sample sample2 = sample;
+    sample2.sampled_resident_size = 512;
+    sample2.swapped_size = 256;
+    samples.push_back(sample2);
   }
 
   {
@@ -351,11 +373,11 @@ TEST(ProfileConverterTest, Profile) {
       UnorderedElementsAre(
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 256), Pair("swapped_bytes", 512),
+              Pair("sampled_resident_bytes", 1280), Pair("swapped_bytes", 1024),
               Pair("access_hint", 254), Pair("access_allocated", "cold")),
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
-              Pair("sampled_resident_bytes", 512), Pair("swapped_bytes", 0),
+              Pair("sampled_resident_bytes", 1024), Pair("swapped_bytes", 256),
               Pair("access_hint", 1), Pair("access_allocated", "hot")),
           UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
                                Pair("access_hint", 128),

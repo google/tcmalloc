@@ -78,30 +78,6 @@ struct StackTrace {
   // sampled allocation. This may be nullptr for cases where it is not useful
   // for residency analysis such as for peakheapz.
   void* span_start_address = nullptr;
-
-  friend bool operator==(const StackTrace& a, const StackTrace& b) {
-    if (a.depth != b.depth || a.requested_size != b.requested_size ||
-        a.requested_alignment != b.requested_alignment ||
-        // These could theoretically differ due to e.g. memalign choices.
-        // Split the buckets just in case that happens (though it should be
-        // rare.)
-        a.allocated_size != b.allocated_size ||
-        a.access_hint != b.access_hint ||
-        a.cold_allocated != b.cold_allocated) {
-      return false;
-    }
-    return std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
-  }
-
-  template <typename H>
-  friend H AbslHashValue(H h, const StackTrace& t) {
-    // As we use StackTrace as a key-value node in StackTraceTable, we only
-    // produce a hasher for the fields used as keys.
-    return H::combine(H::combine_contiguous(std::move(h), t.stack, t.depth),
-                      t.depth, t.requested_size, t.requested_alignment,
-                      t.allocated_size,
-                      t.access_hint, t.cold_allocated);
-  }
 };
 
 enum LogMode {

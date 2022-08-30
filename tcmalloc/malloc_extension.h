@@ -102,7 +102,11 @@ class Profile final {
     static constexpr int kMaxStackDepth = 64;
 
     int64_t sum;
-    int64_t count;  // Total added with this <stack,requested_size,...>
+    // The reported count of samples, with possible rounding up for unsample.
+    // A given sample typically corresponds to some allocated objects, and the
+    // number of objects is the quotient of weight (number of bytes requested
+    // between previous and current samples) divided by the requested size.
+    int64_t count;
 
     size_t requested_size;
     size_t requested_alignment;

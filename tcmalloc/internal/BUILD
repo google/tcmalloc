@@ -297,9 +297,7 @@ cc_test(
     ],
     deps = [
         ":logging",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/hash:hash_testing",
         "@com_google_googletest//:gtest_main",
     ],
 )

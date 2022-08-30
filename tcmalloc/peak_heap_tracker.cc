@@ -67,7 +67,7 @@ void PeakHeapTracker::MaybeSaveSample() {
 
 std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() {
   auto profile = absl::make_unique<StackTraceTable>(
-      ProfileType::kPeakHeap, Sampler::GetSamplePeriod(), true, true);
+      ProfileType::kPeakHeap, Sampler::GetSamplePeriod(), true);
 
   absl::base_internal::SpinLockHolder h(&recorder_lock_);
   peak_heap_recorder_.get_mutable().Iterate(
