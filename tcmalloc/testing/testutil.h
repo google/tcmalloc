@@ -51,6 +51,25 @@ inline void sized_aligned_delete(void* ptr, size_t size,
 #endif
 }
 
+inline void sized_array_delete(void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete[](ptr, size);
+#else
+  (void)size;
+  ::operator delete[](ptr);
+#endif
+}
+
+inline void sized_array_aligned_delete(void* ptr, size_t size,
+                                       std::align_val_t alignment) {
+#ifdef __cpp_sized_deallocation
+  ::operator delete[](ptr, size, alignment);
+#else
+  (void)size;
+  ::operator delete[](ptr, alignment);
+#endif
+}
+
 // Get the TCMalloc stats in textproto format.
 std::string GetStatsInPbTxt();
 extern "C" ABSL_ATTRIBUTE_WEAK int MallocExtension_Internal_GetStatsInPbtxt(

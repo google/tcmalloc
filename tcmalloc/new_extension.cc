@@ -26,6 +26,16 @@ ABSL_ATTRIBUTE_WEAK void* operator new(size_t size, const std::nothrow_t,
   return ::operator new(size, std::nothrow);
 }
 
+ABSL_ATTRIBUTE_WEAK void* operator new[](
+    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  return ::operator new[](size);
+}
+
+ABSL_ATTRIBUTE_WEAK void* operator new[](
+    size_t size, const std::nothrow_t, tcmalloc::hot_cold_t hot_cold) noexcept {
+  return ::operator new[](size, std::nothrow);
+}
+
 #ifdef __cpp_aligned_new
 ABSL_ATTRIBUTE_WEAK void* operator new(
     size_t size, std::align_val_t alignment,
@@ -37,5 +47,17 @@ ABSL_ATTRIBUTE_WEAK void* operator new(size_t size, std::align_val_t alignment,
                                        const std::nothrow_t,
                                        tcmalloc::hot_cold_t hot_cold) noexcept {
   return ::operator new(size, alignment, std::nothrow);
+}
+
+ABSL_ATTRIBUTE_WEAK void* operator new[](
+    size_t size, std::align_val_t alignment,
+    tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  return ::operator new[](size, alignment);
+}
+
+ABSL_ATTRIBUTE_WEAK void* operator new[](
+    size_t size, std::align_val_t alignment, const std::nothrow_t,
+    tcmalloc::hot_cold_t hot_cold) noexcept {
+  return ::operator new[](size, alignment, std::nothrow);
 }
 #endif  // __cpp_aligned_new

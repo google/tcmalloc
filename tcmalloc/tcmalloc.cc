@@ -1959,3 +1959,41 @@ void* operator new(size_t size, std::align_val_t align, std::nothrow_t,
                       nullptr);
   }
 }
+
+void* operator new[](size_t size,
+                     tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new[](size_t size, std::nothrow_t,
+                     tcmalloc::hot_cold_t hot_cold) noexcept {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().Nothrow().AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().Nothrow().AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new[](size_t size, std::align_val_t align,
+                     tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().AlignAs(align).AccessAsHot(), size, nullptr);
+  } else {
+    return fast_alloc(CppPolicy().AlignAs(align).AccessAsCold(), size, nullptr);
+  }
+}
+
+void* operator new[](size_t size, std::align_val_t align, std::nothrow_t,
+                     tcmalloc::hot_cold_t hot_cold) noexcept {
+  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+    return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsHot(), size,
+                      nullptr);
+  } else {
+    return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsCold(), size,
+                      nullptr);
+  }
+}
