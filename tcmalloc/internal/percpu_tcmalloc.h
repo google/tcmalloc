@@ -456,7 +456,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   }
 }
 
-#if defined(__x86_64__)
+#if TCMALLOC_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -571,7 +571,7 @@ overflow_label:
 }
 #endif  // defined(__x86_64__)
 
-#if defined(__aarch64__)
+#if TCMALLOC_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -723,8 +723,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // it may become visible to another thread before we can trigger the
   // annotation.
   TSANRelease(item);
+#if TCMALLOC_PERCPU_USE_RSEQ
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-#if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Push<NumClasses>(slabs, size_class, item, shift,
                                                 overflow_handler, arg,
                                                 virtual_cpu_id_offset_) >= 0;
@@ -755,7 +755,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   __builtin_prefetch(prefetch_target, 0, 3);
 }
 
-#if defined(__x86_64__)
+#if TCMALLOC_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -882,7 +882,7 @@ underflow_path:
 }
 #endif  // defined(__x86_64__)
 
-#if defined(__aarch64__)
+#if TCMALLOC_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -1062,8 +1062,8 @@ template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class, UnderflowHandler underflow_handler, void* arg) {
   ASSERT(IsFastNoInit());
+#if TCMALLOC_PERCPU_USE_RSEQ
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-#if defined(__x86_64__) || defined(__aarch64__)
   return TcmallocSlab_Internal_Pop<NumClasses>(
       slabs, size_class, underflow_handler, arg, shift, virtual_cpu_id_offset_);
 #else
