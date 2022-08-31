@@ -57,24 +57,25 @@
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 
-// TCMALLOC_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ on the
-// target architecture exists. We currently only provide RSEQ for 64-bit x86,
-// Arm binaries.
-#if !defined(TCMALLOC_PERCPU_USE_RSEQ)
+// TCMALLOC_INTERNAL_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ
+// on the target architecture exists. We currently only provide RSEQ for 64-bit
+// x86, Arm binaries.
+#if !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 #if (ABSL_PER_THREAD_TLS == 1) && (TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
-#define TCMALLOC_PERCPU_USE_RSEQ 1
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ 1
 #else
-#define TCMALLOC_PERCPU_USE_RSEQ 0
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ 0
 #endif
-#endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ)
+#endif  // !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 
-// TCMALLOC_PERCPU_USE_RSEQ_VCPU defines whether TCMalloc support for RSEQ
-// virtual CPU IDs is available on the target architecture.
-#if TCMALLOC_PERCPU_USE_RSEQ && (defined(__x86_64__) || defined(__aarch64__))
-#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 1
+// TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU defines whether TCMalloc support for
+// RSEQ virtual CPU IDs is available on the target architecture.
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && \
+    (defined(__x86_64__) || defined(__aarch64__))
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU 1
 #else
-#define TCMALLOC_PERCPU_USE_RSEQ_VCPU 0
-#endif  // !defined(TCMALLOC_PERCPU_USE_RSEQ_VCPU)
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU 0
+#endif  // !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU)
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -89,13 +90,13 @@ inline constexpr int kCpuIdUnsupported = -2;
 inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
 static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
          virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
   return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
@@ -103,9 +104,9 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 #else
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
   return RseqCpuId();
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
 }
-#else  // !TCMALLOC_PERCPU_USE_RSEQ
+#else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 
 static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
@@ -206,7 +207,7 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
 bool InitFastPerCpu();
 
 inline bool IsFast() {
-  if (!TCMALLOC_PERCPU_USE_RSEQ) {
+  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
     return false;
   }
 
@@ -226,7 +227,7 @@ inline bool IsFast() {
 // As IsFast(), but if this thread isn't already initialized, will not
 // attempt to do so.
 inline bool IsFastNoInit() {
-  if (!TCMALLOC_PERCPU_USE_RSEQ) {
+  if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
     return false;
   }
   int cpu = RseqCpuId();

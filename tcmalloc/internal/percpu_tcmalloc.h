@@ -37,9 +37,9 @@
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
 
-#if defined(TCMALLOC_PERCPU_USE_RSEQ)
+#if defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 #if !defined(__clang__)
-#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 1
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 1
 #elif __clang_major__ >= 9 && !__has_feature(speculative_load_hardening)
 // asm goto requires the use of Clang 9 or newer:
 // https://releases.llvm.org/9.0.0/tools/clang/docs/ReleaseNotes.html#c-language-changes-in-clang
@@ -47,16 +47,16 @@
 // SLH (Speculative Load Hardening) builds do not support asm goto.  We can
 // detect these compilation modes since
 // https://github.com/llvm/llvm-project/commit/379e68a763097bed55556c6dc7453e4b732e3d68.
-#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 1
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 1
 #if __clang_major__ >= 11
-#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
 #endif
 
 #else
-#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 0
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 #else
-#define TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO 0
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -456,13 +456,13 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   }
 }
 
-#if TCMALLOC_PERCPU_USE_RSEQ && defined(__x86_64__)
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
     void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
   bool overflow;
@@ -528,7 +528,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "movzwq (%%r10, %[size_class], 8), %%r11\n"
       // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow_label; }
       "cmp 6(%%r10, %[size_class], 8), %%r11w\n"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       "jae %l[overflow_label]\n"
 #else
       "jae 5f\n"
@@ -541,7 +541,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // Commit
       "5:\n"
       :
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       [overflow] "=@ccae"(overflow)
 #endif
       : [rseq_abi] "r"(&__rseq_abi),
@@ -552,11 +552,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
         [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory", "r10", "r11"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
   );
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
@@ -571,7 +571,7 @@ overflow_label:
 }
 #endif  // defined(__x86_64__)
 
-#if TCMALLOC_PERCPU_USE_RSEQ && defined(__aarch64__)
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -584,7 +584,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   uintptr_t end;
   // Multiply size_class by the bytesize of each header
   size_t size_class_lsl3 = size_class * 8;
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
   asm goto(
 #else
   bool overflow;
@@ -652,7 +652,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "ldrh %w[end], [%[end_ptr], %[size_class_lsl3]]\n"
       // if (ABSL_PREDICT_FALSE(end <= current)) { goto overflow_label; }
       "cmp %[end], %[current]\n"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       "b.le %l[overflow_label]\n"
 #else
       "b.le 5f\n"
@@ -668,7 +668,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [current] "=&r"(current), [end] "=&r"(end),
         [region_start] "=&r"(region_start)
 
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
             ,
         [overflow] "=@ccle"(overflow)
 #endif
@@ -685,18 +685,18 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // the distance being too large, it injects a thunk which may clobber
       // the x16 or x17 register according to the ARMv8 ABI standard.
       : "x16", "x17", "cc", "memory"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       : overflow_label
 #endif
   );
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
 #endif
   return 0;
 overflow_label:
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
@@ -723,7 +723,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // it may become visible to another thread before we can trigger the
   // annotation.
   TSANRelease(item);
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   return TcmallocSlab_Internal_Push<NumClasses>(slabs, size_class, item, shift,
                                                 overflow_handler, arg,
@@ -755,7 +755,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
   __builtin_prefetch(prefetch_target, 0, 3);
 }
 
-#if TCMALLOC_PERCPU_USE_RSEQ && defined(__x86_64__)
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -765,7 +765,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   void* result;
   void* scratch;
   uintptr_t current;
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
   bool underflow;
@@ -824,7 +824,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           //                        scratch->header[size_class].begin))
           //   goto underflow_path;
           "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "jbe %l[underflow_path]\n"
 #else
           "jbe 5f\n"
@@ -838,7 +838,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // Commit
           "5:\n"
           : [result] "=&r"(result), [prefetch_target] "=&r"(prefetch_target),
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
             [underflow] "=@ccbe"(underflow),
 #endif
             [scratch] "=&r"(scratch), [current] "=&r"(current)
@@ -850,11 +850,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
             [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
             [size_class] "r"(size_class)
           : "cc", "memory"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
       );
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
   }
@@ -864,7 +864,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   PrefetchNextObject(prefetch_target);
   return result;
 underflow_path:
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
@@ -882,7 +882,7 @@ underflow_path:
 }
 #endif  // defined(__x86_64__)
 
-#if TCMALLOC_PERCPU_USE_RSEQ && defined(__aarch64__)
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
@@ -919,7 +919,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   // critical path
   uint64_t slabs_minus_8;
   uint64_t region_start_slabs_minus_8;
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
   bool underflow;
@@ -989,7 +989,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "ldrh %w[begin], [%[region_start], %[slabs_size_class_lsl3_plus_4]]\n"
           // if (ABSL_PREDICT_FALSE(begin >= current)) { goto underflow_path; }
           "cmp %w[begin], %w[current]\n"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "b.ge %l[underflow_path]\n"
 #else
           "b.ge 5f\n"
@@ -1003,7 +1003,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // Commit
           "5:\n"
           :
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           [underflow] "=@ccge"(underflow),
 #endif
           [result] "=&r"(result), [prefetch] "=&r"(prefetch),
@@ -1029,11 +1029,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // the distance being too large, it injects a thunk which may clobber
           // the x16 or x17 register according to the ARMv8 ABI standard.
           : "x16", "x17", "cc", "memory"
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
 #endif
       );
-#if !TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
   }
@@ -1042,7 +1042,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   PrefetchNextObject(prefetch);
   return result;
 underflow_path:
-#if TCMALLOC_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path.  The values on the taken branches are
   // undefined.
@@ -1062,7 +1062,7 @@ template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
     size_t size_class, UnderflowHandler underflow_handler, void* arg) {
   ASSERT(IsFastNoInit());
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   return TcmallocSlab_Internal_Pop<NumClasses>(
       slabs, size_class, underflow_handler, arg, shift, virtual_cpu_id_offset_);
@@ -1239,11 +1239,11 @@ void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift,
     uint8_t shift_offset) {
-#if TCMALLOC_PERCPU_USE_RSEQ_VCPU
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ_VCPU
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
 
   const int num_cpus = absl::base_internal::NumCPUs();
   Slabs* slabs = AllocSlabs(alloc, shift, num_cpus, shift_offset).first;

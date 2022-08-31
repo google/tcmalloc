@@ -68,9 +68,9 @@ enum PerCpuInitStatus {
 
 ABSL_CONST_INIT static PerCpuInitStatus init_status = kSlowMode;
 ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 // Is this thread's __rseq_abi struct currently registered with the kernel?
 static bool ThreadRegistered() { return RseqCpuId() >= kCpuIdInitialized; }
@@ -101,14 +101,14 @@ static void InitPerCpu() {
   if (InitThreadPerCpu()) {
     init_status = kFastMode;
 
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.
     using_upstream_fence.store(
         0 == syscall(__NR_membarrier,
                      kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ, 0, 0),
         std::memory_order_relaxed);
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   }
 }
 
@@ -249,7 +249,7 @@ static void SlowFence(const cpu_set_t* cpus) {
   }
 }
 
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static void UpstreamRseqFenceCpu(int cpu) {
   ABSL_RAW_CHECK(using_upstream_fence.load(std::memory_order_relaxed),
                  "upstream fence unavailable.");
@@ -263,7 +263,7 @@ static void UpstreamRseqFenceCpu(int cpu) {
   ABSL_RAW_CHECK(res == 0 || res == -ENXIO /* missing CPU */,
                  "Upstream fence failed.");
 }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 // Interrupt every concurrently running sibling thread on any cpu in
 // "cpus", and guarantee our writes up til now are visible to every
@@ -297,12 +297,12 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
     FenceAllCpus();
   }
 
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (using_upstream_fence.load(std::memory_order_relaxed)) {
     UpstreamRseqFenceCpu(cpu);
     return;
   }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
   cpu_set_t set;
   CPU_ZERO(&set);
@@ -311,12 +311,12 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
 }
 
 void FenceAllCpus() {
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (using_upstream_fence.load(std::memory_order_relaxed)) {
     UpstreamRseqFenceCpu(-1);
     return;
   }
-#endif  // TCMALLOC_PERCPU_USE_RSEQ
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   FenceInterruptCPUs(nullptr);
 }
 

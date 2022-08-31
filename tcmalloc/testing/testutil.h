@@ -141,7 +141,7 @@ class ScopedAlwaysSample {
 };
 
 inline void UnregisterRseq() {
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   syscall(__NR_rseq, &tcmalloc_internal::subtle::percpu::__rseq_abi,
           sizeof(tcmalloc_internal::subtle::percpu::__rseq_abi),
           tcmalloc_internal::subtle::percpu::kRseqUnregister,
@@ -179,7 +179,7 @@ class ScopedUnregisterRseq {
 class ScopedFakeCpuId {
  public:
   explicit ScopedFakeCpuId(const int cpu_id) {
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
@@ -191,7 +191,7 @@ class ScopedFakeCpuId {
   }
 
   ~ScopedFakeCpuId() {
-#if TCMALLOC_PERCPU_USE_RSEQ
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // Undo the modification we made in the constructor, as required by
     // ~ScopedFakeCpuId.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =

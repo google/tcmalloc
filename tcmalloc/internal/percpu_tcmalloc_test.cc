@@ -886,7 +886,7 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
   GTEST_SKIP() << "--gc-sections cannot be inhibited on this compiler.";
 #endif
 
-#if !TCMALLOC_PERCPU_USE_RSEQ
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   GTEST_SKIP() << "rseq is not enabled in this build.";
 #endif
 
