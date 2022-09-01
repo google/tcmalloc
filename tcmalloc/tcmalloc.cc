@@ -974,9 +974,6 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
 // prologue/epilogue for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
 static void do_free_pages(void* ptr, const PageId p) {
-  void* proxy = nullptr;
-  size_t allocated_size;
-
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   CHECK_CONDITION(span != nullptr && "Possible double free detected");
   // Prefetch now to avoid a stall accessing *span while under the lock.
@@ -986,10 +983,12 @@ static void do_free_pages(void* ptr, const PageId p) {
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
   if (SampledAllocation* sampled_allocation = span->Unsample()) {
-    proxy = sampled_allocation->sampled_stack.proxy;
-    size_t weight = sampled_allocation->sampled_stack.weight;
-    size_t requested_size = sampled_allocation->sampled_stack.requested_size;
-    allocated_size = sampled_allocation->sampled_stack.allocated_size;
+    void* const proxy = sampled_allocation->sampled_stack.proxy;
+    const size_t weight = sampled_allocation->sampled_stack.weight;
+    const size_t requested_size =
+        sampled_allocation->sampled_stack.requested_size;
+    const size_t allocated_size =
+        sampled_allocation->sampled_stack.allocated_size;
     // How many allocations does this sample represent, given the sampling
     // frequency (weight) and its size.
     const double allocation_estimate =
@@ -1006,6 +1005,19 @@ static void do_free_pages(void* ptr, const PageId p) {
       ASSERT(tc_globals.sampled_internal_fragmentation_.value() >=
              sampled_fragmentation);
       tc_globals.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
+    }
+
+    if (proxy) {
+      const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
+      size_t size_class;
+      if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
+        size_class = tc_globals.sizemap().SizeClass(policy.AccessAsCold(),
+                                                    allocated_size);
+      } else {
+        size_class = tc_globals.sizemap().SizeClass(policy.AccessAsHot(),
+                                                    allocated_size);
+      }
+      FreeSmall<Hooks::NO>(proxy, size_class);
     }
   }
 
@@ -1033,19 +1045,6 @@ static void do_free_pages(void* ptr, const PageId p) {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
       tc_globals.page_allocator().Delete(span, 1, MemoryTag::kNormal);
     }
-  }
-
-  if (proxy) {
-    const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
-    size_t size_class;
-    if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-      size_class =
-          tc_globals.sizemap().SizeClass(policy.AccessAsCold(), allocated_size);
-    } else {
-      size_class =
-          tc_globals.sizemap().SizeClass(policy.AccessAsHot(), allocated_size);
-    }
-    FreeSmall<Hooks::NO>(proxy, size_class);
   }
 }
 
