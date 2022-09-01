@@ -425,11 +425,6 @@ static Length RoundUp(Length value, Length alignment) {
 }
 
 void PageAllocInfo::RecordAlloc(PageId p, Length n, size_t num_objects) {
-  if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeTicks();
-    LogAlloc(t, p, n, num_objects);
-  }
-
   static_assert(kMaxPages.in_bytes() == 1024 * 1024, "threshold changed?");
   static_assert(kMaxPages < kPagesPerHugePage, "there should be slack");
   largest_seen_ = std::max(largest_seen_, n);
@@ -445,11 +440,6 @@ void PageAllocInfo::RecordAlloc(PageId p, Length n, size_t num_objects) {
 }
 
 void PageAllocInfo::RecordFree(PageId p, Length n, size_t num_objects) {
-  if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeTicks();
-    LogFree(t, p, n, num_objects);
-  }
-
   if (n <= kMaxPages) {
     total_small_ -= n;
     small_[n.raw_num() - 1].Free(n);
@@ -461,12 +451,7 @@ void PageAllocInfo::RecordFree(PageId p, Length n, size_t num_objects) {
   }
 }
 
-void PageAllocInfo::RecordRelease(Length n, Length got) {
-  if (ABSL_PREDICT_FALSE(log_on())) {
-    int64_t t = TimeTicks();
-    LogRelease(t, n);
-  }
-}
+void PageAllocInfo::RecordRelease(Length n, Length got) {}
 
 const PageAllocInfo::Counts& PageAllocInfo::counts_for(Length n) const {
   if (n <= kMaxPages) {
@@ -476,50 +461,7 @@ const PageAllocInfo::Counts& PageAllocInfo::counts_for(Length n) const {
   return large_[i];
 }
 
-using tcmalloc::tcmalloc_internal::signal_safe_write;
-
-void PageAllocInfo::Write(uint64_t when, uint8_t what, PageId p, Length n,
-                          size_t num_objects) {
-  TraceEntry e;
-  // Round the time to ms *before* computing deltas, because this produces more
-  // accurate results in the long run.
-
-  // Consider events that occur at absolute time 0.7ms and 50ms.  If
-  // we take deltas first, we say the first event occurred at +0.7 =
-  // 0ms and the second event occurred at +49.3ms = 49ms.
-  // Rounding first produces 0 and 50.
-  const uint64_t ms = when * 1000 / freq_;
-  uint64_t delta_ms = ms - last_ms_;
-  last_ms_ = ms;
-  // clamping
-  if (delta_ms >= 1 << 24) {
-    delta_ms = (1 << 24) - 1;
-  }
-  e.whenwhat = delta_ms << 8 | what;
-  e.id = p.index();
-  size_t bytes = n.in_bytes();
-  static const size_t KiB = 1024;
-  static const size_t kMaxRep = std::numeric_limits<uint32_t>::max() * KiB;
-  if (bytes > kMaxRep) {
-    bytes = kMaxRep;
-  }
-  e.kib = bytes / KiB;
-  e.num_objects = num_objects;
-  const char* ptr = reinterpret_cast<const char*>(&e);
-  const size_t len = sizeof(TraceEntry);
-  CHECK_CONDITION(len == signal_safe_write(fd_, ptr, len, nullptr));
-}
-
-PageAllocInfo::PageAllocInfo(const char* label, int log_fd)
-    : label_(label), fd_(log_fd) {
-  if (ABSL_PREDICT_FALSE(log_on())) {
-    // version 1 of the format, in case we change things up
-    uint64_t header = 1;
-    const char* ptr = reinterpret_cast<const char*>(&header);
-    const size_t len = sizeof(header);
-    CHECK_CONDITION(len == signal_safe_write(fd_, ptr, len, nullptr));
-  }
-}
+PageAllocInfo::PageAllocInfo(const char* label) : label_(label) {}
 
 int64_t PageAllocInfo::TimeTicks() const {
   return absl::base_internal::CycleClock::Now() - baseline_ticks_;

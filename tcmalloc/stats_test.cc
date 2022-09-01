@@ -180,7 +180,7 @@ TEST_F(AgeTest, ManySizes) {
 }
 
 TEST(PageAllocInfo, Small) {
-  PageAllocInfo info("", -1);
+  PageAllocInfo info("");
   static_assert(kMaxPages >= Length(4), "odd config");
 
   info.RecordAlloc(PageId{0}, Length(2), 1);
@@ -209,7 +209,7 @@ TEST(PageAllocInfo, Small) {
 }
 
 TEST(PageAllocInfo, Large) {
-  PageAllocInfo info("", -1);
+  PageAllocInfo info("");
   static_assert(kPagesPerHugePage > kMaxPages, "odd config");
 
   // These three should be aggregated

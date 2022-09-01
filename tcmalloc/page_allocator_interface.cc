@@ -31,55 +31,12 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-static int OpenLog(MemoryTag tag) {
-  const char* fname = [&]() {
-    switch (tag) {
-      case MemoryTag::kNormal:
-        return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE");
-      case MemoryTag::kNormalP1:
-        return thread_safe_getenv("TCMALLOC_PAGE_LOG_FILE_P1");
-      case MemoryTag::kSampled:
-        return thread_safe_getenv("TCMALLOC_SAMPLED_PAGE_LOG_FILE");
-      case MemoryTag::kCold:
-        return thread_safe_getenv("TCMALLOC_COLD_PAGE_LOG_FILE");
-      default:
-        ASSUME(false);
-        __builtin_unreachable();
-    }
-  }();
-
-  if (ABSL_PREDICT_TRUE(!fname)) return -1;
-
-  if (getuid() != geteuid() || getgid() != getegid()) {
-    Log(kLog, __FILE__, __LINE__, "Cannot take a pagetrace from setuid binary");
-    return -1;
-  }
-  char buf[PATH_MAX];
-  // Tag file with PID - handles forking children much better.
-  int pid = getpid();
-  // Blaze tests can output here for recovery of the output file
-  const char* test_dir = thread_safe_getenv("TEST_UNDECLARED_OUTPUTS_DIR");
-  if (test_dir) {
-    snprintf(buf, sizeof(buf), "%s/%s.%d", test_dir, fname, pid);
-  } else {
-    snprintf(buf, sizeof(buf), "%s.%d", fname, pid);
-  }
-  int fd =
-      signal_safe_open(buf, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR);
-
-  if (fd < 0) {
-    Crash(kCrash, __FILE__, __LINE__, fd, errno, fname);
-  }
-
-  return fd;
-}
-
 PageAllocatorInterface::PageAllocatorInterface(const char* label, MemoryTag tag)
     : PageAllocatorInterface(label, &tc_globals.pagemap(), tag) {}
 
 PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
                                                MemoryTag tag)
-    : info_(label, OpenLog(tag)), pagemap_(map), tag_(tag) {}
+    : info_(label), pagemap_(map), tag_(tag) {}
 
 PageAllocatorInterface::~PageAllocatorInterface() {
   // This is part of tcmalloc statics - they must be immortal.

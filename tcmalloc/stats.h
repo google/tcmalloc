@@ -196,8 +196,7 @@ class PageAllocInfo {
   struct Counts;
 
  public:
-  // If log_fd >= 0, dump a page trace to it as record events come in.
-  PageAllocInfo(const char* label, int log_fd);
+  PageAllocInfo(const char* label);
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
@@ -254,45 +253,7 @@ class PageAllocInfo {
 
   const int64_t baseline_ticks_{absl::base_internal::CycleClock::Now()};
   const double freq_{absl::base_internal::CycleClock::Frequency()};
-
-  // State for page trace logging.
-  const int fd_;
-  uint64_t last_ms_{0};
-  void Write(uint64_t when, uint8_t what, PageId p, Length n,
-             size_t num_objects);
-  bool log_on() const { return fd_ >= 0; }
-  void LogAlloc(int64_t when, PageId p, Length n, size_t num_objects) {
-    Write(when, 0, p, n, num_objects);
-  }
-  void LogFree(int64_t when, PageId p, Length n, size_t num_objects) {
-    Write(when, 1, p, n, num_objects);
-  }
-  void LogRelease(int64_t when, Length n) { Write(when, 2, PageId{0}, n, 0); }
 };
-
-// Our current format is really simple. We have an eight-byte version
-// number as a header (currently = 1). We then follow up with a sequence
-// of fixed-size events, each 16 bytes:
-// - 8 byte "id" (really returned page)
-// - 4 byte size (in kib, for compatibility)
-//   (this gets us to 4 TiB; anything larger is reported truncated)
-// - 4 bytes for when (ms since last event) + what
-// We shift up the when by 8 bits, and store what the event is in
-// low 8 bits. (Currently just 0=alloc, 1=free, 2=Release.)
-// This truncates time deltas to 2^24 ms ~= 4 hours.
-// This could be compressed further.  (As is, it compresses well
-// with gzip.)
-// All values are host-order.
-struct TraceEntry {
-  uint64_t id;
-  uint32_t kib;
-  uint32_t whenwhat;
-  uint32_t num_objects;
-} ABSL_ATTRIBUTE_PACKED;  // Avoid padding since we save these structs to file.
-
-// We store TraceEntry objects in binary format in trace files.  Ensure that
-// object size is fixed so that trace files do not break sliently.
-static_assert(sizeof(TraceEntry) == 20, "bad sizing");
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
