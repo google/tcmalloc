@@ -684,9 +684,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // and BL branches in ARM is limited to 128MB. If the linker detects
       // the distance being too large, it injects a thunk which may clobber
       // the x16 or x17 register according to the ARMv8 ABI standard.
-      : "x16", "x17", "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+      : "x16", "x17", "cc", "memory"
       : overflow_label
+#else
+      : "x16", "x17", "memory"
 #endif
   );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
@@ -1028,9 +1030,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           // and BL branches in ARM is limited to 128MB. If the linker detects
           // the distance being too large, it injects a thunk which may clobber
           // the x16 or x17 register according to the ARMv8 ABI standard.
-          : "x16", "x17", "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          : "x16", "x17", "cc", "memory"
           : underflow_path
+#else
+          : "x16", "x17", "memory"
 #endif
       );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
