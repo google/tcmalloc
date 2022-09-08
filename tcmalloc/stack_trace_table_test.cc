@@ -158,7 +158,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("empty");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     EXPECT_EQ(0, table.depth_total());
 
     CheckTraces(table, {});
@@ -214,7 +214,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
 
@@ -246,7 +246,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1 unsampled");
 
-    StackTraceTable table(ProfileType::kHeap, 1, true);
+    StackTraceTable table(ProfileType::kHeap, true);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
 
@@ -257,7 +257,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("2x t1");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(4, table.depth_total());
@@ -269,7 +269,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t2);
     EXPECT_EQ(4, table.depth_total());
@@ -281,7 +281,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("1.2 t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t2);
     AddTrace(&table, 1.2, t1);
     EXPECT_EQ(4, table.depth_total());
@@ -317,7 +317,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t3");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t3);
     EXPECT_EQ(4, table.depth_total());
@@ -353,7 +353,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t4");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t4);
     EXPECT_EQ(4, table.depth_total());
@@ -389,7 +389,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t5");
 
-    StackTraceTable table(ProfileType::kHeap, 1, false);
+    StackTraceTable table(ProfileType::kHeap, false);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t5);
     EXPECT_EQ(4, table.depth_total());
@@ -412,7 +412,7 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  StackTraceTable table(ProfileType::kHeap, 1, false);
+  StackTraceTable table(ProfileType::kHeap, false);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
@@ -449,7 +449,7 @@ TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  StackTraceTable table(ProfileType::kHeap, 1, true);
+  StackTraceTable table(ProfileType::kHeap, true);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
@@ -507,7 +507,7 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       AllocationEntry k1_unmap = k1;
       k1_unmap.sampled_resident_size = 0;
 
-      StackTraceTable table(ProfileType::kHeap, 1, false);
+      StackTraceTable table(ProfileType::kHeap, false);
 
       size_t kSize = getpagesize();
       void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,

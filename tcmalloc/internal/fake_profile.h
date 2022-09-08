@@ -42,11 +42,6 @@ class FakeProfile final : public ProfileBase {
     }
   }
 
-  // The approximate interval between recorded samples of the event of interest.
-  // A period of 1 means every sample was recorded.
-  int64_t Period() const override { return period_; };
-  void SetPeriod(int64_t period) { period_ = period; }
-
   // The type of profile (live objects, allocated, etc.).
   ProfileType Type() const override { return type_; }
   void SetType(ProfileType type) { type_ = type; }
@@ -57,7 +52,6 @@ class FakeProfile final : public ProfileBase {
 
  private:
   std::vector<Profile::Sample> samples_;
-  int64_t period_ = 0;
   ProfileType type_;
   absl::Duration duration_;
 };

@@ -630,10 +630,6 @@ class ProfileBase {
   virtual void Iterate(
       absl::FunctionRef<void(const Profile::Sample&)> f) const = 0;
 
-  // The approximate interval between recorded samples of the event of interest.
-  // A period of 1 means every sample was recorded.
-  virtual int64_t Period() const = 0;
-
   // The type of profile (live objects, allocated, etc.).
   virtual ProfileType Type() const = 0;
 

@@ -32,13 +32,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-StackTraceTable::StackTraceTable(ProfileType type, int64_t period,
-                                 bool unsample)
-    : type_(type),
-      period_(period),
-      depth_total_(0),
-      all_(nullptr),
-      unsample_(unsample) {}
+StackTraceTable::StackTraceTable(ProfileType type, bool unsample)
+    : type_(type), depth_total_(0), all_(nullptr), unsample_(unsample) {}
 
 StackTraceTable::~StackTraceTable() {
   Bucket* cur = all_;

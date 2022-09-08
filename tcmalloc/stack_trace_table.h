@@ -37,7 +37,7 @@ class StackTraceTable final : public ProfileBase {
   // together.  Else they are kept distinct.
   // If unsample is true, Iterate() will scale counts to report estimates
   // of the true total assuming traces were added by the sampler.
-  StackTraceTable(ProfileType type, int64_t period, bool unsample)
+  StackTraceTable(ProfileType type, bool unsample)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   ~StackTraceTable() override ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -45,8 +45,6 @@ class StackTraceTable final : public ProfileBase {
   // base::Profile methods.
   void Iterate(
       absl::FunctionRef<void(const Profile::Sample&)> func) const override;
-
-  int64_t Period() const override { return period_; }
 
   ProfileType Type() const override { return type_; }
 
@@ -78,7 +76,8 @@ class StackTraceTable final : public ProfileBase {
 
  private:
   ProfileType type_;
-  int64_t period_;
+  // TODO(ckennelly): Investigate why this impacts sampling_test.cc.
+  void* ABSL_ATTRIBUTE_UNUSED padding_;
   absl::Duration duration_ = absl::ZeroDuration();
   int depth_total_;
   Bucket* all_;

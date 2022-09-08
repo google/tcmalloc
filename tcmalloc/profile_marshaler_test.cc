@@ -28,11 +28,9 @@ namespace tcmalloc_internal {
 namespace {
 
 TEST(ProfileMarshalTest, Smoke) {
-  constexpr int kPeriod = 1000;
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
   auto fake_profile = absl::make_unique<FakeProfile>();
-  fake_profile->SetPeriod(kPeriod);
   fake_profile->SetType(ProfileType::kAllocations);
   fake_profile->SetDuration(kDuration);
 
@@ -64,7 +62,7 @@ TEST(ProfileMarshalTest, Smoke) {
   // extensively tested in tcmalloc/testing/profile_test.cc.  We do
   // limited tests here to verify the proto likely roundtripped correctly.
 
-  EXPECT_EQ(converted.period(), kPeriod);
+  EXPECT_EQ(converted.period(), 1);
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
   EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
   EXPECT_THAT(converted.string_table(converted.drop_frames()),

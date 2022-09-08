@@ -66,7 +66,7 @@ int64_t Profile::Period() const {
     return -1;
   }
 
-  return impl_->Period();
+  return 1;
 }
 
 ProfileType Profile::Type() const {

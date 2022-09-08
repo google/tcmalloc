@@ -178,11 +178,9 @@ TEST(ProfileBuilderTest, Sanitizers) {
 #endif
 
 TEST(ProfileConverterTest, Profile) {
-  constexpr int kPeriod = 1000;
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
   auto fake_profile = std::make_unique<FakeProfile>();
-  fake_profile->SetPeriod(kPeriod);
   fake_profile->SetType(ProfileType::kHeap);
   fake_profile->SetDuration(kDuration);
 
@@ -404,7 +402,7 @@ TEST(ProfileConverterTest, Profile) {
   EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
 
   // Period
-  EXPECT_EQ(converted.period(), kPeriod);
+  EXPECT_EQ(converted.period(), 1);
 }
 
 TEST(BuildId, CorruptImage_b180635896) {
