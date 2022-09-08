@@ -174,8 +174,7 @@ static void PrintStats(int level) {
 // complete deallocation, thus `proxy` can not be returned to the span yet. It
 // thus prevents the central free list to return the span to the page heap.
 static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
-  auto profile =
-      std::make_unique<StackTraceTable>(ProfileType::kFragmentation, true);
+  auto profile = std::make_unique<StackTraceTable>(ProfileType::kFragmentation);
   tc_globals.sampled_allocation_recorder().Iterate(
       [&profile](const SampledAllocation& sampled_allocation) {
         // Compute fragmentation to charge to this sample:
@@ -209,7 +208,7 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
 }
 
 static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
-  auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap, true);
+  auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap);
   if (Parameters::use_new_residency_api()) {
     Residency r;
     tc_globals.sampled_allocation_recorder().Iterate(
@@ -280,8 +279,7 @@ class AllocationSampleList {
 } allocation_samples_;
 
 AllocationSample::AllocationSample() : start_(absl::Now()) {
-  mallocs_ =
-      absl::make_unique<StackTraceTable>(ProfileType::kAllocations, true);
+  mallocs_ = absl::make_unique<StackTraceTable>(ProfileType::kAllocations);
   allocation_samples_.Add(this);
 }
 

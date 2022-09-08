@@ -192,13 +192,9 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   return GetSamplePeriod() <= 0 ? 0 : weight;
 }
 
-double AllocatedBytes(const StackTrace& stack, bool unsample) {
-  if (unsample) {
-    return static_cast<double>(stack.weight) * stack.allocated_size /
-           (stack.requested_size + 1);
-  } else {
-    return stack.allocated_size;
-  }
+double AllocatedBytes(const StackTrace& stack) {
+  return static_cast<double>(stack.weight) * stack.allocated_size /
+         (stack.requested_size + 1);
 }
 
 }  // namespace tcmalloc_internal

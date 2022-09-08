@@ -268,12 +268,9 @@ inline void Sampler::UpdateFastPathState() {
   }
 }
 
-// If unsample is true, return the approximate number of bytes that would have
-// been allocated to obtain this sample.  This is only accurate if the sample
-// period hasn't changed since the allocation(s) were made.
-//
-// If unsample is false, the caller will handle unsampling.
-double AllocatedBytes(const StackTrace& stack, bool unsample);
+// Returns the approximate number of bytes that would have been allocated to
+// obtain this sample.
+double AllocatedBytes(const StackTrace& stack);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

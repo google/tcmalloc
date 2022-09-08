@@ -32,8 +32,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-StackTraceTable::StackTraceTable(ProfileType type, bool unsample)
-    : type_(type), depth_total_(0), all_(nullptr), unsample_(unsample) {}
+StackTraceTable::StackTraceTable(ProfileType type)
+    : type_(type), depth_total_(0), all_(nullptr) {}
 
 StackTraceTable::~StackTraceTable() {
   Bucket* cur = all_;
@@ -70,7 +70,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t,
   size_t allocated_size = t.allocated_size;
   size_t requested_size = t.requested_size;
 
-  uintptr_t bytes = sample_weight * AllocatedBytes(t, unsample_) + 0.5;
+  uintptr_t bytes = sample_weight * AllocatedBytes(t) + 0.5;
   // We want sum to be a multiple of allocated_size; pick the nearest
   // multiple rather than always rounding up or down.
   //

@@ -158,7 +158,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("empty");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     EXPECT_EQ(0, table.depth_total());
 
     CheckTraces(table, {});
@@ -173,7 +173,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t1.depth = static_cast<uintptr_t>(2);
   t1.stack[0] = reinterpret_cast<void*>(1);
   t1.stack[1] = reinterpret_cast<void*>(2);
-  t1.weight = 2 << 20;
+  t1.weight = 513;
 
   const AllocationEntry k1 = {
       .sum = 1024,
@@ -196,7 +196,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t2.depth = static_cast<uintptr_t>(2);
   t2.stack[0] = reinterpret_cast<void*>(2);
   t2.stack[1] = reinterpret_cast<void*>(1);
-  t2.weight = 1;
+  t2.weight = 376;
 
   const AllocationEntry k2 = {
       .sum = 512,
@@ -214,7 +214,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(2, table.depth_total());
 
@@ -227,8 +227,11 @@ TEST(StackTraceTableTest, StackTraceTable) {
   //
   // We rely on the profiling tests to verify that this correctly reconstructs
   // the distribution (+/- an error tolerance)
+  auto t1_nontrivial_weight = t1;
+  t1_nontrivial_weight.weight = 2 << 20;
   const int t1_sampled_weight =
-      static_cast<double>(t1.weight) / (t1.requested_size + 1);
+      static_cast<double>(t1_nontrivial_weight.weight) /
+      (t1_nontrivial_weight.requested_size + 1);
   ASSERT_EQ(t1_sampled_weight, 4088);
   const AllocationEntry k1_unsampled = {
       .sum = t1_sampled_weight * 1024,
@@ -246,8 +249,8 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1 unsampled");
 
-    StackTraceTable table(ProfileType::kHeap, true);
-    AddTrace(&table, 1.0, t1);
+    StackTraceTable table(ProfileType::kHeap);
+    AddTrace(&table, 1.0, t1_nontrivial_weight);
     EXPECT_EQ(2, table.depth_total());
 
     CheckTraces(table, {k1_unsampled});
@@ -257,7 +260,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("2x t1");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t1);
     EXPECT_EQ(4, table.depth_total());
@@ -269,7 +272,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t2);
     EXPECT_EQ(4, table.depth_total());
@@ -281,7 +284,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("1.2 t1, t2");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t2);
     AddTrace(&table, 1.2, t1);
     EXPECT_EQ(4, table.depth_total());
@@ -299,7 +302,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t3.depth = static_cast<uintptr_t>(2);
   t3.stack[0] = reinterpret_cast<void*>(1);
   t3.stack[1] = reinterpret_cast<void*>(2);
-  t3.weight = 1;
+  t3.weight = 14;
 
   const AllocationEntry k3 = {
       .sum = 17,
@@ -317,7 +320,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t3");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t3);
     EXPECT_EQ(4, table.depth_total());
@@ -335,7 +338,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t4.depth = static_cast<uintptr_t>(2);
   t4.stack[0] = reinterpret_cast<void*>(1);
   t4.stack[1] = reinterpret_cast<void*>(2);
-  t4.weight = 1;
+  t4.weight = 513;
 
   const AllocationEntry k4 = {
       .sum = 1024,
@@ -353,7 +356,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t4");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t4);
     EXPECT_EQ(4, table.depth_total());
@@ -371,7 +374,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   t5.depth = static_cast<uintptr_t>(2);
   t5.stack[0] = reinterpret_cast<void*>(1);
   t5.stack[1] = reinterpret_cast<void*>(2);
-  t5.weight = 1;
+  t5.weight = 513;
 
   const AllocationEntry k5 = {
       .sum = 1024,
@@ -389,7 +392,7 @@ TEST(StackTraceTableTest, StackTraceTable) {
   {
     SCOPED_TRACE("t1, t5");
 
-    StackTraceTable table(ProfileType::kHeap, false);
+    StackTraceTable table(ProfileType::kHeap);
     AddTrace(&table, 1.0, t1);
     AddTrace(&table, 1.0, t5);
     EXPECT_EQ(4, table.depth_total());
@@ -410,9 +413,9 @@ TEST(StackTraceTableTest, ResidentSizeResident) {
   t1.depth = static_cast<uintptr_t>(2);
   t1.stack[0] = reinterpret_cast<void*>(1);
   t1.stack[1] = reinterpret_cast<void*>(2);
-  t1.weight = 2 << 20;
+  t1.weight = 513;
 
-  StackTraceTable table(ProfileType::kHeap, false);
+  StackTraceTable table(ProfileType::kHeap);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
@@ -449,7 +452,7 @@ TEST(StackTraceTableTest, ResidentSizeSamplingWorks) {
   t1.stack[1] = reinterpret_cast<void*>(2);
   t1.weight = 2 << 20;
 
-  StackTraceTable table(ProfileType::kHeap, true);
+  StackTraceTable table(ProfileType::kHeap);
 
   std::vector<char> bytes(1024);
   t1.span_start_address = bytes.data();
@@ -489,7 +492,7 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       t1.depth = static_cast<uintptr_t>(2);
       t1.stack[0] = reinterpret_cast<void*>(1);
       t1.stack[1] = reinterpret_cast<void*>(2);
-      t1.weight = 2 << 20;
+      t1.weight = 513;
 
       AllocationEntry k1 = {
           .sum = 1024,
@@ -507,7 +510,7 @@ TEST(StackTraceTableTest, ResidentSizeNoLongerPresent) {
       AllocationEntry k1_unmap = k1;
       k1_unmap.sampled_resident_size = 0;
 
-      StackTraceTable table(ProfileType::kHeap, false);
+      StackTraceTable table(ProfileType::kHeap);
 
       size_t kSize = getpagesize();
       void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,

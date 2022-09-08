@@ -33,12 +33,7 @@ namespace tcmalloc_internal {
 
 class StackTraceTable final : public ProfileBase {
  public:
-  // If merge is true, traces with identical size and stack are merged
-  // together.  Else they are kept distinct.
-  // If unsample is true, Iterate() will scale counts to report estimates
-  // of the true total assuming traces were added by the sampler.
-  StackTraceTable(ProfileType type, bool unsample)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  StackTraceTable(ProfileType type) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   ~StackTraceTable() override ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
@@ -76,12 +71,11 @@ class StackTraceTable final : public ProfileBase {
 
  private:
   ProfileType type_;
-  // TODO(ckennelly): Investigate why this impacts sampling_test.cc.
-  void* ABSL_ATTRIBUTE_UNUSED padding_;
+  // TODO(b/245788128): Investigate why this impacts sampling_test.cc.
+  void* ABSL_ATTRIBUTE_UNUSED padding_[2];
   absl::Duration duration_ = absl::ZeroDuration();
   int depth_total_;
   Bucket* all_;
-  bool unsample_;
 };
 
 }  // namespace tcmalloc_internal
