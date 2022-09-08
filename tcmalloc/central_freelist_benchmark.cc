@@ -37,6 +37,7 @@ void BM_Populate(benchmark::State& state) {
   size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
+  const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
   cfl.Init(size_class);
@@ -46,7 +47,7 @@ void BM_Populate(benchmark::State& state) {
   int64_t items_processed = 0;
   absl::BitGen rnd;
 
-  for (auto s : state) {
+  while (state.KeepRunningBatch(num_batches)) {
     int index = 0;
     // The cost of fetching objects will include the cost of fetching and
     // populating the span.
@@ -86,6 +87,7 @@ void BM_MixAndReturn(benchmark::State& state) {
   size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
+  const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
   cfl.Init(size_class);
@@ -95,7 +97,7 @@ void BM_MixAndReturn(benchmark::State& state) {
   int64_t items_processed = 0;
   absl::BitGen rnd;
 
-  for (auto s : state) {
+  while (state.KeepRunningBatch(num_batches)) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
@@ -134,6 +136,7 @@ void BM_SpanReuse(benchmark::State& state) {
   size_t size_class = tc_globals.sizemap().SizeClass(CppPolicy(), object_size);
   int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   int num_objects = 64 * 1024 * 1024 / object_size;
+  const int num_batches = num_objects / batch_size;
   CentralFreeList cfl;
   // Initialize the span to contain the appropriate size of object.
   cfl.Init(size_class);
@@ -158,7 +161,7 @@ void BM_SpanReuse(benchmark::State& state) {
   int64_t items_processed = 0;
   absl::BitGen rnd;
 
-  for (auto s : state) {
+  while (state.KeepRunningBatch(num_batches)) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
