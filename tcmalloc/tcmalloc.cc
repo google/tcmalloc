@@ -860,6 +860,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   tmp.cold_allocated = allocated_cold;
   tmp.weight = weight;
   tmp.span_start_address = span->start_address();
+  tmp.allocation_time = absl::Now();
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.

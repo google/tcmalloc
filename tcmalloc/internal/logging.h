@@ -28,6 +28,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 
 //-------------------------------------------------------------------
@@ -73,6 +74,9 @@ struct StackTrace {
   // weight is the expected number of *bytes* that were requested
   // between the previous sample and this one
   size_t weight;
+
+  // Timestamp of allocation.
+  absl::Time allocation_time;
 
   // If not nullptr, this is the start address of the span corresponding to this
   // sampled allocation. This may be nullptr for cases where it is not useful
