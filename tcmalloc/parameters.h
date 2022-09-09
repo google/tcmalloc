@@ -152,12 +152,6 @@ class Parameters {
     TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(value);
   }
 
-  // Not intended for programmatic use. Use new Residency API for default
-  // pathways; otherwise do not collect information. To be removed.
-  static bool use_new_residency_api() {
-    return use_new_residency_api_.load(std::memory_order_relaxed);
-  }
-
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
@@ -180,7 +174,6 @@ class Parameters {
       double v);
   friend void ::TCMalloc_Internal_SetLinearSearchLengthTrackerList(int32_t v);
   friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
-  friend void ::TCMalloc_Internal_SetUseNewResidencyApi(bool v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
@@ -199,7 +192,6 @@ class Parameters {
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> use_new_residency_api_;
 };
 
 }  // namespace tcmalloc_internal

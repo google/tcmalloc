@@ -209,18 +209,11 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
 
 static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap);
-  if (Parameters::use_new_residency_api()) {
-    Residency r;
-    tc_globals.sampled_allocation_recorder().Iterate(
-        [&](const SampledAllocation& sampled_allocation) {
-          profile->AddTrace(1.0, sampled_allocation.sampled_stack, &r);
-        });
-  } else {
-    tc_globals.sampled_allocation_recorder().Iterate(
-        [&profile](const SampledAllocation& sampled_allocation) {
-          profile->AddTrace(1.0, sampled_allocation.sampled_stack, nullptr);
-        });
-  }
+  Residency r;
+  tc_globals.sampled_allocation_recorder().Iterate(
+      [&](const SampledAllocation& sampled_allocation) {
+        profile->AddTrace(1.0, sampled_allocation.sampled_stack, &r);
+      });
   return profile;
 }
 
