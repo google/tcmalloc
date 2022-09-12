@@ -39,6 +39,7 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -1525,16 +1526,15 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
   // madvise away the old slabs memory.
-  // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once the
+  // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
   // kernel enables huge zero pages.
-  // Note: we use bitwise OR to avoid short-circuiting.
-  const bool madvise_failed =
-      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
-      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
-  if (madvise_failed) {
+  if (madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE)) {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         info.old_slabs_size, std::memory_order_relaxed);
   }
+  // TODO(b/122551676): Add a return value to SystemRelease and consume it
+  // here.
+  SystemRelease(info.old_slabs, info.old_slabs_size);
   forwarder_.ArenaReportNonresident(info.old_slabs_size, info.reused_bytes);
 }
 
