@@ -132,6 +132,9 @@ class Profile final {
 
     int depth;
     void* stack[kMaxStackDepth];
+
+    // Timestamp of allocation.
+    absl::Time allocation_time;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;

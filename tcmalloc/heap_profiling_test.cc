@@ -53,6 +53,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
   // Some threads are busy with allocating and deallocating.
   manager.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
+  absl::Time start = absl::Now();
   // Another few threads busy with iterating different kinds of heap profiles.
   for (auto t : {
            ProfileType::kHeap,
@@ -67,6 +68,8 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
             EXPECT_GT(s.depth, 0);
             EXPECT_GT(s.requested_size, 0);
             EXPECT_GT(s.allocated_size, 0);
+            EXPECT_GT(s.allocation_time, start - absl::Seconds(10));
+            EXPECT_LT(s.allocation_time, start + absl::Seconds(10));
           });
     });
   }

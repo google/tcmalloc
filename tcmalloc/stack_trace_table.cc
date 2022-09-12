@@ -87,6 +87,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t,
   b->sample.access_allocated = t.cold_allocated ? Profile::Sample::Access::Cold
                                                 : Profile::Sample::Access::Hot;
   b->sample.depth = t.depth;
+  b->sample.allocation_time = t.allocation_time;
 
   // TODO(b/235916219): This is all changing. Do the refactor as mentioned
   // in the bug and get rid of `sampled_resident_size`. Note "sampled" is
