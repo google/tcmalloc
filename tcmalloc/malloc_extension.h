@@ -588,6 +588,12 @@ tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned(
     size_t size, std::align_val_t alignment);
 tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size, std::align_val_t alignment) noexcept;
+tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold);
+tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+    size_t size, std::align_val_t alignment,
+    tcmalloc::hot_cold_t hot_cold) noexcept;
 
 #endif  // __cpp_aligned_new
 

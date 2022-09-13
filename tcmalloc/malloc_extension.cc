@@ -516,4 +516,17 @@ tcmalloc_size_returning_operator_new_aligned_nothrow(
   return {p, p ? size : 0};
 }
 
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_aligned_hot_cold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t) {
+  return {::operator new(size, alignment), size};
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
+tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t) noexcept {
+  void* p = ::operator new(size, alignment, std::nothrow);
+  return {p, p ? size : 0};
+}
+
 #endif  // _LIBCPP_VERSION && __cpp_aligned_new

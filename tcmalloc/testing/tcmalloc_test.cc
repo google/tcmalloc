@@ -46,6 +46,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <functional>
 #include <iostream>
 #include <iterator>
 #include <limits>
@@ -54,6 +55,7 @@
 #include <random>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -855,76 +857,134 @@ TEST(TCMallocTest, TestAliasedFunctions) {
 
 #endif
 
-class TcmallocSizedNewTest : public ::testing::TestWithParam<hot_cold_t> {};
+enum class ThrowException { kNo, kYes };
 
-INSTANTIATE_TEST_SUITE_P(HotColdDefault, TcmallocSizedNewTest,
-                         testing::Values(hot_cold_t(0), hot_cold_t{128},
-                                         hot_cold_t{255}));
+class TcmallocSizedNewTest
+    : public ::testing::TestWithParam<
+          std::tuple<std::align_val_t, hot_cold_t, ThrowException>> {
+ public:
+  TcmallocSizedNewTest()
+      : align_(std::get<0>(GetParam())),
+        hot_cold_(std::get<1>(GetParam())),
+        throw_exception_(std::get<2>(GetParam())) {
+    const int align_needed = IsOveraligned();
+    const int hot_cold_needed = (hot_cold_ != hot_cold_t{128});
+    const int nothrow_needed = (throw_exception_ == ThrowException::kNo);
+    const int encoding =
+        (align_needed << 2) | (hot_cold_needed << 1) | nothrow_needed;
+    switch (encoding) {
+      case 0b000:
+        sro_new_ = tcmalloc_size_returning_operator_new;
+        break;
+      case 0b001:
+        sro_new_ = tcmalloc_size_returning_operator_new_nothrow;
+        break;
+      case 0b010:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold_);
+        };
+        break;
+      case 0b011:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+              size, hot_cold_);
+        };
+        break;
+      case 0b100:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_aligned(size, align_);
+        };
+        break;
+      case 0b101:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_aligned_nothrow(size,
+                                                                      align_);
+        };
+        break;
+      case 0b110:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_aligned_hot_cold(
+              size, align_, hot_cold_);
+        };
+        break;
+      case 0b111:
+        sro_new_ = [this](size_t size) {
+          return tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+              size, align_, hot_cold_);
+        };
+        break;
+    }
+  }
 
-// local helper to call tcmalloc_size_returning_operator_new() with, or without
-// a hot_cold_t parameter based on hot_cold_t = 128 meaning 'default'
-sized_ptr_t sro_new(size_t size, hot_cold_t hot_cold) {
-  return hot_cold == hot_cold_t{128}
-             ? tcmalloc_size_returning_operator_new(size)
-             : tcmalloc_size_returning_operator_new_hot_cold(size, hot_cold);
-}
-sized_ptr_t sro_new_nothrow(size_t size, hot_cold_t hot_cold) {
-  return hot_cold == hot_cold_t{128}
-             ? tcmalloc_size_returning_operator_new_nothrow(size)
-             : tcmalloc_size_returning_operator_new_hot_cold_nothrow(size,
-                                                                     hot_cold);
-}
+  sized_ptr_t New(size_t size) const { return sro_new_(size); }
+
+  bool IsNothrow() const { return throw_exception_ == ThrowException::kNo; }
+
+  bool IsOveraligned() const {
+    return align_ > std::align_val_t{__STDCPP_DEFAULT_NEW_ALIGNMENT__};
+  }
+
+  std::align_val_t GetAlignment() const { return align_; }
+
+  void Delete(sized_ptr_t res) const {
+    if (IsOveraligned()) {
+      ::operator delete(res.p, align_);
+    } else {
+      ::operator delete(res.p);
+    }
+  }
+
+ private:
+  std::align_val_t align_;
+  hot_cold_t hot_cold_;
+  ThrowException throw_exception_;
+  // Size returning operator new.
+  std::function<sized_ptr_t(size_t)> sro_new_;
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    AlignedHotColdThrow, TcmallocSizedNewTest,
+    testing::Combine(
+        testing::Values(1, 2, 4, 8, 16, 32, 64),
+        testing::Values(hot_cold_t(0), hot_cold_t{128}, hot_cold_t{255}),
+        testing::Values(ThrowException::kNo, ThrowException::kYes)),
+    [](const testing::TestParamInfo<TcmallocSizedNewTest::ParamType>& info) {
+      std::string name = absl::StrCat(
+          "Align", std::get<0>(info.param), "HotCold",
+          static_cast<int>(std::get<1>(info.param)),
+          std::get<2>(info.param) == ThrowException::kNo ? "Nothrow" : "Throw");
+      return name;
+    });
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = sro_new(3, GetParam());
+  sized_ptr_t res = New(3);
   EXPECT_THAT(res.n, testing::Ge(8));
-  ::operator delete(res.p);
-}
-
-TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNewReturnsExtraCapacity) {
-  // For release / no sanitizer builds, tcmalloc does return
-  // the next available class size, which we know is always at least
-  // properly aligned, so size 3 should always return extra capacity.
-  sized_ptr_t res = sro_new_nothrow(3, GetParam());
-  EXPECT_THAT(res.n, testing::Ge(8));
-  ::operator delete(res.p);
+  Delete(res);
 }
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
-  for (size_t size = 0; size < 1024; ++size) {
-    sized_ptr_t res = sro_new(size, GetParam());
-    EXPECT_NE(res.p, nullptr);
-    EXPECT_GE(res.n, size);
-    EXPECT_LE(size, std::max(size + 100, 2 * size));
-    benchmark::DoNotOptimize(memset(res.p, 0xBF, res.n));
-    ::operator delete(res.p);
-  }
-}
-
-TEST_P(TcmallocSizedNewTest, NothrowSizedOperatorNew) {
   for (size_t size = 0; size < 64 * 1024; ++size) {
-    sized_ptr_t res = sro_new_nothrow(size, GetParam());
+    sized_ptr_t res = New(size);
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
     EXPECT_LE(size, std::max(size + 100, 2 * size));
     benchmark::DoNotOptimize(memset(res.p, 0xBF, res.n));
-    ::operator delete(res.p);
+    Delete(res);
   }
 }
 
-TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNewAlwaysFails) {
+TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
   constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  EXPECT_DEATH(sro_new(kBadSize, GetParam()), ".*");
-}
-
-TEST_P(TcmallocSizedNewTest, InvalidNothrowSizedOperatorNew) {
-  constexpr size_t kBadSize = std::numeric_limits<size_t>::max();
-  sized_ptr_t res = sro_new_nothrow(kBadSize, GetParam());
-  EXPECT_EQ(res.p, nullptr);
-  EXPECT_EQ(res.n, 0);
+  if (IsNothrow()) {
+    sized_ptr_t res = New(kBadSize);
+    EXPECT_EQ(res.p, nullptr);
+    EXPECT_EQ(res.n, 0);
+  } else {
+    EXPECT_DEATH(New(kBadSize), "");
+  }
 }
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
@@ -935,16 +995,24 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
 
   // Traverse clean power 2 / common size class / page sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size *= 2) {
-    sized_ptr_t r = sro_new(size, GetParam());
+    sized_ptr_t r = New(size);
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
-    ::operator delete(r.p, r.n);
+    if (IsOveraligned()) {
+      ::operator delete(r.p, r.n, GetAlignment());
+    } else {
+      ::operator delete(r.p, r.n);
+    }
   }
 
   // Traverse randomized sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size += kOddIncrement) {
-    sized_ptr_t r = sro_new(size, GetParam());
+    sized_ptr_t r = New(size);
     ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
-    ::operator delete(r.p, r.n);
+    if (IsOveraligned()) {
+      ::operator delete(r.p, r.n, GetAlignment());
+    } else {
+      ::operator delete(r.p, r.n);
+    }
   }
 }
 

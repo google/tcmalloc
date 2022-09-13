@@ -1475,12 +1475,33 @@ extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
 }
 
 extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned(size_t size,
+                                                 std::align_val_t alignment) {
+  size_t capacity;
+  void* p = fast_alloc(CppPolicy().AlignAs(alignment), size, &capacity);
+  return {p, capacity};
+}
+
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
     tcmalloc_size_returning_operator_new_hot_cold(
         size_t size, tcmalloc::hot_cold_t hot_cold) {
   size_t capacity;
   void* p = static_cast<uint8_t>(hot_cold) >= uint8_t{128}
                 ? fast_alloc(CppPolicy().AccessAsHot(), size, &capacity)
                 : fast_alloc(CppPolicy().AccessAsCold(), size, &capacity);
+  return {p, capacity};
+}
+
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_hot_cold(
+        size_t size, std::align_val_t alignment,
+        tcmalloc::hot_cold_t hot_cold) {
+  size_t capacity;
+  void* p = static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+                ? fast_alloc(CppPolicy().AlignAs(alignment).AccessAsHot(), size,
+                             &capacity)
+                : fast_alloc(CppPolicy().AlignAs(alignment).AccessAsCold(),
+                             size, &capacity);
   return {p, capacity};
 }
 
@@ -1626,6 +1647,15 @@ extern "C" tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
 }
 
 extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_nothrow(
+        size_t size, std::align_val_t alignment) noexcept {
+  size_t capacity;
+  void* p =
+      fast_alloc(CppPolicy().AlignAs(alignment).Nothrow(), size, &capacity);
+  return {p, capacity};
+}
+
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
     tcmalloc_size_returning_operator_new_hot_cold_nothrow(
         size_t size, tcmalloc::hot_cold_t hot_cold) noexcept {
   size_t capacity;
@@ -1633,6 +1663,20 @@ extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
       static_cast<uint8_t>(hot_cold) >= uint8_t{128}
           ? fast_alloc(CppPolicy().AccessAsHot().Nothrow(), size, &capacity)
           : fast_alloc(CppPolicy().AccessAsCold().Nothrow(), size, &capacity);
+  return {p, capacity};
+}
+
+extern "C" ABSL_ATTRIBUTE_SECTION(google_malloc) tcmalloc::sized_ptr_t
+    tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+        size_t size, std::align_val_t alignment,
+        tcmalloc::hot_cold_t hot_cold) noexcept {
+  size_t capacity;
+  void* p =
+      static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+          ? fast_alloc(CppPolicy().AlignAs(alignment).AccessAsHot().Nothrow(),
+                       size, &capacity)
+          : fast_alloc(CppPolicy().AlignAs(alignment).AccessAsCold().Nothrow(),
+                       size, &capacity);
   return {p, capacity};
 }
 
