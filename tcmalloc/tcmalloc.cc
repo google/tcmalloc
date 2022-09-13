@@ -639,10 +639,10 @@ inline void SetClassCapacity(const void* ptr, uint32_t size_class,
 // `size` if `ptr` is not null, else `*psize` is set to 0. This method is
 // overloaded for `nullptr_t` below, allowing the compiler to optimize code
 // between regular and size returning allocation operations.
-inline void SetPagesCapacity(const void*, size_t, std::nullptr_t) {}
-inline void SetPagesCapacity(const void* ptr, size_t size, size_t* psize) {
+inline void SetPagesCapacity(const void*, Length, std::nullptr_t) {}
+inline void SetPagesCapacity(const void* ptr, Length size, size_t* psize) {
   if (ABSL_PREDICT_TRUE(ptr != nullptr)) {
-    *psize = BytesToLengthCeil(size).in_bytes();
+    *psize = size.in_bytes();
   } else {
     *psize = 0;
   }
@@ -848,6 +848,7 @@ static void* SampleifyAllocation(Policy policy, size_t requested_size,
   tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 0);
   tmp.requested_size = requested_size;
   tmp.requested_alignment = requested_alignment;
+  tmp.requested_size_returning = capacity != nullptr;
   tmp.allocated_size = allocated_size;
   tmp.access_hint = static_cast<uint8_t>(policy.access());
   tmp.cold_allocated = allocated_cold;
@@ -899,8 +900,9 @@ inline size_t ShouldSampleAllocation(size_t size) {
   return GetThreadSampler()->RecordAllocation(size);
 }
 
-template <typename Policy>
-inline void* do_malloc_pages(Policy policy, size_t size, int num_objects) {
+template <typename Policy, typename CapacityPtr = std::nullptr_t>
+inline void* do_malloc_pages(Policy policy, size_t size, int num_objects,
+                             CapacityPtr capacity = nullptr) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
@@ -914,15 +916,21 @@ inline void* do_malloc_pages(Policy policy, size_t size, int num_objects) {
       num_pages, BytesToLengthCeil(policy.align()), num_objects, tag);
 
   if (span == nullptr) {
+    SetPagesCapacity(nullptr, Length(0), capacity);
     return nullptr;
   }
 
   void* result = span->start_address();
   ASSERT(!ColdFeatureActive() || tag == GetMemoryTag(span->start_address()));
 
+  // Set capacity to the exact size for a page allocation.  This needs to be
+  // revisited if we introduce gwp-asan sampling / guarded allocations to
+  // do_malloc_pages().
+  SetPagesCapacity(result, num_pages, capacity);
+
   if (size_t weight = ShouldSampleAllocation(size)) {
     CHECK_CONDITION(result == SampleifyAllocation(policy, size, weight, 0,
-                                                  nullptr, span, nullptr));
+                                                  nullptr, span, capacity));
   }
 
   return result;
@@ -1321,11 +1329,7 @@ static void* ABSL_ATTRIBUTE_SECTION(google_malloc)
   if (ABSL_PREDICT_TRUE(is_small)) {
     p = AllocSmall(policy, size_class, size, capacity);
   } else {
-    p = do_malloc_pages(policy, size, 1);
-    // Set capacity to the exact size for a page allocation.
-    // This needs to be revisited if we introduce gwp-asan
-    // sampling / guarded allocations to do_malloc_pages().
-    SetPagesCapacity(p, size, capacity);
+    p = do_malloc_pages(policy, size, 1, capacity);
     if (ABSL_PREDICT_FALSE(p == nullptr)) {
       return Policy::handle_oom(size);
     }

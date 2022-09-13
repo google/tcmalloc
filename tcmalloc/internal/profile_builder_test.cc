@@ -196,6 +196,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.count = 2;
     sample.requested_size = 2;
     sample.requested_alignment = 4;
+    sample.requested_size_returning = true;
     sample.allocated_size = 16;
     sample.sampled_resident_size = 256;
     sample.swapped_size = 512;
@@ -230,6 +231,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.count = 5;
     sample.requested_size = 4;
     sample.requested_alignment = 0;
+    sample.requested_size_returning = false;
     sample.allocated_size = 8;
     sample.sampled_resident_size = 512;
     sample.swapped_size = 0;
@@ -262,6 +264,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.count = 8;
     sample.requested_size = 16;
     sample.requested_alignment = 0;
+    sample.requested_size_returning = true;
     sample.allocated_size = 16;
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
@@ -372,14 +375,16 @@ TEST(ProfileConverterTest, Profile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("sampled_resident_bytes", 1280), Pair("swapped_bytes", 1024),
-              Pair("access_hint", 254), Pair("access_allocated", "cold")),
+              Pair("access_hint", 254), Pair("access_allocated", "cold"),
+              Pair("size_returning", 1)),
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
               Pair("sampled_resident_bytes", 1024), Pair("swapped_bytes", 256),
               Pair("access_hint", 1), Pair("access_allocated", "hot")),
           UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
                                Pair("access_hint", 128),
-                               Pair("access_allocated", "hot"))));
+                               Pair("access_allocated", "hot"),
+                               Pair("size_returning", 1))));
 
   ASSERT_GE(converted.sample().size(), 3);
   // The addresses for the samples at stack[0], stack[1] should match.

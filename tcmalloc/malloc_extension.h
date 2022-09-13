@@ -110,6 +110,9 @@ class Profile final {
 
     size_t requested_size;
     size_t requested_alignment;
+    // Return whether the allocation was returned with
+    // tcmalloc_size_returning_operator_new or its variants.
+    bool requested_size_returning;
     size_t allocated_size;
     // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
     // pre-multiplied by count and represents all of the resident memory).

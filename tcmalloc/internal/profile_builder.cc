@@ -117,7 +117,7 @@ struct SampleEqWithSubFields {
   bool operator()(const Profile::Sample& a, const Profile::Sample& b) const {
     auto fields = [](const Profile::Sample& s) {
       return std::tie(s.depth, s.requested_size, s.requested_alignment,
-                      s.allocated_size,
+                      s.requested_size_returning, s.allocated_size,
                       s.access_hint, s.access_allocated);
     };
     return fields(a) == fields(b) &&
@@ -129,7 +129,7 @@ struct SampleHashWithSubFields {
   size_t operator()(const Profile::Sample& s) const {
     return absl::HashOf(absl::MakeConstSpan(s.stack, s.depth), s.depth,
                         s.requested_size, s.requested_alignment,
-                        s.allocated_size,
+                        s.requested_size_returning, s.allocated_size,
                         s.access_hint, s.access_allocated);
   }
 };
@@ -454,6 +454,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int count_id = builder.InternString("count");
   const int objects_id = builder.InternString("objects");
   const int request_id = builder.InternString("request");
+  const int size_returning_id = builder.InternString("size_returning");
   const int space_id = builder.InternString("space");
   const int access_hint_id = builder.InternString("access_hint");
   const int access_allocated_id = builder.InternString("access_allocated");
@@ -538,6 +539,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(bytes_id, bytes_id, entry.allocated_size);
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+    add_positive_label(size_returning_id, 0, entry.requested_size_returning);
     // TODO(b/235916219): Remove these when we convert these from tags to sample
     // types.
     // If there is no issue getting the residency info, these two fields in

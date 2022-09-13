@@ -63,6 +63,7 @@ struct StackTrace {
 
   uintptr_t requested_size;
   uintptr_t requested_alignment;
+  bool requested_size_returning;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
 
   uint8_t access_hint;

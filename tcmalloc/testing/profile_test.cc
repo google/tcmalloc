@@ -52,6 +52,8 @@ TEST(ProfileTest, HeapProfile) {
   std::vector<std::unique_ptr<void, decltype(deleter)>> allocs;
   for (int i = 0; i < kAllocs; i++) {
     allocs.emplace_back(::operator new(alloc_size), deleter);
+    allocs.emplace_back(tcmalloc_size_returning_operator_new(alloc_size).p,
+                        deleter);
   }
 
   // Grab profile, encode, then decode to look for the allocations.
@@ -68,37 +70,58 @@ TEST(ProfileTest, HeapProfile) {
   perftools::profiles::Profile converted;
   ASSERT_TRUE(converted.ParseFromCodedStream(&coded));
 
-  // Look for "request" string in string table.
-  std::optional<int> request_id;
+  // Look for "request" and "size_returning" string in string table.
+  std::optional<int> request_id, size_returning_id;
   for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
     if (converted.string_table(i) == "request") {
       request_id = i;
-      break;
+    } else if (converted.string_table(i) == "size_returning") {
+      size_returning_id = i;
     }
   }
 
   EXPECT_TRUE(request_id.has_value());
+  EXPECT_TRUE(size_returning_id.has_value());
 
-  size_t count = 0, bytes = 0, samples = 0;
+  size_t count = 0, bytes = 0, samples = 0, size_returning_samples = 0;
   for (const auto& sample : converted.sample()) {
     count += sample.value(0);
     bytes += sample.value(1);
 
     // Count the number of times we saw an alloc_size-sized allocation.
+    bool alloc_sized = false;
     for (const auto& label : sample.label()) {
       if (label.key() == request_id && label.num() == alloc_size) {
+        alloc_sized = true;
         samples++;
+      }
+    }
+
+    if (alloc_sized) {
+      for (const auto& label : sample.label()) {
+        if (label.key() == size_returning_id && label.num() > 0) {
+          size_returning_samples++;
+        }
       }
     }
   }
 
   EXPECT_GT(count, 0);
-  EXPECT_GE(bytes, alloc_size * kAllocs);
+  EXPECT_GE(bytes, 2 * alloc_size * kAllocs);
   // To minimize the size of profiles, we expect to coalesce similar allocations
   // (same call stack, size, alignment, etc.) during generation of the
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
-  // similar in these dimensions, we expect to see only 1 sample.
-  EXPECT_EQ(samples, 1);
+  // similar in these dimensions, we expect to see only 2 samples, one for
+  // ::operator new and one for tcmalloc_size_returning_operator_new.
+#ifndef __aarch64__
+  EXPECT_EQ(samples, 2);
+  EXPECT_EQ(size_returning_samples, 1);
+#else
+  // TODO(b/246562683):  We can see two distinct size-returning new callstacks
+  // on AArch64.
+  EXPECT_GE(samples, 2);
+  EXPECT_GE(size_returning_samples, 1);
+#endif
 
   absl::flat_hash_set<int> mapping_ids;
   mapping_ids.reserve(converted.mapping().size());
