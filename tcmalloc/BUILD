@@ -144,6 +144,7 @@ cc_library(
 
 # List of common source files used by the various tcmalloc libraries.
 common_srcs = [
+    "allocation_sample.cc",
     "arena.cc",
     "arena.h",
     "background.cc",
@@ -205,6 +206,7 @@ common_srcs = [
 ]
 
 common_hdrs = [
+    "allocation_sample.h",
     "arena.h",
     "central_freelist.h",
     "common.h",

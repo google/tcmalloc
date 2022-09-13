@@ -87,6 +87,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/strip.h"
+#include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -217,83 +218,7 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
   return profile;
 }
 
-class AllocationSampleList;
-
-class AllocationSample final : public AllocationProfilingTokenBase {
- public:
-  AllocationSample();
-  ~AllocationSample() override;
-
-  Profile Stop() && override;
-
- private:
-  std::unique_ptr<StackTraceTable> mallocs_;
-  absl::Time start_;
-  AllocationSample* next_;
-  friend class AllocationSampleList;
-};
-
-class AllocationSampleList {
- public:
-  void Add(AllocationSample* as) {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    as->next_ = first_;
-    first_ = as;
-  }
-
-  // This list is very short and we're nowhere near a hot path, just walk
-  void Remove(AllocationSample* as) {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    AllocationSample** link = &first_;
-    AllocationSample* cur = first_;
-    while (cur != as) {
-      CHECK_CONDITION(cur != nullptr);
-      link = &cur->next_;
-      cur = cur->next_;
-    }
-    *link = as->next_;
-  }
-
-  void ReportMalloc(const struct StackTrace& sample) {
-    absl::base_internal::SpinLockHolder h(&lock_);
-    AllocationSample* cur = first_;
-    while (cur != nullptr) {
-      cur->mallocs_->AddTrace(1.0, sample);
-      cur = cur->next_;
-    }
-  }
-
- private:
-  // Guard against any concurrent modifications on the list of allocation
-  // samples. Invoking `new` while holding this lock can lead to deadlock.
-  absl::base_internal::SpinLock lock_{
-      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
-  AllocationSample* first_ ABSL_GUARDED_BY(lock_);
-} allocation_samples_;
-
-AllocationSample::AllocationSample() : start_(absl::Now()) {
-  mallocs_ = absl::make_unique<StackTraceTable>(ProfileType::kAllocations);
-  allocation_samples_.Add(this);
-}
-
-AllocationSample::~AllocationSample() {
-  if (mallocs_ == nullptr) {
-    return;
-  }
-
-  // deleted before ending profile, do it for them
-  allocation_samples_.Remove(this);
-}
-
-Profile AllocationSample::Stop() && {
-  // We need to remove ourselves from the allocation_samples_ list before we
-  // mutate mallocs_;
-  if (mallocs_) {
-    allocation_samples_.Remove(this);
-    mallocs_->SetDuration(absl::Now() - start_);
-  }
-  return ProfileAccessor::MakeProfile(std::move(mallocs_));
-}
+ABSL_CONST_INIT static AllocationSampleList allocation_samples_;
 
 extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
   size_t shift = std::max<size_t>(18, absl::bit_width(ret->capacity()) - 1);
@@ -354,7 +279,7 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
 
 extern "C" AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling() {
-  return new AllocationSample();
+  return new AllocationSample(&allocation_samples_, absl::Now());
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
