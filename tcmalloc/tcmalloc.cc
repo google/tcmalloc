@@ -980,6 +980,8 @@ static void do_free_pages(void* ptr, const PageId p) {
         sampled_allocation->sampled_stack.requested_size;
     const size_t allocated_size =
         sampled_allocation->sampled_stack.allocated_size;
+    const size_t alignment =
+        sampled_allocation->sampled_stack.requested_alignment;
     // How many allocations does this sample represent, given the sampling
     // frequency (weight) and its size.
     const double allocation_estimate =
@@ -1002,12 +1004,14 @@ static void do_free_pages(void* ptr, const PageId p) {
       const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
       size_t size_class;
       if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-        size_class = tc_globals.sizemap().SizeClass(policy.AccessAsCold(),
-                                                    allocated_size);
+        size_class = tc_globals.sizemap().SizeClass(
+            policy.AccessAsCold().AlignAs(alignment), allocated_size);
       } else {
-        size_class = tc_globals.sizemap().SizeClass(policy.AccessAsHot(),
-                                                    allocated_size);
+        size_class = tc_globals.sizemap().SizeClass(
+            policy.AccessAsHot().AlignAs(alignment), allocated_size);
       }
+      ASSERT(size_class ==
+             tc_globals.pagemap().sizeclass(PageIdContaining(proxy)));
       FreeSmall<Hooks::NO>(proxy, size_class);
     }
   }

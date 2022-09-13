@@ -492,7 +492,7 @@ class SizeMap {
                                                         size_t size,
                                                         uint32_t* size_class) {
     const size_t align = policy.align();
-    ASSERT(absl::has_single_bit(align));
+    ASSERT(align == 0 || absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
       // TODO(b/172060547): Consider changing this to align > kPageSize.
@@ -510,10 +510,11 @@ class SizeMap {
     } else {
       *size_class = class_array_[idx] + policy.scaled_numa_partition();
     }
+    if (align == 0) return true;
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
-    const size_t mask = (align - 1);
+    const size_t mask = align - 1;
     do {
       if (ABSL_PREDICT_TRUE((class_to_size(*size_class) & mask) == 0)) {
         return true;

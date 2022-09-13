@@ -20,7 +20,7 @@
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmalloc_testsuite")
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 REGTEST_DEPS = [
     ":test_allocator_harness",

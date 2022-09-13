@@ -22,7 +22,7 @@ load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
 
 package(default_visibility = ["//visibility:private"])
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 cc_library(
     name = "affinity",
