@@ -204,9 +204,8 @@ class ThreadCache {
   //
   // Since using dlopen on a malloc replacement is asking for trouble in any
   // case, that's a good tradeoff for us.
-#ifdef ABSL_HAVE_TLS
-  static __thread ThreadCache* thread_local_data_ ABSL_ATTRIBUTE_INITIAL_EXEC;
-#endif
+  ABSL_CONST_INIT static thread_local ThreadCache* thread_local_data_
+      ABSL_ATTRIBUTE_INITIAL_EXEC;
 
   // Thread-specific key.  Initialization here is somewhat tricky
   // because some Linux startup code invokes malloc() before it
@@ -245,12 +244,6 @@ class ThreadCache {
   size_t size_;      // Combined size of data
   size_t max_size_;  // size_ > max_size_ --> Scavenge()
 
-#ifndef ABSL_HAVE_TLS
-  // We sample allocations, biased by the size of the allocation.
-  // If we have TLS, then we use sampler defined in tcmalloc.cc.
-  Sampler sampler_;
-#endif
-
   pthread_t tid_;
   bool in_setspecific_;
 
@@ -282,10 +275,6 @@ class ThreadCache {
 inline AllocatorStats ThreadCache::HeapStats() {
   return tc_globals.threadcache_allocator().stats();
 }
-
-#ifndef ABSL_HAVE_TLS
-inline Sampler* ThreadCache::GetSampler() { return &sampler_; }
-#endif
 
 template <void* OOMHandler(size_t)>
 inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
@@ -322,14 +311,7 @@ ThreadCache::Deallocate(void* ptr, size_t size_class) {
 
 inline ThreadCache* ABSL_ATTRIBUTE_ALWAYS_INLINE
 ThreadCache::GetCacheIfPresent() {
-#ifdef ABSL_HAVE_TLS
-  // __thread is faster
   return thread_local_data_;
-#else
-  return tsd_inited_
-             ? reinterpret_cast<ThreadCache*>(pthread_getspecific(heap_key_))
-             : nullptr;
-#endif
 }
 
 inline ThreadCache* ThreadCache::GetCache() {

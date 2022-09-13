@@ -30,10 +30,8 @@ int64_t ThreadCache::unclaimed_cache_space_ = kDefaultOverallThreadCacheSize;
 ThreadCache* ThreadCache::thread_heaps_ = nullptr;
 int ThreadCache::thread_heap_count_ = 0;
 ThreadCache* ThreadCache::next_memory_steal_ = nullptr;
-#ifdef ABSL_HAVE_TLS
-__thread ThreadCache* ThreadCache::thread_local_data_
+ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
     ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
-#endif
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
 pthread_key_t ThreadCache::heap_key_;
 
@@ -253,7 +251,6 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   tc_globals.InitIfNecessary();
   ThreadCache* heap = nullptr;
 
-#ifdef ABSL_HAVE_TLS
   const bool maybe_reentrant = !tsd_inited_;
   // If we have set up our TLS, we can avoid a scan of the thread_heaps_ list.
   if (tsd_inited_) {
@@ -261,9 +258,6 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
       return thread_local_data_;
     }
   }
-#else
-  const bool maybe_reentrant = true;
-#endif
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -292,10 +286,8 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   // pthread_setspecific() if we are already inside pthread_setspecific().
   if (!heap->in_setspecific_ && tsd_inited_) {
     heap->in_setspecific_ = true;
-#ifdef ABSL_HAVE_TLS
     // Also keep a copy in __thread for faster retrieval
     thread_local_data_ = heap;
-#endif
     pthread_setspecific(heap_key_, heap);
     heap->in_setspecific_ = false;
   }
@@ -328,10 +320,8 @@ void ThreadCache::BecomeIdle() {
 
   heap->in_setspecific_ = true;
   pthread_setspecific(heap_key_, nullptr);
-#ifdef ABSL_HAVE_TLS
   // Also update the copy in __thread
   thread_local_data_ = nullptr;
-#endif
   heap->in_setspecific_ = false;
   if (GetCacheIfPresent() == heap) {
     // Somehow heap got reinstated by a recursive call to malloc
@@ -348,9 +338,7 @@ void ThreadCache::DestroyThreadCache(void* ptr) {
   // to invoke the destructor on NULL values, but for safety,
   // we check anyway.
   if (ptr != nullptr) {
-#ifdef ABSL_HAVE_TLS
     thread_local_data_ = nullptr;
-#endif
     DeleteCache(reinterpret_cast<ThreadCache*>(ptr));
   }
 }

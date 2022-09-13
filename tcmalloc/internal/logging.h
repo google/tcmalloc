@@ -23,7 +23,6 @@
 #include <initializer_list>
 #include <string>
 
-#include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/optimization.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"

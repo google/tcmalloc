@@ -514,21 +514,10 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 // Helpers for the exported routines below
 //-------------------------------------------------------------------
 
-#ifdef ABSL_HAVE_TLS
-// See the comment on ThreadCache::thread_local_data_ regarding
-// ABSL_ATTRIBUTE_INITIAL_EXEC.
-__thread Sampler thread_sampler_ ABSL_ATTRIBUTE_INITIAL_EXEC;
+ABSL_CONST_INIT static thread_local Sampler thread_sampler_
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 inline Sampler* GetThreadSampler() { return &thread_sampler_; }
-
-#else
-
-inline Sampler* GetThreadSampler() {
-  ThreadCache* heap = ThreadCache::GetCache();
-  return heap->GetSampler();
-}
-
-#endif
 
 enum class Hooks { RUN, NO };
 

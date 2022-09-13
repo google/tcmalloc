@@ -49,7 +49,6 @@
 #include <cstdint>
 
 #include "absl/base/dynamic_annotations.h"
-#include "absl/base/internal/per_thread_tls.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/atomic_danger.h"
@@ -61,7 +60,7 @@
 // on the target architecture exists. We currently only provide RSEQ for 64-bit
 // x86, Arm binaries.
 #if !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
-#if (ABSL_PER_THREAD_TLS == 1) && (TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1)
+#if TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1
 #define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ 1
 #else
 #define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ 0
@@ -91,7 +90,7 @@ inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-extern "C" ABSL_PER_THREAD_TLS_KEYWORD volatile kernel_rseq __rseq_abi;
+extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
