@@ -1243,11 +1243,9 @@ void TcmallocSlab<NumClasses>::Init(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift,
     uint8_t shift_offset) {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
-#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
 
   const int num_cpus = absl::base_internal::NumCPUs();
   Slabs* slabs = AllocSlabs(alloc, shift, num_cpus, shift_offset).first;

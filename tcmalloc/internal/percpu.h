@@ -67,15 +67,6 @@
 #endif
 #endif  // !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 
-// TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU defines whether TCMalloc support for
-// RSEQ virtual CPU IDs is available on the target architecture.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && \
-    (defined(__x86_64__) || defined(__aarch64__))
-#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU 1
-#else
-#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU 0
-#endif  // !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU)
-
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -95,15 +86,10 @@ extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi;
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
 static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
   ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
          virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
   return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
                                    virtual_cpu_id_offset);
-#else
-  ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id));
-  return RseqCpuId();
-#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_VCPU
 }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
