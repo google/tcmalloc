@@ -520,19 +520,25 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
     return reinterpret_cast<uintptr_t>(seed);
   }();
 
-  // Mask out bits that cannot be used by the hardware, mask out the top
-  // "usable" bit since it is reserved for kernel use, and also mask out the
-  // next top bit to significantly reduce collisions with mappings that tend to
-  // be placed in the upper half of the address space (e.g., stack, executable,
-  // kernel-placed mmaps).  See b/139357826.
+#if !defined(MEMORY_SANITIZER) && !defined(THREAD_SANITIZER)
+  // We don't use the following bits:
   //
-  // TODO(b/124707070): Remove this #ifdef
-#if defined(MEMORY_SANITIZER) || defined(THREAD_SANITIZER)
+  //  *  The top bits that are forbidden for use by the hardware (or are
+  //     required to be set to the same value as the next bit, which we also
+  //     don't use).
+  //
+  //  *  Below that, the top highest the hardware allows us to use, since it is
+  //     reserved for kernel space addresses.
+  //
+  //  *  One additional bit below that, to avoid collisions with mappings that
+  //     tend to be placed in the upper half of the address space (e.g. stack,
+  //     executable, and VDSO mappings).
+  //
+  constexpr uintptr_t kAddrMask = (uintptr_t{1} << (kAddressBits - 2)) - 1;
+#else
   // MSan and TSan use up all of the lower address space, so we allow use of
   // mid-upper address space when they're active.  This only matters for
   // TCMalloc-internal tests, since sanitizers install their own malloc/free.
-  constexpr uintptr_t kAddrMask = (uintptr_t{3} << (kAddressBits - 3)) - 1;
-#else
   constexpr uintptr_t kAddrMask = (uintptr_t{3} << (kAddressBits - 3)) - 1;
 #endif
 
