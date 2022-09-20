@@ -258,8 +258,7 @@ TEST_F(RunTimeSizeClassesTest, ExpandedSizeClasses) {
   // Verify that none of the default size classes are considered expanded size
   // classes.
   for (int i = 0; i < kNumClasses; i++) {
-    EXPECT_EQ(i < (m_.DefaultSizeClassesCount() * kNumaPartitions),
-              !IsExpandedSizeClass(i))
+    EXPECT_EQ(i < (kNumBaseClasses * kNumaPartitions), !IsExpandedSizeClass(i))
         << i;
   }
 }

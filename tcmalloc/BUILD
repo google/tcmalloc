@@ -154,7 +154,7 @@ common_srcs = [
     "common.h",
     "cpu_cache.cc",
     "cpu_cache.h",
-    "experimental_pow2_below64_size_class.cc",
+    "legacy_size_classes.cc",
     "experimental_pow2_size_class.cc",
     "experimental_cfl_aware_size_class.cc",
     "global_stats.cc",
@@ -864,7 +864,6 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_absl//absl/strings",
