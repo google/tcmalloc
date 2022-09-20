@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -177,6 +178,79 @@ TEST(ProfileBuilderTest, Sanitizers) {
 }
 #endif
 
+// A helper type alias for a list of samples and their labels.
+using SampleLabels = std::vector<
+    std::vector<std::pair<std::string, std::variant<int, std::string>>>>;
+
+void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
+                                 SampleLabels& extracted) {
+  // Strings
+  ASSERT_FALSE(converted.string_table().empty());
+
+  // Mappings: Build a lookup table from mapping ID to index in mapping array.
+  ASSERT_FALSE(converted.mapping().empty());
+  absl::flat_hash_map<uint64_t, int> mappings;
+  for (int i = 0, n = converted.mapping().size(); i < n; i++) {
+    mappings.emplace(converted.mapping(i).id(), i);
+  }
+
+  // Locations
+  ASSERT_FALSE(converted.location().empty());
+  absl::flat_hash_map<int, const void*> addresses;
+  absl::flat_hash_set<int> interned_addresses;
+  int location_with_mapping_found = 0;
+  for (const auto& location : converted.location()) {
+    uintptr_t address = location.address();
+    if (location.mapping_id() > 0) {
+      ASSERT_THAT(
+          mappings,
+          testing::Contains(testing::Key(testing::Eq(location.mapping_id()))));
+      const int mapping_index = mappings.at(location.mapping_id());
+      ASSERT_LT(mapping_index, converted.mapping_size());
+      const auto& mapping = converted.mapping(mapping_index);
+
+      location_with_mapping_found++;
+
+      // Confirm address actually falls within [mapping.memory_start(),
+      // mapping.memory_limit()).
+      EXPECT_LE(mapping.memory_start(), address);
+      EXPECT_LT(address, mapping.memory_limit());
+    }
+
+    EXPECT_TRUE(interned_addresses.insert(location.id()).second)
+        << "Duplicate interned location ID found";
+  }
+  // Expect that we find at least 2 locations with a mapping.
+  EXPECT_GE(location_with_mapping_found, 2);
+  // Expect that no location has ID "0."
+  EXPECT_THAT(interned_addresses, testing::Not(testing::Contains(0)));
+
+  // Samples
+  for (const auto& s : converted.sample()) {
+    EXPECT_FALSE(s.location_id().empty());
+    // No duplicates
+    EXPECT_THAT(
+        absl::flat_hash_set<int>(s.location_id().begin(), s.location_id().end())
+            .size(),
+        s.location_id().size());
+    // Interned locations should appear in the location list.
+    EXPECT_THAT(s.location_id(), testing::IsSubsetOf(interned_addresses));
+
+    EXPECT_EQ(converted.sample_type().size(), s.value().size());
+    extracted.emplace_back();
+    auto& labels = extracted.back();
+    for (const auto& l : s.label()) {
+      if (l.str() != 0) {
+        labels.emplace_back(converted.string_table(l.key()),
+                            converted.string_table(l.str()));
+      } else {
+        labels.emplace_back(converted.string_table(l.key()),
+                            static_cast<int>(l.num()));
+      }
+    }
+  }
+}
+
 TEST(ProfileConverterTest, Profile) {
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
@@ -301,74 +375,12 @@ TEST(ProfileConverterTest, Profile) {
       extracted_sample_type,
       UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes")));
 
-  // Strings
-  ASSERT_FALSE(converted.string_table().empty());
-
-  // Mappings: Build a lookup table from mapping ID to index in mapping array.
-  ASSERT_FALSE(converted.mapping().empty());
-  absl::flat_hash_map<uint64_t, int> mappings;
-  for (int i = 0, n = converted.mapping().size(); i < n; i++) {
-    mappings.emplace(converted.mapping(i).id(), i);
+  SampleLabels extracted;
+  {
+    SCOPED_TRACE("Profile");
+    ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
   }
 
-  // Locations
-  ASSERT_FALSE(converted.location().empty());
-  absl::flat_hash_map<int, const void*> addresses;
-  absl::flat_hash_set<int> interned_addresses;
-  int location_with_mapping_found = 0;
-  for (const auto& location : converted.location()) {
-    uintptr_t address = location.address();
-    if (location.mapping_id() > 0) {
-      ASSERT_THAT(
-          mappings,
-          testing::Contains(testing::Key(testing::Eq(location.mapping_id()))));
-      const int mapping_index = mappings.at(location.mapping_id());
-      ASSERT_LT(mapping_index, converted.mapping_size());
-      const auto& mapping = converted.mapping(mapping_index);
-
-      location_with_mapping_found++;
-
-      // Confirm address actually falls within [mapping.memory_start(),
-      // mapping.memory_limit()).
-      EXPECT_LE(mapping.memory_start(), address);
-      EXPECT_LT(address, mapping.memory_limit());
-    }
-
-    EXPECT_TRUE(interned_addresses.insert(location.id()).second)
-        << "Duplicate interned location ID found";
-  }
-  // Expect that we find at least 2 locations with a mapping.
-  EXPECT_GE(location_with_mapping_found, 2);
-  // Expect that no location has ID "0."
-  EXPECT_THAT(interned_addresses, testing::Not(testing::Contains(0)));
-
-  // Samples
-  std::vector<
-      std::vector<std::pair<std::string, std::variant<int, std::string>>>>
-      extracted;
-  for (const auto& s : converted.sample()) {
-    EXPECT_FALSE(s.location_id().empty());
-    // No duplicates
-    EXPECT_THAT(
-        absl::flat_hash_set<int>(s.location_id().begin(), s.location_id().end())
-            .size(),
-        s.location_id().size());
-    // Interned locations should appear in the location list.
-    EXPECT_THAT(s.location_id(), testing::IsSubsetOf(interned_addresses));
-
-    EXPECT_EQ(converted.sample_type().size(), s.value().size());
-    extracted.emplace_back();
-    auto& labels = extracted.back();
-    for (const auto& l : s.label()) {
-      if (l.str() != 0) {
-        labels.emplace_back(converted.string_table(l.key()),
-                            converted.string_table(l.str()));
-      } else {
-        labels.emplace_back(converted.string_table(l.key()),
-                            static_cast<int>(l.num()));
-      }
-    }
-  }
   EXPECT_THAT(
       extracted,
       UnorderedElementsAre(
