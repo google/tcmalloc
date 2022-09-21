@@ -124,6 +124,18 @@
 #include <malloc.h>
 #endif
 
+#if !defined(__x86_64__) && !defined(__aarch64__) && !defined(__riscv)
+#error "Unsupported architecture."
+#endif
+
+#if defined(__android__) || defined(__APPLE__)
+#error "Unsupported platform."
+#endif
+
+#ifndef __linux__
+#error "Unsupported platform."
+#endif
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
