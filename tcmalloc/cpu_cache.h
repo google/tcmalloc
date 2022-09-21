@@ -1808,10 +1808,11 @@ class CpuCache final
     : public cpu_cache_internal::CpuCache<cpu_cache_internal::StaticForwarder> {
 };
 
-inline bool UsePerCpuCache() {
+template <typename State>
+inline bool UsePerCpuCache(State& state) {
   // We expect a fast path of per-CPU caches being active and the thread being
   // registered with rseq.
-  if (ABSL_PREDICT_FALSE(!tc_globals.CpuCacheActive())) {
+  if (ABSL_PREDICT_FALSE(!state.CpuCacheActive())) {
     return false;
   }
 

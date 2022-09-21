@@ -26,6 +26,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
@@ -129,6 +130,13 @@ class Static final {
   // allocation sizes being rounded up to size class/page boundaries.
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter
       sampled_internal_fragmentation_;
+
+  ABSL_CONST_INIT static AllocationSampleList allocation_samples;
+
+  // MallocHook::AllocHandle is a simple 64-bit int, and is not dependent on
+  // other data.
+  ABSL_CONST_INIT static std::atomic<AllocHandle>
+      sampled_alloc_handle_generator;
 
   static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
     return bucket_allocator_;

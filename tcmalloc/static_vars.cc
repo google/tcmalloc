@@ -59,6 +59,9 @@ ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
+ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
+ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
+    0};
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
 ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::Bucket>
     Static::bucket_allocator_;
@@ -91,8 +94,9 @@ size_t Static::metadata_bytes() {
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(sampled_internal_fragmentation_) +
-      sizeof(peak_heap_tracker_) + sizeof(guardedpage_allocator_) +
-      sizeof(numa_topology_);
+      sizeof(allocation_samples) +
+      sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
+      sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

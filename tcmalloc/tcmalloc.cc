@@ -88,6 +88,7 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/strip.h"
 #include "tcmalloc/allocation_sample.h"
+#include "tcmalloc/allocation_sampling.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -177,66 +178,6 @@ static void PrintStats(int level) {
   delete[] buffer;
 }
 
-// This function computes a profile that maps a live stack trace to
-// the number of bytes of central-cache memory pinned by an allocation
-// at that stack trace.
-// In the case when span is hosting >= 1 number of small objects (t.proxy !=
-// nullptr), we call span::Fragmentation() and read `span->allocated_`. It is
-// safe to do so since we hold the per-sample lock while iterating over sampled
-// allocations. It prevents the sampled allocation that has the proxy object to
-// complete deallocation, thus `proxy` can not be returned to the span yet. It
-// thus prevents the central free list to return the span to the page heap.
-static std::unique_ptr<const ProfileBase> DumpFragmentationProfile() {
-  auto profile = std::make_unique<StackTraceTable>(ProfileType::kFragmentation);
-  tc_globals.sampled_allocation_recorder().Iterate(
-      [&profile](const SampledAllocation& sampled_allocation) {
-        // Compute fragmentation to charge to this sample:
-        const StackTrace& t = sampled_allocation.sampled_stack;
-        if (t.proxy == nullptr) {
-          // There is just one object per-span, and neighboring spans
-          // can be released back to the system, so we charge no
-          // fragmentation to this sampled object.
-          return;
-        }
-
-        // Fetch the span on which the proxy lives so we can examine its
-        // co-residents.
-        const PageId p = PageIdContaining(t.proxy);
-        Span* span = tc_globals.pagemap().GetDescriptor(p);
-        if (span == nullptr) {
-          // Avoid crashes in production mode code, but report in tests.
-          ASSERT(span != nullptr);
-          return;
-        }
-
-        const double frag = span->Fragmentation(t.allocated_size);
-        if (frag > 0) {
-          // Associate the memory warmth with the actual object, not the proxy.
-          // The residency information (t.span_start_address) is likely not very
-          // useful, but we might as well pass it along.
-          profile->AddTrace(frag, t);
-        }
-      });
-  return profile;
-}
-
-static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
-  auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap);
-  Residency r;
-  tc_globals.sampled_allocation_recorder().Iterate(
-      [&](const SampledAllocation& sampled_allocation) {
-        profile->AddTrace(1.0, sampled_allocation.sampled_stack, &r);
-      });
-  return profile;
-}
-
-ABSL_CONST_INIT static AllocationSampleList allocation_samples_;
-
-// AllocHandle is a simple 64-bit int, and is not dependent on other data. We
-// don't need to put it under the global pageheap lock and the use of
-// std::atomic should be safe here.
-static std::atomic<AllocHandle> sampled_alloc_handle_generator_{0};
-
 extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
   size_t shift = std::max<size_t>(18, absl::bit_width(ret->capacity()) - 1);
   for (; shift < 22; shift++) {
@@ -284,9 +225,9 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
     ProfileType type) {
   switch (type) {
     case ProfileType::kHeap:
-      return DumpHeapProfile().release();
+      return DumpHeapProfile(tc_globals).release();
     case ProfileType::kFragmentation:
-      return DumpFragmentationProfile().release();
+      return DumpFragmentationProfile(tc_globals).release();
     case ProfileType::kPeakHeap:
       return tc_globals.peak_heap_tracker().DumpSample().release();
     default:
@@ -296,7 +237,7 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
 
 extern "C" AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling() {
-  return new AllocationSample(&allocation_samples_, absl::Now());
+  return new AllocationSample(&tc_globals.allocation_samples, absl::Now());
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
@@ -531,11 +472,6 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 // Helpers for the exported routines below
 //-------------------------------------------------------------------
 
-ABSL_CONST_INIT static thread_local Sampler thread_sampler_
-    ABSL_ATTRIBUTE_INITIAL_EXEC;
-
-inline Sampler* GetThreadSampler() { return &thread_sampler_; }
-
 enum class Hooks { RUN, NO };
 
 static void FreeSmallSlow(void* ptr, size_t size_class);
@@ -648,7 +584,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
 // function prologue/epilogue.
 ABSL_ATTRIBUTE_NOINLINE
 static void FreeSmallSlow(void* ptr, size_t size_class) {
-  if (ABSL_PREDICT_TRUE(UsePerCpuCache())) {
+  if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
     tc_globals.cpu_cache().Deallocate(ptr, size_class);
   } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent()) {
     // TODO(b/134691947):  If we reach this path from the ThreadCache fastpath,
@@ -664,172 +600,6 @@ static void FreeSmallSlow(void* ptr, size_t size_class) {
 }
 
 namespace {
-
-// If this allocation can be guarded, and if it's time to do a guarded sample,
-// returns a guarded allocation Span.  Otherwise returns nullptr.
-static void* TrySampleGuardedAllocation(size_t size, size_t alignment,
-                                        Length num_pages) {
-  if (num_pages == Length(1) &&
-      GetThreadSampler()->ShouldSampleGuardedAllocation()) {
-    // The num_pages == 1 constraint ensures that size <= kPageSize.  And since
-    // alignments above kPageSize cause size_class == 0, we're also guaranteed
-    // alignment <= kPageSize
-    //
-    // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
-    // are met.
-    return tc_globals.guardedpage_allocator().Allocate(size, alignment);
-  }
-  return nullptr;
-}
-
-// Performs sampling for already occurred allocation of object.
-//
-// For very small object sizes, object is used as 'proxy' and full
-// page with sampled marked is allocated instead.
-//
-// For medium-sized objects that have single instance per span,
-// they're simply freed and fresh page span is allocated to represent
-// sampling.
-//
-// For large objects (i.e. allocated with do_malloc_pages) they are
-// also fully reused and their span is marked as sampled.
-//
-// Note that do_free_with_size assumes sampled objects have
-// page-aligned addresses. Please change both functions if need to
-// invalidate the assumption.
-//
-// Note that size_class might not match requested_size in case of
-// memalign. I.e. when larger than requested allocation is done to
-// satisfy alignment constraint.
-//
-// In case of out-of-memory condition when allocating span or
-// stacktrace struct, this function simply cheats and returns original
-// object. As if no sampling was requested.
-template <typename Policy>
-static void* SampleifyAllocation(Policy policy, size_t requested_size,
-                                 size_t weight, size_t size_class, void* obj,
-                                 Span* span, size_t* capacity) {
-  CHECK_CONDITION((size_class != 0 && obj != nullptr && span == nullptr) ||
-                  (size_class == 0 && obj == nullptr && span != nullptr));
-
-  void* proxy = nullptr;
-  void* guarded_alloc = nullptr;
-  size_t allocated_size;
-  bool allocated_cold;
-
-  // requested_alignment = 1 means 'small size table alignment was used'
-  // Historically this is reported as requested_alignment = 0
-  size_t requested_alignment = policy.align();
-  if (requested_alignment == 1) {
-    requested_alignment = 0;
-  }
-
-  if (size_class != 0) {
-    ASSERT(size_class == tc_globals.pagemap().sizeclass(PageIdContaining(obj)));
-
-    allocated_size = tc_globals.sizemap().class_to_size(size_class);
-    allocated_cold = IsExpandedSizeClass(size_class);
-
-    // If the caller didn't provide a span, allocate one:
-    Length num_pages = BytesToLengthCeil(allocated_size);
-    if ((guarded_alloc = TrySampleGuardedAllocation(
-             requested_size, requested_alignment, num_pages))) {
-      ASSERT(IsSampledMemory(guarded_alloc));
-      const PageId p = PageIdContaining(guarded_alloc);
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      span = Span::New(p, num_pages);
-      tc_globals.pagemap().Set(p, span);
-      // If we report capacity back from a size returning allocation, we can not
-      // report the allocated_size, as we guard the size to 'requested_size',
-      // and we maintain the invariant that GetAllocatedSize() must match the
-      // returned size from size returning allocations. So in that case, we
-      // report the requested size for both capacity and GetAllocatedSize().
-      if (capacity) allocated_size = requested_size;
-    } else if ((span = tc_globals.page_allocator().New(
-                    num_pages, 1, MemoryTag::kSampled)) == nullptr) {
-      if (capacity) *capacity = allocated_size;
-      return obj;
-    }
-
-    size_t span_size =
-        Length(tc_globals.sizemap().class_to_pages(size_class)).in_bytes();
-    size_t objects_per_span = span_size / allocated_size;
-
-    if (objects_per_span != 1) {
-      ASSERT(objects_per_span > 1);
-      proxy = obj;
-      obj = nullptr;
-    }
-  } else {
-    // Set allocated_size to the exact size for a page allocation.
-    // NOTE: if we introduce gwp-asan sampling / guarded allocations
-    // for page allocations, then we need to revisit do_malloc_pages as
-    // the current assumption is that only class sized allocs are sampled
-    // for gwp-asan.
-    allocated_size = span->bytes_in_span();
-    allocated_cold = IsColdMemory(span->start_address());
-  }
-  if (capacity) *capacity = allocated_size;
-
-  ASSERT(span != nullptr);
-
-  // Grab the stack trace outside the heap lock.
-  StackTrace tmp;
-  tmp.proxy = proxy;
-  tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 0);
-  tmp.requested_size = requested_size;
-  tmp.requested_alignment = requested_alignment;
-  tmp.requested_size_returning = capacity != nullptr;
-  tmp.allocated_size = allocated_size;
-  tmp.access_hint = static_cast<uint8_t>(policy.access());
-  tmp.cold_allocated = allocated_cold;
-  tmp.weight = weight;
-  tmp.span_start_address = span->start_address();
-  tmp.allocation_time = absl::Now();
-
-  // How many allocations does this sample represent, given the sampling
-  // frequency (weight) and its size.
-  const double allocation_estimate =
-      static_cast<double>(weight) / (requested_size + 1);
-
-  // Adjust our estimate of internal fragmentation.
-  ASSERT(requested_size <= allocated_size);
-  if (requested_size < allocated_size) {
-    tc_globals.sampled_internal_fragmentation_.Add(
-        allocation_estimate * (allocated_size - requested_size));
-  }
-
-  allocation_samples_.ReportMalloc(tmp);
-
-  // The SampledAllocation object is visible to readers after this. Readers only
-  // care about its various metadata (e.g. stack trace, weight) to generate the
-  // heap profile, and won't need any information from Span::Sample() next.
-  SampledAllocation* sampled_allocation =
-      tc_globals.sampled_allocation_recorder().Register(std::move(tmp));
-  // No pageheap_lock required. The span is freshly allocated and no one else
-  // can access it. It is visible after we return from this allocation path.
-  span->Sample(sampled_allocation);
-
-  tc_globals.peak_heap_tracker().MaybeSaveSample();
-
-  if (obj != nullptr) {
-    // We are not maintaining precise statistics on malloc hit/miss rates at our
-    // cache tiers.  We can deallocate into our ordinary cache.
-    ASSERT(size_class != 0);
-    FreeSmallSlow(obj, size_class);
-  }
-  return guarded_alloc ? guarded_alloc : span->start_address();
-}
-
-// ShouldSampleAllocation() is called when an allocation of the given requested
-// size is in progress. It returns the sampling weight of the allocation if it
-// should be "sampled," and 0 otherwise. See SampleifyAllocation().
-//
-// Sampling is done based on requested sizes and later unskewed during profile
-// generation.
-inline size_t ShouldSampleAllocation(size_t size) {
-  return GetThreadSampler()->RecordAllocation(size);
-}
 
 template <typename Policy, typename CapacityPtr = std::nullptr_t>
 inline void* do_malloc_pages(Policy policy, size_t size, int num_objects,
@@ -860,8 +630,8 @@ inline void* do_malloc_pages(Policy policy, size_t size, int num_objects,
   SetPagesCapacity(result, num_pages, capacity);
 
   if (size_t weight = ShouldSampleAllocation(size)) {
-    CHECK_CONDITION(result == SampleifyAllocation(policy, size, weight, 0,
-                                                  nullptr, span, capacity));
+    CHECK_CONDITION(result == SampleLargeAllocation(tc_globals, policy, size,
+                                                    weight, span, capacity));
   }
 
   return result;
@@ -875,7 +645,7 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
   ASSERT(size_class != 0);
   void* result;
 
-  if (UsePerCpuCache()) {
+  if (UsePerCpuCache(tc_globals)) {
     result = tc_globals.cpu_cache().Allocate<Policy::handle_oom>(size_class);
   } else {
     result = ThreadCache::GetCache()->Allocate<Policy::handle_oom>(size_class);
@@ -891,8 +661,8 @@ inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
   }
   size_t weight;
   if (ABSL_PREDICT_FALSE(weight = ShouldSampleAllocation(size))) {
-    return SampleifyAllocation(policy, size, weight, size_class, result,
-                               nullptr, capacity);
+    return SampleSmallAllocation(tc_globals, policy, size, weight, size_class,
+                                 result, capacity);
   }
   SetClassCapacity(size_class, capacity);
   return result;
@@ -909,53 +679,7 @@ static void do_free_pages(void* ptr, const PageId p) {
   // Prefetch now to avoid a stall accessing *span while under the lock.
   span->Prefetch();
 
-  // No pageheap_lock required. The sampled span should be unmarked and have its
-  // state cleared only once. External synchronization when freeing is required;
-  // otherwise, concurrent writes here would likely report a double-free.
-  if (SampledAllocation* sampled_allocation = span->Unsample()) {
-    void* const proxy = sampled_allocation->sampled_stack.proxy;
-    const size_t weight = sampled_allocation->sampled_stack.weight;
-    const size_t requested_size =
-        sampled_allocation->sampled_stack.requested_size;
-    const size_t allocated_size =
-        sampled_allocation->sampled_stack.allocated_size;
-    const size_t alignment =
-        sampled_allocation->sampled_stack.requested_alignment;
-    // How many allocations does this sample represent, given the sampling
-    // frequency (weight) and its size.
-    const double allocation_estimate =
-        static_cast<double>(weight) / (requested_size + 1);
-    AllocHandle sampled_alloc_handle =
-        sampled_allocation->sampled_stack.sampled_alloc_handle;
-    tc_globals.sampled_allocation_recorder().Unregister(sampled_allocation);
-
-    // Adjust our estimate of internal fragmentation.
-    ASSERT(requested_size <= allocated_size);
-    if (requested_size < allocated_size) {
-      const size_t sampled_fragmentation =
-          allocation_estimate * (allocated_size - requested_size);
-
-      // Check against wraparound
-      ASSERT(tc_globals.sampled_internal_fragmentation_.value() >=
-             sampled_fragmentation);
-      tc_globals.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
-    }
-
-    if (proxy) {
-      const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
-      size_t size_class;
-      if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-        size_class = tc_globals.sizemap().SizeClass(
-            policy.AccessAsCold().AlignAs(alignment), allocated_size);
-      } else {
-        size_class = tc_globals.sizemap().SizeClass(
-            policy.AccessAsHot().AlignAs(alignment), allocated_size);
-      }
-      ASSERT(size_class ==
-             tc_globals.pagemap().sizeclass(PageIdContaining(proxy)));
-      FreeSmall<Hooks::NO>(proxy, size_class);
-    }
-  }
+  MaybeUnsampleAllocation(tc_globals, ptr, span);
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -1341,7 +1065,7 @@ extern "C" void MallocExtension_Internal_MarkThreadBusy() {
   // invoking any hooks.
   tc_globals.InitIfNecessary();
 
-  if (UsePerCpuCache()) {
+  if (UsePerCpuCache(tc_globals)) {
     return;
   }
 

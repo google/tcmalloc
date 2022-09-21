@@ -207,6 +207,7 @@ common_srcs = [
 
 common_hdrs = [
     "allocation_sample.h",
+    "allocation_sampling.h",
     "arena.h",
     "central_freelist.h",
     "common.h",

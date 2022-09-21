@@ -68,7 +68,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
       class_count[size_class] = length + tc_length;
-      if (UsePerCpuCache()) {
+      if (UsePerCpuCache(tc_globals)) {
         class_count[size_class] +=
             tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
       }
@@ -123,7 +123,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->sharded_transfer_bytes = 0;
   r->percpu_metadata_bytes_res = 0;
   r->percpu_metadata_bytes = 0;
-  if (UsePerCpuCache()) {
+  if (UsePerCpuCache(tc_globals)) {
     r->per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
     r->sharded_transfer_bytes =
         tc_globals.sharded_transfer_cache().TotalBytes();
@@ -423,7 +423,7 @@ void DumpStats(Printer* out, int level) {
           tc_stats[size_class].remove_non_batch_misses);
     }
 
-    if (UsePerCpuCache()) {
+    if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().Print(out);
     }
 
@@ -587,7 +587,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                     TransferCacheImplementationToLabel(
                         tc_globals.transfer_cache().implementation()));
 
-    if (UsePerCpuCache()) {
+    if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().PrintInPbtxt(&region);
     }
   }
