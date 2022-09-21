@@ -1456,7 +1456,8 @@ TEST_P(FillerTest, SkipSubrelease) {
     Advance(a);
 
     Delete(half);
-
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
               ReleasePages(10 * N, peak_interval));
 
@@ -1529,8 +1530,8 @@ TEST_P(FillerTest, SkipSubrelease) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 4 subreleases (512 pages) were skipped due to recent (120s) peaks.
-HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+HugePageFiller: Since the start of the execution, 3 subreleases (384 pages) were skipped due to recent (120s) peaks.
+HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
