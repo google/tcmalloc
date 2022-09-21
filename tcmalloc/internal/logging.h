@@ -22,6 +22,7 @@
 
 #include <initializer_list>
 #include <string>
+#include <type_traits>
 
 #include "absl/base/optimization.h"
 #include "absl/strings/str_cat.h"
@@ -47,9 +48,15 @@ namespace tcmalloc_internal {
 
 static constexpr int kMaxStackDepth = 64;
 
+// An opaque handle type used to identify allocations.
+using AllocHandle = int64_t;
+
 // size/depth are made the same size as a pointer so that some generic
 // code below can conveniently cast them back and forth to void*.
 struct StackTrace {
+  // An opaque handle used by allocator to uniquely identify the sampled
+  // memory block.
+  AllocHandle sampled_alloc_handle;
 
   // For small sampled objects, we allocate a full span to hold the
   // sampled object.  However to avoid disturbing fragmentation

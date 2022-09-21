@@ -232,6 +232,11 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile() {
 
 ABSL_CONST_INIT static AllocationSampleList allocation_samples_;
 
+// AllocHandle is a simple 64-bit int, and is not dependent on other data. We
+// don't need to put it under the global pageheap lock and the use of
+// std::atomic should be safe here.
+static std::atomic<AllocHandle> sampled_alloc_handle_generator_{0};
+
 extern "C" void MallocExtension_Internal_GetStats(std::string* ret) {
   size_t shift = std::max<size_t>(18, absl::bit_width(ret->capacity()) - 1);
   for (; shift < 22; shift++) {
@@ -920,6 +925,8 @@ static void do_free_pages(void* ptr, const PageId p) {
     // frequency (weight) and its size.
     const double allocation_estimate =
         static_cast<double>(weight) / (requested_size + 1);
+    AllocHandle sampled_alloc_handle =
+        sampled_allocation->sampled_stack.sampled_alloc_handle;
     tc_globals.sampled_allocation_recorder().Unregister(sampled_allocation);
 
     // Adjust our estimate of internal fragmentation.
