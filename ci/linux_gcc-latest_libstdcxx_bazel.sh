@@ -69,6 +69,7 @@ for std in ${STD}; do
           --define="absl=1" \
           --distdir="/bazel-distdir" \
           --keep_going \
+          --experimental_ui_max_stdouterr_bytes=-1 \
           --show_timestamps \
           --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1" \
           --test_output=errors \
