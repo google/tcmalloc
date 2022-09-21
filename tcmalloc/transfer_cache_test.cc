@@ -562,6 +562,9 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
   FakeShardedTransferCacheEnvironment::ShardedManager& manager =
       env.sharded_manager();
 
+  // Sharded cache manager uses a flexible transfer cache.
+  env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
+
   EXPECT_FALSE(manager.shard_initialized(0));
   EXPECT_FALSE(manager.shard_initialized(1));
 

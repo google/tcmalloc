@@ -172,7 +172,7 @@ class ShardedTransferCacheManagerBase {
 
  private:
   using TransferCache =
-      internal_transfer_cache::RingBufferTransferCache<FreeList, Manager>;
+      internal_transfer_cache::TransferCache<FreeList, Manager>;
 
   // Store the transfer cache pointers and information about whether they are
   // initialized next to each other.

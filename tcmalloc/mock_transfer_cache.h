@@ -106,12 +106,20 @@ class ArenaBasedFakeTransferCacheManager {
   }
   size_t used() const { return used_; }
 
+  static void SetPartialLegacyTransferCache(bool value) {
+    partial_legacy_transfer_cache_ = value;
+  }
+  static bool PartialLegacyTransferCache() {
+    return partial_legacy_transfer_cache_;
+  }
+
  private:
   static constexpr size_t kTotalSize = 10000000;
   // We're not changing the size of this vector during the life of this object,
   // to avoid running into deadlocks.
   std::vector<char> bytes_;
   size_t used_ = 0;
+  static bool partial_legacy_transfer_cache_;
 };
 
 // Wires up a largely functional TransferCache + TransferCacheManager +
@@ -526,6 +534,7 @@ class FakeShardedTransferCacheEnvironment {
   }
 
   ShardedManager& sharded_manager() { return sharded_manager_; }
+  Manager& transfer_cache_manager() { return owner_; }
   MinimalFakeCentralFreeList& central_freelist() { return freelist_; }
   void SetCurrentCpu(int cpu) { cpu_layout_.SetCurrentCpu(cpu); }
   size_t MetadataAllocated() const { return owner_.used(); }
