@@ -472,7 +472,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       *converted.mutable_period_type();
   period_type.set_type(space_id);
   period_type.set_unit(bytes_id);
-  converted.set_period(profile.Period());
   converted.set_drop_frames(builder.InternString(kProfileDropFrames));
 
   converted.set_duration_nanos(absl::ToInt64Nanoseconds(profile.Duration()));

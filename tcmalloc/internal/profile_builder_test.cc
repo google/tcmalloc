@@ -418,8 +418,8 @@ TEST(ProfileConverterTest, Profile) {
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
   EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
 
-  // Period
-  EXPECT_EQ(converted.period(), 1);
+  // Period not set
+  EXPECT_EQ(converted.period(), 0);
 }
 
 TEST(BuildId, CorruptImage_b180635896) {

@@ -62,7 +62,7 @@ TEST(ProfileMarshalTest, Smoke) {
   // extensively tested in tcmalloc/testing/profile_test.cc.  We do
   // limited tests here to verify the proto likely roundtripped correctly.
 
-  EXPECT_EQ(converted.period(), 1);
+  EXPECT_EQ(converted.period(), 0);  // Not set
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
   EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
   EXPECT_THAT(converted.string_table(converted.drop_frames()),
