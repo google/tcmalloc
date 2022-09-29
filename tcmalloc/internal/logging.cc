@@ -42,7 +42,9 @@ ABSL_CONST_INIT static absl::base_internal::SpinLock crash_lock(
 static bool crashed = false;
 
 static const size_t kStatsBufferSize = 16 << 10;
+#ifndef __APPLE__
 static char stats_buffer[kStatsBufferSize] = {0};
+#endif  // __APPLE__
 
 static void WriteMessage(const char* msg, int length) {
   (void)::write(STDERR_FILENO, msg, length);
