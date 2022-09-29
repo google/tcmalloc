@@ -237,6 +237,9 @@ static void* SampleifyAllocation(State& state, Policy policy,
   tmp.requested_alignment = requested_alignment;
   tmp.requested_size_returning = capacity != nullptr;
   tmp.allocated_size = allocated_size;
+  tmp.sampled_alloc_handle = state.sampled_alloc_handle_generator.fetch_add(
+                                 1, std::memory_order_relaxed) +
+                             1;
   tmp.access_hint = static_cast<uint8_t>(policy.access());
   tmp.cold_allocated = allocated_cold;
   tmp.weight = weight;
@@ -256,6 +259,8 @@ static void* SampleifyAllocation(State& state, Policy policy,
   }
 
   state.allocation_samples.ReportMalloc(tmp);
+
+  state.deallocation_samples.ReportMalloc(tmp);
 
   // The SampledAllocation object is visible to readers after this. Readers only
   // care about its various metadata (e.g. stack trace, weight) to generate the
@@ -295,6 +300,8 @@ inline void MaybeUnsampleAllocation(State& state, void* ptr, Span* span) {
     // frequency (weight) and its size.
     const double allocation_estimate =
         static_cast<double>(weight) / (requested_size + 1);
+    AllocHandle sampled_alloc_handle =
+        sampled_allocation->sampled_stack.sampled_alloc_handle;
     state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
     // Adjust our estimate of internal fragmentation.
@@ -308,6 +315,8 @@ inline void MaybeUnsampleAllocation(State& state, void* ptr, Span* span) {
              sampled_fragmentation);
       state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
     }
+
+    state.deallocation_samples.ReportFree(sampled_alloc_handle);
 
     if (proxy) {
       const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);

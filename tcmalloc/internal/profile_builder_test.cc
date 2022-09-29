@@ -422,6 +422,122 @@ TEST(ProfileConverterTest, Profile) {
   EXPECT_EQ(converted.period(), 0);
 }
 
+TEST(ProfileBuilderTest, LifetimeProfile) {
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kLifetimes);
+  fake_profile->SetDuration(kDuration);
+
+  std::vector<Profile::Sample> samples;
+  {
+    // The allocation sample.
+    Profile::Sample alloc1{
+        .sum = 123,
+        .count = 2,
+        // Common information we retain in the lifetime profile.
+        .requested_size = 2,
+        .requested_alignment = 4,
+        .allocated_size = 16,
+        // Lifetime specific information in each sample.
+        .profile_id = 33,
+        .lifetime_ns = 77,
+        .stddev_lifetime_ns = 22,
+        .min_lifetime_ns = 55,
+        .max_lifetime_ns = 99,
+        .allocator_deallocator_cpu_matched = true,
+        .allocator_deallocator_thread_matched = false,
+    };
+    // This stack is mostly artificial, but we include a couple of real symbols
+    // from the binary to confirm that the locations are indexed into the
+    // mappings.
+    alloc1.depth = 6;
+    alloc1.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
+    alloc1.stack[1] = absl::bit_cast<void*>(uintptr_t{0x23451});
+    alloc1.stack[2] = absl::bit_cast<void*>(uintptr_t{0x34512});
+    alloc1.stack[3] = absl::bit_cast<void*>(uintptr_t{0x45123});
+    alloc1.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+    alloc1.stack[5] = reinterpret_cast<void*>(&RealPath);
+
+    samples.push_back(alloc1);
+
+    // The deallocation sample contains the same information with a negative
+    // count to denote deallocaiton. The stack can be different, or empty if the
+    // deallocation has not been observed (once b/236755869 is implemented).
+    Profile::Sample dealloc1 = alloc1;
+    dealloc1.count = -dealloc1.count;
+    samples.push_back(dealloc1);
+  }
+
+  fake_profile->SetSamples(std::move(samples));
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+  auto converted_or = MakeProfileProto(profile);
+  ASSERT_TRUE(converted_or.ok());
+  const perftools::profiles::Profile& converted = **converted_or;
+  const auto& string_table = converted.string_table();
+
+  // Checks for lifetime (deallocation) profile specific fields.
+  ASSERT_EQ(converted.sample_type_size(), 4);
+  EXPECT_EQ(string_table.at(converted.sample_type(0).type()),
+            "allocated_objects");
+  EXPECT_EQ(string_table.at(converted.sample_type(1).type()),
+            "allocated_space");
+  EXPECT_EQ(string_table.at(converted.sample_type(2).type()),
+            "deallocated_objects");
+  EXPECT_EQ(string_table.at(converted.sample_type(3).type()),
+            "deallocated_space");
+
+  ASSERT_EQ(converted.sample_size(), 2);
+  // For the alloc sample, the values are in indices 0, 1.
+  EXPECT_EQ(converted.sample(0).value(0), 2);
+  EXPECT_EQ(converted.sample(0).value(1), 123);
+  EXPECT_EQ(converted.sample(0).value(2), 0);
+  EXPECT_EQ(converted.sample(0).value(3), 0);
+  // For the dealloc sample, the values are in indices 2, 3.
+  EXPECT_EQ(converted.sample(1).value(0), 0);
+  EXPECT_EQ(converted.sample(1).value(1), 0);
+  EXPECT_EQ(converted.sample(1).value(2), 2);
+  EXPECT_EQ(converted.sample(1).value(3), 123);
+  // For these two samples, the callstack pair id should be the same.
+
+  // Check the location and mapping fields and extract sample, label pairs.
+  SampleLabels extracted;
+  {
+    SCOPED_TRACE("LifetimeProfile");
+    ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
+  }
+
+  EXPECT_THAT(
+      extracted,
+      UnorderedElementsAre(
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
+              Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
+              Pair("max_lifetime", 99),
+              Pair("active CPU", "same"), Pair("active thread", "different")),
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
+              Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
+              Pair("max_lifetime", 99),
+              Pair("active CPU", "same"), Pair("active thread", "different"))));
+
+  // Checks for common fields.
+  EXPECT_THAT(converted.string_table(converted.drop_frames()),
+              testing::HasSubstr("TCMallocInternalNew"));
+  // No keep frames.
+  EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
+
+  EXPECT_EQ(converted.duration_nanos(), absl::ToInt64Nanoseconds(kDuration));
+
+  // Period type [space, bytes]
+  EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
+  EXPECT_EQ(converted.string_table(converted.period_type().unit()), "bytes");
+
+  // Period not set
+  EXPECT_EQ(converted.period(), 0);
+}
+
 TEST(BuildId, CorruptImage_b180635896) {
   std::string image_path;
   const char* srcdir = thread_safe_getenv("TEST_SRCDIR");

@@ -30,6 +30,7 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
@@ -132,6 +133,9 @@ class Static final {
       sampled_internal_fragmentation_;
 
   ABSL_CONST_INIT static AllocationSampleList allocation_samples;
+
+  ABSL_CONST_INIT static deallocationz::DeallocationProfilerList
+      deallocation_samples;
 
   // MallocHook::AllocHandle is a simple 64-bit int, and is not dependent on
   // other data.

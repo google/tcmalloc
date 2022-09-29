@@ -154,6 +154,7 @@ common_srcs = [
     "common.h",
     "cpu_cache.cc",
     "cpu_cache.h",
+    "deallocation_profiler.cc",
     "legacy_size_classes.cc",
     "experimental_pow2_size_class.cc",
     "experimental_cfl_aware_size_class.cc",
@@ -212,6 +213,7 @@ common_hdrs = [
     "central_freelist.h",
     "common.h",
     "cpu_cache.h",
+    "deallocation_profiler.h",
     "global_stats.h",
     "guarded_page_allocator.h",
     "hinted_tracker_lists.h",
@@ -259,6 +261,7 @@ common_deps = [
     "@com_google_absl//absl/base:core_headers",
     "@com_google_absl//absl/base:dynamic_annotations",
     "@com_google_absl//absl/container:fixed_array",
+    "@com_google_absl//absl/container:flat_hash_map",  # For lifetime (deallocation) profiler
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
     "@com_google_absl//absl/synchronization",

@@ -92,6 +92,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/global_stats.h"
 #include "tcmalloc/guarded_page_allocator.h"
@@ -238,6 +239,12 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
 extern "C" AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling() {
   return new AllocationSample(&tc_globals.allocation_samples, absl::Now());
+}
+
+extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
+MallocExtension_Internal_StartLifetimeProfiling() {
+  return new deallocationz::DeallocationSample(
+      &tc_globals.deallocation_samples);
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {

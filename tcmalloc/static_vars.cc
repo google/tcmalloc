@@ -24,6 +24,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
@@ -60,6 +61,8 @@ ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
 ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
+ABSL_CONST_INIT deallocationz::DeallocationProfilerList
+    Static::deallocation_samples;
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
@@ -95,6 +98,7 @@ size_t Static::metadata_bytes() {
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(sampled_internal_fragmentation_) +
       sizeof(allocation_samples) +
+      sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
   // LINT.ThenChange(:static_vars)

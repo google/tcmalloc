@@ -51,3 +51,14 @@ profile.
 
 While the allocation sampler is active it is added to the list of samplers for
 allocations and removed from the list when it is claimed.
+
+## How Do We Handle Lifetime Profiling
+
+Lifetime profiling reports a list of object lifetimes as pairs of allocation and
+deallocation records. Profiling is initiated by calling
+[MallocExtension::StartLifetimeProfiling()](https://github.com/google/tcmalloc/blob/master/tcmalloc/malloc_extension.h).
+Profiling continues until `Stop` is invoked on the token. Lifetimes are only
+reported for objects where allocation *and* deallocation are observed while
+profiling is active. A description of the sampling based lifetime profiler can
+be found in Section 4 of
+["Learning-based Memory Allocation for C++ Server Workloads, ASPLOS 2020"](https://research.google/pubs/pub49008/).

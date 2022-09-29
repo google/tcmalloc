@@ -29,6 +29,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -81,6 +82,9 @@ enum class ProfileType {
   // Sample of objects allocated from the start of allocation profiling until
   // the profile was terminated with Stop().
   kAllocations,
+
+  // Lifetimes of sampled objects that are live during the profiling session.
+  kLifetimes,
 
   // Only present to prevent switch statements without a default clause so that
   // we can extend this enumeration without breaking code.
@@ -138,6 +142,18 @@ class Profile final {
 
     // Timestamp of allocation.
     absl::Time allocation_time;
+
+    // The following vars are used by the lifetime (deallocation) profiler.
+    uint64_t profile_id;
+    // TODO(b/241141190): Use absl::Duration to represent lifetime metrics.
+    uint64_t lifetime_ns;
+    uint64_t stddev_lifetime_ns;
+    uint64_t min_lifetime_ns;
+    uint64_t max_lifetime_ns;
+    // For the *_matched vars below we use true = "same", false = "different".
+    // When the context is unavailable the profile contains "none".
+    bool allocator_deallocator_cpu_matched;
+    bool allocator_deallocator_thread_matched;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
@@ -485,6 +501,10 @@ class MallocExtension final {
   // Start recording a sample of allocation and deallocation calls.  Returns
   // null if the implementation does not support profiling.
   static AllocationProfilingToken StartAllocationProfiling();
+
+  // Start recording lifetimes of objects live during this profiling
+  // session. Returns null if the implementation does not support profiling.
+  static AllocationProfilingToken StartLifetimeProfiling();
 
   // Runs housekeeping actions for the allocator off of the main allocation path
   // of new/delete.  As of 2020, this includes:

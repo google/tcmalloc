@@ -110,6 +110,53 @@ TEST(AllocationSampleTest, RaceToClaim) {
   t2.join();
 }
 
+// Similar to the AllocationSampleTest but for DeallocationSample which uses a
+// similar API susceptible to the same race condition. It should be possible to
+// combine these to into a single test if the deallocation profiler is
+// refactored to use a template-d interface shared with the allocation profiler.
+TEST(DeallocationSampleTest, RaceToClaim) {
+  MallocExtension::SetProfileSamplingRate(1 << 14);
+
+  absl::BlockingCounter counter(2);
+  std::atomic<bool> stop{false};
+
+  std::thread t1([&]() {
+    counter.DecrementCount();
+
+    while (!stop) {
+      auto token = MallocExtension::StartLifetimeProfiling();
+      absl::SleepFor(absl::Microseconds(1));
+      auto profile = std::move(token).Stop();
+    }
+  });
+
+  std::thread t2([&]() {
+    counter.DecrementCount();
+
+    const int kNum = 1000000;
+    std::vector<void*> ptrs;
+    while (!stop) {
+      for (int i = 0; i < kNum; i++) {
+        ptrs.push_back(::operator new(1));
+      }
+      for (void* p : ptrs) {
+        sized_delete(p, 1);
+      }
+      ptrs.clear();
+    }
+  });
+
+  // Verify the threads are up and running before we start the clock.
+  counter.Wait();
+
+  absl::SleepFor(absl::Seconds(1));
+
+  stop.store(true);
+
+  t1.join();
+  t2.join();
+}
+
 TEST(AllocationSampleTest, SampleAccuracy) {
   // Disable GWP-ASan, since it allocates different sizes than normal samples.
   MallocExtension::SetGuardedSamplingRate(-1);

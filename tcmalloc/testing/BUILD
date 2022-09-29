@@ -974,3 +974,19 @@ create_tcmalloc_testsuite(
         "@com_google_protobuf//:protobuf",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "deallocation_profiler_test",
+    srcs = ["deallocation_profiler_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = ["nosan"],
+    deps = [
+        ":testutil",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/debugging:symbolize",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

@@ -195,6 +195,21 @@ MallocExtension::StartAllocationProfiling() {
 #endif
 }
 
+MallocExtension::AllocationProfilingToken
+MallocExtension::StartLifetimeProfiling() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (&MallocExtension_Internal_StartLifetimeProfiling == nullptr) {
+    return {};
+  }
+
+  return tcmalloc_internal::AllocationProfilingTokenAccessor::MakeToken(
+      std::unique_ptr<tcmalloc_internal::AllocationProfilingTokenBase>(
+          MallocExtension_Internal_StartLifetimeProfiling()));
+#else
+  return {};
+#endif
+}
+
 void MallocExtension::MarkThreadIdle() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_MarkThreadIdle == nullptr) {

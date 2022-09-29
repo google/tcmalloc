@@ -259,6 +259,9 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "TCMallocInternalSdallocx|"
     "(tcmalloc_)?size_returning_operator_new(_hot_cold)?(_nothrow)?|"
 
+    // Lifetime (deallocation) profiler routines.
+    ".*deallocationz::DeallocationProfiler.*|"
+
     // libstdc++ memory allocation routines
     "__gnu_cxx::new_allocator::allocate|"
     "__malloc_alloc_template::allocate|"
@@ -440,6 +443,107 @@ void ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
   mappings_.emplace(memory_start, mapping.id() - 1);
 }
 
+static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
+                                     ProfileBuilder* builder) {
+  CHECK_CONDITION(builder != nullptr);
+  perftools::profiles::Profile& converted = builder->profile();
+  perftools::profiles::ValueType* period_type = converted.mutable_period_type();
+
+  period_type->set_type(builder->InternString("space"));
+  period_type->set_unit(builder->InternString("bytes"));
+
+  for (const auto& [type, unit] : {std::pair{"allocated_objects", "count"},
+                                   {"allocated_space", "bytes"},
+                                   {"deallocated_objects", "count"},
+                                   {"deallocated_space", "bytes"}}) {
+    perftools::profiles::ValueType* sample_type = converted.add_sample_type();
+    sample_type->set_type(builder->InternString(type));
+    sample_type->set_unit(builder->InternString(unit));
+  }
+
+  converted.set_default_sample_type(builder->InternString("deallocated_space"));
+  converted.set_duration_nanos(absl::ToInt64Nanoseconds(profile.Duration()));
+  converted.set_drop_frames(builder->InternString(kProfileDropFrames));
+
+  // Common intern string ids which are going to be used for each sample.
+  const int count_id = builder->InternString("count");
+  const int bytes_id = builder->InternString("bytes");
+  const int request_id = builder->InternString("request");
+  const int alignment_id = builder->InternString("alignment");
+  const int nanoseconds_id = builder->InternString("nanoseconds");
+  const int avg_lifetime_id = builder->InternString("avg_lifetime");
+  const int stddev_lifetime_id = builder->InternString("stddev_lifetime");
+  const int min_lifetime_id = builder->InternString("min_lifetime");
+  const int max_lifetime_id = builder->InternString("max_lifetime");
+  const int active_cpu_id = builder->InternString("active CPU");
+  const int same_id = builder->InternString("same");
+  const int different_id = builder->InternString("different");
+  const int active_thread_id = builder->InternString("active thread");
+  const int callstack_pair_id = builder->InternString("callstack-pair-id");
+
+  profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
+    perftools::profiles::Sample& sample = *converted.add_sample();
+
+    CHECK_CONDITION(entry.depth <= ABSL_ARRAYSIZE(entry.stack));
+    builder->InternCallstack(absl::MakeSpan(entry.stack, entry.depth), sample);
+
+    auto add_label = [&](int key, int unit, size_t value) {
+      perftools::profiles::Label& label = *sample.add_label();
+      label.set_key(key);
+      label.set_num(value);
+      label.set_num_unit(unit);
+    };
+
+    auto add_positive_label = [&](int key, int unit, size_t value) {
+      if (value <= 0) return;
+      add_label(key, unit, value);
+    };
+
+    auto add_string_label = [&](int key, bool pick_result1, int result1,
+                                int result2) {
+      perftools::profiles::Label& label = *sample.add_label();
+      label.set_key(key);
+      if (pick_result1) {
+        label.set_str(result1);
+      } else {
+        label.set_str(result2);
+      }
+    };
+
+    // The following three fields are common across profiles.
+    add_positive_label(bytes_id, bytes_id, entry.allocated_size);
+    add_positive_label(request_id, bytes_id, entry.requested_size);
+    add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
+
+    // The following fields are specific to lifetime (deallocation) profiler.
+    add_positive_label(callstack_pair_id, count_id, entry.profile_id);
+    add_positive_label(avg_lifetime_id, nanoseconds_id, entry.lifetime_ns);
+    add_positive_label(stddev_lifetime_id, nanoseconds_id,
+                       entry.stddev_lifetime_ns);
+    add_positive_label(min_lifetime_id, nanoseconds_id, entry.min_lifetime_ns);
+    add_positive_label(max_lifetime_id, nanoseconds_id, entry.max_lifetime_ns);
+    add_string_label(active_cpu_id, entry.allocator_deallocator_cpu_matched,
+                     same_id, different_id);
+    add_string_label(active_thread_id,
+                     entry.allocator_deallocator_thread_matched, same_id,
+                     different_id);
+
+    int64_t count = abs(entry.count);
+    int64_t weight = entry.sum;
+    if (entry.count > 0) {  // for allocation, e.count is positive
+      sample.add_value(count);
+      sample.add_value(weight);
+      sample.add_value(0);
+      sample.add_value(0);
+    } else {  // for deallocation, e.count is negative
+      sample.add_value(0);
+      sample.add_value(0);
+      sample.add_value(count);
+      sample.add_value(weight);
+    }
+  });
+}
+
 std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
   return std::move(profile_);
 }
@@ -448,6 +552,11 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile) {
   ProfileBuilder builder;
   builder.AddCurrentMappings();
+
+  if (profile.Type() == ProfileType::kLifetimes) {
+    MakeLifetimeProfileProto(profile, &builder);
+    return std::move(builder).Finalize();
+  }
 
   const int alignment_id = builder.InternString("alignment");
   const int bytes_id = builder.InternString("bytes");
