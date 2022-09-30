@@ -44,6 +44,7 @@
 #include "tcmalloc/sampled_allocation.h"
 #include "tcmalloc/sampled_allocation_allocator.h"
 #include "tcmalloc/sampled_allocation_recorder.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/transfer_cache.h"

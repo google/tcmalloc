@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

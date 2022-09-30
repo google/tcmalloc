@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "tcmalloc/common.h"
+#include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

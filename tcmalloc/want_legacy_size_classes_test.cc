@@ -15,6 +15,7 @@
 #include "gtest/gtest.h"
 #include "absl/base/macros.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/sizemap.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
