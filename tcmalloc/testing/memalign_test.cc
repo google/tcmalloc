@@ -181,11 +181,17 @@ TEST(MemalignTest, AlignedAlloc) {
 TEST(MemalignTest, AlignedAllocUnsupportedAlignment) {
   // Hide invalid alignment from -Wnon-power-of-two-alignment.
   volatile size_t alignment = 0;
+  errno = 0;
   EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
+  EXPECT_EQ(errno, EINVAL);
   alignment = sizeof(void*) + 1;
+  errno = 0;
   EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
+  EXPECT_EQ(errno, EINVAL);
   alignment = 4097;
+  errno = 0;
   EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
+  EXPECT_EQ(errno, EINVAL);
 }
 
 TEST(MemalignTest, Memalign) {

@@ -1535,6 +1535,9 @@ extern "C" void* TCMallocInternalAlignedAlloc(size_t align,
   // implementation, a null pointer should be returned. We require alignment to
   // be greater than 0 and a power of 2.
   if (ABSL_PREDICT_FALSE(align == 0 || !absl::has_single_bit(align))) {
+    // glibc, FreeBSD, and NetBSD manuals all document aligned_alloc() as
+    // returning EINVAL if align is not a power of 2. We do the same.
+    errno = EINVAL;
     return nullptr;
   }
   return fast_alloc(MallocPolicy().AlignAs(align), size);
