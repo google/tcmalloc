@@ -440,10 +440,10 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
         .allocated_size = 16,
         // Lifetime specific information in each sample.
         .profile_id = 33,
-        .lifetime_ns = 77,
-        .stddev_lifetime_ns = 22,
-        .min_lifetime_ns = 55,
-        .max_lifetime_ns = 99,
+        .avg_lifetime = absl::Nanoseconds(77),
+        .stddev_lifetime = absl::Nanoseconds(22),
+        .min_lifetime = absl::Nanoseconds(55),
+        .max_lifetime = absl::Nanoseconds(99),
         .allocator_deallocator_cpu_matched = true,
         .allocator_deallocator_thread_matched = false,
     };

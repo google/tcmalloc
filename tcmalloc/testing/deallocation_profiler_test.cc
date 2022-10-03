@@ -179,22 +179,23 @@ TEST(LifetimeProfiler, BasicCounterValues) {
 }
 
 TEST(LifetimeProfiler, LifetimeBucketing) {
-  auto bucket_for_testing = [](uint64_t nanoseconds) {
-    return deallocationz::internal::LifetimeToBucketedLifetimeNanoseconds(
-        nanoseconds);
+  using deallocationz::internal::LifetimeNsToBucketedDuration;
+
+  auto BucketizeDuration = [](uint64_t nanoseconds) {
+    return LifetimeNsToBucketedDuration(nanoseconds);
   };
 
-  EXPECT_EQ(1, bucket_for_testing(0));
-  EXPECT_EQ(10, bucket_for_testing(31));
-  EXPECT_EQ(100, bucket_for_testing(104));
-  EXPECT_EQ(1000, bucket_for_testing(4245));
-  EXPECT_EQ(10000, bucket_for_testing(42435));
-  EXPECT_EQ(100000, bucket_for_testing(942435));
-  EXPECT_EQ(1000000, bucket_for_testing(1000000));
-  EXPECT_EQ(1000000, bucket_for_testing(1900000));
-  EXPECT_EQ(2000000, bucket_for_testing(2000000));
-  EXPECT_EQ(2000000, bucket_for_testing(2700000));
-  EXPECT_EQ(34000000, bucket_for_testing(34200040));
+  EXPECT_EQ(absl::Nanoseconds(1), BucketizeDuration(0));
+  EXPECT_EQ(absl::Nanoseconds(10), BucketizeDuration(31));
+  EXPECT_EQ(absl::Nanoseconds(100), BucketizeDuration(104));
+  EXPECT_EQ(absl::Nanoseconds(1000), BucketizeDuration(4245));
+  EXPECT_EQ(absl::Nanoseconds(10000), BucketizeDuration(42435));
+  EXPECT_EQ(absl::Nanoseconds(100000), BucketizeDuration(942435));
+  EXPECT_EQ(absl::Nanoseconds(1000000), BucketizeDuration(1000000));
+  EXPECT_EQ(absl::Nanoseconds(1000000), BucketizeDuration(1900000));
+  EXPECT_EQ(absl::Nanoseconds(2000000), BucketizeDuration(2000000));
+  EXPECT_EQ(absl::Nanoseconds(2000000), BucketizeDuration(2700000));
+  EXPECT_EQ(absl::Nanoseconds(34000000), BucketizeDuration(34200040));
 }
 
 }  // namespace

@@ -14,6 +14,7 @@
 
 #include "tcmalloc/internal/profile_builder.h"
 
+#include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
 
 #if defined(__linux__)
@@ -517,11 +518,14 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
 
     // The following fields are specific to lifetime (deallocation) profiler.
     add_positive_label(callstack_pair_id, count_id, entry.profile_id);
-    add_positive_label(avg_lifetime_id, nanoseconds_id, entry.lifetime_ns);
+    add_positive_label(avg_lifetime_id, nanoseconds_id,
+                       absl::ToInt64Nanoseconds(entry.avg_lifetime));
     add_positive_label(stddev_lifetime_id, nanoseconds_id,
-                       entry.stddev_lifetime_ns);
-    add_positive_label(min_lifetime_id, nanoseconds_id, entry.min_lifetime_ns);
-    add_positive_label(max_lifetime_id, nanoseconds_id, entry.max_lifetime_ns);
+                       absl::ToInt64Nanoseconds(entry.stddev_lifetime));
+    add_positive_label(min_lifetime_id, nanoseconds_id,
+                       absl::ToInt64Nanoseconds(entry.min_lifetime));
+    add_positive_label(max_lifetime_id, nanoseconds_id,
+                       absl::ToInt64Nanoseconds(entry.max_lifetime));
     add_string_label(active_cpu_id, entry.allocator_deallocator_cpu_matched,
                      same_id, different_id);
     add_string_label(active_thread_id,

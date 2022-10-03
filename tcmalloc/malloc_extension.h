@@ -145,11 +145,10 @@ class Profile final {
 
     // The following vars are used by the lifetime (deallocation) profiler.
     uint64_t profile_id;
-    // TODO(b/241141190): Use absl::Duration to represent lifetime metrics.
-    uint64_t lifetime_ns;
-    uint64_t stddev_lifetime_ns;
-    uint64_t min_lifetime_ns;
-    uint64_t max_lifetime_ns;
+    absl::Duration avg_lifetime;
+    absl::Duration stddev_lifetime;
+    absl::Duration min_lifetime;
+    absl::Duration max_lifetime;
     // For the *_matched vars below we use true = "same", false = "different".
     // When the context is unavailable the profile contains "none".
     bool allocator_deallocator_cpu_matched;

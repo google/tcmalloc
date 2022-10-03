@@ -58,7 +58,7 @@ class DeallocationSample final
 };
 
 namespace internal {
-uintptr_t LifetimeToBucketedLifetimeNanoseconds(double lifetime_ns);
+absl::Duration LifetimeNsToBucketedDuration(double lifetime_ns);
 }  // namespace internal
 }  // namespace deallocationz
 }  // namespace tcmalloc

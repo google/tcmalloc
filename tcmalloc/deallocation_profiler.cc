@@ -483,17 +483,17 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
           sqrt(std::max(0.0, v.variance_life_times_ns[index] /
                                  static_cast<double>((v.counts[index]))));
 
-      const auto bucketize_ns = internal::LifetimeToBucketedLifetimeNanoseconds;
+      const auto bucketize = internal::LifetimeNsToBucketedDuration;
       Profile::Sample sample{
           .sum = sum,
           .requested_size = k.alloc.requested_size,
           .requested_alignment = k.alloc.requested_alignment,
           .allocated_size = allocated_size,
           .profile_id = pair_id,
-          .lifetime_ns = bucketize_ns(v.mean_life_times_ns[index]),
-          .stddev_lifetime_ns = bucketize_ns(stddev_life_time_ns),
-          .min_lifetime_ns = bucketize_ns(v.min_life_times_ns[index]),
-          .max_lifetime_ns = bucketize_ns(v.max_life_times_ns[index]),
+          .avg_lifetime = bucketize(v.mean_life_times_ns[index]),
+          .stddev_lifetime = bucketize(stddev_life_time_ns),
+          .min_lifetime = bucketize(v.min_life_times_ns[index]),
+          .max_lifetime = bucketize(v.max_life_times_ns[index]),
           .allocator_deallocator_cpu_matched = matching_case.first.cpu_matched,
           .allocator_deallocator_thread_matched =
               matching_case.first.thread_matched,
@@ -538,7 +538,7 @@ namespace internal {
 // Lifetimes below 1ns are truncated to 1ns.  Lifetimes between 1ns and 1ms
 // are rounded to the next smaller power of 10.  Lifetimes above 1ms are rounded
 // down to the nearest millisecond.
-uintptr_t LifetimeToBucketedLifetimeNanoseconds(double lifetime_ns) {
+absl::Duration LifetimeNsToBucketedDuration(double lifetime_ns) {
   if (lifetime_ns < 1000000.0) {
     if (lifetime_ns <= 1) {
       // Avoid negatives.  We can't allocate in a negative amount of time or
@@ -546,18 +546,19 @@ uintptr_t LifetimeToBucketedLifetimeNanoseconds(double lifetime_ns) {
       // allocation/deallocation in a tight loop are several nanoseconds), so
       // results this small indicate probable clock skew or other confounding
       // factors in the data.
-      return 1;
+      return absl::Nanoseconds(1);
     }
 
-    for (uintptr_t cutoff_ns = 10; cutoff_ns <= 1000000; cutoff_ns *= 10) {
+    for (uint64_t cutoff_ns = 10; cutoff_ns <= 1000000; cutoff_ns *= 10) {
       if (lifetime_ns < cutoff_ns) {
-        return cutoff_ns / 10;
+        return absl::Nanoseconds(cutoff_ns / 10);
       }
     }
   }
 
   // Round down to nearest millisecond.
-  return static_cast<uintptr_t>(lifetime_ns / 1000000.0) * 1000000L;
+  return absl::Nanoseconds(static_cast<uint64_t>(lifetime_ns / 1000000.0) *
+                           1000000L);
 }
 
 }  // namespace internal
