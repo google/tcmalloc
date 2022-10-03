@@ -178,17 +178,15 @@ TEST(MemalignTest, AlignedAlloc) {
   free(p_small);
 }
 
-#ifndef NDEBUG
-TEST(MemalignTest, AlignedAllocDeathTest) {
+TEST(MemalignTest, AlignedAllocUnsupportedAlignment) {
   // Hide invalid alignment from -Wnon-power-of-two-alignment.
   volatile size_t alignment = 0;
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
   alignment = sizeof(void*) + 1;
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
   alignment = 4097;
-  EXPECT_DEATH(benchmark::DoNotOptimize(aligned_alloc(alignment, 1)), "");
+  EXPECT_EQ(aligned_alloc(alignment, 1), nullptr);
 }
-#endif
 
 TEST(MemalignTest, Memalign) {
   // Try allocating data with a bunch of alignments and sizes

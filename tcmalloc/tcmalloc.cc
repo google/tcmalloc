@@ -1529,20 +1529,16 @@ extern "C" void* TCMallocInternalMemalign(size_t align, size_t size) noexcept {
 }
 
 extern "C" void* TCMallocInternalAlignedAlloc(size_t align,
-                                              size_t size) noexcept
-#if defined(TCMALLOC_ALIAS) && defined(NDEBUG)
-    TCMALLOC_ALIAS(TCMallocInternalMemalign);
-#else
-{
-  // aligned_alloc is memalign, but with the requirement that:
-  //   align be a power of two (like memalign)
-  //   size be a multiple of align (for the time being).
-  ASSERT(align != 0);
-  ASSERT(size % align == 0);
-
-  return TCMallocInternalMemalign(align, size);
+                                              size_t size) noexcept {
+  // See https://www.open-std.org/jtc1/sc22/wg14/www/docs/summary.htm#dr_460.
+  // The standard was updated to say that if align is not supported by the
+  // implementation, a null pointer should be returned. We require alignment to
+  // be greater than 0 and a power of 2.
+  if (ABSL_PREDICT_FALSE(align == 0 || !absl::has_single_bit(align))) {
+    return nullptr;
+  }
+  return fast_alloc(MallocPolicy().AlignAs(align), size);
 }
-#endif
 
 extern "C" int TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
                                              size_t size) noexcept {
