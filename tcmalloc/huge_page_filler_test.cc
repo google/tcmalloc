@@ -623,8 +623,8 @@ class BlockingUnback {
       return;
     }
 
-    if (counter) {
-      counter->DecrementCount();
+    if (counter_) {
+      counter_->DecrementCount();
     }
 
     mu_->Lock();
@@ -633,14 +633,14 @@ class BlockingUnback {
 
   static void set_lock(absl::Mutex* mu) { mu_ = mu; }
 
-  static absl::BlockingCounter* counter;
+  static absl::BlockingCounter* counter_;
 
  private:
   static thread_local absl::Mutex* mu_;
 };
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
-absl::BlockingCounter* BlockingUnback::counter = nullptr;
+absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
 
 class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
  protected:
@@ -1370,7 +1370,7 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   m2->Lock();
 
   absl::BlockingCounter counter(2);
-  BlockingUnback::counter = &counter;
+  BlockingUnback::counter_ = &counter;
 
   std::thread t1([&]() {
     BlockingUnback::set_lock(m1.get());
@@ -1425,7 +1425,7 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   DeleteRaw(a1);
   DeleteRaw(a4);
 
-  BlockingUnback::counter = nullptr;
+  BlockingUnback::counter_ = nullptr;
 }
 
 TEST_P(FillerTest, SkipSubrelease) {
