@@ -172,11 +172,6 @@ void SizeMap::Init() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     SetSizeClasses(kExperimentalPow2SizeClassesCount,
                    kExperimentalPow2SizeClasses);
-  } else if (IsExperimentActive(Experiment::TCMALLOC_CFL_AWARE_SIZE_CLASS) ||
-             IsExperimentActive(
-                 Experiment::TEST_ONLY_TCMALLOC_CFL_AWARE_SIZECLASS)) {
-    SetSizeClasses(kExperimentalCFLAwareSizeClassesCount,
-                   kExperimentalCFLAwareSizeClasses);
   } else if (default_want_legacy_size_classes != nullptr &&
              default_want_legacy_size_classes() > 0) {
     // TODO(b/196216678): remove this opt out after 2022-11-01.

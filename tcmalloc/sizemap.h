@@ -134,8 +134,6 @@ class SizeMap {
   // Experimental size classes:
   static const SizeClassInfo kExperimentalPow2SizeClasses[];
   static const int kExperimentalPow2SizeClassesCount;
-  static const SizeClassInfo kExperimentalCFLAwareSizeClasses[];
-  static const int kExperimentalCFLAwareSizeClassesCount;
   static const SizeClassInfo kLegacySizeClasses[];
   static const int kLegacySizeClassesCount;
 

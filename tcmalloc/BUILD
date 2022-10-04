@@ -157,7 +157,6 @@ common_srcs = [
     "deallocation_profiler.cc",
     "legacy_size_classes.cc",
     "experimental_pow2_size_class.cc",
-    "experimental_cfl_aware_size_class.cc",
     "global_stats.cc",
     "guarded_page_allocator.h",
     "guarded_page_allocator.cc",
