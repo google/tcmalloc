@@ -97,14 +97,6 @@ variants = [
         "copts": ["-DTCMALLOC_NUMA_AWARE"],
     },
     {
-        "name": "ring_buffer_transfer_cache",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common",
-        ],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE"},
-    },
-    {
         "name": "256k_pages_pow2_sharded_transfer_cache",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [

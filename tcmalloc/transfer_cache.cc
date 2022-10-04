@@ -74,24 +74,6 @@ ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
 }
 
 TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
-  // Prefer ring, if we're forcing it on.
-  if (IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_RING_BUFFER_TRANSFER_CACHE)) {
-    return TransferCacheImplementation::Ring;
-  }
-
-  // Consider opt-outs
-  const char *e = thread_safe_getenv("TCMALLOC_INTERNAL_TRANSFERCACHE_CONTROL");
-  if (e) {
-    if (e[0] == '0') {
-      return TransferCacheImplementation::Legacy;
-    }
-    if (e[0] == '1') {
-      return TransferCacheImplementation::Ring;
-    }
-    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-  }
-
   // Otherwise, default to legacy.
   return TransferCacheImplementation::Legacy;
 }
