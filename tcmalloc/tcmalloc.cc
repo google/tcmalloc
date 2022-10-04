@@ -1207,7 +1207,12 @@ extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
 }
 
 extern "C" void TCMallocInternalFreeSized(void* ptr, size_t size) noexcept {
-  return do_free_with_size(ptr, size, MallocAlignPolicy());
+  do_free_with_size(ptr, size, MallocAlignPolicy());
+}
+
+extern "C" void TCMallocInternalFreeAlignedSized(void* ptr, size_t align,
+                                                 size_t size) noexcept {
+  do_free_with_size(ptr, size, AlignAsPolicy(align));
 }
 
 extern "C" void TCMallocInternalSdallocx(void* ptr, size_t size,

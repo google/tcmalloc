@@ -51,6 +51,9 @@ void* calloc(size_t n, size_t s) { return TCMallocInternalCalloc(n, s); }
 void* realloc(void* p, size_t s) { return TCMallocInternalRealloc(p, s); }
 void free(void* p) { TCMallocInternalFree(p); }
 void free_sized(void* p, size_t s) { TCMallocInternalFreeSized(p, s); }
+void free_aligned_sized(void* p, size_t a, size_t s) {
+  TCMallocInternalFreeAlignedSized(p, a, s);
+}
 void* memalign(size_t a, size_t s) { return TCMallocInternalMemalign(a, s); }
 int posix_memalign(void** r, size_t a, size_t s) {
   return TCMallocInternalPosixMemalign(r, a, s);
