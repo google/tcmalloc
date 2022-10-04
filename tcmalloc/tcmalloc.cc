@@ -1119,6 +1119,7 @@ using tcmalloc::tcmalloc_internal::CorrectSize;
 using tcmalloc::tcmalloc_internal::DefaultAlignPolicy;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
+using tcmalloc::tcmalloc_internal::MallocAlignPolicy;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
 #include "tcmalloc/libc_override.h"
@@ -1203,6 +1204,10 @@ extern "C" ABSL_ATTRIBUTE_SECTION(
 extern "C" ABSL_CACHELINE_ALIGNED void TCMallocInternalFree(
     void* ptr) noexcept {
   do_free(ptr);
+}
+
+extern "C" void TCMallocInternalFreeSized(void* ptr, size_t size) noexcept {
+  return do_free_with_size(ptr, size, MallocAlignPolicy());
 }
 
 extern "C" void TCMallocInternalSdallocx(void* ptr, size_t size,

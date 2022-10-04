@@ -114,6 +114,11 @@ static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
 // kLogMaxMemalign.
 const int kLogMaxMemalign = 18;
 
+#if !defined(__STDC_VERSION_STDLIB_H__) || __STDC_VERSION_STDLIB_H__ < 202311L
+// free_sized is a sized free function introduced in C23.
+extern "C" void free_sized(void* ptr, size_t size) noexcept;
+#endif
+
 static const int kSizeBits = 8 * sizeof(size_t);
 static const size_t kMaxTestSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
@@ -748,6 +753,26 @@ TEST(TCMallocTest, sdallocx) {
     sdallocx(ptr, size, 0);
   }
 }
+
+TEST(TCMallocTest, free_aligned) {
+  for (size_t size = 0; size <= 4096; size += 7) {
+    void* ptr = malloc(size);
+    memset(ptr, 0, size);
+    benchmark::DoNotOptimize(ptr);
+    free_sized(ptr, size);
+  }
+}
+
+#ifndef NDEBUG
+TEST(TCMallocTest, FreeAlignedDeathTest) {
+  void* ptr;
+  const size_t size = 4096;
+  const size_t alignment = 1024;
+  int err = PosixMemalign(&ptr, 1024, alignment);
+  ASSERT_EQ(err, 0) << alignment << " " << size;
+  EXPECT_DEATH(free_sized(ptr, size), "");
+}
+#endif
 
 TEST(TCMallocTest, sdallocx_alignment) {
   for (size_t size = 0; size <= 4096; size += 7) {

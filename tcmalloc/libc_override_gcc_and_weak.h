@@ -84,6 +84,8 @@ void operator delete[](void* p, size_t size,
 extern "C" {
 void* malloc(size_t size) noexcept TCMALLOC_ALIAS(TCMallocInternalMalloc);
 void free(void* ptr) noexcept TCMALLOC_ALIAS(TCMallocInternalFree);
+void free_sized(void* ptr, size_t size) noexcept
+    TCMALLOC_ALIAS(TCMallocInternalFreeSized);
 void sdallocx(void* ptr, size_t size, int flags) noexcept
     TCMALLOC_ALIAS(TCMallocInternalSdallocx);
 void* realloc(void* ptr, size_t size) noexcept
