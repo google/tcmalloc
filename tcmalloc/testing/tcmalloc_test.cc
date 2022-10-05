@@ -757,7 +757,7 @@ TEST(TCMallocTest, sdallocx) {
   }
 }
 
-TEST(TCMallocTest, free_aligned) {
+TEST(TCMallocTest, free_sized) {
   for (size_t size = 0; size <= 4096; size += 7) {
     void* ptr = malloc(size);
     memset(ptr, 0, size);
