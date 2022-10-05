@@ -260,14 +260,9 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   }
 }
 
-TYPED_TEST_P(TransferCacheTest, Plunder) {
+// TODO(b/251171552): Reenable this to cover the LIFO implementation.
+TYPED_TEST_P(TransferCacheTest, DISABLED_Plunder) {
   TypeParam env;
-  if (!std::is_same<typename TypeParam::TransferCache,
-                    internal_transfer_cache::RingBufferTransferCache<
-                        typename TypeParam::FreeList,
-                        typename TypeParam::Manager>>::value) {
-    GTEST_SKIP() << "Skipping ring-specific test.";
-  }
 
   // Fill in some elements.
   env.Insert(TypeParam::kBatchSize);
@@ -343,12 +338,13 @@ static size_t PickCoprimeBatchSize(size_t max_batch_size) {
   return max_batch_size;
 }
 
-TEST(RingBufferTest, b172283201) {
-  // This test is designed to exercise the wraparound behavior for the
-  // RingBufferTransferCache, which manages its indices in uint32_t's.  Because
-  // it uses a non-standard batch size (kBatchSize) as part of
-  // PickCoprimeBatchSize, it triggers a TransferCache miss to the
-  // CentralFreeList, which is uninteresting for exercising b/172283201.
+// TODO(b/172283201): Improve the performance of this test and reenable it.
+TYPED_TEST_P(TransferCacheTest, DISABLED_b172283201) {
+  // This test is designed to exercise the wraparound behavior for the transfer
+  // cache, which manages its indices in uint32_t's.  Because it uses a
+  // non-standard batch size (kBatchSize) as part of PickCoprimeBatchSize, it
+  // triggers a TransferCache miss to the CentralFreeList, which is
+  // uninteresting for exercising b/172283201.
 
   // For performance reasons, limit to optimized builds.
 #if !defined(NDEBUG)
@@ -358,16 +354,13 @@ TEST(RingBufferTest, b172283201) {
   GTEST_SKIP() << "skipping under thread sanitizer, which slows test execution";
 #endif
 
-  using EnvType = FakeTransferCacheEnvironment<
-      internal_transfer_cache::RingBufferTransferCache<
-          MockCentralFreeList, FakeTransferCacheManager>>;
-  EnvType env;
+  TypeParam env;
 
-  // We pick the largest value <= EnvType::kBatchSize to use as a batch size,
+  // We pick the largest value <= TypeParam::kBatchSize to use as a batch size,
   // such that it is prime relative to 2^32.  This ensures that when we
   // encounter a wraparound, the last operation actually spans both ends of the
   // buffer.
-  const size_t batch_size = PickCoprimeBatchSize(EnvType::kBatchSize);
+  const size_t batch_size = PickCoprimeBatchSize(TypeParam::kBatchSize);
   ASSERT_GT(batch_size, 0);
   ASSERT_NE((size_t{1} << 32) % batch_size, 0) << batch_size;
   // For ease of comparison, allocate a buffer of char's.  We will use these to
@@ -404,7 +397,7 @@ TEST(RingBufferTest, b172283201) {
   // call, as we return up to num_to_move (i.e. kBatchSize) items to the free
   // list in one batch.
   EXPECT_CALL(env.central_freelist(),
-              InsertRange(testing::SizeIs(EnvType::kBatchSize)))
+              InsertRange(testing::SizeIs(TypeParam::kBatchSize)))
       .Times(testing::AnyNumber());
   for (size_t i = 0; i < kObjects; i += batch_size) {
     env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));
@@ -485,7 +478,7 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             PushesToFreelist, WrappingWorks, SingleItemSmoke,
-                            Plunder);
+                            DISABLED_Plunder, DISABLED_b172283201);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;
@@ -634,12 +627,6 @@ using FlexibleTransferCacheEnv =
 INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
                                ::testing::Types<FlexibleTransferCacheEnv>);
 
-using RingBufferEnv = FakeTransferCacheEnvironment<
-    internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
-                                                     FakeTransferCacheManager>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, TransferCacheTest,
-                               ::testing::Types<RingBufferEnv>);
-
 }  // namespace unit_tests
 
 namespace fuzz_tests {
@@ -657,11 +644,6 @@ using FlexibleTransferCacheEnv =
 INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
                                ::testing::Types<FlexibleTransferCacheEnv>);
 
-using RingBufferEnv = FakeTransferCacheEnvironment<
-    internal_transfer_cache::RingBufferTransferCache<MockCentralFreeList,
-                                                     FakeTransferCacheManager>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, FuzzTest,
-                               ::testing::Types<RingBufferEnv>);
 }  // namespace fuzz_tests
 
 namespace resize_tests {
@@ -756,12 +738,6 @@ using TransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
                                            FakeMultiClassTransferCacheManager>>;
 INSTANTIATE_TYPED_TEST_SUITE_P(TransferCache, RealTransferCacheTest,
                                ::testing::Types<TransferCacheRealEnv>);
-
-using RingTransferCacheRealEnv = MultiSizeClassTransferCacheEnvironment<
-    internal_transfer_cache::RingBufferTransferCache<
-        CentralFreeList, FakeMultiClassRingBufferManager>>;
-INSTANTIATE_TYPED_TEST_SUITE_P(RingBuffer, RealTransferCacheTest,
-                               ::testing::Types<RingTransferCacheRealEnv>);
 
 }  // namespace resize_tests
 

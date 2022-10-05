@@ -41,12 +41,10 @@ namespace tcmalloc_internal {
 absl::string_view TransferCacheImplementationToLabel(
     TransferCacheImplementation type) {
   switch (type) {
-    case TransferCacheImplementation::Legacy:
-      return "LEGACY";
-    case TransferCacheImplementation::None:
+    case TransferCacheImplementation::kLifo:
+      return "LIFO";
+    case TransferCacheImplementation::kNone:
       return "NO_TRANSFERCACHE";
-    case TransferCacheImplementation::Ring:
-      return "RING";
     default:
       ASSUME(false);
   }
@@ -90,11 +88,6 @@ ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
   }
 
   return tc_globals.transfer_cache().RemoveRange(size_class_, batch, n);
-}
-
-TransferCacheImplementation TransferCacheManager::ChooseImplementation() {
-  // Otherwise, default to legacy.
-  return TransferCacheImplementation::Legacy;
 }
 
 #endif

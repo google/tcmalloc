@@ -142,7 +142,7 @@ class TestStaticForwarder {
   }
 
   TwoSizeClassManager<FakeCentralFreeList,
-                      internal_transfer_cache::RingBufferTransferCache>&
+                      internal_transfer_cache::TransferCache>&
   transfer_cache() {
     return transfer_cache_;
   }
@@ -166,7 +166,7 @@ class TestStaticForwarder {
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
   TwoSizeClassManager<FakeCentralFreeList,
-                      internal_transfer_cache::RingBufferTransferCache>
+                      internal_transfer_cache::TransferCache>
       transfer_cache_;
 };
 

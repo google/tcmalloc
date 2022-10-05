@@ -34,9 +34,6 @@ using TransferCacheWithRealCFLEnv =
 using TransferCacheEnv =
     FakeTransferCacheEnvironment<internal_transfer_cache::TransferCache<
         MinimalFakeCentralFreeList, FakeTransferCacheManager>>;
-using RingBufferTransferCacheEnv = FakeTransferCacheEnvironment<
-    internal_transfer_cache::RingBufferTransferCache<MinimalFakeCentralFreeList,
-                                                     FakeTransferCacheManager>>;
 static constexpr int kSizeClass = 0;
 
 template <typename Env>
@@ -238,15 +235,9 @@ void BM_RealisticHitRate(benchmark::State& state) {
 }
 
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
-BENCHMARK_TEMPLATE(BM_CrossThread, RingBufferTransferCacheEnv)
-    ->ThreadRange(2, 64);
 BENCHMARK_TEMPLATE(BM_InsertRange, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_InsertRange, RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RemoveRange, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_RemoveRange, RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations, TransferCacheEnv);
-BENCHMARK_TEMPLATE(BM_RealisticBatchNonBatchMutations,
-                   RingBufferTransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticHitRate, TransferCacheEnv);
 BENCHMARK_TEMPLATE(BM_RealisticHitRate, TransferCacheWithRealCFLEnv);
 

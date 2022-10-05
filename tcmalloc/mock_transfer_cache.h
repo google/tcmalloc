@@ -422,25 +422,10 @@ class FakeCpuLayout {
   int current_cpu_;
 };
 
-// Defines transfer cache manager for testing ring buffer transfer cache. The
-// real transfer cache manager defaults to legacy transfer cache, and can only
-// switch to the ring buffer transfer cache when environment variables are
-// enabled. This class allows us to test any changes to the manager for ring
-// buffer transfer cache as well.
-class FakeMultiClassRingBufferManager : public TransferCacheManager {
- public:
-  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    implementation_ = TransferCacheImplementation::Ring;
-    InitCaches();
-  }
-  static constexpr int kMaxSizeClassesToResize = 2;
-};
-
 // Defines transfer cache manager for testing legacy transfer cache.
 class FakeMultiClassTransferCacheManager : public TransferCacheManager {
  public:
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    implementation_ = TransferCacheImplementation::Legacy;
     InitCaches();
   }
   static constexpr int kMaxSizeClassesToResize = 2;

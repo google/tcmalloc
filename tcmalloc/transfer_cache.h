@@ -48,9 +48,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 enum class TransferCacheImplementation {
-  Legacy,
-  None,
-  Ring,
+  kLifo,
+  kNone,
 };
 
 absl::string_view TransferCacheImplementationToLabel(
@@ -337,13 +336,6 @@ class TransferCacheManager : public StaticForwarder {
       internal_transfer_cache::TransferCache<tcmalloc_internal::CentralFreeList,
                                              TransferCacheManager>;
 
-  template <typename CentralFreeList, typename Manager>
-  friend class internal_transfer_cache::RingBufferTransferCache;
-  using RingBufferTransferCache =
-      internal_transfer_cache::RingBufferTransferCache<
-          tcmalloc_internal::CentralFreeList, TransferCacheManager>;
-
-  friend class FakeMultiClassRingBufferManager;
   friend class FakeMultiClassTransferCacheManager;
 
  public:
@@ -353,68 +345,39 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    implementation_ = ChooseImplementation();
     InitCaches();
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      cache_[size_class].rbtc.InsertRange(size_class, batch);
-    } else {
-      cache_[size_class].tc.InsertRange(size_class, batch);
-    }
+    cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.RemoveRange(size_class, batch, n);
-    } else {
-      return cache_[size_class].tc.RemoveRange(size_class, batch, n);
-    }
+    return cache_[size_class].tc.RemoveRange(size_class, batch, n);
   }
 
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
-  size_t tc_length(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.tc_length();
-    } else {
-      return cache_[size_class].tc.tc_length();
-    }
-  }
+  size_t tc_length(int size_class) { return cache_[size_class].tc.tc_length(); }
 
   bool HasSpareCapacity(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.HasSpareCapacity(size_class);
-    } else {
-      return cache_[size_class].tc.HasSpareCapacity(size_class);
-    }
+    return cache_[size_class].tc.HasSpareCapacity(size_class);
   }
 
   TransferCacheStats GetStats(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.GetStats();
-    } else {
-      return cache_[size_class].tc.GetStats();
-    }
+    return cache_[size_class].tc.GetStats();
   }
 
   CentralFreeList &central_freelist(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.freelist();
-    } else {
-      return cache_[size_class].tc.freelist();
-    }
+    return cache_[size_class].tc.freelist();
   }
 
-  TransferCacheImplementation implementation() const { return implementation_; }
+  TransferCacheImplementation implementation() const {
+    return TransferCacheImplementation::kLifo;
+  }
 
   bool CanIncreaseCapacity(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.CanIncreaseCapacity(size_class);
-    } else {
-      return cache_[size_class].tc.CanIncreaseCapacity(size_class);
-    }
+    return cache_[size_class].tc.CanIncreaseCapacity(size_class);
   }
 
   // We try to grow up to 10% of the total number of size classes during one
@@ -429,51 +392,30 @@ class TransferCacheManager : public StaticForwarder {
     internal_transfer_cache::TryResizingCaches(*this);
   }
 
-  static TransferCacheImplementation ChooseImplementation();
-
   void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
-      if (implementation_ == TransferCacheImplementation::Ring) {
-        new (&cache_[i].rbtc) RingBufferTransferCache(this, i);
-      } else {
-        new (&cache_[i].tc) TransferCache(this, i);
-      }
+      new (&cache_[i].tc) TransferCache(this, i);
     }
   }
 
   bool ShrinkCache(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.ShrinkCache(size_class);
-    } else {
-      return cache_[size_class].tc.ShrinkCache(size_class);
-    }
+    return cache_[size_class].tc.ShrinkCache(size_class);
   }
 
   bool IncreaseCacheCapacity(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.IncreaseCacheCapacity(size_class);
-    } else {
-      return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
-    }
+    return cache_[size_class].tc.IncreaseCacheCapacity(size_class);
   }
 
   size_t FetchCommitIntervalMisses(int size_class) {
-    if (implementation_ == TransferCacheImplementation::Ring) {
-      return cache_[size_class].rbtc.FetchCommitIntervalMisses();
-    } else {
-      return cache_[size_class].tc.FetchCommitIntervalMisses();
-    }
+    return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
  private:
-  TransferCacheImplementation implementation_ =
-      TransferCacheImplementation::Legacy;
   union Cache {
     constexpr Cache() : dummy(false) {}
     ~Cache() {}
 
     TransferCache tc;
-    RingBufferTransferCache rbtc;
     bool dummy;
   };
   Cache cache_[kNumClasses];
@@ -515,7 +457,7 @@ class TransferCacheManager {
   }
 
   TransferCacheImplementation implementation() const {
-    return TransferCacheImplementation::None;
+    return TransferCacheImplementation::kNone;
   }
 
  private:

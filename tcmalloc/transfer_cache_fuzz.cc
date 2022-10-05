@@ -29,13 +29,6 @@ using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
 using TransferCacheEnv =
     tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
 
-using RingBufferTransferCache =
-    tcmalloc_internal::internal_transfer_cache::RingBufferTransferCache<
-        tcmalloc_internal::MockCentralFreeList,
-        tcmalloc_internal::FakeTransferCacheManager>;
-using RingBufferTransferCacheEnv =
-    tcmalloc_internal::FakeTransferCacheEnvironment<RingBufferTransferCache>;
-
 template <typename Env>
 int RunFuzzer(const uint8_t* data, size_t size) {
   Env env;
@@ -71,6 +64,5 @@ GOOGLE_MALLOC_SECTION_END
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   tcmalloc::RunFuzzer<tcmalloc::TransferCacheEnv>(data, size);
-  tcmalloc::RunFuzzer<tcmalloc::RingBufferTransferCacheEnv>(data, size);
   return 0;
 }
