@@ -21,5 +21,10 @@ ABSL_CONST_INIT bool FakeTransferCacheManager::partial_legacy_transfer_cache_(
     false);
 ABSL_CONST_INIT bool
     ArenaBasedFakeTransferCacheManager::partial_legacy_transfer_cache_(false);
+ABSL_CONST_INIT bool FakeShardedTransferCacheManager::enable_generic_cache_(
+    false);
+ABSL_CONST_INIT bool
+    FakeShardedTransferCacheManager::enable_cache_for_large_classes_only_(
+        false);
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

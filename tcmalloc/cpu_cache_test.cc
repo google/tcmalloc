@@ -78,6 +78,7 @@ class TestStaticForwarder {
  public:
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
+    sharded_manager_.Init();
   }
 
   static void* Alloc(size_t size, std::align_val_t alignment) {
@@ -128,11 +129,13 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
-  using ShardedManager = ShardedTransferCacheManagerBase<
-      FakeShardedTransferCacheEnvironment::Manager, FakeCpuLayout,
-      MinimalFakeCentralFreeList>;
+  using ShardedManager =
+      ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
+                                      FakeCpuLayout,
+                                      MinimalFakeCentralFreeList>;
 
   ShardedManager& sharded_transfer_cache() { return sharded_manager_; }
+  FakeShardedTransferCacheManager& transfer_cache_owner() { return owner_; }
 
   const ShardedManager& sharded_transfer_cache() const {
     return sharded_manager_;
@@ -144,13 +147,22 @@ class TestStaticForwarder {
     return transfer_cache_;
   }
 
+  bool UseGenericShardedCache() const { return owner_.UseGenericCache(); }
+  void SetGenericShardedCache(bool value) { owner_.SetGenericCache(value); }
+  bool UseShardedCacheForLargeClassesOnly() const {
+    return owner_.EnableCacheForLargeClassesOnly();
+  }
+  void SetShardedCacheForLargeClassesOnly(bool value) {
+    owner_.SetCacheForLargeClassesOnly(value);
+  }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   bool dynamic_slab_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
-  ArenaBasedFakeTransferCacheManager owner_;
+  FakeShardedTransferCacheManager owner_;
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
   TwoSizeClassManager<FakeCentralFreeList,
@@ -163,6 +175,60 @@ using MissCount = CpuCache::MissCount;
 
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
+
+TEST(CpuCacheTest, UsesShardedAsBackingCache) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Activate();
+
+  TestStaticForwarder& forwarder = cache.forwarder();
+  TestStaticForwarder::ShardedManager& sharded_transfer_cache =
+      forwarder.sharded_transfer_cache();
+  forwarder.SetGenericShardedCache(true);
+
+  ScopedFakeCpuId fake_cpu_id(0);
+  EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
+  EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+
+  constexpr size_t kSizeClass = 1;
+  TransferCacheStats sharded_stats =
+      sharded_transfer_cache.GetStats(kSizeClass);
+  EXPECT_EQ(sharded_stats.remove_hits, 0);
+  EXPECT_EQ(sharded_stats.remove_misses, 0);
+  EXPECT_EQ(sharded_stats.insert_hits, 0);
+  EXPECT_EQ(sharded_stats.insert_misses, 0);
+
+  // Allocate an object and make sure that we allocate from the sharded transfer
+  // cache and that the sharded cache has been initialized.
+  void* ptr = cache.Allocate<OOMHandler>(kSizeClass);
+  sharded_stats = sharded_transfer_cache.GetStats(kSizeClass);
+  EXPECT_EQ(sharded_stats.remove_hits, 0);
+  EXPECT_EQ(sharded_stats.remove_misses, 1);
+  EXPECT_EQ(sharded_stats.insert_hits, 0);
+  EXPECT_EQ(sharded_stats.insert_misses, 0);
+  EXPECT_TRUE(sharded_transfer_cache.shard_initialized(0));
+  EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 1);
+
+  // Free objects to confirm that they are indeed released back to the sharded
+  // transfer cache.
+  cache.Deallocate(ptr, kSizeClass);
+  cache.Reclaim(0);
+  sharded_stats = sharded_transfer_cache.GetStats(kSizeClass);
+  EXPECT_EQ(sharded_stats.insert_hits, 1);
+  EXPECT_EQ(sharded_stats.insert_misses, 0);
+
+  // Ensure that we never use legacy transfer cache by checking that hits and
+  // misses are zero.
+  TransferCacheStats tc_stats = forwarder.transfer_cache().GetStats(kSizeClass);
+  EXPECT_EQ(tc_stats.remove_hits, 0);
+  EXPECT_EQ(tc_stats.remove_misses, 0);
+  EXPECT_EQ(tc_stats.insert_hits, 0);
+  EXPECT_EQ(tc_stats.insert_misses, 0);
+  forwarder.SetGenericShardedCache(false);
+  cache.Deactivate();
+}
 
 TEST(CpuCacheTest, ResizeInfoNoFalseSharing) {
   const size_t resize_info_size = CpuCachePeer::ResizeInfoSize<CpuCache>();

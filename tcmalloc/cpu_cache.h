@@ -128,6 +128,14 @@ class StaticForwarder {
   static TransferCacheManager& transfer_cache() {
     return tc_globals.transfer_cache();
   }
+
+  static bool UseGenericShardedCache() {
+    return tc_globals.sharded_transfer_cache().UseGenericCache();
+  }
+
+  static bool UseShardedCacheForLargeClassesOnly() {
+    return tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly();
+  }
 };
 
 template <typename NumaTopology>
@@ -416,12 +424,28 @@ class CpuCache {
 
   GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
+  // Fetches objects from backing transfer cache.
+  int FetchFromBackingCache(size_t size_class, void** batch, size_t count);
+
+  // Releases free batch of objects to the backing transfer cache.
+  void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
+
   void* Refill(int cpu, size_t size_class);
 
   // This is called after finding a full freelist when attempting to push <ptr>
   // on the freelist for sizeclass <size_class>.  The last arg should indicate
   // which CPU's list was full.  Returns 1.
   int Overflow(void* ptr, size_t size_class, int cpu);
+
+  // Returns true if we bypass cpu cache for a <size_class>. We may bypass
+  // per-cpu cache when we enable certain configurations of sharded transfer
+  // cache.
+  bool BypassCpuCache(size_t size_class) const;
+
+  // Returns true if we use sharded transfer cache as a backing cache for
+  // per-cpu caches. If a sharded transfer cache is used, we fetch/release
+  // from/to a sharded transfer cache. Else, we use a legacy transfer cache.
+  bool UseBackingShardedTransferCache() const;
 
   // Called on <size_class> freelist overflow/underflow on <cpu> to balance
   // cache capacity between size classes. Returns number of objects to
@@ -497,7 +521,7 @@ CpuCache<Forwarder>::Allocate(size_t size_class) {
                                                    void* arg) {
       CpuCache& cache = *static_cast<CpuCache*>(arg);
       void* ret = nullptr;
-      if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
+      if (cache.BypassCpuCache(size_class)) {
         ret = cache.forwarder().sharded_transfer_cache().Pop(size_class);
       } else {
         cache.RecordCacheMissStat(cpu, true);
@@ -522,7 +546,7 @@ CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
     static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t size_class,
                                                 void* ptr, void* arg) {
       CpuCache& cache = *static_cast<CpuCache*>(arg);
-      if (cache.forwarder().sharded_transfer_cache().should_use(size_class)) {
+      if (cache.BypassCpuCache(size_class)) {
         cache.forwarder().sharded_transfer_cache().Push(size_class, ptr);
         return 1;
       }
@@ -590,7 +614,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
 #endif
   if (size_class == 0 || size_class >= kNumClasses) return 0;
 
-  if (forwarder_.sharded_transfer_cache().should_use(size_class)) {
+  if (BypassCpuCache(size_class)) {
     return 0;
   }
 
@@ -733,6 +757,28 @@ inline void CpuCache<Forwarder>::Deactivate() {
                      std::align_val_t{alignof(decltype(*resize_))});
 }
 
+template <class Forwarder>
+inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
+                                                      void** batch,
+                                                      size_t count) {
+  if (UseBackingShardedTransferCache()) {
+    return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch,
+                                                           count);
+  }
+  return forwarder_.transfer_cache().RemoveRange(size_class, batch, count);
+}
+
+template <class Forwarder>
+inline void CpuCache<Forwarder>::ReleaseToBackingCache(
+    size_t size_class, absl::Span<void*> batch) {
+  if (UseBackingShardedTransferCache()) {
+    forwarder_.sharded_transfer_cache().InsertRange(size_class, batch);
+    return;
+  }
+
+  forwarder_.transfer_cache().InsertRange(size_class, batch);
+}
+
 // Fetch more items from the central cache, refill our local cache,
 // and try to grow it if necessary.
 //
@@ -765,7 +811,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
 
   do {
     const size_t want = std::min(batch_length, target - total);
-    got = forwarder_.transfer_cache().RemoveRange(size_class, batch, want);
+    got = FetchFromBackingCache(size_class, batch, want);
     if (got == 0) {
       break;
     }
@@ -780,19 +826,34 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
       if (i != 0) {
         static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                       "not enough space in batch");
-        forwarder_.transfer_cache().InsertRange(size_class,
-                                                absl::Span<void*>(batch, i));
+        ReleaseToBackingCache(size_class, absl::Span<void*>(batch, i));
       }
     }
   } while (got == batch_length && i == 0 && total < target &&
            cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
-    forwarder_.transfer_cache().InsertRange(
-        to_return.size_class[i], absl::Span<void*>(&(to_return.obj[i]), 1));
+    ReleaseToBackingCache(to_return.size_class[i],
+                          absl::Span<void*>(&(to_return.obj[i]), 1));
   }
 
   return result;
+}
+
+template <class Forwarder>
+inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
+  // We bypass per-cpu cache when sharded transfer cache is enabled for large
+  // size classes (i.e. when we use the traditional configuration of the sharded
+  // transfer cache).
+  return forwarder_.sharded_transfer_cache().should_use(size_class) &&
+         forwarder_.UseShardedCacheForLargeClassesOnly();
+}
+
+template <class Forwarder>
+inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache() const {
+  // We enable sharded cache as a backing cache for all size classes when
+  // generic configuration is enabled.
+  return forwarder_.UseGenericShardedCache();
 }
 
 template <class Forwarder>
@@ -1165,11 +1226,10 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
                 [this](size_t size_class, void** batch, size_t count) {
                   const size_t batch_length =
                       forwarder_.num_objects_to_move(size_class);
-                  auto& transfer_cache = forwarder_.transfer_cache();
                   for (size_t i = 0; i < count; i += batch_length) {
                     size_t n = std::min(batch_length, count - i);
-                    transfer_cache.InsertRange(size_class,
-                                               absl::Span<void*>(batch + i, n));
+                    ReleaseToBackingCache(size_class,
+                                          absl::Span<void*>(batch + i, n));
                   }
                 }) == 1) {
           acquired += size;
@@ -1328,8 +1388,7 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     total += count;
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
-    forwarder_.transfer_cache().InsertRange(size_class,
-                                            absl::Span<void*>(batch, count));
+    ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
     if (count != batch_length) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
@@ -1430,10 +1489,9 @@ struct DrainHandler {
     // CPU's slack.
     cache->resize_[cpu].available.fetch_add(cap * size,
                                             std::memory_order_relaxed);
-    auto& transfer_cache = cache->forwarder_.transfer_cache();
     for (size_t i = 0; i < count; i += batch_length) {
       size_t n = std::min(batch_length, count - i);
-      transfer_cache.InsertRange(size_class, absl::Span<void*>(batch + i, n));
+      cache->ReleaseToBackingCache(size_class, absl::Span<void*>(batch + i, n));
     }
   }
 

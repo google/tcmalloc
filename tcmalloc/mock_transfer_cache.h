@@ -122,6 +122,26 @@ class ArenaBasedFakeTransferCacheManager {
   static bool partial_legacy_transfer_cache_;
 };
 
+// A manager that may provide different configurations of sharded transfer
+// cache.
+class FakeShardedTransferCacheManager
+    : public ArenaBasedFakeTransferCacheManager {
+ public:
+  static void Init() {}
+  static bool UseGenericCache() { return enable_generic_cache_; }
+  static void SetGenericCache(bool value) { enable_generic_cache_ = value; }
+  static bool EnableCacheForLargeClassesOnly() {
+    return enable_cache_for_large_classes_only_;
+  }
+  static void SetCacheForLargeClassesOnly(bool value) {
+    enable_cache_for_large_classes_only_ = value;
+  }
+
+ private:
+  static bool enable_generic_cache_;
+  static bool enable_cache_for_large_classes_only_;
+};
+
 // Wires up a largely functional TransferCache + TransferCacheManager +
 // MockCentralFreeList.
 //
@@ -310,6 +330,9 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
   }
 
   size_t tc_length(int size_class) { return caches_[size_class]->tc_length(); }
+  TransferCacheStats GetStats(int size_class) {
+    return caches_[size_class]->GetStats();
+  }
 
   std::vector<std::unique_ptr<TransferCache>> caches_;
 
@@ -504,7 +527,7 @@ class MultiSizeClassTransferCacheEnvironment {
 
 class FakeShardedTransferCacheEnvironment {
  public:
-  using Manager = ArenaBasedFakeTransferCacheManager;
+  using Manager = FakeShardedTransferCacheManager;
   using ShardedManager =
       ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
@@ -541,7 +564,7 @@ class FakeShardedTransferCacheEnvironment {
 
  private:
   MinimalFakeCentralFreeList freelist_;
-  ArenaBasedFakeTransferCacheManager owner_;
+  FakeShardedTransferCacheManager owner_;
   FakeCpuLayout cpu_layout_;
   ShardedManager sharded_manager_;
 };

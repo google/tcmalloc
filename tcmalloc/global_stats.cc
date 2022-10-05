@@ -53,6 +53,7 @@ namespace tcmalloc_internal {
 void ExtractStats(TCMallocStats* r, uint64_t* class_count,
                   SpanStats* span_stats, SmallSpanStats* small_spans,
                   LargeSpanStats* large_spans, TransferCacheStats* tc_stats,
+                  TransferCacheStats* sharded_cache_stats,
                   bool report_residence) {
   r->central_bytes = 0;
   r->transfer_bytes = 0;
@@ -79,6 +80,10 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     }
     if (tc_stats) {
       tc_stats[size_class] = tc_globals.transfer_cache().GetStats(size_class);
+    }
+    if (sharded_cache_stats) {
+      sharded_cache_stats[size_class] =
+          tc_globals.sharded_transfer_cache().GetStats(size_class);
     }
   }
 
@@ -141,7 +146,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 }
 
 void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
-  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, nullptr,
+  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                report_residence);
 }
 
@@ -215,9 +220,10 @@ void DumpStats(Printer* out, int level) {
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
   TransferCacheStats tc_stats[kNumClasses];
+  TransferCacheStats sharded_cache_stats[kNumClasses];
   if (level >= 2) {
     ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
-                 true);
+                 sharded_cache_stats, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -423,6 +429,40 @@ void DumpStats(Printer* out, int level) {
           tc_stats[size_class].remove_non_batch_misses);
     }
 
+    out->printf("------------------------------------------------\n");
+    out->printf("Cumulative sharded transfer cache stats.\n");
+    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out->printf("of the sharded transfer cache freelists.\n");
+    out->printf("It also reports insert/remove hits/misses by size class.\n");
+    out->printf("------------------------------------------------\n");
+    out->printf("Number of active sharded transfer caches: %3d\n",
+                tc_globals.sharded_transfer_cache().NumActiveShards());
+    out->printf("------------------------------------------------\n");
+    uint64_t sharded_cumulative_bytes = 0;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const uint64_t class_bytes =
+          sharded_cache_stats[size_class].used *
+          tc_globals.sizemap().class_to_size(size_class);
+      sharded_cumulative_bytes += class_bytes;
+      out->printf(
+          "class %3d [ %8zu bytes ] : %8u"
+          " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %8u"
+          " max_capacity; %8u insert hits; %8u"
+          " insert misses (%8lu partial); %8u remove hits; %8u"
+          " remove misses (%8lu partial);\n",
+          size_class, tc_globals.sizemap().class_to_size(size_class),
+          sharded_cache_stats[size_class].used, class_bytes / MiB,
+          sharded_cumulative_bytes / MiB,
+          sharded_cache_stats[size_class].capacity,
+          sharded_cache_stats[size_class].max_capacity,
+          sharded_cache_stats[size_class].insert_hits,
+          sharded_cache_stats[size_class].insert_misses,
+          sharded_cache_stats[size_class].insert_non_batch_misses,
+          sharded_cache_stats[size_class].remove_hits,
+          sharded_cache_stats[size_class].remove_misses,
+          sharded_cache_stats[size_class].remove_non_batch_misses);
+    }
+
     if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().Print(out);
     }
@@ -474,9 +514,10 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
   TransferCacheStats tc_stats[kNumClasses];
+  TransferCacheStats sharded_cache_stats[kNumClasses];
   if (level >= 2) {
     ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
-                 true);
+                 sharded_cache_stats, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -582,6 +623,32 @@ void DumpStatsInPbtxt(Printer* out, int level) {
         entry.PrintI64("max_capacity", tc_stats[size_class].max_capacity);
       }
     }
+
+    {
+      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+        PbtxtRegion entry = region.CreateSubRegion("sharded_transfer_cache");
+        entry.PrintI64("sizeclass",
+                       tc_globals.sizemap().class_to_size(size_class));
+        entry.PrintI64("insert_hits",
+                       sharded_cache_stats[size_class].insert_hits);
+        entry.PrintI64("insert_misses",
+                       sharded_cache_stats[size_class].insert_misses);
+        entry.PrintI64("insert_non_batch_misses",
+                       sharded_cache_stats[size_class].insert_non_batch_misses);
+        entry.PrintI64("remove_hits",
+                       sharded_cache_stats[size_class].remove_hits);
+        entry.PrintI64("remove_misses",
+                       sharded_cache_stats[size_class].remove_misses);
+        entry.PrintI64("remove_non_batch_misses",
+                       sharded_cache_stats[size_class].remove_non_batch_misses);
+        entry.PrintI64("used", sharded_cache_stats[size_class].used);
+        entry.PrintI64("capacity", sharded_cache_stats[size_class].capacity);
+        entry.PrintI64("max_capacity",
+                       sharded_cache_stats[size_class].max_capacity);
+      }
+    }
+    region.PrintI64("active_sharded_transfer_caches",
+                    tc_globals.sharded_transfer_cache().NumActiveShards());
 
     region.PrintRaw("transfer_cache_implementation",
                     TransferCacheImplementationToLabel(

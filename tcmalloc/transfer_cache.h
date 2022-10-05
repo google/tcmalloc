@@ -72,6 +72,39 @@ class StaticForwarder {
   }
 };
 
+class ShardedStaticForwarder : public StaticForwarder {
+ public:
+  static void Init() {
+    // When generic sharded cache experiment is enabled and the traditional
+    // cache experiment is disabled, we use sharded cache for all size classes.
+    // To make sure that we do not change the behavior of the traditional
+    // sharded cache configuration, we use generic version of the cache only
+    // when the traditional version is not enabled.
+    //
+    // TODO(b/250929998): Delete this experiment after evaluation.
+    use_generic_cache_ =
+        IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE) &&
+        !IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
+
+    // Traditionally, we enable sharded transfer cache for large size classes
+    // alone.
+    enable_cache_for_large_classes_only_ = IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
+  }
+
+  static bool UseGenericCache() { return use_generic_cache_; }
+
+  static bool EnableCacheForLargeClassesOnly() {
+    return enable_cache_for_large_classes_only_;
+  }
+
+ private:
+  static bool use_generic_cache_;
+  static bool enable_cache_for_large_classes_only_;
+};
+
 class ProdCpuLayout {
  public:
   static int CurrentCpu() { return subtle::percpu::RseqCpuId(); }
@@ -102,6 +135,7 @@ class ShardedTransferCacheManagerBase {
       : owner_(owner), cpu_layout_(cpu_layout) {}
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    owner_->Init();
     num_shards_ = CpuLayout::BuildCacheMap(l3_cache_index_);
     shards_ = reinterpret_cast<Shard *>(
         owner_->Alloc(sizeof(Shard) * num_shards_, ABSL_CACHELINE_SIZE));
@@ -111,7 +145,11 @@ class ShardedTransferCacheManagerBase {
     }
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       const int size_per_object = Manager::class_to_size(size_class);
-      static constexpr int min_size = 4096;
+      // We enable sharded transfer cache for all the size classes when a
+      // generic sharded transfer cache is enabled. Otherwise, we enable it for
+      // size classes of >= 4096 with a traditional sharded cache
+      // implementation.
+      static const int min_size = UseGenericCache() ? 0 : 4096;
       active_for_class_[size_class] = size_per_object >= min_size;
     }
   }
@@ -145,6 +183,35 @@ class ShardedTransferCacheManagerBase {
     get_cache(size_class).InsertRange(size_class, {&ptr, 1});
   }
 
+  // Returns cumulative stats over all the shards of the sharded transfer cache.
+  TransferCacheStats GetStats(int size_class) const {
+    TransferCacheStats stats = {};
+    for (int index = 0; index < num_shards_; ++index) {
+      if (!shard_initialized(index)) continue;
+      Shard &shard = shards_[index];
+      TransferCacheStats shard_stats =
+          shard.transfer_caches[size_class].GetStats();
+      stats.insert_hits += shard_stats.insert_hits;
+      stats.insert_misses += shard_stats.insert_misses;
+      stats.insert_non_batch_misses += shard_stats.insert_non_batch_misses;
+      stats.remove_hits += shard_stats.remove_hits;
+      stats.remove_misses += shard_stats.remove_misses;
+      stats.remove_non_batch_misses += shard_stats.remove_non_batch_misses;
+      stats.used += shard_stats.used;
+      stats.capacity += shard_stats.capacity;
+      stats.max_capacity += shard_stats.max_capacity;
+    }
+    return stats;
+  }
+
+  int RemoveRange(int size_class, void **batch, size_t count) {
+    return get_cache(size_class).RemoveRange(size_class, batch, count);
+  }
+
+  void InsertRange(int size_class, absl::Span<void *> batch) {
+    get_cache(size_class).InsertRange(size_class, batch);
+  }
+
   // All caches not touched since last attempt will return all objects
   // to the non-sharded TransferCache.
   void Plunder() {
@@ -165,9 +232,19 @@ class ShardedTransferCacheManagerBase {
     return shards_[shard].transfer_caches[size_class].tc_length();
   }
 
-  bool shard_initialized(int shard) {
+  bool shard_initialized(int shard) const {
     if (shards_ == nullptr) return false;
     return shards_[shard].initialized.load(std::memory_order_acquire);
+  }
+
+  bool UseCacheForLargeClassesOnly() const {
+    return Manager::EnableCacheForLargeClassesOnly();
+  }
+
+  bool UseGenericCache() const { return Manager::UseGenericCache(); }
+
+  int NumActiveShards() const {
+    return active_shards_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -189,6 +266,23 @@ class ShardedTransferCacheManagerBase {
     std::atomic<bool> initialized;
   };
 
+  struct Capacity {
+    int capacity;
+    int max_capacity;
+  };
+
+  Capacity LargeCacheCapacity(size_t size_class) const {
+    const int size_per_object = Manager::class_to_size(size_class);
+    static constexpr int k12MB = 12 << 20;
+    const int capacity = should_use(size_class) ? k12MB / size_per_object : 0;
+    return {capacity, capacity};
+  }
+
+  Capacity ScaledCacheCapacity(size_t size_class) const {
+    auto [capacity, max_capacity] = TransferCache::CapacityNeeded(size_class);
+    return {capacity, max_capacity};
+  }
+
   // Initializes all transfer caches in the given shard.
   void InitShard(Shard &shard) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -196,14 +290,15 @@ class ShardedTransferCacheManagerBase {
         sizeof(TransferCache) * kNumClasses, ABSL_CACHELINE_SIZE));
     ASSERT(new_caches != nullptr);
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-      const int size_per_object = Manager::class_to_size(size_class);
-      static constexpr int k12MB = 12 << 20;
-      const int capacity = should_use(size_class) ? k12MB / size_per_object : 0;
-      new (&new_caches[size_class]) TransferCache(
-          owner_, capacity > 0 ? size_class : 0, {capacity, capacity});
+      Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
+                                            : LargeCacheCapacity(size_class);
+      new (&new_caches[size_class])
+          TransferCache(owner_, capacity.capacity > 0 ? size_class : 0,
+                        {capacity.capacity, capacity.max_capacity});
       new_caches[size_class].freelist().Init(size_class);
     }
     shard.transfer_caches = new_caches;
+    active_shards_.fetch_add(1, std::memory_order_relaxed);
     shard.initialized.store(true, std::memory_order_release);
   }
 
@@ -225,13 +320,14 @@ class ShardedTransferCacheManagerBase {
 
   Shard *shards_ = nullptr;
   int num_shards_ = 0;
+  std::atomic<int> active_shards_ = 0;
   bool active_for_class_[kNumClasses] = {false};
   Manager *const owner_;
   CpuLayout *const cpu_layout_;
 };
 
 using ShardedTransferCacheManager =
-    ShardedTransferCacheManagerBase<StaticForwarder, ProdCpuLayout,
+    ShardedTransferCacheManagerBase<ShardedStaticForwarder, ProdCpuLayout,
                                     BackingTransferCache>;
 
 class TransferCacheManager : public StaticForwarder {
@@ -433,9 +529,17 @@ struct ShardedTransferCacheManager {
   static constexpr bool should_use(int size_class) { return false; }
   static constexpr void* Pop(int size_class) { return nullptr; }
   static constexpr void Push(int size_class, void* ptr) {}
+  static constexpr int RemoveRange(int size_class, void** batch, int n) {
+    return 0;
+  }
+  static constexpr void InsertRange(int size_class, absl::Span<void*> batch) {}
   static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
   static int tc_length(int cpu, int size_class) { return 0; }
+  static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
+  bool UseGenericCache() const { return false; }
+  bool UseCacheForLargeClassesOnly() const { return false; }
+  int NumActiveShards() const { return 0; }
 };
 
 #endif
