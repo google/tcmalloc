@@ -38,6 +38,13 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// Definition of size class that is set in size_classes.cc
+extern const absl::Span<const SizeClassInfo> kSizeClasses;
+
+// Experimental size classes:
+extern const absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses;
+extern const absl::Span<const SizeClassInfo> kLegacySizeClasses;
+
 // Size-class information + mapping
 class SizeMap {
  public:
@@ -122,20 +129,10 @@ class SizeMap {
 
  protected:
   // Set the give size classes to be used by TCMalloc.
-  void SetSizeClasses(int num_classes, const SizeClassInfo* parsed);
+  bool SetSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   // Check that the size classes meet all requirements.
-  bool ValidSizeClasses(int num_classes, const SizeClassInfo* parsed);
-
-  // Definition of size class that is set in size_classes.cc
-  static const SizeClassInfo kSizeClasses[];
-  static const int kSizeClassesCount;
-
-  // Experimental size classes:
-  static const SizeClassInfo kExperimentalPow2SizeClasses[];
-  static const int kExperimentalPow2SizeClassesCount;
-  static const SizeClassInfo kLegacySizeClasses[];
-  static const int kLegacySizeClassesCount;
+  bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   size_t cold_sizes_[12] = {0};
   size_t cold_sizes_count_ = 0;
@@ -145,8 +142,8 @@ class SizeMap {
   // rely on Init() to populate things.
   constexpr SizeMap() = default;
 
-  // Initialize the mapping arrays
-  void Init();
+  // Initialize the mapping arrays.  Returns true on success.
+  bool Init(absl::Span<const SizeClassInfo> size_classes);
 
   // Returns the size class for size `size` respecting the alignment
   // & access requirements of `policy`.

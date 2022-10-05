@@ -39,8 +39,7 @@ namespace tcmalloc_internal {
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 82;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -125,12 +124,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   237568,      29,           2},  // 0.02%
     {   262144,      32,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 74;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -207,12 +206,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   229376,       7,           2},  // 0.02%
     {   262144,       8,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 85;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -300,12 +299,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   209664,       4,           2},  // 0.03%
     {   262144,       1,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 42;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
@@ -350,6 +349,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {     7168,       7,           9},  // 0.17%
     {     8192,       4,           8},  // 0.29%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
@@ -358,8 +358,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 85;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.59%
@@ -447,12 +446,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   237568,      29,           2},  // 0.02%
     {   262144,      32,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 77;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.15%
@@ -532,12 +531,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   229376,       7,           2},  // 0.02%
     {   262144,       8,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 88;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 0.02%
@@ -628,12 +627,12 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {   209664,       4,           2},  // 0.03%
     {   262144,       1,           2},  // 0.02%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 45;
 static_assert(kCount <= kNumClasses);
-const int SizeMap::kSizeClassesCount = kCount;
-const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
+static constexpr SizeClassInfo kSizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
     {        8,       1,          32},  // 1.17%
@@ -681,6 +680,7 @@ const SizeClassInfo SizeMap::kSizeClasses[SizeMap::kSizeClassesCount] = {
     {     7168,       7,           9},  // 0.17%
     {     8192,       4,           8},  // 0.29%
 };
+constexpr absl::Span<const SizeClassInfo> kSizeClasses(kSizeClassesList);
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif

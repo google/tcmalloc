@@ -31,6 +31,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/thread_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -114,12 +115,26 @@ size_t Static::pagemap_residence() {
   return total;
 }
 
+int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
+
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
 
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {
-    sizemap_.Init();
+    absl::Span<const SizeClassInfo> size_classes;
+
+    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
+      size_classes = kExperimentalPow2SizeClasses;
+    } else if (default_want_legacy_size_classes != nullptr &&
+               default_want_legacy_size_classes() > 0) {
+      // TODO(b/196216678): remove this opt out after 2022-11-01.
+      size_classes = kLegacySizeClasses;
+    } else {
+      size_classes = kSizeClasses;
+    }
+
+    CHECK_CONDITION(sizemap_.Init(size_classes));
     numa_topology_.Init();
     sampledallocation_allocator_.Init(&arena_);
     sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);

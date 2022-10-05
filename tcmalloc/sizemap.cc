@@ -84,8 +84,11 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   return true;
 }
 
-void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
-  CHECK_CONDITION(ValidSizeClasses(num_classes, parsed));
+bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
+  const int num_classes = size_classes.size();
+  if (!ValidSizeClasses(size_classes)) {
+    return false;
+  }
 
   class_to_size_[0] = 0;
   class_to_pages_[0] = 0;
@@ -93,9 +96,9 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
 
   int curr = 1;
   for (int c = 1; c < num_classes; c++) {
-    class_to_size_[curr] = parsed[c].size;
-    class_to_pages_[curr] = parsed[c].pages;
-    num_objects_to_move_[curr] = parsed[c].num_to_move;
+    class_to_size_[curr] = size_classes[c].size;
+    class_to_pages_[curr] = size_classes[c].pages;
+    num_objects_to_move_[curr] = size_classes[c].num_to_move;
     ++curr;
   }
 
@@ -115,26 +118,29 @@ void SizeMap::SetSizeClasses(int num_classes, const SizeClassInfo* parsed) {
     std::copy(&num_objects_to_move_[0], &num_objects_to_move_[kNumBaseClasses],
               &num_objects_to_move_[kNumBaseClasses * i]);
   }
+
+  return true;
 }
 
 // Return true if all size classes meet the requirements for alignment
 // ordering and min and max values.
-bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
-  if (num_classes <= 0) {
+bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
+  if (size_classes.empty()) {
     return false;
   }
+  int num_classes = size_classes.size();
   if (kHasExpandedClasses && num_classes > kNumBaseClasses) {
     num_classes = kNumBaseClasses;
   }
 
   for (int c = 1; c < num_classes; c++) {
-    size_t class_size = parsed[c].size;
-    size_t pages = parsed[c].pages;
-    size_t num_objects_to_move = parsed[c].num_to_move;
+    size_t class_size = size_classes[c].size;
+    size_t pages = size_classes[c].pages;
+    size_t num_objects_to_move = size_classes[c].num_to_move;
     // Each size class must be larger than the previous size class.
-    if (class_size <= parsed[c - 1].size) {
+    if (class_size <= size_classes[c - 1].size) {
       Log(kLog, __FILE__, __LINE__, "Non-increasing size class", c,
-          parsed[c - 1].size, class_size);
+          size_classes[c - 1].size, class_size);
       return false;
     }
     if (!IsValidSizeClass(class_size, pages, num_objects_to_move)) {
@@ -145,18 +151,16 @@ bool SizeMap::ValidSizeClasses(int num_classes, const SizeClassInfo* parsed) {
   // class_to_size_[kNumBaseClasses - 1] because several size class
   // configurations populate fewer distinct size classes and fill the tail of
   // the array with zeroes.
-  if (parsed[num_classes - 1].size != kMaxSize) {
+  if (size_classes[num_classes - 1].size != kMaxSize) {
     Log(kLog, __FILE__, __LINE__, "last class doesn't cover kMaxSize",
-        num_classes - 1, parsed[num_classes - 1].size, kMaxSize);
+        num_classes - 1, size_classes[num_classes - 1].size, kMaxSize);
     return false;
   }
   return true;
 }
 
-int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
-
 // Initialize the mapping arrays
-void SizeMap::Init() {
+bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   if (ClassIndex(0) != 0) {
     Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
@@ -169,15 +173,8 @@ void SizeMap::Init() {
 
   static_assert(kAlignment <= 16, "kAlignment is too large");
 
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
-    SetSizeClasses(kExperimentalPow2SizeClassesCount,
-                   kExperimentalPow2SizeClasses);
-  } else if (default_want_legacy_size_classes != nullptr &&
-             default_want_legacy_size_classes() > 0) {
-    // TODO(b/196216678): remove this opt out after 2022-11-01.
-    SetSizeClasses(kLegacySizeClassesCount, kLegacySizeClasses);
-  } else {
-    SetSizeClasses(kSizeClassesCount, kSizeClasses);
+  if (!SetSizeClasses(size_classes)) {
+    return false;
   }
 
   int next_size = 0;
@@ -194,7 +191,7 @@ void SizeMap::Init() {
   }
 
   if (!kHasExpandedClasses) {
-    return;
+    return true;
   }
 
   memset(cold_sizes_, 0, sizeof(cold_sizes_));
@@ -203,7 +200,7 @@ void SizeMap::Init() {
   if (!ColdFeatureActive()) {
     std::copy(&class_array_[0], &class_array_[kClassArraySize],
               &class_array_[kClassArraySize]);
-    return;
+    return true;
   }
 
   // TODO(b/124707070): Systematically identify candidates for cold allocation
@@ -258,6 +255,8 @@ void SizeMap::Init() {
       break;
     }
   }
+
+  return true;
 }
 
 }  // namespace tcmalloc_internal

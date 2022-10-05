@@ -16,19 +16,16 @@
 #include "absl/base/macros.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-class SizeClassesTest : public ::testing::Test {
- protected:
-  SizeClassesTest() { m_.Init(); }
+TEST(SizeClassesTest, SmallClasses) {
+  // This test needs to validate against the actual SizeMap TCMalloc will use.
+  Static::InitIfNecessary();
 
-  SizeMap m_;
-};
-
-TEST_F(SizeClassesTest, SmallClasses) {
   if (__STDCPP_DEFAULT_NEW_ALIGNMENT__ > 8)
     GTEST_SKIP() << "Unexpected default new alignment.";
 
@@ -36,7 +33,7 @@ TEST_F(SizeClassesTest, SmallClasses) {
   const size_t kExpectedClassesSize = ABSL_ARRAYSIZE(kExpectedClasses);
   ASSERT_LE(kExpectedClassesSize, kNumClasses);
   for (int c = 0; c < kExpectedClassesSize; ++c) {
-    EXPECT_EQ(m_.class_to_size(c), kExpectedClasses[c]) << c;
+    EXPECT_EQ(Static::sizemap().class_to_size(c), kExpectedClasses[c]) << c;
   }
 }
 
