@@ -656,6 +656,20 @@ cc_fuzz_test(
 )
 
 cc_fuzz_test(
+    name = "sizemap_fuzz",
+    testonly = 1,
+    srcs = ["sizemap_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        ":size_class_info",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_fuzz_test(
     name = "transfer_cache_fuzz",
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
