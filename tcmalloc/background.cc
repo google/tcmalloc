@@ -62,12 +62,10 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
   while (true) {
     absl::Time now = absl::Now();
-    const ssize_t bytes_to_release =
-        static_cast<size_t>(Parameters::background_release_rate()) *
-        absl::ToDoubleSeconds(now - prev_time);
-    if (bytes_to_release > 0) {  // may be negative if time goes backwards
-      tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
-    }
+
+    // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to
+    // innermost (the page heap).  Freeing up objects at one layer can help aid
+    // memory coalescing for inner caches.
 
     if (tcmalloc::MallocExtension::PerCpuCachesActive()) {
       // Accelerate fences as part of this operation by registering this thread
@@ -98,6 +96,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       }
     }
 
+    tc_globals.sharded_transfer_cache().Plunder();
+
 #ifndef TCMALLOC_SMALL_BUT_SLOW
     if (now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
       tc_globals.transfer_cache().TryResizingCaches();
@@ -105,7 +105,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     }
 #endif
 
-    tc_globals.sharded_transfer_cache().Plunder();
+    const ssize_t bytes_to_release =
+        static_cast<size_t>(Parameters::background_release_rate()) *
+        absl::ToDoubleSeconds(now - prev_time);
+    if (bytes_to_release > 0) {  // may be negative if time goes backwards
+      tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
+    }
+
     prev_time = now;
     absl::SleepFor(kSleepTime);
   }
