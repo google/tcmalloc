@@ -361,9 +361,6 @@ class MallocExtension final {
     // Note:  limit=SIZE_T_MAX implies no limit.
     size_t limit = std::numeric_limits<size_t>::max();
     bool hard = false;
-
-    // Explicitly declare the ctor to put it in the google_malloc section.
-    MemoryLimit() = default;
   };
 
   static MemoryLimit GetMemoryLimit();
