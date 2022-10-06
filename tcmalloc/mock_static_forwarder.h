@@ -33,9 +33,6 @@ class FakeStaticForwarder {
   static constexpr size_t class_to_size(int size_class) { return kClassSize; }
   static constexpr Length class_to_pages(int size_class) { return Length(1); }
 
-  void SetPrioritizeSpans(bool value) { prioritize_spans_ = value; }
-  bool PrioritizeSpans() const { return prioritize_spans_; }
-
   void SetPassSpanObjectCountToPageheap(bool value) {
     pass_span_object_count_to_pageheap_ = value;
   }
@@ -101,20 +98,12 @@ class FakeStaticForwarder {
 
   absl::Mutex mu_;
   std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
-  bool prioritize_spans_ = false;
   bool pass_span_object_count_to_pageheap_ = false;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
  public:
   RawMockStaticForwarder() {
-    ON_CALL(*this, SetPrioritizeSpans).WillByDefault([this](bool value) {
-      static_cast<FakeStaticForwarder*>(this)->SetPrioritizeSpans(value);
-    });
-    ON_CALL(*this, PrioritizeSpans).WillByDefault([this]() {
-      return static_cast<FakeStaticForwarder*>(this)->PrioritizeSpans();
-    });
-
     ON_CALL(*this, SetPassSpanObjectCountToPageheap)
         .WillByDefault([this](bool value) {
           static_cast<FakeStaticForwarder*>(this)
@@ -142,8 +131,6 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
         });
   }
 
-  MOCK_METHOD(void, SetPrioritizeSpans, (const bool value));
-  MOCK_METHOD(bool, PrioritizeSpans, ());
   MOCK_METHOD(void, SetPassSpanObjectCountToPageheap, (bool value));
   MOCK_METHOD(bool, PassSpanObjectCountToPageheap, ());
   MOCK_METHOD(Span*, MapObjectToSpan, (const void* object));

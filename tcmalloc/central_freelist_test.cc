@@ -433,9 +433,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 TYPED_TEST_P(CentralFreeListTest, SinglePopulate) {
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-  for (bool prioritize : {false, true}) {
     TypeParam e;
-    e.central_freelist().forwarder().SetPrioritizeSpans(prioritize);
     // Try to fetch sufficiently large number of objects at startup.
     const int num_objects_to_fetch = 10 * TypeParam::kObjectsPerSpan;
     void* objects[num_objects_to_fetch];
@@ -450,74 +448,11 @@ TYPED_TEST_P(CentralFreeListTest, SinglePopulate) {
       e.central_freelist().InsertRange({&objects[returned], to_return});
       returned += to_return;
     }
-  }
 }
 
-// Checks if we are using only one nonempty_ list when span prioritization is
-// disabled.
-TYPED_TEST_P(CentralFreeListTest, SingleNonEmptyList) {
-  TypeParam e;
-
-  // Disable span prioritization for this test.
-  e.central_freelist().forwarder().SetPrioritizeSpans(false);
-  constexpr size_t kNumSpans = 10;
-
-  ASSERT_GT(kNumLists, 0);
-  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
-  std::vector<void*> objects(num_objects_to_fetch);
-  size_t fetched = 0;
-
-  // As span prioritization is disabled, spans should always be mapped to a
-  // single nonempty_ list with an index (kNumLists-1).
-  const int expected_idx = kNumLists - 1;
-
-  while (fetched < num_objects_to_fetch) {
-    // Try to fetch one object from the span.
-    int got = e.central_freelist().RemoveRange(&objects[fetched], 1);
-    fetched += got;
-    ASSERT_GT(fetched, 0);
-
-    // When the number of fetched objects is not a multiple of kObjectsPerSpan,
-    // we should have exactly one live span in the nonempty_ list. If the number
-    // of fetched objects is a multiple of kObjectsPerSpan, the previously live
-    // span must now be empty and so, the number of spans in the nonempty_ list
-    // must be zero.
-    if (fetched % TypeParam::kObjectsPerSpan == 0) {
-      // Span should have been removed from the nonempty_ list because we have
-      // allocated all the objects from it.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 0);
-    } else {
-      // Check that the span exists in the corresponding nonempty_ list.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
-    }
-  }
-
-  // Return all the fetched objects and confirm that the span is tracked by a
-  // single non-empty list, given than prioritization is disabled.
-  size_t returned = 0;
-  while (returned < fetched) {
-    // Return objects back to the span one at a time.
-    e.central_freelist().InsertRange({&objects[returned], 1});
-    ++returned;
-    // Check if we observe up to one live span in the nonempty_ list indexed by
-    // kNumLists-1.
-    if (returned % TypeParam::kObjectsPerSpan == 0) {
-      // Span should have been removed from nonempty_ lists because we have
-      // returned all the objects to it.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 0);
-    } else {
-      // Check that the span exists in the corresponding nonempty_ list.
-      EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
-    }
-  }
-}
-
-// Checks if we are indexing a span in the nonempty_ lists as expected when span
-// prioritization is enabled.
+// Checks if we are indexing a span in the nonempty_ lists as expected.
 TYPED_TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
   TypeParam e;
-  // Enable span prioritization for this test.
-  e.central_freelist().forwarder().SetPrioritizeSpans(true);
 
   ASSERT(kNumLists > 0);
   const int num_objects_to_fetch = TypeParam::kObjectsPerSpan;
@@ -592,8 +527,6 @@ TYPED_TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
 // as enforced by our prioritization scheme.
 TYPED_TEST_P(CentralFreeListTest, SpanPriority) {
   TypeParam e;
-  // Enable span prioritization for this test.
-  e.central_freelist().forwarder().SetPrioritizeSpans(true);
 
   // If the number of objects per span is less than 3, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
@@ -759,65 +692,6 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   EXPECT_EQ(stats.obj_capacity, 0);
 }
 
-// Toggles span prioritization between object allocations and deallocations to
-// make sure that any intermediate changes in the prioritization state does not
-// cause crashes. We also make sure that we can release all the spans back to
-// the page heap, thereby ensuring that we release objects back to their spans
-// in the corresponding nonempty_ lists.
-TYPED_TEST_P(CentralFreeListTest, ToggleSpanPrioritization) {
-  TypeParam e;
-  // Enable span prioritization for this test.
-  bool state = false;
-  e.central_freelist().forwarder().SetPrioritizeSpans(state);
-
-  constexpr size_t kNumSpans = 10;
-  constexpr int kNumIterations = 100;
-  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
-  std::vector<void*> objects(num_objects_to_fetch);
-
-  int spans_requested = 0;
-  int spans_returned = 0;
-  for (int iter = 0; iter < kNumIterations; ++iter) {
-    size_t fetched = 0;
-    while (fetched < num_objects_to_fetch) {
-      const size_t to_fetch =
-          std::min(num_objects_to_fetch - fetched, TypeParam::kBatchSize);
-      const int got =
-          e.central_freelist().RemoveRange(&objects[fetched], to_fetch);
-      fetched += got;
-      // Toggle span prioritization after fetching a few objects.
-      state = !state;
-      e.central_freelist().forwarder().SetPrioritizeSpans(state);
-    }
-    // Check that we have requested exactly kNumSpans.
-    spans_requested += kNumSpans;
-    SpanStats stats = e.central_freelist().GetSpanStats();
-    EXPECT_EQ(stats.num_spans_requested, spans_requested);
-    EXPECT_EQ(stats.num_spans_returned, spans_returned);
-
-    // Shuffle objects before returning them.
-    absl::BitGen rng;
-    std::shuffle(objects.begin(), objects.end(), rng);
-    // Return objects back to the spans while intermediately changing span
-    // prioritization policy.
-    size_t returned = 0;
-    while (returned < fetched) {
-      const size_t to_return =
-          std::min(fetched - returned, TypeParam::kBatchSize);
-      e.central_freelist().InsertRange({&objects[returned], to_return});
-      returned += to_return;
-      // Toggle span prioritization after releasing a few objects.
-      state = !state;
-      e.central_freelist().forwarder().SetPrioritizeSpans(state);
-    }
-    // Check that we have returned all the kNumSpans spans.
-    spans_returned += kNumSpans;
-    stats = e.central_freelist().GetSpanStats();
-    EXPECT_EQ(stats.num_spans_requested, spans_requested);
-    EXPECT_EQ(stats.num_spans_returned, spans_returned);
-  }
-}
-
 TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
   ASSERT_GT(TypeParam::kObjectsPerSpan, 1);
   auto test_function = [&](size_t num_objects, bool pass_object_count) {
@@ -885,9 +759,8 @@ TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
 }
 
 REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
-                            SingleNonEmptyList, MultiNonEmptyLists,
-                            SpanPriority, SpanUtilizationHistogram,
-                            MultipleSpans, ToggleSpanPrioritization,
+                            MultiNonEmptyLists, SpanPriority,
+                            SpanUtilizationHistogram, MultipleSpans,
                             SinglePopulate, PassSpanObjectCountToPageheap,
                             SpanFragmentation);
 

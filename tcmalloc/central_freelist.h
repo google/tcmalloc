@@ -48,7 +48,6 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static bool PrioritizeSpans() { return Parameters::prioritize_spans(); }
   static bool PassSpanObjectCountToPageheap() {
     return Parameters::pass_span_object_count_to_pageheap();
   }
@@ -62,7 +61,7 @@ class StaticForwarder {
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
 
-// Specifies number of nonempty_ lists when span prioritization is enabled.
+// Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
 
 // Data kept per size-class in central cache.
@@ -136,15 +135,12 @@ class CentralFreeList {
   int Populate(void** batch, int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Parses nonempty_ lists and returns span from the list with the lowest
-  // possible index when span prioritization is enabled.
+  // possible index.
   // Returns the span if one exists in the nonempty_ lists. Else, returns
   // nullptr.
   Span* FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
-  // Returns first index to the nonempty_ lists that may record spans. When span
-  // prioritization is enabled, this returns first_nonempty_index_. When
-  // disabled, this returns kNumLists - 1 as this is the index to the nonempty_
-  // list we use to record all the spans.
+  // Returns first index to the nonempty_ lists that may record spans.
   uint8_t GetFirstNonEmptyIndex();
 
   // Returns index into nonempty_ based on the number of allocated objects for
@@ -239,10 +235,10 @@ class CentralFreeList {
   StatsCounter objects_to_spans_[kSpanUtilBucketCapacity];
 
   // Non-empty lists that distinguish spans based on the number of objects
-  // allocated from them. When span prioritization is enabled, spans may be
-  // added to any of the kNumLists nonempty_ lists based on their allocated
-  // objects. If span prioritization is disabled, we add spans to the
-  // nonempty_[kNumlists-1] list, leaving other lists unused.
+  // allocated from them. As we prioritize spans, spans may be added to any of
+  // the kNumLists nonempty_ lists based on their allocated objects. If span
+  // prioritization is disabled, we add spans to the nonempty_[kNumlists-1]
+  // list, leaving other lists unused.
   //
   // We do not enable multiple nonempty lists for small-but-slow yet due to
   // performance issues. See b/227362263.
@@ -330,12 +326,9 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
 
 template <class Forwarder>
 inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
-  // If span prioritization is enabled, scan nonempty_ lists in the range
-  // [first_nonempty_index_, kNumLists) and return the span from a non-empty
-  // list if one exists. If all the lists are empty, return nullptr.
-  // If span prioritization is disabled, we map all the spans to the kNumLists-1
-  // nonempty_ list so that we do not incur the cost of scanning all the lists
-  // between [first_nonempty_index_, kNumLists); we just scan one list.
+  // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
+  // return the span from a non-empty list if one exists. If all the lists are
+  // empty, return nullptr.
 #ifdef TCMALLOC_SMALL_BUT_SLOW
   if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
     return nullptr;
@@ -348,17 +341,11 @@ inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
 
 template <class Forwarder>
 inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() {
-  return forwarder_.PrioritizeSpans() ? first_nonempty_index_ : kNumLists - 1;
+  return first_nonempty_index_;
 }
 
 template <class Forwarder>
 inline uint8_t CentralFreeList<Forwarder>::IndexFor(uint8_t bitwidth) {
-  // If span prioritization is disabled, we map all the spans to a single
-  // nonempty_ list.
-  if (!forwarder_.PrioritizeSpans()) {
-    return kNumLists - 1;
-  }
-
   // We would like to index into the nonempty_ list based on the number of
   // allocated objects from the span. Given a span with fewer allocated objects
   // (i.e. when it is more likely to be freed), we would like to map it to a
