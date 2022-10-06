@@ -593,10 +593,8 @@ ABSL_ATTRIBUTE_NOINLINE
 static void FreeSmallSlow(void* ptr, size_t size_class) {
   if (ABSL_PREDICT_TRUE(UsePerCpuCache(tc_globals))) {
     tc_globals.cpu_cache().Deallocate(ptr, size_class);
-  } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent()) {
-    // TODO(b/134691947):  If we reach this path from the ThreadCache fastpath,
-    // we've already checked that UsePerCpuCache is false and cache == nullptr.
-    // Consider optimizing this.
+  } else if (ThreadCache* cache = ThreadCache::GetCacheIfPresent();
+             ABSL_PREDICT_TRUE(cache)) {
     cache->Deallocate(ptr, size_class);
   } else {
     // This thread doesn't have thread-cache yet or already. Delete directly
