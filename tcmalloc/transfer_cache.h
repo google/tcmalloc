@@ -182,6 +182,55 @@ class ShardedTransferCacheManagerBase {
     get_cache(size_class).InsertRange(size_class, {&ptr, 1});
   }
 
+  void Print(Printer *out) const {
+    out->printf("------------------------------------------------\n");
+    out->printf("Cumulative sharded transfer cache stats.\n");
+    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out->printf("of the sharded transfer cache freelists.\n");
+    out->printf("It also reports insert/remove hits/misses by size class.\n");
+    out->printf("------------------------------------------------\n");
+    out->printf("Number of active sharded transfer caches: %3d\n",
+                NumActiveShards());
+    out->printf("------------------------------------------------\n");
+    uint64_t sharded_cumulative_bytes = 0;
+    static constexpr double MiB = 1048576.0;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const TransferCacheStats stats = GetStats(size_class);
+      const uint64_t class_bytes =
+          stats.used * Manager::class_to_size(size_class);
+      sharded_cumulative_bytes += class_bytes;
+      out->printf(
+          "class %3d [ %8zu bytes ] : %8u"
+          " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %8u"
+          " max_capacity; %8u insert hits; %8u"
+          " insert misses (%8lu partial); %8u remove hits; %8u"
+          " remove misses (%8lu partial);\n",
+          size_class, Manager::class_to_size(size_class), stats.used,
+          class_bytes / MiB, sharded_cumulative_bytes / MiB, stats.capacity,
+          stats.max_capacity, stats.insert_hits, stats.insert_misses,
+          stats.insert_non_batch_misses, stats.remove_hits, stats.remove_misses,
+          stats.remove_non_batch_misses);
+    }
+  }
+
+  void PrintInPbtxt(PbtxtRegion *region) const {
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const TransferCacheStats stats = GetStats(size_class);
+      PbtxtRegion entry = region->CreateSubRegion("sharded_transfer_cache");
+      entry.PrintI64("sizeclass", Manager::class_to_size(size_class));
+      entry.PrintI64("insert_hits", stats.insert_hits);
+      entry.PrintI64("insert_misses", stats.insert_misses);
+      entry.PrintI64("insert_non_batch_misses", stats.insert_non_batch_misses);
+      entry.PrintI64("remove_hits", stats.remove_hits);
+      entry.PrintI64("remove_misses", stats.remove_misses);
+      entry.PrintI64("remove_non_batch_misses", stats.remove_non_batch_misses);
+      entry.PrintI64("used", stats.used);
+      entry.PrintI64("capacity", stats.capacity);
+      entry.PrintI64("max_capacity", stats.max_capacity);
+    }
+    region->PrintI64("active_sharded_transfer_caches", NumActiveShards());
+  }
+
   // Returns cumulative stats over all the shards of the sharded transfer cache.
   TransferCacheStats GetStats(int size_class) const {
     TransferCacheStats stats = {};
@@ -482,6 +531,8 @@ struct ShardedTransferCacheManager {
   bool UseGenericCache() const { return false; }
   bool UseCacheForLargeClassesOnly() const { return false; }
   int NumActiveShards() const { return 0; }
+  void Print(Printer* out) const {}
+  void PrintInPbtxt(PbtxtRegion* region) const {}
 };
 
 #endif
