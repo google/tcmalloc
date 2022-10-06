@@ -669,7 +669,10 @@ cc_test(
     name = "aligned_new_test",
     timeout = "long",
     srcs = ["aligned_new_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS + ["-faligned-new"],
+    copts = TCMALLOC_DEFAULT_COPTS + ["-faligned-new"] +
+            select({
+                "//conditions:default": [],
+            }),
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = ["nosan"],
