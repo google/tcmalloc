@@ -89,7 +89,7 @@ from the central cache.
 
 The size of the per-cpu caches is controlled by
 `tcmalloc::MallocExtension::SetMaxPerCpuCacheSize`. This controls the limit for
-each CPU, so the total amount of memory for application could be much larger
+each CPU, so the total amount of memory used by an application could be much larger
 than this. Memory on CPUs where the application is no longer able to run can be
 freed by calling `tcmalloc::MallocExtension::ReleaseCpuMemory`.
 
@@ -101,7 +101,7 @@ When enabled, the heavily used per-cpu caches may steal capacity from lightly
 used caches and grow beyond the limit set by `tcmalloc_max_per_cpu_cache_size`
 flag. This optimization is enabled by default in TCMalloc.
 
-Releasing memory held by unuable CPU caches is handled by
+Releasing memory held by unusable CPU caches is handled by
 `tcmalloc::MallocExtension::ProcessBackgroundActions`.
 
 In contrast `tcmalloc::MallocExtension::SetMaxTotalThreadCacheBytes` controls
