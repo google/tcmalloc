@@ -96,7 +96,7 @@ class TransferCache {
         lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         max_capacity_(capacity.max_capacity),
         slot_info_(SizeInfo({0, capacity.capacity})),
-        low_water_mark_(std::numeric_limits<int>::max()),
+        low_water_mark_(0),
         slots_(nullptr),
         freelist_do_not_access_directly_() {
     freelist().Init(size_class);
@@ -203,52 +203,51 @@ class TransferCache {
           void **entry = GetSlot(info.used);
           memcpy(batch, entry, sizeof(void *) * N);
           remove_hits_.LossyAdd(1);
-          low_water_mark_.store(
-              std::min(low_water_mark_.load(std::memory_order_acquire),
-                       info.used),
-              std::memory_order_release);
+          low_water_mark_ = std::min(low_water_mark_, info.used);
           return N;
         }
       }
 
       remove_misses_.Inc();
-      low_water_mark_.store(0, std::memory_order_release);
     } else {
       remove_non_batch_misses_.Inc();
     }
     return freelist().RemoveRange(batch, N);
   }
 
-  // If this object has not been touched since the last attempt, then
-  // return all objects to 'freelist()'.
+  // We record the lowest value of info.used in a low water mark since the last
+  // call to TryPlunder. We plunder all those objects to the freelist, as the
+  // objects not used within a full cycle are unlikely to be used again.
   void TryPlunder(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     if (max_capacity_ == 0) return;
-    int low_water_mark = low_water_mark_.load(std::memory_order_acquire);
-    low_water_mark_.store(std::numeric_limits<int>::max(),
-                          std::memory_order_release);
-    while (low_water_mark > 0) {
-      if (!lock_.TryLock()) return;
-      if (low_water_mark_.load(std::memory_order_acquire) !=
-          std::numeric_limits<int>::max()) {
-        lock_.Unlock();
-        return;
-      }
+    if (!lock_.TryLock()) return;
+
+    int to_return = low_water_mark_;
+    SizeInfo info = GetSlotInfo();
+    ASSERT(to_return <= info.used);
+    // Make sure to record number of used objects in the cache in the low water
+    // mark at the start of each plunder. If we plunder objects below, we record
+    // the new value of info.used in the low water mark as we progress.
+    low_water_mark_ = info.used;
+    while (true) {
+      info = GetSlotInfo();
       const int B = Manager::num_objects_to_move(size_class);
-      SizeInfo info = GetSlotInfo();
-      if (info.used == 0) {
-        lock_.Unlock();
-        return;
-      }
-      const size_t num_to_move = std::min(B, info.used);
+      const size_t num_to_move = std::min({B, info.used, to_return});
+      if (num_to_move == 0) break;
+
       void *buf[kMaxObjectsToMove];
       void **const entry = GetSlot(info.used - num_to_move);
       memcpy(buf, entry, sizeof(void *) * num_to_move);
       info.used -= num_to_move;
-      low_water_mark -= num_to_move;
+      to_return -= num_to_move;
+      low_water_mark_ = info.used;
       SetSlotInfo(info);
       lock_.Unlock();
+
       freelist().InsertRange({buf, num_to_move});
+      if (!lock_.TryLock()) return;
     }
+    lock_.Unlock();
   }
   // Returns the number of free objects in the transfer cache.
   size_t tc_length() const {
@@ -348,6 +347,7 @@ class TransferCache {
       info.used -= num_to_free;
       SetSlotInfo(info);
 
+      low_water_mark_ = std::min(low_water_mark_, info.used);
       // Our internal slot array may get overwritten as soon as we drop the
       // lock, so copy the items to free to an on stack buffer.
       memcpy(to_free, GetSlot(info.used), sizeof(void *) * num_to_free);
@@ -413,7 +413,7 @@ class TransferCache {
   // Lowest value of "slot_info_.used" since last call to TryPlunder. All
   // elements not used for a full cycle (2 seconds) are unlikely to get used
   // again.
-  std::atomic<int> low_water_mark_;
+  int low_water_mark_ ABSL_GUARDED_BY(lock_);
 
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.

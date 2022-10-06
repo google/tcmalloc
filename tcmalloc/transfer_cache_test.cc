@@ -260,46 +260,43 @@ TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
   }
 }
 
-// TODO(b/251171552): Reenable this to cover the LIFO implementation.
-TYPED_TEST_P(TransferCacheTest, DISABLED_Plunder) {
+TYPED_TEST_P(TransferCacheTest, Plunder) {
   TypeParam env;
 
   // Fill in some elements.
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
   // Previously the transfer cache was empty, so we're not plundering yet.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
-  // But now all these elements will be plundered.
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // All these elements will be plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 0);
-
+  EXPECT_EQ(env.transfer_cache().tc_length(), 0);
   // Stock up again.
   env.Insert(TypeParam::kBatchSize);
   env.Insert(TypeParam::kBatchSize);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
   // Plundering doesn't do anything as the cache was empty after the last
   // plunder call.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
 
   void* buf[TypeParam::kBatchSize];
   // -1 +1, this sets the low_water_mark (the lowest end-state after a
   // call to RemoveRange to 1 batch.
   (void)env.transfer_cache().RemoveRange(kSizeClass, buf,
                                          TypeParam::kBatchSize);
-  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
   env.transfer_cache().InsertRange(kSizeClass, {buf, TypeParam::kBatchSize});
-  ASSERT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
-  // We have one batch, and this is the same as the low water mark, so nothing
+  EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
+  // We should plunder one batch, leaving another batch of objects in the cache.
+  env.transfer_cache().TryPlunder(kSizeClass);
+  EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
+  // If we plunder immediately, the low_water_mark is at the current size
   // gets plundered.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
-  // If we plunder immediately the low_water_mark is at the current size
-  // gets plundered.
-  env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), 0);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 0);
 
   // Fill it up completely.
   while (env.transfer_cache().HasSpareCapacity(kSizeClass)) {
@@ -307,21 +304,21 @@ TYPED_TEST_P(TransferCacheTest, DISABLED_Plunder) {
   }
   // low water mark should still be zero, so no plundering.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(),
+  EXPECT_EQ(env.transfer_cache().tc_length(),
             env.transfer_cache().GetStats().capacity);
 
-  // Inserting a one-element batch means we return one batch to the freelist and
-  // then insert only one element after. I.e. the cache size should shrink.
-  env.Insert(1);
-  ASSERT_EQ(
-      env.transfer_cache().tc_length(),
-      env.transfer_cache().GetStats().capacity - TypeParam::kBatchSize + 1);
-  // If we fill up the cache again, plundering should respect that.
-  env.Insert(TypeParam::kBatchSize - 1);
-  ASSERT_EQ(env.transfer_cache().tc_length(),
+  const int capacity = env.transfer_cache().GetStats().capacity;
+  env.transfer_cache().ShrinkCache(kSizeClass);
+  // We should shrink the cache capacity, and at the same time, it should also
+  // set low water mark to the new capacity of the cache.
+  EXPECT_EQ(env.transfer_cache().GetStats().capacity,
+            capacity - TypeParam::kBatchSize);
+  EXPECT_EQ(env.transfer_cache().tc_length(),
             env.transfer_cache().GetStats().capacity);
+  // low water mark should be equal to the entire capacity. Next pluder should
+  // empty the entire cache.
   env.transfer_cache().TryPlunder(kSizeClass);
-  ASSERT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize - 1);
+  EXPECT_EQ(env.transfer_cache().tc_length(), 0);
 }
 
 // PickCoprimeBatchSize picks a batch size in [2, max_batch_size) that is
@@ -478,7 +475,7 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             PushesToFreelist, WrappingWorks, SingleItemSmoke,
-                            DISABLED_Plunder, DISABLED_b172283201);
+                            Plunder, DISABLED_b172283201);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;
