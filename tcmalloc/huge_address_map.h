@@ -31,7 +31,6 @@ namespace tcmalloc_internal {
 //
 // This class scales well and is *reasonably* performant, but it is not intended
 // for use on extremely hot paths.
-// TODO(b/134688982): extend to support other range-like types?
 class HugeAddressMap {
  public:
   typedef void* (*MetadataAllocFunction)(size_t bytes);
