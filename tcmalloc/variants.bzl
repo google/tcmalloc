@@ -114,6 +114,12 @@ variants = [
         ],
         "copts": [],
     },
+    {
+        "name": "partial_transfer_cache",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_PARTIAL_TRANSFER_CACHE"},
+    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):

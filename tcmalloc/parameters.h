@@ -83,9 +83,7 @@ class Parameters {
     return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
-  static bool partial_transfer_cache() {
-    return partial_transfer_cache_enabled_.load(std::memory_order_relaxed);
-  }
+  static bool partial_transfer_cache();
 
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
@@ -179,7 +177,6 @@ class Parameters {
   static std::atomic<int32_t> linear_search_length_tracker_list_;
   static std::atomic<bool> madvise_cold_regions_nohugepage_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
-  static std::atomic<bool> partial_transfer_cache_enabled_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;

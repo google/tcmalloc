@@ -48,6 +48,16 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
+// As partial_transfer_cache_enabled() is determined at runtime, we cannot
+// require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
+static std::atomic<bool>& partial_transfer_cache_enabled() {
+  static std::atomic<bool> v([]() {
+    return IsExperimentActive(Experiment::TCMALLOC_PARTIAL_TRANSFER_CACHE);
+  }());
+  return v;
+}
+
 // As experiments are determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
 static std::atomic<bool>& dynamic_slab_enabled() {
@@ -88,8 +98,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
-ABSL_CONST_INIT std::atomic<bool> Parameters::partial_transfer_cache_enabled_(
-    false);
 ABSL_CONST_INIT std::atomic<int32_t>
     Parameters::linear_search_length_tracker_list_(0);
 ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_cold_regions_nohugepage_(
@@ -127,6 +135,10 @@ bool Parameters::pass_span_object_count_to_pageheap() {
                Experiment::TCMALLOC_PASS_SPAN_OBJECT_COUNT_TO_PAGEHEAP);
   }());
   return v;
+}
+
+bool Parameters::partial_transfer_cache() {
+  return partial_transfer_cache_enabled().load(std::memory_order_relaxed);
 }
 
 bool Parameters::per_cpu_caches_dynamic_slab_enabled() {
@@ -256,8 +268,8 @@ void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetPartialTransferCacheEnabled(bool v) {
-  Parameters::partial_transfer_cache_enabled_.store(v,
-                                                    std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::partial_transfer_cache_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
