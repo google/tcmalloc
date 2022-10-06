@@ -90,8 +90,7 @@
 //   distinct from label_start, as the return IP must be "signed" (see
 //   SIGN_ABORT()).
 //
-// TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
-// relocations, but could be read-only for non-PIE builds.
+// __rseq_cs only needs to be writeable to allow for relocations.
 #define DEFINE_UPSTREAM_CS(label)                                 \
   .pushsection __rseq_cs, "aw";                                   \
   .balign 32;                                                     \

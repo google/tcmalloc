@@ -468,8 +468,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   bool overflow;
   asm volatile(
 #endif
-      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
-      // relocations, but could be read-only for non-PIE builds.
+      // __rseq_cs only needs to be writeable to allow for relocations.
       ".pushsection __rseq_cs, \"aw?\"\n"
       ".balign 32\n"
       ".local __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
@@ -590,8 +589,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   bool overflow;
   asm volatile(
 #endif
-      // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow for
-      // relocations, but could be read-only for non-PIE builds.
+      // __rseq_cs only needs to be writeable to allow for relocations.
       ".pushsection __rseq_cs, \"aw?\"\n"
       ".balign 32\n"
       ".local __rseq_cs_TcmallocSlab_Internal_Push_%=\n"
@@ -774,8 +772,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   asm
 #endif
       (
-          // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow
-          // for relocations, but could be read-only for non-PIE builds.
+          // __rseq_cs only needs to be writeable to allow for relocations.
           ".pushsection __rseq_cs, \"aw?\"\n"
           ".balign 32\n"
           ".local __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
@@ -928,8 +925,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
   asm
 #endif
       (
-          // TODO(b/141629158):  __rseq_cs only needs to be writeable to allow
-          // for relocations, but could be read-only for non-PIE builds.
+          // __rseq_cs only needs to be writeable to allow for relocations.
           ".pushsection __rseq_cs, \"aw?\"\n"
           ".balign 32\n"
           ".local __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
