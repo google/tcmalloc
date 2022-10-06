@@ -168,8 +168,7 @@ class SizeMap {
     const size_t align = policy.align();
     ASSERT(align == 0 || absl::has_single_bit(align));
 
-    if (ABSL_PREDICT_FALSE(align >= kPageSize)) {
-      // TODO(b/172060547): Consider changing this to align > kPageSize.
+    if (ABSL_PREDICT_FALSE(align > kPageSize)) {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
       return false;
     }

@@ -402,10 +402,8 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
     if (m.GetSizeClass(CppPolicy().AlignAs(alignment), size, &size_class)) {
       EXPECT_EQ(size_class % kNumBaseClasses, 0) << size << " " << alignment;
       EXPECT_LT(size_class, kExpandedClassesStart) << size << " " << alignment;
-    } else if (alignment < kPageSize) {
+    } else if (alignment <= kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
-      // TODO(b/172060547): alignment == kPageSize could fit into the size
-      // classes too.
       //
       // We should only fail to lookup the size class when size is large.
       ASSERT_GT(size, kMaxSize) << alignment;
@@ -425,10 +423,8 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
       ASSERT_GE(mapped_size, size);
       // The size needs to be a multiple of alignment.
       ASSERT_EQ(mapped_size % alignment, 0);
-    } else if (alignment < kPageSize) {
+    } else if (alignment <= kPageSize) {
       // When alignment > kPageSize, we do not produce a size class.
-      // TODO(b/172060547): alignment == kPageSize could fit into the size
-      // classes too.
       //
       // We should only fail to lookup the size class when size is large.
       ASSERT_GT(size, kMaxSize) << alignment;
