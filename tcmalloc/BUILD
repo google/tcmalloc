@@ -1434,7 +1434,7 @@ cc_library(
     name = "want_legacy_size_classes",
     srcs = ["want_legacy_size_classes.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@com_google_absl//absl/base:core_headers",
     ],
