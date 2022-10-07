@@ -459,6 +459,55 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
+  void Print(Printer *out) {
+    out->printf("------------------------------------------------\n");
+    out->printf("Transfer cache implementation: %s\n",
+                TransferCacheImplementationToLabel(implementation()));
+
+    out->printf("------------------------------------------------\n");
+    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out->printf("of the transfer cache freelists.\n");
+    out->printf("It also reports insert/remove hits/misses by size class.\n");
+    out->printf("------------------------------------------------\n");
+    uint64_t cumulative_bytes = 0;
+    static constexpr double MiB = 1048576.0;
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      const TransferCacheStats tc_stats = GetStats(size_class);
+      const uint64_t class_bytes = tc_stats.used * class_to_size(size_class);
+      cumulative_bytes += class_bytes;
+      out->printf(
+          "class %3d [ %8zu bytes ] : %8u"
+          " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
+          " max_capacity; %8u insert hits; %8u"
+          " insert misses (%8lu partial); %8u remove hits; %8u"
+          " remove misses (%8lu partial);\n",
+          size_class, class_to_size(size_class), tc_stats.used,
+          class_bytes / MiB, cumulative_bytes / MiB, tc_stats.capacity,
+          tc_stats.max_capacity, tc_stats.insert_hits, tc_stats.insert_misses,
+          tc_stats.insert_non_batch_misses, tc_stats.remove_hits,
+          tc_stats.remove_misses, tc_stats.remove_non_batch_misses);
+    }
+  }
+
+  void PrintInPbtxt(PbtxtRegion *region) {
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      PbtxtRegion entry = region->CreateSubRegion("transfer_cache");
+      const TransferCacheStats tc_stats = GetStats(size_class);
+      entry.PrintI64("sizeclass", class_to_size(size_class));
+      entry.PrintI64("insert_hits", tc_stats.insert_hits);
+      entry.PrintI64("insert_misses", tc_stats.insert_misses);
+      entry.PrintI64("insert_non_batch_misses",
+                     tc_stats.insert_non_batch_misses);
+      entry.PrintI64("remove_hits", tc_stats.remove_hits);
+      entry.PrintI64("remove_misses", tc_stats.remove_misses);
+      entry.PrintI64("remove_non_batch_misses",
+                     tc_stats.remove_non_batch_misses);
+      entry.PrintI64("used", tc_stats.used);
+      entry.PrintI64("capacity", tc_stats.capacity);
+      entry.PrintI64("max_capacity", tc_stats.max_capacity);
+    }
+  }
+
  private:
   union Cache {
     constexpr Cache() : dummy(false) {}
@@ -508,6 +557,9 @@ class TransferCacheManager {
   TransferCacheImplementation implementation() const {
     return TransferCacheImplementation::kNone;
   }
+
+  void Print(Printer* out) const {}
+  void PrintInPbtxt(PbtxtRegion* region) const {}
 
  private:
   CentralFreeList freelist_[kNumClasses];

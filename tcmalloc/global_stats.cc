@@ -52,8 +52,7 @@ namespace tcmalloc_internal {
 // costly OS call, and is not necessary in all situations.
 void ExtractStats(TCMallocStats* r, uint64_t* class_count,
                   SpanStats* span_stats, SmallSpanStats* small_spans,
-                  LargeSpanStats* large_spans, TransferCacheStats* tc_stats,
-                  bool report_residence) {
+                  LargeSpanStats* large_spans, bool report_residence) {
   r->central_bytes = 0;
   r->transfer_bytes = 0;
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
@@ -76,9 +75,6 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     if (span_stats) {
       span_stats[size_class] =
           tc_globals.central_freelist(size_class).GetSpanStats();
-    }
-    if (tc_stats) {
-      tc_stats[size_class] = tc_globals.transfer_cache().GetStats(size_class);
     }
   }
 
@@ -141,8 +137,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 }
 
 void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
-  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, nullptr,
-               report_residence);
+  ExtractStats(r, nullptr, nullptr, nullptr, nullptr, report_residence);
 }
 
 // Because different fields of stats are computed from state protected
@@ -214,10 +209,8 @@ void DumpStats(Printer* out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
-  TransferCacheStats tc_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
-                 true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -392,37 +385,7 @@ void DumpStats(Printer* out, int level) {
     }
 #endif
 
-    out->printf("------------------------------------------------\n");
-    out->printf("Transfer cache implementation: %s\n",
-                TransferCacheImplementationToLabel(
-                    tc_globals.transfer_cache().implementation()));
-
-    out->printf("------------------------------------------------\n");
-    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
-    out->printf("of the transfer cache freelists.\n");
-    out->printf("It also reports insert/remove hits/misses by size class.\n");
-    out->printf("------------------------------------------------\n");
-    uint64_t cumulative_bytes = 0;
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      const uint64_t class_bytes =
-          tc_stats[size_class].used *
-          tc_globals.sizemap().class_to_size(size_class);
-      cumulative_bytes += class_bytes;
-      out->printf(
-          "class %3d [ %8zu bytes ] : %8u"
-          " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
-          " max_capacity; %8u insert hits; %8u"
-          " insert misses (%8lu partial); %8u remove hits; %8u"
-          " remove misses (%8lu partial);\n",
-          size_class, tc_globals.sizemap().class_to_size(size_class),
-          tc_stats[size_class].used, class_bytes / MiB, cumulative_bytes / MiB,
-          tc_stats[size_class].capacity, tc_stats[size_class].max_capacity,
-          tc_stats[size_class].insert_hits, tc_stats[size_class].insert_misses,
-          tc_stats[size_class].insert_non_batch_misses,
-          tc_stats[size_class].remove_hits, tc_stats[size_class].remove_misses,
-          tc_stats[size_class].remove_non_batch_misses);
-    }
-
+    tc_globals.transfer_cache().Print(out);
     tc_globals.sharded_transfer_cache().Print(out);
 
     if (UsePerCpuCache(tc_globals)) {
@@ -473,10 +436,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
-  TransferCacheStats tc_stats[kNumClasses];
   if (level >= 2) {
-    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, tc_stats,
-                 true);
+    ExtractStats(&stats, class_count, span_stats, nullptr, nullptr, true);
   } else {
     ExtractTCMallocStats(&stats, true);
   }
@@ -564,25 +525,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 #endif
     }
 
-    {
-      for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-        PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
-        entry.PrintI64("sizeclass",
-                       tc_globals.sizemap().class_to_size(size_class));
-        entry.PrintI64("insert_hits", tc_stats[size_class].insert_hits);
-        entry.PrintI64("insert_misses", tc_stats[size_class].insert_misses);
-        entry.PrintI64("insert_non_batch_misses",
-                       tc_stats[size_class].insert_non_batch_misses);
-        entry.PrintI64("remove_hits", tc_stats[size_class].remove_hits);
-        entry.PrintI64("remove_misses", tc_stats[size_class].remove_misses);
-        entry.PrintI64("remove_non_batch_misses",
-                       tc_stats[size_class].remove_non_batch_misses);
-        entry.PrintI64("used", tc_stats[size_class].used);
-        entry.PrintI64("capacity", tc_stats[size_class].capacity);
-        entry.PrintI64("max_capacity", tc_stats[size_class].max_capacity);
-      }
-    }
-
+    tc_globals.transfer_cache().PrintInPbtxt(&region);
     tc_globals.sharded_transfer_cache().PrintInPbtxt(&region);
 
     region.PrintRaw("transfer_cache_implementation",
