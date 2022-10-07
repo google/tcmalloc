@@ -51,7 +51,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
   // See if we should resize the slab once per kCpuCacheSlabResizePeriod. This
   // period is coprime to kCpuCacheShufflePeriod and kCpuCacheReclaimPeriod.
-  constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(7);
+  constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(29);
   absl::Time last_slab_resize_check = absl::Now();
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW

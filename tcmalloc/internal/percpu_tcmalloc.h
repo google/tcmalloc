@@ -1121,7 +1121,12 @@ inline auto TcmallocSlab<NumClasses>::AllocSlabs(
   Slabs*& reused_slabs = slabs_by_shift_[shift_offset];
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   const bool can_reuse = reused_slabs != nullptr;
-  if (!can_reuse) {
+  if (can_reuse) {
+    // Enable huge pages for reused slabs.
+    // TODO(b/214241843): we should be able to remove this once the kernel
+    // enables huge zero pages.
+    madvise(reused_slabs, size, MADV_HUGEPAGE);
+  } else {
     reused_slabs = static_cast<Slabs*>(alloc(size, kPhysicalPageAlign));
     // MSan does not see writes in assembly.
     ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);

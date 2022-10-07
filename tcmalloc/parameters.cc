@@ -116,7 +116,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
-    Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.5);
+    Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.4);
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
