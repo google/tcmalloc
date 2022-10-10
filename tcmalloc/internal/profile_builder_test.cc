@@ -347,7 +347,7 @@ TEST(ProfileConverterTest, Profile) {
     sample.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
     sample.stack[1] = absl::bit_cast<void*>(uintptr_t{0x23451});
     sample.stack[2] = reinterpret_cast<void*>(&RealPath);
-    sample.access_hint = hot_cold_t{128};
+    sample.access_hint = hot_cold_t{0};
     sample.access_allocated = Profile::Sample::Access::Hot;
   }
 
@@ -381,6 +381,27 @@ TEST(ProfileConverterTest, Profile) {
     ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
   }
 
+  absl::flat_hash_map<std::string, std::string> label_to_units;
+  for (const auto& s : converted.sample()) {
+    for (const auto& l : s.label()) {
+      if (l.num_unit() != 0) {
+        const std::string unit = converted.string_table(l.num_unit());
+        auto it = label_to_units.insert({converted.string_table(l.key()), unit})
+                      .first;
+        // We expect units to be consistent for the same key, across samples.
+        EXPECT_EQ(it->second, unit);
+      }
+    }
+  }
+
+  EXPECT_THAT(
+      label_to_units,
+      testing::IsSupersetOf({Pair("bytes", "bytes"), Pair("request", "bytes"),
+                             Pair("alignment", "bytes"),
+                             Pair("sampled_resident_bytes", "bytes"),
+                             Pair("swapped_bytes", "bytes"),
+                             Pair("access_hint", "access_hint")}));
+
   EXPECT_THAT(
       extracted,
       UnorderedElementsAre(
@@ -394,7 +415,7 @@ TEST(ProfileConverterTest, Profile) {
               Pair("sampled_resident_bytes", 1024), Pair("swapped_bytes", 256),
               Pair("access_hint", 1), Pair("access_allocated", "hot")),
           UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
-                               Pair("access_hint", 128),
+                               Pair("access_hint", 0),
                                Pair("access_allocated", "hot"),
                                Pair("size_returning", 1))));
 

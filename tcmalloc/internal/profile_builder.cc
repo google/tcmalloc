@@ -682,8 +682,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       }
     };
 
-    add_positive_label(access_hint_id, 0,
-                       static_cast<uint8_t>(entry.access_hint));
+    add_label(access_hint_id, access_hint_id,
+              static_cast<uint8_t>(entry.access_hint));
     add_access_label(access_allocated_id, entry.access_allocated);
   }
 
