@@ -133,6 +133,11 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     num_classes = kNumBaseClasses;
   }
 
+  if (size_classes[0].size != 0 || size_classes[0].pages != 0 ||
+      size_classes[0].num_to_move != 0) {
+    return false;
+  }
+
   for (int c = 1; c < num_classes; c++) {
     size_t class_size = size_classes[c].size;
     size_t pages = size_classes[c].pages;
