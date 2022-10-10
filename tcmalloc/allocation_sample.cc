@@ -16,12 +16,14 @@
 
 #include <memory>
 
+#include "absl/time/clock.h"
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
 
 AllocationSample::AllocationSample(AllocationSampleList* list, absl::Time start)
     : list_(list), start_(start) {
-  mallocs_ = absl::make_unique<StackTraceTable>(ProfileType::kAllocations);
+  mallocs_ = std::make_unique<StackTraceTable>(ProfileType::kAllocations);
   list->Add(this);
 }
 

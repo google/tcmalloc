@@ -1105,6 +1105,7 @@ cc_test(
         ":malloc_extension",
         ":sampled_allocation",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:profile_builder",
         "//tcmalloc/testing:test_allocator_harness",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base",

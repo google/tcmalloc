@@ -251,7 +251,7 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
   }
 }
 
-TEST(ProfileConverterTest, Profile) {
+TEST(ProfileConverterTest, HeapProfile) {
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
   auto fake_profile = std::make_unique<FakeProfile>();
@@ -261,9 +261,9 @@ TEST(ProfileConverterTest, Profile) {
   std::vector<Profile::Sample> samples;
 
   {
-    // We have three samples here that will be merged. The second sample does
-    // not have `sampled_resident_size` and `swapped_size` set, so the merged
-    // data just have the sum from two other samples.
+    // We have three samples here that will be merged. The second sample has
+    // `span_start_address` as nullptr, so `sampled_resident_size` in the
+    // profile is contributed by the other two samples.
     Profile::Sample sample;
 
     sample.sum = 1234;
@@ -272,8 +272,10 @@ TEST(ProfileConverterTest, Profile) {
     sample.requested_alignment = 4;
     sample.requested_size_returning = true;
     sample.allocated_size = 16;
-    sample.sampled_resident_size = 256;
-    sample.swapped_size = 512;
+
+    std::vector<char> bytes(sample.allocated_size);
+    sample.span_start_address = bytes.data();
+
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
     // mapping.
@@ -288,18 +290,28 @@ TEST(ProfileConverterTest, Profile) {
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
-    sample2.sampled_resident_size.reset();
-    sample2.swapped_size.reset();
+    sample2.span_start_address = nullptr;
     samples.push_back(sample2);
 
     Profile::Sample sample3 = sample;
-    sample3.sampled_resident_size = 1024;
-    sample3.swapped_size = 512;
+    sample3.span_start_address = bytes.data();
     samples.push_back(sample3);
   }
 
   {
+    // We have two samples here. For the second sample, we remove the mappings
+    // for the page starting at the pointer, so no resident info is available
+    // for the sample.
     Profile::Sample sample;
+
+    size_t kSize = getpagesize();
+    void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+    ASSERT_NE(ptr1, MAP_FAILED) << errno;
+    void* ptr2 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
+                      MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
+    ASSERT_NE(ptr2, MAP_FAILED) << errno;
+    ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
 
     sample.sum = 2345;
     sample.count = 5;
@@ -307,8 +319,8 @@ TEST(ProfileConverterTest, Profile) {
     sample.requested_alignment = 0;
     sample.requested_size_returning = false;
     sample.allocated_size = 8;
-    sample.sampled_resident_size = 512;
-    sample.swapped_size = 0;
+    sample.span_start_address = ptr1;
+
     // This stack is mostly artificial, but we include a real symbol from the
     // binary to confirm that at least one location was indexed into its
     // mapping.
@@ -321,17 +333,14 @@ TEST(ProfileConverterTest, Profile) {
     sample.access_allocated = Profile::Sample::Access::Hot;
     samples.push_back(sample);
 
-    // Both samples have `sampled_resident_size` and `swapped_size` set, the
-    // merged data should get their sums.
     Profile::Sample sample2 = sample;
-    sample2.sampled_resident_size = 512;
-    sample2.swapped_size = 256;
+    sample2.span_start_address = ptr2;
     samples.push_back(sample2);
   }
 
   {
-    // This sample does not populate `sampled_resident_size` and `swapped_size`,
-    // we don't expect to see that in the proto either.
+    // This sample does not set `span_start_address`, so `sampled_resident_size`
+    // is 0.
     auto& sample = samples.emplace_back();
 
     sample.sum = 2345;
@@ -407,17 +416,18 @@ TEST(ProfileConverterTest, Profile) {
       UnorderedElementsAre(
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 1280), Pair("swapped_bytes", 1024),
+              Pair("sampled_resident_bytes", 64), Pair("swapped_bytes", 0),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
               Pair("size_returning", 1)),
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
-              Pair("sampled_resident_bytes", 1024), Pair("swapped_bytes", 256),
+              Pair("sampled_resident_bytes", 40), Pair("swapped_bytes", 0),
               Pair("access_hint", 1), Pair("access_allocated", "hot")),
-          UnorderedElementsAre(Pair("bytes", 16), Pair("request", 16),
-                               Pair("access_hint", 0),
-                               Pair("access_allocated", "hot"),
-                               Pair("size_returning", 1))));
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 16),
+              Pair("sampled_resident_bytes", 0), Pair("swapped_bytes", 0),
+              Pair("access_hint", 0), Pair("access_allocated", "hot"),
+              Pair("size_returning", 1))));
 
   ASSERT_GE(converted.sample().size(), 3);
   // The addresses for the samples at stack[0], stack[1] should match.
@@ -441,6 +451,85 @@ TEST(ProfileConverterTest, Profile) {
 
   // Period not set
   EXPECT_EQ(converted.period(), 0);
+}
+
+// This test is to check that profile of type other than `kHeap` should not have
+// residency info available, even if samples' `span_start_address` is not null.
+TEST(ProfileBuilderTest, PeakHeapProfile) {
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(ProfileType::kPeakHeap);
+  fake_profile->SetDuration(kDuration);
+
+  std::vector<Profile::Sample> samples;
+
+  {
+    auto& sample = samples.emplace_back();
+    sample.sum = 1234;
+    sample.count = 2;
+    sample.requested_size = 2;
+    sample.requested_alignment = 4;
+    sample.requested_size_returning = true;
+    sample.allocated_size = 16;
+
+    std::vector<char> bytes(sample.allocated_size);
+    sample.span_start_address = bytes.data();
+
+    sample.depth = 3;
+    sample.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
+    sample.stack[1] = absl::bit_cast<void*>(uintptr_t{0x45123});
+    sample.stack[2] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+    sample.access_hint = hot_cold_t{254};
+    sample.access_allocated = Profile::Sample::Access::Cold;
+  }
+
+  {
+    auto& sample = samples.emplace_back();
+    sample.sum = 2345;
+    sample.count = 5;
+    sample.requested_size = 4;
+    sample.requested_alignment = 0;
+    sample.requested_size_returning = false;
+    sample.allocated_size = 8;
+
+    std::vector<char> bytes(sample.allocated_size);
+    sample.span_start_address = bytes.data();
+
+    sample.depth = 2;
+    sample.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
+    sample.stack[1] = reinterpret_cast<void*>(&RealPath);
+    sample.access_hint = hot_cold_t{1};
+    sample.access_allocated = Profile::Sample::Access::Hot;
+  }
+
+  fake_profile->SetSamples(std::move(samples));
+  Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
+  auto converted_or = MakeProfileProto(profile);
+  ASSERT_TRUE(converted_or.ok());
+  const auto& converted = **converted_or;
+
+  SampleLabels extracted;
+  {
+    SCOPED_TRACE("Profile");
+    ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
+  }
+
+  EXPECT_THAT(
+      extracted,
+      UnorderedElementsAre(
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("access_hint", 254), Pair("access_allocated", "cold"),
+              Pair("size_returning", 1)),
+          UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+                               Pair("access_hint", 1),
+                               Pair("access_allocated", "hot"))));
+
+  ASSERT_GE(converted.sample().size(), 2);
+  ASSERT_GE(converted.sample(0).location_id().size(), 2);
+  ASSERT_GE(converted.sample(1).location_id().size(), 2);
+  EXPECT_EQ(converted.sample(0).location_id(0),
+            converted.sample(1).location_id(0));
 }
 
 TEST(ProfileBuilderTest, LifetimeProfile) {

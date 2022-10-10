@@ -23,7 +23,6 @@
 
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -51,8 +50,6 @@ class StackTraceTable final : public ProfileBase {
   // the expected number of objects allocated (might be fractional considering
   // fragmentation) corresponding to a given sample.
   void AddTrace(double sample_weight, const StackTrace& t)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  void AddTrace(double sample_weight, const StackTrace& t, Residency* residency)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Exposed for PageHeapAllocator

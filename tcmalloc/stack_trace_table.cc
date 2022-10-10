@@ -50,11 +50,6 @@ StackTraceTable::~StackTraceTable() {
 }
 
 void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
-  return AddTrace(sample_weight, t, nullptr);
-}
-
-void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t,
-                               Residency* residency) {
   depth_total_ += t.depth;
   Bucket* b;
   {
@@ -90,17 +85,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t,
   b->sample.depth = t.depth;
   b->sample.allocation_time = t.allocation_time;
 
-  // TODO(b/235916219): This is all changing. Do the refactor as mentioned
-  // in the bug and get rid of `sampled_resident_size`. Note "sampled" is
-  // currently a misnomer.
-  if (residency != nullptr) {
-    auto residency_info = residency->Get(t.span_start_address, allocated_size);
-    if (residency_info.has_value()) {
-      b->sample.sampled_resident_size =
-          b->sample.count * residency_info->bytes_resident;
-      b->sample.swapped_size = b->sample.count * residency_info->bytes_swapped;
-    }
-  }
+  b->sample.span_start_address = t.span_start_address;
 
   static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                 "Profile stack size smaller than internal stack sizes");

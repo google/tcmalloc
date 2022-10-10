@@ -620,6 +620,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":logging",
+        ":residency",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_google_absl//absl/base:config",

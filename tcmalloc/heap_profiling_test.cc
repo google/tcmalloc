@@ -16,6 +16,7 @@
 #include <sys/mman.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 
 #include "gtest/gtest.h"
@@ -28,6 +29,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sampled_allocation.h"
 #include "tcmalloc/static_vars.h"
@@ -160,15 +162,29 @@ TEST(HeapProfilingTest, CheckResidency) {
         "one or more mlocks failed, which could cause test flakiness\n");
   }
 
+  // Collect the heap profile and look for residency info.
+  auto converted_or = tcmalloc_internal::MakeProfileProto(
+      MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+  ASSERT_TRUE(converted_or.ok());
+  const auto& converted = **converted_or;
+
+  // Look for "sampled_resident_bytes" string in string table.
+  std::optional<int> sampled_resident_bytes_id;
+  for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
+    if (converted.string_table(i) == "sampled_resident_bytes") {
+      sampled_resident_bytes_id = i;
+    }
+  }
+  ASSERT_TRUE(sampled_resident_bytes_id.has_value());
+
   size_t resident_size = 0;
-  MallocExtension::SnapshotCurrent(ProfileType::kHeap)
-      .Iterate([&](const Profile::Sample& s) {
-        CHECK_CONDITION(
-            s.sampled_resident_size.has_value() &&
-            "Sampled resident size must be available when using the Residency "
-            "API for heap residency queries.");
-        resident_size += s.sampled_resident_size.value();
-      });
+  for (const auto& sample : converted.sample()) {
+    for (const auto& label : sample.label()) {
+      if (label.key() == sampled_resident_bytes_id) {
+        resident_size += label.num();
+      }
+    }
+  }
 
   EXPECT_GE(resident_size, num_allocations * requested_size);
   EXPECT_LE(resident_size, num_allocations * requested_size * 2);

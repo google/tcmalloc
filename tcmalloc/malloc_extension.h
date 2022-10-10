@@ -118,13 +118,6 @@ class Profile final {
     // tcmalloc_size_returning_operator_new or its variants.
     bool requested_size_returning;
     size_t allocated_size;
-    // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
-    // pre-multiplied by count and represents all of the resident memory).
-    // TODO(b/235916219): The name `sampled_resident_size` is a bit of a
-    // misnomer and will be fixed when we switch to separate sample types for
-    // these.
-    std::optional<size_t> sampled_resident_size;
-    std::optional<size_t> swapped_size;
 
     enum class Access {
       Hot,
@@ -153,6 +146,10 @@ class Profile final {
     // When the context is unavailable the profile contains "none".
     bool allocator_deallocator_cpu_matched;
     bool allocator_deallocator_thread_matched;
+
+    // The start address of the sampled allocation, used to calculate the
+    // residency info for the objects represented by this sampled allocation.
+    void* span_start_address;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;

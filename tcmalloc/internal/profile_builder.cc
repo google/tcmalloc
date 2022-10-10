@@ -41,6 +41,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/residency.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -139,20 +140,37 @@ using SampleMergedMap =
     absl::flat_hash_map<const tcmalloc::Profile::Sample, SampleMergedData,
                         SampleHashWithSubFields, SampleEqWithSubFields>;
 
-SampleMergedMap MergeProfileSamples(const tcmalloc::Profile& profile) {
+SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
+    const tcmalloc::Profile& profile) {
   SampleMergedMap map;
+  // Used to populate residency info in heap profile.
+  std::optional<Residency> r;
+  if (profile.Type() == ProfileType::kHeap) {
+    r.emplace();
+  }
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
     data.count += entry.count;
     data.sum += entry.sum;
-    // As long as some entries have values on `sampled_resident_size` and
-    // `swapped_size`, the merged data will have their sums.
+    if (!r.has_value()) return;
+    auto residency_info =
+        r->Get(entry.span_start_address, entry.allocated_size);
+    if (!residency_info.has_value()) return;
+    // As long as `residency_info` provides data in some samples, the merged
+    // data will have their sums.
+    // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
+    // pre-multiplied by count and represents all of the resident memory).
+    // TODO(b/235916219): The name `sampled_resident_size` is a bit of a
+    // misnomer and will be fixed when we switch to separate sample types for
+    // these.
+    size_t sampled_resident_size = entry.count * residency_info->bytes_resident;
+    size_t swapped_size = entry.count * residency_info->bytes_swapped;
     if (!data.sampled_resident_size.has_value()) {
-      data.sampled_resident_size = entry.sampled_resident_size;
-      data.swapped_size = entry.swapped_size;
-    } else if (entry.sampled_resident_size.has_value()) {
-      data.sampled_resident_size.value() += entry.sampled_resident_size.value();
-      data.swapped_size.value() += entry.swapped_size.value();
+      data.sampled_resident_size = sampled_resident_size;
+      data.swapped_size = swapped_size;
+    } else {
+      data.sampled_resident_size.value() += sampled_resident_size;
+      data.swapped_size.value() += swapped_size;
     }
   });
   return map;
@@ -624,7 +642,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   converted.set_default_sample_type(default_sample_type_id);
 
-  SampleMergedMap samples = MergeProfileSamples(profile);
+  SampleMergedMap samples =
+      MergeProfileSamplesAndMaybeGetResidencyInfo(profile);
   for (const auto& [entry, data] : samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();

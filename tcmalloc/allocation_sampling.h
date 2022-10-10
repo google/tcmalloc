@@ -78,10 +78,9 @@ static std::unique_ptr<const ProfileBase> DumpFragmentationProfile(
 template <typename State>
 static std::unique_ptr<const ProfileBase> DumpHeapProfile(State& state) {
   auto profile = std::make_unique<StackTraceTable>(ProfileType::kHeap);
-  Residency r;
   state.sampled_allocation_recorder().Iterate(
       [&](const SampledAllocation& sampled_allocation) {
-        profile->AddTrace(1.0, sampled_allocation.sampled_stack, &r);
+        profile->AddTrace(1.0, sampled_allocation.sampled_stack);
       });
   return profile;
 }
