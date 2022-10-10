@@ -252,8 +252,6 @@ class Span : public SpanList::Elem {
     uint16_t reciprocal_;
   };
   uint8_t cache_size_;
-  // TODO(b/130897106): Remove this once we enable span prioritization by
-  // default.
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   uint8_t sampled_ : 1;   // Sampled object?
