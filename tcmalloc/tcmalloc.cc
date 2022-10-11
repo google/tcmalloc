@@ -805,8 +805,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
       if (ptr == nullptr) return;
       return FreePages(ptr);
     } else {
-      // TODO(b/124707070):  Dedupe this with the code below, once this path is
-      // used more frequently.
+      // This code is redundant with the outer !IsSampledMemory path below, but
+      // this avoids putting the IsSampledMemory&&IsColdMemory check on the
+      // critical path of the size lookup.
+      //
+      // As of October 2022, this is faster than unifying the path and using
+      // AccessAs().
       ASSERT(ptr != nullptr);
 
       uint32_t size_class;
