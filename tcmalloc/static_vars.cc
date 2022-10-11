@@ -128,7 +128,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
       size_classes = kExperimentalPow2SizeClasses;
     } else if (default_want_legacy_size_classes != nullptr &&
                default_want_legacy_size_classes() > 0) {
-      // TODO(b/196216678): remove this opt out after 2022-11-01.
+      // TODO(b/242710633): remove this opt out.
       size_classes = kLegacySizeClasses;
     } else {
       size_classes = kSizeClasses;
