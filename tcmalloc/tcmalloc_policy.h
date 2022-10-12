@@ -213,6 +213,9 @@ class TCMallocPolicy {
   constexpr TCMallocPolicy() = default;
   explicit constexpr TCMallocPolicy(AlignPolicy align, NumaPolicy numa)
       : align_(align), numa_(numa) {}
+  explicit constexpr TCMallocPolicy(AlignPolicy align, hot_cold_t access,
+                                    NumaPolicy numa)
+      : align_(align), access_(access), numa_(numa) {}
 
   // OOM policy
   static void* handle_oom(size_t size) { return OomPolicy::handle_oom(size); }
@@ -228,7 +231,7 @@ class TCMallocPolicy {
     return numa_.scaled_partition();
   }
 
-  constexpr hot_cold_t access() const { return AccessPolicy::access(); }
+  constexpr hot_cold_t access() const { return access_.access(); }
 
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
@@ -303,6 +306,7 @@ class TCMallocPolicy {
 
  private:
   AlignPolicy align_;
+  AccessPolicy access_;
   NumaPolicy numa_;
 };
 
