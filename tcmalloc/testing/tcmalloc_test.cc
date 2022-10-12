@@ -71,6 +71,7 @@
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
@@ -120,6 +121,10 @@ extern "C" void free_sized(void* ptr, size_t size) noexcept;
 // free_aligned_sized is an overaligned sized free function introduced in C23.
 extern "C" void free_aligned_sized(void* ptr, size_t align,
                                    size_t size) noexcept;
+#endif
+
+#if !defined(__GLIBC__)
+extern "C" int malloc_info(int opt, FILE* fp) noexcept;
 #endif
 
 static const int kSizeBits = 8 * sizeof(size_t);
@@ -1192,6 +1197,18 @@ TEST(MallocExtension, SizeReturningNewAndSizedDelete) {
     }
   }
 #endif
+}
+
+TEST(TCMalloc, malloc_info) {
+  char* buf = nullptr;
+  size_t size = 0;
+  FILE* fp = open_memstream(&buf, &size);
+  ASSERT_NE(fp, nullptr);
+  EXPECT_EQ(malloc_info(0, fp), 0);
+  EXPECT_EQ(fclose(fp), 0);
+  ASSERT_NE(buf, nullptr);
+  EXPECT_EQ(absl::string_view(buf, size), "<malloc></malloc>\n");
+  free(buf);
 }
 
 }  // namespace

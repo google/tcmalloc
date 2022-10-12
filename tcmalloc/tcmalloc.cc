@@ -1602,10 +1602,16 @@ extern "C" int TCMallocInternalMallOpt(int cmd, int value) noexcept {
 }
 
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
-extern "C" struct mallinfo TCMallocInternalMallocInfo(void) noexcept {
+extern "C" struct mallinfo TCMallocInternalMallInfo(void) noexcept {
   return do_mallinfo();
 }
 #endif
+
+extern "C" int TCMallocInternalMallocInfo(int opts ABSL_ATTRIBUTE_UNUSED,
+                                          FILE* fp) noexcept {
+  fputs("<malloc></malloc>\n", fp);
+  return 0;
+}
 
 extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   ASSERT(GetOwnership(ptr) != tcmalloc::MallocExtension::Ownership::kNotOwned);

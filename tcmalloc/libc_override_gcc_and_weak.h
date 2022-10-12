@@ -111,8 +111,10 @@ int mallopt(int cmd, int value) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallOpt);
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 struct mallinfo mallinfo(void) noexcept
-    TCMALLOC_ALIAS(TCMallocInternalMallocInfo);
+    TCMALLOC_ALIAS(TCMallocInternalMallInfo);
 #endif
+int malloc_info(int opts, FILE* fp) noexcept
+    TCMALLOC_ALIAS(TCMallocInternalMallocInfo);
 size_t malloc_size(void* p) noexcept TCMALLOC_ALIAS(TCMallocInternalMallocSize);
 size_t malloc_usable_size(void* p) noexcept
     TCMALLOC_ALIAS(TCMallocInternalMallocSize);

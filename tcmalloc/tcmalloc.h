@@ -24,6 +24,7 @@
 
 #include <malloc.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
@@ -72,9 +73,10 @@ int TCMallocInternalMallocTrim(size_t pad) noexcept
 int TCMallocInternalMallOpt(int cmd, int value) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
-struct mallinfo TCMallocInternalMallocInfo(void) noexcept
+struct mallinfo TCMallocInternalMallInfo(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
+int TCMallocInternalMallocInfo(int opts, FILE* fp) noexcept;
 
 // This is an alias for MallocExtension::GetAllocatedSize().
 // It is equivalent to

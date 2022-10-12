@@ -98,10 +98,12 @@ int mallopt(int cmd, int v) { return TCMallocInternalMallOpt(cmd, v); }
 #endif
 
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
-struct mallinfo mallinfo(void) {
-  return TCMallocInternalMallocInfo();
-}
+struct mallinfo mallinfo(void) { return TCMallocInternalMallInfo(); }
 #endif
+
+int malloc_info(int opts, FILE* fp) {
+  return TCMallocInternalMallocInfo(opts, fp);
+}
 
 #if defined(__GLIBC__)
 size_t malloc_size(void* p) { return TCMallocInternalMallocSize(p); }
