@@ -73,17 +73,6 @@ class HintedTrackerLists {
     nonempty_.SetBit(i);
   }
 
-  // Adds pointer <pt> to the nonempty_[i] list.
-  // REQUIRES: i < N && pt != nullptr.
-  void AddWithLinearSearch(TrackerType* pt, const size_t i,
-                           int32_t search_length) {
-    ASSERT(i < N);
-    ASSERT(pt != nullptr);
-    lists_[i].prepend_with_linear_search(pt, search_length);
-    ++size_;
-    nonempty_.SetBit(i);
-  }
-
   // Removes pointer <pt> from the nonempty_[i] list.
   // REQUIRES: i < N && pt != nullptr.
   void Remove(TrackerType* pt, const size_t i) {

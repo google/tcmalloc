@@ -202,58 +202,6 @@ TEST_F(TListTest, PrependPushPop) {
   EXPECT_TRUE(list_.empty());
 }
 
-struct LinearSearchTestSequences {
-  std::vector<int> in;
-  std::vector<int> out;
-  int search_length;
-};
-
-TEST_F(TListTest, PrependWithLinearSearchPushPop) {
-  constexpr int N = 10;
-  std::vector<LinearSearchTestSequences> test_sequences = {
-      {{2, 5, 7, 9, 10, 1, 3, 5, 4, 8}, {8, 4, 5, 3, 1, 10, 9, 7, 5, 2}, 0},
-      {{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, 10},
-      {{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, 0},
-      {{10, 9, 8, 7, 6, 5, 4, 3, 2, 1}, {10, 9, 8, 7, 6, 1, 2, 3, 4, 5}, 5},
-  };
-  for (const auto& seq : test_sequences) {
-    EXPECT_EQ(list_.length(), 0);
-    EXPECT_TRUE(list_.empty());
-
-    // Prepend N elements to the list.
-    for (int i = 0; i < N; i++) {
-      MockSpan* s = MockSpan::New(seq.in[i]);
-      ASSERT_FALSE(s == nullptr);
-      list_.prepend_with_linear_search(s, seq.search_length);
-      EXPECT_EQ(list_.length(), i + 1);
-      EXPECT_FALSE(list_.empty());
-    }
-
-    // Check range iterator
-    {
-      int x = 0;
-      for (const MockSpan* s : list_) {
-        EXPECT_EQ(s->index_, seq.out[x]);
-        x++;
-      }
-    }
-
-    // Remove all N elements from the front of the list.
-    for (int i = N; i > 0; i--) {
-      EXPECT_EQ(list_.length(), i);
-      EXPECT_FALSE(list_.empty());
-      MockSpan* first = list_.first();
-      EXPECT_FALSE(first == nullptr);
-      bool ret = list_.remove(first);
-      // Returns true iff the list is empty after the remove.
-      EXPECT_EQ(ret, i == 1);
-      delete first;
-    }
-    EXPECT_EQ(list_.length(), 0);
-    EXPECT_TRUE(list_.empty());
-  }
-}
-
 TEST_F(TListTest, AppendRandomRemove) {
   const int N = 100;
   std::vector<MockSpan*> v(N);

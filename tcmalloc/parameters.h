@@ -130,14 +130,6 @@ class Parameters {
 
   static bool pass_span_object_count_to_pageheap();
 
-  static int32_t linear_search_length_tracker_list() {
-    return linear_search_length_tracker_list_.load(std::memory_order_relaxed);
-  }
-
-  static void set_linear_search_length_tracker_list(int32_t value) {
-    TCMalloc_Internal_SetLinearSearchLengthTrackerList(value);
-  }
-
   static bool madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
   }
@@ -165,7 +157,6 @@ class Parameters {
       double v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(
       double v);
-  friend void ::TCMalloc_Internal_SetLinearSearchLengthTrackerList(int32_t v);
   friend void ::TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v);
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
@@ -174,7 +165,6 @@ class Parameters {
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
-  static std::atomic<int32_t> linear_search_length_tracker_list_;
   static std::atomic<bool> madvise_cold_regions_nohugepage_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

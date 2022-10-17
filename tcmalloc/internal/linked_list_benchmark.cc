@@ -140,31 +140,6 @@ static void BM_AppendRemove(benchmark::State& state) {
 
 BENCHMARK(BM_AppendRemove)->Range(32, 32 * 1024);
 
-static void BM_PrependWithLinearSearch(benchmark::State& state) {
-  const int length = state.range(0);
-  std::vector<MockSpan*> spans(length);
-  // Create MockSpans in append order
-  for (int j = 0; j < length; ++j) {
-    MockSpan* s = MockSpan::New(length);
-    CHECK_CONDITION(s != nullptr);
-    spans[j] = s;
-  }
-  std::shuffle(spans.begin(), spans.end(), absl::BitGen());
-  MockSpanList list;
-  for (MockSpan* s : spans) list.prepend(s);
-  MockSpan* span = MockSpan::New(-1);
-  for (auto _ : state) {
-    list.prepend_with_linear_search(span, length);
-    list.remove(span);
-  }
-  delete span;
-  for (MockSpan* ms : list) {
-    list.remove(ms);
-  }
-}
-
-BENCHMARK(BM_PrependWithLinearSearch)->Range(0, 1 << 27);
-
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

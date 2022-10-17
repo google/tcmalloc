@@ -32,12 +32,10 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/lifetime_tracker.h"
 #include "tcmalloc/internal/linked_list.h"
-#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -742,10 +740,6 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   bool empty() const;
 
   bool unbroken() const { return unbroken_; }
-  static bool compare(const PageTracker<Unback>* a,
-                      const PageTracker<Unback>* b) {
-    return a->nallocs() < b->nallocs();
-  }
 
   // Returns a linked list of trackers ordered by deadline.
   LifetimeTracker::Tracker* lifetime_tracker() { return &lifetime_tracker_; }
@@ -2082,13 +2076,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   size_t i = ListFor(longest, chunk);
   if (!pt->released()) {
-    const int32_t search_length =
-        Parameters::linear_search_length_tracker_list();
-    if (ABSL_PREDICT_FALSE(search_length > 0)) {
-      regular_alloc_.AddWithLinearSearch(pt, i, search_length);
-    } else {
-      regular_alloc_.Add(pt, i);
-    }
+    regular_alloc_.Add(pt, i);
   } else if (partial_rerelease_ == FillerPartialRerelease::Return ||
              pt->free_pages() == pt->released_pages()) {
     regular_alloc_released_.Add(pt, i);

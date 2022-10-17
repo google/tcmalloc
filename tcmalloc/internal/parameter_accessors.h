@@ -53,10 +53,6 @@ ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(absl::Duration v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLifetimeAllocatorOptions(
     absl::string_view s);
-ABSL_ATTRIBUTE_WEAK int32_t
-TCMalloc_Internal_GetLinearSearchLengthTrackerList();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLinearSearchLengthTrackerList(
-    int32_t v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
