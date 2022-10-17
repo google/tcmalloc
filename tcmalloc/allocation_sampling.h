@@ -178,9 +178,9 @@ static void* SampleifyAllocation(State& state, Policy policy,
   }
 
   if (size_class != 0) {
-    ASSERT(size_class == tc_globals.pagemap().sizeclass(PageIdContaining(obj)));
+    ASSERT(size_class == state.pagemap().sizeclass(PageIdContaining(obj)));
 
-    allocated_size = tc_globals.sizemap().class_to_size(size_class);
+    allocated_size = state.sizemap().class_to_size(size_class);
     allocated_cold = IsExpandedSizeClass(size_class);
 
     // If the caller didn't provide a span, allocate one:
@@ -191,21 +191,21 @@ static void* SampleifyAllocation(State& state, Policy policy,
       const PageId p = PageIdContaining(guarded_alloc);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       span = Span::New(p, num_pages);
-      tc_globals.pagemap().Set(p, span);
+      state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not
       // report the allocated_size, as we guard the size to 'requested_size',
       // and we maintain the invariant that GetAllocatedSize() must match the
       // returned size from size returning allocations. So in that case, we
       // report the requested size for both capacity and GetAllocatedSize().
       if (capacity) allocated_size = requested_size;
-    } else if ((span = tc_globals.page_allocator().New(
+    } else if ((span = state.page_allocator().New(
                     num_pages, 1, MemoryTag::kSampled)) == nullptr) {
       if (capacity) *capacity = allocated_size;
       return obj;
     }
 
     size_t span_size =
-        Length(tc_globals.sizemap().class_to_pages(size_class)).in_bytes();
+        Length(state.sizemap().class_to_pages(size_class)).in_bytes();
     size_t objects_per_span = span_size / allocated_size;
 
     if (objects_per_span != 1) {
@@ -251,7 +251,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
   // Adjust our estimate of internal fragmentation.
   ASSERT(requested_size <= allocated_size);
   if (requested_size < allocated_size) {
-    tc_globals.sampled_internal_fragmentation_.Add(
+    state.sampled_internal_fragmentation_.Add(
         allocation_estimate * (allocated_size - requested_size));
   }
 
@@ -263,12 +263,12 @@ static void* SampleifyAllocation(State& state, Policy policy,
   // care about its various metadata (e.g. stack trace, weight) to generate the
   // heap profile, and won't need any information from Span::Sample() next.
   SampledAllocation* sampled_allocation =
-      tc_globals.sampled_allocation_recorder().Register(std::move(tmp));
+      state.sampled_allocation_recorder().Register(std::move(tmp));
   // No pageheap_lock required. The span is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);
 
-  tc_globals.peak_heap_tracker().MaybeSaveSample();
+  state.peak_heap_tracker().MaybeSaveSample();
 
   if (obj != nullptr) {
     // We are not maintaining precise statistics on malloc hit/miss rates at our
