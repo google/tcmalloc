@@ -52,6 +52,7 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <optional>
 #include <random>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
@@ -1176,6 +1177,68 @@ TEST(HotColdTest, HotColdNew) {
   for (uintptr_t h : hot) {
     EXPECT_THAT(cold, testing::Not(testing::Contains(h)))
         << reinterpret_cast<void*>(h);
+  }
+}
+
+TEST(HotColdTest, SizeReturningHotColdNew) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t requested;
+    size_t actual;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t requested = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    auto [ptr, actual] = tcmalloc_size_returning_operator_new_hot_cold(
+        requested, static_cast<hot_cold_t>(label));
+    ASSERT_GE(actual, requested);
+
+    if (label >= 128) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << requested << " " << label;
+    }
+
+    std::optional<size_t> allocated_size =
+        MallocExtension::GetAllocatedSize(ptr);
+    ASSERT_THAT(allocated_size, testing::Ne(std::nullopt));
+    EXPECT_EQ(actual, *allocated_size);
+
+    ptrs.emplace_back(SizedPtr{ptr, requested, actual});
+  }
+
+  for (auto s : ptrs) {
+    const double coin = absl::Uniform(rng, 0., 1.);
+
+    if (coin < 0.2) {
+      ::operator delete(s.ptr);
+    } else if (coin < 0.4) {
+      // Exact size.
+      sized_delete(s.ptr, s.actual);
+    } else if (coin < 0.6) {
+      sized_delete(s.ptr, s.requested);
+    } else {
+      sized_delete(s.ptr, absl::Uniform(rng, s.requested, s.actual));
+    }
   }
 }
 

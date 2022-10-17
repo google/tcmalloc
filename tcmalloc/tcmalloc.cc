@@ -886,12 +886,11 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   }
   size_t actual = GetSize(ptr);
   if (ABSL_PREDICT_TRUE(actual == size)) return true;
-  // We might have had a cold size class, which then sampled, so actual > size.
-  // Let's check that.
+  // We might have had a cold size class, so actual > size.  If we did not use
+  // size returning new, the caller may not know this occurred.
   //
-  // TODO(b/124707070):  When we grow a sampled allocation in this way,
-  // recompute the true size at allocation time.  This allows size-feedback from
-  // operator new to benefit from the bytes we are allocating.
+  // Nonetheless, it is permitted to pass a size anywhere in [requested, actual]
+  // to sized delete.
   if (actual > size && IsSampledMemory(ptr)) {
     if (tc_globals.sizemap().GetSizeClass(
             CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
