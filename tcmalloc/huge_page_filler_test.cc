@@ -26,6 +26,7 @@
 #include <random>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -642,7 +643,8 @@ class BlockingUnback {
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
 
-class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
+class FillerTest : public testing::TestWithParam<
+                       std::tuple<FillerPartialRerelease, int32_t>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -688,8 +690,9 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   HugePageFiller<FakeTracker> filler_;
 
   FillerTest()
-      : filler_(GetParam(),
-                Clock{.now = FakeClock, .freq = GetFakeClockFrequency}) {
+      : filler_(std::get<0>(GetParam()),
+                Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
+                std::get<1>(GetParam())) {
     ResetClock();
   }
 
@@ -952,7 +955,7 @@ TEST_P(FillerTest, PrintFreeRatio) {
     buffer.erase(printer.SpaceRequired());
   }
 
-  if (GetParam() == FillerPartialRerelease::Retain) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
     EXPECT_THAT(
         buffer,
         testing::StartsWith(
@@ -1105,7 +1108,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(N - Length(2), filler_.unmapped_pages());
   // This shouldn't trigger a release
   Delete(tiny1);
-  if (GetParam() == FillerPartialRerelease::Retain) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
     EXPECT_EQ(N - Length(2), filler_.unmapped_pages());
     // Until we call ReleasePages()
     EXPECT_EQ(Length(1), ReleasePages(Length(1)));
@@ -1119,7 +1122,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
 
   // This shouldn't trigger any release: we just claim credit for the
   // releases we did automatically on tiny2.
-  if (GetParam() == FillerPartialRerelease::Retain) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
     EXPECT_EQ(Length(1), ReleasePages(Length(1)));
   } else {
     EXPECT_EQ(Length(2), ReleasePages(Length(2)));
@@ -1144,7 +1147,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(N / 2, filler_.used_pages_in_released());
 
   // Check accounting for partially released hugepages with partial rerelease
-  if (GetParam() == FillerPartialRerelease::Retain) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
     // Allocating and deallocating a small object causes the page to turn from
     // a released hugepage into a partially released hugepage.
     auto tiny3 = Allocate(Length(1));
@@ -1244,7 +1247,7 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
 }
 
 TEST_P(FillerTest, ParallelUnlockingSubrelease) {
-  if (GetParam() == FillerPartialRerelease::Retain) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
     // When rerelease happens without going to Unback(), this test
     // (intentionally) deadlocks, as we never receive the call.
     return;
@@ -2110,9 +2113,11 @@ TEST_P(FillerTest, ReleasePriority) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(All, FillerTest,
-                         testing::Values(FillerPartialRerelease::Return,
-                                         FillerPartialRerelease::Retain));
+INSTANTIATE_TEST_SUITE_P(
+    All, FillerTest,
+    testing::Combine(testing::Values(FillerPartialRerelease::Return,
+                                     FillerPartialRerelease::Retain),
+                     testing::Values(8, 12, 16)));
 
 }  // namespace
 }  // namespace tcmalloc_internal

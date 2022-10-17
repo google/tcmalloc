@@ -135,7 +135,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
 HugePageAwareAllocator::HugePageAwareAllocator(
     MemoryTag tag, LifetimePredictionOptions lifetime_options)
     : PageAllocatorInterface("HugePageAware", tag),
-      filler_(decide_partial_rerelease()),
+      filler_(decide_partial_rerelease(),
+              Parameters::chunks_for_page_tracker_lists()),
       alloc_(
           [](MemoryTag tag) {
             // TODO(ckennelly): Remove the template parameter.
