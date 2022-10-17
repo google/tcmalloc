@@ -208,7 +208,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     return true;
   }
 
-  // TODO(b/124707070): Systematically identify candidates for cold allocation
+  // TODO(b/123523202): Systematically identify candidates for cold allocation
   // and include them explicitly in size_classes.cc.
   static constexpr size_t kColdCandidates[] = {
       2048,  4096,  6144,  7168,  8192,   16384,
