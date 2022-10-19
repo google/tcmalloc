@@ -1232,12 +1232,19 @@ extern "C" void TCMallocInternalSdallocx(void* ptr, size_t size,
 
 extern "C" void* TCMallocInternalCalloc(size_t n, size_t elem_size) noexcept {
   // Overflow check
-  const size_t size = n * elem_size;
-  if (elem_size != 0 && size / elem_size != n) {
+  size_t size;
+  bool overflowed;
+#if ABSL_HAVE_BUILTIN(__builtin_mul_overflow)
+  overflowed = __builtin_mul_overflow(n, elem_size, &size);
+#else
+  size = n * elem_size;
+  overflowed = elem_size != 0 && size / elem_size != n;
+#endif
+  if (ABSL_PREDICT_FALSE(overflowed)) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
   }
   void* result = fast_alloc(MallocPolicy(), size);
-  if (result != nullptr) {
+  if (ABSL_PREDICT_TRUE(result != nullptr)) {
     memset(result, 0, size);
   }
   return result;
