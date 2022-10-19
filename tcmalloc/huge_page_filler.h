@@ -1916,10 +1916,8 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
         std::optional<Residency::Info> info = rquery.Get(
             reinterpret_cast<const void*>(start_addr), kHugePageSize);
         out->printf(
-            "HugePageFiller: page %d: start address: %x end address: %x "
-            "released pages: %d released bytes: %d",
-            pages_printed, start_addr, end_addr, pt->released_pages().raw_num(),
-            pt->released_pages().in_bytes());
+            "HugePageFiller: page %d: start address: %x end address: %x",
+            pages_printed, start_addr, end_addr);
         if (info.has_value()) {
           out->printf(" bytes resident: %d bytes swapped: %d\n",
                       info.value().bytes_resident, info.value().bytes_swapped);
