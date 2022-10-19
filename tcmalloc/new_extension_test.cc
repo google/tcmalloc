@@ -16,11 +16,14 @@
 
 #include <stdint.h>
 
+#include <algorithm>
+
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
@@ -258,8 +261,8 @@ TEST(HotColdNew, OperatorNewAligned) {
 #else
   const size_t kSmallAlignment = alignof(std::max_align_t) / 2;
 #endif
-  const size_t kLargeAlignment =
-      std::max(getpagesize(), 2 * ABSL_CACHELINE_SIZE);
+  const size_t kLargeAlignment = std::max(tcmalloc_internal::GetPageSize(),
+                                          size_t{2} * ABSL_CACHELINE_SIZE);
 
   const size_t kLogSmallAlignment = absl::bit_width(kSmallAlignment - 1);
   const size_t kLogLargeAlignment = absl::bit_width(kLargeAlignment - 1);
@@ -313,8 +316,8 @@ TEST(HotColdNew, OperatorNewAlignedNothrow) {
 #else
   const size_t kSmallAlignment = alignof(std::max_align_t) / 2;
 #endif
-  const size_t kLargeAlignment =
-      std::max(getpagesize(), 2 * ABSL_CACHELINE_SIZE);
+  const size_t kLargeAlignment = std::max(tcmalloc_internal::GetPageSize(),
+                                          size_t{2} * ABSL_CACHELINE_SIZE);
 
   const size_t kLogSmallAlignment = absl::bit_width(kSmallAlignment - 1);
   const size_t kLogLargeAlignment = absl::bit_width(kLargeAlignment - 1);
@@ -369,8 +372,8 @@ TEST(HotColdNew, OperatorNewArrayAligned) {
 #else
   const size_t kSmallAlignment = alignof(std::max_align_t) / 2;
 #endif
-  const size_t kLargeAlignment =
-      std::max(getpagesize(), 2 * ABSL_CACHELINE_SIZE);
+  const size_t kLargeAlignment = std::max(tcmalloc_internal::GetPageSize(),
+                                          size_t{2} * ABSL_CACHELINE_SIZE);
 
   const size_t kLogSmallAlignment = absl::bit_width(kSmallAlignment - 1);
   const size_t kLogLargeAlignment = absl::bit_width(kLargeAlignment - 1);
@@ -425,8 +428,8 @@ TEST(HotColdNew, OperatorNewArrayAlignedNothrow) {
 #else
   const size_t kSmallAlignment = alignof(std::max_align_t) / 2;
 #endif
-  const size_t kLargeAlignment =
-      std::max(getpagesize(), 2 * ABSL_CACHELINE_SIZE);
+  const size_t kLargeAlignment = std::max(tcmalloc_internal::GetPageSize(),
+                                          size_t{2} * ABSL_CACHELINE_SIZE);
 
   const size_t kLogSmallAlignment = absl::bit_width(kSmallAlignment - 1);
   const size_t kLogLargeAlignment = absl::bit_width(kLargeAlignment - 1);

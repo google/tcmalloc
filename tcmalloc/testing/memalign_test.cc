@@ -34,6 +34,7 @@
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
+#include "tcmalloc/internal/page_size.h"
 
 namespace tcmalloc {
 namespace {
@@ -263,7 +264,7 @@ TEST(MemalignTest, PosixMemalignFailure) {
 }
 
 TEST(MemalignTest, valloc) {
-  const int pagesize = getpagesize();
+  const int pagesize = tcmalloc_internal::GetPageSize();
 
   for (int s = 0; s != -1; s = NextSize(s)) {
     void* p = valloc(s);
@@ -276,7 +277,7 @@ TEST(MemalignTest, valloc) {
 
 #if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__)
 TEST(MemalignTest, pvalloc) {
-  const int pagesize = getpagesize();
+  const int pagesize = tcmalloc_internal::GetPageSize();
 
   for (int s = 0; s != -1; s = NextSize(s)) {
     void* p = pvalloc(s);

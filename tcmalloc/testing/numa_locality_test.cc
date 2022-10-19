@@ -26,6 +26,7 @@
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -40,7 +41,7 @@ size_t BackingNode(void* const ptr) {
 
   // The move_pages syscall expects page aligned addresses; we'll check the
   // page containing the first byte of the allocation at ptr.
-  static const size_t page_size = getpagesize();
+  static const size_t page_size = GetPageSize();
   uintptr_t page_addr = reinterpret_cast<uintptr_t>(ptr) & ~(page_size - 1);
 
   // Retrieve the number of the NUMA node whose memory ptr is backed by. The

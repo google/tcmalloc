@@ -37,6 +37,7 @@
 #include "absl/types/variant.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -304,7 +305,7 @@ TEST(ProfileConverterTest, HeapProfile) {
     // for the sample.
     Profile::Sample sample;
 
-    size_t kSize = getpagesize();
+    size_t kSize = GetPageSize();
     void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
                       MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
     ASSERT_NE(ptr1, MAP_FAILED) << errno;

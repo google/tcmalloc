@@ -35,6 +35,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
@@ -57,7 +58,7 @@ void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
   // If the system page size is larger than kPageSize, we need to use the
   // system page size for this allocator since mprotect operates on full pages
   // only.  This case happens on PPC.
-  page_size_ = std::max(kPageSize, static_cast<size_t>(getpagesize()));
+  page_size_ = std::max(kPageSize, static_cast<size_t>(GetPageSize()));
   ASSERT(page_size_ % kPageSize == 0);
 
   rand_ = reinterpret_cast<uint64_t>(this);  // Initialize RNG seed.
@@ -212,7 +213,7 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
 void GuardedPageAllocator::MapPages() {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   ASSERT(!first_page_addr_);
-  ASSERT(page_size_ % getpagesize() == 0);
+  ASSERT(page_size_ % GetPageSize() == 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
   auto base_addr = reinterpret_cast<uintptr_t>(
       MmapAligned(len, page_size_, MemoryTag::kSampled));

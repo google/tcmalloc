@@ -48,6 +48,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/parameters.h"
@@ -584,7 +585,7 @@ struct MemoryBytes {
   uint64_t phys;
 };
 
-int64_t pagesize = getpagesize();
+int64_t pagesize = GetPageSize();
 
 static size_t BytesInCore(void* p, size_t len) {
   static const size_t kBufSize = 1024;

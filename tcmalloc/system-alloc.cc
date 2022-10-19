@@ -38,6 +38,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -92,7 +93,6 @@ ABSL_CONST_INIT absl::base_internal::SpinLock spinlock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 // Page size is initialized on demand
-size_t pagesize = 0;
 size_t preferred_alignment = 0;
 
 // The current region factory.
@@ -178,7 +178,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   if (result < start_) return {nullptr, 0};  // Out of memory in region.
   size_t actual_size = end - result;
 
-  ASSERT(result % pagesize == 0);
+  ASSERT(result % GetPageSize() == 0);
   void* result_ptr = reinterpret_cast<void*>(result);
   if (mprotect(result_ptr, actual_size, PROT_READ | PROT_WRITE) != 0) {
     Log(kLogWithStack, __FILE__, __LINE__,
@@ -320,12 +320,11 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
 
 void InitSystemAllocatorIfNecessary() {
   if (region_factory) return;
-  pagesize = getpagesize();
   // Sets the preferred alignment to be the largest of either the alignment
   // returned by mmap() or our minimum allocation size. The minimum allocation
   // size is usually a multiple of page size, but this need not be true for
   // SMALL_BUT_SLOW where we do not allocate in units of huge pages.
-  preferred_alignment = std::max(pagesize, kMinSystemAlloc);
+  preferred_alignment = std::max(GetPageSize(), kMinSystemAlloc);
   region_manager = new (&region_manager_space) RegionManager();
   region_factory = new (&mmap_space) MmapRegionFactory();
 }
@@ -369,7 +368,7 @@ ABSL_CONST_INIT std::atomic<int> system_release_errors(0);
 AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
   // If default alignment is set request the minimum alignment provided by
   // the system.
-  alignment = std::max(alignment, pagesize);
+  alignment = std::max(alignment, GetPageSize());
 
   // Discard requests that overflow
   if (bytes + alignment < bytes) return {nullptr, 0};
@@ -426,7 +425,7 @@ int SystemReleaseErrors() {
 void SystemRelease(void* start, size_t length) {
   int saved_errno = errno;
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
-  const size_t pagemask = pagesize - 1;
+  const size_t pagemask = GetPageSize() - 1;
 
   size_t new_start = reinterpret_cast<size_t>(start);
   size_t end = new_start + length;
@@ -434,7 +433,7 @@ void SystemRelease(void* start, size_t length) {
 
   // Round up the starting address and round down the ending address
   // to be page aligned:
-  new_start = (new_start + pagesize - 1) & ~pagemask;
+  new_start = (new_start + GetPageSize() - 1) & ~pagemask;
   new_end = new_end & ~pagemask;
 
   ASSERT((new_start & pagemask) == 0);

@@ -27,6 +27,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
+#include "tcmalloc/internal/page_size.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -50,7 +51,7 @@ using ::testing::FieldsAre;
 using ::testing::Optional;
 
 TEST(ResidenceTest, ThisProcess) {
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
   const int kNumPages = 16;
 
   // Minimize the chance of a race between munmap and a new mmap.

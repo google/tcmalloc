@@ -99,6 +99,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -1120,6 +1121,7 @@ using tcmalloc::tcmalloc_internal::CorrectSize;
 using tcmalloc::tcmalloc_internal::DefaultAlignPolicy;
 using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
+using tcmalloc::tcmalloc_internal::GetPageSize;
 using tcmalloc::tcmalloc_internal::MallocAlignPolicy;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
@@ -1567,22 +1569,19 @@ extern "C" int TCMallocInternalPosixMemalign(void** result_ptr, size_t align,
   }
 }
 
-static size_t pagesize = 0;
-
 extern "C" void* TCMallocInternalValloc(size_t size) noexcept {
   // Allocate page-aligned object of length >= size bytes
-  if (pagesize == 0) pagesize = getpagesize();
-  return fast_alloc(MallocPolicy().Nothrow().AlignAs(pagesize), size);
+  return fast_alloc(MallocPolicy().Nothrow().AlignAs(GetPageSize()), size);
 }
 
 extern "C" void* TCMallocInternalPvalloc(size_t size) noexcept {
   // Round up size to a multiple of pagesize
-  if (pagesize == 0) pagesize = getpagesize();
+  size_t page_size = GetPageSize();
   if (size == 0) {    // pvalloc(0) should allocate one page, according to
-    size = pagesize;  // http://man.free4web.biz/man3/libmpatrol.3.html
+    size = page_size;  // http://man.free4web.biz/man3/libmpatrol.3.html
   }
-  size = (size + pagesize - 1) & ~(pagesize - 1);
-  return fast_alloc(MallocPolicy().Nothrow().AlignAs(pagesize), size);
+  size = (size + page_size - 1) & ~(page_size - 1);
+  return fast_alloc(MallocPolicy().Nothrow().AlignAs(page_size), size);
 }
 
 extern "C" void TCMallocInternalMallocStats(void) noexcept {

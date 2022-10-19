@@ -324,6 +324,7 @@ cc_library(
     deps = [
         ":config",
         ":logging",
+        ":page_size",
         ":util",
         "@com_google_absl//absl/strings",
     ],
@@ -349,9 +350,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
-        "@com_google_absl//absl/cleanup",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
+        ":page_size",
     ],
 )
 
@@ -364,9 +363,9 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":config",
+        ":page_size",
         ":util",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -378,6 +377,7 @@ create_tcmalloc_benchmark(
     deps = [
         ":logging",
         ":mincore",
+        ":page_size",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/memory",
     ],
@@ -390,6 +390,7 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":mincore",
+        ":page_size",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
     ],
@@ -401,9 +402,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":page_size",
         ":residency",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",
     ],
@@ -513,6 +514,20 @@ cc_library(
 )
 
 cc_library(
+    name = "page_size",
+    srcs = ["page_size.cc"],
+    hdrs = ["page_size.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
     name = "parameter_accessors",
     hdrs = ["parameter_accessors.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -581,6 +596,7 @@ cc_test(
         ":affinity",
         ":config",
         ":logging",
+        ":page_size",
         ":percpu_tcmalloc",
         ":util",
         "//tcmalloc:malloc_extension",
@@ -656,6 +672,7 @@ cc_test(
     deps = [
         ":environment",
         ":fake_profile",
+        ":page_size",
         ":profile_builder",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",

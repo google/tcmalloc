@@ -25,6 +25,7 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "tcmalloc/internal/page_size.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -40,7 +41,7 @@ class MInCoreMock : public MInCoreInterface {
 
   // Implementation of minCore that reports presence based on provided array.
   int mincore(void* addr, size_t length, unsigned char* result) override {
-    const size_t kPageSize = getpagesize();
+    const size_t kPageSize = GetPageSize();
     uintptr_t uAddress = reinterpret_cast<uintptr_t>(addr);
     // Check that we only pass page aligned addresses into mincore().
     EXPECT_THAT(uAddress & (kPageSize - 1), Eq(0));
@@ -88,7 +89,7 @@ using ::testing::Eq;
 
 TEST(MInCoreTest, TestResidence) {
   MInCoreTest mct;
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
 
   // Set up a pattern with a few resident pages.
   // page 0 not mapped
@@ -143,7 +144,7 @@ TEST(MInCoreTest, TestResidence) {
 TEST(MInCoreTest, TestLargeResidence) {
   MInCoreTest mct;
   uintptr_t uAddress = 0;
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
   // Set up a pattern covering 6 * page size *  MInCore::kArrayLength to
   // allow us to test for situations where the region we're checking
   // requires multiple calls to mincore().
@@ -164,7 +165,7 @@ TEST(MInCoreTest, TestLargeResidence) {
 }
 
 TEST(MInCoreTest, UnmappedMemory) {
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
   const int kNumPages = 16;
 
   // Overallocate kNumPages of memory, so we can munmap the page before and

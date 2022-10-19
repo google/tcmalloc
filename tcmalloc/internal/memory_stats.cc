@@ -22,6 +22,7 @@
 #include "absl/strings/numbers.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -63,7 +64,7 @@ bool GetMemoryStats(MemoryStats* stats) {
   }
   buf[rc] = '\0';
 
-  const size_t pagesize = getpagesize();
+  const size_t pagesize = GetPageSize();
   absl::string_view contents(buf, rc);
   absl::string_view::size_type start = 0;
   int index = 0;

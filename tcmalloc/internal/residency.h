@@ -23,6 +23,7 @@
 
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/page_size.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -76,7 +77,7 @@ class Residency {
   static constexpr int kPagemapEntrySize = 8;
   static constexpr int kEntriesInBuf = kBufferLength / kPagemapEntrySize;
 
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
   uint64_t buf_[kEntriesInBuf];
   const int fd_;
 };

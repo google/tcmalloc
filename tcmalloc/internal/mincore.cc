@@ -21,6 +21,7 @@
 #include <cstdint>
 
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/page_size.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -44,7 +45,7 @@ size_t MInCore::residence_impl(void* addr, size_t size,
     return 0;
   }
   unsigned char res[kArrayLength];
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = GetPageSize();
 
   uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
   // Round address down to get the start of the page containing the data.

@@ -20,6 +20,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -31,7 +32,7 @@ static constexpr size_t kMaxGpaPages = GuardedPageAllocator::kGpaMaxPages;
 // Size of pages used by GuardedPageAllocator.
 static size_t PageSize() {
   static const size_t page_size =
-      std::max(kPageSize, static_cast<size_t>(getpagesize()));
+      std::max(kPageSize, static_cast<size_t>(GetPageSize()));
   return page_size;
 }
 

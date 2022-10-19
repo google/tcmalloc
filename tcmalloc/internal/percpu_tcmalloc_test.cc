@@ -55,6 +55,7 @@
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
@@ -135,7 +136,7 @@ class TcmallocSlabTest : public testing::Test {
     void* ptr = ::operator new(size, alignment);
     // Emulate obtaining memory as if we got it from mmap (zero'd).
     memset(ptr, 0, size);
-    if (static_cast<size_t>(alignment) >= getpagesize()) {
+    if (static_cast<size_t>(alignment) >= GetPageSize()) {
       madvise(ptr, size, MADV_DONTNEED);
     }
     metadata_bytes_ += size;

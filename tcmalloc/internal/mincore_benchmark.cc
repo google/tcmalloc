@@ -24,6 +24,7 @@
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
+#include "tcmalloc/internal/page_size.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -41,7 +42,7 @@ void BM_mincore(benchmark::State& state) {
   CHECK_CONDITION(size <= kMaxArraySize);
   auto resident = std::make_unique<unsigned char[]>(kMaxArraySize);
 
-  const size_t kPageSize = getpagesize();
+  const size_t kPageSize = tcmalloc_internal::GetPageSize();
   // We want to scan the same amount of memory in all cases
   const size_t regionSize = 1 * 1024 * 1024 * 1024;
   for (auto s : state) {

@@ -171,6 +171,7 @@ cc_test(
         "nosan",
     ],
     deps = [
+        "//tcmalloc/internal:page_size",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
@@ -694,6 +695,7 @@ cc_test(
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:numa",
+        "//tcmalloc/internal:page_size",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],

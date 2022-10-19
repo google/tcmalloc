@@ -106,6 +106,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -129,6 +130,7 @@ cc_library(
     ],
     deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -304,7 +306,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -315,7 +317,7 @@ cc_library(
     copts = ["-DTCMALLOC_DEPRECATED_PERTHREAD"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -409,6 +411,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_large_pages",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -420,7 +423,7 @@ cc_library(
     copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -441,6 +444,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_256k_pages",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -452,7 +456,7 @@ cc_library(
     copts = ["-DTCMALLOC_256K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -474,6 +478,7 @@ cc_library(
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
         ":common_256k_pages_and_numa",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -488,7 +493,7 @@ cc_library(
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -513,6 +518,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_small_but_slow",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -524,7 +530,7 @@ cc_library(
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -547,6 +553,7 @@ cc_library(
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
         ":common_numa_aware",
+        "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
 )
@@ -558,7 +565,7 @@ cc_library(
     copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
-    deps = common_deps,
+    deps = common_deps + ["//tcmalloc/internal:page_size"],
     alwayslink = 1,
 )
 
@@ -797,6 +804,7 @@ cc_test(
         ":malloc_extension",
         ":page_allocator_test_util",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:page_size",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
@@ -833,6 +841,7 @@ create_tcmalloc_benchmark(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:page_size",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
     ],
@@ -846,6 +855,7 @@ cc_test(
     deps = [
         ":common",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:page_size",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/memory",
@@ -1303,6 +1313,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":new_extension",
+        "//tcmalloc/internal:page_size",
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/numeric:bits",
