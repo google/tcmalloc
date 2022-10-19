@@ -254,7 +254,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
     return -1;
   }
 
-  rand_ = NextRandom(rand_);
+  rand_ = Sampler::NextRandom(rand_);
   size_t num_free_pages = total_pages_ - num_alloced_pages_;
   size_t slot = GetIthFreeSlot(rand_ % num_free_pages);
   ASSERT(free_pages_[slot]);

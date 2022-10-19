@@ -371,18 +371,6 @@ inline double safe_div(double a, double b) {
   }
 }
 
-// Returns the next prng value.
-// pRNG is: aX+b mod c with a = 0x5DEECE66D, b =  0xB, c = 1<<48
-// This is the lrand64 generator.
-inline uint64_t NextRandom(uint64_t rnd) {
-  const uint64_t prng_mult = UINT64_C(0x5DEECE66D);
-  const uint64_t prng_add = 0xB;
-  const uint64_t prng_mod_power = 48;
-  const uint64_t prng_mod_mask =
-      ~((~static_cast<uint64_t>(0)) << prng_mod_power);
-  return (prng_mult * rnd + prng_add) & prng_mod_mask;
-}
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

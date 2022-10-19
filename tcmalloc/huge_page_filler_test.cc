@@ -1733,9 +1733,9 @@ TEST_P(FillerTest, Print) {
     buffer.erase(printer.SpaceRequired());
   }
 
-  EXPECT_THAT(buffer,
-              testing::StartsWith(
-                  R"(HugePageFiller: densely pack small requests into hugepages
+  EXPECT_THAT(
+      buffer,
+      StrEq(R"(HugePageFiller: densely pack small requests into hugepages
 HugePageFiller: 8 total, 3 full, 3 partial, 2 released (0 partially), 0 quarantined
 HugePageFiller: 261 pages free in 8 hugepages, 0.1274 free
 HugePageFiller: among non-fulls, 0.3398 free
@@ -1819,15 +1819,6 @@ HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were s
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
 )"));
-
-  EXPECT_THAT(buffer,
-              testing::HasSubstr("HugePageFiller: sample released hugepages\n"
-                                 "HugePageFiller: page 1: start address: "
-                                 "c00000 end address: e00000 bytes"));
-  EXPECT_THAT(buffer,
-              testing::HasSubstr("HugePageFiller: page 2: start address: "
-                                 "e00000 end address: 1000000"));
-
   for (const auto& alloc : allocs) {
     Delete(alloc);
   }
@@ -1909,7 +1900,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
           "HugePageFiller: Since startup, 40 pages subreleased, 5 hugepages "
           "broken, (19 pages, 2 hugepages due to reaching tcmalloc "
           "limit)"));
-  ASSERT_THAT(buffer, testing::HasSubstr(
+  ASSERT_THAT(buffer, testing::EndsWith(
                           "HugePageFiller: Subrelease stats last 10 min: total "
                           "21 pages subreleased, 3 hugepages broken\n"));
 

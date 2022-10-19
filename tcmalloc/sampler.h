@@ -124,6 +124,9 @@ class Sampler {
   // Returns the current sample period
   static ssize_t GetSamplePeriod();
 
+  // The following are public for the purposes of testing
+  static uint64_t NextRandom(uint64_t rnd_);  // Returns the next prng value
+
   constexpr Sampler()
       : bytes_until_sample_(0),
         sample_period_(0),
@@ -248,6 +251,18 @@ Sampler::ShouldSampleGuardedAllocation() {
 }
 
 // Inline functions which are public for testing purposes
+
+// Returns the next prng value.
+// pRNG is: aX+b mod c with a = 0x5DEECE66D, b =  0xB, c = 1<<48
+// This is the lrand64 generator.
+inline uint64_t Sampler::NextRandom(uint64_t rnd) {
+  const uint64_t prng_mult = UINT64_C(0x5DEECE66D);
+  const uint64_t prng_add = 0xB;
+  const uint64_t prng_mod_power = 48;
+  const uint64_t prng_mod_mask =
+      ~((~static_cast<uint64_t>(0)) << prng_mod_power);
+  return (prng_mult * rnd + prng_add) & prng_mod_mask;
+}
 
 inline bool Sampler::IsOnFastPath() const { return was_on_fast_path_; }
 

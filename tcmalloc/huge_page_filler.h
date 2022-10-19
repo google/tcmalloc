@@ -20,22 +20,21 @@
 
 #include <algorithm>
 #include <limits>
-#include <optional>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
+#include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
-#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/lifetime_tracker.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
-#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -1886,44 +1885,6 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 
   out->printf("\n");
   fillerstats_tracker_.Print(out);
-  // TODO(b/238084171): stop printing information about released pages once
-  // b/238084171 has been resolved.
-  out->printf("\n");
-  out->printf("HugePageFiller: sample released hugepages\n");
-  uint64_t rand = reinterpret_cast<uint64_t>(this);
-  int pages_printed = 0;
-  Residency rquery;
-  const size_t num_released_pages = regular_alloc_released_.size().raw_num();
-  constexpr size_t kPagesToPrint = 128;
-  regular_alloc_released_.Iter(
-      [&](const TrackerType* pt) {
-        if (pages_printed >= kPagesToPrint) {
-          return;
-        }
-        // Print a random subset of size upto kPagesToPrint pages.
-        rand = NextRandom(rand);
-        const size_t lsbrand = rand & (kPagesToPrint - 1);
-        // lsbrand lies in the range [0, kPagesToPrint-1].  We print the page if
-        // lsbrand / kPagesToPrint < kPagesToPrint / num_released_pages.  We
-        // therefore expect about kPagesToPrint pages to be printed.
-        if (lsbrand * num_released_pages >= kPagesToPrint * kPagesToPrint) {
-          return;
-        }
-        pages_printed += 1;
-        HugePage hp = pt->location();
-        uintptr_t start_addr = reinterpret_cast<uintptr_t>(hp.start_addr());
-        uintptr_t end_addr = start_addr + kHugePageSize;
-        std::optional<Residency::Info> info = rquery.Get(
-            reinterpret_cast<const void*>(start_addr), kHugePageSize);
-        out->printf(
-            "HugePageFiller: page %d: start address: %x end address: %x",
-            pages_printed, start_addr, end_addr);
-        if (info.has_value()) {
-          out->printf(" bytes resident: %d bytes swapped: %d\n",
-                      info.value().bytes_resident, info.value().bytes_swapped);
-        }
-      },
-      0);
 }
 
 template <class TrackerType>
