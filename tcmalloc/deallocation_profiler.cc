@@ -37,6 +37,8 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -378,6 +380,13 @@ void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
   SpinLockHolder h(&profilers_lock_);
   profiler->next_ = first_;
   first_ = profiler;
+
+  // Whenever a new profiler is created, we seed it with live allocations.
+  tcmalloc_internal::tc_globals.sampled_allocation_recorder().Iterate(
+      [profiler](
+          const tcmalloc_internal::SampledAllocation& sampled_allocation) {
+        profiler->ReportMalloc(sampled_allocation.sampled_stack);
+      });
 }
 
 // This list is very short and we're nowhere near a hot path, just walk

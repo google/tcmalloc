@@ -178,6 +178,63 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   }
 }
 
+TEST(LifetimeProfiler, RecordLiveAllocations) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  // Avoid unsample-related behavior
+  tcmalloc::ScopedProfileSamplingRate test_sample_rate(1);
+  constexpr int64_t kMallocSize = 4 * 1024 * 1024;
+  constexpr int kAllocFrames = 2, kDeallocFrames = 3;
+  constexpr absl::Duration kDuration = absl::Milliseconds(100);
+
+  void *ptr = SingleAlloc(kAllocFrames, kMallocSize);
+  absl::SleepFor(kDuration);
+
+  auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
+  SingleDealloc(kDeallocFrames, ptr);
+  const tcmalloc::Profile profile = std::move(token).Stop();
+
+  int sample_count = 0;
+  int alloc_frames = 0;
+  int dealloc_frames = 0;
+  absl::Duration sample_lifetime;
+  profile.Iterate([&](const tcmalloc::Profile::Sample &sample) {
+    bool found_test_alloc = false;
+    for (int i = 0; i < sample.depth; i++) {
+      const int kMaxFunctionNameLength = 1024;
+      char str[kMaxFunctionNameLength];
+      absl::Symbolize(sample.stack[i], str, kMaxFunctionNameLength);
+      if (absl::StrContains(str, "SingleAlloc")) {
+        ++alloc_frames;
+        found_test_alloc = true;
+      }
+      if (absl::StrContains(str, "SingleDealloc")) {
+        ++dealloc_frames;
+        found_test_alloc = true;
+      }
+    }
+
+    // Skip samples which are unrelated to the test.
+    if (!found_test_alloc) {
+      return;
+    }
+
+    ++sample_count;
+    // Both the alloc and dealloc sample have the same stats.
+    sample_lifetime = sample.max_lifetime;
+  });
+
+  // Expect one sample each for allocation, deallocation.
+  ASSERT_EQ(sample_count, 2);
+  // Expect the same depth specified during alloc, dealloc. Add 1 to account for
+  // the call from the test.
+  EXPECT_EQ(alloc_frames, kAllocFrames + 1);
+  EXPECT_EQ(dealloc_frames, kDeallocFrames + 1);
+  EXPECT_GE(sample_lifetime, kDuration);
+}
+
 TEST(LifetimeProfiler, LifetimeBucketing) {
   using deallocationz::internal::LifetimeNsToBucketedDuration;
 
