@@ -1446,8 +1446,7 @@ extern "C" void* TCMallocInternalNewArray(size_t size)
     TCMALLOC_ALIAS(TCMallocInternalNew);
 #else
 {
-  void* p = fast_alloc(CppPolicy().WithoutHooks(), size);
-  return p;
+  return TCMallocInternalNew(size);
 }
 #endif  // TCMALLOC_ALIAS
 
