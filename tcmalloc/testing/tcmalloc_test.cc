@@ -873,7 +873,6 @@ TEST(TCMallocTest, GetStatsReportsLowLevel) {
   EXPECT_GE(*low_level_bytes, heap_size);
 }
 
-#if defined(__GLIBC__) && defined(__GNUC__) && !defined(__MACH__)
 namespace {
 template <typename T1, typename T2>
 void ExpectSameAddresses(T1 v1, T2 v2) {
@@ -912,8 +911,6 @@ TEST(TCMallocTest, TestAliasedFunctions) {
   ExpectSameAddresses(&::free, operator_delete_array);
   ExpectSameAddresses(&::free, operator_delete_array_nothrow);
 }
-
-#endif
 
 enum class ThrowException { kNo, kYes };
 

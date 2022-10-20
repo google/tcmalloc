@@ -95,9 +95,6 @@ cc_library(
     name = "tcmalloc",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -116,9 +113,6 @@ cc_library(
     name = "tcmalloc_deprecated_perthread",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -400,9 +394,6 @@ cc_library(
     name = "tcmalloc_large_pages",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -433,9 +424,6 @@ cc_library(
     name = "tcmalloc_256k_pages",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -464,9 +452,6 @@ cc_library(
     name = "tcmalloc_256k_pages_and_numa",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -507,9 +492,6 @@ cc_library(
     name = "tcmalloc_small_but_slow",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -542,9 +524,6 @@ cc_library(
     name = "tcmalloc_numa_aware",
     srcs = [
         "libc_override.h",
-        "libc_override_gcc_and_weak.h",
-        "libc_override_glibc.h",
-        "libc_override_redefine.h",
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
@@ -1273,7 +1252,6 @@ cc_library(
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",

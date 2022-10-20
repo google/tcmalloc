@@ -19,7 +19,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/config.h"
-#include "absl/base/policy_checks.h"
 
 // TCMALLOC_HAVE_SCHED_GETCPU is defined when the system implements
 // sched_getcpu(3) as by glibc and it's imitators.
@@ -32,15 +31,13 @@
 // TCMALLOC_HAVE_STRUCT_MALLINFO is defined when we know that the system has
 // `struct mallinfo` available.
 //
-// The FreeBSD libc, and subsequently macOS, does not provide the `mallopt`
-// interfaces. We know that bionic, glibc (and variants), newlib, and uclibc do
+// We know that bionic, glibc (and variants), newlib, and uclibc do
 // provide the `mallopt` interface.  The musl libc is known to not provide the
 // interface, nor does it provide a macro for checking.  As a result, we
 // conservatively state that `struct mallinfo` is only available on these
 // environments.
-#if !defined(OS_FREEBSD) && !defined(OS_MACOSX) &&                       \
-    (defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__) || \
-     defined(__UCLIBC__))
+#if defined(__BIONIC__) || defined(__GLIBC__) || defined(__NEWLIB__) || \
+    defined(__UCLIBC__)
 #define TCMALLOC_HAVE_STRUCT_MALLINFO 1
 #else
 #undef TCMALLOC_HAVE_STRUCT_MALLINFO

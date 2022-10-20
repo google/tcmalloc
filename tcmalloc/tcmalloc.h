@@ -28,12 +28,10 @@
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/declarations.h"
-
-#ifdef __cplusplus
+#include "tcmalloc/internal/declarations.h"  // IWYU pragma: keep
 
 extern "C" {
-#endif
+
 void* TCMallocInternalMalloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalFree(void* ptr) noexcept
@@ -52,16 +50,16 @@ void* TCMallocInternalCalloc(size_t n, size_t size) noexcept
 void TCMallocInternalCfree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
-void* TCMallocInternalAlignedAlloc(size_t align, size_t __size) noexcept
+void* TCMallocInternalAlignedAlloc(size_t align, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalMemalign(size_t align, size_t __size) noexcept
+void* TCMallocInternalMemalign(size_t align, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 int TCMallocInternalPosixMemalign(void** ptr, size_t align,
                                   size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalValloc(size_t __size) noexcept
+void* TCMallocInternalValloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalPvalloc(size_t __size) noexcept
+void* TCMallocInternalPvalloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 void TCMallocInternalMallocStats(void) noexcept
@@ -76,7 +74,8 @@ int TCMallocInternalMallOpt(int cmd, int value) noexcept
 struct mallinfo TCMallocInternalMallInfo(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
-int TCMallocInternalMallocInfo(int opts, FILE* fp) noexcept;
+int TCMallocInternalMallocInfo(int opts, FILE* fp) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
 
 // This is an alias for MallocExtension::GetAllocatedSize().
 // It is equivalent to
@@ -122,7 +121,8 @@ void TCMallocInternalDeleteArraySizedAligned(
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteArrayNothrow(void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-}
 #endif
+
+}  // extern "C"
 
 #endif  // TCMALLOC_TCMALLOC_H_
