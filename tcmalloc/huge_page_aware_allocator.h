@@ -137,7 +137,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   };
 
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
-  static void UnbackWithoutLock(void* start, size_t length)
+  //
+  // TODO(b/122551676):  Add ABSL_MUST_USE_RESULT.
+  static bool UnbackWithoutLock(void* start, size_t length)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeRegionSet<HugeRegion> regions_ ABSL_GUARDED_BY(pageheap_lock);

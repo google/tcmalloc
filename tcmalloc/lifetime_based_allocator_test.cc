@@ -106,7 +106,10 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
     BackingMemory region_metadata_;
   };
 
-  static void NopUnbackFn(void* p, size_t len) {}
+  static bool NopUnbackFn(void* p, size_t len) {
+    // TODO(b/122551676): Return non-trivial success results.
+    return true;
+  }
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL void Allocate(
       Allocation* out) {

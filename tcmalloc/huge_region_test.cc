@@ -36,6 +36,7 @@ namespace tcmalloc_internal {
 namespace {
 
 using testing::NiceMock;
+using testing::Return;
 using testing::StrictMock;
 
 class HugeRegionTest : public ::testing::Test {
@@ -54,25 +55,26 @@ class HugeRegionTest : public ::testing::Test {
   // This is wordy, but necessary for mocking:
   class BackingInterface {
    public:
-    virtual void Unback(void* p, size_t len) = 0;
+    virtual bool Unback(void* p, size_t len) = 0;
     virtual ~BackingInterface() {}
   };
 
   class MockBackingInterface : public BackingInterface {
    public:
-    MOCK_METHOD2(Unback, void(void* p, size_t len));
+    MOCK_METHOD2(Unback, bool(void* p, size_t len));
   };
 
   static std::unique_ptr<MockBackingInterface> mock_;
 
-  static void MockUnback(void* p, size_t len) { mock_->Unback(p, len); }
+  static bool MockUnback(void* p, size_t len) { return mock_->Unback(p, len); }
 
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
   void ExpectUnback(HugeRange r) {
     void* ptr = r.start_addr();
     size_t bytes = r.byte_len();
-    EXPECT_CALL(*mock_, Unback(ptr, bytes)).Times(1);
+    // TODO(b/122551676): Return non-trivial success results.
+    EXPECT_CALL(*mock_, Unback(ptr, bytes)).WillOnce(Return(true));
   }
 
   struct Alloc {
@@ -450,7 +452,10 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Delete(d);
 }
 
-static void NilUnback(void* p, size_t bytes) {}
+static bool NilUnback(void* p, size_t bytes) {
+  // TODO(b/122551676): Return non-trivial success results.
+  return true;
+}
 
 class HugeRegionSetTest : public testing::Test {
  protected:

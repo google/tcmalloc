@@ -766,10 +766,11 @@ Length HugePageAwareAllocator::ReleaseAtLeastNPagesBreakingHugepages(Length n) {
   return filler_.ReleasePages(n, absl::ZeroDuration(), /*hit_limit*/ true);
 }
 
-void HugePageAwareAllocator::UnbackWithoutLock(void* start, size_t length) {
+bool HugePageAwareAllocator::UnbackWithoutLock(void* start, size_t length) {
   pageheap_lock.Unlock();
-  SystemRelease(start, length);
+  const bool ret = SystemRelease(start, length);
   pageheap_lock.Lock();
+  return ret;
 }
 
 }  // namespace tcmalloc_internal

@@ -422,7 +422,7 @@ int SystemReleaseErrors() {
   return system_release_errors.load(std::memory_order_relaxed);
 }
 
-void SystemRelease(void* start, size_t length) {
+bool SystemRelease(void* start, size_t length) {
   int saved_errno = errno;
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
   const size_t pagemask = GetPageSize() - 1;
@@ -441,6 +441,7 @@ void SystemRelease(void* start, size_t length) {
   ASSERT(new_start >= reinterpret_cast<size_t>(start));
   ASSERT(new_end <= end);
 
+  bool result = false;
   if (new_end > new_start) {
     void* new_ptr = reinterpret_cast<void*>(new_start);
     size_t new_length = new_end - new_start;
@@ -456,11 +457,16 @@ void SystemRelease(void* start, size_t length) {
         // If we fail to munlock *or* fail our second attempt at madvise,
         // increment our failure count.
         system_release_errors.fetch_add(1, std::memory_order_relaxed);
+      } else {
+        result = true;
       }
+    } else {
+      result = true;
     }
   }
 #endif
   errno = saved_errno;
+  return result;
 }
 
 void SystemBack(void* start, size_t length) {

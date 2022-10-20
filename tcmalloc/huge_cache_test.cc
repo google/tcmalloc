@@ -90,16 +90,16 @@ class HugeCacheTest : public testing::Test {
   // This is wordy, but necessary for mocking:
   class BackingInterface {
    public:
-    virtual void Unback(void* p, size_t len) = 0;
+    virtual bool Unback(void* p, size_t len) = 0;
     virtual ~BackingInterface() {}
   };
 
   class MockBackingInterface : public BackingInterface {
    public:
-    MOCK_METHOD2(Unback, void(void* p, size_t len));
+    MOCK_METHOD2(Unback, bool(void* p, size_t len));
   };
 
-  static void MockUnback(void* p, size_t len) { mock_->Unback(p, len); }
+  static bool MockUnback(void* p, size_t len) { return mock_->Unback(p, len); }
 
  protected:
   static std::unique_ptr<testing::NiceMock<MockBackingInterface>> mock_;

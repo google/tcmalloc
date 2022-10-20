@@ -187,10 +187,12 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface {
    public:
-    void Unback(void* p, size_t len) {
+    bool Unback(void* p, size_t len) {
       CHECK_CONDITION(actual_index_ < kMaxCalls);
       actual_[actual_index_] = {p, len};
       ++actual_index_;
+      // TODO(b/122551676):  Return non-trivial success values.
+      return true;
     }
 
     void Expect(void* p, size_t len) {
@@ -223,7 +225,7 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  static void MockUnback(void* p, size_t len);
+  static bool MockUnback(void* p, size_t len);
 
   typedef PageTracker<MockUnback> TestPageTracker;
 
@@ -271,7 +273,9 @@ class PageTrackerTest : public testing::Test {
   }
 };
 
-void PageTrackerTest::MockUnback(void* p, size_t len) { mock_.Unback(p, len); }
+bool PageTrackerTest::MockUnback(void* p, size_t len) {
+  return mock_.Unback(p, len);
+}
 
 PageTrackerTest::MockUnbackInterface PageTrackerTest::mock_;
 
@@ -619,9 +623,9 @@ TEST_F(PageTrackerTest, b151915873) {
 
 class BlockingUnback {
  public:
-  static void Unback(void* p, size_t len) {
+  static bool Unback(void* p, size_t len) {
     if (!mu_) {
-      return;
+      return true;
     }
 
     if (counter_) {
@@ -630,6 +634,8 @@ class BlockingUnback {
 
     mu_->Lock();
     mu_->Unlock();
+    // TODO(b/122551676): Return non-trivial success results.
+    return true;
   }
 
   static void set_lock(absl::Mutex* mu) { mu_ = mu; }
