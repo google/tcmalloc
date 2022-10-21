@@ -74,6 +74,10 @@ int TCMallocInternalMallOpt(int cmd, int value) noexcept
 struct mallinfo TCMallocInternalMallInfo(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
+#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO2)
+struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+#endif
 int TCMallocInternalMallocInfo(int opts, FILE* fp) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 

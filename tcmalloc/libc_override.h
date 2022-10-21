@@ -197,6 +197,10 @@ int mallopt(int cmd, int value) TCMALLOC_NOTHROW
 struct mallinfo mallinfo(void) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallInfo);
 #endif
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
+struct mallinfo2 mallinfo2(void) TCMALLOC_NOTHROW
+    TCMALLOC_ALIAS(TCMallocInternalMallInfo2);
+#endif
 int malloc_info(int opts, FILE* fp) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallocInfo);
 size_t malloc_size(void* p) TCMALLOC_NOTHROW

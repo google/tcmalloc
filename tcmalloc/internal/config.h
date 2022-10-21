@@ -28,6 +28,13 @@
 #undef TCMALLOC_HAVE_SCHED_GETCPU
 #endif
 
+#if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
+#define TCMALLOC_GLIBC_PREREQ(major, minor) \
+  ((__GLIBC__ * 100 + __GLIBC_MINOR__) >= ((major)*100 + (minor)))
+#else
+#define TCMALLOC_GLIBC_PREREQ(major, minor) 0
+#endif
+
 // TCMALLOC_HAVE_STRUCT_MALLINFO is defined when we know that the system has
 // `struct mallinfo` available.
 //
@@ -41,6 +48,12 @@
 #define TCMALLOC_HAVE_STRUCT_MALLINFO 1
 #else
 #undef TCMALLOC_HAVE_STRUCT_MALLINFO
+#endif
+
+#if TCMALLOC_GLIBC_PREREQ(2, 33)
+#define TCMALLOC_HAVE_STRUCT_MALLINFO2 1
+#else
+#undef TCMALLOC_HAVE_STRUCT_MALLINFO2
 #endif
 
 // TCMALLOC_HAVE_MALLOC_TRIM is defined when we know that the system has

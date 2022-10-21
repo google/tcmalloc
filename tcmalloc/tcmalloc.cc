@@ -123,7 +123,8 @@
 #include "tcmalloc/transfer_cache.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
-#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)
+#if defined(TCMALLOC_HAVE_STRUCT_MALLINFO) || \
+    defined(TCMALLOC_HAVE_STRUCT_MALLINFO2)
 #include <malloc.h>
 #endif
 
@@ -949,6 +950,26 @@ inline struct mallinfo do_mallinfo() {
 }
 #endif  // TCMALLOC_HAVE_STRUCT_MALLINFO
 
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
+inline struct mallinfo2 do_mallinfo2() {
+  TCMallocStats stats;
+  ExtractTCMallocStats(&stats, false);
+
+  // Just some of the fields are filled in.
+  struct mallinfo2 info;
+  memset(&info, 0, sizeof(info));
+
+  info.arena = static_cast<size_t>(stats.pageheap.system_bytes);
+  info.fsmblks = static_cast<size_t>(stats.thread_bytes + stats.central_bytes +
+                                     stats.transfer_bytes);
+  info.fordblks = static_cast<size_t>(stats.pageheap.free_bytes +
+                                      stats.pageheap.unmapped_bytes);
+  info.uordblks = static_cast<size_t>(InUseByApp(stats));
+
+  return info;
+}
+#endif
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
@@ -959,6 +980,9 @@ using tcmalloc::tcmalloc_internal::CppPolicy;
 using tcmalloc::tcmalloc_internal::do_free_no_hooks;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 using tcmalloc::tcmalloc_internal::do_mallinfo;
+#endif
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
+using tcmalloc::tcmalloc_internal::do_mallinfo2;
 #endif
 using tcmalloc::tcmalloc_internal::do_malloc_pages;
 using tcmalloc::tcmalloc_internal::do_malloc_stats;
@@ -1608,6 +1632,12 @@ extern "C" int TCMallocInternalMallOpt(int cmd, int value) noexcept {
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 extern "C" struct mallinfo TCMallocInternalMallInfo(void) noexcept {
   return do_mallinfo();
+}
+#endif
+
+#ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
+extern "C" struct mallinfo2 TCMallocInternalMallInfo2(void) noexcept {
+  return do_mallinfo2();
 }
 #endif
 
