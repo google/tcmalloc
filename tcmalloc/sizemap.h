@@ -103,8 +103,8 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  static inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
-  ClassIndexMaybe(size_t s, uint32_t* idx) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(
+      size_t s, uint32_t* idx) {
     if (ABSL_PREDICT_TRUE(s <= kMaxSmallSize)) {
       *idx = (static_cast<uint32_t>(s) + 7) >> 3;
       return true;
@@ -115,7 +115,7 @@ class SizeMap {
     return false;
   }
 
-  static inline size_t ClassIndex(size_t s) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
     uint32_t ret;
     CHECK_CONDITION(ClassIndexMaybe(s, &ret));
     return ret;
@@ -162,9 +162,8 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE GetSizeClass(Policy policy,
-                                                        size_t size,
-                                                        uint32_t* size_class) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
+      Policy policy, size_t size, uint32_t* size_class) const {
     const size_t align = policy.align();
     ASSERT(align == 0 || absl::has_single_bit(align));
 
@@ -201,8 +200,8 @@ class SizeMap {
   // Returns size class for given size, or 0 if this instance has not been
   // initialized yet. REQUIRES: size <= kMaxSize.
   template <typename Policy>
-  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE SizeClass(Policy policy,
-                                                       size_t size) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
+                                                       size_t size) const {
     ASSERT(size <= kMaxSize);
     uint32_t ret = 0;
     GetSizeClass(policy, size, &ret);
@@ -211,13 +210,15 @@ class SizeMap {
 
   // Get the byte-size for a specified class. REQUIRES: size_class <=
   // kNumClasses.
-  inline size_t ABSL_ATTRIBUTE_ALWAYS_INLINE class_to_size(size_t size_class) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
+      size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return class_to_size_[size_class];
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  inline size_t class_to_pages(size_t size_class) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_pages(
+      size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return class_to_pages_[size_class];
   }
@@ -227,12 +228,14 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  inline SizeMap::BatchSize num_objects_to_move(size_t size_class) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
+      size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return num_objects_to_move_[size_class];
   }
 
-  absl::Span<const size_t> ColdSizeClasses() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::Span<const size_t> ColdSizeClasses()
+      const {
     return {cold_sizes_, cold_sizes_count_};
   }
 
