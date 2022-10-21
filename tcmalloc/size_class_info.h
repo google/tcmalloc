@@ -18,46 +18,14 @@
 
 #include <stddef.h>
 
-#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// The number of members in SizeClassInfo
-static constexpr int kSizeClassInfoMembers = 3;
-
 // Precomputed size class parameters.
 struct SizeClassInfo {
-  int Value(int index) const {
-    switch (index) {
-      case 0:
-        return size;
-      case 1:
-        return pages;
-      case 2:
-        return num_to_move;
-    }
-    CHECK_CONDITION(index < kSizeClassInfoMembers);
-    return 0;
-  }
-
-  void SetValue(int index, size_t v) {
-    switch (index) {
-      case 0:
-        size = v;
-        break;
-      case 1:
-        pages = v;
-        break;
-      case 2:
-        num_to_move = v;
-        break;
-      default:
-        CHECK_CONDITION(index < kSizeClassInfoMembers);
-    }
-  }
-
   // Max size storable in that class
   size_t size;
 

@@ -134,7 +134,7 @@ cc_library(
     hdrs = ["size_class_info.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:config",
     ],
 )
 
