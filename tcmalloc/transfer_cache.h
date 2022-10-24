@@ -388,7 +388,7 @@ class TransferCacheManager : public StaticForwarder {
   friend class FakeMultiClassTransferCacheManager;
 
  public:
-  constexpr TransferCacheManager() {}
+  constexpr TransferCacheManager() = default;
 
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
