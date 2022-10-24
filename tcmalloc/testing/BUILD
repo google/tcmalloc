@@ -96,6 +96,7 @@ create_tcmalloc_benchmark_suite(
 
 cc_test(
     name = "tcmalloc_test_no_hp_aware",
+    timeout = "long",
     srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
     linkstatic = 1,  # get the most realistic performance
