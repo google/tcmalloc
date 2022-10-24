@@ -95,6 +95,9 @@ void* TCMallocInternalNewAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewNothrow(size_t size, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
+void* TCMallocInternalNewAlignedNothrow(size_t size, std::align_val_t alignment,
+                                        const std::nothrow_t&) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDelete(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteAligned(void* p, std::align_val_t alignment) noexcept
@@ -106,12 +109,19 @@ void TCMallocInternalDeleteSizedAligned(void* p, size_t t,
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteNothrow(void* p, const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
+void TCMallocInternalDeleteAlignedNothrow(void* p, std::align_val_t alignment,
+                                          const std::nothrow_t&) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArray(size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArrayAligned(size_t size, std::align_val_t alignment)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalNewArrayNothrow(size_t size,
                                       const std::nothrow_t&) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+void* TCMallocInternalNewArrayAlignedNothrow(size_t size,
+                                             std::align_val_t alignment,
+                                             const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteArray(void* p) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
@@ -124,6 +134,10 @@ void TCMallocInternalDeleteArraySizedAligned(
     void* p, size_t t, std::align_val_t alignment) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalDeleteArrayNothrow(void* p, const std::nothrow_t&) noexcept
+    ABSL_ATTRIBUTE_SECTION(google_malloc);
+void TCMallocInternalDeleteArrayAlignedNothrow(void* p,
+                                               std::align_val_t alignment,
+                                               const std::nothrow_t&) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #endif
 
