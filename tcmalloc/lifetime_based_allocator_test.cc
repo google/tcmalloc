@@ -97,7 +97,8 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
 
       CHECK_CONDITION(region_metadata_.refcount == 0);
       ++region_metadata_.refcount;
-      new (region_metadata_.ptr) HugeRegion(*range, NopUnbackFn);
+      new (region_metadata_.ptr)
+          HugeRegion(*range, MemoryModifyFunction(NopUnbackFn));
       return static_cast<HugeRegion*>(region_metadata_.ptr);
     }
 

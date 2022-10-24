@@ -647,12 +647,9 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
 //
 // Its mutating methods are annotated as requiring the pageheap_lock, in order
 // to support unlocking the page heap lock in a dynamic annotation-friendly way.
-template <MemoryModifyFunction Unback>
-class PageTracker : public TList<PageTracker<Unback>>::Elem {
+class PageTracker : public TList<PageTracker>::Elem {
  public:
-  static void UnbackImpl(void* p, size_t size) { Unback(p, size); }
-
-  constexpr PageTracker(HugePage p, uint64_t when)
+  PageTracker(HugePage p, uint64_t when)
       : location_(p),
         released_count_(0),
         donated_(false),
@@ -673,28 +670,26 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
     // On PPC64, kHugePageSize / kPageSize is typically ~2K (16MB / 8KB),
     // requiring 512 bytes for representing free_.  While its cache line size is
     // larger, the entirety of free_ will not fit on two cache lines.
+    static_assert(offsetof(PageTracker, location_) + sizeof(location_) <=
+                      2 * ABSL_CACHELINE_SIZE,
+                  "location_ should fall within the first two cachelines of "
+                  "PageTracker.");
     static_assert(
-        offsetof(PageTracker<Unback>, location_) + sizeof(location_) <=
+        offsetof(PageTracker, when_numerator_) + sizeof(when_numerator_) <=
             2 * ABSL_CACHELINE_SIZE,
-        "location_ should fall within the first two cachelines of "
-        "PageTracker.");
-    static_assert(offsetof(PageTracker<Unback>, when_numerator_) +
-                          sizeof(when_numerator_) <=
-                      2 * ABSL_CACHELINE_SIZE,
-                  "when_numerator_ should fall within the first two cachelines "
-                  "of PageTracker.");
-    static_assert(offsetof(PageTracker<Unback>, when_denominator_) +
-                          sizeof(when_denominator_) <=
-                      2 * ABSL_CACHELINE_SIZE,
-                  "when_denominator_ should fall within the first two "
-                  "cachelines of PageTracker.");
+        "when_numerator_ should fall within the first two cachelines "
+        "of PageTracker.");
     static_assert(
-        offsetof(PageTracker<Unback>, donated_) + sizeof(donated_) <=
+        offsetof(PageTracker, when_denominator_) + sizeof(when_denominator_) <=
+            2 * ABSL_CACHELINE_SIZE,
+        "when_denominator_ should fall within the first two "
+        "cachelines of PageTracker.");
+    static_assert(
+        offsetof(PageTracker, donated_) + sizeof(donated_) <=
             2 * ABSL_CACHELINE_SIZE,
         "donated_ should fall within the first two cachelines of PageTracker.");
     static_assert(
-        offsetof(PageTracker<Unback>, free_) + sizeof(free_) <=
-            2 * ABSL_CACHELINE_SIZE,
+        offsetof(PageTracker, free_) + sizeof(free_) <= 2 * ABSL_CACHELINE_SIZE,
         "free_ should fall within the first two cachelines of PageTracker.");
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
@@ -748,7 +743,8 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
 
   // Return all unused pages to the system, mark future frees to do same.
   // Returns the count of pages unbacked.
-  Length ReleaseFree() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  Length ReleaseFree(MemoryModifyFunction unback)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Return this allocation to the system, if policy warrants it.
   //
@@ -757,7 +753,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // tracking.
   //
   // TODO(b/141550014):  Make retaining the default/sole policy.
-  void MaybeRelease(PageId p, Length n)
+  void MaybeRelease(PageId p, Length n, MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (released_count_ == 0) {
       return;
@@ -772,7 +768,7 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
            released_count_);
 
     // TODO(b/122551676):  If release fails, we should not SetRange above.
-    ReleasePagesWithoutLock(p, n);
+    ReleasePagesWithoutLock(p, n, unback);
   }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
@@ -820,20 +816,20 @@ class PageTracker : public TList<PageTracker<Unback>>::Elem {
   // Tracks the lifetime of the donated object associated with this tracker.
   LifetimeTracker::Tracker lifetime_tracker_;
 
-  void ReleasePages(PageId p, Length n) {
+  void ReleasePages(PageId p, Length n, MemoryModifyFunction unback) {
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
-    Unback(ptr, byte_len);
+    unback(ptr, byte_len);
     unbroken_ = false;
   }
 
-  void ReleasePagesWithoutLock(PageId p, Length n)
+  void ReleasePagesWithoutLock(PageId p, Length n, MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
 
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
-    Unback(ptr, byte_len);
+    unback(ptr, byte_len);
 
     pageheap_lock.Lock();
     unbroken_ = false;
@@ -861,9 +857,11 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(FillerPartialRerelease partial_rerelease,
-                          int32_t chunks_for_page_tracker_lists);
+                          int32_t chunks_for_page_tracker_lists,
+                          MemoryModifyFunction unback);
   HugePageFiller(FillerPartialRerelease partial_rerelease, Clock clock,
-                 int32_t chunks_for_page_tracker_lists);
+                 int32_t chunks_for_page_tracker_lists,
+                 MemoryModifyFunction unback);
 
   typedef TrackerType Tracker;
 
@@ -1038,10 +1036,10 @@ class HugePageFiller {
   void UpdateFillerStatsTracker();
   using StatsTrackerType = FillerStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
+  MemoryModifyFunction unback_;
 };
 
-template <MemoryModifyFunction Unback>
-inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
+inline typename PageTracker::PageAllocation PageTracker::Get(
     Length n, size_t num_objects) {
   size_t index = free_.FindAndMark(n.raw_num(), num_objects);
 
@@ -1067,8 +1065,7 @@ inline typename PageTracker<Unback>::PageAllocation PageTracker<Unback>::Get(
                         Length(unbacked)};
 }
 
-template <MemoryModifyFunction Unback>
-inline void PageTracker<Unback>::Put(PageId p, Length n, size_t num_objects) {
+inline void PageTracker::Put(PageId p, Length n, size_t num_objects) {
   Length index = p - location_.first_page();
   free_.Unmark(index.raw_num(), n.raw_num(), num_objects);
 
@@ -1076,8 +1073,7 @@ inline void PageTracker<Unback>::Put(PageId p, Length n, size_t num_objects) {
   when_denominator_ += n.raw_num();
 }
 
-template <MemoryModifyFunction Unback>
-inline Length PageTracker<Unback>::ReleaseFree() {
+inline Length PageTracker::ReleaseFree(MemoryModifyFunction unback) {
   size_t count = 0;
   size_t index = 0;
   size_t n;
@@ -1108,7 +1104,7 @@ inline Length PageTracker<Unback>::ReleaseFree() {
 
       PageId p = location_.first_page() + Length(free_index);
       // TODO(b/122551676):  If release fails, we should not SetRange above.
-      ReleasePages(p, Length(length));
+      ReleasePages(p, Length(length), unback);
 
       index = end;
       count += length;
@@ -1127,10 +1123,9 @@ inline Length PageTracker<Unback>::ReleaseFree() {
   return Length(count);
 }
 
-template <MemoryModifyFunction Unback>
-inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats* small,
-                                              LargeSpanStats* large,
-                                              PageAgeHistograms* ages) const {
+inline void PageTracker::AddSpanStats(SmallSpanStats* small,
+                                      LargeSpanStats* large,
+                                      PageAgeHistograms* ages) const {
   size_t index = 0, n;
 
   uint64_t w = when_denominator_ == 0 ? when_numerator_
@@ -1175,34 +1170,31 @@ inline void PageTracker<Unback>::AddSpanStats(SmallSpanStats* small,
   }
 }
 
-template <MemoryModifyFunction Unback>
-inline bool PageTracker<Unback>::empty() const {
-  return free_.used() == 0;
-}
+inline bool PageTracker::empty() const { return free_.used() == 0; }
 
-template <MemoryModifyFunction Unback>
-inline Length PageTracker<Unback>::free_pages() const {
+inline Length PageTracker::free_pages() const {
   return kPagesPerHugePage - used_pages();
 }
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease,
-    int32_t chunks_for_page_tracker_lists)
+    int32_t chunks_for_page_tracker_lists, MemoryModifyFunction unback)
     : HugePageFiller(partial_rerelease,
                      Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     chunks_for_page_tracker_lists) {}
+                     chunks_for_page_tracker_lists, unback) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease, Clock clock,
-    int32_t chunks_for_page_tracker_lists)
+    int32_t chunks_for_page_tracker_lists, MemoryModifyFunction unback)
     : chunks_for_page_tracker_lists_(chunks_for_page_tracker_lists),
       size_(NHugePages(0)),
       partial_rerelease_(partial_rerelease),
-      fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)) {
+      fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
+      unback_(unback) {
   ASSERT(chunks_for_page_tracker_lists_ <= kChunks);
 }
 
@@ -1349,7 +1341,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   //   while encountering pt.
   if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
                          FillerPartialRerelease::Return)) {
-    pt->MaybeRelease(p, n);
+    pt->MaybeRelease(p, n, unback_);
   }
 
   RemoveFromFillerList(pt);
@@ -1385,7 +1377,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
         // allowing us to work with hugepage-granularity, rather than needing to
         // retain pt's state indefinitely.
         pageheap_lock.Unlock();
-        TrackerType::UnbackImpl(pt->location().start_addr(), kHugePageSize);
+        unback_(pt->location().start_addr(), kHugePageSize);
         pageheap_lock.Lock();
 
         unmapping_unaccounted_ += free_pages - released_pages;
@@ -1480,7 +1472,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
       ++total_broken;
     }
     RemoveFromFillerList(best);
-    Length ret = best->ReleaseFree();
+    Length ret = best->ReleaseFree(unback_);
     unmapped_ += ret;
     ASSERT(unmapped_ >= best->released_pages());
     total_released += ret;

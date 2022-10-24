@@ -227,8 +227,6 @@ class PageTrackerTest : public testing::Test {
 
   static bool MockUnback(void* p, size_t len);
 
-  typedef PageTracker<MockUnback> TestPageTracker;
-
   // strict because release calls should only happen when we ask
   static MockUnbackInterface mock_;
 
@@ -243,7 +241,7 @@ class PageTrackerTest : public testing::Test {
   }
   size_t marks_[kPagesPerHugePage.raw_num()];
   HugePage huge_;
-  TestPageTracker tracker_;
+  PageTracker tracker_;
 
   void ExpectPages(PAlloc a) {
     void* ptr = a.p.start_addr();
@@ -264,12 +262,12 @@ class PageTrackerTest : public testing::Test {
 
   Length ReleaseFree() {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return tracker_.ReleaseFree();
+    return tracker_.ReleaseFree(MemoryModifyFunction(MockUnback));
   }
 
   void MaybeRelease(PAlloc a) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    tracker_.MaybeRelease(a.p, a.n);
+    tracker_.MaybeRelease(a.p, a.n, MemoryModifyFunction(MockUnback));
   }
 };
 
@@ -464,7 +462,7 @@ TEST_F(PageTrackerTest, Defrag) {
 
 TEST_F(PageTrackerTest, Stats) {
   struct Helper {
-    static void Stat(const TestPageTracker& tracker,
+    static void Stat(const PageTracker& tracker,
                      std::vector<Length>* small_backed,
                      std::vector<Length>* small_unbacked, LargeSpanStats* large,
                      double* avg_age_backed, double* avg_age_unbacked) {
@@ -662,12 +660,6 @@ class FillerTest : public testing::TestWithParam<
   }
   static void ResetClock() { clock_ = 1234; }
 
-  static void Unback(void* p, size_t len) {}
-
-  // Our templating approach lets us directly override certain functions
-  // and have mocks without virtualization.  It's a bit funky but works.
-  typedef PageTracker<BlockingUnback::Unback> FakeTracker;
-
   // We have backing of one word per (normal-sized) page for our "hugepages".
   std::vector<size_t> backing_;
   // This is space efficient enough that we won't bother recycling pages.
@@ -693,19 +685,20 @@ class FillerTest : public testing::TestWithParam<
     }
   }
 
-  HugePageFiller<FakeTracker> filler_;
+  HugePageFiller<PageTracker> filler_;
 
   FillerTest()
       : filler_(std::get<0>(GetParam()),
                 Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
-                std::get<1>(GetParam())) {
+                std::get<1>(GetParam()),
+                MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
   }
 
   ~FillerTest() override { EXPECT_EQ(NHugePages(0), filler_.size()); }
 
   struct PAlloc {
-    FakeTracker* pt;
+    PageTracker* pt;
     PageId p;
     Length n;
     size_t mark;
@@ -745,7 +738,7 @@ class FillerTest : public testing::TestWithParam<
     }
     if (ret.pt == nullptr) {
       ret.pt =
-          new FakeTracker(GetBacking(), absl::base_internal::CycleClock::Now());
+          new PageTracker(GetBacking(), absl::base_internal::CycleClock::Now());
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
         ret.p = ret.pt->Get(n, 1).page;
@@ -769,7 +762,7 @@ class FillerTest : public testing::TestWithParam<
 
   // Returns true iff the filler returned an empty hugepage.
   bool DeleteRaw(const PAlloc& p) {
-    FakeTracker* pt;
+    PageTracker* pt;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
       pt = filler_.Put(p.pt, p.p, p.n, 1);
@@ -2022,7 +2015,7 @@ TEST_P(FillerTest, ReleasePriority) {
   std::vector<PAlloc> dead;
   dead.reserve(kHugePages.raw_num());
 
-  absl::flat_hash_set<FakeTracker*> unique_pages;
+  absl::flat_hash_set<PageTracker*> unique_pages;
   unique_pages.reserve(kHugePages.raw_num());
 
   for (HugeLength i; i < kHugePages; ++i) {
@@ -2042,7 +2035,7 @@ TEST_P(FillerTest, ReleasePriority) {
 
   // As of 5/2020, our release priority is to subrelease huge pages with the
   // fewest used pages.  Bucket unique_pages by that used_pages().
-  std::vector<std::vector<FakeTracker*>> ordered(kPagesPerHugePage.raw_num());
+  std::vector<std::vector<PageTracker*>> ordered(kPagesPerHugePage.raw_num());
   for (auto* pt : unique_pages) {
     // None of these should be released yet.
     EXPECT_FALSE(pt->released());

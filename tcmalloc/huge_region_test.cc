@@ -44,7 +44,7 @@ class HugeRegionTest : public ::testing::Test {
   HugeRegionTest()
       :  // an unlikely magic page
         p_(HugePageContaining(reinterpret_cast<void*>(0x1faced200000))),
-        region_({p_, region_.size()}, MockUnback) {
+        region_({p_, region_.size()}, MemoryModifyFunction(MockUnback)) {
     // we usually don't care about backing calls, unless testing that
     // specifically.
     mock_ = absl::make_unique<NiceMock<MockBackingInterface>>();
@@ -465,7 +465,8 @@ class HugeRegionSetTest : public testing::Test {
 
   std::unique_ptr<Region> GetRegion() {
     // These regions are backed by "real" memory, but we don't touch it.
-    std::unique_ptr<Region> r(new Region({next_, Region::size()}, NilUnback));
+    std::unique_ptr<Region> r(
+        new Region({next_, Region::size()}, MemoryModifyFunction(NilUnback)));
     next_ += Region::size();
     return r;
   }

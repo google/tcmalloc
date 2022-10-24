@@ -128,7 +128,7 @@ class HugeCacheTest : public testing::Test {
   }
 
   HugeAllocator alloc_{AllocateFake, MallocMetadata};
-  HugeCache cache_{&alloc_, MallocMetadata, MockUnback,
+  HugeCache cache_{&alloc_, MallocMetadata, MemoryModifyFunction(MockUnback),
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
 

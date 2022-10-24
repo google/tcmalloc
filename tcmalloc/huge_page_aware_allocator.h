@@ -110,7 +110,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   }
 
  private:
-  typedef HugePageFiller<PageTracker<SystemRelease>> FillerType;
+  typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
 
   class RegionAllocImpl final : public LifetimeBasedAllocator::RegionAlloc {
@@ -128,7 +128,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       }
       if (!range->valid()) return nullptr;
       HugeRegion* region = p_->region_allocator_.New();
-      new (region) HugeRegion(*range, SystemRelease);
+      new (region) HugeRegion(*range, MemoryModifyFunction(SystemRelease));
       return region;
     }
 

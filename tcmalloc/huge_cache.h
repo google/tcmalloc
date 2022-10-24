@@ -37,8 +37,18 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// TODO(b/122551676): Plumb ABSL_MUST_USE_RESULT here.
-typedef bool (*MemoryModifyFunction)(void* start, size_t len);
+class MemoryModifyFunction {
+  using ReleaseFunction = bool (*)(void*, size_t);
+
+ public:
+  explicit MemoryModifyFunction(ReleaseFunction func) : func_(func) {}
+
+  // TODO(b/122551676): Plumb ABSL_MUST_USE_RESULT here.
+  bool operator()(void* start, size_t len) { return func_(start, len); }
+
+ private:
+  ReleaseFunction func_;
+};
 
 // Track the extreme values of a HugeLength value over the past
 // kWindow (time ranges approximate.)

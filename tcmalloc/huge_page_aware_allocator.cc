@@ -136,7 +136,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(
     MemoryTag tag, LifetimePredictionOptions lifetime_options)
     : PageAllocatorInterface("HugePageAware", tag),
       filler_(decide_partial_rerelease(),
-              Parameters::chunks_for_page_tracker_lists()),
+              Parameters::chunks_for_page_tracker_lists(),
+              MemoryModifyFunction(SystemRelease)),
       alloc_(
           [](MemoryTag tag) {
             // TODO(ckennelly): Remove the template parameter.
@@ -155,7 +156,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(
             }
           }(tag),
           MetaDataAlloc),
-      cache_(HugeCache{&alloc_, MetaDataAlloc, UnbackWithoutLock}),
+      cache_(HugeCache{&alloc_, MetaDataAlloc,
+                       MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
       lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_) {
   tracker_allocator_.Init(&tc_globals.arena());
@@ -445,7 +447,7 @@ bool HugePageAwareAllocator::AddRegion() {
   HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
   HugeRegion* region = region_allocator_.New();
-  new (region) HugeRegion(r, SystemRelease);
+  new (region) HugeRegion(r, MemoryModifyFunction(SystemRelease));
   regions_.Contribute(region);
   return true;
 }
