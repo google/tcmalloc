@@ -370,11 +370,15 @@ Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {
   pageheap_lock.Unlock();
 
   const Length n = s->num_pages();
-  SystemRelease(s->start_address(), s->bytes_in_span());
+  bool success = SystemRelease(s->start_address(), s->bytes_in_span());
 
   pageheap_lock.Lock();
-  stats_.free_bytes -= s->bytes_in_span();
-  s->set_location(Span::ON_RETURNED_FREELIST);
+  if (ABSL_PREDICT_TRUE(success)) {
+    stats_.free_bytes -= s->bytes_in_span();
+    s->set_location(Span::ON_RETURNED_FREELIST);
+  } else {
+    s->set_location(Span::ON_NORMAL_FREELIST);
+  }
   MergeIntoFreeList(s);  // Coalesces if possible.
   return n;
 }
@@ -446,7 +450,7 @@ bool PageHeap::GrowHeap(Length n) {
   // Make sure pagemap has entries for all of the new pages.
   // Plus ensure one before and one after so coalescing code
   // does not need bounds-checking.
-  if (pagemap_->Ensure(p - Length(1), n + Length(2))) {
+  if (ABSL_PREDICT_TRUE(pagemap_->Ensure(p - Length(1), n + Length(2)))) {
     // Pretend the new area is allocated and then return it to cause
     // any necessary coalescing to occur.
     Span* span = Span::New(p, n);
@@ -458,8 +462,10 @@ bool PageHeap::GrowHeap(Length n) {
   } else {
     // We could not allocate memory within the pagemap.
     // Note the following leaks virtual memory, but at least it gets rid of
-    // the underlying physical memory.
-    SystemRelease(ptr, actual_size);
+    // the underlying physical memory.  If SystemRelease fails, there's little
+    // we can do (we couldn't allocate for Ensure), but we have the consolation
+    // that the memory has not been touched (so it is likely not populated).
+    (void)SystemRelease(ptr, actual_size);
     return false;
   }
 }

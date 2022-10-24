@@ -63,9 +63,7 @@ int SystemReleaseErrors();
 // be released, partial pages will not.)
 //
 // Returns true on success.
-//
-// TODO(b/122551676):  Mark this ABSL_MUST_USE_RESULT.
-bool SystemRelease(void* start, size_t length);
+ABSL_MUST_USE_RESULT bool SystemRelease(void* start, size_t length);
 
 // This call is the inverse of SystemRelease: the pages in this range
 // are in use and should be faulted in.  (In principle this is a
