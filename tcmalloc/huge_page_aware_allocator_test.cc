@@ -376,7 +376,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
-  EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
+  EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 1")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
 
   // Make another large allocation.  The number of donated huge pages should
@@ -390,11 +390,11 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
 
-  EXPECT_THAT(Print(), HasSubstr("filler donations 2"));
+  EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 2")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 2"));
 
-  // Deallocating the small allocation does not reduce the number of donations,
-  // as we were unable to reassemble the VSS for large1.
+  // Deallocating the small allocation finally reduces the reduce the number of
+  // donations, as we were able reassemble the huge page for large1.
   Delete(small, 1);
   {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
@@ -402,10 +402,10 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
     donated_huge_pages = allocator_->DonatedHugePages();
   }
   EXPECT_EQ(slack, kSlack);
-  EXPECT_EQ(donated_huge_pages, NHugePages(2));
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
 
-  EXPECT_THAT(Print(), HasSubstr("filler donations 2"));
-  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 2"));
+  EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 1")));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
 
   // Deallocating everything should return slack to 0 and allow large2's
   // contiguous VSS to be reassembled.
@@ -416,10 +416,10 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
     donated_huge_pages = allocator_->DonatedHugePages();
   }
   EXPECT_EQ(slack, Length(0));
-  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(donated_huge_pages, NHugePages(0));
 
-  EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
-  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 0")));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 0"));
 }
 
 TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
@@ -551,6 +551,14 @@ TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
   Span* large4 = New(kMultipleHugePagesDonation, 1);
   ASSERT_NE(large4, nullptr);
 
+  HugeLength donated;
+  // Check donation count.
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    donated = allocator_->DonatedHugePages();
+  }
+  EXPECT_EQ(donated, NHugePages(4));
+
   // Clean up.
   Delete(large, 1);
   Delete(large2, 1);
@@ -560,8 +568,11 @@ TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
   Delete(small2, 1);
 
   // Check donation count.
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  CHECK_CONDITION(NHugePages(2) == allocator_->DonatedHugePages());
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    donated = allocator_->DonatedHugePages();
+  }
+  EXPECT_EQ(donated, NHugePages(0));
 }
 
 // We'd like to test OOM behavior but this, err, OOMs. :)

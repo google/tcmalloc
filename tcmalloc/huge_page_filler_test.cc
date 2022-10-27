@@ -162,7 +162,8 @@ class PageTrackerTest : public testing::Test {
   PageTrackerTest()
       :  // an unlikely magic page
         huge_(HugePageContaining(reinterpret_cast<void*>(0x1abcde200000))),
-        tracker_(huge_, absl::base_internal::CycleClock::Now()) {}
+        tracker_(huge_, absl::base_internal::CycleClock::Now(),
+                 /*was_donated=*/false) {}
 
   ~PageTrackerTest() override { mock_.VerifyAndClear(); }
 
@@ -737,8 +738,8 @@ class FillerTest : public testing::TestWithParam<
       ret.p = page;
     }
     if (ret.pt == nullptr) {
-      ret.pt =
-          new PageTracker(GetBacking(), absl::base_internal::CycleClock::Now());
+      ret.pt = new PageTracker(GetBacking(),
+                               absl::base_internal::CycleClock::Now(), donated);
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
         ret.p = ret.pt->Get(n, 1).page;

@@ -649,10 +649,11 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
 // to support unlocking the page heap lock in a dynamic annotation-friendly way.
 class PageTracker : public TList<PageTracker>::Elem {
  public:
-  PageTracker(HugePage p, uint64_t when)
+  PageTracker(HugePage p, uint64_t when, bool was_donated)
       : location_(p),
         released_count_(0),
         donated_(false),
+        was_donated_(was_donated),
         unbroken_(true),
         free_{} {
     init_when(when);
@@ -720,9 +721,15 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Only up-to-date when the tracker is on a TrackerList in the Filler;
   // otherwise the value is meaningless.
   bool donated() const { return donated_; }
+
   // Set/reset the donated flag. The donated status is lost, for instance,
   // when further allocations are made on the tracker.
   void set_donated(bool status) { donated_ = status; }
+
+  // Tracks whether the page was given to the filler in the donated state.  It
+  // is not cleared by the filler, allowing the HugePageAwareAllocator to track
+  // memory persistently donated to the filler.
+  bool was_donated() const { return was_donated_; }
 
   // These statistics help us measure the fragmentation of a hugepage and
   // the desirability of allocating from this hugepage.
@@ -793,6 +800,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
   uint16_t released_count_;
   bool donated_;
+  bool was_donated_;
   bool unbroken_;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
@@ -1400,6 +1408,7 @@ inline void HugePageFiller<TrackerType>::Contribute(TrackerType* pt,
 
   allocated_ += pt->used_pages();
   if (donated) {
+    ASSERT(pt->was_donated());
     DonateToFillerList(pt);
   } else {
     AddToFillerList(pt);

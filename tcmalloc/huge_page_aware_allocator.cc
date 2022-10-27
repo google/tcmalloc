@@ -182,7 +182,8 @@ PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
                                                   bool donated) {
   CHECK_CONDITION(p.start_addr() != nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
-  new (pt) FillerType::Tracker(p, absl::base_internal::CycleClock::Now());
+  new (pt)
+      FillerType::Tracker(p, absl::base_internal::CycleClock::Now(), donated);
   ASSERT(pt->longest_free_range() >= n);
   PageId page = pt->Get(n, num_objects).page;
   ASSERT(page == p.first_page());
@@ -436,7 +437,7 @@ void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker* pt,
                                                 PageId p, Length n,
                                                 size_t num_objects) {
   if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n, num_objects) == nullptr)) return;
-  if (pt->donated()) {
+  if (pt->was_donated()) {
     --donated_huge_pages_;
   }
   lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
@@ -507,14 +508,16 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
     } else {
       // Last page was empty - but if we sub-released it, we still
       // have to split it off and release it independently.)
+      //
+      // We were able to reclaim the donated slack.
+      --donated_huge_pages_;
+
       if (pt->released()) {
         --hl;
         ReleaseHugepage(pt);
       } else {
-        // Get rid of the tracker *object*, but not the *hugepage*
-        // (which is still part of our range.)  We were able to reclaim the
-        // contributed slack.
-        --donated_huge_pages_;
+        // Get rid of the tracker *object*, but not the *hugepage* (which is
+        // still part of our range.)
         SetTracker(pt->location(), nullptr);
         ASSERT(!pt->lifetime_tracker()->is_tracked());
         tracker_allocator_.Delete(pt);
