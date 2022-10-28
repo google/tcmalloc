@@ -45,8 +45,6 @@ void TCMallocInternalSdallocx(void* ptr, size_t size, int flags) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalRealloc(void* ptr, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-void* TCMallocInternalReallocArray(void* ptr, size_t n, size_t size) noexcept
-    ABSL_ATTRIBUTE_SECTION(google_malloc);
 void* TCMallocInternalCalloc(size_t n, size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 void TCMallocInternalCfree(void* ptr) noexcept

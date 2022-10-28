@@ -172,7 +172,7 @@ TEST(TcmallocTest, Calloc) {
     bool ok;
   };
 
-  constexpr TestCase tests[] = {
+  TestCase tests[] = {
       {0, 0, true},
       {0, 1, true},
       {1, 1, true},
@@ -191,15 +191,11 @@ TEST(TcmallocTest, Calloc) {
       {kMaxSignedSize, kMaxSignedSize, false},
   };
 
-  for (const auto& t : tests) {
+  for (auto t : tests) {
     SCOPED_TRACE(absl::StrFormat("calloc(%x, %x)", t.n, t.s));
 
     void* ptr = calloc(t.n, t.s);
     benchmark::DoNotOptimize(ptr);
-
-    if (!t.ok) {
-      EXPECT_EQ(errno, ENOMEM);
-    }
 
     EXPECT_EQ(t.ok, ptr != nullptr);
     if (ptr != nullptr) {
@@ -221,8 +217,8 @@ TEST(TcmallocTest, Realloc) {
   // to us here.
   ScopedNeverSample never_sample;
 
-  constexpr int start_sizes[] = {100, 1000, 10000, 100000};
-  constexpr int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
+  int start_sizes[] = {100, 1000, 10000, 100000};
+  int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
 
   for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
     void* p = malloc(start_sizes[s]);
@@ -257,79 +253,6 @@ TEST(TcmallocTest, Realloc) {
           << " (" << start_sizes[s] << " + " << -deltas[d] << ")";
     }
     free(p);
-  }
-}
-
-TEST(TcmallocTest, ReallocArray) {
-  // Test that realloc doesn't always reallocate and copy memory.
-
-  // When sampling, we always allocate in units of page-size, which makes
-  // reallocs of small sizes do extra work (thus, failing these checks).  Since
-  // sampling is random, we turn off sampling to make sure that doesn't happen
-  // to us here.
-  ScopedNeverSample never_sample;
-
-  constexpr int start_sizes[] = {100, 1000, 10000, 100000};
-  constexpr int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
-
-  for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
-    void* p = malloc(start_sizes[s]);
-    // We stash a copy of the pointer p so we can reference it later.  We must
-    // work with the return value of p.
-    //
-    // Even if we successfully determine that realloc's return value is
-    // equivalent to its input value, we must use the returned value under
-    // penalty of UB.
-    const intptr_t orig_ptr = absl::bit_cast<intptr_t>(p);
-    benchmark::DoNotOptimize(p);
-
-    ASSERT_NE(p, nullptr);
-    // The larger the start-size, the larger the non-reallocing delta.
-    for (int d = 0; d < (s + 1) * 2; ++d) {
-      p = reallocarray(p, start_sizes[s] + deltas[d], 1);
-      const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
-      benchmark::DoNotOptimize(p);
-
-      ASSERT_EQ(orig_ptr, new_ptr)
-          << ": reallocarray should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << deltas[d] << ")";
-    }
-    // Test again, but this time reallocing smaller first.
-    for (int d = 0; d < s * 2; ++d) {
-      p = reallocarray(p, start_sizes[s] - deltas[d], 1);
-      const intptr_t new_ptr = absl::bit_cast<intptr_t>(p);
-      benchmark::DoNotOptimize(p);
-
-      ASSERT_EQ(orig_ptr, new_ptr)
-          << ": reallocarray should not allocate new memory"
-          << " (" << start_sizes[s] << " + " << -deltas[d] << ")";
-    }
-    free(p);
-  }
-}
-
-TEST(TcmallocTest, ReallocArrayOverflow) {
-  struct TestCase {
-    size_t n;
-    size_t s;
-  };
-
-  constexpr TestCase tests[] = {
-      {kMaxTestSize, 2},
-      {2, kMaxTestSize},
-      {kMaxTestSize, kMaxTestSize},
-      {kMaxSignedSize, 3},
-      {3, kMaxSignedSize},
-      {kMaxSignedSize, kMaxSignedSize},
-  };
-
-  for (const auto& t : tests) {
-    SCOPED_TRACE(absl::StrFormat("reallocarray(nullptr, %x, %x)", t.n, t.s));
-
-    void* ptr = reallocarray(nullptr, t.n, t.s);
-    benchmark::DoNotOptimize(ptr);
-    EXPECT_EQ(errno, ENOMEM);
-    EXPECT_EQ(ptr, nullptr);
   }
 }
 

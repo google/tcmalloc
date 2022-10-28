@@ -103,7 +103,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -125,7 +124,6 @@ cc_library(
     ],
     deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -404,7 +402,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_large_pages",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -435,7 +432,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_256k_pages",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -467,7 +463,6 @@ cc_library(
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
         ":common_256k_pages_and_numa",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -505,7 +500,6 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_small_but_slow",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,
@@ -538,7 +532,6 @@ cc_library(
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
         ":common_numa_aware",
-        "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
     alwayslink = 1,

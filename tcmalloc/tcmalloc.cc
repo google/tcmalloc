@@ -99,7 +99,6 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/overflow.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
@@ -1146,7 +1145,6 @@ using tcmalloc::tcmalloc_internal::do_free;
 using tcmalloc::tcmalloc_internal::do_free_with_size;
 using tcmalloc::tcmalloc_internal::GetPageSize;
 using tcmalloc::tcmalloc_internal::MallocAlignPolicy;
-using tcmalloc::tcmalloc_internal::MultiplyOverflow;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
 #include "tcmalloc/libc_override.h"
@@ -1226,8 +1224,16 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewAlignedNothrow(
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
     size_t n, size_t elem_size) noexcept {
+  // Overflow check
   size_t size;
-  if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
+  bool overflowed;
+#if ABSL_HAVE_BUILTIN(__builtin_mul_overflow)
+  overflowed = __builtin_mul_overflow(n, elem_size, &size);
+#else
+  size = n * elem_size;
+  overflowed = elem_size != 0 && size / elem_size != n;
+#endif
+  if (ABSL_PREDICT_FALSE(overflowed)) {
     return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
   }
   void* result = fast_alloc(MallocPolicy(), size);
@@ -1286,31 +1292,15 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalRealloc(
-    void* ptr, size_t size) noexcept {
-  if (ptr == nullptr) {
-    return fast_alloc(MallocPolicy(), size);
+    void* old_ptr, size_t new_size) noexcept {
+  if (old_ptr == nullptr) {
+    return fast_alloc(MallocPolicy(), new_size);
   }
-  if (size == 0) {
-    do_free(ptr);
+  if (new_size == 0) {
+    do_free(old_ptr);
     return nullptr;
   }
-  return do_realloc(ptr, size);
-}
-
-extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
-    void* ptr, size_t n, size_t elem_size) noexcept {
-  size_t size;
-  if (ABSL_PREDICT_FALSE(MultiplyOverflow(n, elem_size, &size))) {
-    return MallocPolicy::handle_oom(std::numeric_limits<size_t>::max());
-  }
-  if (ptr == nullptr) {
-    return fast_alloc(MallocPolicy(), size);
-  }
-  if (size == 0) {
-    do_free(ptr);
-    return nullptr;
-  }
-  return do_realloc(ptr, size);
+  return do_realloc(old_ptr, new_size);
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
