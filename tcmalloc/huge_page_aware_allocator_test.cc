@@ -353,73 +353,84 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   Span* large1 = New(kLargeSize, 1);
   Length slack;
   HugeLength donated_huge_pages;
-  {
+  Length abandoned_pages;
+
+  auto RefreshStats = [&]() {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
-  }
+    abandoned_pages = allocator_->AbandonedPages();
+  };
+  RefreshStats();
+
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
 
   EXPECT_THAT(Print(), HasSubstr("filler donations 1"));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
 
   // Make a small allocation and then free the large allocation.  Slack should
   // fall, but we've kept alive our donation to the filler.
   Span* small = New(kSmallSize, 1);
   Delete(large1, 1);
-  {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    slack = allocator_->info().slack();
-    donated_huge_pages = allocator_->DonatedHugePages();
-  }
+
+  RefreshStats();
+
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, kPagesPerHugePage - kSlack);
 
   EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 1")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(),
+              HasSubstr(absl::StrCat("filler_abandoned_pages: ",
+                                     (kPagesPerHugePage - kSlack).raw_num())));
 
   // Make another large allocation.  The number of donated huge pages should
   // continue to increase.
   Span* large2 = New(kLargeSize, 1);
-  {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    slack = allocator_->info().slack();
-    donated_huge_pages = allocator_->DonatedHugePages();
-  }
+
+  RefreshStats();
+
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
+  EXPECT_EQ(abandoned_pages, kPagesPerHugePage - kSlack);
 
   EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 2")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 2"));
+  EXPECT_THAT(PrintInPbtxt(),
+              HasSubstr(absl::StrCat("filler_abandoned_pages: ",
+                                     (kPagesPerHugePage - kSlack).raw_num())));
 
   // Deallocating the small allocation finally reduces the reduce the number of
   // donations, as we were able reassemble the huge page for large1.
   Delete(small, 1);
-  {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    slack = allocator_->info().slack();
-    donated_huge_pages = allocator_->DonatedHugePages();
-  }
+
+  RefreshStats();
+
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
 
   EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 1")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 1"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
 
   // Deallocating everything should return slack to 0 and allow large2's
   // contiguous VSS to be reassembled.
   Delete(large2, 1);
-  {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    slack = allocator_->info().slack();
-    donated_huge_pages = allocator_->DonatedHugePages();
-  }
+
+  RefreshStats();
+
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  EXPECT_EQ(abandoned_pages, Length(0));
 
   EXPECT_THAT(Print(), HasSubstr(absl::StrCat("filler donations 0")));
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_donated_huge_pages: 0"));
+  EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
 }
 
 TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {

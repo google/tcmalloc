@@ -103,6 +103,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return donated_huge_pages_;
   }
 
+  // Number of pages that have been retained on huge pages by donations that did
+  // not reassemble by the time the larger allocation was deallocated.
+  Length AbandonedPages() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return abandoned_pages_;
+  }
+
   const HugeCache* cache() const { return &cache_; }
 
   LifetimeBasedAllocator& lifetime_based_allocator() {
@@ -164,6 +170,10 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // fully reassemble the address range (that is, the partial hugepage did not
   // get stuck in the filler).
   HugeLength donated_huge_pages_ ABSL_GUARDED_BY(pageheap_lock);
+  // abandoned_pages_ tracks the number of pages contributed to the filler after
+  // a donating allocation is deallocated but the entire huge page has not been
+  // reassembled.
+  Length abandoned_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Performs lifetime predictions for large objects and places short-lived
   // objects into a separate region to reduce filler contention.

@@ -652,6 +652,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   PageTracker(HugePage p, uint64_t when, bool was_donated)
       : location_(p),
         released_count_(0),
+        abandoned_count_(0),
         donated_(false),
         was_donated_(was_donated),
         unbroken_(true),
@@ -731,6 +732,16 @@ class PageTracker : public TList<PageTracker>::Elem {
   // memory persistently donated to the filler.
   bool was_donated() const { return was_donated_; }
 
+  // Tracks how many pages were provided when the originating allocation of a
+  // donated page was deallocated but other allocations were in use.
+  //
+  // Requires was_donated().
+  Length abandoned_count() const { return Length(abandoned_count_); }
+  void set_abandoned_count(Length count) {
+    ASSERT(was_donated_);
+    abandoned_count_ = count.raw_num();
+  }
+
   // These statistics help us measure the fragmentation of a hugepage and
   // the desirability of allocating from this hugepage.
   Length longest_free_range() const { return Length(free_.longest_free()); }
@@ -800,6 +811,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // TODO(b/151663108):  Logically, this is guarded by pageheap_lock.
   uint16_t released_count_;
+  uint16_t abandoned_count_;
   bool donated_;
   bool was_donated_;
   bool unbroken_;

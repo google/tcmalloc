@@ -441,6 +441,7 @@ void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker* pt,
   if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n, num_objects) == nullptr)) return;
   if (pt->was_donated()) {
     --donated_huge_pages_;
+    abandoned_pages_ -= pt->abandoned_count();
   }
   lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
   ReleaseHugepage(pt);
@@ -501,18 +502,24 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
     // onto the last hugepage.
     PageId virt = last.first_page();
     Length virt_len = kPagesPerHugePage - slack;
-    pt = filler_.Put(pt, virt, virt_len, objects_per_span);
     // We may have used the slack, which would prevent us from returning
     // the entire range now.  If filler returned a Tracker, we are fully empty.
-    if (pt == nullptr) {
+    if (filler_.Put(pt, virt, virt_len, objects_per_span) == nullptr) {
       // Last page isn't empty -- pretend the range was shorter.
       --hl;
+
+      // Note that we abandoned virt_len pages with pt.  These can be reused for
+      // other allocations, but this can contribute to excessive slack in the
+      // filler.
+      abandoned_pages_ += virt_len;
+      pt->set_abandoned_count(virt_len);
     } else {
       // Last page was empty - but if we sub-released it, we still
       // have to split it off and release it independently.)
       //
       // We were able to reclaim the donated slack.
       --donated_huge_pages_;
+      ASSERT(pt->abandoned_count() == Length(0));
 
       if (pt->released()) {
         --hl;
@@ -672,8 +679,10 @@ void HugePageAwareAllocator::Print(Printer* out, bool everything) {
   BreakdownStats(out, astats, "HugePageAware: alloc   ");
   out->printf("\n");
 
-  out->printf("HugePageAware: filler donations %zu\n",
-              donated_huge_pages_.raw_num());
+  out->printf(
+      "HugePageAware: filler donations %zu (%zu pages from abandoned "
+      "donations)\n",
+      donated_huge_pages_.raw_num(), abandoned_pages_.raw_num());
 
   // Component debug output
   // Filler is by far the most important; print (some) of it
@@ -748,6 +757,7 @@ void HugePageAwareAllocator::PrintInPbtxt(PbtxtRegion* region) {
     info_.PrintInPbtxt(&hpaa, "hpaa_stat");
 
     hpaa.PrintI64("filler_donated_huge_pages", donated_huge_pages_.raw_num());
+    hpaa.PrintI64("filler_abandoned_pages", abandoned_pages_.raw_num());
   }
 }
 
