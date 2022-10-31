@@ -684,6 +684,21 @@ cc_library(
 )
 
 cc_test(
+    name = "mprotect_test",
+    srcs = ["mprotect_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    env = {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY"},
+    malloc = "//tcmalloc",
+    deps = [
+        ":testutil",
+        "//tcmalloc:experiment",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "numa_locality_test",
     srcs = ["numa_locality_test.cc"],
     copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,

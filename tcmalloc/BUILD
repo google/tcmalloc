@@ -49,6 +49,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//assistant/assistant_server/rpcserver/internal:__pkg__",
+        "//tcmalloc/testing:__pkg__",
         "//third_party/protobuf:__pkg__",
     ],
     deps = [

@@ -422,7 +422,8 @@ int SystemReleaseErrors() {
   return system_release_errors.load(std::memory_order_relaxed);
 }
 
-bool SystemRelease(void* start, size_t length) {
+bool SystemReleaseMaybeMprotect(void* start, size_t length,
+                                bool maybe_mprotect) {
   int saved_errno = errno;
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
   const size_t pagemask = GetPageSize() - 1;
@@ -465,16 +466,35 @@ bool SystemRelease(void* start, size_t length) {
     }
   }
 #endif
+
+  // TODO(b/238084171):  Remove this feature when testing is completed.
+  if (maybe_mprotect &&
+      ABSL_PREDICT_FALSE(IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY))) {
+    int ret = mprotect(start, length, PROT_NONE);
+    if (ret != 0) {
+      Log(kLog, __FILE__, __LINE__, "Cannot mprotect PROT_NONE, errno: ", ret);
+    }
+  }
+
   errno = saved_errno;
   return result;
 }
 
 void SystemBack(void* start, size_t length) {
-  // TODO(b/134694141): use madvise when we have better support for that;
-  // taking faults is not free.
-
   // TODO(b/134694141): enable this, if we can avoid causing trouble for apps
   // that routinely make large mallocs they never touch (sigh).
+  if (ABSL_PREDICT_FALSE(IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY))) {
+    int ret = mprotect(start, length, PROT_READ | PROT_WRITE);
+    if (ret != 0) {
+      Crash(kCrash, __FILE__, __LINE__,
+            "Cannot mprotect PROT_READ|PROT_WRITE, errno: ", ret);
+    }
+  }
+
+  // TODO(b/134694141): use madvise when we have better support for that; taking
+  // faults is not free.
   return;
 
   // Strictly speaking, not everything uses 4K pages.  However, we're

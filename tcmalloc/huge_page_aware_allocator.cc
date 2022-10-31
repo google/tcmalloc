@@ -380,9 +380,11 @@ Span* HugePageAwareAllocator::New(Length n, size_t objects_per_span) {
   bool from_released;
   Span* s = LockAndAlloc(n, objects_per_span, &from_released);
   if (s) {
+    // TODO(b/256233439):  Improve accuracy of from_released value.  The filler
+    // may have subreleased pages and is returning them now.
+    BackSpan(s);
     // Prefetch for writing, as we anticipate using the memory soon.
     __builtin_prefetch(s->start_address(), 1, 3);
-    if (from_released) BackSpan(s);
   }
   ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;

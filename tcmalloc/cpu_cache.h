@@ -1590,7 +1590,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         info.old_slabs_size, std::memory_order_relaxed);
   }
-  if (!SystemRelease(info.old_slabs, info.old_slabs_size)) {
+  if (!SystemReleaseMaybeMprotect(info.old_slabs, info.old_slabs_size, false)) {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         info.old_slabs_size, std::memory_order_relaxed);
   }
