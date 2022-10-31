@@ -1326,6 +1326,12 @@ TEST(MallocExtension, SizeReturningNewAndSizedDelete) {
 #ifndef __cpp_sized_deallocation
   GTEST_SKIP() << "No sized deallocation.";
 #else
+  // Turn off guarded sampling, since it will cause us to return the exact size
+  // when we do sample and guard.
+  //
+  // This is not interesting for testing operator delete with a different size.
+  ScopedGuardedSamplingRate gs(-1);
+
   for (int i = 0; i < 100; ++i) {
     tcmalloc::sized_ptr_t sized_ptr = tcmalloc_size_returning_operator_new(i);
     ::operator delete(sized_ptr.p, sized_ptr.n);
