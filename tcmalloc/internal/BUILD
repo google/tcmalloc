@@ -514,6 +514,19 @@ cc_library(
 )
 
 cc_library(
+    name = "overflow",
+    hdrs = ["overflow.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base:config",
+    ],
+)
+
+cc_library(
     name = "page_size",
     srcs = ["page_size.cc"],
     hdrs = ["page_size.h"],

@@ -172,6 +172,8 @@ void sdallocx(void* ptr, size_t size, int flags) noexcept
     TCMALLOC_ALIAS(TCMallocInternalSdallocx);
 void* realloc(void* ptr, size_t size) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalRealloc);
+void* reallocarray(void* ptr, size_t n, size_t size) TCMALLOC_NOTHROW
+    TCMALLOC_ALIAS(TCMallocInternalReallocArray);
 void* calloc(size_t n, size_t size) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalCalloc);
 void cfree(void* ptr) TCMALLOC_NOTHROW TCMALLOC_ALIAS(TCMallocInternalCfree);
