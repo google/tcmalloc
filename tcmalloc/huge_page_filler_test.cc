@@ -188,7 +188,7 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface {
    public:
-    bool Unback(void* p, size_t len) {
+    ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
       CHECK_CONDITION(actual_index_ < kMaxCalls);
       actual_[actual_index_] = {p, len};
       ++actual_index_;
@@ -226,7 +226,7 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  static bool MockUnback(void* p, size_t len);
+  static ABSL_MUST_USE_RESULT bool MockUnback(void* p, size_t len);
 
   // strict because release calls should only happen when we ask
   static MockUnbackInterface mock_;
@@ -622,7 +622,7 @@ TEST_F(PageTrackerTest, b151915873) {
 
 class BlockingUnback {
  public:
-  static bool Unback(void* p, size_t len) {
+  static ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
     if (!mu_) {
       return true;
     }

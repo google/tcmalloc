@@ -760,6 +760,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // tracking.
   //
   // TODO(b/141550014):  Make retaining the default/sole policy.
+  // TODO(b/122551676):  Plumb ABSL_MUST_USE_RESULT here.
   void MaybeRelease(PageId p, Length n, MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     if (released_count_ == 0) {
@@ -824,13 +825,18 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Tracks the lifetime of the donated object associated with this tracker.
   LifetimeTracker::Tracker lifetime_tracker_;
 
-  void ReleasePages(PageId p, Length n, MemoryModifyFunction unback) {
+  ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
+                                         MemoryModifyFunction unback) {
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
-    unback(ptr, byte_len);
-    unbroken_ = false;
+    bool success = unback(ptr, byte_len);
+    if (ABSL_PREDICT_TRUE(success)) {
+      unbroken_ = false;
+    }
+    return success;
   }
 
+  // TODO(b/122551676): Plumb ABSL_MUST_USE_RESULT here.
   void ReleasePagesWithoutLock(PageId p, Length n, MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
@@ -1107,15 +1113,15 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction unback) {
       // In debug builds, verify [free_index, end) is backed.
       size_t length = end - free_index;
       ASSERT(released_by_page_.CountBits(free_index, length) == 0);
-      // Mark pages as released.  Amortize the update to release_count_.
-      released_by_page_.SetRange(free_index, length);
-
       PageId p = location_.first_page() + Length(free_index);
-      // TODO(b/122551676):  If release fails, we should not SetRange above.
-      ReleasePages(p, Length(length), unback);
+
+      if (ABSL_PREDICT_TRUE(ReleasePages(p, Length(length), unback))) {
+        // Mark pages as released.  Amortize the update to release_count_.
+        released_by_page_.SetRange(free_index, length);
+        count += length;
+      }
 
       index = end;
-      count += length;
     } else {
       // [index, index+n) did not have an overlapping range in free_, move to
       // the next backed range of pages.
