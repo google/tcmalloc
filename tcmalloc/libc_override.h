@@ -189,10 +189,8 @@ int posix_memalign(void** r, size_t a, size_t s) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalPosixMemalign);
 void malloc_stats(void) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallocStats);
-#ifdef TCMALLOC_HAVE_MALLOC_TRIM
 int malloc_trim(size_t pad) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallocTrim);
-#endif
 int mallopt(int cmd, int value) TCMALLOC_NOTHROW
     TCMALLOC_ALIAS(TCMallocInternalMallOpt);
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO

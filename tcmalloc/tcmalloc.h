@@ -66,10 +66,8 @@ void* TCMallocInternalPvalloc(size_t size) noexcept
 
 void TCMallocInternalMallocStats(void) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-#if defined(TCMALLOC_HAVE_MALLOC_TRIM)
 int TCMallocInternalMallocTrim(size_t pad) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-#endif
 int TCMallocInternalMallOpt(int cmd, int value) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO)

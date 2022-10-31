@@ -56,14 +56,6 @@
 #undef TCMALLOC_HAVE_STRUCT_MALLINFO2
 #endif
 
-// TCMALLOC_HAVE_MALLOC_TRIM is defined when we know that the system has
-// `malloc_trim()` available.
-#if defined(__GLIBC__) || defined(__NEWLIB__) || defined(__UCLIBC__)
-#define TCMALLOC_HAVE_MALLOC_TRIM 1
-#else
-#undef TCMALLOC_HAVE_MALLOC_TRIM
-#endif
-
 // When possible, name the text section as google_malloc.  This macro should not
 // be added to header files as that may move unrelated code to google_malloc
 // section.

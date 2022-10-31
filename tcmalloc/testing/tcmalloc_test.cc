@@ -125,6 +125,10 @@ extern "C" void free_aligned_sized(void* ptr, size_t align,
 #endif
 
 #if !defined(__GLIBC__)
+extern "C" int malloc_trim(size_t pad);
+#endif
+
+#if !defined(__GLIBC__)
 extern "C" int malloc_info(int opt, FILE* fp) noexcept;
 #endif
 
@@ -496,9 +500,7 @@ TEST(TCMallocTest, ReleaseMemoryToSystem) {
 }
 
 TEST(TCMallocTest, MallocTrim) {
-#ifdef TCMALLOC_HAVE_MALLOC_TRIM
   EXPECT_EQ(malloc_trim(0), 0);
-#endif
 }
 
 TEST(TCMallocTest, NothrowSizedDelete) {
