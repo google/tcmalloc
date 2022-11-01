@@ -266,9 +266,9 @@ class PageTrackerTest : public testing::Test {
     return tracker_.ReleaseFree(MemoryModifyFunction(MockUnback));
   }
 
-  void MaybeRelease(PAlloc a) {
+  ABSL_MUST_USE_RESULT bool MaybeRelease(PAlloc a) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    tracker_.MaybeRelease(a.p, a.n, MemoryModifyFunction(MockUnback));
+    return tracker_.MaybeRelease(a.p, a.n, MemoryModifyFunction(MockUnback));
   }
 };
 
@@ -321,10 +321,10 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
   ExpectPages(a1);
   ExpectPages(a3);
 
-  MaybeRelease(a1);
+  EXPECT_TRUE(MaybeRelease(a1));
   Put(a1);
 
-  MaybeRelease(a3);
+  EXPECT_TRUE(MaybeRelease(a3));
   Put(a3);
 }
 

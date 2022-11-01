@@ -771,23 +771,36 @@ class PageTracker : public TList<PageTracker>::Elem {
   // tracking.
   //
   // TODO(b/141550014):  Make retaining the default/sole policy.
-  // TODO(b/122551676):  Plumb ABSL_MUST_USE_RESULT here.
-  void MaybeRelease(PageId p, Length n, MemoryModifyFunction unback)
+  ABSL_MUST_USE_RESULT bool MaybeRelease(PageId p, Length n,
+                                         MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    if (released_count_ == 0) {
-      return;
-    }
+    ASSERT(released_count_ != 0);
 
     // Mark pages as released.
     Length index = p - location_.first_page();
     ASSERT(released_by_page_.CountBits(index.raw_num(), n.raw_num()) == 0);
+
+    // Speculatively assume we succeeded.  When this method is called, we have
+    // not yet marked the pages as freed, so the number of in-use pages in
+    // HugePageFiller::n_used_released_ is bounded by used_pages().
+    //
+    // ReleasePagesWithoutLock means another thread can see this state since we
+    // release the pageheap_lock.
     released_by_page_.SetRange(index.raw_num(), n.raw_num());
     released_count_ += n.raw_num();
     ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
            released_count_);
 
-    // TODO(b/122551676):  If release fails, we should not SetRange above.
-    ReleasePagesWithoutLock(p, n, unback);
+    if (ABSL_PREDICT_FALSE(!ReleasePagesWithoutLock(p, n, unback))) {
+      // If release fails, undo the change to SetRange above.
+      released_by_page_.ClearRange(index.raw_num(), n.raw_num());
+      released_count_ -= n.raw_num();
+      ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
+             released_count_);
+      return false;
+    }
+
+    return true;
   }
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
@@ -848,17 +861,20 @@ class PageTracker : public TList<PageTracker>::Elem {
     return success;
   }
 
-  // TODO(b/122551676): Plumb ABSL_MUST_USE_RESULT here.
-  void ReleasePagesWithoutLock(PageId p, Length n, MemoryModifyFunction unback)
+  ABSL_MUST_USE_RESULT bool ReleasePagesWithoutLock(PageId p, Length n,
+                                                    MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     pageheap_lock.Unlock();
 
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
-    unback(ptr, byte_len);
+    bool success = unback(ptr, byte_len);
 
     pageheap_lock.Lock();
-    unbroken_ = false;
+    if (ABSL_PREDICT_TRUE(success)) {
+      unbroken_ = false;
+    }
+    return success;
   }
 };
 
@@ -1365,9 +1381,11 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   //   encounter our post-RemoveFromFillerList() update to
   //   regular_alloc_released_.size() and regular_alloc_partial_released_.size()
   //   while encountering pt.
+  bool maybe_released = false;
   if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
-                         FillerPartialRerelease::Return)) {
-    pt->MaybeRelease(p, n, unback_);
+                         FillerPartialRerelease::Return) &&
+      pt->released()) {
+    maybe_released = pt->MaybeRelease(p, n, unback_);
   }
 
   RemoveFromFillerList(pt);
@@ -1375,9 +1393,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   pt->Put(p, n, num_objects);
 
   allocated_ -= n;
-  if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
-                         FillerPartialRerelease::Return) &&
-      pt->released()) {
+  if (ABSL_PREDICT_FALSE(maybe_released) && pt->released()) {
     unmapped_ += n;
     unmapping_unaccounted_ += n;
   }
