@@ -43,8 +43,9 @@ class MemoryModifyFunction {
  public:
   explicit MemoryModifyFunction(ReleaseFunction func) : func_(func) {}
 
-  // TODO(b/122551676): Plumb ABSL_MUST_USE_RESULT here.
-  bool operator()(void* start, size_t len) { return func_(start, len); }
+  ABSL_MUST_USE_RESULT bool operator()(void* start, size_t len) {
+    return func_(start, len);
+  }
 
  private:
   ReleaseFunction func_;
