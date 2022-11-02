@@ -636,6 +636,23 @@ cc_library(
 )
 
 cc_fuzz_test(
+    name = "huge_page_filler_fuzz",
+    testonly = 1,
+    srcs = ["huge_page_filler_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        "//tcmalloc/internal:clock",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_fuzz_test(
     name = "span_fuzz",
     testonly = 1,
     srcs = ["span_fuzz.cc"],
