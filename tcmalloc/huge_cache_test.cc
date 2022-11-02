@@ -40,6 +40,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using testing::Return;
+
 class HugeCacheTest : public testing::Test {
  private:
   // Allow tests to modify the clock used by the cache.
@@ -196,13 +198,57 @@ TEST_F(HugeCacheTest, Release) {
   cache_.Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
-  EXPECT_CALL(*mock_, Unback(r5.start_addr(), kHugePageSize * 1)).Times(1);
+  EXPECT_CALL(*mock_, Unback(r5.start_addr(), kHugePageSize * 1))
+      .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(1), cache_.ReleaseCachedPages(NHugePages(1)));
   cache_.Release(r3);
   cache_.Release(r4);
 
-  EXPECT_CALL(*mock_, Unback(r1.start_addr(), 4 * kHugePageSize)).Times(1);
+  EXPECT_CALL(*mock_, Unback(r1.start_addr(), 4 * kHugePageSize))
+      .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(4), cache_.ReleaseCachedPages(NHugePages(200)));
+}
+
+TEST_F(HugeCacheTest, ReleaseFailure) {
+  bool from;
+  const HugeLength one = NHugePages(1);
+  cache_.Release(cache_.Get(NHugePages(5), &from));
+  HugeRange r1, r2, r3, r4, r5;
+  r1 = cache_.Get(one, &from);
+  r2 = cache_.Get(one, &from);
+  r3 = cache_.Get(one, &from);
+  r4 = cache_.Get(one, &from);
+  r5 = cache_.Get(one, &from);
+  cache_.Release(r1);
+  cache_.Release(r2);
+  cache_.Release(r3);
+  cache_.Release(r4);
+  cache_.Release(r5);
+
+  r1 = cache_.Get(one, &from);
+  ASSERT_EQ(false, from);
+  r2 = cache_.Get(one, &from);
+  ASSERT_EQ(false, from);
+  r3 = cache_.Get(one, &from);
+  ASSERT_EQ(false, from);
+  r4 = cache_.Get(one, &from);
+  ASSERT_EQ(false, from);
+  r5 = cache_.Get(one, &from);
+  ASSERT_EQ(false, from);
+  cache_.Release(r1);
+  cache_.Release(r2);
+  cache_.Release(r5);
+
+  ASSERT_EQ(NHugePages(3), cache_.size());
+  EXPECT_CALL(*mock_, Unback(r5.start_addr(), 1 * kHugePageSize))
+      .WillOnce(Return(false));
+  EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(1)));
+  cache_.Release(r3);
+  cache_.Release(r4);
+
+  EXPECT_CALL(*mock_, Unback(r1.start_addr(), 5 * kHugePageSize))
+      .WillOnce(Return(false));
+  EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(200)));
 }
 
 TEST_F(HugeCacheTest, Regret) {
@@ -293,6 +339,9 @@ static double Frac(HugeLength num, HugeLength denom) {
 }
 
 TEST_F(HugeCacheTest, Growth) {
+  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+
   bool released;
   absl::BitGen rng;
   // fragmentation is a bit of a challenge
@@ -370,6 +419,9 @@ TEST_F(HugeCacheTest, Growth) {
 // If we repeatedly grow and shrink, but do so very slowly, we should *not*
 // cache the large variation.
 TEST_F(HugeCacheTest, SlowGrowthUncached) {
+  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
   for (int i = 0; i < 20; ++i) {
@@ -391,6 +443,9 @@ TEST_F(HugeCacheTest, SlowGrowthUncached) {
 
 // If very rarely we have a huge increase in usage, it shouldn't be cached.
 TEST_F(HugeCacheTest, SpikesUncached) {
+  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
   for (int i = 0; i < 20; ++i) {
