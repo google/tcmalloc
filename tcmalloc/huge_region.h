@@ -117,14 +117,14 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(PageId p, Length n, bool release);
 
-  void UnbackHugepages(bool should[kNumHugePages]);
+  void UnbackHugepages(bool should_unback[kNumHugePages]);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
   // Is this hugepage backed?
   bool backed_[kNumHugePages];
   HugeLength nbacked_;
-  int64_t whens_[kNumHugePages];
+  int64_t last_touched_[kNumHugePages];
   HugeLength total_unbacked_{NHugePages(0)};
 
   MemoryModifyFunction unback_;
@@ -222,7 +222,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction unback)
       unback_(unback) {
   int64_t now = absl::base_internal::CycleClock::Now();
   for (int i = 0; i < kNumHugePages; ++i) {
-    whens_[i] = now;
+    last_touched_[i] = now;
     // These are already 0 but for clarity...
     pages_used_[i] = Length(0);
     backed_[i] = false;
@@ -283,7 +283,7 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
     while (n > 0 && backed_[i] == backed) {
       const PageId lim = (location_.start() + NHugePages(i + 1)).first_page();
       Length here = std::min(Length(n), lim - p);
-      when = AverageWhens(truncated, when, here, whens_[i]);
+      when = AverageWhens(truncated, when, here, last_touched_[i]);
       truncated += here;
       n -= here.raw_num();
       p += here;
@@ -379,7 +379,7 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
       backed_[i] = true;
       should_back = true;
       ++nbacked_;
-      whens_[i] = now;
+      last_touched_[i] = now;
     }
     pages_used_[i] += here;
     ASSERT(pages_used_[i] <= kPagesPerHugePage);
@@ -400,8 +400,8 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
     ASSERT(here > Length(0));
     ASSERT(pages_used_[i] >= here);
     ASSERT(backed_[i]);
-    whens_[i] =
-        AverageWhens(here, now, kPagesPerHugePage - pages_used_[i], whens_[i]);
+    last_touched_[i] = AverageWhens(
+        here, now, kPagesPerHugePage - pages_used_[i], last_touched_[i]);
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
       should_unback_[i] = true;
@@ -414,26 +414,31 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
   }
 }
 
-inline void HugeRegion::UnbackHugepages(bool should[kNumHugePages]) {
+inline void HugeRegion::UnbackHugepages(bool should_unback[kNumHugePages]) {
   const int64_t now = absl::base_internal::CycleClock::Now();
   size_t i = 0;
   while (i < kNumHugePages) {
-    if (!should[i]) {
+    if (!should_unback[i]) {
       i++;
       continue;
     }
     size_t j = i;
-    while (j < kNumHugePages && should[j]) {
-      backed_[j] = false;
-      whens_[j] = now;
+    while (j < kNumHugePages && should_unback[j]) {
       j++;
     }
 
     HugeLength hl = NHugePages(j - i);
-    nbacked_ -= hl;
     HugePage p = location_.start() + NHugePages(i);
-    unback_(p.start_addr(), hl.in_bytes());
-    total_unbacked_ += hl;
+    if (ABSL_PREDICT_TRUE(unback_(p.start_addr(), hl.in_bytes()))) {
+      nbacked_ -= hl;
+      total_unbacked_ += hl;
+
+      for (size_t k = i; k < j; k++) {
+        ASSERT(should_unback[k]);
+        backed_[k] = false;
+        last_touched_[k] = now;
+      }
+    }
     i = j;
   }
 }

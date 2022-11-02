@@ -70,11 +70,10 @@ class HugeRegionTest : public ::testing::Test {
 
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
-  void ExpectUnback(HugeRange r) {
+  void ExpectUnback(HugeRange r, bool success = true) {
     void* ptr = r.start_addr();
     size_t bytes = r.byte_len();
-    // TODO(b/122551676): Return non-trivial success results.
-    EXPECT_CALL(*mock_, Unback(ptr, bytes)).WillOnce(Return(true));
+    EXPECT_CALL(*mock_, Unback(ptr, bytes)).WillOnce(Return(success));
   }
 
   struct Alloc {
@@ -431,6 +430,8 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Alloc d = Allocate(n - (n / 5) - Length(1));
   // This unbacks the middle 2 hugepages, but not the beginning or
   // trailing region
+  ExpectUnback(
+      HugeRange::Make(HugePageContaining(b.p) + NHugePages(1), NHugePages(2)));
   DeleteUnback(b);
   Delete(c);
   SmallSpanStats small;
@@ -452,8 +453,38 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Delete(d);
 }
 
+TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
+  const Length n = kPagesPerHugePage;
+  Alloc a = Allocate(n / 4);
+  Alloc b = Allocate(n * 3 + n / 3);
+  Alloc c = Allocate((n - n / 3 - n / 4) + n * 5 + n / 5);
+  Alloc d = Allocate(n - (n / 5) - Length(1));
+  // This tries to unback the middle 2 hugepages, but not the beginning or
+  // trailing region, but fails.
+  ExpectUnback(
+      HugeRange::Make(HugePageContaining(b.p) + NHugePages(1), NHugePages(2)),
+      /*success=*/false);
+  DeleteUnback(b);
+  Delete(c);
+  SmallSpanStats small;
+  LargeSpanStats large;
+  region_.AddSpanStats(&small, &large, nullptr);
+  // Backed beginning of hugepage A/B/C/D and the unbacked tail of allocation.
+  EXPECT_EQ(2, large.spans);
+  // Tail end of A's page, all of B, all of C.
+  EXPECT_EQ((n - n / 4) + n * 8 + (n / 5), large.normal_pages);
+  // The above fill up 10 total pages.
+  EXPECT_EQ((Region::size().raw_num() - 10) * n, large.returned_pages);
+  EXPECT_EQ(1, small.normal_length[1]);
+
+  EXPECT_EQ(Length(1) + large.normal_pages + large.returned_pages +
+                region_.used_pages(),
+            Region::size().in_pages());
+  Delete(a);
+  Delete(d);
+}
+
 static bool NilUnback(void* p, size_t bytes) {
-  // TODO(b/122551676): Return non-trivial success results.
   return true;
 }
 
