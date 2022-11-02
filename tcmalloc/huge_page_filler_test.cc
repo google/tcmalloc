@@ -877,6 +877,11 @@ TEST_P(FillerTest, Release) {
   Delete(p5);
 }
 
+TEST_P(FillerTest, ReleaseZero) {
+  // Trying to release no pages should not crash.
+  EXPECT_EQ(Length(0), ReleasePages(Length(0), absl::Seconds(1)));
+}
+
 TEST_P(FillerTest, Fragmentation) {
   absl::BitGen rng;
   auto dist = EmpiricalDistribution(absl::GetFlag(FLAGS_frag_req_limit));

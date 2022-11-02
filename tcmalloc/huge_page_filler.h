@@ -1611,6 +1611,10 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     total_released += n;
   }
 
+  if (total_released >= desired) {
+    return total_released;
+  }
+
   if (skip_subrelease_after_peaks_interval != absl::ZeroDuration()) {
     desired = GetDesiredSubreleasePages(desired, total_released,
                                         skip_subrelease_after_peaks_interval);
