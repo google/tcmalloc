@@ -1419,10 +1419,12 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
         // allowing us to work with hugepage-granularity, rather than needing to
         // retain pt's state indefinitely.
         pageheap_lock.Unlock();
-        unback_(pt->location().start_addr(), kHugePageSize);
+        bool success = unback_(pt->location().start_addr(), kHugePageSize);
         pageheap_lock.Lock();
 
-        unmapping_unaccounted_ += free_pages - released_pages;
+        if (ABSL_PREDICT_TRUE(success)) {
+          unmapping_unaccounted_ += free_pages - released_pages;
+        }
       }
     }
 
