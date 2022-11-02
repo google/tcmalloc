@@ -132,6 +132,11 @@ class PageId {
     return *this;
   }
 
+  template <typename H>
+  friend H AbslHashValue(H h, const PageId& p) {
+    return H::combine(std::move(h), p.pn_);
+  }
+
  private:
   friend constexpr bool operator<(PageId lhs, PageId rhs);
   friend constexpr bool operator>(PageId lhs, PageId rhs);
