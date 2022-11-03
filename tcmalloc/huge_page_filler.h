@@ -766,11 +766,8 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Return this allocation to the system, if policy warrants it.
   //
-  // As of 3/2020 our policy is to rerelease:  Once we break a hugepage by
-  // returning a fraction of it, we return *anything* unused.  This simplifies
-  // tracking.
-  //
-  // TODO(b/141550014):  Make retaining the default/sole policy.
+  // As of 6/2020 our default policy is to retain the page rather than return
+  // anything unused.
   ABSL_MUST_USE_RESULT bool MaybeRelease(PageId p, Length n,
                                          MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
@@ -882,13 +879,13 @@ enum class FillerPartialRerelease : bool {
   // Once we break a hugepage by returning a fraction of it, we return
   // *anything* unused.  This simplifies tracking.
   //
-  // As of 2/2020, this is the default behavior.
+  // TODO(b/160875299):  Remove this option.
   Return,
   // When releasing a page onto an already-released huge page, retain the page
   // rather than releasing it back to the OS.  This can reduce minor page
   // faults for hot pages.
   //
-  // TODO(b/141550014, b/122551676):  Make this the default behavior.
+  // As of 6/2020, this is the default behavior.
   Retain,
 };
 
