@@ -877,12 +877,13 @@ class PageTracker : public TList<PageTracker>::Elem {
 
 enum class FillerPartialRerelease : bool {
   // Once we break a hugepage by returning a fraction of it, we return
-  // *anything* unused.  This simplifies tracking.
+  // *anything* unused on an already-released huge page.  This simplifies
+  // tracking.
   //
   // TODO(b/160875299):  Remove this option.
   Return,
-  // When releasing a page onto an already-released huge page, retain the page
-  // rather than releasing it back to the OS.  This can reduce minor page
+  // When deallocating a page onto an already-released huge page, retain the
+  // page rather than releasing it back to the OS.  This can reduce minor page
   // faults for hot pages.
   //
   // As of 6/2020, this is the default behavior.
@@ -1407,9 +1408,12 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 
       if (free_pages > released_pages) {
         // We should only see a difference between free pages and released pages
-        // when we retain returned pages.
-        ASSERT(partial_rerelease_ == FillerPartialRerelease::Retain);
-
+        // when we retain returned pages, whether due to:
+        //
+        // * partial_rerelease_ == FillerPartialRerelease::Retain
+        // * partial_rerelease_ == FillerPartialRerelease::Return, but we failed
+        //   to PageTracker::MaybeRelease.
+        //
         // pt is partially released.  As the rest of the hugepage-aware
         // allocator works in terms of whole hugepages, we need to release the
         // rest of the hugepage.  This simplifies subsequent accounting by

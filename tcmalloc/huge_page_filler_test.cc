@@ -624,7 +624,7 @@ class BlockingUnback {
  public:
   static ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
     if (!mu_) {
-      return true;
+      return success_;
     }
 
     if (counter_) {
@@ -633,13 +633,13 @@ class BlockingUnback {
 
     mu_->Lock();
     mu_->Unlock();
-    // TODO(b/122551676): Return non-trivial success results.
-    return true;
+    return success_;
   }
 
   static void set_lock(absl::Mutex* mu) { mu_ = mu; }
 
   static absl::BlockingCounter* counter_;
+  static bool success_;
 
  private:
   static thread_local absl::Mutex* mu_;
@@ -647,6 +647,7 @@ class BlockingUnback {
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
+bool BlockingUnback::success_ = true;
 
 class FillerTest : public testing::TestWithParam<
                        std::tuple<FillerPartialRerelease, int32_t>> {
@@ -694,6 +695,8 @@ class FillerTest : public testing::TestWithParam<
                 std::get<1>(GetParam()),
                 MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
+    // Reset success state
+    BlockingUnback::success_ = true;
   }
 
   ~FillerTest() override { EXPECT_EQ(NHugePages(0), filler_.size()); }
@@ -880,6 +883,42 @@ TEST_P(FillerTest, Release) {
 TEST_P(FillerTest, ReleaseZero) {
   // Trying to release no pages should not crash.
   EXPECT_EQ(Length(0), ReleasePages(Length(0), absl::Seconds(1)));
+}
+
+TEST_P(FillerTest, ReleaseFailureOnRerelease) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
+    // We do not encounter the rerelease path during the test setup.
+    return;
+  }
+
+  PAlloc a1 = Allocate(Length(1));
+  PAlloc a2 = Allocate(Length(1));
+
+  EXPECT_EQ(Length(2), filler_.used_pages());
+  EXPECT_EQ(kPagesPerHugePage - Length(2), filler_.free_pages());
+  EXPECT_EQ(Length(0), filler_.unmapped_pages());
+
+  // Release memory.  The rest of the huge page is now released.
+  EXPECT_TRUE(BlockingUnback::success_);
+  EXPECT_EQ(kPagesPerHugePage - Length(2), ReleasePages(kPagesPerHugePage));
+
+  EXPECT_EQ(Length(2), filler_.used_pages());
+  EXPECT_EQ(Length(0), filler_.free_pages());
+  EXPECT_EQ(kPagesPerHugePage - Length(2), filler_.unmapped_pages());
+
+  // Because std::get<0>(GetParam()) == FillerPartialRerelease::Return,
+  // Delete(a2) will return memory.  Simulate failure.
+  BlockingUnback::success_ = false;
+  Delete(a2);
+
+  // unmapped_pages is unchanged.
+  EXPECT_EQ(Length(1), filler_.used_pages());
+  EXPECT_EQ(Length(1), filler_.free_pages());
+  EXPECT_EQ(kPagesPerHugePage - Length(2), filler_.unmapped_pages());
+
+  // Deallocate a1, freeing the huge page.  This should not crash.
+  Delete(a1);
+  EXPECT_EQ(NHugePages(0), filler_.size());
 }
 
 TEST_P(FillerTest, Fragmentation) {

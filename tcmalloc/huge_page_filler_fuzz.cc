@@ -86,7 +86,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Reset global state.
   fake_clock = 0;
   unback_success = true;
-  ReleasedPages().clear();
+  absl::flat_hash_set<PageId>& released_set = ReleasedPages();
+  released_set.clear();
+  // To avoid reentrancy during unback, reserve space in released_set.
+  // We have at most size/5 allocations, for at most kPagesPerHugePage pages
+  // each, that we can track the released status of.
+  //
+  // TODO(b/73749855): Releasing the pageheap_lock during ReleaseFree will
+  // eliminate the need for this.
+  released_set.reserve(kPagesPerHugePage.raw_num() * size / 5);
 
   // We interpret data as a small DSL for exploring the state space of
   // HugePageFiller.
