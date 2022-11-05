@@ -15,7 +15,6 @@
 #ifndef TCMALLOC_INTERNAL_CONFIG_H_
 #define TCMALLOC_INTERNAL_CONFIG_H_
 
-#include <features.h>
 #include <stddef.h>
 
 #include "absl/base/attributes.h"
