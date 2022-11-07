@@ -186,8 +186,8 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
         strerror(errno));
     return {nullptr, 0};
   }
-  (void)hint_;
-  if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess &&
+  if ((hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
+       hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation) &&
       Parameters::madvise_cold_regions_nohugepage()) {
     // This is only advisory, so ignore the error.
     (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
