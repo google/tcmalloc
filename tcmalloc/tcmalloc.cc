@@ -389,7 +389,10 @@ extern "C" MallocExtension::Ownership MallocExtension_Internal_GetOwnership(
 extern "C" void MallocExtension_Internal_GetProperties(
     std::map<std::string, MallocExtension::Property>* result) {
   TCMallocStats stats;
-  ExtractTCMallocStats(&stats, true);
+  // We do not enquire about residency of TCMalloc's metadata since accuracy is
+  // not important for applications invoking this function.  The data reported
+  // would always suffer from time-of-check vs time-of-use problem.
+  ExtractTCMallocStats(&stats, /*report_residence=*/false);
 
   const uint64_t virtual_memory_used = VirtualMemoryUsed(stats);
   const uint64_t physical_memory_used = PhysicalMemoryUsed(stats);

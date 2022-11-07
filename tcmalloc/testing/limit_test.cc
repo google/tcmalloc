@@ -161,7 +161,9 @@ TEST_F(LimitTest, LimitRespected) {
     used += large;
   }
   DumpHeapStats("after allocating large objects");
-  EXPECT_LE(physical_memory_used(), kLim);
+  // We do not track the resident memory exactly, so we add some slack to the
+  // limit.
+  EXPECT_LE(physical_memory_used(), kLim * 1.2);
 
   statsBuf = GetStats();
   statsPbtxt = GetStatsInPbTxt();
