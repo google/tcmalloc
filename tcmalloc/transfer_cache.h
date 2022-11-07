@@ -157,7 +157,7 @@ class ShardedTransferCacheManagerBase {
     return active_for_class_[size_class];
   }
 
-  size_t TotalBytes() {
+  size_t TotalBytes() const {
     if (shards_ == nullptr) return 0;
     size_t out = 0;
     for (int shard = 0; shard < num_shards_; ++shard) {
@@ -273,7 +273,7 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  int tc_length(int cpu, int size_class) {
+  int tc_length(int cpu, int size_class) const {
     if (shards_ == nullptr) return 0;
     const uint8_t shard = l3_cache_index_[cpu];
     if (!shard_initialized(shard)) return 0;
@@ -407,13 +407,15 @@ class TransferCacheManager : public StaticForwarder {
 
   // This is not const because the underlying ring-buffer transfer cache
   // function requires acquiring a lock.
-  size_t tc_length(int size_class) { return cache_[size_class].tc.tc_length(); }
+  size_t tc_length(int size_class) const {
+    return cache_[size_class].tc.tc_length();
+  }
 
-  bool HasSpareCapacity(int size_class) {
+  bool HasSpareCapacity(int size_class) const {
     return cache_[size_class].tc.HasSpareCapacity(size_class);
   }
 
-  TransferCacheStats GetStats(int size_class) {
+  TransferCacheStats GetStats(int size_class) const {
     return cache_[size_class].tc.GetStats();
   }
 
@@ -425,7 +427,7 @@ class TransferCacheManager : public StaticForwarder {
     return TransferCacheImplementation::kLifo;
   }
 
-  bool CanIncreaseCapacity(int size_class) {
+  bool CanIncreaseCapacity(int size_class) const {
     return cache_[size_class].tc.CanIncreaseCapacity(size_class);
   }
 
@@ -459,7 +461,7 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
-  void Print(Printer *out) {
+  void Print(Printer *out) const {
     out->printf("------------------------------------------------\n");
     out->printf("Transfer cache implementation: %s\n",
                 TransferCacheImplementationToLabel(implementation()));
@@ -489,7 +491,7 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void PrintInPbtxt(PbtxtRegion *region) {
+  void PrintInPbtxt(PbtxtRegion *region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       PbtxtRegion entry = region->CreateSubRegion("transfer_cache");
       const TransferCacheStats tc_stats = GetStats(size_class);

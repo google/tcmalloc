@@ -56,7 +56,7 @@ class MissCounts {
  public:
   void Inc() { total_.fetch_add(1, std::memory_order_relaxed); }
 
-  size_t Total() { return total_.load(std::memory_order_relaxed); }
+  size_t Total() const { return total_.load(std::memory_order_relaxed); }
 
   // Returns the number of misses since the last commit call.
   size_t Commit() {
@@ -261,7 +261,7 @@ class TransferCache {
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
-  TransferCacheStats GetStats() ABSL_LOCKS_EXCLUDED(lock_) {
+  TransferCacheStats GetStats() const ABSL_LOCKS_EXCLUDED(lock_) {
     TransferCacheStats stats;
 
     stats.insert_hits = insert_hits_.value();
@@ -306,7 +306,7 @@ class TransferCache {
   }
 
   // Checks if the cache capacity may be increased by a batch size.
-  bool CanIncreaseCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
+  bool CanIncreaseCapacity(int size_class) const ABSL_LOCKS_EXCLUDED(lock_) {
     int n = Manager::num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return max_capacity_ - info.capacity >= n;
@@ -314,7 +314,7 @@ class TransferCache {
 
   // Checks if the cache has at least batch size number of free slots. Returns
   // false if (capacity - used) slots is less than the batch size.
-  bool HasSpareCapacity(int size_class) {
+  bool HasSpareCapacity(int size_class) const {
     int n = Manager::num_objects_to_move(size_class);
     auto info = GetSlotInfo();
     return info.capacity - info.used >= n;

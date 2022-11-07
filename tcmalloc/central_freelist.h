@@ -141,13 +141,13 @@ class CentralFreeList {
   Span* FirstNonEmptySpan() ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Returns first index to the nonempty_ lists that may record spans.
-  uint8_t GetFirstNonEmptyIndex();
+  uint8_t GetFirstNonEmptyIndex() const;
 
   // Returns index into nonempty_ based on the number of allocated objects for
   // the span. Instead of using the absolute number of allocated objects, it
   // uses absl::bit_width(allocated), passed as bitwidth, to calculate the list
   // index.
-  uint8_t IndexFor(uint8_t bitwidth);
+  static uint8_t IndexFor(uint8_t bitwidth);
 
   // Records span utilization in objects_to_span_ map. Instead of using the
   // absolute number of allocated objects, it uses
@@ -340,7 +340,7 @@ inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
 }
 
 template <class Forwarder>
-inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() {
+inline uint8_t CentralFreeList<Forwarder>::GetFirstNonEmptyIndex() const {
   return first_nonempty_index_;
 }
 
