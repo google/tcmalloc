@@ -189,6 +189,7 @@ PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated);
+  ASSERT(pt->was_donated() == donated);
   return page;
 }
 
@@ -442,6 +443,8 @@ void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker* pt,
   if (pt->was_donated()) {
     --donated_huge_pages_;
     abandoned_pages_ -= pt->abandoned_count();
+  } else {
+    ASSERT(pt->abandoned_count() == Length(0));
   }
   lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
   ReleaseHugepage(pt);
@@ -497,6 +500,7 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
     pt = GetTracker(last);
     lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
     CHECK_CONDITION(pt != nullptr);
+    ASSERT(pt->was_donated());
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation
     // onto the last hugepage.
