@@ -67,26 +67,11 @@ ABSL_CONST_INIT bool
     ShardedStaticForwarder::enable_cache_for_large_classes_only_(false);
 
 void BackingTransferCache::InsertRange(absl::Span<void *> batch) const {
-  // If the generic sharded transfer cache experiment is enabled, we bypass a
-  // second layer of transfer cache and issue requests directly to the central
-  // freelist.
-  if (tc_globals.sharded_transfer_cache().UseGenericCache()) {
-    tc_globals.central_freelist(size_class_).InsertRange(batch);
-    return;
-  }
-
   tc_globals.transfer_cache().InsertRange(size_class_, batch);
 }
 
 ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
                                                            int n) const {
-  // If the generic sharded transfer cache experiment is enabled, we bypass a
-  // second layer of transfer cache and issue requests directly to the central
-  // freelist.
-  if (tc_globals.sharded_transfer_cache().UseGenericCache()) {
-    return tc_globals.central_freelist(size_class_).RemoveRange(batch, n);
-  }
-
   return tc_globals.transfer_cache().RemoveRange(size_class_, batch, n);
 }
 
