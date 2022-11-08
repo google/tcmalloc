@@ -108,7 +108,7 @@ class LifetimeBasedAllocatorTest : public ::testing::Test {
   };
 
   static bool NopUnbackFn(void* p, size_t len) {
-    // TODO(b/122551676): Return non-trivial success results.
+    // TODO(b/258278604): Return non-trivial success results.
     return true;
   }
 
