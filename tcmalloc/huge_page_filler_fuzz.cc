@@ -160,14 +160,22 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         if (result.pt == nullptr) {
           // Failed to allocate.  Create a new huge page.
+          //
+          // Donated pages do not necessarily have to have a particular size,
+          // since this may be (kPagesPerHugePage/2,kPagesPerHugePage) in size
+          // *or* the tail of an allocation >PagesPerHugePage.
+          //
+          // Since small objects are likely to be found, we model those tail
+          // donations separately.
+          const bool donated = n > kPagesPerHugePage / 2;
           result.pt = new PageTracker(HugePage{.pn = next_hugepage},
-                                      mock_clock(), false);
+                                      mock_clock(), donated);
           next_hugepage++;
           {
             absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
             result.page = result.pt->Get(n, num_objects).page;
-            filler.Contribute(result.pt, false);
+            filler.Contribute(result.pt, donated);
           }
 
           trackers.push_back(result.pt);
@@ -274,6 +282,41 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         Printer p(&s[0], s.size());
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
         filler.Print(&p, true);
+        break;
+      }
+      case 6: {
+        // Model a tail from a larger allocation.  The tail can have any size
+        // [1,kPagesPerHugePage).
+        //
+        // value[0:15]  - We choose a Length to allocate.
+        // value[16:31] - Unused.
+        const Length n(std::clamp<size_t>(value & 0xFFFF, 1,
+                                          kPagesPerHugePage.raw_num() - 1));
+        absl::flat_hash_set<PageId>& released_set = ReleasedPages();
+
+        auto* pt = new PageTracker(HugePage{.pn = next_hugepage}, mock_clock(),
+                                   /*donated=*/true);
+        next_hugepage++;
+        PageId start;
+        {
+          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+
+          start = pt->Get(n, 1).page;
+          filler.Contribute(pt, /*donated=*/true);
+        }
+
+        trackers.push_back(pt);
+
+        // We have now successfully allocated.  Record the alloc and clear any
+        // released bits.
+        for (PageId p = start, end = p + n; p != end; ++p) {
+          released_set.erase(p);
+        }
+
+        allocs[pt].push_back({start, n, 1});
+
+        CHECK_EQ(filler.size().raw_num(), trackers.size());
+        CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
         break;
       }
     }
