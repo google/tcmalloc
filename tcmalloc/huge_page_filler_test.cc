@@ -189,16 +189,18 @@ class PageTrackerTest : public testing::Test {
   class MockUnbackInterface {
    public:
     ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
-      CHECK_CONDITION(actual_index_ < kMaxCalls);
+      CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(actual_));
       actual_[actual_index_] = {p, len};
+      CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(expected_));
+      // Assume expected calls occur and use those return values.
+      const bool success = expected_[actual_index_].success;
       ++actual_index_;
-      // TODO(b/122551676):  Return non-trivial success values.
-      return true;
+      return success;
     }
 
-    void Expect(void* p, size_t len) {
+    void Expect(void* p, size_t len, bool success) {
       CHECK_CONDITION(expected_index_ < kMaxCalls);
-      expected_[expected_index_] = {p, len};
+      expected_[expected_index_] = {p, len, success};
       ++expected_index_;
     }
 
@@ -217,6 +219,7 @@ class PageTrackerTest : public testing::Test {
     struct CallArgs {
       void* ptr{nullptr};
       size_t len{0};
+      bool success = true;
     };
 
     static constexpr size_t kMaxCalls = 10;
@@ -244,10 +247,10 @@ class PageTrackerTest : public testing::Test {
   HugePage huge_;
   PageTracker tracker_;
 
-  void ExpectPages(PAlloc a) {
+  void ExpectPages(PAlloc a, bool success = true) {
     void* ptr = a.p.start_addr();
     size_t bytes = a.n.in_bytes();
-    mock_.Expect(ptr, bytes);
+    mock_.Expect(ptr, bytes, success);
   }
 
   PAlloc Get(Length n, size_t num_objects) {
@@ -312,19 +315,53 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
   // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
   // The free parts should be released when we mark the hugepage as such,
   // but not the allocated parts.
-  ExpectPages(a2);
-  ExpectPages(a4);
+  ExpectPages(a2, /*success=*/true);
+  ExpectPages(a4, /*success=*/true);
   ReleaseFree();
   mock_.VerifyAndClear();
 
+  EXPECT_EQ(tracker_.released_pages(), a2.n + a4.n);
+  EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
+
   // Now we return the other parts, and they *should* get released.
-  ExpectPages(a1);
-  ExpectPages(a3);
+  ExpectPages(a1, /*success=*/true);
+  ExpectPages(a3, /*success=*/true);
 
   EXPECT_TRUE(MaybeRelease(a1));
   Put(a1);
 
   EXPECT_TRUE(MaybeRelease(a3));
+  Put(a3);
+}
+
+TEST_F(PageTrackerTest, ReleasingReturnFailure) {
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  PAlloc a1 = Get(kAllocSize - Length(3), 1);
+  PAlloc a2 = Get(kAllocSize, 1);
+  PAlloc a3 = Get(kAllocSize + Length(1), 1);
+  PAlloc a4 = Get(kAllocSize + Length(2), 1);
+
+  Put(a2);
+  Put(a4);
+  // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
+  // The free parts should be released from a2 when we mark the hugepage as
+  // such, but not the allocated parts.
+  ExpectPages(a2, /*success=*/true);
+  ExpectPages(a4, /*success=*/false);
+  ReleaseFree();
+  mock_.VerifyAndClear();
+
+  EXPECT_EQ(tracker_.released_pages(), a2.n);
+  EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
+
+  // Now we return the other parts, and they *should* get released.
+  ExpectPages(a1, /*success=*/true);
+  ExpectPages(a3, /*success=*/false);
+
+  EXPECT_TRUE(MaybeRelease(a1));
+  Put(a1);
+
+  EXPECT_FALSE(MaybeRelease(a3));
   Put(a3);
 }
 
@@ -356,6 +393,43 @@ TEST_F(PageTrackerTest, ReleasingRetain) {
   ExpectPages(a3);
   ReleaseFree();
   mock_.VerifyAndClear();
+}
+
+TEST_F(PageTrackerTest, ReleasingRetainFailure) {
+  static const Length kAllocSize = kPagesPerHugePage / 4;
+  PAlloc a1 = Get(kAllocSize - Length(3), 1);
+  PAlloc a2 = Get(kAllocSize, 1);
+  PAlloc a3 = Get(kAllocSize + Length(1), 1);
+  PAlloc a4 = Get(kAllocSize + Length(2), 1);
+
+  Put(a2);
+  Put(a4);
+  // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
+  // The free parts should be released when we mark the hugepage as such if
+  // successful, but not the allocated parts.
+  ExpectPages(a2, /*success=*/true);
+  ExpectPages(a4, /*success=*/false);
+  ReleaseFree();
+  mock_.VerifyAndClear();
+
+  EXPECT_EQ(tracker_.released_pages(), a2.n);
+  EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
+
+  // Now we return the other parts, and they shouldn't get released.
+  Put(a1);
+  Put(a3);
+
+  mock_.VerifyAndClear();
+
+  // But they will if we ReleaseFree.  We attempt to coalesce the deallocation
+  // of a3/a4.
+  ExpectPages(a1, /*success=*/true);
+  ExpectPages(PAlloc{std::min(a3.p, a4.p), a3.n + a4.n, 0}, /*success=*/false);
+  ReleaseFree();
+  mock_.VerifyAndClear();
+
+  EXPECT_EQ(tracker_.released_pages(), a1.n + a2.n);
+  EXPECT_EQ(tracker_.free_pages(), a1.n + a2.n + a3.n + a4.n);
 }
 
 TEST_F(PageTrackerTest, Defrag) {
