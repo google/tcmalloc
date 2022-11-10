@@ -655,6 +655,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         abandoned_count_(0),
         donated_(false),
         was_donated_(was_donated),
+        abandoned_(false),
         unbroken_(true),
         free_{} {
     init_when(when);
@@ -732,6 +733,11 @@ class PageTracker : public TList<PageTracker>::Elem {
   // memory persistently donated to the filler.
   bool was_donated() const { return was_donated_; }
 
+  // Tracks whether the page, previously donated to the filler, was abondoned.
+  // When a large allocation is deallocated but the huge page is not
+  // reassembled, the pages are abondoned to the filler for future allocations.
+  bool abandoned() const { return abandoned_; }
+  void set_abandoned(bool status) { abandoned_ = status; }
   // Tracks how many pages were provided when the originating allocation of a
   // donated page was deallocated but other allocations were in use.
   //
@@ -824,6 +830,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   uint16_t abandoned_count_;
   bool donated_;
   bool was_donated_;
+  // Tracks whether we accounted for the abandoned state of the page. When a
+  // large allocation is deallocated but the huge page can not be reassembled,
+  // we measure the number of pages abandoned to the filler. To make sure that
+  // we do not double-count any future deallocations, we maintain a state and
+  // reset it once we measure those pages in abandoned_count_.
+  bool abandoned_;
   bool unbroken_;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;

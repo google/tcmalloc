@@ -185,6 +185,12 @@ PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
   new (pt)
       FillerType::Tracker(p, absl::base_internal::CycleClock::Now(), donated);
   ASSERT(pt->longest_free_range() >= n);
+  ASSERT(pt->was_donated() == donated);
+  // if the page was donated, we track its size so that we can potentially
+  // measure it in abandoned_count_ once this large allocation gets deallocated.
+  if (pt->was_donated()) {
+    pt->set_abandoned_count(n);
+  }
   PageId page = pt->Get(n, num_objects).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
@@ -343,7 +349,9 @@ Span* HugePageAwareAllocator::AllocRawHugepages(Length n, size_t num_objects,
   Length here = kPagesPerHugePage - slack;
   ASSERT(here > Length(0));
   AllocAndContribute(last, here, num_objects, /*donated=*/true);
-  return Finalize(n, num_objects, r.start().first_page());
+  Span* span = Finalize(n, num_objects, r.start().first_page());
+  span->set_donated(/*value=*/true);
+  return span;
 }
 
 Span* HugePageAwareAllocator::AllocRawHugepagesAndMaybeTrackLifetime(
@@ -438,11 +446,24 @@ Span* HugePageAwareAllocator::NewAligned(Length n, Length align,
 
 void HugePageAwareAllocator::DeleteFromHugepage(FillerType::Tracker* pt,
                                                 PageId p, Length n,
-                                                size_t num_objects) {
-  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n, num_objects) == nullptr)) return;
+                                                size_t num_objects,
+                                                bool might_abandon) {
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n, num_objects) == nullptr)) {
+    // If this allocation had resulted in a donation to the filler, we record
+    // these pages as abandoned.
+    if (ABSL_PREDICT_FALSE(might_abandon)) {
+      ASSERT(pt->was_donated());
+      abandoned_pages_ += pt->abandoned_count();
+      pt->set_abandoned(true);
+    }
+    return;
+  }
   if (pt->was_donated()) {
     --donated_huge_pages_;
-    abandoned_pages_ -= pt->abandoned_count();
+    if (pt->abandoned()) {
+      abandoned_pages_ -= pt->abandoned_count();
+      pt->set_abandoned(false);
+    }
   } else {
     ASSERT(pt->abandoned_count() == Length(0));
   }
@@ -466,6 +487,7 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
   Length n = span->num_pages();
   info_.RecordFree(p, n, objects_per_span);
 
+  bool might_abandon = span->donated();
   Span::Delete(span);
   // Clear the descriptor of the page so a second pass through the same page
   // could trigger the check on `span != nullptr` in do_free_pages.
@@ -478,7 +500,7 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     ASSERT(hp == HugePageContaining(p + n - Length(1)));
-    DeleteFromHugepage(pt, p, n, objects_per_span);
+    DeleteFromHugepage(pt, p, n, objects_per_span, might_abandon);
     return;
   }
 
@@ -515,15 +537,15 @@ void HugePageAwareAllocator::Delete(Span* span, size_t objects_per_span) {
       // Note that we abandoned virt_len pages with pt.  These can be reused for
       // other allocations, but this can contribute to excessive slack in the
       // filler.
-      abandoned_pages_ += virt_len;
-      pt->set_abandoned_count(virt_len);
+      abandoned_pages_ += pt->abandoned_count();
+      pt->set_abandoned(true);
     } else {
       // Last page was empty - but if we sub-released it, we still
       // have to split it off and release it independently.)
       //
       // We were able to reclaim the donated slack.
       --donated_huge_pages_;
-      ASSERT(pt->abandoned_count() == Length(0));
+      ASSERT(!pt->abandoned());
 
       if (pt->released()) {
         --hl;

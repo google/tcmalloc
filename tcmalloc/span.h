@@ -118,6 +118,8 @@ class Span : public SpanList::Elem {
   // that sampling state can't be changed concurrently.
   bool sampled() const;
 
+  bool donated() const { return is_donated_; }
+  void set_donated(bool value) { is_donated_ = value; }
   // ---------------------------------------------------------------------------
   // Span memory range.
   // ---------------------------------------------------------------------------
@@ -255,6 +257,9 @@ class Span : public SpanList::Elem {
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   uint8_t sampled_ : 1;   // Sampled object?
+  // Has this span allocation resulted in a donation to the filler in the page
+  // heap? This is used by page heap to compute abandoned pages.
+  uint8_t is_donated_ : 1;
 
   union {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
@@ -603,6 +608,7 @@ inline void Span::Init(PageId p, Length n) {
   location_ = IN_USE;
   sampled_ = 0;
   nonempty_index_ = 0;
+  is_donated_ = 0;
 }
 
 }  // namespace tcmalloc_internal

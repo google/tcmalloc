@@ -432,8 +432,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
 }
 
-// TODO(b/199203282): Enable this test.
-TEST_F(HugePageAwareAllocatorTest, DISABLED_SmallDonations) {
+TEST_F(HugePageAwareAllocatorTest, SmallDonations) {
   // This test works with small donations (kHugePageSize/2,kHugePageSize]-bytes
   // in size to check statistics.
   static constexpr Length kSlack = Length(2);
@@ -459,7 +458,7 @@ TEST_F(HugePageAwareAllocatorTest, DISABLED_SmallDonations) {
   EXPECT_EQ(slack, 2 * kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
   EXPECT_EQ(abandoned_pages, Length(0));
-  // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works corrctly
+  // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
   // Create two small allocations.  They will be placed on different huge pages
@@ -527,8 +526,7 @@ TEST_F(HugePageAwareAllocatorTest, DISABLED_SmallDonations) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-// TODO(b/199203282): Enable this test.
-TEST_F(HugePageAwareAllocatorTest, DISABLED_LargeDonations) {
+TEST_F(HugePageAwareAllocatorTest, LargeDonations) {
   // A small allocation of size (kHugePageSize/2,kHugePageSize]-bytes can be
   // considered not donated if it filled in a gap on an otherwise mostly free
   // huge page that came from a donation.
@@ -552,13 +550,17 @@ TEST_F(HugePageAwareAllocatorTest, DISABLED_LargeDonations) {
   EXPECT_EQ(slack, kSmallSize);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
-  // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works corrctly
+  // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
   Span* small = New(kSmallSize, 1);
   RefreshStats();
 
-  EXPECT_EQ(slack, kSmallSize);
+  // TODO(b/199203282): Current slack computation is unaware that this
+  // allocation is on a donated page. It assumes that kSmallSize allocation
+  // would also result in a slack. We would eliminate this once abandoned count
+  // subsumes slack computation.
+  EXPECT_EQ(slack, kSmallSize + Length(1));
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
 
@@ -571,6 +573,82 @@ TEST_F(HugePageAwareAllocatorTest, DISABLED_LargeDonations) {
   EXPECT_EQ(abandoned_pages, Length(0));
 
   // Cleanup.  Deallocate large.
+  Delete(large, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, Length(0));
+  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  EXPECT_EQ(abandoned_pages, Length(0));
+}
+
+TEST_F(HugePageAwareAllocatorTest, TailDonation) {
+  // This test makes sure that we account for tail donations alone in the
+  // abandoned pages.
+  static constexpr Length kSmallSize = Length(1);
+  static constexpr Length kSlack = kPagesPerHugePage - Length(1);
+  static constexpr Length kLargeSize = 2 * kPagesPerHugePage - kSlack;
+
+  // large donates kSlack to the filler.
+  Span* large = New(kLargeSize, 1);
+  Length slack;
+  HugeLength donated_huge_pages;
+  Length abandoned_pages;
+
+  auto RefreshStats = [&]() {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    slack = allocator_->info().slack();
+    donated_huge_pages = allocator_->DonatedHugePages();
+    abandoned_pages = allocator_->AbandonedPages();
+  };
+  RefreshStats();
+
+  EXPECT_EQ(slack, kSlack);
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // We should allocate small on the donated page.
+  Span* small = New(kSmallSize, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, kSlack);
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // When we deallocate large, abandoned count should only account for the
+  // abandoned pages from the tail huge page.
+  Delete(large, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, Length(0));
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(1));
+
+  // small is on a donated hugepage. Cleanup.
+  Delete(small, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, Length(0));
+  EXPECT_EQ(donated_huge_pages, NHugePages(0));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // large donates kSlack to the filler.
+  large = New(kLargeSize, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, kSlack);
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // We should allocate small on the donated page.
+  small = New(kSmallSize, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, kSlack);
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // If we delete small first, abandoned_pages should not tick up.
+  Delete(small, 1);
+  RefreshStats();
+  EXPECT_EQ(slack, kSlack);
+  EXPECT_EQ(donated_huge_pages, NHugePages(1));
+  EXPECT_EQ(abandoned_pages, Length(0));
+
+  // Deallocating large. Cleanup. All stats should reset to zero.
   Delete(large, 1);
   RefreshStats();
   EXPECT_EQ(slack, Length(0));
@@ -602,9 +680,9 @@ TEST_F(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
   EXPECT_EQ(abandoned_pages, Length(0));
-  // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works corrctly
-  // for these stats.
 
+  // We should allocate large on the free huge page. That is, this allocation
+  // should not cause any donations to filler.
   Span* large = New(kLargeSize, 1);
 
   RefreshStats();

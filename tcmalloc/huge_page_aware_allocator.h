@@ -222,7 +222,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
   void DeleteFromHugepage(FillerType::Tracker* pt, PageId p, Length n,
-                          size_t num_objects)
+                          size_t num_objects, bool might_abandon)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
