@@ -1462,6 +1462,72 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   BlockingUnback::counter_ = nullptr;
 }
 
+TEST_P(FillerTest, PartialRereleaseReturnFailure) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
+    // When we retain pages, we do not encounter a potentially unexpected state
+    // of free_pages!=released_pages.
+    return;
+  }
+
+  PAlloc a1 = Allocate(Length(1));
+  PAlloc a2 = Allocate(Length(1));
+
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), Length(2));
+  EXPECT_EQ(filler_.free_pages(), kPagesPerHugePage - Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+
+  // Release successfully.
+  ASSERT_TRUE(BlockingUnback::success_);
+  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
+
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), Length(2));
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+
+  // Simulate failure to return.  unmapped_pages() remains unchanged.
+  BlockingUnback::success_ = false;
+  Delete(a2);
+
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), Length(1));
+  EXPECT_EQ(filler_.free_pages(), Length(1));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+
+  // Gather stats.
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, /*everything=*/true);
+  }
+
+  // Reallocate a2.  The filler should not grow.
+  a2 = Allocate(Length(1));
+
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), Length(2));
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
+
+  // Gather stats.
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, /*everything=*/true);
+  }
+
+  // Cleanup.
+  BlockingUnback::success_ = true;
+  Delete(a1);
+  Delete(a2);
+
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.used_pages(), Length(0));
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+}
+
 TEST_P(FillerTest, SkipSubrelease) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.

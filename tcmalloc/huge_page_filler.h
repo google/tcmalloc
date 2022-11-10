@@ -1333,16 +1333,13 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
     if (pt) {
       break;
     }
-    if (ABSL_PREDICT_TRUE(partial_rerelease_ ==
-                          FillerPartialRerelease::Retain)) {
-      pt = regular_alloc_partial_released_.GetLeast(ListFor(n, 0));
-      if (pt) {
-        ASSERT(!pt->donated());
-        was_released = true;
-        ASSERT(n_used_partial_released_ >= pt->used_pages());
-        n_used_partial_released_ -= pt->used_pages();
-        break;
-      }
+    pt = regular_alloc_partial_released_.GetLeast(ListFor(n, 0));
+    if (pt) {
+      ASSERT(!pt->donated());
+      was_released = true;
+      ASSERT(n_used_partial_released_ >= pt->used_pages());
+      n_used_partial_released_ -= pt->used_pages();
+      break;
     }
     pt = regular_alloc_released_.GetLeast(ListFor(n, 0));
     if (pt) {
@@ -1644,26 +1641,24 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
   constexpr size_t kCandidates = kPagesPerHugePage.raw_num();
   using CandidateArray = std::array<TrackerType*, kCandidates>;
 
-  if (ABSL_PREDICT_TRUE(partial_rerelease_ == FillerPartialRerelease::Retain)) {
-    while (total_released < desired) {
-      CandidateArray candidates;
-      // We can skip the first chunks_per_tracker_list lists as they are known
-      // to be 100% full. (Those lists are likely to be long.)
-      //
-      // We do not examine the regular_alloc_released_ lists, as only contain
-      // completely released pages.
-      int n_candidates = SelectCandidates(absl::MakeSpan(candidates), 0,
-                                          regular_alloc_partial_released_,
-                                          chunks_for_page_tracker_lists_);
+  while (total_released < desired) {
+    CandidateArray candidates;
+    // We can skip the first chunks_per_tracker_list lists as they are known
+    // to be 100% full. (Those lists are likely to be long.)
+    //
+    // We do not examine the regular_alloc_released_ lists, as only contain
+    // completely released pages.
+    int n_candidates = SelectCandidates(absl::MakeSpan(candidates), 0,
+                                        regular_alloc_partial_released_,
+                                        chunks_for_page_tracker_lists_);
 
-      Length released =
-          ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
-                            desired - total_released);
-      if (released == Length(0)) {
-        break;
-      }
-      total_released += released;
+    Length released =
+        ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
+                          desired - total_released);
+    if (released == Length(0)) {
+      break;
     }
+    total_released += released;
   }
 
   // Only consider breaking up a hugepage if there are no partially released
@@ -1701,13 +1696,7 @@ inline void HugePageFiller<TrackerType>::AddSpanStats(
   // 100% full.
   regular_alloc_.Iter(loop, chunks_for_page_tracker_lists_);
   donated_alloc_.Iter(loop, 0);
-
-  if (ABSL_PREDICT_TRUE(partial_rerelease_ == FillerPartialRerelease::Retain)) {
-    regular_alloc_partial_released_.Iter(loop, 0);
-  } else {
-    ASSERT(regular_alloc_partial_released_.empty());
-    ASSERT(n_used_partial_released_ == Length(0));
-  }
+  regular_alloc_partial_released_.Iter(loop, 0);
   regular_alloc_released_.Iter(loop, 0);
 }
 
@@ -1923,16 +1912,11 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  if (ABSL_PREDICT_TRUE(partial_rerelease_ == FillerPartialRerelease::Retain)) {
-    regular_alloc_partial_released_.Iter(
-        [&](const TrackerType* pt) {
-          usage.Record(pt, UsageInfo::kPartialReleased);
-        },
-        0);
-  } else {
-    ASSERT(regular_alloc_partial_released_.empty());
-    ASSERT(n_used_partial_released_.raw_num() == 0);
-  }
+  regular_alloc_partial_released_.Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kPartialReleased);
+      },
+      0);
   regular_alloc_released_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
@@ -2002,16 +1986,11 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  if (ABSL_PREDICT_TRUE(partial_rerelease_ == FillerPartialRerelease::Retain)) {
-    regular_alloc_partial_released_.Iter(
-        [&](const TrackerType* pt) {
-          usage.Record(pt, UsageInfo::kPartialReleased);
-        },
-        0);
-  } else {
-    ASSERT(regular_alloc_partial_released_.empty());
-    ASSERT(n_used_partial_released_ == Length(0));
-  }
+  regular_alloc_partial_released_.Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kPartialReleased);
+      },
+      0);
   regular_alloc_released_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
       0);
@@ -2084,9 +2063,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     size_t i = ListFor(longest, chunk);
     if (!pt->released()) {
       regular_alloc_.Remove(pt, i);
-    } else if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
-                                  FillerPartialRerelease::Return) ||
-               pt->free_pages() <= pt->released_pages()) {
+    } else if (pt->free_pages() <= pt->released_pages()) {
       regular_alloc_released_.Remove(pt, i);
       ASSERT(n_used_released_ >= pt->used_pages());
       n_used_released_ -= pt->used_pages();
@@ -2113,13 +2090,10 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   size_t i = ListFor(longest, chunk);
   if (!pt->released()) {
     regular_alloc_.Add(pt, i);
-  } else if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
-                                FillerPartialRerelease::Return) ||
-             pt->free_pages() == pt->released_pages()) {
+  } else if (pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_.Add(pt, i);
     n_used_released_ += pt->used_pages();
   } else {
-    ASSERT(partial_rerelease_ == FillerPartialRerelease::Retain);
     regular_alloc_partial_released_.Add(pt, i);
     n_used_partial_released_ += pt->used_pages();
   }
