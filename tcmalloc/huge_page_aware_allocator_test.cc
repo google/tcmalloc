@@ -458,6 +458,8 @@ TEST_F(HugePageAwareAllocatorTest, SmallDonations) {
   EXPECT_EQ(slack, 2 * kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_TRUE(large1->donated());
+  EXPECT_TRUE(large2->donated());
   // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
@@ -470,6 +472,8 @@ TEST_F(HugePageAwareAllocatorTest, SmallDonations) {
   EXPECT_EQ(slack, 2 * kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(2));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_FALSE(small1->donated());
+  EXPECT_FALSE(small2->donated());
 
   // To simplify the rest of the test, swap small1/small2 as required such that
   // small1 is on the same huge page as large1, etc.  This allows us to release
@@ -550,6 +554,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeDonations) {
   EXPECT_EQ(slack, kSmallSize);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_TRUE(large->donated());
   // HugePageAwareAllocatorTest.DonatedHugePages verifies Print works correctly
   // for these stats.
 
@@ -563,6 +568,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeDonations) {
   EXPECT_EQ(slack, kSmallSize + Length(1));
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_FALSE(small->donated());
 
   // small is on a donated hugepage.  None of the stats should change when it is
   // deallocated.
@@ -604,6 +610,7 @@ TEST_F(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_TRUE(large->donated());
 
   // We should allocate small on the donated page.
   Span* small = New(kSmallSize, 1);
@@ -611,6 +618,7 @@ TEST_F(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_FALSE(small->donated());
 
   // When we deallocate large, abandoned count should only account for the
   // abandoned pages from the tail huge page.
@@ -633,6 +641,7 @@ TEST_F(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(slack, kSlack);
   EXPECT_EQ(donated_huge_pages, NHugePages(1));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_TRUE(large->donated());
 
   // We should allocate small on the donated page.
   small = New(kSmallSize, 1);
@@ -680,6 +689,7 @@ TEST_F(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(slack, Length(0));
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_FALSE(small->donated());
 
   // We should allocate large on the free huge page. That is, this allocation
   // should not cause any donations to filler.
@@ -690,6 +700,7 @@ TEST_F(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(slack, kSmallSize);
   EXPECT_EQ(donated_huge_pages, NHugePages(0));
   EXPECT_EQ(abandoned_pages, Length(0));
+  EXPECT_FALSE(large->donated());
 
   Delete(large, 1);
   RefreshStats();
