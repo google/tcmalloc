@@ -88,8 +88,8 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxPerCpuCacheSize(
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseInterval(
     absl::Duration value);
 ABSL_ATTRIBUTE_WEAK size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu);
-ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ReleaseMemoryToSystem(
-    size_t bytes);
+ABSL_ATTRIBUTE_WEAK size_t
+MallocExtension_Internal_ReleaseMemoryToSystem(size_t bytes);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMemoryLimit(
     const tcmalloc::MallocExtension::MemoryLimit* limit);
 

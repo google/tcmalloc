@@ -302,7 +302,7 @@ extern "C" void MallocExtension_Internal_SetRegionFactory(
 ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
-extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
+extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
     size_t num_bytes) {
   // ReleaseMemoryToSystem() might release more than the requested bytes because
   // the page heap releases at the span granularity, and spans are of wildly
@@ -336,11 +336,12 @@ extern "C" void MallocExtension_Internal_ReleaseMemoryToSystem(
       tc_globals.page_allocator().ReleaseAtLeastNPages(num_pages).in_bytes();
   if (bytes_released > num_bytes) {
     extra_bytes_released = bytes_released - num_bytes;
-  } else {
-    // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
-    // with a big release next time.
-    extra_bytes_released = 0;
+    return num_bytes;
   }
+  // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
+  // with a big release next time.
+  extra_bytes_released = 0;
+  return bytes_released;
 }
 
 // nallocx slow path.
@@ -923,7 +924,9 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment) {
 inline void do_malloc_stats() { PrintStats(1); }
 
 inline int do_malloc_trim(size_t pad) {
-  return 0;  // Indicate no memory released
+  // We ignore pad for now and just do a best effort release of pages.
+  static_cast<void>(pad);
+  return MallocExtension_Internal_ReleaseMemoryToSystem(0) != 0 ? 1 : 0;
 }
 
 inline int do_mallopt(int cmd, int value) {
