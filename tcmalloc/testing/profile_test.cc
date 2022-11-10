@@ -18,14 +18,14 @@
 #include <optional>
 #include <vector>
 
-#include "google/protobuf/io/gzip_stream.h"
-#include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "tcmalloc/internal/profile.pb.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/io/gzip_stream.h"
+#include "google/protobuf/io/zero_copy_stream_impl.h"
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/profile_marshaler.h"
