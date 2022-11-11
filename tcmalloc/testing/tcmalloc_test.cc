@@ -83,33 +83,6 @@
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
 
-// Windows doesn't define pvalloc and a few other obsolete unix
-// functions; nor does it define posix_memalign (which is not obsolete).
-#if defined(_WIN32)
-#define cfree free
-#define valloc malloc
-#define pvalloc malloc
-static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
-  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "posix_memalign not supported on windows");
-}
-
-// OS X defines posix_memalign in some OS versions but not others;
-// it's confusing enough to check that it's easiest to just not to test.
-#elif defined(__APPLE__)
-static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
-  tcmalloc::Crash(tcmalloc::kCrash, __FILE__, __LINE__,
-                  "posix_memalign not supported on OS X");
-}
-
-#else
-#define OS_SUPPORTS_MEMALIGN
-static inline int PosixMemalign(void** ptr, size_t align, size_t size) {
-  return posix_memalign(ptr, align, size);
-}
-
-#endif
-
 // Testing parameters
 //
 // When making aligned allocations, we pick a power of two up to 1 <<
@@ -411,7 +384,7 @@ TEST(TCMallocTest, EnormousAllocations) {
     ASSERT_NE(0, alignment);
     ASSERT_EQ(0, alignment % sizeof(void*));
     ASSERT_TRUE(absl::has_single_bit(alignment)) << alignment;
-    int err = PosixMemalign(&p, alignment, size);
+    int err = posix_memalign(&p, alignment, size);
     ASSERT_EQ(ENOMEM, err);
   }
 
@@ -854,7 +827,7 @@ TEST(TCMallocTest, FreeSizedDeathTest) {
   void* ptr;
   const size_t size = 4096;
   const size_t alignment = 1024;
-  int err = PosixMemalign(&ptr, 1024, alignment);
+  int err = posix_memalign(&ptr, 1024, alignment);
   ASSERT_EQ(err, 0) << alignment << " " << size;
   EXPECT_DEATH(free_sized(ptr, size), "");
 }
@@ -889,7 +862,7 @@ TEST(TCMallocTest, sdallocx_alignment) {
     for (size_t align = 3; align <= 10; align++) {
       const size_t alignment = 1 << align;
       void* ptr;
-      int err = PosixMemalign(&ptr, alignment, size);
+      int err = posix_memalign(&ptr, alignment, size);
       ASSERT_EQ(err, 0) << alignment << " " << size;
       ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) & (alignment - 1), 0);
       memset(ptr, 0, size);
