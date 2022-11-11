@@ -125,7 +125,7 @@ PageAllocator::PageAllocator() {
   }
 }
 
-void PageAllocator::ShrinkToUsageLimit() {
+void PageAllocator::ShrinkToUsageLimit(Length n) {
   BackingStats s = stats();
   const size_t backed =
       s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
@@ -136,11 +136,11 @@ void PageAllocator::ShrinkToUsageLimit() {
     // fragmentation), as we allocate successfully from the page heap before
     // updating the sampled object list.
     //
-    // TODO(ckennelly): Evaluate passing the current allocation size to the page
-    // heap to adjust this.  This correction would overestimate for many-object
+    // TODO(ckennelly): The correction for n overestimates for many-object
     // spans from the CentralFreeList, but those are typically a single page so
     // the error in absolute terms is minimal.
-    peak_sampled_application_bytes_ = tc_globals.sampled_objects_size_.value();
+    peak_sampled_application_bytes_ =
+        tc_globals.sampled_objects_size_.value() + n.in_bytes();
   }
   // TODO(ckennelly): Consider updating peak_sampled_application_bytes_ if
   // backed == peak_backed_bytes_ but application usage has gone up.  This can

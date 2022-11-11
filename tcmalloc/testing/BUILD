@@ -745,6 +745,7 @@ create_tcmalloc_testsuite(
     deps = [
         ":testutil",
         "//tcmalloc/internal:linked_list",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",

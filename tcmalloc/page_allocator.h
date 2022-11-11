@@ -87,7 +87,8 @@ class PageAllocator {
 
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
-  void ShrinkToUsageLimit() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void ShrinkToUsageLimit(Length n)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   const PageAllocInfo& info(MemoryTag tag) const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);

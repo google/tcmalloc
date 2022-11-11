@@ -408,6 +408,12 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["generic.current_allocated_bytes"].value = bytes_in_use_by_app;
   (*result)["generic.bytes_in_use_by_app"].value = bytes_in_use_by_app;
   (*result)["generic.heap_size"].value = HeapSizeBytes(stats.pageheap);
+  (*result)["generic.peak_memory_usage"].value =
+      static_cast<uint64_t>(stats.peak_stats.sampled_application_bytes);
+  (*result)["generic.realized_fragmentation"].value = static_cast<uint64_t>(
+      100. * safe_div(stats.peak_stats.backed_bytes -
+                          stats.peak_stats.sampled_application_bytes,
+                      stats.peak_stats.sampled_application_bytes));
   // Page Heap Free
   (*result)["tcmalloc.page_heap_free"].value = stats.pageheap.free_bytes;
   (*result)["tcmalloc.pageheap_free_bytes"].value = stats.pageheap.free_bytes;

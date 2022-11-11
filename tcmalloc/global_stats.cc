@@ -616,6 +616,24 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
+  if (name == "generic.peak_memory_usage") {
+    TCMallocStats stats;
+    ExtractTCMallocStats(&stats, false);
+    *value = static_cast<uint64_t>(stats.peak_stats.sampled_application_bytes);
+    return true;
+  }
+
+  if (name == "generic.realized_fragmentation") {
+    TCMallocStats stats;
+    ExtractTCMallocStats(&stats, false);
+    *value = static_cast<uint64_t>(
+        100. * safe_div(stats.peak_stats.backed_bytes -
+                            stats.peak_stats.sampled_application_bytes,
+                        stats.peak_stats.sampled_application_bytes));
+
+    return true;
+  }
+
   if (name == "generic.heap_size") {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     BackingStats stats = tc_globals.page_allocator().stats();

@@ -16,8 +16,10 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/log/check.h"
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -26,6 +28,10 @@ namespace {
 
 using tcmalloc_internal::SLL_Pop;
 using tcmalloc_internal::SLL_Push;
+
+// Since application data is sampled, allow wider error bars.
+constexpr double kBackingTolerance = 0.20;
+constexpr double kApplicationTolerance = 0.25;
 
 struct PeakStats {
   size_t backing;
@@ -59,6 +65,48 @@ PeakStats GetPeakStats() {
   return ret;
 }
 
+size_t RealizedFragmentation() {
+  const auto fragmentation = tcmalloc::MallocExtension::GetNumericProperty(
+      "generic.realized_fragmentation");
+  CHECK(fragmentation.has_value());
+  return fragmentation.value();
+}
+
+size_t ExpectedFragmentation(const size_t backing, const size_t application) {
+  return static_cast<uint64_t>(
+      100. * tcmalloc_internal::safe_div(backing - application, application));
+}
+
+size_t ExpectedFragmentation(const PeakStats& expected) {
+  return ExpectedFragmentation(expected.backing, expected.application);
+}
+
+PeakStats UpperBound(const PeakStats& stats) {
+  PeakStats upper;
+  upper.backing = stats.backing + stats.backing * kBackingTolerance / 2;
+  upper.application =
+      stats.application + stats.application * kApplicationTolerance / 2;
+  return upper;
+}
+
+PeakStats LowerBound(const PeakStats& stats) {
+  PeakStats lower;
+  lower.backing = stats.backing - stats.backing * kBackingTolerance / 2;
+  lower.application =
+      stats.application - stats.application * kApplicationTolerance / 2;
+  return lower;
+}
+
+size_t FragmentationTolerance(const PeakStats& expected) {
+  const PeakStats upper = UpperBound(expected);
+  const PeakStats lower = LowerBound(expected);
+  const size_t upper_bound =
+      ExpectedFragmentation(upper.backing, lower.application);
+  const size_t lower_bound =
+      ExpectedFragmentation(lower.backing, upper.application);
+  return upper_bound - lower_bound;
+}
+
 TEST(RealizedFragmentation, Accuracy) {
 #ifndef NDEBUG
   GTEST_SKIP() << "Skipping test under debug build for performance";
@@ -68,9 +116,6 @@ TEST(RealizedFragmentation, Accuracy) {
   // We have allocated at least once up to this point.
   ASSERT_GT(starting.backing, 0);
 
-  // Since application data is sampled, allow wider error bars.
-  constexpr double kBackingTolerance = 0.20;
-  constexpr double kApplicationTolerance = 0.25;
   absl::BitGen rng;
 
   // Allocate many 2MB allocations, as to trigger a new high water mark, then
@@ -84,11 +129,15 @@ TEST(RealizedFragmentation, Accuracy) {
   }
 
   const PeakStats peak0 = GetPeakStats();
-
-  EXPECT_NEAR(peak0.backing, starting.backing + kLargeTarget,
-              (starting.backing + kLargeTarget) * kBackingTolerance);
-  EXPECT_NEAR(peak0.application, starting.application + kLargeTarget,
-              (starting.application + kLargeTarget) * kApplicationTolerance);
+  PeakStats expected0;
+  expected0.backing = starting.backing + kLargeTarget;
+  expected0.application = starting.application + kLargeTarget;
+  EXPECT_NEAR(peak0.backing, expected0.backing,
+              expected0.backing * kBackingTolerance);
+  EXPECT_NEAR(peak0.application, expected0.application,
+              expected0.application * kApplicationTolerance);
+  EXPECT_NEAR(RealizedFragmentation(), ExpectedFragmentation(expected0),
+              FragmentationTolerance(expected0));
 
   while (large_list != nullptr) {
     void* object = SLL_Pop(&large_list);
@@ -116,11 +165,15 @@ TEST(RealizedFragmentation, Accuracy) {
   }
 
   const PeakStats peak1 = GetPeakStats();
-
-  EXPECT_NEAR(peak1.backing, starting.backing + kSmallTarget,
-              (starting.backing + kSmallTarget) * kBackingTolerance);
-  EXPECT_NEAR(peak1.application, starting.application + kSmallTarget,
-              (starting.application + kSmallTarget) * kApplicationTolerance);
+  PeakStats expected1;
+  expected1.backing = starting.backing + kSmallTarget;
+  expected1.application = starting.application + kSmallTarget;
+  EXPECT_NEAR(peak1.backing, expected1.backing,
+              expected1.backing * kBackingTolerance);
+  EXPECT_NEAR(peak1.application, expected1.application,
+              expected1.application * kApplicationTolerance);
+  EXPECT_NEAR(RealizedFragmentation(), ExpectedFragmentation(expected1),
+              FragmentationTolerance(expected1));
 
   while (small_list_free != nullptr) {
     void* object = SLL_Pop(&small_list_free);
@@ -135,16 +188,16 @@ TEST(RealizedFragmentation, Accuracy) {
   }
 
   const PeakStats peak2 = GetPeakStats();
-
-  const double expected_backing =
-      starting.backing + kSmallTarget + 2 * kLargeTarget;
-  const double expected_application =
+  PeakStats expected2;
+  expected2.backing = starting.backing + kSmallTarget + 2 * kLargeTarget;
+  expected2.application =
       starting.backing + kSmallSize * kept + 2 * kLargeTarget;
-
-  EXPECT_NEAR(peak2.backing, expected_backing,
-              expected_backing * kBackingTolerance);
-  EXPECT_NEAR(peak2.application, expected_application,
-              expected_application * kApplicationTolerance);
+  EXPECT_NEAR(peak2.backing, expected2.backing,
+              expected2.backing * kBackingTolerance);
+  EXPECT_NEAR(peak2.application, expected2.application,
+              expected2.application * kApplicationTolerance);
+  EXPECT_NEAR(RealizedFragmentation(), ExpectedFragmentation(expected2),
+              FragmentationTolerance(expected2));
 
   while (large_list != nullptr) {
     void* object = SLL_Pop(&large_list);

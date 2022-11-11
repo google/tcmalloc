@@ -211,7 +211,7 @@ PageId HugePageAwareAllocator::RefillFiller(Length n, size_t num_objects,
   // pages. Otherwise, we're nearly guaranteed to release r (if n
   // isn't very large), and the next allocation will just repeat this
   // process.
-  tc_globals.page_allocator().ShrinkToUsageLimit();
+  tc_globals.page_allocator().ShrinkToUsageLimit(n);
   return AllocAndContribute(r.start(), n, num_objects, /*donated=*/false);
 }
 
@@ -223,7 +223,7 @@ Span* HugePageAwareAllocator::Finalize(Length n, size_t num_objects,
   tc_globals.pagemap().Set(page, ret);
   ASSERT(!ret->sampled());
   info_.RecordAlloc(page, n, num_objects);
-  tc_globals.page_allocator().ShrinkToUsageLimit();
+  tc_globals.page_allocator().ShrinkToUsageLimit(n);
   return ret;
 }
 
