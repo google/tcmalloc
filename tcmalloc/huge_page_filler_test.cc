@@ -780,6 +780,7 @@ class FillerTest : public testing::TestWithParam<
     PageId p;
     Length n;
     size_t mark;
+    int num_objects;
   };
 
   void Mark(const PAlloc& alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
@@ -792,6 +793,10 @@ class FillerTest : public testing::TestWithParam<
   Length total_allocated_{0};
 
   absl::InsecureBitGen gen_;
+  // We usually choose the number of objects per span at random, but in tests
+  // where the output is hardcoded, we disable randomization through the
+  // variable below.
+  bool randomize_objects_per_span_ = true;
 
   void CheckStats() {
     EXPECT_EQ(hp_contained_, filler_.size());
@@ -808,9 +813,12 @@ class FillerTest : public testing::TestWithParam<
     ret.n = n;
     ret.pt = nullptr;
     ret.mark = ++next_mark_;
+    ret.num_objects = randomize_objects_per_span_
+                          ? (1 << absl::Uniform<int32_t>(gen_, 0, 8))
+                          : 1;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      auto [pt, page] = filler_.TryGet(n, 1);
+      auto [pt, page] = filler_.TryGet(n, ret.num_objects);
       ret.pt = pt;
       ret.p = page;
     }
@@ -819,7 +827,7 @@ class FillerTest : public testing::TestWithParam<
                                absl::base_internal::CycleClock::Now(), donated);
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
-        ret.p = ret.pt->Get(n, 1).page;
+        ret.p = ret.pt->Get(n, ret.num_objects).page;
       }
       filler_.Contribute(ret.pt, donated);
       ++hp_contained_;
@@ -843,7 +851,7 @@ class FillerTest : public testing::TestWithParam<
     PageTracker* pt;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      pt = filler_.Put(p.pt, p.p, p.n, 1);
+      pt = filler_.Put(p.pt, p.p, p.n, p.num_objects);
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {
@@ -1908,6 +1916,10 @@ TEST_P(FillerTest, Print) {
     // it would be way too much of a pain.
     return;
   }
+  // We prevent randomly choosing the number of objects per span since this
+  // test has hardcoded output which will change if the objects per span are
+  // choosen at random.
+  randomize_objects_per_span_ = false;
   auto allocs = GenerateInterestingAllocs();
 
   std::string buffer(1024 * 1024, '\0');
@@ -2182,7 +2194,6 @@ TEST_P(FillerTest, CheckBufferSize) {
   // We assume a maximum buffer size of 1 MiB. When increasing this size, ensure
   // that all places processing mallocz protos get updated as well.
   size_t buffer_size = printer.SpaceRequired();
-  printf("HugePageFiller buffer size: %zu\n", buffer_size);
   EXPECT_LE(buffer_size, 1024 * 1024);
 }
 
