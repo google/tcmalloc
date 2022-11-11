@@ -43,6 +43,10 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   const std::string buf = GetStatsInPbTxt();
 
+  absl::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
+      "tcmalloc.sampled_internal_fragmentation");
+  ASSERT_THAT(fragmentation, testing::Ne(absl::nullopt));
+
   // Expect `buf` to be in pbtxt format.
   EXPECT_THAT(buf, ContainsRegex(R"(in_use_by_app: [0-9]+)"));
   EXPECT_THAT(buf, ContainsRegex(R"(page_heap_freelist: [0-9]+)"));
