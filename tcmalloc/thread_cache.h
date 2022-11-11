@@ -127,7 +127,6 @@ class ThreadCache {
 
    public:
     void Init() {
-      LinkedList::Init();
       lowater_ = 0;
       max_length_ = 1;
       length_overages_ = 0;

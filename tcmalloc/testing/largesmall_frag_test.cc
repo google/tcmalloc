@@ -57,7 +57,6 @@ TEST(LargeSmallFrag, Test) {
   // small objects.
   const int64_t vsize = PhysicalMemoryUsed() / 1024 / 1024;
   tcmalloc_internal::LinkedList small;
-  small.Init();
   while (PhysicalMemoryUsed() / 1024 / 1024 == vsize) {
     small.Push(::operator new(kSmall));
   }

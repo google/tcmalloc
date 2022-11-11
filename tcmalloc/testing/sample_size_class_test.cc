@@ -81,7 +81,6 @@ TEST(SampleSizeClassTest, Main) {
   const double start = HeapProfileReport(kActualSize);
   size_t allocated = 0;
   tcmalloc_internal::LinkedList objs;
-  objs.Init();
   while (allocated < 128 * 1024 * 1024) {
     // We must use the return value from malloc, otherwise the compiler may
     // optimize out the call altogether!

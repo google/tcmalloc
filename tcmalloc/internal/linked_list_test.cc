@@ -17,6 +17,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <type_traits>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -30,9 +31,12 @@ namespace {
 
 class LinkedListTest : public ::testing::Test {
  protected:
-  void SetUp() override { list_.Init(); }
-
   LinkedList list_;
+
+  static_assert(!std::is_copy_constructible<LinkedList>::value,
+                "LinkedList should not be copyable");
+  static_assert(!std::is_move_constructible<LinkedList>::value,
+                "LinkedList should not be movable");
 };
 
 TEST_F(LinkedListTest, PushPop) {
@@ -115,6 +119,11 @@ TEST_F(LinkedListTest, PushPopBatch) {
 class TListTest : public ::testing::Test {
  protected:
   MockSpanList list_;
+
+  static_assert(!std::is_copy_constructible<MockSpanList>::value,
+                "TList should not be copyable");
+  static_assert(!std::is_move_constructible<MockSpanList>::value,
+                "TList should not be movable");
 };
 
 TEST_F(TListTest, AppendPushPop) {

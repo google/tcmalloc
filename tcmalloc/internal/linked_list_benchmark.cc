@@ -33,7 +33,6 @@ void BM_PushPop(benchmark::State& state) {
   const int sequential_calls = state.range(1);
 
   LinkedList list;
-  list.Init();
   const size_t size = pointers * sizeof(void*);
 
   std::vector<void*> v(sequential_calls);
@@ -68,7 +67,6 @@ void BM_PushPopBatch(benchmark::State& state) {
   const int batch_size = state.range(1);
 
   LinkedList list;
-  list.Init();
   const size_t size = pointers * sizeof(void*);
 
   const int kNumberOfObjects = 64 << 10;
