@@ -2298,6 +2298,39 @@ TEST_P(FillerTest, ReleasePriority) {
   }
 }
 
+// TODO(b/258965495): Enable this test.
+TEST_P(FillerTest, DISABLED_b258965495) {
+  // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
+  auto a1 = Allocate(Length(2));
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+
+  ASSERT_TRUE(BlockingUnback::success_);
+  // 1 huge page:  2 pages allocated, 0 free, kPagesPerHugePage-2 released
+  EXPECT_EQ(HardReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
+
+  BlockingUnback::success_ = false;
+  // 1 huge page:  3 pages allocated, 0 free, kPagesPerHugePage-3 released
+  auto a2 = Allocate(Length(1));
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  // Even if PartialRerelease::Return, returning a2 fails, so a2's pages stay
+  // freed rather than released.
+  //
+  // 1 huge page:  2 pages allocated, 1 free, kPagesPerHugePage-3 released
+  Delete(a2);
+
+  BlockingUnback::success_ = true;
+  // TODO(b/258965495): Improve maintenance of partial released lists.
+  //
+  // During the deallocation of a1 under PartialRerelease::Return, but before we
+  // mark the pages as free (PageTracker::MaybeRelease), we have:
+  //
+  // 1 huge page:  2 pages allocated, 1 free, kPagesPerHugePage-1 released
+  //
+  // The page appears fully (free_pages() <= released_pages()), rather than
+  // partially released, so we look for it on the wrong list.
+  Delete(a1);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     All, FillerTest,
     testing::Combine(testing::Values(FillerPartialRerelease::Return,
