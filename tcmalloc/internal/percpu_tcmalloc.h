@@ -1071,15 +1071,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #endif
 }
 
-static inline void* NoopUnderflow(int cpu, size_t size_class, void* arg) {
-  return nullptr;
-}
-
-static inline int NoopOverflow(int cpu, size_t size_class, void* item,
-                               void* arg) {
-  return -1;
-}
-
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
                                                   void** batch, size_t len) {

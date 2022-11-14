@@ -92,16 +92,6 @@ static const char* GetSoName(const dl_phdr_info* const info) {
 }
 #endif  // defined(__linux__)
 
-uintptr_t RoundUpToPageSize(uintptr_t address) {
-  const uintptr_t pagesize = sysconf(_SC_PAGESIZE);
-  CHECK_CONDITION(absl::has_single_bit(pagesize));
-
-  const uintptr_t pagesize_all_bits = pagesize - 1;
-
-  address = address + pagesize_all_bits;
-  return address & ~pagesize_all_bits;
-}
-
 struct SampleMergedData {
   int64_t count = 0;
   int64_t sum = 0;
