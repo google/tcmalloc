@@ -807,6 +807,39 @@ class FillerTest : public testing::TestWithParam<
     EXPECT_EQ((hp_contained_.in_pages() - total_allocated_).in_bytes(),
               freelist_bytes);
   }
+
+  PAlloc Allocate(Length n, bool donated = false) {
+    CHECK_CONDITION(n <= kPagesPerHugePage);
+    PAlloc ret = AllocateRaw(n, donated);
+    ret.n = n;
+    Mark(ret);
+    CheckStats();
+    return ret;
+  }
+
+  // Returns true iff the filler returned an empty hugepage
+  bool Delete(const PAlloc& p) {
+    Check(p);
+    bool r = DeleteRaw(p);
+    CheckStats();
+    return r;
+  }
+
+  Length ReleasePages(Length desired, absl::Duration d = absl::ZeroDuration()) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    return filler_.ReleasePages(desired, d, false);
+  }
+
+  Length HardReleasePages(Length desired) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    return filler_.ReleasePages(desired, absl::ZeroDuration(), true);
+  }
+
+  // Generates an "interesting" pattern of allocations that highlights all the
+  // various features of our stats.
+  std::vector<PAlloc> GenerateInterestingAllocs();
+
+ private:
   PAlloc AllocateRaw(Length n, bool donated = false) {
     EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
@@ -837,15 +870,6 @@ class FillerTest : public testing::TestWithParam<
     return ret;
   }
 
-  PAlloc Allocate(Length n, bool donated = false) {
-    CHECK_CONDITION(n <= kPagesPerHugePage);
-    PAlloc ret = AllocateRaw(n, donated);
-    ret.n = n;
-    Mark(ret);
-    CheckStats();
-    return ret;
-  }
-
   // Returns true iff the filler returned an empty hugepage.
   bool DeleteRaw(const PAlloc& p) {
     PageTracker* pt;
@@ -865,29 +889,6 @@ class FillerTest : public testing::TestWithParam<
     return false;
   }
 
-  // Returns true iff the filler returned an empty hugepage
-  bool Delete(const PAlloc& p) {
-    Check(p);
-    bool r = DeleteRaw(p);
-    CheckStats();
-    return r;
-  }
-
-  Length ReleasePages(Length desired, absl::Duration d = absl::ZeroDuration()) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, d, false);
-  }
-
-  Length HardReleasePages(Length desired) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, absl::ZeroDuration(), true);
-  }
-
-  // Generates an "interesting" pattern of allocations that highlights all the
-  // various features of our stats.
-  std::vector<PAlloc> GenerateInterestingAllocs();
-
- private:
   static int64_t clock_;
 };
 
@@ -1012,7 +1013,7 @@ TEST_P(FillerTest, Fragmentation) {
   while (total < absl::GetFlag(FLAGS_frag_size)) {
     auto n = Length(dist(rng));
     total += n;
-    allocs.push_back(AllocateRaw(n));
+    allocs.push_back(Allocate(n));
   }
 
   double max_slack = 0.0;
@@ -1029,12 +1030,12 @@ TEST_P(FillerTest, Fragmentation) {
     if (absl::Bernoulli(rng, 1.0 / 2)) {
       size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
       std::swap(allocs[index], allocs.back());
-      DeleteRaw(allocs.back());
+      Delete(allocs.back());
       total -= allocs.back().n;
       allocs.pop_back();
     } else {
       auto n = Length(dist(rng));
-      allocs.push_back(AllocateRaw(n));
+      allocs.push_back(Allocate(n));
       total += n;
     }
   }
@@ -1042,7 +1043,7 @@ TEST_P(FillerTest, Fragmentation) {
   EXPECT_LE(max_slack, 0.05);
 
   for (auto a : allocs) {
-    DeleteRaw(a);
+    Delete(a);
   }
 }
 
@@ -1187,12 +1188,12 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
 
   std::vector<PAlloc> allocs;
   while (filler_.used_pages() < baseline) {
-    allocs.push_back(AllocateRaw(Length(1)));
+    allocs.push_back(Allocate(Length(1)));
   }
 
   while (true) {
     while (filler_.used_pages() < peak) {
-      allocs.push_back(AllocateRaw(Length(1)));
+      allocs.push_back(Allocate(Length(1)));
     }
     const double peak_frac = filler_.hugepage_frac();
     // VSS
@@ -1203,7 +1204,7 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
     size_t limit = allocs.size();
     while (filler_.used_pages() > baseline) {
       --limit;
-      DeleteRaw(allocs[limit]);
+      Delete(allocs[limit]);
     }
     allocs.resize(limit);
     while (filler_.free_pages() > free_target) {
@@ -1397,9 +1398,9 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   // a3 (when deallocated by t3).
   constexpr Length N = kPagesPerHugePage;
 
-  auto a1 = AllocateRaw(N / 2);
-  auto a2 = AllocateRaw(Length(1));
-  auto a3 = AllocateRaw(Length(1));
+  auto a1 = Allocate(N / 2);
+  auto a2 = Allocate(Length(1));
+  auto a3 = Allocate(Length(1));
 
   // Trigger subrelease.  The filler now has a partial hugepage, so subsequent
   // calls to Delete() will cause us to unback the remainder of it.
@@ -1417,13 +1418,13 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   std::thread t1([&]() {
     BlockingUnback::set_lock(m1.get());
 
-    DeleteRaw(a2);
+    Delete(a2);
   });
 
   std::thread t2([&]() {
     BlockingUnback::set_lock(m2.get());
 
-    DeleteRaw(a3);
+    Delete(a3);
   });
 
   // Wait for t1 and t2 to block.
@@ -1434,7 +1435,7 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   //
   // Allocating a4 will complete the hugepage, but we have on-going releaser
   // threads.
-  auto a4 = AllocateRaw((N / 2) - Length(2));
+  auto a4 = Allocate((N / 2) - Length(2));
   EXPECT_EQ(NHugePages(1), filler_.size());
 
   // Let one of the threads proceed.  The huge page consists of:
@@ -1447,9 +1448,9 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
 
   // Reallocate a2.  We should still consider the huge page partially backed for
   // purposes of subreleasing.
-  a2 = AllocateRaw(Length(1));
+  a2 = Allocate(Length(1));
   EXPECT_EQ(NHugePages(1), filler_.size());
-  DeleteRaw(a2);
+  Delete(a2);
 
   // Let the other thread proceed.  The huge page consists of:
   // * a1 (N/2  ):  Allocated
@@ -1464,8 +1465,8 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   EXPECT_EQ(filler_.free_pages(), Length(0));
 
   // Clean up.
-  DeleteRaw(a1);
-  DeleteRaw(a4);
+  Delete(a1);
+  Delete(a4);
 
   BlockingUnback::counter_ = nullptr;
 }
