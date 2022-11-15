@@ -135,17 +135,6 @@ bool Parameters::pass_span_object_count_to_pageheap() {
   return v;
 }
 
-int32_t Parameters::chunks_for_page_tracker_lists() {
-  static int32_t v([]() {
-    if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_CHUNKS_FOR_PAGE_TRACKER_LISTS)) {
-      return 16;
-    }
-    return 8;
-  }());
-  return v;
-}
-
 bool Parameters::partial_transfer_cache() {
   return partial_transfer_cache_enabled().load(std::memory_order_relaxed);
 }

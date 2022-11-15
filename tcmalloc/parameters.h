@@ -130,8 +130,6 @@ class Parameters {
 
   static bool pass_span_object_count_to_pageheap();
 
-  static int32_t chunks_for_page_tracker_lists();
-
   static bool madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
   }

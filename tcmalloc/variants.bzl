@@ -121,12 +121,6 @@ variants = [
         "env": {"BORG_EXPERIMENTS": "TCMALLOC_PARTIAL_TRANSFER_CACHE"},
     },
     {
-        "name": "chunks_for_page_tracker_lists",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_CHUNKS_FOR_PAGE_TRACKER_LISTS"},
-    },
-    {
         "name": "mprotect_released_memory",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],

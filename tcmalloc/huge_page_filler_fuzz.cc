@@ -100,7 +100,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // HugePageFiller.
   //
   // [0] - We choose the partial release parameter.
-  // [1] - We choose the chunks_for_page_trackers_list parameter.
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the filler (allocate,
@@ -113,13 +112,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   const FillerPartialRerelease partial_rerelease =
       data[0] ? FillerPartialRerelease::Retain : FillerPartialRerelease::Return;
-  const int32_t chunks_for_page_tracker_lists = data[1] ? 8 : 16;
-  data += 2;
-  size -= 2;
+  data += 1;
+  size -= 1;
 
-  HugePageFiller<PageTracker> filler(
-      partial_rerelease, Clock{.now = mock_clock, .freq = freq},
-      chunks_for_page_tracker_lists, MemoryModifyFunction(MockUnback));
+  HugePageFiller<PageTracker> filler(partial_rerelease,
+                                     Clock{.now = mock_clock, .freq = freq},
+                                     MemoryModifyFunction(MockUnback));
 
   struct Alloc {
     PageId page;

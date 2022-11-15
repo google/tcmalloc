@@ -150,7 +150,6 @@ HugePageAwareAllocator::HugePageAwareAllocator(
     LifetimePredictionOptions lifetime_options)
     : PageAllocatorInterface("HugePageAware", tag),
       filler_(decide_partial_rerelease(),
-              Parameters::chunks_for_page_tracker_lists(),
               MemoryModifyFunction(SystemRelease)),
       alloc_(
           [](MemoryTag tag) {
