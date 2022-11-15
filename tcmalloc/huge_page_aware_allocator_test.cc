@@ -68,7 +68,8 @@ namespace {
 
 using testing::HasSubstr;
 
-class HugePageAwareAllocatorTest : public ::testing::Test {
+class HugePageAwareAllocatorTest
+    : public ::testing::TestWithParam<HugeRegionCountOption> {
  protected:
   HugePageAwareAllocatorTest() : rng_() {
     before_ = MallocExtension::GetRegionFactory();
@@ -78,7 +79,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal);
+    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal, GetParam());
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -213,6 +214,7 @@ class HugePageAwareAllocatorTest : public ::testing::Test {
   absl::flat_hash_map<Span*, size_t> ids_;
   size_t next_id_{0};
   Length total_;
+  bool use_huge_regions_more_often_;
 };
 
 struct SpanInfo {
@@ -220,7 +222,7 @@ struct SpanInfo {
   size_t objects_per_span;
 };
 
-TEST_F(HugePageAwareAllocatorTest, Fuzz) {
+TEST_P(HugePageAwareAllocatorTest, Fuzz) {
   std::vector<SpanInfo> allocs;
   for (int i = 0; i < 5000; ++i) {
     auto [n, objects] = RandomAllocSize();
@@ -245,7 +247,7 @@ TEST_F(HugePageAwareAllocatorTest, Fuzz) {
 
 // Prevent regression of the fragmentation problem that was reported in
 // b/63301358, reproduced in CL/161345659 and (partially) fixed in CL/161305971.
-TEST_F(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
+TEST_P(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
   std::vector<Span*> big_allocs, small_allocs;
   // Trigger creation of a hugepage with more than one allocation and plenty of
   // free space.
@@ -273,7 +275,7 @@ TEST_F(HugePageAwareAllocatorTest, JustUnderMultipleOfHugepages) {
   }
 }
 
-TEST_F(HugePageAwareAllocatorTest, Multithreaded) {
+TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
   static const size_t kThreads = 16;
   std::vector<std::thread> threads;
   threads.reserve(kThreads);
@@ -307,13 +309,13 @@ TEST_F(HugePageAwareAllocatorTest, Multithreaded) {
   }
 }
 
-TEST_F(HugePageAwareAllocatorTest, ReleasingLarge) {
+TEST_P(HugePageAwareAllocatorTest, ReleasingLarge) {
   // Ensure the HugeCache has some free items:
   Delete(New(kPagesPerHugePage, 1), 1);
   ASSERT_LE(kPagesPerHugePage, ReleasePages(kPagesPerHugePage));
 }
 
-TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
+TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(true);
 
@@ -342,7 +344,118 @@ TEST_F(HugePageAwareAllocatorTest, ReleasingSmall) {
   Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease);
 }
 
-TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
+TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
+  // This test verifies that we use HugeRegion for large allocations as soon as
+  // the abandoned pages exceed 64MB, when we use abandoned count in addition to
+  // slack for determining when to use region. If we use slack for computation,
+  // this test should not trigger use of HugeRegion.
+  static constexpr Length kSlack = kPagesPerHugePage / 2 - Length(2);
+  static constexpr Length kSmallSize = kSlack;
+  static constexpr Length kLargeSize = kPagesPerHugePage - kSlack;
+
+  Length slack;
+  Length small_pages;
+  HugeLength donated_huge_pages;
+  Length abandoned_pages;
+  size_t active_regions;
+
+  auto RefreshStats = [&]() {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    slack = allocator_->info().slack();
+    small_pages = allocator_->info().small();
+    donated_huge_pages = allocator_->DonatedHugePages();
+    abandoned_pages = allocator_->AbandonedPages();
+    active_regions = allocator_->region().ActiveRegions();
+  };
+
+  std::vector<Span*> small_spans;
+  std::vector<Span*> large_spans;
+  const Length small_binary_size = HLFromBytes(64 * 1024 * 1024).in_pages();
+  Length expected_abandoned;
+  Length expected_slack;
+  int huge_pages = 0;
+
+  // We first allocate large objects such that expected abandoned pages (once we
+  // deallocate those large objects) exceed the 64MB threshold. We place small
+  // allocations on the donated pages so that the hugepages aren't released.
+  while (true) {
+    Span* large = New(kLargeSize, 1);
+    Span* small = New(kSmallSize, 1);
+    large_spans.emplace_back(large);
+    small_spans.emplace_back(small);
+    ++huge_pages;
+    expected_abandoned += kLargeSize;
+    expected_slack += kSlack;
+
+    RefreshStats();
+    EXPECT_EQ(abandoned_pages, Length(0));
+    EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
+    EXPECT_EQ(slack, expected_slack);
+    EXPECT_EQ(active_regions, 0);
+    if (expected_abandoned >= small_binary_size) break;
+  }
+
+  // Reset the abandoned count and start releasing huge allocations. We should
+  // start accumulating abandoned pages in filler. As we don't expect to trigger
+  // HugeRegion yet, the number of active regions should be zero throughout.
+  expected_abandoned = Length(0);
+  for (auto l : large_spans) {
+    Delete(l, 1);
+    expected_abandoned += kLargeSize;
+    expected_slack -= kSlack;
+    RefreshStats();
+    EXPECT_EQ(abandoned_pages, expected_abandoned);
+    EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
+    EXPECT_EQ(slack, expected_slack);
+    EXPECT_EQ(active_regions, 0);
+  }
+  large_spans.clear();
+
+  RefreshStats();
+  EXPECT_EQ(slack, Length(0));
+  EXPECT_GE(abandoned_pages, small_binary_size);
+
+  // At this point, we have exhausted the 64MB slack for the donated pages to
+  // the filler. A large allocation should trigger allocation from a huge
+  // region if we are in HugeRegionCountOption::kAbandonedCount mode. If we are
+  // using slack for determining when to use region, we should allocate from
+  // filler and number of donated pages should continue to grow.
+  //
+  // We allocate a slightly larger object than before (kLargeSize + Length(1))
+  // to make sure that filler doesn't try to pack it on the pages we released
+  // due to deallocations in the previous step.
+  static constexpr Length kSmallSize2 = kSmallSize - Length(1);
+  static constexpr Length kLargeSize2 = kLargeSize + Length(1);
+  for (int i = 0; i < 100; ++i) {
+    Span* large = New(kLargeSize2, 1);
+    Span* small = New(kSmallSize2, 1);
+    large_spans.emplace_back(large);
+    small_spans.emplace_back(small);
+    RefreshStats();
+    if (GetParam() == HugeRegionCountOption::kSlack) {
+      ASSERT_LT(slack, small_pages);
+      ++huge_pages;
+      EXPECT_EQ(abandoned_pages, expected_abandoned);
+      EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
+      EXPECT_EQ(active_regions, 0);
+    } else {
+      RefreshStats();
+      EXPECT_EQ(abandoned_pages, expected_abandoned);
+      EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
+      EXPECT_EQ(active_regions, 1);
+    }
+  }
+
+  // Clean up.
+  for (auto l : large_spans) {
+    Delete(l, 1);
+  }
+  for (auto s : small_spans) {
+    Delete(s, 1);
+  }
+}
+
+TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
   // This test verifies that we accurately measure the amount of RAM that we
   // donate to the huge page filler when making large allocations, including
   // those kept alive after we deallocate.
@@ -432,7 +545,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedHugePages) {
   EXPECT_THAT(PrintInPbtxt(), HasSubstr("filler_abandoned_pages: 0"));
 }
 
-TEST_F(HugePageAwareAllocatorTest, SmallDonations) {
+TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
   // This test works with small donations (kHugePageSize/2,kHugePageSize]-bytes
   // in size to check statistics.
   static constexpr Length kSlack = Length(2);
@@ -530,7 +643,7 @@ TEST_F(HugePageAwareAllocatorTest, SmallDonations) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-TEST_F(HugePageAwareAllocatorTest, LargeDonations) {
+TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   // A small allocation of size (kHugePageSize/2,kHugePageSize]-bytes can be
   // considered not donated if it filled in a gap on an otherwise mostly free
   // huge page that came from a donation.
@@ -586,7 +699,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeDonations) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-TEST_F(HugePageAwareAllocatorTest, TailDonation) {
+TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   // This test makes sure that we account for tail donations alone in the
   // abandoned pages.
   static constexpr Length kSmallSize = Length(1);
@@ -665,7 +778,7 @@ TEST_F(HugePageAwareAllocatorTest, TailDonation) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-TEST_F(HugePageAwareAllocatorTest, NotDonated) {
+TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   // A small allocation of size (kHugePageSize/2,kHugePageSize]-bytes can be
   // considered not donated if it filled in a gap on an otherwise mostly free
   // huge page.
@@ -717,7 +830,7 @@ TEST_F(HugePageAwareAllocatorTest, NotDonated) {
   EXPECT_EQ(abandoned_pages, Length(0));
 }
 
-TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
+TEST_P(HugePageAwareAllocatorTest, PageMapInterference) {
   // This test manipulates the test HugePageAwareAllocator while making
   // allocations/deallocations that interact with the real PageAllocator. The
   // two share a global PageMap.
@@ -750,7 +863,7 @@ TEST_F(HugePageAwareAllocatorTest, PageMapInterference) {
   }
 }
 
-TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
+TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
   const int kIters = 2000;
   const Length kSmallPages = Length(1);
   // Large block must be larger than 1 huge page.
@@ -794,7 +907,7 @@ TEST_F(HugePageAwareAllocatorTest, LargeSmall) {
 }
 
 // Tests an edge case in hugepage donation behavior.
-TEST_F(HugePageAwareAllocatorTest, DonatedPageLists) {
+TEST_P(HugePageAwareAllocatorTest, DonatedPageLists) {
   const Length kSmallPages = Length(1);
   // Large block must be larger than 1 huge page.
   const Length kLargePages = 2 * kPagesPerHugePage - 2 * kSmallPages;
@@ -819,7 +932,7 @@ TEST_F(HugePageAwareAllocatorTest, DonatedPageLists) {
   Delete(large, 1);
 }
 
-TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
+TEST_P(HugePageAwareAllocatorTest, DonationAccounting) {
   const Length kSmallPages = Length(2);
   const Length kOneHugePageDonation = kPagesPerHugePage - kSmallPages;
   const Length kMultipleHugePagesDonation = 3 * kPagesPerHugePage - kSmallPages;
@@ -872,7 +985,7 @@ TEST_F(HugePageAwareAllocatorTest, DonationAccounting) {
 
 // We'd like to test OOM behavior but this, err, OOMs. :)
 // (Usable manually in controlled environments.
-TEST_F(HugePageAwareAllocatorTest, DISABLED_OOM) {
+TEST_P(HugePageAwareAllocatorTest, DISABLED_OOM) {
   std::vector<Span*> objs;
   auto n = Length(1);
   while (true) {
@@ -1201,7 +1314,7 @@ TEST_F(StatTest, Basic) {
   // test over, malloc all you like
 }
 
-TEST_F(HugePageAwareAllocatorTest, ParallelRelease) {
+TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
   ThreadManager threads;
   constexpr int kThreads = 10;
 
@@ -1260,6 +1373,11 @@ TEST_F(HugePageAwareAllocatorTest, ParallelRelease) {
     }
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    All, HugePageAwareAllocatorTest,
+    testing::Values(HugeRegionCountOption::kSlack,
+                    HugeRegionCountOption::kAbandonedCount));
 
 }  // namespace
 }  // namespace tcmalloc_internal

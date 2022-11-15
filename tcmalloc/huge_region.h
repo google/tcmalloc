@@ -153,6 +153,7 @@ class HugeRegionSet {
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
   BackingStats stats() const;
+  size_t ActiveRegions() const;
 
  private:
   void Fix(Region* r) {
@@ -521,6 +522,11 @@ inline void HugeRegionSet<Region>::AddSpanStats(SmallSpanStats* small,
   for (Region* region : list_) {
     region->AddSpanStats(small, large, ages);
   }
+}
+
+template <typename Region>
+inline size_t HugeRegionSet<Region>::ActiveRegions() const {
+  return n_;
 }
 
 template <typename Region>

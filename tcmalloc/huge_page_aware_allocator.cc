@@ -121,6 +121,13 @@ LifetimePredictionOptions decide_lifetime_predictions() {
   return LifetimePredictionOptions::Default();
 }
 
+HugeRegionCountOption use_huge_region_for_often() {
+  return IsExperimentActive(
+             Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN)
+             ? HugeRegionCountOption::kAbandonedCount
+             : HugeRegionCountOption::kSlack;
+}
+
 // Some notes: locking discipline here is a bit funny, because
 // we want to *not* hold the pageheap lock while backing memory.
 
@@ -130,10 +137,17 @@ LifetimePredictionOptions decide_lifetime_predictions() {
 // - provide enough data to figure out what we picked last time!
 
 HugePageAwareAllocator::HugePageAwareAllocator(MemoryTag tag)
-    : HugePageAwareAllocator(tag, decide_lifetime_predictions()) {}
+    : HugePageAwareAllocator(tag, use_huge_region_for_often(),
+                             decide_lifetime_predictions()) {}
 
 HugePageAwareAllocator::HugePageAwareAllocator(
-    MemoryTag tag, LifetimePredictionOptions lifetime_options)
+    MemoryTag tag, HugeRegionCountOption use_huge_region_more_often)
+    : HugePageAwareAllocator(tag, use_huge_region_more_often,
+                             decide_lifetime_predictions()) {}
+
+HugePageAwareAllocator::HugePageAwareAllocator(
+    MemoryTag tag, HugeRegionCountOption use_huge_region_more_often,
+    LifetimePredictionOptions lifetime_options)
     : PageAllocatorInterface("HugePageAware", tag),
       filler_(decide_partial_rerelease(),
               Parameters::chunks_for_page_tracker_lists(),
@@ -159,7 +173,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(
       cache_(HugeCache{&alloc_, MetaDataAlloc,
                        MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
-      lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_) {
+      lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_),
+      use_huge_region_more_often_(use_huge_region_more_often) {
   tracker_allocator_.Init(&tc_globals.arena());
   region_allocator_.Init(&tc_globals.arena());
 }
@@ -292,8 +307,10 @@ Span* HugePageAwareAllocator::AllocLarge(Length n, size_t objects_per_span,
   // So test directly if we're in the bad case--almost no binaries are.
   // If not, just fall back to direct allocation (and hope we do hit that case!)
   const Length slack = info_.slack();
-  // Don't bother at all until the binary is reasonably sized
-  if (slack < HLFromBytes(64 * 1024 * 1024).in_pages()) {
+  const Length donated =
+      UseHugeRegionMoreOften() ? abandoned_pages_ + slack : slack;
+  // Don't bother at all until the binary is reasonably sized.
+  if (donated < HLFromBytes(64 * 1024 * 1024).in_pages()) {
     return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
                                                   from_released);
   }
@@ -301,8 +318,11 @@ Span* HugePageAwareAllocator::AllocLarge(Length n, size_t objects_per_span,
   // In the vast majority of binaries, we have many small allocations which
   // will nicely fill slack.  (Fleetwide, the average ratio is 15:1; only
   // a handful of binaries fall below 1:1.)
+  //
+  // If we enable an experiment that tries to use huge regions more frequently,
+  // we skip the check.
   const Length small = info_.small();
-  if (slack < small) {
+  if (slack < small && !UseHugeRegionMoreOften()) {
     return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
                                                   from_released);
   }

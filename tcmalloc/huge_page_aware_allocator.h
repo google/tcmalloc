@@ -39,6 +39,19 @@ namespace tcmalloc_internal {
 
 bool decide_subrelease();
 
+enum class HugeRegionCountOption : bool {
+  // This is a default behavior. We use slack to determine when to use
+  // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
+  // greater than the number of small allocations, we allocate large allocations
+  // from HugeRegion.
+  kSlack,
+  // When the experiment TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN is
+  // enabled, we use number of abandoned pages in addition to slack to make a
+  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
+  // small binaries), we use HugeRegion for large allocations.
+  kAbandonedCount
+};
+
 // An implementation of the PageAllocator interface that is hugepage-efficient.
 // Attempts to pack allocations into full hugepages wherever possible,
 // and aggressively returns empty ones to the system.
@@ -47,6 +60,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   explicit HugePageAwareAllocator(MemoryTag tag);
   // For use in testing.
   HugePageAwareAllocator(MemoryTag tag,
+                         HugeRegionCountOption use_huge_region_more_often);
+  HugePageAwareAllocator(MemoryTag tag,
+                         HugeRegionCountOption use_huge_region_more_often,
                          LifetimePredictionOptions lifetime_options);
   ~HugePageAwareAllocator() override = default;
 
@@ -115,6 +131,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return lifetime_allocator_;
   }
 
+  const HugeRegionSet<HugeRegion>& region() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return regions_;
+  };
+
  private:
   typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
@@ -179,6 +200,15 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // objects into a separate region to reduce filler contention.
   RegionAllocImpl lifetime_allocator_region_alloc_;
   LifetimeBasedAllocator lifetime_allocator_;
+
+  // Ddetermines if the experiment is enabled. If enabled, we use
+  // abandoned_count_ in addition to slack in determining when to use
+  // HugeRegion.
+  const HugeRegionCountOption use_huge_region_more_often_;
+  bool UseHugeRegionMoreOften() const {
+    return use_huge_region_more_often_ ==
+           HugeRegionCountOption::kAbandonedCount;
+  }
 
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages)

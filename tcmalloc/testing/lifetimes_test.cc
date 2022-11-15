@@ -82,7 +82,8 @@ class LifetimesTest
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal, GetParam());
+    allocator_ = new (p) HugePageAwareAllocator(
+        MemoryTag::kNormal, HugeRegionCountOption::kSlack, GetParam());
     lifetime_allocator_ = &allocator_->lifetime_based_allocator();
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.
@@ -542,7 +543,8 @@ class LifetimeBasedAllocatorEnableAtRuntimeTest : public LifetimesTest {
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal, options);
+    allocator_ = new (p) HugePageAwareAllocator(
+        MemoryTag::kNormal, HugeRegionCountOption::kSlack, options);
     lifetime_allocator_ = &allocator_->lifetime_based_allocator();
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.
