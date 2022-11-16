@@ -443,6 +443,15 @@ class TransferCacheManager : public StaticForwarder {
     internal_transfer_cache::TryResizingCaches(*this);
   }
 
+  // Plunders unused objects from the transfer caches. The transfer caches track
+  // unused objects in low_water_mark_ that measures objects untouched since
+  // the previous plunder.
+  void TryPlunder() {
+    for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+      cache_[size_class].tc.TryPlunder(size_class);
+    }
+  }
+
   void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
       new (&cache_[i].tc) TransferCache(this, i);

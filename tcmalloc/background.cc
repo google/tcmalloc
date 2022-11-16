@@ -55,6 +55,11 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_slab_resize_check = absl::Now();
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
+  // We reclaim unused objects from the transfer caches once per
+  // kTransferCacheResizePeriod.
+  constexpr absl::Duration kTransferCachePlunderPeriod = absl::Seconds(5);
+  absl::Time last_transfer_cache_plunder_check = absl::Now();
+
   // Resize transfer caches once per kTransferCacheResizePeriod.
   constexpr absl::Duration kTransferCacheResizePeriod = absl::Seconds(2);
   absl::Time last_transfer_cache_resize_check = absl::Now();
@@ -99,6 +104,14 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     tc_globals.sharded_transfer_cache().Plunder();
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
+    // Try to plunder and reclaim unused objects from transfer caches.
+    if (now - last_transfer_cache_plunder_check >=
+            kTransferCachePlunderPeriod &&
+        Parameters::partial_transfer_cache()) {
+      tc_globals.transfer_cache().TryPlunder();
+      last_transfer_cache_plunder_check = now;
+    }
+
     if (now - last_transfer_cache_resize_check >= kTransferCacheResizePeriod) {
       tc_globals.transfer_cache().TryResizingCaches();
       last_transfer_cache_resize_check = now;
