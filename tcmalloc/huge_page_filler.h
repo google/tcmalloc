@@ -709,12 +709,10 @@ class PageTracker : public TList<PageTracker>::Elem {
   //
   // Returns a PageId i and a count of previously unbacked pages in the range
   // [i, i+n) in previously_unbacked.
-  PageAllocation Get(Length n, size_t num_objects)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // REQUIRES: p was the result of a previous call to Get(n)
-  void Put(PageId p, Length n, size_t num_objects)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  void Put(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
@@ -1086,9 +1084,8 @@ class HugePageFiller {
   MemoryModifyFunction unback_;
 };
 
-inline typename PageTracker::PageAllocation PageTracker::Get(
-    Length n, size_t num_objects) {
-  size_t index = free_.FindAndMark(n.raw_num(), num_objects);
+inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
+  size_t index = free_.FindAndMark(n.raw_num());
 
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
@@ -1112,9 +1109,9 @@ inline typename PageTracker::PageAllocation PageTracker::Get(
                         Length(unbacked)};
 }
 
-inline void PageTracker::Put(PageId p, Length n, size_t num_objects) {
+inline void PageTracker::Put(PageId p, Length n) {
   Length index = p - location_.first_page();
-  free_.Unmark(index.raw_num(), n.raw_num(), num_objects);
+  free_.Unmark(index.raw_num(), n.raw_num());
 
   when_numerator_ += n.raw_num() * absl::base_internal::CycleClock::Now();
   when_denominator_ += n.raw_num();
@@ -1345,7 +1342,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   } while (false);
   ASSUME(pt != nullptr);
   ASSERT(pt->longest_free_range() >= n);
-  const auto page_allocation = pt->Get(n, num_objects);
+  const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
   allocated_ += n;
 
@@ -1388,7 +1385,7 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 
   RemoveFromFillerList(pt);
 
-  pt->Put(p, n, num_objects);
+  pt->Put(p, n);
 
   allocated_ -= n;
   if (ABSL_PREDICT_FALSE(maybe_released) && pt->released()) {

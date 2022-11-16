@@ -124,17 +124,6 @@ absl::Duration Parameters::filler_skip_subrelease_interval() {
       skip_subrelease_interval_ns().load(std::memory_order_relaxed));
 }
 
-bool Parameters::pass_span_object_count_to_pageheap() {
-  static bool v([]() {
-    return IsExperimentActive(
-               Experiment::
-                   TEST_ONLY_TCMALLOC_PASS_SPAN_OBJECT_COUNT_TO_PAGEHEAP) ||
-           IsExperimentActive(
-               Experiment::TCMALLOC_PASS_SPAN_OBJECT_COUNT_TO_PAGEHEAP);
-  }());
-  return v;
-}
-
 bool Parameters::partial_transfer_cache() {
   return partial_transfer_cache_enabled().load(std::memory_order_relaxed);
 }

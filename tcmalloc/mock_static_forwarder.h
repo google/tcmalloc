@@ -33,13 +33,6 @@ class FakeStaticForwarder {
   static constexpr size_t class_to_size(int size_class) { return kClassSize; }
   static constexpr Length class_to_pages(int size_class) { return Length(1); }
 
-  void SetPassSpanObjectCountToPageheap(bool value) {
-    pass_span_object_count_to_pageheap_ = value;
-  }
-  bool PassSpanObjectCountToPageheap() const {
-    return pass_span_object_count_to_pageheap_;
-  }
-
   Span* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
@@ -98,22 +91,11 @@ class FakeStaticForwarder {
 
   absl::Mutex mu_;
   std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
-  bool pass_span_object_count_to_pageheap_ = false;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
  public:
   RawMockStaticForwarder() {
-    ON_CALL(*this, SetPassSpanObjectCountToPageheap)
-        .WillByDefault([this](bool value) {
-          static_cast<FakeStaticForwarder*>(this)
-              ->SetPassSpanObjectCountToPageheap(value);
-        });
-    ON_CALL(*this, PassSpanObjectCountToPageheap).WillByDefault([this]() {
-      return static_cast<FakeStaticForwarder*>(this)
-          ->PassSpanObjectCountToPageheap();
-    });
-
     ON_CALL(*this, MapObjectToSpan).WillByDefault([this](const void* object) {
       return static_cast<FakeStaticForwarder*>(this)->MapObjectToSpan(object);
     });
@@ -131,8 +113,6 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
         });
   }
 
-  MOCK_METHOD(void, SetPassSpanObjectCountToPageheap, (bool value));
-  MOCK_METHOD(bool, PassSpanObjectCountToPageheap, ());
   MOCK_METHOD(Span*, MapObjectToSpan, (const void* object));
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, size_t objects_per_span, Length pages_per_span));

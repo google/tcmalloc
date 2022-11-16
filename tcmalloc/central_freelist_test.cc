@@ -694,13 +694,12 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
 
 TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
   ASSERT_GT(TypeParam::kObjectsPerSpan, 1);
-  auto test_function = [&](size_t num_objects, bool pass_object_count) {
+  auto test_function = [&](size_t num_objects) {
     TypeParam e;
     std::vector<void*> objects(TypeParam::kObjectsPerSpan);
-    e.central_freelist().forwarder().SetPassSpanObjectCountToPageheap(
-        pass_object_count);
-    EXPECT_CALL(e.forwarder(),
-                AllocateSpan(testing::_, num_objects, testing::_))
+    EXPECT_CALL(
+        e.forwarder(),
+        AllocateSpan(testing::_, TypeParam::kObjectsPerSpan, testing::_))
         .Times(1);
     const size_t to_fetch =
         std::min(TypeParam::kObjectsPerSpan, TypeParam::kBatchSize);
@@ -708,8 +707,9 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
         e.central_freelist().RemoveRange(&objects[0], to_fetch);
     size_t returned = 0;
     while (returned < fetched) {
-      EXPECT_CALL(e.forwarder(),
-                  DeallocateSpans(testing::_, num_objects, testing::_))
+      EXPECT_CALL(
+          e.forwarder(),
+          DeallocateSpans(testing::_, TypeParam::kObjectsPerSpan, testing::_))
           .Times(1);
       const size_t to_return =
           std::min(fetched - returned, TypeParam::kBatchSize);
@@ -717,10 +717,8 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
       returned += to_return;
     }
   };
-  // Test not passing object count.
-  test_function(1, false);
-  // Test passing object count.
-  test_function(TypeParam::kObjectsPerSpan, true);
+  test_function(1);
+  test_function(TypeParam::kObjectsPerSpan);
 }
 
 TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {

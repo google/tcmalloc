@@ -232,7 +232,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction unback)
 
 inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
   if (n > longest_free()) return false;
-  auto index = Length(tracker_.FindAndMark(n.raw_num(), 1));
+  auto index = Length(tracker_.FindAndMark(n.raw_num()));
 
   PageId page = location_.start().first_page() + index;
   *p = page;
@@ -245,7 +245,7 @@ inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
 // If release=true, release any hugepages made empty as a result.
 inline void HugeRegion::Put(PageId p, Length n, bool release) {
   Length index = p - location_.start().first_page();
-  tracker_.Unmark(index.raw_num(), n.raw_num(), 1);
+  tracker_.Unmark(index.raw_num(), n.raw_num());
 
   Dec(p, n, release);
 }

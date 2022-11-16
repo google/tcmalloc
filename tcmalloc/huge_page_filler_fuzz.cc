@@ -172,7 +172,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           {
             absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
-            result.page = result.pt->Get(n, num_objects).page;
+            result.page = result.pt->Get(n).page;
             filler.Contribute(result.pt, donated);
           }
 
@@ -299,7 +299,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
-          start = pt->Get(n, 1).page;
+          start = pt->Get(n).page;
           filler.Contribute(pt, /*donated=*/true);
         }
 

@@ -205,7 +205,7 @@ PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
   if (pt->was_donated()) {
     pt->set_abandoned_count(n);
   }
-  PageId page = pt->Get(n, num_objects).page;
+  PageId page = pt->Get(n).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated);

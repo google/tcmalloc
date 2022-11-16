@@ -30,7 +30,6 @@ namespace {
 struct RangeInfo {
   size_t index;
   size_t len;
-  size_t num_objects;
 };
 
 template <size_t N>
@@ -41,20 +40,18 @@ static void BM_MarkUnmark(benchmark::State& state) {
   while (range.used() < N / 2) {
     size_t len =
         absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
-    size_t num_objects = absl::Uniform<int32_t>(rng, 0, 1000) + 1;
-    size_t i = range.FindAndMark(len, num_objects);
-    things.push_back({i, len, num_objects});
+    size_t i = range.FindAndMark(len);
+    things.push_back({i, len});
   }
 
   // only count successes :/
   for (auto s : state) {
     size_t index = absl::Uniform<int32_t>(rng, 0, things.size());
     auto p = things[index];
-    range.Unmark(p.index, p.len, p.num_objects);
+    range.Unmark(p.index, p.len);
     size_t len =
         absl::LogUniform<int32_t>(rng, 0, range.longest_free() - 1) + 1;
-    size_t num_objects = absl::Uniform<int32_t>(rng, 0, 1000) + 1;
-    things[index] = {range.FindAndMark(len, num_objects), len, num_objects};
+    things[index] = {range.FindAndMark(len), len};
   }
 
   state.SetItemsProcessed(state.iterations());
@@ -68,10 +65,9 @@ static void BM_MarkUnmarkEmpty(benchmark::State& state) {
   RangeTracker<N> range;
   absl::BitGen rng;
   for (auto s : state) {
-    size_t num_objects = absl::Uniform<int32_t>(rng, 0, 1000) + 1;
-    size_t index = range.FindAndMark(K, num_objects);
+    size_t index = range.FindAndMark(K);
     benchmark::DoNotOptimize(index);
-    range.Unmark(index, K, num_objects);
+    range.Unmark(index, K);
   }
 
   state.SetItemsProcessed(state.iterations());
@@ -87,7 +83,7 @@ BENCHMARK_TEMPLATE(BM_MarkUnmarkEmpty, 256 * 32, 256 * 32);
 template <size_t N>
 static void BM_MarkUnmarkChunks(benchmark::State& state) {
   RangeTracker<N> range;
-  range.FindAndMark(N, N);
+  range.FindAndMark(N);
   size_t index = 0;
   absl::BitGen rng;
   while (index < N) {
@@ -95,15 +91,15 @@ static void BM_MarkUnmarkChunks(benchmark::State& state) {
     len = std::min(len, N - index);
     size_t drop = absl::Uniform<int32_t>(rng, 0, len);
     if (drop > 0) {
-      range.Unmark(index, drop, drop);
+      range.Unmark(index, drop);
     }
     index += len;
   }
   size_t m = range.longest_free();
   for (auto s : state) {
-    size_t index = range.FindAndMark(m, m);
+    size_t index = range.FindAndMark(m);
     benchmark::DoNotOptimize(index);
-    range.Unmark(index, m, m);
+    range.Unmark(index, m);
   }
 
   state.SetItemsProcessed(state.iterations());
@@ -121,7 +117,7 @@ static void BM_FillOnes(benchmark::State& state) {
     range.Clear();
     state.ResumeTiming();
     for (size_t j = 0; j < N; ++j) {
-      benchmark::DoNotOptimize(range.FindAndMark(1, 1));
+      benchmark::DoNotOptimize(range.FindAndMark(1));
     }
   }
 
@@ -137,10 +133,10 @@ static void BM_EmptyOnes(benchmark::State& state) {
   while (state.KeepRunningBatch(N)) {
     state.PauseTiming();
     range.Clear();
-    range.FindAndMark(N, N);
+    range.FindAndMark(N);
     state.ResumeTiming();
     for (size_t j = 0; j < N; ++j) {
-      range.Unmark(j, 1, 1);
+      range.Unmark(j, 1);
     }
   }
 

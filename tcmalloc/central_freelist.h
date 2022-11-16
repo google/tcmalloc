@@ -48,10 +48,6 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static bool PassSpanObjectCountToPageheap() {
-    return Parameters::pass_span_object_count_to_pageheap();
-  }
-
   static Span* MapObjectToSpan(const void* object);
   static Span* AllocateSpan(int size_class, size_t objects_per_span,
                             Length pages_per_span)
@@ -416,11 +412,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
-    size_t objects_per_span = 1;
-    if (ABSL_PREDICT_FALSE(forwarder_.PassSpanObjectCountToPageheap())) {
-      objects_per_span = objects_per_span_;
-    }
-    forwarder_.DeallocateSpans(size_class_, objects_per_span,
+    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
                                absl::MakeSpan(free_spans, free_count));
   }
 }
@@ -488,12 +480,8 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
   // Note, this could result in multiple calls to populate each allocating
   // a new span and the pushing those partially full spans onto nonempty.
   lock_.Unlock();
-  size_t objects_per_span = 1;
-  if (ABSL_PREDICT_FALSE(forwarder_.PassSpanObjectCountToPageheap())) {
-    objects_per_span = objects_per_span_;
-  }
   Span* span =
-      forwarder_.AllocateSpan(size_class_, objects_per_span, pages_per_span_);
+      forwarder_.AllocateSpan(size_class_, objects_per_span_, pages_per_span_);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());
@@ -502,11 +490,10 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
     return 0;
   }
 
-  objects_per_span = objects_per_span_;
-  int result = span->BuildFreelist(object_size_, objects_per_span, batch, N);
+  int result = span->BuildFreelist(object_size_, objects_per_span_, batch, N);
   ASSERT(result > 0);
   // This is a cheaper check than using FreelistEmpty().
-  bool span_empty = result == objects_per_span;
+  bool span_empty = result == objects_per_span_;
 
   lock_.Lock();
 
