@@ -405,9 +405,10 @@ TEST(ProfileConverterTest, NonHeapProfileDoesntHaveResidency) {
     }
   }
 
-  EXPECT_THAT(label_to_units,
-              Each(Key(Not(AnyOf("sampled_resident_bytes", "swapped_bytes",
-                                 "stale_bytes")))));
+  EXPECT_THAT(
+      label_to_units,
+      Each(Key(Not(AnyOf("sampled_resident_bytes",
+                         "swapped_bytes")))));
 }
 
 TEST(ProfileConverterTest, HeapProfile) {

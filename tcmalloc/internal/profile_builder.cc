@@ -592,7 +592,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int sampled_resident_id =
       builder.InternString("sampled_resident_bytes");
   const int swapped_id = builder.InternString("swapped_bytes");
-  const int stale_id = builder.InternString("stale_bytes");
 
   perftools::profiles::Profile& converted = builder.profile();
 
