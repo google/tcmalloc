@@ -31,6 +31,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
@@ -45,8 +46,12 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
-using testing::Pair;
-using testing::UnorderedElementsAre;
+using ::testing::AnyOf;
+using ::testing::Each;
+using ::testing::Key;
+using ::testing::Not;
+using ::testing::Pair;
+using ::testing::UnorderedElementsAre;
 
 // Returns the fully resolved path of this program.
 std::string RealPath() {
@@ -79,7 +84,7 @@ TEST(ProfileBuilderTest, Mappings) {
   EXPECT_THAT(filenames, testing::Contains(RealPath()));
 
   // Ensure that no mapping ID is ID "0".
-  EXPECT_THAT(mapping_ids, testing::Not(testing::Contains(0)));
+  EXPECT_THAT(mapping_ids, Not(testing::Contains(0)));
 }
 
 TEST(ProfileBuilderTest, LocationTableNoMappings) {
@@ -224,7 +229,7 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
   // Expect that we find at least 2 locations with a mapping.
   EXPECT_GE(location_with_mapping_found, 2);
   // Expect that no location has ID "0."
-  EXPECT_THAT(interned_addresses, testing::Not(testing::Contains(0)));
+  EXPECT_THAT(interned_addresses, Not(testing::Contains(0)));
 
   // Samples
   for (const auto& s : converted.sample()) {
@@ -252,17 +257,11 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
   }
 }
 
-TEST(ProfileConverterTest, HeapProfile) {
-  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
-
-  auto fake_profile = std::make_unique<FakeProfile>();
-  fake_profile->SetType(ProfileType::kHeap);
-  fake_profile->SetDuration(kDuration);
-
+perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
+                                             const ProfileType profile_type) {
   std::vector<Profile::Sample> samples;
 
-  {
-    // We have three samples here that will be merged. The second sample has
+  {  // We have three samples here that will be merged. The second sample has
     // `span_start_address` as nullptr, so `sampled_resident_size` in the
     // profile is contributed by the other two samples.
     Profile::Sample sample;
@@ -308,11 +307,11 @@ TEST(ProfileConverterTest, HeapProfile) {
     size_t kSize = GetPageSize();
     void* ptr1 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
                       MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
-    ASSERT_NE(ptr1, MAP_FAILED) << errno;
+    CHECK_NE(ptr1, MAP_FAILED) << errno;
     void* ptr2 = mmap(nullptr, kSize, PROT_WRITE | PROT_READ,
                       MAP_ANONYMOUS | MAP_PRIVATE | MAP_LOCKED, -1, 0);
-    ASSERT_NE(ptr2, MAP_FAILED) << errno;
-    ASSERT_EQ(munmap(ptr2, kSize), 0) << errno;
+    CHECK_NE(ptr2, MAP_FAILED) << errno;
+    CHECK_EQ(munmap(ptr2, kSize), 0) << errno;
 
     sample.sum = 2345;
     sample.count = 5;
@@ -361,12 +360,19 @@ TEST(ProfileConverterTest, HeapProfile) {
     sample.access_allocated = Profile::Sample::Access::Hot;
   }
 
+  auto fake_profile = std::make_unique<FakeProfile>();
+  fake_profile->SetType(profile_type);
+  fake_profile->SetDuration(duration);
   fake_profile->SetSamples(std::move(samples));
-
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
   auto converted_or = MakeProfileProto(profile);
-  ASSERT_TRUE(converted_or.ok());
-  const auto& converted = **converted_or;
+  CHECK(converted_or.ok());
+  return **converted_or;
+}
+
+TEST(ProfileConverterTest, NonHeapProfileDoesntHaveResidency) {
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+  const auto& converted = MakeTestProfile(kDuration, ProfileType::kPeakHeap);
 
   // Two sample types: [objects, count] and [space, bytes]
   std::vector<std::pair<std::string, std::string>> extracted_sample_type;
@@ -376,14 +382,58 @@ TEST(ProfileConverterTest, HeapProfile) {
     labels.first = converted.string_table(s.type());
     labels.second = converted.string_table(s.unit());
 
-    ASSERT_TRUE(sample_types.insert(s.type()).second);
+    ASSERT_TRUE(sample_types.insert(s.type()).second)
+        << "Duplicate sample type #" << s.type() << ": "
+        << converted.string_table(s.type());
+  }
+  // Require that the default_sample_type appeared in sample_type.
+  EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
+  EXPECT_THAT(
+      extracted_sample_type,
+      UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes")));
+
+  absl::flat_hash_map<std::string, std::string> label_to_units;
+  for (const auto& s : converted.sample()) {
+    for (const auto& l : s.label()) {
+      if (l.num_unit() != 0) {
+        const std::string unit = converted.string_table(l.num_unit());
+        auto it = label_to_units.insert({converted.string_table(l.key()), unit})
+                      .first;
+        // We expect units to be consistent for the same key, across samples.
+        EXPECT_EQ(it->second, unit);
+      }
+    }
+  }
+
+  EXPECT_THAT(label_to_units,
+              Each(Key(Not(AnyOf("sampled_resident_bytes", "swapped_bytes",
+                                 "stale_bytes")))));
+}
+
+TEST(ProfileConverterTest, HeapProfile) {
+  constexpr absl::Duration kDuration = absl::Milliseconds(1500);
+  const auto& converted = MakeTestProfile(kDuration, ProfileType::kHeap);
+
+  // Two sample types: [objects, count] and [space, bytes]
+  std::vector<std::pair<std::string, std::string>> extracted_sample_type;
+  absl::flat_hash_set<int> sample_types;
+  for (const auto& s : converted.sample_type()) {
+    auto& labels = extracted_sample_type.emplace_back();
+    labels.first = converted.string_table(s.type());
+    labels.second = converted.string_table(s.unit());
+
+    ASSERT_TRUE(sample_types.insert(s.type()).second)
+        << "Duplicate sample type #" << s.type() << ": "
+        << converted.string_table(s.type());
   }
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
   EXPECT_THAT(
       extracted_sample_type,
-      UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes")));
+      UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes"),
+                           Pair("resident_space", "bytes"),
+                           Pair("swapped_space", "bytes")));
 
   SampleLabels extracted;
   {

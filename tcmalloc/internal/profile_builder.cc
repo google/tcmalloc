@@ -95,7 +95,7 @@ static const char* GetSoName(const dl_phdr_info* const info) {
 struct SampleMergedData {
   int64_t count = 0;
   int64_t sum = 0;
-  std::optional<size_t> sampled_resident_size;
+  std::optional<size_t> resident_size;
   std::optional<size_t> swapped_size;
 };
 
@@ -134,33 +134,34 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     const tcmalloc::Profile& profile) {
   SampleMergedMap map;
   // Used to populate residency info in heap profile.
-  std::optional<Residency> r;
+  std::optional<Residency> residency;
+
   if (profile.Type() == ProfileType::kHeap) {
-    r.emplace();
+    residency.emplace();
   }
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
     data.count += entry.count;
     data.sum += entry.sum;
-    if (!r.has_value()) return;
-    auto residency_info =
-        r->Get(entry.span_start_address, entry.allocated_size);
-    if (!residency_info.has_value()) return;
-    // As long as `residency_info` provides data in some samples, the merged
-    // data will have their sums.
-    // NOTE: The data here is comparable to `sum`, not to `requested_size` (it's
-    // pre-multiplied by count and represents all of the resident memory).
-    // TODO(b/235916219): The name `sampled_resident_size` is a bit of a
-    // misnomer and will be fixed when we switch to separate sample types for
-    // these.
-    size_t sampled_resident_size = entry.count * residency_info->bytes_resident;
-    size_t swapped_size = entry.count * residency_info->bytes_swapped;
-    if (!data.sampled_resident_size.has_value()) {
-      data.sampled_resident_size = sampled_resident_size;
-      data.swapped_size = swapped_size;
-    } else {
-      data.sampled_resident_size.value() += sampled_resident_size;
-      data.swapped_size.value() += swapped_size;
+    if (residency.has_value()) {
+      auto residency_info =
+          residency->Get(entry.span_start_address, entry.allocated_size);
+      // As long as `residency_info` provides data in some samples, the merged
+      // data will have their sums.
+      // NOTE: The data here is comparable to `tcmalloc::Profile::Sample::sum`,
+      // not to `tcmalloc::Profile::Sample::requested_size` (it's pre-multiplied
+      // by count and represents all of the resident memory).
+      if (residency_info.has_value()) {
+        size_t resident_size = entry.count * residency_info->bytes_resident;
+        size_t swapped_size = entry.count * residency_info->bytes_swapped;
+        if (!data.resident_size.has_value()) {
+          data.resident_size = resident_size;
+          data.swapped_size = swapped_size;
+        } else {
+          data.resident_size.value() += resident_size;
+          data.swapped_size.value() += swapped_size;
+        }
+      }
     }
   });
   return map;
@@ -577,15 +578,21 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int request_id = builder.InternString("request");
   const int size_returning_id = builder.InternString("size_returning");
   const int space_id = builder.InternString("space");
+  const int resident_space_id = builder.InternString("resident_space");
+  const int swapped_space_id = builder.InternString("swapped_space");
   const int access_hint_id = builder.InternString("access_hint");
   const int access_allocated_id = builder.InternString("access_allocated");
   const int cold_id = builder.InternString("cold");
   const int hot_id = builder.InternString("hot");
 
   // NOTE: Do not rely on these string constants. They will be removed!
+  // TODO(b/259585789): Remove all of these tags when sample type rollout
+  // and collection hits close to 100%; certainly by Q3 2023, but could consider
+  // earlier.
   const int sampled_resident_id =
       builder.InternString("sampled_resident_bytes");
   const int swapped_id = builder.InternString("swapped_bytes");
+  const int stale_id = builder.InternString("stale_bytes");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -607,6 +614,18 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     perftools::profiles::ValueType& sample_type = *converted.add_sample_type();
     sample_type.set_type(space_id);
     sample_type.set_unit(bytes_id);
+  }
+
+  const bool exporting_residency =
+      (profile.Type() == tcmalloc::ProfileType::kHeap);
+  if (exporting_residency) {
+    perftools::profiles::ValueType* sample_type = converted.add_sample_type();
+    sample_type->set_type(resident_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(swapped_space_id);
+    sample_type->set_unit(bytes_id);
   }
 
   int default_sample_type_id;
@@ -643,6 +662,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     sample.add_value(data.count);
     sample.add_value(data.sum);
+    if (exporting_residency) {
+      sample.add_value(data.resident_size.value_or(0));
+      sample.add_value(data.swapped_size.value_or(0));
+    }
 
     // add fields that are common to all memory profiles
     auto add_label = [&](int key, int unit, size_t value) {
@@ -661,13 +684,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
     add_positive_label(size_returning_id, 0, entry.requested_size_returning);
-    // TODO(b/235916219): Remove these when we convert these from tags to sample
-    // types.
-    // If there is no issue getting the residency info, these two fields in
-    // `Profile::Sample` are populated so we add them to the proto.
-    if (data.sampled_resident_size.has_value()) {
-      add_label(sampled_resident_id, bytes_id,
-                data.sampled_resident_size.value());
+    // TODO(b/235916219): Remove all of these when sample type rollout is
+    // complete.
+    if (data.resident_size.has_value()) {
+      add_label(sampled_resident_id, bytes_id, data.resident_size.value());
       add_label(swapped_id, bytes_id, data.swapped_size.value());
     }
 
