@@ -231,6 +231,7 @@ cc_library(
     ],
     deps = [
         ":logging",
+        ":prefetch",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
@@ -591,6 +592,7 @@ cc_library(
     deps = [
         ":mincore",
         ":percpu",
+        ":prefetch",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
@@ -626,6 +628,29 @@ cc_test(
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "prefetch",
+    hdrs = ["prefetch.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+    ],
+)
+
+cc_test(
+    name = "prefetch_test",
+    srcs = ["prefetch_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":prefetch",
         "@com_google_googletest//:gtest_main",
     ],
 )
