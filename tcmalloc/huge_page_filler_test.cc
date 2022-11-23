@@ -721,7 +721,7 @@ thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
 bool BlockingUnback::success_ = true;
 
-class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
+class FillerTest {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -760,16 +760,18 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
   HugePageFiller<PageTracker> filler_;
 
-  FillerTest()
-      : filler_(GetParam(),
+  FillerTest(FillerPartialRerelease partial_rerelease,
+             bool separate_allocs_for_few_and_many_objects_spans)
+      : filler_(partial_rerelease,
                 Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
+                separate_allocs_for_few_and_many_objects_spans,
                 MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
     // Reset success state
     BlockingUnback::success_ = true;
   }
 
-  ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
+  ~FillerTest() { EXPECT_EQ(filler_.size(), NHugePages(0)); }
 
   struct PAlloc {
     PageTracker* pt;
@@ -804,9 +806,19 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
               (hp_contained_.in_pages() - total_allocated_).in_bytes());
   }
 
+  PAlloc AllocateWithObjectCount(Length n, int objects) {
+    CHECK_CONDITION(n <= kPagesPerHugePage);
+    CHECK_CONDITION(objects > 0);
+    PAlloc ret = AllocateRaw(n, objects, false);
+    ret.n = n;
+    Mark(ret);
+    CheckStats();
+    return ret;
+  }
+
   PAlloc Allocate(Length n, bool donated = false) {
     CHECK_CONDITION(n <= kPagesPerHugePage);
-    PAlloc ret = AllocateRaw(n, donated);
+    PAlloc ret = AllocateRaw(n, /*objects=*/1, donated);
     ret.n = n;
     Mark(ret);
     CheckStats();
@@ -835,8 +847,11 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
   // various features of our stats.
   std::vector<PAlloc> GenerateInterestingAllocs();
 
+  // Tests fragmentation
+  void FragmentationTest(int objects_per_span);
+
  private:
-  PAlloc AllocateRaw(Length n, bool donated = false) {
+  PAlloc AllocateRaw(Length n, int objects, bool donated = false) {
     EXPECT_LT(n, kPagesPerHugePage);
     PAlloc ret;
     ret.n = n;
@@ -844,7 +859,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
     ret.mark = ++next_mark_;
     ret.num_objects = randomize_objects_per_span_
                           ? (1 << absl::Uniform<int32_t>(gen_, 0, 8))
-                          : 1;
+                          : objects;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
       auto [pt, page] = filler_.TryGet(n, ret.num_objects);
@@ -858,7 +873,7 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
         ret.p = ret.pt->Get(n).page;
       }
-      filler_.Contribute(ret.pt, donated);
+      filler_.Contribute(ret.pt, donated, ret.num_objects);
       ++hp_contained_;
     }
 
@@ -890,10 +905,18 @@ class FillerTest : public testing::TestWithParam<FillerPartialRerelease> {
 
 int64_t FillerTest::clock_{1234};
 
-TEST_P(FillerTest, Density) {
+class FillerTestRegularAllocOnly
+    : public testing::TestWithParam<FillerPartialRerelease>,
+      public FillerTest {
+ public:
+  FillerTestRegularAllocOnly()
+      : FillerTest(/*partial_rerelease=*/GetParam(),
+                   /*separate_allocs_for_few_and_many_objects_spans=*/false) {}
+};
+
+TEST_P(FillerTestRegularAllocOnly, Density) {
   absl::BitGen rng;
-  // Start with a really annoying setup: some hugepages half
-  // empty (randomly)
+  // Start with a really annoying setup: some hugepages half empty (randomly)
   std::vector<PAlloc> allocs;
   std::vector<PAlloc> doomed_allocs;
   static const HugeLength kNumHugePages = NHugePages(64);
@@ -933,7 +956,7 @@ TEST_P(FillerTest, Density) {
   }
 }
 
-TEST_P(FillerTest, Release) {
+TEST_P(FillerTestRegularAllocOnly, Release) {
   static const Length kAlloc = kPagesPerHugePage / 2;
   PAlloc p1 = Allocate(kAlloc - Length(1));
   PAlloc p2 = Allocate(kAlloc + Length(1));
@@ -959,12 +982,12 @@ TEST_P(FillerTest, Release) {
   Delete(p5);
 }
 
-TEST_P(FillerTest, ReleaseZero) {
+TEST_P(FillerTestRegularAllocOnly, ReleaseZero) {
   // Trying to release no pages should not crash.
   EXPECT_EQ(ReleasePages(Length(0), absl::Seconds(1)), Length(0));
 }
 
-TEST_P(FillerTest, ReleaseFailureOnRerelease) {
+TEST_P(FillerTestRegularAllocOnly, ReleaseFailureOnRerelease) {
   if (GetParam() == FillerPartialRerelease::Retain) {
     // We do not encounter the rerelease path during the test setup.
     return;
@@ -1000,7 +1023,7 @@ TEST_P(FillerTest, ReleaseFailureOnRerelease) {
   EXPECT_EQ(filler_.size(), NHugePages(0));
 }
 
-TEST_P(FillerTest, Fragmentation) {
+void FillerTest::FragmentationTest(int objects_per_span) {
   absl::BitGen rng;
   auto dist = EmpiricalDistribution(absl::GetFlag(FLAGS_frag_req_limit));
 
@@ -1009,7 +1032,7 @@ TEST_P(FillerTest, Fragmentation) {
   while (total < absl::GetFlag(FLAGS_frag_size)) {
     auto n = Length(dist(rng));
     total += n;
-    allocs.push_back(Allocate(n));
+    allocs.push_back(AllocateWithObjectCount(n, objects_per_span));
   }
 
   double max_slack = 0.0;
@@ -1031,7 +1054,7 @@ TEST_P(FillerTest, Fragmentation) {
       allocs.pop_back();
     } else {
       auto n = Length(dist(rng));
-      allocs.push_back(Allocate(n));
+      allocs.push_back(AllocateWithObjectCount(n, objects_per_span));
       total += n;
     }
   }
@@ -1043,7 +1066,11 @@ TEST_P(FillerTest, Fragmentation) {
   }
 }
 
-TEST_P(FillerTest, PrintFreeRatio) {
+TEST_P(FillerTestRegularAllocOnly, Fragmentation) {
+  FragmentationTest(/*objects_per_span=*/1);
+}
+
+TEST_P(FillerTestRegularAllocOnly, PrintFreeRatio) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -1115,7 +1142,7 @@ using testing::AnyOf;
 using testing::Eq;
 using testing::StrEq;
 
-TEST_P(FillerTest, HugePageFrac) {
+TEST_P(FillerTestRegularAllocOnly, HugePageFrac) {
   // I don't actually care which we get, both are
   // reasonable choices, but don't report a NaN/complain
   // about divide by 0s/ give some bogus number for empty.
@@ -1176,7 +1203,7 @@ TEST_P(FillerTest, HugePageFrac) {
 //
 // This test is a tool for analyzing parameters -- not intended as an actual
 // unit test.
-TEST_P(FillerTest, DISABLED_ReleaseFrac) {
+TEST_P(FillerTestRegularAllocOnly, DISABLED_ReleaseFrac) {
   absl::BitGen rng;
   const Length baseline = LengthFromBytes(absl::GetFlag(FLAGS_bytes));
   const Length peak = baseline * absl::GetFlag(FLAGS_growth_factor);
@@ -1213,7 +1240,7 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
   }
 }
 
-TEST_P(FillerTest, ReleaseAccounting) {
+TEST_P(FillerTestRegularAllocOnly, ReleaseAccounting) {
   const Length N = kPagesPerHugePage;
   auto big = Allocate(N - Length(2));
   auto tiny1 = Allocate(Length(1));
@@ -1288,7 +1315,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
-TEST_P(FillerTest, ReleaseWithReuse) {
+TEST_P(FillerTestRegularAllocOnly, ReleaseWithReuse) {
   const Length N = kPagesPerHugePage;
   auto half = Allocate(N / 2);
   auto tiny1 = Allocate(N / 4);
@@ -1327,7 +1354,7 @@ TEST_P(FillerTest, ReleaseWithReuse) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
-TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
+TEST_P(FillerTestRegularAllocOnly, AvoidArbitraryQuarantineVMGrowth) {
   const Length N = kPagesPerHugePage;
   // Guarantee we have a ton of released pages go empty.
   for (int i = 0; i < 10 * 1000; ++i) {
@@ -1342,7 +1369,7 @@ TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   EXPECT_LE(s.system_bytes, 1024 * 1024 * 1024);
 }
 
-TEST_P(FillerTest, StronglyPreferNonDonated) {
+TEST_P(FillerTestRegularAllocOnly, StronglyPreferNonDonated) {
   // We donate several huge pages of varying fullnesses. Then we make several
   // allocations that would be perfect fits for the donated hugepages, *after*
   // making one allocation that won't fit, to ensure that a huge page is
@@ -1369,7 +1396,7 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   }
 }
 
-TEST_P(FillerTest, ParallelUnlockingSubrelease) {
+TEST_P(FillerTestRegularAllocOnly, ParallelUnlockingSubrelease) {
   if (GetParam() == FillerPartialRerelease::Retain) {
     // When rerelease happens without going to Unback(), this test
     // (intentionally) deadlocks, as we never receive the call.
@@ -1467,7 +1494,7 @@ TEST_P(FillerTest, ParallelUnlockingSubrelease) {
   BlockingUnback::counter_ = nullptr;
 }
 
-TEST_P(FillerTest, PartialRereleaseReturnFailure) {
+TEST_P(FillerTestRegularAllocOnly, PartialRereleaseReturnFailure) {
   if (GetParam() == FillerPartialRerelease::Retain) {
     // When we retain pages, we do not encounter a potentially unexpected state
     // of free_pages!=released_pages.
@@ -1533,7 +1560,7 @@ TEST_P(FillerTest, PartialRereleaseReturnFailure) {
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
-TEST_P(FillerTest, SkipSubrelease) {
+TEST_P(FillerTestRegularAllocOnly, SkipSubrelease) {
   // This test is sensitive to the number of pages per hugepage, as we are
   // printing raw stats.
   if (kPagesPerHugePage != Length(256)) {
@@ -1907,7 +1934,7 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
 
 // Test the output of Print(). This is something of a change-detector test,
 // but that's not all bad in this case.
-TEST_P(FillerTest, Print) {
+TEST_P(FillerTestRegularAllocOnly, Print) {
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -2019,7 +2046,7 @@ HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hug
 
 // Testing subrelase stats: ensure that the cumulative number of released
 // pages and broken hugepages is no less than those of the last 10 mins
-TEST_P(FillerTest, CheckSubreleaseStats) {
+TEST_P(FillerTestRegularAllocOnly, CheckSubreleaseStats) {
   // Get lots of hugepages into the filler.
   Advance(absl::Minutes(1));
   std::vector<PAlloc> result;
@@ -2102,7 +2129,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   }
 }
 
-TEST_P(FillerTest, ConstantBrokenHugePages) {
+TEST_P(FillerTestRegularAllocOnly, ConstantBrokenHugePages) {
   // Get and Fill up many huge pages
   const HugeLength kHugePages = NHugePages(10 * kPagesPerHugePage.raw_num());
 
@@ -2166,7 +2193,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
 
 // Confirms that a timeseries that contains every epoch does not exceed the
 // expected buffer capacity of 1 MiB.
-TEST_P(FillerTest, CheckBufferSize) {
+TEST_P(FillerTestRegularAllocOnly, CheckBufferSize) {
   const int kEpochs = 600;
   const absl::Duration kEpochLength = absl::Seconds(1);
 
@@ -2194,7 +2221,7 @@ TEST_P(FillerTest, CheckBufferSize) {
   EXPECT_LE(buffer_size, 1024 * 1024);
 }
 
-TEST_P(FillerTest, ReleasePriority) {
+TEST_P(FillerTestRegularAllocOnly, ReleasePriority) {
   // Fill up many huge pages (>> kPagesPerHugePage).  This relies on an
   // implementation detail of ReleasePages buffering up at most
   // kPagesPerHugePage as potential release candidates.
@@ -2295,7 +2322,7 @@ TEST_P(FillerTest, ReleasePriority) {
 }
 
 // TODO(b/258965495): Enable this test.
-TEST_P(FillerTest, DISABLED_b258965495) {
+TEST_P(FillerTestRegularAllocOnly, DISABLED_b258965495) {
   // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
   auto a1 = Allocate(Length(2));
   EXPECT_EQ(filler_.size(), NHugePages(1));
@@ -2327,7 +2354,132 @@ TEST_P(FillerTest, DISABLED_b258965495) {
   Delete(a1);
 }
 
-INSTANTIATE_TEST_SUITE_P(All, FillerTest,
+INSTANTIATE_TEST_SUITE_P(All, FillerTestRegularAllocOnly,
+                         testing::Values(FillerPartialRerelease::Return,
+                                         FillerPartialRerelease::Retain));
+
+class FillerTestSeparateFewAndManyObjectsAllocs
+    : public testing::TestWithParam<FillerPartialRerelease>,
+      public FillerTest {
+ public:
+  FillerTestSeparateFewAndManyObjectsAllocs()
+      : FillerTest(/*partial_rerelease=*/GetParam(),
+                   /*separate_allocs_for_few_and_many_objects_spans=*/true) {}
+};
+
+// Test Get and Put operations on the filler work correctly when number of
+// objects are provided.  We expect that Get requests for a span with few
+// objects is satisfied by the few_objects_alloc_ and for a span with many
+// objects is satisfied by the many_objects_alloc_.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, GetsAndPuts) {
+  randomize_objects_per_span_ = false;
+  absl::BitGen rng;
+  std::vector<PAlloc> few_object_allocs;
+  std::vector<PAlloc> many_object_allocs;
+  static const HugeLength kNumHugePages = NHugePages(64);
+  for (auto i = Length(0); i < kNumHugePages.in_pages(); ++i) {
+    ASSERT_EQ(filler_.pages_allocated(), i);
+    // Randomly select whether the next span should have few or many objects.
+    if (absl::Bernoulli(rng, 0.5)) {
+      few_object_allocs.push_back(AllocateWithObjectCount(Length(1), 1));
+      EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(),
+                few_object_allocs.size());
+    } else {
+      many_object_allocs.push_back(
+          AllocateWithObjectCount(Length(1), kFewObjectsAllocMaxLimit * 2));
+      EXPECT_EQ(filler_.many_objects_pages_allocated().raw_num(),
+                many_object_allocs.size());
+    }
+  }
+  EXPECT_GE(filler_.size(), kNumHugePages);
+  EXPECT_LE(filler_.size(), kNumHugePages + NHugePages(1));
+  // clean up, check for failures
+  for (auto a : many_object_allocs) {
+    Delete(a);
+  }
+  ASSERT_EQ(filler_.many_objects_pages_allocated(), Length(0));
+  for (auto a : few_object_allocs) {
+    Delete(a);
+  }
+  ASSERT_EQ(filler_.few_objects_pages_allocated(), Length(0));
+  ASSERT_EQ(filler_.pages_allocated(), Length(0));
+}
+
+// Test fragmentation remains under a particular limit while spans are
+// repeatedly allocated and deallocated.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, Fragmentation) {
+  FragmentationTest(/*objects_per_span=*/1);
+  FragmentationTest(/*objects_per_span=*/2 * kFewObjectsAllocMaxLimit);
+}
+
+// Test that filler tries to release pages from the few_objects_alloc_ before
+// attempting to release pages from the many_object_allocs_.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, ReleasePriority) {
+  randomize_objects_per_span_ = false;
+  const Length N = kPagesPerHugePage;
+  const Length kToBeReleased(4);
+  auto fewalloc = AllocateWithObjectCount(N - kToBeReleased, 2);
+  auto manyalloc =
+      AllocateWithObjectCount(N - kToBeReleased, kFewObjectsAllocMaxLimit * 2);
+  EXPECT_EQ(ReleasePages(Length(1)), kToBeReleased);
+  EXPECT_EQ(fewalloc.pt->released_pages(), kToBeReleased);
+  EXPECT_EQ(manyalloc.pt->released_pages(), Length(0));
+  EXPECT_EQ(ReleasePages(Length(1)), kToBeReleased);
+  EXPECT_EQ(manyalloc.pt->released_pages(), kToBeReleased);
+  EXPECT_EQ(fewalloc.pt->released_pages(), kToBeReleased);
+  Delete(fewalloc);
+  Delete(manyalloc);
+}
+
+// Repeatedly grow from FLAG_bytes to FLAG_bytes * growth factor, then shrink
+// back down by random deletion. Then release partial hugepages until
+// pageheap is bounded by some fraction of usage.  Measure the blowup in VSS
+// footprint.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
+  randomize_objects_per_span_ = false;
+  absl::BitGen rng;
+  const Length baseline = LengthFromBytes(absl::GetFlag(FLAGS_bytes));
+  const Length peak = baseline * absl::GetFlag(FLAGS_growth_factor);
+  const Length free_target = baseline * absl::GetFlag(FLAGS_release_until);
+
+  std::vector<PAlloc> allocs;
+  EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
+  while (filler_.used_pages() < baseline) {
+    allocs.push_back(
+        AllocateWithObjectCount(Length(1), 2 * kFewObjectsAllocMaxLimit));
+  }
+  EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
+  EXPECT_EQ(filler_.many_objects_pages_allocated().raw_num(), allocs.size());
+
+  for (int i = 0; i < 100; ++i) {
+    while (filler_.used_pages() < peak) {
+      allocs.push_back(
+          AllocateWithObjectCount(Length(1), 2 * kFewObjectsAllocMaxLimit));
+    }
+    std::shuffle(allocs.begin(), allocs.end(), rng);
+    size_t limit = allocs.size();
+    while (filler_.used_pages() > baseline) {
+      --limit;
+      Delete(allocs[limit]);
+    }
+    allocs.resize(limit);
+    while (filler_.free_pages() > free_target) {
+      ReleasePages(kMaxValidPages);
+    }
+    EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
+    EXPECT_EQ(filler_.many_objects_pages_allocated().raw_num(), allocs.size());
+    // Compare the total size of the hugepages in the filler and the allocated
+    // pages.
+    EXPECT_LE(filler_.size().in_bytes(),
+              10 * filler_.pages_allocated().in_bytes());
+  }
+  while (!allocs.empty()) {
+    Delete(allocs.back());
+    allocs.pop_back();
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(All, FillerTestSeparateFewAndManyObjectsAllocs,
                          testing::Values(FillerPartialRerelease::Return,
                                          FillerPartialRerelease::Retain));
 

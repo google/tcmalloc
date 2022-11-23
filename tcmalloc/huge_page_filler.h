@@ -23,10 +23,10 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/internal/cycleclock.h"
+#include "absl/base/optimization.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
-#include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/lifetime_tracker.h"
@@ -34,7 +34,6 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
-#include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -237,7 +236,15 @@ struct SubreleaseStats {
 template <size_t kEpochs = 16>
 class FillerStatsTracker {
  public:
-  enum Type { kRegular, kDonated, kPartialReleased, kReleased, kNumTypes };
+  enum Type {
+    kRegular,
+    kFewObjects = kRegular,
+    kManyObjects,
+    kDonated,
+    kPartialReleased,
+    kReleased,
+    kNumTypes
+  };
 
   struct FillerStats {
     Length num_pages;
@@ -642,6 +649,11 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       tracker_.kSkipEmptyEntries);
 }
 
+static constexpr size_t kFewObjectsAllocMaxLimit = 16;
+inline bool IsManyObjectsSpan(int span_objects_count) {
+  return span_objects_count > kFewObjectsAllocMaxLimit;
+}
+
 // PageTracker keeps track of the allocation status of every page in a HugePage.
 // It allows allocation and deallocation of a contiguous run of pages.
 //
@@ -806,6 +818,8 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
+  bool HasManyObjectsSpans() const { return has_many_objects_spans_; }
+  void SetHasManyObjectsSpans() { has_many_objects_spans_ = true; }
 
  private:
   void init_when(uint64_t w) {
@@ -857,6 +871,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Tracks the lifetime of the donated object associated with this tracker.
   LifetimeTracker::Tracker lifetime_tracker_;
 
+  bool has_many_objects_spans_ = false;
+
   ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
                                          MemoryModifyFunction unback) {
     void* ptr = p.start_addr();
@@ -907,8 +923,10 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(FillerPartialRerelease partial_rerelease,
+                          bool separate_allocs_for_few_and_many_objects_spans,
                           MemoryModifyFunction unback);
   HugePageFiller(FillerPartialRerelease partial_rerelease, Clock clock,
+                 bool separate_allocs_for_few_and_many_objects_spans,
                  MemoryModifyFunction unback);
 
   typedef TrackerType Tracker;
@@ -940,13 +958,21 @@ class HugePageFiller {
   // Contributes a tracker to the filler. If "donated," then the tracker is
   // marked as having come from the tail of a multi-hugepage allocation, which
   // causes it to be treated slightly differently.
-  void Contribute(TrackerType* pt, bool donated);
+  void Contribute(TrackerType* pt, bool donated, size_t num_objects);
 
   HugeLength size() const { return size_; }
 
   // Useful statistics
-  Length pages_allocated() const { return allocated_; }
-  Length used_pages() const { return allocated_; }
+  Length many_objects_pages_allocated() const {
+    return many_objects_pages_allocated_;
+  }
+  Length few_objects_pages_allocated() const {
+    return few_objects_pages_allocated_;
+  }
+  Length pages_allocated() const {
+    return few_objects_pages_allocated_ + many_objects_pages_allocated_;
+  }
+  Length used_pages() const { return pages_allocated(); }
   Length unmapped_pages() const { return unmapped_; }
   Length free_pages() const;
   Length used_pages_in_released() const { return n_used_released_; }
@@ -1010,7 +1036,17 @@ class HugePageFiller {
   size_t ListFor(Length longest, size_t chunk) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
-  PageTrackerLists<kNumLists> regular_alloc_;
+  // We maintain two lists of hugepages from which no pages have been released
+  // to the OS.
+  //
+  // By default, we allocate spans using the pages from few_objects_alloc_.
+  //
+  // When the experiment for separateing allocs for few and many objects is
+  // enabled, we allocate spans with at most kFewObjectsAllocMaxLimit
+  // objects from few_objects_alloc_.  Spans with more objects are allocated
+  // from many_objects_alloc_.
+  PageTrackerLists<kNumLists> few_objects_alloc_;
+  PageTrackerLists<kNumLists> many_objects_alloc_;
   PageTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
@@ -1026,12 +1062,13 @@ class HugePageFiller {
   //
   // regular_alloc_released_:  This list contains huge pages whose pages are
   // either allocated or returned to the OS.  There are no pages that are free,
-  // but not returned to the OS.  n_used_released_ contains the number of
-  // pages in those huge pages that are not free (i.e., allocated).
+  // but not returned to the OS.  n_used_released_ contains the number of pages
+  // in those huge pages that are not free (i.e., allocated).
   Length n_used_partial_released_;
   Length n_used_released_;
   PageTrackerLists<kNumLists> regular_alloc_partial_released_;
   PageTrackerLists<kNumLists> regular_alloc_released_;
+  const bool separate_allocs_for_few_and_many_objects_spans_ = false;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -1047,7 +1084,15 @@ class HugePageFiller {
     ASSERT(a != nullptr);
     ASSERT(b != nullptr);
 
-    return a->used_pages() < b->used_pages();
+    if (a->used_pages() < b->used_pages()) return true;
+    if (a->used_pages() > b->used_pages()) return false;
+    // If 'a' has many objects spans, then we do not prefer to release from 'a'
+    // compared to 'b'.
+    if (a->HasManyObjectsSpans()) return false;
+    // We know 'a' does not have many object spans.  If 'b' has many object
+    // spans, then we prefer to release from 'a'.  Otherwise, we do not prefer
+    // either.
+    return b->HasManyObjectsSpans();
   }
 
   // SelectCandidates identifies the candidates.size() best candidates in the
@@ -1063,12 +1108,13 @@ class HugePageFiller {
 
   // Release desired pages from the page trackers in candidates.  Returns the
   // number of pages released.
-  Length ReleaseCandidates(absl::Span<TrackerType*> candidates, Length desired)
+  Length ReleaseCandidates(absl::Span<TrackerType*> candidates, Length target)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeLength size_;
 
-  Length allocated_;
+  Length few_objects_pages_allocated_;
+  Length many_objects_pages_allocated_;
   Length unmapped_;
 
   // How much have we eagerly unmapped (in already released hugepages), but
@@ -1222,18 +1268,23 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    FillerPartialRerelease partial_rerelease, MemoryModifyFunction unback)
+    FillerPartialRerelease partial_rerelease,
+    bool separate_allocs_for_few_and_many_objects_spans,
+    MemoryModifyFunction unback)
     : HugePageFiller(partial_rerelease,
                      Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     unback) {}
+                     separate_allocs_for_few_and_many_objects_spans, unback) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     FillerPartialRerelease partial_rerelease, Clock clock,
+    bool separate_allocs_for_few_and_many_objects_spans,
     MemoryModifyFunction unback)
-    : size_(NHugePages(0)),
+    : separate_allocs_for_few_and_many_objects_spans_(
+          separate_allocs_for_few_and_many_objects_spans),
+      size_(NHugePages(0)),
       partial_rerelease_(partial_rerelease),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback) {}
@@ -1311,31 +1362,42 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   TrackerType* pt;
 
   bool was_released = false;
+  bool is_many_objects_span = false;
   do {
-    pt = regular_alloc_.GetLeast(ListFor(n, 0));
-    if (pt) {
-      ASSERT(!pt->donated());
-      break;
-    }
-    pt = donated_alloc_.GetLeast(n.raw_num());
-    if (pt) {
-      break;
-    }
-    pt = regular_alloc_partial_released_.GetLeast(ListFor(n, 0));
-    if (pt) {
-      ASSERT(!pt->donated());
-      was_released = true;
-      ASSERT(n_used_partial_released_ >= pt->used_pages());
-      n_used_partial_released_ -= pt->used_pages();
-      break;
-    }
-    pt = regular_alloc_released_.GetLeast(ListFor(n, 0));
-    if (pt) {
-      ASSERT(!pt->donated());
-      was_released = true;
-      ASSERT(n_used_released_ >= pt->used_pages());
-      n_used_released_ -= pt->used_pages();
-      break;
+    if (ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
+        num_objects > kFewObjectsAllocMaxLimit) {
+      pt = many_objects_alloc_.GetLeast(ListFor(n, 0));
+      is_many_objects_span = true;
+      if (pt) {
+        ASSERT(!pt->donated());
+        break;
+      }
+    } else {
+      pt = few_objects_alloc_.GetLeast(ListFor(n, 0));
+      if (pt) {
+        ASSERT(!pt->donated());
+        break;
+      }
+      pt = donated_alloc_.GetLeast(n.raw_num());
+      if (pt) {
+        break;
+      }
+      pt = regular_alloc_partial_released_.GetLeast(ListFor(n, 0));
+      if (pt) {
+        ASSERT(!pt->donated());
+        was_released = true;
+        ASSERT(n_used_partial_released_ >= pt->used_pages());
+        n_used_partial_released_ -= pt->used_pages();
+        break;
+      }
+      pt = regular_alloc_released_.GetLeast(ListFor(n, 0));
+      if (pt) {
+        ASSERT(!pt->donated());
+        was_released = true;
+        ASSERT(n_used_released_ >= pt->used_pages());
+        n_used_released_ -= pt->used_pages();
+        break;
+      }
     }
 
     return {nullptr, PageId{0}};
@@ -1344,7 +1406,11 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   ASSERT(pt->longest_free_range() >= n);
   const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
-  allocated_ += n;
+  if (is_many_objects_span) {
+    many_objects_pages_allocated_ += n;
+  } else {
+    few_objects_pages_allocated_ += n;
+  }
 
   ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
   (void)was_released;
@@ -1384,10 +1450,12 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   }
 
   RemoveFromFillerList(pt);
-
   pt->Put(p, n);
-
-  allocated_ -= n;
+  if (pt->HasManyObjectsSpans()) {
+    many_objects_pages_allocated_ -= n;
+  } else {
+    few_objects_pages_allocated_ -= n;
+  }
   if (ABSL_PREDICT_FALSE(maybe_released) && pt->released()) {
     unmapped_ += n;
     unmapping_unaccounted_ += n;
@@ -1436,16 +1504,24 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::Contribute(TrackerType* pt,
-                                                    bool donated) {
+                                                    bool donated,
+                                                    size_t num_objects) {
   // A contributed huge page should not yet be subreleased.
   ASSERT(pt->released_pages() == Length(0));
-
-  allocated_ += pt->used_pages();
-  if (donated) {
-    ASSERT(pt->was_donated());
-    DonateToFillerList(pt);
-  } else {
+  if (ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
+      IsManyObjectsSpan(num_objects)) {
+    pt->SetHasManyObjectsSpans();
+    many_objects_pages_allocated_ += pt->used_pages();
     AddToFillerList(pt);
+  } else {
+    few_objects_pages_allocated_ += pt->used_pages();
+    ASSERT(!pt->HasManyObjectsSpans());
+    if (donated) {
+      ASSERT(pt->was_donated());
+      DonateToFillerList(pt);
+    } else {
+      AddToFillerList(pt);
+    }
   }
   ++size_;
   UpdateFillerStatsTracker();
@@ -1653,8 +1729,17 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
   // pages.
   while (total_released < desired) {
     CandidateArray candidates;
-    int n_candidates = SelectCandidates(absl::MakeSpan(candidates), 0,
-                                        regular_alloc_, kChunks);
+    // TODO(b/199203282): revisit the order in which allocs are searched for
+    // release candidates.
+    //
+    // We select candidate hugepages from few_objects_alloc_ first as we expect
+    // hugepages in this alloc to become free earlier than those in other
+    // allocs.
+    int n_candidates =
+        SelectCandidates(absl::MakeSpan(candidates), /*current_candidates=*/0,
+                         few_objects_alloc_, kChunks);
+    n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
+                                    many_objects_alloc_, kChunks);
     // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
     // great candidate for partial release.
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
@@ -1679,8 +1764,10 @@ inline void HugePageFiller<TrackerType>::AddSpanStats(
   auto loop = [&](const TrackerType* pt) {
     pt->AddSpanStats(small, large, ages);
   };
-  // We can skip the first kChunks lists as they are known to be 100% full.
-  regular_alloc_.Iter(loop, kChunks);
+  // We can skip the first chunks_per_tracker_list lists as they are known to be
+  // 100% full.
+  many_objects_alloc_.Iter(loop, kChunks);
+  few_objects_alloc_.Iter(loop, kChunks);
   donated_alloc_.Iter(loop, 0);
   regular_alloc_partial_released_.Iter(loop, 0);
   regular_alloc_released_.Iter(loop, 0);
@@ -1840,7 +1927,9 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   // note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
     nfull += NHugePages(
-        regular_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
+        few_objects_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
+    nfull += NHugePages(
+        many_objects_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
   }
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
@@ -1893,7 +1982,9 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
-  regular_alloc_.Iter(
+  many_objects_alloc_.Iter(
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
+  few_objects_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
@@ -1923,7 +2014,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   // note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
     nfull += NHugePages(
-        regular_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
+        many_objects_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
+    nfull += NHugePages(
+        few_objects_alloc_[ListFor(/*longest=*/Length(0), chunk)].length());
   }
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
@@ -1951,8 +2044,10 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                             safe_div(unmapped_pages(), nrel.in_pages())));
   hpaa->PrintI64(
       "filler_hugepageable_used_bytes",
-      static_cast<uint64_t>(hugepage_frac() *
-                            static_cast<double>(allocated_.in_bytes())));
+      static_cast<uint64_t>(
+          hugepage_frac() *
+          static_cast<double>(many_objects_pages_allocated_.in_bytes() +
+                              few_objects_pages_allocated_.in_bytes())));
   hpaa->PrintI64("filler_num_pages_subreleased",
                  subrelease_stats_.total_pages_subreleased.raw_num());
   hpaa->PrintI64("filler_num_hugepages_broken",
@@ -1966,7 +2061,9 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
-  regular_alloc_.Iter(
+  many_objects_alloc_.Iter(
+      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
+  few_objects_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); }, 0);
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
@@ -1987,12 +2084,13 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   StatsTrackerType::FillerStats stats;
-  stats.num_pages = allocated_;
+  stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
   stats.used_pages_in_subreleased_huge_pages =
       n_used_partial_released_ + n_used_released_;
-  stats.huge_pages[StatsTrackerType::kRegular] = regular_alloc_.size();
+  stats.huge_pages[StatsTrackerType::kFewObjects] = few_objects_alloc_.size();
+  stats.huge_pages[StatsTrackerType::kManyObjects] = many_objects_alloc_.size();
   stats.huge_pages[StatsTrackerType::kDonated] = donated_alloc_.size();
   stats.huge_pages[StatsTrackerType::kPartialReleased] =
       regular_alloc_partial_released_.size();
@@ -2042,7 +2140,12 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     size_t chunk = IndexFor(pt);
     size_t i = ListFor(longest, chunk);
     if (!pt->released()) {
-      regular_alloc_.Remove(pt, i);
+      if (ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
+          pt->HasManyObjectsSpans()) {
+        many_objects_alloc_.Remove(pt, i);
+      } else {
+        few_objects_alloc_.Remove(pt, i);
+      }
     } else if (pt->free_pages() <= pt->released_pages()) {
       regular_alloc_released_.Remove(pt, i);
       ASSERT(n_used_released_ >= pt->used_pages());
@@ -2069,7 +2172,12 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   size_t i = ListFor(longest, chunk);
   if (!pt->released()) {
-    regular_alloc_.Add(pt, i);
+    if (ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
+        pt->HasManyObjectsSpans()) {
+      many_objects_alloc_.Add(pt, i);
+    } else {
+      few_objects_alloc_.Add(pt, i);
+    }
   } else if (pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_.Add(pt, i);
     n_used_released_ += pt->used_pages();

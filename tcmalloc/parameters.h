@@ -128,6 +128,8 @@ class Parameters {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
 
+  static bool separate_allocs_for_few_and_many_objects_spans();
+
   static bool madvise_cold_regions_nohugepage() {
     return madvise_cold_regions_nohugepage_.load(std::memory_order_relaxed);
   }

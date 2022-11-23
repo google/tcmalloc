@@ -132,6 +132,12 @@ variants = [
         "deps": ["//tcmalloc:common"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN"},
     },
+    {
+        "name": "separate_allocs_for_few_and_many_objects_spans",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FOR_FEW_AND_MANY_OBJECTS_SPANS"},
+    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):

@@ -124,6 +124,18 @@ absl::Duration Parameters::filler_skip_subrelease_interval() {
       skip_subrelease_interval_ns().load(std::memory_order_relaxed));
 }
 
+bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
+  static bool v([]() {
+    if (IsExperimentActive(
+            Experiment::
+                TEST_ONLY_TCMALLOC_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS)) {
+      return true;
+    }
+    return false;
+  }());
+  return v;
+}
+
 bool Parameters::partial_transfer_cache() {
   return partial_transfer_cache_enabled().load(std::memory_order_relaxed);
 }

@@ -427,6 +427,10 @@ void DumpStats(Printer* out, int level) {
                 Parameters::madvise_cold_regions_nohugepage() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_partial_transfer_cache %d\n",
                 Parameters::partial_transfer_cache() ? 1 : 0);
+    out->printf(
+        "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
+        "%d\n",
+        Parameters::separate_allocs_for_few_and_many_objects_spans());
   }
 }
 
@@ -575,6 +579,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    Parameters::madvise_cold_regions_nohugepage());
   region.PrintBool("tcmalloc_partial_transfer_cache",
                    Parameters::partial_transfer_cache());
+  region.PrintI64("separate_allocs_for_few_and_many_objects_spans",
+                  Parameters::separate_allocs_for_few_and_many_objects_spans());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

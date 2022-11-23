@@ -76,10 +76,11 @@ bool MockUnback(void* start, size_t len) {
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  if (size < 2 || size > 100000) {
-    // size<2 for needing some entropy to initialize the filler with.
+  if (size < 3 || size > 100000) {
+    // size < 3 for needing some entropy to initialize the filler with.
     //
-    // size>100000 for avoiding overly large inputs given we do extra checking.
+    // size > 100000 for avoiding overly large inputs given we do extra
+    // checking.
     return 0;
   }
 
@@ -100,6 +101,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // HugePageFiller.
   //
   // [0] - We choose the partial release parameter.
+  // [1] - We choose the separate_allocs_for_few_and_many_objects_spans
+  // parameter.
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the filler (allocate,
@@ -112,12 +115,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   const FillerPartialRerelease partial_rerelease =
       data[0] ? FillerPartialRerelease::Retain : FillerPartialRerelease::Return;
-  data += 1;
-  size -= 1;
+  const bool separate_allocs_for_few_and_many_objects_spans =
+      data[1] >= 128 ? true : false;
+  data += 2;
+  size -= 2;
 
-  HugePageFiller<PageTracker> filler(partial_rerelease,
-                                     Clock{.now = mock_clock, .freq = freq},
-                                     MemoryModifyFunction(MockUnback));
+  HugePageFiller<PageTracker> filler(
+      partial_rerelease, Clock{.now = mock_clock, .freq = freq},
+      separate_allocs_for_few_and_many_objects_spans,
+      MemoryModifyFunction(MockUnback));
 
   struct Alloc {
     PageId page;
@@ -173,7 +179,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
             result.page = result.pt->Get(n).page;
-            filler.Contribute(result.pt, donated);
+            filler.Contribute(result.pt, donated, num_objects);
           }
 
           trackers.push_back(result.pt);
@@ -293,14 +299,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
         auto* pt = new PageTracker(HugePage{.pn = next_hugepage}, mock_clock(),
-                                   /*donated=*/true);
+                                   /*was_donated=*/true);
         next_hugepage++;
         PageId start;
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
           start = pt->Get(n).page;
-          filler.Contribute(pt, /*donated=*/true);
+          filler.Contribute(pt, /*donated=*/true, /*num_objects=*/1);
         }
 
         trackers.push_back(pt);

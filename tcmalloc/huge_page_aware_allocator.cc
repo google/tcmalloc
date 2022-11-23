@@ -150,6 +150,7 @@ HugePageAwareAllocator::HugePageAwareAllocator(
     LifetimePredictionOptions lifetime_options)
     : PageAllocatorInterface("HugePageAware", tag),
       filler_(decide_partial_rerelease(),
+              Parameters::separate_allocs_for_few_and_many_objects_spans(),
               MemoryModifyFunction(SystemRelease)),
       alloc_(
           [](MemoryTag tag) {
@@ -208,7 +209,7 @@ PageId HugePageAwareAllocator::AllocAndContribute(HugePage p, Length n,
   PageId page = pt->Get(n).page;
   ASSERT(page == p.first_page());
   SetTracker(p, pt);
-  filler_.Contribute(pt, donated);
+  filler_.Contribute(pt, donated, num_objects);
   ASSERT(pt->was_donated() == donated);
   return page;
 }
