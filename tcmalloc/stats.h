@@ -48,8 +48,6 @@ inline BackingStats operator+(BackingStats lhs, BackingStats rhs) {
 }
 
 struct SmallSpanStats {
-  constexpr SmallSpanStats() = default;
-
   // For each free list of small spans, the length (in spans) of the
   // normal and returned free lists for that size.
   int64_t normal_length[kMaxPages.raw_num()] = {0};
