@@ -425,6 +425,19 @@ int SystemReleaseErrors() {
 bool SystemReleaseMaybeMprotect(void* start, size_t length,
                                 bool maybe_mprotect) {
   int saved_errno = errno;
+  bool mprotected = false;
+  // TODO(b/238084171):  Remove this feature when testing is completed.
+  if (maybe_mprotect &&
+      ABSL_PREDICT_FALSE(IsExperimentActive(
+          Experiment::TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY))) {
+    int ret = mprotect(start, length, PROT_NONE);
+    if (ret != 0) {
+      Log(kLog, __FILE__, __LINE__, "Cannot mprotect PROT_NONE, errno: ", ret);
+    } else {
+      mprotected = true;
+    }
+  }
+
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
   const size_t pagemask = GetPageSize() - 1;
 
@@ -467,13 +480,14 @@ bool SystemReleaseMaybeMprotect(void* start, size_t length,
   }
 #endif
 
-  // TODO(b/238084171):  Remove this feature when testing is completed.
-  if (maybe_mprotect &&
-      ABSL_PREDICT_FALSE(IsExperimentActive(
-          Experiment::TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY))) {
-    int ret = mprotect(start, length, PROT_NONE);
+  if (ABSL_PREDICT_FALSE(!result) && mprotected) {
+    // We failed to deallocate, so our caller may reuse the memory believing
+    // it wasn't released.  If we mprotect'd it, we need to put the protection
+    // bits back.
+    int ret = mprotect(start, length, PROT_READ | PROT_WRITE);
     if (ret != 0) {
-      Log(kLog, __FILE__, __LINE__, "Cannot mprotect PROT_NONE, errno: ", ret);
+      Crash(kCrash, __FILE__, __LINE__,
+            "Cannot mprotect PROT_READ|PROT_WRITE, errno: ", ret);
     }
   }
 
