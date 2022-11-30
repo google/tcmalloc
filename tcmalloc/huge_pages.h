@@ -62,8 +62,6 @@ struct HugePage {
 };
 
 struct HugeLength {
-  size_t n;
-
   constexpr HugeLength() : n(0) {}
   explicit HugeLength(double x) : n(ceil(x)) { ASSERT(x >= 0); }
   constexpr size_t raw_num() const { return n; }
@@ -77,10 +75,38 @@ struct HugeLength {
   // It is possible to have a HugeLength that corresponds to more
   // bytes than can be addressed (i.e. > size_t.)  Check for that.
   bool overflows() const;
+  static constexpr HugeLength min() {
+    return HugeLength(static_cast<size_t>(0));
+  }
+  static constexpr HugeLength max() {
+    return HugeLength(static_cast<size_t>(HugePage::kMaxPageNumber));
+  }
 
  private:
+  size_t n;
+
   explicit constexpr HugeLength(size_t x) : n(x) {}
   friend constexpr HugeLength NHugePages(size_t n);
+  friend HugeLength& operator++(HugeLength&);
+  friend HugeLength& operator--(HugeLength&);
+  friend constexpr bool operator<(HugeLength, HugeLength);
+  friend constexpr bool operator>(HugeLength, HugeLength);
+  friend constexpr bool operator<=(HugeLength, HugeLength);
+  friend constexpr bool operator>=(HugeLength, HugeLength);
+  friend constexpr bool operator==(HugeLength, HugeLength);
+  friend constexpr bool operator!=(HugeLength, HugeLength);
+  friend constexpr size_t operator/(HugeLength, HugeLength);
+  friend constexpr HugeLength operator%(HugeLength, HugeLength);
+  friend constexpr HugeLength operator*(HugeLength, size_t);
+  friend HugeLength& operator*=(HugeLength&, size_t);
+  friend constexpr HugeLength operator/(HugeLength, size_t);
+  friend constexpr HugePage operator+(HugePage lhs, HugeLength rhs);
+  friend constexpr HugePage operator-(HugePage lhs, HugeLength rhs);
+  friend HugePage& operator+=(HugePage& lhs, HugeLength rhs);
+  friend constexpr HugeLength operator+(HugeLength lhs, HugeLength rhs);
+  friend HugeLength& operator+=(HugeLength& lhs, HugeLength rhs);
+  friend constexpr HugeLength operator-(HugeLength lhs, HugeLength rhs);
+  friend HugeLength& operator-=(HugeLength& lhs, HugeLength rhs);
 };
 
 // Literal constructors (made explicit to avoid accidental uses when
