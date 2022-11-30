@@ -98,8 +98,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
     kMaxCpuCacheSize);
-ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_cold_regions_nohugepage_(
-    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -343,15 +341,6 @@ double TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold() {
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v) {
   Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_.store(
       v, std::memory_order_relaxed);
-}
-
-bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage() {
-  return Parameters::madvise_cold_regions_nohugepage();
-}
-
-void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(bool v) {
-  Parameters::madvise_cold_regions_nohugepage_.store(v,
-                                                     std::memory_order_relaxed);
 }
 
 }  // extern "C"

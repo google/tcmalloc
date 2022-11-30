@@ -423,8 +423,6 @@ void DumpStats(Printer* out, int level) {
                 subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_shuffle_per_cpu_caches %d\n",
                 Parameters::shuffle_per_cpu_caches() ? 1 : 0);
-    out->printf("PARAMETER madvise_cold_regions_nohugepage %d\n",
-                Parameters::madvise_cold_regions_nohugepage() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_partial_transfer_cache %d\n",
                 Parameters::partial_transfer_cache() ? 1 : 0);
     out->printf(
@@ -575,8 +573,6 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
-  region.PrintBool("madvise_cold_regions_nohugepage",
-                   Parameters::madvise_cold_regions_nohugepage());
   region.PrintBool("tcmalloc_partial_transfer_cache",
                    Parameters::partial_transfer_cache());
   region.PrintI64("separate_allocs_for_few_and_many_objects_spans",

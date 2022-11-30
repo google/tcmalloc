@@ -97,7 +97,6 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_max_per_cpu_cache_size(-1);
   Parameters::set_max_total_thread_cache_bytes(-1);
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
-  Parameters::set_madvise_cold_regions_nohugepage(false);
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -139,7 +138,6 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);
   Parameters::set_filler_skip_subrelease_interval(absl::Milliseconds(60125));
-  Parameters::set_madvise_cold_regions_nohugepage(true);
 
   {
     const std::string buf = MallocExtension::GetStats();
