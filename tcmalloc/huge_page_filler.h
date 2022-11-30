@@ -288,7 +288,7 @@ class FillerStatsTracker {
   FillerStatsTracker(const FillerStatsTracker&) = delete;
   FillerStatsTracker& operator=(const FillerStatsTracker&) = delete;
 
-  void Report(const FillerStats stats) {
+  void Report(const FillerStats& stats) {
     if (ABSL_PREDICT_FALSE(tracker_.Report(stats))) {
       if (ABSL_PREDICT_FALSE(pending_skipped().count > 0)) {
         // Consider the peak within the just completed epoch to confirm the
@@ -417,7 +417,7 @@ class FillerStatsTracker {
 
     static FillerStatsEntry Nil() { return FillerStatsEntry(); }
 
-    void Report(FillerStats e) {
+    void Report(const FillerStats& e) {
       if (empty()) {
         for (int i = 0; i < kNumStatsTypes; i++) {
           stats[i] = e;
