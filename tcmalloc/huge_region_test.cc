@@ -61,7 +61,7 @@ class HugeRegionTest : public ::testing::Test {
 
   class MockBackingInterface : public BackingInterface {
    public:
-    MOCK_METHOD2(Unback, bool(void* p, size_t len));
+    MOCK_METHOD(bool, Unback, (void* p, size_t len), (override));
   };
 
   static std::unique_ptr<MockBackingInterface> mock_;
