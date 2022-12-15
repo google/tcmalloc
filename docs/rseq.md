@@ -2,7 +2,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2022-06-13' }
+freshness: { owner: 'ckennelly' reviewed: '2022-12-14' }
 *-->
 
 ## per-CPU Caches
@@ -88,7 +88,8 @@ a core without undefined behavior.
 
 The fields in `Header` are indexed in `sizeof(void*)` strides into the slab. For
 the default value of `Shift=18`, this allows us to cache nearly 32K objects per
-CPU.
+CPU. Ongoing work encodes `Slabs*` and `Shift` into a single pointer, allowing
+it to be dynamically updated at runtime.
 
 We have allocated capacity for `end-begin` objects for a given size-class.
 `begin` is chosen via static partitioning at initialization time. `end` is
