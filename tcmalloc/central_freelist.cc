@@ -19,6 +19,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
@@ -99,10 +100,9 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
     void* pt = tc_globals.pagemap().GetHugepage(p);
     // Prefetch for writing, as we will issue stores to the PageTracker
     // instance.
-    __builtin_prefetch(pt, 1, 3);
-    __builtin_prefetch(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
-                                               ABSL_CACHELINE_SIZE),
-                       1, 3);
+    PrefetchW(pt);
+    PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
+                                      ABSL_CACHELINE_SIZE));
 #endif  // TCMALLOC_SMALL_BUT_SLOW
   }
 

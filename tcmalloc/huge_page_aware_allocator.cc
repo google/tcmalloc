@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/lifetime_predictions.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
@@ -413,7 +414,7 @@ Span* HugePageAwareAllocator::New(Length n, size_t objects_per_span) {
     // may have subreleased pages and is returning them now.
     BackSpan(s);
     // Prefetch for writing, as we anticipate using the memory soon.
-    __builtin_prefetch(s->start_address(), 1, 3);
+    PrefetchW(s->start_address());
   }
   ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
