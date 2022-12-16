@@ -713,6 +713,50 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_label(access_hint_id, access_hint_id,
               static_cast<uint8_t>(entry.access_hint));
     add_access_label(access_allocated_id, entry.access_allocated);
+
+    const int guarded_status_id = builder.InternString("guarded_status");
+    const int larger_than_one_page_id =
+        builder.InternString("LargerThanOnePage");
+    const int disabled_id = builder.InternString("Disabled");
+    const int rate_limited_id = builder.InternString("RateLimited");
+    const int too_small_id = builder.InternString("TooSmall");
+    const int no_available_slots_id = builder.InternString("NoAvailableSlots");
+    const int m_protect_failed_id = builder.InternString("MProtectFailed");
+    const int unknown_id = builder.InternString("Unknown");
+    const int not_attempted_id = builder.InternString("NotAttempted");
+    const int success_id = builder.InternString("Success");
+
+    perftools::profiles::Label& guarded_status_label = *sample.add_label();
+    guarded_status_label.set_key(guarded_status_id);
+    switch (entry.guarded_status) {
+      case Profile::Sample::GuardedStatus::LargerThanOnePage:
+        guarded_status_label.set_str(larger_than_one_page_id);
+        break;
+      case Profile::Sample::GuardedStatus::Disabled:
+        guarded_status_label.set_str(disabled_id);
+        break;
+      case Profile::Sample::GuardedStatus::RateLimited:
+        guarded_status_label.set_str(rate_limited_id);
+        break;
+      case Profile::Sample::GuardedStatus::TooSmall:
+        guarded_status_label.set_str(too_small_id);
+        break;
+      case Profile::Sample::GuardedStatus::NoAvailableSlots:
+        guarded_status_label.set_str(no_available_slots_id);
+        break;
+      case Profile::Sample::GuardedStatus::MProtectFailed:
+        guarded_status_label.set_str(m_protect_failed_id);
+        break;
+      case Profile::Sample::GuardedStatus::Unknown:
+        guarded_status_label.set_str(unknown_id);
+        break;
+      case Profile::Sample::GuardedStatus::NotAttempted:
+        guarded_status_label.set_str(not_attempted_id);
+        break;
+      case Profile::Sample::GuardedStatus::Success:
+        guarded_status_label.set_str(success_id);
+        break;
+    }
   }
 
   return std::move(builder).Finalize();

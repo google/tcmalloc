@@ -127,14 +127,25 @@ class GuardedPageAllocator {
   // and avoiding use-after-destruction issues for static/global instances.
   void Destroy();
 
-  // On success, returns a pointer to size bytes of page-guarded memory, aligned
-  // to alignment.  On failure, returns nullptr.  The returned pointer is
-  // guaranteed to be tagged.  Failure can occur if memory could not be mapped
-  // or protected, if all guarded pages are already allocated, or if size is 0.
+  struct AllocWithStatus {
+    void* alloc = nullptr;
+    Profile::Sample::GuardedStatus status =
+        Profile::Sample::GuardedStatus::Unknown;
+  };
+
+  // On success, returns an instance of AllocWithStatus which includes a pointer
+  // to size bytes of page-guarded memory, aligned to alignment.  The member
+  // 'alloc' is a pointer that is guaranteed to be tagged.
+  // The 'status' member is set to GuardedStatus::Success.
+  // On failure, returns an instance of AllocWithStatus (the 'alloc' member is
+  // set to 'nullptr').  Failure can occur if memory could not be mapped or
+  // protected, if all guarded pages are already allocated, or if size is 0.
+  // These conditions are reflected in the 'status' member of the
+  // AllocWithStatus return value.
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  void* Allocate(size_t size, size_t alignment)
+  AllocWithStatus Allocate(size_t size, size_t alignment)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
@@ -178,6 +189,13 @@ class GuardedPageAllocator {
   void AllowAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
     absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
     allow_allocations_ = true;
+  }
+
+  // Returns the number of pages available for allocation, based on how many are
+  // currently in use.  (Should only be used in testing.)
+  size_t GetNumAvailablePages() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
+    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+    return max_alloced_pages_ - num_alloced_pages_;
   }
 
  private:

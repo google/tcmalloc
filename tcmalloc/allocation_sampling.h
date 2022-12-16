@@ -16,8 +16,10 @@
 #define TCMALLOC_ALLOCATION_SAMPLING_H_
 
 #include <memory>
+#include <utility>
 
 #include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
@@ -93,19 +95,23 @@ inline Sampler* GetThreadSampler() { return &thread_sampler_; }
 // If this allocation can be guarded, and if it's time to do a guarded sample,
 // returns a guarded allocation Span.  Otherwise returns nullptr.
 template <typename State>
-static void* TrySampleGuardedAllocation(State& state, size_t size,
-                                        size_t alignment, Length num_pages) {
-  if (num_pages == Length(1) &&
-      GetThreadSampler()->ShouldSampleGuardedAllocation()) {
-    // The num_pages == 1 constraint ensures that size <= kPageSize.  And since
-    // alignments above kPageSize cause size_class == 0, we're also guaranteed
-    // alignment <= kPageSize
-    //
-    // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
-    // are met.
-    return state.guardedpage_allocator().Allocate(size, alignment);
+static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
+    State& state, size_t size, size_t alignment, Length num_pages) {
+  if (num_pages != Length(1)) {
+    return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
-  return nullptr;
+  Profile::Sample::GuardedStatus guarded_status =
+      GetThreadSampler()->ShouldSampleGuardedAllocation();
+  if (guarded_status != Profile::Sample::GuardedStatus::Success) {
+    return {nullptr, guarded_status};
+  }
+  // The num_pages == 1 constraint ensures that size <= kPageSize.  And
+  // since alignments above kPageSize cause size_class == 0, we're also
+  // guaranteed alignment <= kPageSize
+  //
+  // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
+  // are met.
+  return state.guardedpage_allocator().Allocate(size, alignment);
 }
 
 // ShouldSampleAllocation() is called when an allocation of the given requested
@@ -166,9 +172,10 @@ static void* SampleifyAllocation(State& state, Policy policy,
                   (size_class == 0 && obj == nullptr && span != nullptr));
 
   void* proxy = nullptr;
-  void* guarded_alloc = nullptr;
   size_t allocated_size;
   bool allocated_cold;
+  GuardedPageAllocator::AllocWithStatus alloc_with_status{
+      nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
   // requested_alignment = 1 means 'small size table alignment was used'
   // Historically this is reported as requested_alignment = 0
@@ -185,10 +192,11 @@ static void* SampleifyAllocation(State& state, Policy policy,
 
     // If the caller didn't provide a span, allocate one:
     Length num_pages = BytesToLengthCeil(allocated_size);
-    if ((guarded_alloc = TrySampleGuardedAllocation(
-             state, requested_size, requested_alignment, num_pages))) {
-      ASSERT(IsSampledMemory(guarded_alloc));
-      const PageId p = PageIdContaining(guarded_alloc);
+    alloc_with_status = TrySampleGuardedAllocation(
+        state, requested_size, requested_alignment, num_pages);
+    if (alloc_with_status.status == Profile::Sample::GuardedStatus::Success) {
+      ASSERT(IsSampledMemory(alloc_with_status.alloc));
+      const PageId p = PageIdContaining(alloc_with_status.alloc);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       span = Span::New(p, num_pages);
       state.pagemap().Set(p, span);
@@ -242,6 +250,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
   tmp.weight = weight;
   tmp.span_start_address = span->start_address();
   tmp.allocation_time = absl::Now();
+  tmp.guarded_status = static_cast<int>(alloc_with_status.status);
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
@@ -276,7 +285,8 @@ static void* SampleifyAllocation(State& state, Policy policy,
     ASSERT(size_class != 0);
     FreeProxyObject(state, obj, size_class);
   }
-  return guarded_alloc ? guarded_alloc : span->start_address();
+  return (alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
+                                              : span->start_address();
 }
 
 template <typename State>

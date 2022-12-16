@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -470,16 +471,17 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("sampled_resident_bytes", 64), Pair("swapped_bytes", 0),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1)),
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 8), Pair("request", 4),
               Pair("sampled_resident_bytes", 40), Pair("swapped_bytes", 0),
-              Pair("access_hint", 1), Pair("access_allocated", "hot")),
+              Pair("access_hint", 1), Pair("access_allocated", "hot"),
+              Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 16),
               Pair("sampled_resident_bytes", 0), Pair("swapped_bytes", 0),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
-              Pair("size_returning", 1))));
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown"))));
 
   ASSERT_GE(converted.sample().size(), 3);
   // The addresses for the samples at stack[0], stack[1] should match.
@@ -572,10 +574,11 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1)),
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
                                Pair("access_hint", 1),
-                               Pair("access_allocated", "hot"))));
+                               Pair("access_allocated", "hot"),
+                               Pair("guarded_status", "Unknown"))));
 
   ASSERT_GE(converted.sample().size(), 2);
   ASSERT_GE(converted.sample(0).location_id().size(), 2);

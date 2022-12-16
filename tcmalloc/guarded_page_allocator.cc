@@ -76,10 +76,16 @@ void GuardedPageAllocator::Destroy() {
   }
 }
 
-void* GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
-  if (size == 0) return nullptr;
+GuardedPageAllocator::AllocWithStatus GuardedPageAllocator::Allocate(
+    size_t size, size_t alignment) {
+  if (size == 0) {
+    return {nullptr, Profile::Sample::GuardedStatus::TooSmall};
+  }
   ssize_t free_slot = ReserveFreeSlot();
-  if (free_slot == -1) return nullptr;  // All slots are reserved.
+  // All slots are reserved.
+  if (free_slot == -1) {
+    return {nullptr, Profile::Sample::GuardedStatus::NoAvailableSlots};
+  }
 
   ASSERT(size <= page_size_);
   ASSERT(alignment <= page_size_);
@@ -90,7 +96,7 @@ void* GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
     absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
     num_failed_allocations_++;
     FreeSlot(free_slot);
-    return nullptr;
+    return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
   }
 
   // Place some allocations at end of page for better overflow detection.
@@ -106,7 +112,7 @@ void* GuardedPageAllocator::Allocate(size_t size, size_t alignment) {
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
 
   ASSERT(!alignment || d.allocation_start % alignment == 0);
-  return result;
+  return {result, Profile::Sample::GuardedStatus::Success};
 }
 
 void GuardedPageAllocator::Deallocate(void* ptr) {

@@ -89,6 +89,10 @@ struct StackTrace {
   // sampled allocation. This may be nullptr for cases where it is not useful
   // for residency analysis such as for peakheapz.
   void* span_start_address = nullptr;
+
+  // An integer representing the guarded status of the allocation.
+  // The values are from the enum GuardedStatus in ../malloc_extension.h.
+  int guarded_status;
 };
 
 enum LogMode {

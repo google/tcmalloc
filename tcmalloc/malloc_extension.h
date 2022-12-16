@@ -147,6 +147,19 @@ class Profile final {
     bool allocator_deallocator_cpu_matched;
     bool allocator_deallocator_thread_matched;
 
+    enum class GuardedStatus {
+      LargerThanOnePage = -1,
+      Disabled = -2,
+      RateLimited = -3,
+      TooSmall = -4,
+      NoAvailableSlots = -5,
+      MProtectFailed = -6,
+      Unknown = -100,
+      NotAttempted = 0,
+      Success = 1,
+    };
+    GuardedStatus guarded_status = GuardedStatus::Unknown;
+
     // The start address of the sampled allocation, used to calculate the
     // residency info for the objects represented by this sampled allocation.
     void* span_start_address;

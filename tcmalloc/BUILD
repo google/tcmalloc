@@ -872,6 +872,25 @@ cc_test(
 )
 
 cc_test(
+    name = "guarded_page_allocator_profile_test",
+    srcs = ["guarded_page_allocator_profile_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc",
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
+    ],
+    deps = [
+        ":common",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "pagemap_test",
     srcs = ["pagemap_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

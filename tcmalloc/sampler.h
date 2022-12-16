@@ -103,7 +103,7 @@ class Sampler {
 
   // If the guarded sampling point has been reached, selects a new sampling
   // point and returns true.  Otherwise returns false.
-  bool ShouldSampleGuardedAllocation();
+  Profile::Sample::GuardedStatus ShouldSampleGuardedAllocation();
 
   // Returns the Sampler's cached tc_globals.IsOnFastPath state.  This may
   // differ from a fresh computation due to activating per-CPU mode or the
@@ -239,15 +239,17 @@ Sampler::TryRecordAllocationFast(size_t k) {
   return true;
 }
 
-inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
+inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::ShouldSampleGuardedAllocation() {
-  if (Parameters::guarded_sampling_rate() < 0) return false;
+  if (Parameters::guarded_sampling_rate() < 0) {
+    return Profile::Sample::GuardedStatus::Disabled;
+  }
   allocs_until_guarded_sample_--;
   if (ABSL_PREDICT_FALSE(allocs_until_guarded_sample_ < 0)) {
     allocs_until_guarded_sample_ = PickNextGuardedSamplingPoint();
-    return true;
+    return Profile::Sample::GuardedStatus::Success;
   }
-  return false;
+  return Profile::Sample::GuardedStatus::RateLimited;
 }
 
 // Inline functions which are public for testing purposes

@@ -294,7 +294,8 @@ TEST(Sampler, TestShouldSampleGuardedAllocation) {
   int counter = 0;
   int num_iters = 10000;
   for (int i = 0; i < num_iters; i++) {
-    if (sampler.ShouldSampleGuardedAllocation()) {
+    if (sampler.ShouldSampleGuardedAllocation() ==
+        Profile::Sample::GuardedStatus::Success) {
       counter++;
     }
   }

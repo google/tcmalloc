@@ -46,7 +46,7 @@ void BM_AllocDealloc(benchmark::State& state) {
   }();
   size_t alloc_size = state.range(0);
   for (auto _ : state) {
-    char* ptr = reinterpret_cast<char*>(gpa->Allocate(alloc_size, 0));
+    char* ptr = reinterpret_cast<char*>(gpa->Allocate(alloc_size, 0).alloc);
     CHECK_CONDITION(ptr != nullptr);
     ptr[0] = 'X';               // Page fault first page.
     ptr[alloc_size - 1] = 'X';  // Page fault last page.
