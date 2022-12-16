@@ -247,7 +247,7 @@ Sampler::ShouldSampleGuardedAllocation() {
   allocs_until_guarded_sample_--;
   if (ABSL_PREDICT_FALSE(allocs_until_guarded_sample_ < 0)) {
     allocs_until_guarded_sample_ = PickNextGuardedSamplingPoint();
-    return Profile::Sample::GuardedStatus::Success;
+    return Profile::Sample::GuardedStatus::Guarded;
   }
   return Profile::Sample::GuardedStatus::RateLimited;
 }

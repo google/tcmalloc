@@ -136,7 +136,7 @@ class GuardedPageAllocator {
   // On success, returns an instance of AllocWithStatus which includes a pointer
   // to size bytes of page-guarded memory, aligned to alignment.  The member
   // 'alloc' is a pointer that is guaranteed to be tagged.
-  // The 'status' member is set to GuardedStatus::Success.
+  // The 'status' member is set to GuardedStatus::Guarded.
   // On failure, returns an instance of AllocWithStatus (the 'alloc' member is
   // set to 'nullptr').  Failure can occur if memory could not be mapped or
   // protected, if all guarded pages are already allocated, or if size is 0.

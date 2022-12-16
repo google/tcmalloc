@@ -112,7 +112,7 @@ GuardedPageAllocator::AllocWithStatus GuardedPageAllocator::Allocate(
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
 
   ASSERT(!alignment || d.allocation_start % alignment == 0);
-  return {result, Profile::Sample::GuardedStatus::Success};
+  return {result, Profile::Sample::GuardedStatus::Guarded};
 }
 
 void GuardedPageAllocator::Deallocate(void* ptr) {

@@ -156,7 +156,7 @@ class Profile final {
       MProtectFailed = -6,
       Unknown = -100,
       NotAttempted = 0,
-      Success = 1,
+      Guarded = 1, /* Success */
     };
     GuardedStatus guarded_status = GuardedStatus::Unknown;
 

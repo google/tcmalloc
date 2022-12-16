@@ -102,7 +102,7 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   }
   Profile::Sample::GuardedStatus guarded_status =
       GetThreadSampler()->ShouldSampleGuardedAllocation();
-  if (guarded_status != Profile::Sample::GuardedStatus::Success) {
+  if (guarded_status != Profile::Sample::GuardedStatus::Guarded) {
     return {nullptr, guarded_status};
   }
   // The num_pages == 1 constraint ensures that size <= kPageSize.  And
@@ -194,7 +194,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
     Length num_pages = BytesToLengthCeil(allocated_size);
     alloc_with_status = TrySampleGuardedAllocation(
         state, requested_size, requested_alignment, num_pages);
-    if (alloc_with_status.status == Profile::Sample::GuardedStatus::Success) {
+    if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);

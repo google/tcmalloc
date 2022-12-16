@@ -85,7 +85,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
   }
 };
 
-TEST_F(GuardedPageAllocatorProfileTest, Success) {
+TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
   ScopedAlwaysSample sas;
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
@@ -93,7 +93,7 @@ TEST_F(GuardedPageAllocatorProfileTest, Success) {
   AllocateUntil(1051, [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
-  ExamineSamples(profile, Profile::Sample::GuardedStatus::Success, {});
+  ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded, {});
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
@@ -107,10 +107,10 @@ TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::NotAttempted,
-                 {Profile::Sample::GuardedStatus::Success},
+                 {Profile::Sample::GuardedStatus::Guarded},
                  [&](const Profile::Sample& s) {
                    switch (s.guarded_status) {
-                     case Profile::Sample::GuardedStatus::Success:
+                     case Profile::Sample::GuardedStatus::Guarded:
                        EXPECT_NE(alloc_size, s.requested_size);
                        break;
                      default:
@@ -131,10 +131,10 @@ TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::LargerThanOnePage,
-                 {Profile::Sample::GuardedStatus::Success},
+                 {Profile::Sample::GuardedStatus::Guarded},
                  [&](const Profile::Sample& s) {
                    switch (s.guarded_status) {
-                     case Profile::Sample::GuardedStatus::Success:
+                     case Profile::Sample::GuardedStatus::Guarded:
                        EXPECT_NE(alloc_size, s.requested_size);
                        break;
                      default:
@@ -180,13 +180,13 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   bool ratelimited_found = false;
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::RateLimited,
-                 {Profile::Sample::GuardedStatus::Success},
+                 {Profile::Sample::GuardedStatus::Guarded},
                  [&](const Profile::Sample& s) {
                    if (s.requested_size != alloc_size) {
                      return;
                    }
                    switch (s.guarded_status) {
-                     case Profile::Sample::GuardedStatus::Success:
+                     case Profile::Sample::GuardedStatus::Guarded:
                        success_found = true;
                        break;
                      case Profile::Sample::GuardedStatus::RateLimited:
@@ -214,10 +214,10 @@ TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::TooSmall,
                  {Profile::Sample::GuardedStatus::RateLimited,
-                  Profile::Sample::GuardedStatus::Success},
+                  Profile::Sample::GuardedStatus::Guarded},
                  [&](const Profile::Sample& s) {
                    switch (s.guarded_status) {
-                     case Profile::Sample::GuardedStatus::Success:
+                     case Profile::Sample::GuardedStatus::Guarded:
                        EXPECT_NE(alloc_size, s.requested_size);
                        break;
                      case Profile::Sample::GuardedStatus::TooSmall:

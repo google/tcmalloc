@@ -724,7 +724,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const int m_protect_failed_id = builder.InternString("MProtectFailed");
     const int unknown_id = builder.InternString("Unknown");
     const int not_attempted_id = builder.InternString("NotAttempted");
-    const int success_id = builder.InternString("Success");
+    const int guarded_id = builder.InternString("Guarded");
 
     perftools::profiles::Label& guarded_status_label = *sample.add_label();
     guarded_status_label.set_key(guarded_status_id);
@@ -753,8 +753,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       case Profile::Sample::GuardedStatus::NotAttempted:
         guarded_status_label.set_str(not_attempted_id);
         break;
-      case Profile::Sample::GuardedStatus::Success:
-        guarded_status_label.set_str(success_id);
+      case Profile::Sample::GuardedStatus::Guarded:
+        guarded_status_label.set_str(guarded_id);
         break;
     }
   }
