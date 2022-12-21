@@ -171,7 +171,10 @@ static void* SampleifyAllocation(State& state, Policy policy,
   CHECK_CONDITION((size_class != 0 && obj != nullptr && span == nullptr) ||
                   (size_class == 0 && obj == nullptr && span != nullptr));
 
-  void* proxy = nullptr;
+  StackTrace stack_trace;
+  stack_trace.proxy = nullptr;
+  stack_trace.requested_size = requested_size;
+
   size_t allocated_size;
   bool allocated_cold;
   GuardedPageAllocator::AllocWithStatus alloc_with_status{
@@ -218,7 +221,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
 
     if (objects_per_span != 1) {
       ASSERT(objects_per_span > 1);
-      proxy = obj;
+      stack_trace.proxy = obj;
       obj = nullptr;
     }
   } else {
@@ -235,22 +238,20 @@ static void* SampleifyAllocation(State& state, Policy policy,
   ASSERT(span != nullptr);
 
   // Grab the stack trace outside the heap lock.
-  StackTrace tmp;
-  tmp.proxy = proxy;
-  tmp.depth = absl::GetStackTrace(tmp.stack, kMaxStackDepth, 0);
-  tmp.requested_size = requested_size;
-  tmp.requested_alignment = requested_alignment;
-  tmp.requested_size_returning = capacity != nullptr;
-  tmp.allocated_size = allocated_size;
-  tmp.sampled_alloc_handle = state.sampled_alloc_handle_generator.fetch_add(
-                                 1, std::memory_order_relaxed) +
-                             1;
-  tmp.access_hint = static_cast<uint8_t>(policy.access());
-  tmp.cold_allocated = allocated_cold;
-  tmp.weight = weight;
-  tmp.span_start_address = span->start_address();
-  tmp.allocation_time = absl::Now();
-  tmp.guarded_status = static_cast<int>(alloc_with_status.status);
+  stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
+  stack_trace.requested_alignment = requested_alignment;
+  stack_trace.requested_size_returning = capacity != nullptr;
+  stack_trace.allocated_size = allocated_size;
+  stack_trace.sampled_alloc_handle =
+      state.sampled_alloc_handle_generator.fetch_add(
+          1, std::memory_order_relaxed) +
+      1;
+  stack_trace.access_hint = static_cast<uint8_t>(policy.access());
+  stack_trace.cold_allocated = allocated_cold;
+  stack_trace.weight = weight;
+  stack_trace.span_start_address = span->start_address();
+  stack_trace.allocation_time = absl::Now();
+  stack_trace.guarded_status = static_cast<int>(alloc_with_status.status);
 
   // How many allocations does this sample represent, given the sampling
   // frequency (weight) and its size.
@@ -264,15 +265,15 @@ static void* SampleifyAllocation(State& state, Policy policy,
         allocation_estimate * (allocated_size - requested_size));
   }
 
-  state.allocation_samples.ReportMalloc(tmp);
+  state.allocation_samples.ReportMalloc(stack_trace);
 
-  state.deallocation_samples.ReportMalloc(tmp);
+  state.deallocation_samples.ReportMalloc(stack_trace);
 
   // The SampledAllocation object is visible to readers after this. Readers only
   // care about its various metadata (e.g. stack trace, weight) to generate the
   // heap profile, and won't need any information from Span::Sample() next.
   SampledAllocation* sampled_allocation =
-      state.sampled_allocation_recorder().Register(std::move(tmp));
+      state.sampled_allocation_recorder().Register(std::move(stack_trace));
   // No pageheap_lock required. The span is freshly allocated and no one else
   // can access it. It is visible after we return from this allocation path.
   span->Sample(sampled_allocation);
