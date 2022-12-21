@@ -393,6 +393,10 @@ class MallocExtension final {
   // ActivateGuardedSampling).
   static void SetGuardedSamplingRate(int64_t rate);
 
+  // TODO(b/263387812): remove when experimentation is complete
+  static bool GetImprovedGuardedSampling();
+  static void SetImprovedGuardedSampling(bool enable);
+
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
   // use-after-free according to the guarded sample parameter value.
   static void ActivateGuardedSampling();

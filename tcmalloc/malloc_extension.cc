@@ -290,6 +290,32 @@ void MallocExtension::SetGuardedSamplingRate(int64_t rate) {
 #endif
 }
 
+// TODO(b/263387812): remove when experimentation is complete
+bool MallocExtension::GetImprovedGuardedSampling() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetImprovedGuardedSampling == nullptr) {
+    return -1;
+  }
+
+  return MallocExtension_Internal_GetImprovedGuardedSampling();
+#else
+  return false;
+#endif
+}
+
+// TODO(b/263387812): remove when experimentation is complete
+void MallocExtension::SetImprovedGuardedSampling(bool enable) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetImprovedGuardedSampling == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetImprovedGuardedSampling(enable);
+#else
+  (void)enable;
+#endif
+}
+
 void MallocExtension::ActivateGuardedSampling() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_ActivateGuardedSampling != nullptr) {

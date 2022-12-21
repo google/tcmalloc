@@ -113,6 +113,11 @@ ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetGuardedSamplingRate();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetGuardedSamplingRate(
     int64_t);
 
+// TODO(b/263387812): remove when experimentation is complete
+ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetImprovedGuardedSampling();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetImprovedGuardedSampling(
+    bool);
+
 ABSL_ATTRIBUTE_WEAK int64_t
 MallocExtension_Internal_GetMaxTotalThreadCacheBytes();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(
