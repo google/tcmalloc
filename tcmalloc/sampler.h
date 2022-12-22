@@ -31,7 +31,7 @@ namespace tcmalloc_internal {
 
 //-------------------------------------------------------------------
 // Sampler to decide when to create a sample trace for an allocation
-// Not thread safe: Each thread should have it's own sampler object.
+// Not thread safe: Each thread should have its own sampler object.
 // Caller must use external synchronization if used
 // from multiple threads.
 //
@@ -39,7 +39,7 @@ namespace tcmalloc_internal {
 //  the probability of sampling a 4K allocation is about 0.00778
 //  the probability of sampling a 1MB allocation is about 0.865
 //  the probability of sampling a 1GB allocation is about 1.00000
-// In general, the probablity of sampling is an allocation of size X
+// In general, the probability of sampling is an allocation of size X
 // given a flag value of Y (default 1M) is:
 //  1 - e^(-X/Y)
 //
@@ -228,7 +228,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
     // on declaration inside Sampler class.
     //
     // volatile is used here to improve compiler's choice of
-    // instuctions. We know that this path is very rare and that there
+    // instructions. We know that this path is very rare and that there
     // is no need to keep previous value of bytes_until_sample_ in
     // register. This helps compiler generate slightly more efficient
     // sub <reg>, <mem> instruction for subtraction above.

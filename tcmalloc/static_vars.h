@@ -38,7 +38,6 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sampled_allocation.h"
