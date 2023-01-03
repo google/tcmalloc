@@ -109,10 +109,6 @@ class StaticForwarder {
     return tc_globals.sizemap().ColdSizeClasses();
   }
 
-  static size_t max_per_cpu_cache_size() {
-    return Parameters::max_per_cpu_cache_size();
-  }
-
   static size_t num_objects_to_move(int size_class) {
     return tc_globals.sizemap().num_objects_to_move(size_class);
   }
@@ -264,6 +260,7 @@ class CpuCache {
 
   // Give the per-cpu limit of cache size.
   uint64_t CacheLimit() const;
+  void SetCacheLimit(uint64_t v);
 
   // Shuffles per-cpu caches using the number of underflows and overflows that
   // occurred in the prior interval. It selects the top per-cpu caches
@@ -505,6 +502,9 @@ class CpuCache {
   // caches in a round-robin fashion.
   std::atomic<int> last_cpu_cache_steal_ = 0;
 
+  // Per-core cache limit in bytes.
+  std::atomic<uint64_t> max_per_cpu_cache_size_{kMaxCpuCacheSize};
+
   TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
   DynamicSlabInfo dynamic_slab_info_{};
@@ -724,7 +724,7 @@ inline void CpuCache<Forwarder>::Activate() {
   resize_ = reinterpret_cast<ResizeInfo*>(forwarder_.Alloc(
       sizeof(ResizeInfo) * num_cpus, std::align_val_t{alignof(ResizeInfo)}));
 
-  auto max_cache_size = forwarder_.max_per_cpu_cache_size();
+  auto max_cache_size = CacheLimit();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     new (&resize_[cpu]) ResizeInfo();
@@ -1071,8 +1071,7 @@ inline void CpuCache<Forwarder>::ShuffleCpuCaches() {
 
   // Try to steal kBytesToStealPercent percentage of max_per_cpu_cache_size for
   // each destination cpu cache.
-  size_t to_steal =
-      kBytesToStealPercent / 100.0 * forwarder_.max_per_cpu_cache_size();
+  size_t to_steal = kBytesToStealPercent / 100.0 * CacheLimit();
   for (int i = 0; i < num_dest_cpus; ++i) {
     StealFromOtherCache(misses[i].first, max_populated_cpu, to_steal);
   }
@@ -1131,9 +1130,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
 
     // We do not steal from cache that has capacity less than our lower
     // capacity threshold.
-    if (Capacity(src_cpu) <
-        kCacheCapacityThreshold * forwarder_.max_per_cpu_cache_size())
-      continue;
+    if (Capacity(src_cpu) < kCacheCapacityThreshold * CacheLimit()) continue;
 
     const CpuCacheMissStats src_misses =
         GetIntervalCacheMissStats(src_cpu, MissCount::kShuffle);
@@ -1474,7 +1471,13 @@ inline uint64_t CpuCache<Forwarder>::Capacity(int cpu) const {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::CacheLimit() const {
-  return forwarder_.max_per_cpu_cache_size();
+  return max_per_cpu_cache_size_.load(std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+inline void CpuCache<Forwarder>::SetCacheLimit(uint64_t v) {
+  // TODO(b/179516472): Drain cores as required.
+  max_per_cpu_cache_size_.store(v, std::memory_order_relaxed);
 }
 
 template <class CpuCache>

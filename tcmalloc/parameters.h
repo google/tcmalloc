@@ -65,9 +65,7 @@ class Parameters {
     TCMalloc_Internal_SetImprovedGuardedSampling(enable);
   }
 
-  static int32_t max_per_cpu_cache_size() {
-    return max_per_cpu_cache_size_.load(std::memory_order_relaxed);
-  }
+  static int32_t max_per_cpu_cache_size();
 
   static void set_max_per_cpu_cache_size(int32_t value) {
     TCMalloc_Internal_SetMaxPerCpuCacheSize(value);

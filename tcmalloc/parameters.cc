@@ -15,6 +15,7 @@
 
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -98,8 +99,6 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
-ABSL_CONST_INIT std::atomic<int32_t> Parameters::max_per_cpu_cache_size_(
-    kMaxCpuCacheSize);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -138,6 +137,10 @@ bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
 
 bool Parameters::partial_transfer_cache() {
   return partial_transfer_cache_enabled().load(std::memory_order_relaxed);
+}
+
+int32_t Parameters::max_per_cpu_cache_size() {
+  return tc_globals.cpu_cache().CacheLimit();
 }
 
 bool Parameters::per_cpu_caches_dynamic_slab_enabled() {
@@ -287,7 +290,7 @@ void TCMalloc_Internal_SetPartialTransferCacheEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
-  Parameters::max_per_cpu_cache_size_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::tc_globals.cpu_cache().SetCacheLimit(v);
 }
 
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {
