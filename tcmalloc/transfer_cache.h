@@ -82,8 +82,10 @@ class ShardedStaticForwarder : public StaticForwarder {
     //
     // TODO(b/250929998): Delete this experiment after evaluation.
     use_generic_cache_ =
-        IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE) &&
+        (IsExperimentActive(
+             Experiment::TEST_ONLY_TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE) ||
+         IsExperimentActive(
+             Experiment::TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE)) &&
         !IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
 

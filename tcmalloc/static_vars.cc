@@ -150,7 +150,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) ||
         IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE)) {
+            Experiment::TEST_ONLY_TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE) ||
+        IsExperimentActive(
+            Experiment::TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE)) {
       // The constructor of the sharded transfer cache leaves it in a disabled
       // state.
       sharded_transfer_cache_.Init();
