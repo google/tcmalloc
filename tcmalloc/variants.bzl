@@ -115,12 +115,6 @@ variants = [
         "copts": [],
     },
     {
-        "name": "partial_transfer_cache",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_PARTIAL_TRANSFER_CACHE"},
-    },
-    {
         "name": "mprotect_released_memory",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
