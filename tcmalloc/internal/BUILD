@@ -231,7 +231,6 @@ cc_library(
     ],
     deps = [
         ":logging",
-        ":prefetch",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
@@ -592,7 +591,6 @@ cc_library(
     deps = [
         ":mincore",
         ":percpu",
-        ":prefetch",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:dynamic_annotations",
