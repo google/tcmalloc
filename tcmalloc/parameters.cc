@@ -131,6 +131,15 @@ int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
 
+int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
+
+// TODO(b/186636177): remove the default_want_disable_dynamic_slabs opt-out
+// some time after 2023-02-01.
+static bool want_disable_dynamic_slabs() {
+  if (default_want_disable_dynamic_slabs == nullptr) return false;
+  return default_want_disable_dynamic_slabs() > 0;
+}
+
 bool Parameters::per_cpu_caches_dynamic_slab_enabled() {
   return dynamic_slab_enabled().load(std::memory_order_relaxed);
 }
@@ -329,6 +338,9 @@ bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled() {
 }
 
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
+  // We only allow disabling dynamic slabs using both the flag and
+  // want_disable_dynamic_slabs.
+  if (!v && !tcmalloc::tcmalloc_internal::want_disable_dynamic_slabs()) return;
   tcmalloc::tcmalloc_internal::dynamic_slab_enabled().store(
       v, std::memory_order_relaxed);
 }
