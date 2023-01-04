@@ -102,7 +102,7 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   }
   Profile::Sample::GuardedStatus guarded_status =
       GetThreadSampler()->ShouldSampleGuardedAllocation();
-  if (guarded_status != Profile::Sample::GuardedStatus::Guarded) {
+  if (guarded_status <= Profile::Sample::GuardedStatus::NotAttempted) {
     return {nullptr, guarded_status};
   }
   // The num_pages == 1 constraint ensures that size <= kPageSize.  And

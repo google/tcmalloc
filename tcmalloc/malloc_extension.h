@@ -147,16 +147,42 @@ class Profile final {
     bool allocator_deallocator_cpu_matched;
     bool allocator_deallocator_thread_matched;
 
+    // Provide the status of GWP-ASAN guarding for a given sample.
     enum class GuardedStatus {
+      // Conditions which represent why a sample was not guarded:
+      //
+      // The requested_size of the allocation sample is larger than the
+      // available pages which are guardable.
       LargerThanOnePage = -1,
+      // By flag, the guarding of samples has been disabled.
       Disabled = -2,
+      // Too many guards have been placed, any further guards will cause
+      // unexpected load on binary.
       RateLimited = -3,
+      // The requested_size of the allocation sample is too small (= 0) to be
+      // guarded.
       TooSmall = -4,
+      // Too many samples are already guarded.
       NoAvailableSlots = -5,
+      // Perhaps the only true error, when the mprotect call fails.
       MProtectFailed = -6,
+      // Used in an improved guarding selection algorithm.
+      Filtered = -7,
+      // An unexpected state, which represents that branch for selection was
+      // missed.
       Unknown = -100,
+      // When guarding is not even considered on a sample.
       NotAttempted = 0,
-      Guarded = 1, /* Success */
+      // The following values do not represent final states, but rather intent
+      // based on the applied algorithm for selecting guarded samples:
+      //
+      // Request guard: may still not be guarded for other reasons (see
+      //    above)
+      Requested = 1,
+      // Require guard: If at all possible, guard this sample to maintain rates.
+      Required = 2,
+      // The result when a sample is actually guarded by GWP-ASAN.
+      Guarded = 10,
     };
     GuardedStatus guarded_status = GuardedStatus::Unknown;
 
