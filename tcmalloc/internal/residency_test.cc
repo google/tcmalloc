@@ -54,13 +54,17 @@ TEST(ResidenceTest, ThisProcess) {
   const size_t kPageSize = GetPageSize();
   const int kNumPages = 16;
 
+#ifdef ABSL_HAVE_THREAD_SANITIZER
+  // TSAN completely ignores hints unless you ask really nicely.
+  int base = MAP_FIXED;
+
   // Minimize the chance of a race between munmap and a new mmap.
+  void* const mmap_hint = reinterpret_cast<void*>(0x000DEAD0000);
+#else
+  // ASAN, among others, needs a different memory mapping.
   void* const mmap_hint = reinterpret_cast<void*>(0x00007BADDEAD0000);
 
   int base = 0;
-#ifdef ABSL_HAVE_THREAD_SANITIZER
-  // TSAN completely ignores hints unless you ask really nicely.
-  base = MAP_FIXED;
 #endif
   // Try both private and shared mappings to make sure we have the bit order of
   // /proc/pid/pageflags correct.
