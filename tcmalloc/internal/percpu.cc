@@ -149,14 +149,13 @@ static bool SetAffinityOneCpu(int cpu) {
   return false;
 }
 
-// We're being asked to fence against the mask <cpus>, but a NULL mask
+// We're being asked to fence against the mask <target>, but a -1 mask
 // means every CPU.  Do we need <cpu>?
-static bool NeedCpu(int cpu, const cpu_set_t* cpus) {
-  if (cpus == nullptr) return true;
-  return CPU_ISSET(cpu, cpus);
+static bool NeedCpu(const int cpu, const int target) {
+  return target == -1 || target == cpu;
 }
 
-static void SlowFence(const cpu_set_t* cpus) {
+static void SlowFence(int target) {
   // Necessary, so the point in time mentioned below has visibility
   // of our writes.
   std::atomic_thread_fence(std::memory_order_seq_cst);
@@ -176,7 +175,7 @@ static void SlowFence(const cpu_set_t* cpus) {
   // siblings (up to some races, dealt with below), so we don't need to.
 
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
-    if (!NeedCpu(cpu, cpus)) {
+    if (!NeedCpu(cpu, target)) {
       // unnecessary -- user doesn't care about synchronization on this cpu
       continue;
     }
@@ -264,15 +263,15 @@ static void UpstreamRseqFenceCpu(int cpu) {
 }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
-// Interrupt every concurrently running sibling thread on any cpu in
-// "cpus", and guarantee our writes up til now are visible to every
-// other CPU. (cpus == NULL is equivalent to all CPUs.)
-static void FenceInterruptCPUs(const cpu_set_t* cpus) {
+// Interrupt every concurrently running sibling thread on "cpu", and guarantee
+// our writes up til now are visible to every other CPU. (cpu == -1 is
+// equivalent to all CPUs.)
+static void FenceInterruptCPU(int cpu) {
   CHECK_CONDITION(IsFast());
 
   // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
   // interrupt ongoing restartable sequences.
-  SlowFence(cpus);
+  SlowFence(cpu);
 }
 
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
@@ -303,10 +302,7 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
   }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  CPU_SET(cpu, &set);
-  FenceInterruptCPUs(&set);
+  FenceInterruptCPU(cpu);
 }
 
 void FenceAllCpus() {
@@ -316,7 +312,7 @@ void FenceAllCpus() {
     return;
   }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  FenceInterruptCPUs(nullptr);
+  FenceInterruptCPU(-1);
 }
 
 }  // namespace percpu
