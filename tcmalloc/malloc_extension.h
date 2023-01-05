@@ -138,12 +138,21 @@ class Profile final {
 
     // The following vars are used by the lifetime (deallocation) profiler.
     uint64_t profile_id;
+
+    // Whether this sample captures allocations where the deallocation event
+    // was not observed. Thus the measurements are censored in the statistical
+    // sense, see https://en.wikipedia.org/wiki/Censoring_(statistics)#Types.
+    bool is_censored = false;
+
+    // Aggregated lifetime statistics per callstack.
     absl::Duration avg_lifetime;
     absl::Duration stddev_lifetime;
     absl::Duration min_lifetime;
     absl::Duration max_lifetime;
+
     // For the *_matched vars below we use true = "same", false = "different".
-    // When the context is unavailable the profile contains "none".
+    // When the value is unavailable the profile contains "none". For
+    // right-censored observations, CPU and thread matched values are "none".
     bool allocator_deallocator_cpu_matched;
     bool allocator_deallocator_thread_matched;
 

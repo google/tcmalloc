@@ -14,6 +14,7 @@
 
 #include "tcmalloc/deallocation_profiler.h"
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -82,9 +83,8 @@ TEST(LifetimeProfiler, BasicCounterValues) {
 
   auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
 
-  // Perform four allocation/deallocation pairs. kBigMallocSize is chosen
-  // large enough to trigger sampling. The first batch should get merged
-  // into one sample, the second batch into two different samples.
+  // Perform four allocation/deallocation pairs. The first batch should get
+  // merged into one sample, the second batch into two different samples.
   for (int i = 0; i < kNumAllocations; i++) {
     ptr = SingleAlloc(2, kMallocSize);
     absl::SleepFor(duration);
@@ -233,6 +233,64 @@ TEST(LifetimeProfiler, RecordLiveAllocations) {
   EXPECT_EQ(alloc_frames, kAllocFrames + 1);
   EXPECT_EQ(dealloc_frames, kDeallocFrames + 1);
   EXPECT_GE(sample_lifetime, kDuration);
+}
+
+TEST(LifetimeProfiler, RecordCensoredAllocations) {
+  if (CheckerIsActive()) {
+    return;
+  }
+
+  // Avoid unsample-related behavior
+  tcmalloc::ScopedProfileSamplingRate test_sample_rate(1);
+  constexpr int64_t kMallocSize1 = 4 * 1024, kMallocSize2 = 2 * 1024;
+  constexpr int kAllocFrames = 2;
+  constexpr absl::Duration kDuration = absl::Milliseconds(100);
+
+  // Allocated prior to profiling.
+  void *ptr1 = SingleAlloc(kAllocFrames, kMallocSize1);
+
+  auto token = tcmalloc::MallocExtension::StartLifetimeProfiling();
+
+  // Change the requested size so that it always shows up as a different sample.
+  void *ptr2 = SingleAlloc(kAllocFrames, kMallocSize2);
+
+  const tcmalloc::Profile profile = std::move(token).Stop();
+  absl::SleepFor(kDuration);
+
+  // deallocations occur after samples are collected.
+  SingleDealloc(1, ptr1);
+  SingleDealloc(1, ptr2);
+
+  int sample_count = 0;
+  int alloc_frames = 0;
+  ASSERT_NO_FATAL_FAILURE(
+      profile.Iterate([&](const tcmalloc::Profile::Sample &sample) {
+        bool found_test_alloc = false;
+        for (int i = 0; i < sample.depth; i++) {
+          const int kMaxFunctionNameLength = 1024;
+          char str[kMaxFunctionNameLength];
+          absl::Symbolize(sample.stack[i], str, kMaxFunctionNameLength);
+          if (absl::StrContains(str, "SingleAlloc")) {
+            ++alloc_frames;
+            found_test_alloc = true;
+          }
+        }
+
+        // Skip samples which are unrelated to the test.
+        if (!found_test_alloc) {
+          return;
+        }
+
+        // All the samples we collect in this test should be right-censored.
+        ASSERT_TRUE(sample.is_censored);
+        ++sample_count;
+      }));
+
+  // Expect 2 samples for ptrs and ptr2.
+  ASSERT_EQ(sample_count, 2);
+  // Expect the same depth specified during allocs for ptrs and ptr2.
+  // Add 1 to account for the call from the test.
+  EXPECT_EQ(alloc_frames, 2 * (kAllocFrames + 1));
 }
 
 TEST(LifetimeProfiler, LifetimeBucketing) {

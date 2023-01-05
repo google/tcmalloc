@@ -492,6 +492,12 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   const int callstack_pair_id = builder->InternString("callstack-pair-id");
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
+    // TODO(b/236755869): Do not emit censored observations to the profile. To
+    // be implemented in a followup change.
+    if (entry.is_censored) {
+      return;
+    }
+
     perftools::profiles::Sample& sample = *converted.add_sample();
 
     CHECK_CONDITION(entry.depth <= ABSL_ARRAYSIZE(entry.stack));
