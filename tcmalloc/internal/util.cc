@@ -21,6 +21,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <type_traits>
 #include <utility>
 
 #include "absl/time/clock.h"
@@ -34,9 +35,11 @@ namespace tcmalloc_internal {
 int signal_safe_open(const char* path, int flags, ...) {
   int fd;
   va_list ap;
+  using mode_t_va_arg_type =
+      std::conditional<sizeof(mode_t) < sizeof(int), int, mode_t>::type;
 
   va_start(ap, flags);
-  mode_t mode = va_arg(ap, mode_t);
+  mode_t mode = va_arg(ap, mode_t_va_arg_type);
   va_end(ap);
 
   do {
