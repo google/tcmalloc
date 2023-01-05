@@ -90,7 +90,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::partial_transfer_cache_enabled_(
-    false);
+    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
