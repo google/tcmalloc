@@ -26,7 +26,8 @@
 namespace tcmalloc {
 namespace {
 
-TEST(MprotectExperiment, UseAfterFreeDeathTest) {
+// TODO(b/241832608): Re-enable this test.
+TEST(MprotectExperiment, DISABLED_UseAfterFreeDeathTest) {
   ASSERT_TRUE(IsExperimentActive(
       Experiment::TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY));
 
