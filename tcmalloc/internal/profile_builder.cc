@@ -465,7 +465,9 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   for (const auto& [type, unit] : {std::pair{"allocated_objects", "count"},
                                    {"allocated_space", "bytes"},
                                    {"deallocated_objects", "count"},
-                                   {"deallocated_space", "bytes"}}) {
+                                   {"deallocated_space", "bytes"},
+                                   {"censored_allocated_objects", "count"},
+                                   {"censored_allocated_space", "bytes"}}) {
     perftools::profiles::ValueType* sample_type = converted.add_sample_type();
     sample_type->set_type(builder->InternString(type));
     sample_type->set_unit(builder->InternString(unit));
@@ -490,14 +492,9 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   const int different_id = builder->InternString("different");
   const int active_thread_id = builder->InternString("active thread");
   const int callstack_pair_id = builder->InternString("callstack-pair-id");
+  const int none_id = builder->InternString("none");
 
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
-    // TODO(b/236755869): Do not emit censored observations to the profile. To
-    // be implemented in a followup change.
-    if (entry.is_censored) {
-      return;
-    }
-
     perftools::profiles::Sample& sample = *converted.add_sample();
 
     CHECK_CONDITION(entry.depth <= ABSL_ARRAYSIZE(entry.stack));
@@ -515,16 +512,20 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
       add_label(key, unit, value);
     };
 
-    auto add_string_label = [&](int key, bool pick_result1, int result1,
-                                int result2) {
-      perftools::profiles::Label& label = *sample.add_label();
-      label.set_key(key);
-      if (pick_result1) {
-        label.set_str(result1);
-      } else {
-        label.set_str(result2);
-      }
-    };
+    auto add_optional_string_label =
+        [&](int key, const std::optional<bool>& optional_result, int result1,
+            int result2) {
+          perftools::profiles::Label& label = *sample.add_label();
+          label.set_key(key);
+
+          if (!optional_result.has_value()) {
+            label.set_str(none_id);
+          } else if (optional_result.value()) {
+            label.set_str(result1);
+          } else {
+            label.set_str(result2);
+          }
+        };
 
     // The following three fields are common across profiles.
     add_positive_label(bytes_id, bytes_id, entry.allocated_size);
@@ -541,17 +542,31 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
                        absl::ToInt64Nanoseconds(entry.min_lifetime));
     add_positive_label(max_lifetime_id, nanoseconds_id,
                        absl::ToInt64Nanoseconds(entry.max_lifetime));
-    add_string_label(active_cpu_id, entry.allocator_deallocator_cpu_matched,
-                     same_id, different_id);
-    add_string_label(active_thread_id,
-                     entry.allocator_deallocator_thread_matched, same_id,
-                     different_id);
+
+    add_optional_string_label(active_cpu_id,
+                              entry.allocator_deallocator_cpu_matched, same_id,
+                              different_id);
+    add_optional_string_label(active_thread_id,
+                              entry.allocator_deallocator_thread_matched,
+                              same_id, different_id);
 
     int64_t count = abs(entry.count);
     int64_t weight = entry.sum;
-    if (entry.count > 0) {  // for allocation, e.count is positive
+
+    // Handle censored allocations first since we distinguish
+    // the samples based on the is_censored flag.
+    if (entry.is_censored) {
+      sample.add_value(0);
+      sample.add_value(0);
+      sample.add_value(0);
+      sample.add_value(0);
       sample.add_value(count);
       sample.add_value(weight);
+    } else if (entry.count > 0) {  // for allocation, e.count is positive
+      sample.add_value(count);
+      sample.add_value(weight);
+      sample.add_value(0);
+      sample.add_value(0);
       sample.add_value(0);
       sample.add_value(0);
     } else {  // for deallocation, e.count is negative
@@ -559,6 +574,8 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
       sample.add_value(0);
       sample.add_value(count);
       sample.add_value(weight);
+      sample.add_value(0);
+      sample.add_value(0);
     }
   });
 }

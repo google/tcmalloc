@@ -631,6 +631,16 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
     Profile::Sample dealloc1 = alloc1;
     dealloc1.count = -dealloc1.count;
     samples.push_back(dealloc1);
+
+    // Also add a censored sample with a different profile id.
+    Profile::Sample censored_alloc1 = alloc1;
+    censored_alloc1.is_censored = true;
+    // The *_matched fields are unset for censored allocations since we did not
+    // observe the deallocation.
+    censored_alloc1.allocator_deallocator_cpu_matched = std::nullopt;
+    censored_alloc1.allocator_deallocator_thread_matched = std::nullopt;
+    censored_alloc1.profile_id++;
+    samples.push_back(censored_alloc1);
   }
 
   fake_profile->SetSamples(std::move(samples));
@@ -641,7 +651,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
   const auto& string_table = converted.string_table();
 
   // Checks for lifetime (deallocation) profile specific fields.
-  ASSERT_EQ(converted.sample_type_size(), 4);
+  ASSERT_EQ(converted.sample_type_size(), 6);
   EXPECT_EQ(string_table.at(converted.sample_type(0).type()),
             "allocated_objects");
   EXPECT_EQ(string_table.at(converted.sample_type(1).type()),
@@ -650,19 +660,33 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
             "deallocated_objects");
   EXPECT_EQ(string_table.at(converted.sample_type(3).type()),
             "deallocated_space");
+  EXPECT_EQ(string_table.at(converted.sample_type(4).type()),
+            "censored_allocated_objects");
+  EXPECT_EQ(string_table.at(converted.sample_type(5).type()),
+            "censored_allocated_space");
 
-  ASSERT_EQ(converted.sample_size(), 2);
+  ASSERT_EQ(converted.sample_size(), 3);
   // For the alloc sample, the values are in indices 0, 1.
   EXPECT_EQ(converted.sample(0).value(0), 2);
   EXPECT_EQ(converted.sample(0).value(1), 123);
   EXPECT_EQ(converted.sample(0).value(2), 0);
   EXPECT_EQ(converted.sample(0).value(3), 0);
+  EXPECT_EQ(converted.sample(0).value(4), 0);
+  EXPECT_EQ(converted.sample(0).value(5), 0);
   // For the dealloc sample, the values are in indices 2, 3.
   EXPECT_EQ(converted.sample(1).value(0), 0);
   EXPECT_EQ(converted.sample(1).value(1), 0);
   EXPECT_EQ(converted.sample(1).value(2), 2);
   EXPECT_EQ(converted.sample(1).value(3), 123);
-  // For these two samples, the callstack pair id should be the same.
+  EXPECT_EQ(converted.sample(1).value(4), 0);
+  EXPECT_EQ(converted.sample(1).value(5), 0);
+  // For the censored alloc sample, the values are in indices 4, 5.
+  EXPECT_EQ(converted.sample(2).value(0), 0);
+  EXPECT_EQ(converted.sample(2).value(1), 0);
+  EXPECT_EQ(converted.sample(2).value(2), 0);
+  EXPECT_EQ(converted.sample(2).value(3), 0);
+  EXPECT_EQ(converted.sample(2).value(4), 2);
+  EXPECT_EQ(converted.sample(2).value(5), 123);
 
   // Check the location and mapping fields and extract sample, label pairs.
   SampleLabels extracted;
@@ -685,7 +709,14 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
               Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
               Pair("max_lifetime", 99),
-              Pair("active CPU", "same"), Pair("active thread", "different"))));
+              Pair("active CPU", "same"), Pair("active thread", "different")),
+          // Check the contents of the censored sample.
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("callstack-pair-id", 34), Pair("avg_lifetime", 77),
+              Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
+              Pair("max_lifetime", 99),
+              Pair("active CPU", "none"), Pair("active thread", "none"))));
 
   // Checks for common fields.
   EXPECT_THAT(converted.string_table(converted.drop_frames()),
