@@ -63,8 +63,8 @@ TEST(StartupSizeTest, Basic) {
 #endif
   // Check whether per-cpu is active
   if (percpu > 0) {
-    // Account for 256KiB per cpu slab
-    metadata_limit += absl::base_internal::NumCPUs() * 0.25 * MiB;
+    // Account for 16KiB per cpu slab
+    metadata_limit += absl::base_internal::NumCPUs() * 16 * 1024;
   }
   size_t meta = Property(map, "tcmalloc.metadata_bytes");
   size_t physical = Property(map, "generic.physical_memory_used");

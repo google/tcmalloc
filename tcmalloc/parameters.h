@@ -117,7 +117,9 @@ class Parameters {
 
   static absl::Duration filler_skip_subrelease_interval();
 
-  static bool per_cpu_caches_dynamic_slab_enabled();
+  static bool per_cpu_caches_dynamic_slab_enabled() {
+    return per_cpu_caches_dynamic_slab_.load(std::memory_order_relaxed);
+  }
   static void set_per_cpu_caches_dynamic_slab_enabled(bool value) {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(value);
   }
@@ -176,6 +178,7 @@ class Parameters {
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
+  static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
 };

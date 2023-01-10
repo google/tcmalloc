@@ -49,14 +49,6 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
-// As experiments are determined at runtime, we cannot require constant
-// initialization for the atomic.  This avoids an initialization order fiasco.
-static std::atomic<bool>& dynamic_slab_enabled() {
-  static std::atomic<bool> v(
-      IsExperimentActive(Experiment::TCMALLOC_DYNAMIC_SLABS));
-  return v;
-}
-
 uint64_t Parameters::heap_size_hard_limit() {
   size_t amount;
   bool is_hard;
@@ -102,6 +94,8 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
     true
 #endif
 );
+ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
+    true);
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
@@ -138,10 +132,6 @@ int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 static bool want_disable_dynamic_slabs() {
   if (default_want_disable_dynamic_slabs == nullptr) return false;
   return default_want_disable_dynamic_slabs() > 0;
-}
-
-bool Parameters::per_cpu_caches_dynamic_slab_enabled() {
-  return dynamic_slab_enabled().load(std::memory_order_relaxed);
 }
 
 }  // namespace tcmalloc_internal
@@ -341,8 +331,7 @@ void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
   // We only allow disabling dynamic slabs using both the flag and
   // want_disable_dynamic_slabs.
   if (!v && !tcmalloc::tcmalloc_internal::want_disable_dynamic_slabs()) return;
-  tcmalloc::tcmalloc_internal::dynamic_slab_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::per_cpu_caches_dynamic_slab_.store(v, std::memory_order_relaxed);
 }
 
 double TCMalloc_Internal_GetPerCpuCachesDynamicSlabGrowThreshold() {
