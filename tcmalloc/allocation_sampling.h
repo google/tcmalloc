@@ -102,6 +102,7 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   }
   Profile::Sample::GuardedStatus guarded_status =
       GetThreadSampler()->ShouldSampleGuardedAllocation();
+  // If there is a reason not to guard (guarded_status <= 0), then return.
   if (guarded_status <= Profile::Sample::GuardedStatus::NotAttempted) {
     return {nullptr, guarded_status};
   }
@@ -174,29 +175,37 @@ static void* SampleifyAllocation(State& state, Policy policy,
   StackTrace stack_trace;
   stack_trace.proxy = nullptr;
   stack_trace.requested_size = requested_size;
-
-  size_t allocated_size;
-  bool allocated_cold;
-  GuardedPageAllocator::AllocWithStatus alloc_with_status{
-      nullptr, Profile::Sample::GuardedStatus::NotAttempted};
+  // Grab the stack trace outside the heap lock.
+  stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
 
   // requested_alignment = 1 means 'small size table alignment was used'
   // Historically this is reported as requested_alignment = 0
-  size_t requested_alignment = policy.align();
-  if (requested_alignment == 1) {
-    requested_alignment = 0;
+  stack_trace.requested_alignment = policy.align();
+  if (stack_trace.requested_alignment == 1) {
+    stack_trace.requested_alignment = 0;
   }
+
+  stack_trace.requested_size_returning = capacity != nullptr;
+  stack_trace.sampled_alloc_handle =
+      state.sampled_alloc_handle_generator.fetch_add(
+          1, std::memory_order_relaxed) +
+      1;
+  stack_trace.access_hint = static_cast<uint8_t>(policy.access());
+  stack_trace.weight = weight;
+
+  GuardedPageAllocator::AllocWithStatus alloc_with_status{
+      nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
   if (size_class != 0) {
     ASSERT(size_class == state.pagemap().sizeclass(PageIdContaining(obj)));
 
-    allocated_size = state.sizemap().class_to_size(size_class);
-    allocated_cold = IsExpandedSizeClass(size_class);
+    stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
+    stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
 
     // If the caller didn't provide a span, allocate one:
-    Length num_pages = BytesToLengthCeil(allocated_size);
+    Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
     alloc_with_status = TrySampleGuardedAllocation(
-        state, requested_size, requested_alignment, num_pages);
+        state, requested_size, stack_trace.requested_alignment, num_pages);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
@@ -208,16 +217,16 @@ static void* SampleifyAllocation(State& state, Policy policy,
       // and we maintain the invariant that GetAllocatedSize() must match the
       // returned size from size returning allocations. So in that case, we
       // report the requested size for both capacity and GetAllocatedSize().
-      if (capacity) allocated_size = requested_size;
+      if (capacity) stack_trace.allocated_size = requested_size;
     } else if ((span = state.page_allocator().New(
                     num_pages, 1, MemoryTag::kSampled)) == nullptr) {
-      if (capacity) *capacity = allocated_size;
+      if (capacity) *capacity = stack_trace.allocated_size;
       return obj;
     }
 
     size_t span_size =
         Length(state.sizemap().class_to_pages(size_class)).in_bytes();
-    size_t objects_per_span = span_size / allocated_size;
+    size_t objects_per_span = span_size / stack_trace.allocated_size;
 
     if (objects_per_span != 1) {
       ASSERT(objects_per_span > 1);
@@ -230,25 +239,13 @@ static void* SampleifyAllocation(State& state, Policy policy,
     // for page allocations, then we need to revisit do_malloc_pages as
     // the current assumption is that only class sized allocs are sampled
     // for gwp-asan.
-    allocated_size = span->bytes_in_span();
-    allocated_cold = IsColdMemory(span->start_address());
+    stack_trace.allocated_size = span->bytes_in_span();
+    stack_trace.cold_allocated = IsColdMemory(span->start_address());
   }
-  if (capacity) *capacity = allocated_size;
+  if (capacity) *capacity = stack_trace.allocated_size;
 
   ASSERT(span != nullptr);
 
-  // Grab the stack trace outside the heap lock.
-  stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
-  stack_trace.requested_alignment = requested_alignment;
-  stack_trace.requested_size_returning = capacity != nullptr;
-  stack_trace.allocated_size = allocated_size;
-  stack_trace.sampled_alloc_handle =
-      state.sampled_alloc_handle_generator.fetch_add(
-          1, std::memory_order_relaxed) +
-      1;
-  stack_trace.access_hint = static_cast<uint8_t>(policy.access());
-  stack_trace.cold_allocated = allocated_cold;
-  stack_trace.weight = weight;
   stack_trace.span_start_address = span->start_address();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = static_cast<int>(alloc_with_status.status);
@@ -259,10 +256,10 @@ static void* SampleifyAllocation(State& state, Policy policy,
       static_cast<double>(weight) / (requested_size + 1);
 
   // Adjust our estimate of internal fragmentation.
-  ASSERT(requested_size <= allocated_size);
-  if (requested_size < allocated_size) {
+  ASSERT(requested_size <= stack_trace.allocated_size);
+  if (requested_size < stack_trace.allocated_size) {
     state.sampled_internal_fragmentation_.Add(
-        allocation_estimate * (allocated_size - requested_size));
+        allocation_estimate * (stack_trace.allocated_size - requested_size));
   }
 
   state.allocation_samples.ReportMalloc(stack_trace);
