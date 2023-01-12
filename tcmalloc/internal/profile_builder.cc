@@ -706,7 +706,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
     add_positive_label(size_returning_id, 0, entry.requested_size_returning);
-    // TODO(b/235916219): Remove all of these when sample type rollout is
+    // TODO(b/259585789): Remove all of these when sample type rollout is
     // complete.
     if (data.resident_size.has_value()) {
       add_label(sampled_resident_id, bytes_id, data.resident_size.value());
