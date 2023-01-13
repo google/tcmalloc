@@ -16,6 +16,15 @@ workspace(name = "com_google_tcmalloc")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
+# Load a recent version of skylib in case our dependencies have obsolete
+# versions. This is needed for bazel 6 compatibility.
+http_archive(
+    name = "bazel_skylib", # 2022-09-01
+    urls = ["https://github.com/bazelbuild/bazel-skylib/archive/refs/tags/1.3.0.zip"],
+    strip_prefix = "bazel-skylib-1.3.0",
+    sha256 = "4756ab3ec46d94d99e5ed685d2d24aece484015e45af303eb3a11cab3cdc2e71",
+)
+
 # Abseil
 http_archive(
     name = "com_google_absl",
