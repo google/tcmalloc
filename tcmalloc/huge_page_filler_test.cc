@@ -2479,6 +2479,29 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
   }
 }
 
+// In b/265337869, we observed failures in the huge_page_filler due to mixing of
+// hugepages between few and many object allocs.  The test below reproduces the
+// buggy situation.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, DISABLED_CounterUnderflow) {
+  randomize_objects_per_span_ = false;
+  const Length N = kPagesPerHugePage;
+  const Length kToBeReleased(kPagesPerHugePage / 2 + Length(1));
+  // First allocate a many objects span, then release the remaining pages on the
+  // hugepage.  This would move the hugepage to regular_alloc_partial_released_.
+  auto manyalloc =
+      AllocateWithObjectCount(N - kToBeReleased, kFewObjectsAllocMaxLimit * 2);
+  EXPECT_EQ(ReleasePages(Length(kToBeReleased)), kToBeReleased);
+  // Then allocate a few objects span.  The previous hugepage is used since the
+  // few_objects_alloc_ does not have any hugepages currently.
+  auto fewalloc = AllocateWithObjectCount(Length(kToBeReleased), 1);
+  EXPECT_EQ(fewalloc.pt, manyalloc.pt);
+  // The few objects span has more pages than the many objects span.  So when we
+  // try to delete the many objects span, we get an underflow due to an assert
+  // in the function HugePageFiller::Put().
+  Delete(fewalloc);
+  Delete(manyalloc);
+}
+
 INSTANTIATE_TEST_SUITE_P(All, FillerTestSeparateFewAndManyObjectsAllocs,
                          testing::Values(FillerPartialRerelease::Return,
                                          FillerPartialRerelease::Retain));
