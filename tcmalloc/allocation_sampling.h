@@ -92,6 +92,27 @@ ABSL_CONST_INIT static thread_local Sampler thread_sampler_
 
 inline Sampler* GetThreadSampler() { return &thread_sampler_; }
 
+inline bool ShouldGuardingBeAttempted(
+    Profile::Sample::GuardedStatus guarded_status) {
+  switch (guarded_status) {
+    case Profile::Sample::GuardedStatus::LargerThanOnePage:
+    case Profile::Sample::GuardedStatus::Disabled:
+    case Profile::Sample::GuardedStatus::RateLimited:
+    case Profile::Sample::GuardedStatus::TooSmall:
+    case Profile::Sample::GuardedStatus::NoAvailableSlots:
+    case Profile::Sample::GuardedStatus::MProtectFailed:
+    case Profile::Sample::GuardedStatus::Filtered:
+    case Profile::Sample::GuardedStatus::Unknown:
+    case Profile::Sample::GuardedStatus::NotAttempted:
+      return false;
+    case Profile::Sample::GuardedStatus::Requested:
+    case Profile::Sample::GuardedStatus::Required:
+    case Profile::Sample::GuardedStatus::Guarded:
+      return true;
+  }
+  return false;
+}
+
 // If this allocation can be guarded, and if it's time to do a guarded sample,
 // returns a guarded allocation Span.  Otherwise returns nullptr.
 template <typename State>
@@ -102,8 +123,8 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   }
   Profile::Sample::GuardedStatus guarded_status =
       GetThreadSampler()->ShouldSampleGuardedAllocation();
-  // If there is a reason not to guard (guarded_status <= 0), then return.
-  if (guarded_status <= Profile::Sample::GuardedStatus::NotAttempted) {
+  // If there is a reason not to guard, then return.
+  if (!ShouldGuardingBeAttempted(guarded_status)) {
     return {nullptr, guarded_status};
   }
   // The num_pages == 1 constraint ensures that size <= kPageSize.  And
