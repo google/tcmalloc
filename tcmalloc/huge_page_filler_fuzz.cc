@@ -150,7 +150,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[16:31] - We select num_to_objects.
         const Length n(std::clamp<size_t>(value & 0xFFFF, 1,
                                           kPagesPerHugePage.raw_num() - 1));
-        const size_t num_objects = std::max<size_t>(value >> 16, 1);
+        size_t num_objects;
+        const uint32_t lval = (value >> 16);
+        // Choose many objects if the last bit is 1.
+        if (lval & 1) {
+          num_objects = std::max<size_t>(
+              lval >> 1,
+              tcmalloc::tcmalloc_internal::kFewObjectsAllocMaxLimit + 1);
+        } else {
+          // We need to choose few objects, so only top four bits are used.
+          num_objects = std::max<size_t>(lval >> 12, 1);
+        }
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
