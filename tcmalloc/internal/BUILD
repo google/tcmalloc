@@ -47,7 +47,7 @@ cc_test(
     deps = [
         ":affinity",
         ":percpu",
-        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -181,7 +181,6 @@ cc_test(
         ":lifetime_predictions",
         "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/hash:hash_testing",
         "@com_google_googletest//:gtest_main",
     ],
@@ -213,10 +212,9 @@ cc_test(
     srcs = ["lifetime_tracker_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":clock",
         ":lifetime_predictions",
         ":lifetime_tracker",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
@@ -336,7 +334,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":memory_stats",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -492,9 +489,11 @@ cc_test(
     deps = [
         ":logging",
         ":numa",
+        ":percpu",
         "//tcmalloc:want_numa_aware",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
@@ -712,11 +711,14 @@ cc_test(
         ":profile_builder",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/meta:type_traits",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:variant",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -774,10 +776,8 @@ cc_test(
     linkstatic = 1,
     deps = [
         ":range_tracker",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/random:distributions",
         "@com_google_googletest//:gtest_main",
     ],
 )

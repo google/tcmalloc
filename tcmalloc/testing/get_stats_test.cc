@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <string.h>
+#include <stddef.h>
 
-#include <memory>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"

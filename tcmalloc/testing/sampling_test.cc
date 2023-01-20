@@ -15,13 +15,12 @@
 // This tests SnapshotCurrent.  It does this by doing a bunch of allocations and
 // then evaluating the returned profile.
 
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,9 +29,12 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/debugging/symbolize.h"
-#include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"

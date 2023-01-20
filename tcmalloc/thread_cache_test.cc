@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,12 +19,14 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <limits>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_cat.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/parameter_accessors.h"

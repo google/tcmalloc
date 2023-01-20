@@ -14,6 +14,9 @@
 
 #include "tcmalloc/stats.h"
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <limits>
 #include <string>
 
@@ -22,6 +25,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

@@ -14,8 +14,13 @@
 
 #include "tcmalloc/internal/profile_builder.h"
 
+#include <elf.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <link.h>
+#include <stddef.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 #include <climits>
 #include <cstdint>
@@ -24,6 +29,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -31,12 +37,15 @@
 #include "tcmalloc/internal/profile.pb.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/casts.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
+#include "absl/meta/type_traits.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "absl/types/variant.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal/page_size.h"

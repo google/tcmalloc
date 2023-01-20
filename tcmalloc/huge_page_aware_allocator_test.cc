@@ -14,11 +14,11 @@
 
 #include "tcmalloc/huge_page_aware_allocator.h"
 
-#include <stdio.h>
+#include <errno.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -32,21 +32,24 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
-#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
+#include "absl/meta/type_traits.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
-#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/barrier.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"

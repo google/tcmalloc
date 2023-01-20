@@ -26,6 +26,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <optional>
 
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"

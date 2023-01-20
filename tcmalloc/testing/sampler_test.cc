@@ -16,15 +16,12 @@
 
 #include "tcmalloc/sampler.h"
 
-#include <math.h>
 #include <stddef.h>
-#include <stdlib.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <new>
-#include <string>
-#include <type_traits>
 #include <vector>
 
 #include "gtest/gtest.h"

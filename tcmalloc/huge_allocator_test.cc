@@ -14,12 +14,12 @@
 
 #include "tcmalloc/huge_allocator.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include <algorithm>
-#include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -29,6 +29,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {

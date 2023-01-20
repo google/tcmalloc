@@ -15,7 +15,9 @@
 // These tests assume TCMalloc is not linked in, and therefore the features
 // exposed by MallocExtension should be no-ops, but otherwise safe to call.
 
-#include "gmock/gmock.h"
+#include <utility>
+#include <vector>
+
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "tcmalloc/malloc_extension.h"

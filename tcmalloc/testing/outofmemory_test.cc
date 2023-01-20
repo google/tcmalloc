@@ -16,9 +16,9 @@
 // of memory causes other parts of the runtime to behave improperly.
 
 #include <stddef.h>
-#include <stdlib.h>
 
 #include <new>
+#include <string>
 
 #include "gtest/gtest.h"
 #include "tcmalloc/internal/config.h"

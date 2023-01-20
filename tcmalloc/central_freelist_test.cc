@@ -14,15 +14,30 @@
 
 #include "tcmalloc/central_freelist.h"
 
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include <algorithm>
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/algorithm/container.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
+#include "absl/memory/memory.h"
+#include "absl/numeric/bits.h"
 #include "absl/random/random.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/static_vars.h"

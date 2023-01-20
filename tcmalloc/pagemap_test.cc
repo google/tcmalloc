@@ -14,19 +14,21 @@
 
 #include "tcmalloc/pagemap.h"
 
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
 #include <algorithm>
-#include <cstdint>
 #include <new>
+#include <string>
 #include <vector>
 
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 
 // Note: we leak memory every time a map is constructed, so do not
 // create too many maps.

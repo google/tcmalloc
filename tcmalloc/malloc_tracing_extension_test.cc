@@ -19,10 +19,16 @@
 
 #include "tcmalloc/malloc_tracing_extension.h"
 
+#include <stddef.h>
+
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 #include "gtest/gtest.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
 #ifndef MALLOC_TRACING_EXTENSION_NOT_SUPPORTED

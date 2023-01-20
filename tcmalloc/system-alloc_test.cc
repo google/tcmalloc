@@ -14,13 +14,14 @@
 
 #include "tcmalloc/system-alloc.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 
-#include <algorithm>
 #include <limits>
 #include <new>
+#include <string>
 #include <utility>
 
 #include "benchmark/benchmark.h"

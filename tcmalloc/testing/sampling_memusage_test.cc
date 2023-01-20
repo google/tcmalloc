@@ -13,10 +13,8 @@
 // limitations under the License.
 
 #include <stddef.h>
-#include <stdlib.h>
 #include <sys/types.h>
 
-#include <string>
 #include <vector>
 
 #include "benchmark/benchmark.h"

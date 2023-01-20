@@ -15,18 +15,21 @@
 #include "tcmalloc/stack_trace_table.h"
 
 #include <stddef.h>
-#include <sys/mman.h>
+#include <stdint.h>
 
 #include <algorithm>
+#include <initializer_list>
+#include <ostream>
+#include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
-#include "absl/debugging/stacktrace.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_join.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {

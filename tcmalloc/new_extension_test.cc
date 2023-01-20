@@ -14,16 +14,22 @@
 
 #include "tcmalloc/new_extension.h"
 
+#include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <algorithm>
+#include <limits>
+#include <new>
+#include <vector>
 
 #include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {

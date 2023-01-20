@@ -14,14 +14,23 @@
 
 #include "tcmalloc/profile_marshaler.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "tcmalloc/internal/profile.pb.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/memory/memory.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/gzip_stream.h"
-#include "google/protobuf/io/zero_copy_stream_impl.h"
+#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "tcmalloc/internal/fake_profile.h"
+#include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

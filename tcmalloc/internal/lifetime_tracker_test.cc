@@ -14,9 +14,14 @@
 
 #include "tcmalloc/internal/lifetime_tracker.h"
 
+#include <stdint.h>
+
+#include <vector>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/lifetime_predictions.h"
 
 namespace tcmalloc {

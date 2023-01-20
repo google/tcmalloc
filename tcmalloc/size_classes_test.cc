@@ -13,11 +13,16 @@
 // limitations under the License.
 
 #include <stddef.h>
-#include <stdlib.h>
+#include <stdint.h>
+
+#include <string>
 
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/random/random.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/tcmalloc_policy.h"

@@ -14,15 +14,15 @@
 
 #include "tcmalloc/internal/range_tracker.h"
 
-#include <algorithm>
+#include <stddef.h>
+#include <sys/types.h>
+
 #include <utility>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
 #include "absl/container/fixed_array.h"
-#include "absl/random/distributions.h"
 #include "absl/random/random.h"
 
 namespace tcmalloc {

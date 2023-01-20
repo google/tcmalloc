@@ -14,15 +14,19 @@
 
 #include "tcmalloc/huge_region.h"
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 
 #include <algorithm>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/memory/memory.h"
 #include "absl/random/random.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"

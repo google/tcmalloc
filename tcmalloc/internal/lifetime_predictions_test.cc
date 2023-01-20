@@ -14,8 +14,13 @@
 
 #include "tcmalloc/internal/lifetime_predictions.h"
 
-#include "gmock/gmock.h"
+#include <stdint.h>
+
+#include <string>
+#include <vector>
+
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/hash/hash_testing.h"
 #include "tcmalloc/testing/testutil.h"
 

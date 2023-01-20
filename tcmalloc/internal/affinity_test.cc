@@ -15,21 +15,14 @@
 #include "tcmalloc/internal/affinity.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <unistd.h>
+#include <sched.h>
 
-#include <atomic>
 #include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/percpu.h"
 
 namespace tcmalloc {

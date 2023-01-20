@@ -14,12 +14,12 @@
 
 #include "tcmalloc/internal/mincore.h"
 
+#include <errno.h>
+#include <stddef.h>
+#include <string.h>
 #include <sys/mman.h>
-#include <unistd.h>
 
-#include <algorithm>
 #include <cstdint>
-#include <memory>
 #include <set>
 
 #include "benchmark/benchmark.h"

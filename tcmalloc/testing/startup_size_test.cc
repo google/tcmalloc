@@ -22,6 +22,7 @@
 // cause wide variations in RSS measurements based on environmental
 // conditions.
 
+#include <errno.h>
 #include <stddef.h>
 #include <sys/mman.h>
 

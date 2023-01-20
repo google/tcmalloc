@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <cstdio>
 
 #include "absl/strings/str_format.h"

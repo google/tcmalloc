@@ -15,20 +15,31 @@
 #include "tcmalloc/lifetime_based_allocator.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 
+#include <new>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/str_replace.h"
-#include "absl/strings/str_split.h"
 #include "absl/synchronization/barrier.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/lifetime_predictions.h"
+#include "tcmalloc/internal/lifetime_tracker.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {

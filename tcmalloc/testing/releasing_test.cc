@@ -16,12 +16,12 @@
 // requires careful memory accounting, we avoid allocating at critical times and
 // avoid Google Test/background threads.
 
-#include <fcntl.h>
+#include <errno.h>
+#include <stddef.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <cstdio>
 #include <limits>
@@ -29,8 +29,8 @@
 
 #include "benchmark/benchmark.h"
 #include "absl/random/random.h"
-#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/malloc_extension.h"

@@ -14,17 +14,20 @@
 
 #include "tcmalloc/allocation_sample.h"
 
+#include <stddef.h>
+
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/thread_manager.h"
 

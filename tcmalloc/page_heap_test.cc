@@ -22,6 +22,7 @@
 
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/memory/memory.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/pagemap.h"

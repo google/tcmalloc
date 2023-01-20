@@ -14,15 +14,21 @@
 
 #include "tcmalloc/sampled_allocation_recorder.h"
 
+#include <assert.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/explicitly_constructed.h"
 #include "tcmalloc/testing/thread_manager.h"

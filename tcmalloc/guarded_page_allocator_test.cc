@@ -14,31 +14,32 @@
 
 #include "tcmalloc/guarded_page_allocator.h"
 
-#include <stdio.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <memory>
-#include <set>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/base/casts.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
-#include "absl/strings/str_cat.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {

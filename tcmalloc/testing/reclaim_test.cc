@@ -12,14 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+#include <sys/types.h>
+
+#include <algorithm>
 #include <atomic>
+#include <string>
 #include <thread>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"

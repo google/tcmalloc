@@ -12,23 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <memory>
 #include <new>
+#include <string>
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/declarations.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"

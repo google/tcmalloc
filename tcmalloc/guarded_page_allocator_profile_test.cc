@@ -12,13 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/functional/function_ref.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 

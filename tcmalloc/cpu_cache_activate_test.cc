@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stdint.h>
+
+#include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "benchmark/benchmark.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/percpu.h"

@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <limits>
-#include <new>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
-#include "gmock/gmock.h"
+#include <limits>
+#include <string>
+
+#include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"

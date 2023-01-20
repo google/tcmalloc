@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
 #include <stdint.h>
+
+#include <optional>
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"

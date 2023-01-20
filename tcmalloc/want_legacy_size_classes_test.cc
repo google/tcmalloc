@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+
 #include "gtest/gtest.h"
 #include "absl/base/macros.h"
 #include "tcmalloc/common.h"

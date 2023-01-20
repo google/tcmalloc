@@ -21,9 +21,9 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <algorithm>
-#include <new>
 
 #include "tcmalloc/internal_malloc_extension.h"
 

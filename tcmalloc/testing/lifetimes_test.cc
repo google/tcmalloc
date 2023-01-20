@@ -12,26 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <unistd.h>
 
-#include <map>
+#include <new>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <vector>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/flags/flag.h"
-#include "absl/flags/parse.h"
-#include "absl/strings/str_split.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/barrier.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/lifetime_tracker.h"
 #include "tcmalloc/lifetime_based_allocator.h"
-#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/testing/testutil.h"
 

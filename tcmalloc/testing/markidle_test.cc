@@ -14,13 +14,13 @@
 //
 // MallocExtension::MarkThreadIdle() testing
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 
+#include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "gtest/gtest.h"
-#include "absl/flags/flag.h"
+#include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {

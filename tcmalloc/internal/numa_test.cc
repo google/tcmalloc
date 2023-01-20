@@ -25,7 +25,6 @@
 
 #include <algorithm>
 #include <new>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,8 +35,10 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+#include <stdint.h>
+
+#include <optional>
 #include <string>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/log/check.h"
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {

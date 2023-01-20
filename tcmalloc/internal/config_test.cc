@@ -14,6 +14,8 @@
 
 #include "tcmalloc/internal/config.h"
 
+#include <algorithm>
+
 #include "gtest/gtest.h"
 
 namespace tcmalloc {

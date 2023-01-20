@@ -14,21 +14,24 @@
 
 #include "tcmalloc/deallocation_profiler.h"
 
-#include <array>
+#include <stddef.h>
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <new>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/debugging/symbolize.h"
+#include "absl/log/log.h"
 #include "absl/strings/match.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
 

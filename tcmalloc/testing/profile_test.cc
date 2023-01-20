@@ -12,20 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <stddef.h>
+
 #include <cstdint>
 #include <memory>
-#include <new>
 #include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "tcmalloc/internal/profile.pb.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/config.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/gzip_stream.h"
-#include "google/protobuf/io/zero_copy_stream_impl.h"
+#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/profile_marshaler.h"

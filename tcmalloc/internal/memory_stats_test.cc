@@ -14,7 +14,10 @@
 
 #include "tcmalloc/internal/memory_stats.h"
 
-#include <memory>
+#include <stdint.h>
+#include <unistd.h>
+
+#include <string>
 
 #include "gtest/gtest.h"
 

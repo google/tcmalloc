@@ -13,12 +13,16 @@
 // limitations under the License.
 
 #include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <sys/mman.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
+#include "tcmalloc/internal/profile.pb.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
@@ -26,6 +30,8 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"

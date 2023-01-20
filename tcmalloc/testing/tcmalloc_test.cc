@@ -33,29 +33,18 @@
 #define _XOPEN_SOURCE 600
 #define _GNU_SOURCE 1
 #include <errno.h>
-#include <fcntl.h>
 #include <malloc.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <functional>
-#include <iostream>
-#include <iterator>
 #include <limits>
-#include <memory>
 #include <new>
-#include <optional>
-#include <random>
 #include <string>
-#include <thread>  // NOLINT(build/c++11)
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -64,15 +53,19 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/base/casts.h"
 #include "absl/base/macros.h"
-#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
 #include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"

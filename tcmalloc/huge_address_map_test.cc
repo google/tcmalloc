@@ -14,6 +14,7 @@
 
 #include "tcmalloc/huge_address_map.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
 #include <vector>

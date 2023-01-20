@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <string>
+
 #include "tcmalloc/flags.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/flags/flag.h"
 #include "tcmalloc/parameters.h"
 

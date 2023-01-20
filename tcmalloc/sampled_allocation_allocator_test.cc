@@ -16,6 +16,7 @@
 
 #include "gtest/gtest.h"
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

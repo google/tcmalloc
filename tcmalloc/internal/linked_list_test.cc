@@ -14,9 +14,11 @@
 
 #include "tcmalloc/internal/linked_list.h"
 
+#include <stddef.h>
 #include <stdlib.h>
 
 #include <algorithm>
+#include <string>
 #include <type_traits>
 #include <vector>
 

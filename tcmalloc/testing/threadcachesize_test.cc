@@ -15,9 +15,8 @@
 // Check that thread cache size limits are obeyed.
 
 #include <stddef.h>
-#include <stdlib.h>
-#include <unistd.h>
 
+#include <optional>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 

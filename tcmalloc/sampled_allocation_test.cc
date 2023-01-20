@@ -14,8 +14,9 @@
 
 #include "tcmalloc/sampled_allocation.h"
 
-#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

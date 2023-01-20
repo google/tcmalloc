@@ -14,23 +14,24 @@
 
 #include "tcmalloc/transfer_cache.h"
 
+#include <stddef.h>
+
 #include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <cstring>
-#include <random>
+#include <string>
 #include <thread>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/random/distributions.h"
-#include "absl/random/random.h"
 #include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/static_vars.h"
