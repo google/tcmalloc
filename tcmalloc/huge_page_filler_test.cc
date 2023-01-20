@@ -2440,7 +2440,6 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
   absl::BitGen rng;
   const Length baseline = LengthFromBytes(absl::GetFlag(FLAGS_bytes));
   const Length peak = baseline * absl::GetFlag(FLAGS_growth_factor);
-  const Length free_target = baseline * absl::GetFlag(FLAGS_release_until);
 
   std::vector<PAlloc> allocs;
   EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
@@ -2463,9 +2462,7 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
       Delete(allocs[limit]);
     }
     allocs.resize(limit);
-    while (filler_.free_pages() > free_target) {
-      ReleasePages(kMaxValidPages);
-    }
+    ReleasePages(kMaxValidPages);
     EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
     EXPECT_EQ(filler_.many_objects_pages_allocated().raw_num(), allocs.size());
     // Compare the total size of the hugepages in the filler and the allocated
@@ -2482,7 +2479,7 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
 // In b/265337869, we observed failures in the huge_page_filler due to mixing of
 // hugepages between few and many object allocs.  The test below reproduces the
 // buggy situation.
-TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, DISABLED_CounterUnderflow) {
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, CounterUnderflow) {
   randomize_objects_per_span_ = false;
   const Length N = kPagesPerHugePage;
   const Length kToBeReleased(kPagesPerHugePage / 2 + Length(1));
@@ -2491,13 +2488,11 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, DISABLED_CounterUnderflow) {
   auto manyalloc =
       AllocateWithObjectCount(N - kToBeReleased, kFewObjectsAllocMaxLimit * 2);
   EXPECT_EQ(ReleasePages(Length(kToBeReleased)), kToBeReleased);
-  // Then allocate a few objects span.  The previous hugepage is used since the
-  // few_objects_alloc_ does not have any hugepages currently.
+  // Then allocate a few objects span.  The previous hugepage should not be used
+  // since while allocating a few objects span, we do not check
+  // many_object_allocs_.
   auto fewalloc = AllocateWithObjectCount(Length(kToBeReleased), 1);
-  EXPECT_EQ(fewalloc.pt, manyalloc.pt);
-  // The few objects span has more pages than the many objects span.  So when we
-  // try to delete the many objects span, we get an underflow due to an assert
-  // in the function HugePageFiller::Put().
+  EXPECT_NE(fewalloc.pt, manyalloc.pt);
   Delete(fewalloc);
   Delete(manyalloc);
 }
