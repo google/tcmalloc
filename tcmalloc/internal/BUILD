@@ -782,6 +782,34 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "stacktrace_filter",
+    hdrs = ["stacktrace_filter.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":logging",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "stacktrace_filter_test",
+    srcs = ["stacktrace_filter_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":stacktrace_filter",
+        "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 # An empty rule to force libc malloc instead of TCMalloc.
 cc_library(
     name = "system_malloc",
