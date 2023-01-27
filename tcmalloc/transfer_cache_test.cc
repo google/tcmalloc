@@ -542,6 +542,10 @@ REGISTER_TYPED_TEST_SUITE_P(FuzzTest, MultiThreadedUnbiased,
                             MultiThreadedBiasedShrink);
 
 TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
   ShardedTransferCacheManager manager(nullptr, nullptr);
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     EXPECT_FALSE(manager.should_use(size_class));
@@ -549,6 +553,10 @@ TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
 }
 
 TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
   FakeShardedTransferCacheEnvironment env;
   FakeShardedTransferCacheEnvironment::ShardedManager& manager =
       env.sharded_manager();
