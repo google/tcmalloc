@@ -207,6 +207,8 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
         return true;
       }
     }
+    ret += static_cast<HugePageAwareAllocator*>(sampled_impl_)
+               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
     for (int partition = 0; partition < active_numa_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
@@ -214,9 +216,6 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
         return true;
       }
     }
-
-    ret += static_cast<HugePageAwareAllocator*>(sampled_impl_)
-               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
   }
   // Return "true", if we got back under the limit.
   return (pages <= ret);

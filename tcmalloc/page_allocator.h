@@ -240,6 +240,12 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
       return released;
     }
   }
+
+  released += sampled_impl_->ReleaseAtLeastNPages(num_pages - released);
+  if (released >= num_pages) {
+    return released;
+  }
+
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     released +=
         normal_impl_[partition]->ReleaseAtLeastNPages(num_pages - released);
@@ -248,7 +254,6 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
     }
   }
 
-  released += sampled_impl_->ReleaseAtLeastNPages(num_pages - released);
   return released;
 }
 
