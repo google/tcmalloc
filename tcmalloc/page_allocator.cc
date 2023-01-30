@@ -46,10 +46,6 @@ bool decide_want_hpaa() {
   if (e) {
     switch (e[0]) {
       case '0':
-        if (kPageShift <= 12) {
-          return false;
-        }
-
         if (default_want_hpaa != nullptr) {
           int default_hpaa = default_want_hpaa();
           if (default_hpaa < 0) {

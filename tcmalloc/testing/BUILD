@@ -623,6 +623,19 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "want_hpaa_test_helper_small_no_hpaa",
+    testonly = 1,
+    srcs = ["want_hpaa_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc:tcmalloc_small_but_slow",
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_no_hpaa",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
 cc_test(
     name = "get_stats_test",
     srcs = ["get_stats_test.cc"],
