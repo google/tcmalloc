@@ -75,6 +75,14 @@ class Parameters {
     return max_total_thread_cache_bytes_.load(std::memory_order_relaxed);
   }
 
+  static bool madvise_free() {
+    return madvise_free_.load(std::memory_order_relaxed);
+  }
+
+  static void set_madvise_free(bool value) {
+    TCMalloc_Internal_SetMadviseFree(value);
+  }
+
   static void set_max_total_thread_cache_bytes(int64_t value) {
     TCMalloc_Internal_SetMaxTotalThreadCacheBytes(value);
   }
@@ -166,6 +174,7 @@ class Parameters {
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
+  friend void ::TCMalloc_Internal_SetMadviseFree(bool v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
@@ -179,6 +188,7 @@ class Parameters {
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
+  static std::atomic<bool> madvise_free_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
 };

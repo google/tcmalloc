@@ -96,6 +96,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 );
 ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_free_(false);
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
@@ -350,6 +351,12 @@ double TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold() {
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v) {
   Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_.store(
       v, std::memory_order_relaxed);
+}
+
+bool TCMalloc_Internal_GetMadviseFree() { return Parameters::madvise_free(); }
+
+void TCMalloc_Internal_SetMadviseFree(bool v) {
+  Parameters::madvise_free_.store(v, std::memory_order_relaxed);
 }
 
 }  // extern "C"

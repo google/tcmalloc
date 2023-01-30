@@ -406,6 +406,15 @@ static bool ReleasePages(void* start, size_t length) {
     return true;
   }
 #endif
+#ifdef MADV_FREE
+  if (Parameters::madvise_free()) {
+    do {
+      ret = madvise(start, length, MADV_FREE);
+    } while (ret == -1 && errno == EAGAIN);
+
+    // We deliberately fall through to use MADV_DONTNEED.
+  }
+#endif
 #ifdef MADV_DONTNEED
   // MADV_DONTNEED drops page table info and any anonymous pages.
   do {
