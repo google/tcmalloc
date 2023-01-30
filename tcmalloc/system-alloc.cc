@@ -93,10 +93,11 @@ ABSL_CONST_INIT absl::base_internal::SpinLock spinlock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 // Page size is initialized on demand
-size_t preferred_alignment = 0;
+ABSL_CONST_INIT size_t preferred_alignment ABSL_GUARDED_BY(spinlock) = 0;
 
 // The current region factory.
-AddressRegionFactory* region_factory = nullptr;
+ABSL_CONST_INIT AddressRegionFactory* region_factory ABSL_GUARDED_BY(spinlock) =
+    nullptr;
 
 // Rounds size down to a multiple of alignment.
 size_t RoundDown(const size_t size, const size_t alignment) {
@@ -114,7 +115,8 @@ class MmapRegion final : public AddressRegion {
  public:
   MmapRegion(uintptr_t start, size_t size, AddressRegionFactory::UsageHint hint)
       : start_(start), free_size_(size), hint_(hint) {}
-  std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override;
+  std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock);
   ~MmapRegion() override = default;
 
  private:
@@ -133,14 +135,16 @@ class MmapRegionFactory final : public AddressRegionFactory {
  private:
   std::atomic<size_t> bytes_reserved_{0};
 };
-std::aligned_storage<sizeof(MmapRegionFactory),
-                     alignof(MmapRegionFactory)>::type mmap_space;
+ABSL_CONST_INIT std::aligned_storage<sizeof(MmapRegionFactory),
+                                     alignof(MmapRegionFactory)>::type
+    mmap_space ABSL_GUARDED_BY(spinlock){};
 
 class RegionManager {
  public:
-  std::pair<void*, size_t> Alloc(size_t size, size_t alignment, MemoryTag tag);
+  std::pair<void*, size_t> Alloc(size_t size, size_t alignment, MemoryTag tag)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock);
 
-  void DiscardMappedRegions() {
+  void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock) {
     std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
     sampled_region_ = nullptr;
     cold_region_ = nullptr;
@@ -151,15 +155,18 @@ class RegionManager {
   // for the next allocation, if not allocate a new region.
   // Then returns a pointer to the new memory.
   std::pair<void*, size_t> Allocate(size_t size, size_t alignment,
-                                    MemoryTag tag);
+                                    MemoryTag tag)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock);
 
   std::array<AddressRegion*, kNumaPartitions> normal_region_{{nullptr}};
   AddressRegion* sampled_region_{nullptr};
   AddressRegion* cold_region_{nullptr};
 };
+ABSL_CONST_INIT
 std::aligned_storage<sizeof(RegionManager), alignof(RegionManager)>::type
-    region_manager_space;
-RegionManager* region_manager = nullptr;
+    region_manager_space ABSL_GUARDED_BY(spinlock){};
+ABSL_CONST_INIT RegionManager* region_manager ABSL_GUARDED_BY(spinlock) =
+    nullptr;
 
 std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
                                            size_t alignment) {
@@ -320,7 +327,7 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
   return region->Alloc(size, alignment);
 }
 
-void InitSystemAllocatorIfNecessary() {
+void InitSystemAllocatorIfNecessary() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock) {
   if (region_factory) return;
   // Sets the preferred alignment to be the largest of either the alignment
   // returned by mmap() or our minimum allocation size. The minimum allocation
