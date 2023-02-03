@@ -1666,6 +1666,92 @@ HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of 
 )"));
 }
 
+TEST_P(FillerTestRegularAllocOnly, ReportSkipSubreleases) {
+  // Tests that HugePageFiller reports skipped subreleases using demand
+  // requirement that is the smaller of two (recent peak and its
+  // current capacity). This fix makes evaluating skip subrelease more accurate,
+  // which is useful for cross-comparing performance of different
+  // skip-subrelease intervals.
+
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+  const Length N = kPagesPerHugePage;
+  // Reports skip subrelease using the recent demand peak (2.5N): it is smaller
+  // than the total number of pages (3N) when 0.25N free pages are skipped. The
+  // skipping is correct as the future demand is 2.5N.
+  PAlloc peak1a = Allocate(3 * N / 4);
+  PAlloc peak1b = Allocate(N / 4);
+  PAlloc peak2a = Allocate(3 * N / 4);
+  PAlloc peak2b = Allocate(N / 4);
+  PAlloc half1 = Allocate(N / 2);
+  Advance(absl::Minutes(2));
+  Delete(half1);
+  Delete(peak1b);
+  Delete(peak2b);
+  PAlloc peak3a = Allocate(3 * N / 4);
+  EXPECT_EQ(filler_.free_pages(), 3 * N / 4);
+  // Subreleases 0.5N free pages and skips 0.25N free pages.
+  EXPECT_EQ(N / 2, ReleasePages(10 * N, absl::Minutes(3)));
+  Advance(absl::Minutes(3));
+  PAlloc tiny1 = Allocate(N / 4);
+  EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
+  EXPECT_EQ(filler_.unmapped_pages(), N / 2);
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  Delete(peak1a);
+  Delete(peak2a);
+  Delete(peak3a);
+  Delete(tiny1);
+  EXPECT_EQ(filler_.used_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  // Accounts for pages that are eagerly unmapped (unmapping_unaccounted_).
+  EXPECT_EQ(N + N / 2, ReleasePages(10 * N));
+
+  Advance(absl::Minutes(30));
+
+  // Reports skip subrelease using HugePageFiller's capacity (N pages): it is
+  // smaller than the recent peak (2N) when 0.5N pages are skipped. They are
+  // correctly skipped as the future demand is N.
+  PAlloc peak4a = Allocate(3 * N / 4);
+  PAlloc peak4b = Allocate(N / 4);
+  PAlloc peak5a = Allocate(3 * N / 4);
+  PAlloc peak5b = Allocate(N / 4);
+  Advance(absl::Minutes(2));
+  Delete(peak4a);
+  Delete(peak4b);
+  Delete(peak5a);
+  Delete(peak5b);
+  PAlloc half2 = Allocate(N / 2);
+  EXPECT_EQ(Length(0), ReleasePages(10 * N, absl::Minutes(3)));
+  Advance(absl::Minutes(3));
+  PAlloc half3 = Allocate(N / 2);
+  Delete(half2);
+  Delete(half3);
+  EXPECT_EQ(filler_.used_pages(), Length(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(Length(0), ReleasePages(10 * N));
+  Advance(absl::Minutes(30));
+  //  Ensures that the tracker is updated.
+  auto tiny2 = Allocate(Length(1));
+  Delete(tiny2);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to recent (180s) peaks.
+HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
+}
+
 class FillerStatsTrackerTest : public testing::Test {
  private:
   static int64_t clock_;

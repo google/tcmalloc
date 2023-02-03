@@ -1665,11 +1665,13 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // Reports the amount of memory that we didn't release due to this
     // mechanism, but never more than skipped free pages. In other words,
     // skipped_pages is zero if all free pages are allowed to be released by
-    // this mechanism.
+    // this mechanism. Note, only free pages in the smaller of the two
+    // (current_pages and demand_at_peak) are skipped, the rest are allowed to
+    // be subreleased.
     Length skipped_pages =
         std::min((free_pages() - releasable_pages), (desired - new_desired));
-    fillerstats_tracker_.ReportSkippedSubreleasePages(skipped_pages,
-                                                      current_pages);
+    fillerstats_tracker_.ReportSkippedSubreleasePages(
+        skipped_pages, std::min(current_pages, demand_at_peak));
     return new_desired;
   }
 
