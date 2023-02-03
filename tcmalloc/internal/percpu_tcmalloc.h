@@ -87,7 +87,6 @@ constexpr inline uint8_t kNumPossiblePerCpuShifts =
 struct ResizeSlabsInfo {
   void* old_slabs;
   size_t old_slabs_size;
-  size_t reused_bytes;
 };
 
 namespace subtle {
@@ -105,6 +104,16 @@ inline size_t GetSlabsAllocSize(Shift shift, int num_cpus) {
   return static_cast<size_t>(num_cpus) << ToUint8(shift);
 }
 
+// Since we lazily initialize our slab, we expect it to be mmap'd and not
+// resident.  We align it to a page size so neighboring allocations (from
+// TCMalloc's internal arena) do not necessarily cause the metadata to be
+// faulted in.
+//
+// We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
+// size to allow small-but-slow to allocate the slab in the tail of its
+// existing Arena block.
+static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
+
 // Tcmalloc slab for per-cpu caching mode.
 // Conceptually it is equivalent to an array of NumClasses PerCpuSlab's,
 // and in fallback implementation it is implemented that way. But optimized
@@ -121,20 +130,26 @@ class TcmallocSlab {
   using ShrinkHandler =
       absl::FunctionRef<void(size_t size_class, void** batch, size_t size)>;
 
+  // We use a single continuous region of memory for all slabs on all CPUs.
+  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
+  // First NumClasses words of each CPU region are occupied by slab
+  // headers (Header struct). The remaining memory contain slab arrays.
+  struct Slabs {
+    std::atomic<int64_t> header[NumClasses];
+    void* mem[];
+  };
+
   constexpr TcmallocSlab() = default;
 
   // Init must be called before any other methods.
-  // <alloc> is memory allocation callback (e.g. malloc).
+  // <slabs> is memory for the slabs with size corresponding to <shift>.
   // <capacity> callback returns max capacity for size class <size_class>.
   // <shift> indicates the number of bits to shift the CPU ID in order to
   //     obtain the location of the per-CPU slab.
-  // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
-  //     can't calculate this from `shift` directly due to numa shift.
   //
   // Initial capacity is 0 for all slabs.
-  void Init(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-            absl::FunctionRef<size_t(size_t)> capacity, Shift shift,
-            uint8_t shift_offset);
+  void Init(Slabs* slabs, absl::FunctionRef<size_t(size_t)> capacity,
+            Shift shift);
 
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <size_class>.
@@ -143,25 +158,23 @@ class TcmallocSlab {
   // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
 
-  // Grows or shrinks the size of the slabs to use the new <shift> value. First
-  // we allocate new slabs, then lock all headers on the old slabs, atomically
-  // update to use the new slabs, and teardown the old slabs. Returns a pointer
-  // to old slabs to be madvised away along with the size of the old slabs and
-  // the number of bytes that were reused.
+  // Grows or shrinks the size of the slabs to use the <new_shift> value. First
+  // we initialize <new_slabs>, then lock all headers on the old slabs,
+  // atomically update to use the new slabs, and teardown the old slabs. Returns
+  // a pointer to old slabs to be madvised away along with the size of the old
+  // slabs and the number of bytes that were reused.
   //
   // <alloc> is memory allocation callback (e.g. malloc).
   // <capacity> callback returns max capacity for size class <cl>.
   // <populated> returns whether the corresponding cpu has been populated.
-  // <new_shift_offset> is the offset of the new slab in slabs_by_shift_. Note
-  //     that we can't calculate this from `shift` directly due to numa shift.
   //
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
   ABSL_MUST_USE_RESULT ResizeSlabsInfo ResizeSlabs(
-      Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+      Shift new_shift, Slabs* new_slabs,
+      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       absl::FunctionRef<size_t(size_t)> capacity,
-      absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-      uint8_t new_shift_offset);
+      absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
 
   // For tests. Returns the freed slabs pointer.
   void* Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
@@ -231,15 +244,6 @@ class TcmallocSlab {
   void Drain(int cpu, DrainHandler drain_handler);
 
   PerCPUMetadataState MetadataMemoryUsage() const;
-
-  // We use a single continuous region of memory for all slabs on all CPUs.
-  // This region is split into NumCPUs regions of size kPerCpuMem (256k).
-  // First NumClasses words of each CPU region are occupied by slab
-  // headers (Header struct). The remaining memory contain slab arrays.
-  struct Slabs {
-    std::atomic<int64_t> header[NumClasses];
-    void* mem[];
-  };
 
   inline int GetCurrentVirtualCpuUnsafe() {
     return VirtualRseqCpuId(virtual_cpu_id_offset_);
@@ -324,16 +328,6 @@ class TcmallocSlab {
   static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
                 "bad Header size");
 
-  // Since we lazily initialize our slab, we expect it to be mmap'd and not
-  // resident.  We align it to a page size so neighboring allocations (from
-  // TCMalloc's internal arena) do not necessarily cause the metadata to be
-  // faulted in.
-  //
-  // We prefer a small page size (EXEC_PAGESIZE) over the anticipated huge page
-  // size to allow small-but-slow to allocate the slab in the tail of its
-  // existing Arena block.
-  static constexpr std::align_val_t kPhysicalPageAlign{EXEC_PAGESIZE};
-
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
   ABSL_MUST_USE_RESULT std::pair<Slabs*, Shift> GetSlabsAndShift(
@@ -341,12 +335,6 @@ class TcmallocSlab {
     return slabs_and_shift_.load(order).Get();
   }
 
-  // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
-  //     can't calculate this from `shift` directly due to numa shift.
-  // Returns the allocated slabs and the number of reused bytes.
-  ABSL_MUST_USE_RESULT std::pair<Slabs*, size_t> AllocSlabs(
-      absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, Shift shift,
-      int num_cpus, uint8_t shift_offset);
   static Slabs* CpuMemoryStart(Slabs* slabs, Shift shift, int cpu);
   static std::atomic<int64_t>* GetHeader(Slabs* slabs, Shift shift, int cpu,
                                          size_t size_class);
@@ -378,10 +366,6 @@ class TcmallocSlab {
   // In ResizeSlabs, we need to allocate space to store begin offsets on the
   // arena. We reuse this space here.
   uint16_t (*resize_begins_)[NumClasses] = nullptr;
-  // Pointers to allocations for slabs of each shift value for use in
-  // ResizeSlabs. This memory is allocated on the arena, and it is nonresident
-  // while not in use.
-  Slabs* slabs_by_shift_[kNumPossiblePerCpuShifts] = {nullptr};
 };
 
 template <size_t NumClasses>
@@ -1106,26 +1090,6 @@ inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
 }
 
 template <size_t NumClasses>
-inline auto TcmallocSlab<NumClasses>::AllocSlabs(
-    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, Shift shift,
-    int num_cpus, uint8_t shift_offset) -> std::pair<Slabs*, size_t> {
-  Slabs*& reused_slabs = slabs_by_shift_[shift_offset];
-  const size_t size = GetSlabsAllocSize(shift, num_cpus);
-  const bool can_reuse = reused_slabs != nullptr;
-  if (can_reuse) {
-    // Enable huge pages for reused slabs.
-    // TODO(b/214241843): we should be able to remove this once the kernel
-    // enables huge zero pages.
-    madvise(reused_slabs, size, MADV_HUGEPAGE);
-  } else {
-    reused_slabs = static_cast<Slabs*>(alloc(size, kPhysicalPageAlign));
-    // MSan does not see writes in assembly.
-    ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);
-  }
-  return {reused_slabs, can_reuse ? size : 0};
-}
-
-template <size_t NumClasses>
 inline auto TcmallocSlab<NumClasses>::CpuMemoryStart(Slabs* slabs, Shift shift,
                                                      int cpu) -> Slabs* {
   char* const bytes = reinterpret_cast<char*>(slabs);
@@ -1231,17 +1195,15 @@ inline void TcmallocSlab<NumClasses>::Header::Lock() {
 }
 
 template <size_t NumClasses>
-void TcmallocSlab<NumClasses>::Init(
-    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    absl::FunctionRef<size_t(size_t)> capacity, Shift shift,
-    uint8_t shift_offset) {
+void TcmallocSlab<NumClasses>::Init(Slabs* slabs,
+                                    absl::FunctionRef<size_t(size_t)> capacity,
+                                    Shift shift) {
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
 
-  const int num_cpus = absl::base_internal::NumCPUs();
-  Slabs* slabs = AllocSlabs(alloc, shift, num_cpus, shift_offset).first;
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
+  const int num_cpus = absl::base_internal::NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
     void** elems = curr_slab->mem;
@@ -1340,19 +1302,18 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
 
 template <size_t NumClasses>
 auto TcmallocSlab<NumClasses>::ResizeSlabs(
-    Shift new_shift, absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+    Shift new_shift, Slabs* new_slabs,
+    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     absl::FunctionRef<size_t(size_t)> capacity,
-    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
-    uint8_t new_shift_offset) -> ResizeSlabsInfo {
-  // Phase 1: Allocate new slab array and initialize any cores that have already
-  // been populated in the old slab.
-  const int num_cpus = absl::base_internal::NumCPUs();
-  const auto [new_slabs, reused_bytes] =
-      AllocSlabs(alloc, new_shift, num_cpus, new_shift_offset);
+    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler)
+    -> ResizeSlabsInfo {
+  // Phase 1: Initialize any cores in the new slab that have already been
+  // populated in the old slab.
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
   ASSERT(new_shift != old_shift);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+  const int num_cpus = absl::base_internal::NumCPUs();
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, virtual_cpu_id_offset, capacity);
@@ -1409,7 +1370,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   }
   FenceAllCpus();
 
-  return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus), reused_bytes};
+  return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
 }
 
 template <size_t NumClasses>

@@ -28,12 +28,14 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <new>
 #include <optional>
 #include <thread>  // NOLINT(build/c++11)
+#include <utility>
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -75,18 +77,35 @@ constexpr size_t kStressCapacity = 4;
 constexpr size_t kShift = 18;
 typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
+TcmallocSlab::Slabs* AllocSlabs(
+    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+    size_t raw_shift) {
+  Shift shift = ToShiftType(raw_shift);
+  const size_t slabs_size =
+      GetSlabsAllocSize(shift, absl::base_internal::NumCPUs());
+  return static_cast<TcmallocSlab::Slabs*>(
+      alloc(slabs_size, kPhysicalPageAlign));
+}
+
+void InitSlab(TcmallocSlab& slab,
+              absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+              absl::FunctionRef<size_t(size_t)> capacity, size_t raw_shift) {
+  TcmallocSlab::Slabs* slabs = AllocSlabs(alloc, raw_shift);
+  slab.Init(slabs, capacity, ToShiftType(raw_shift));
+}
+
 class TcmallocSlabTest : public testing::Test {
  public:
   TcmallocSlabTest() {
 // Ignore false-positive warning in GCC. For more information, see:
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003
 #pragma GCC diagnostic ignored "-Wnonnull"
-    slab_.Init(
-        [&](size_t size, std::align_val_t alignment) {
-          return this->ByteCountingMalloc(size, alignment);
+    InitSlab(
+        slab_,
+        [&](size_t size, std::align_val_t align) {
+          return ByteCountingMalloc(size, align);
         },
-        [](size_t) { return kCapacity; }, ToShiftType(kShift),
-        /*shift_offset=*/kShift - kInitialPerCpuShift);
+        [](size_t) { return kCapacity; }, kShift);
 
     for (int i = 0; i < kCapacity; ++i) {
       object_ptrs_[i] = &objects_[i];
@@ -457,16 +476,16 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   auto trigger_resize = [&](size_t shift) {
     // We are deliberately simulating madvise failing, so ignore the return
     // value.
+    auto alloc = [&](size_t size, std::align_val_t alignment) {
+      return ByteCountingMalloc(size, alignment);
+    };
+    TcmallocSlab::Slabs* slabs = AllocSlabs(alloc, shift);
     (void)slab_.ResizeSlabs(
-        subtle::percpu::ToShiftType(shift),
-        [&](size_t size, std::align_val_t alignment) {
-          return this->ByteCountingMalloc(size, alignment);
-        },
+        subtle::percpu::ToShiftType(shift), slabs, alloc,
         [](size_t) { return kCapacity / 2; }, [](int cpu) { return cpu == 0; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
-        },
-        shift - kInitialPerCpuShift);
+        });
   };
 
   // We need to switch from one size (kShift) to another (kShift - 1) and back.
@@ -701,14 +720,13 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
       }
     }
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
-    const auto [old_slabs, old_slabs_size, reused_bytes] =
-        ctx.slab->ResizeSlabs(
-            ToShiftType(shift), allocator, get_capacity,
-            [&](size_t cpu) {
-              return ctx.has_init[cpu].load(std::memory_order_relaxed);
-            },
-            drain_handler,
-            /*new_shift_offset=*/shift - kResizeInitialShift);
+    TcmallocSlab::Slabs* slabs = AllocSlabs(allocator, shift);
+    const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
+        ToShiftType(shift), slabs, allocator, get_capacity,
+        [&](size_t cpu) {
+          return ctx.has_init[cpu].load(std::memory_order_relaxed);
+        },
+        drain_handler);
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
     ASSERT_NE(old_slabs, nullptr);
     // We sometimes don't madvise away the old slabs in order to simulate
@@ -755,13 +773,14 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
       signal_safe_close(fd);
     }
 
-    // Keep track of old slabs if we aren't already.
-    if (!absl::c_any_of(old_slabs_span, [old_slabs = old_slabs](const auto& p) {
-          return p.first == old_slabs;
-        })) {
-      old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
-      ++old_slabs_idx;
+    // Delete the old slab from 100 iterations ago.
+    if (old_slabs_span[old_slabs_idx].first != nullptr) {
+      sized_aligned_delete(old_slabs_span[old_slabs_idx].first,
+                           old_slabs_span[old_slabs_idx].second,
+                           std::align_val_t{EXEC_PAGESIZE});
     }
+    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
+    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
   }
 }
 
@@ -783,8 +802,7 @@ TEST_P(StressThreadTest, Stress) {
 
   TcmallocSlab slab;
   size_t shift = Resize() ? kResizeInitialShift : kShift;
-  slab.Init(allocator, get_capacity, ToShiftType(shift),
-            /*shift_offset=*/shift - kResizeInitialShift);
+  InitSlab(slab, allocator, get_capacity, shift);
   std::vector<std::thread> threads;
   const size_t num_cpus = absl::base_internal::NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
@@ -831,9 +849,10 @@ TEST_P(StressThreadTest, Stress) {
     }
     ctx.capacity->fetch_add(cap);
   };
-  // Keep track of old slabs so we can free the memory.
-  std::array<std::pair<void*, size_t>, kNumPossiblePerCpuShifts>
-      old_slabs_arr{};
+  // Keep track of old slabs so we can free the memory. We technically could
+  // have a sleeping StressThread access any of the old slabs, but it's very
+  // inefficient to keep all the old slabs around so we just keep 100.
+  std::array<std::pair<void*, size_t>, 100> old_slabs_arr{};
   if (Resize()) {
     threads.push_back(std::thread(ResizeSlabsThread, std::ref(ctx),
                                   std::ref(drain_handler),
@@ -975,8 +994,7 @@ void BM_PushPop(benchmark::State& state) {
   const auto get_capacity = [](size_t size_class) -> size_t {
     return kBatchSize;
   };
-  slab.Init(allocator, get_capacity, ToShiftType(kShift),
-            /*shift_offset=*/0);
+  InitSlab(slab, allocator, get_capacity, kShift);
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
@@ -1014,8 +1032,7 @@ void BM_PushPopBatch(benchmark::State& state) {
   const auto get_capacity = [](size_t size_class) -> size_t {
     return kBatchSize;
   };
-  slab.Init(allocator, get_capacity, subtle::percpu::ToShiftType(kShift),
-            /*shift_offset=*/0);
+  InitSlab(slab, allocator, get_capacity, kShift);
   for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
