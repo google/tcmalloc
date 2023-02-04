@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_STACKTRACE_FILTER_H_
-#define TCMALLOC_STACKTRACE_FILTER_H_
+#ifndef TCMALLOC_INTERNAL_STACKTRACE_FILTER_H_
+#define TCMALLOC_INTERNAL_STACKTRACE_FILTER_H_
 
 #include <atomic>
 
@@ -159,4 +159,4 @@ inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 
-#endif  // TCMALLOC_STACKTRACE_FILTER_H_
+#endif  // TCMALLOC_INTERNAL_STACKTRACE_FILTER_H_
