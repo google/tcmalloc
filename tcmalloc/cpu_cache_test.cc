@@ -78,6 +78,11 @@ class TestStaticForwarder {
  public:
   TestStaticForwarder() : sharded_manager_(&owner_, &cpu_layout_) {
     numa_topology_.Init();
+  }
+
+  void InitializeShardedManager(int num_shards) {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }
 
@@ -176,6 +181,55 @@ using MissCount = CpuCache::MissCount;
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
 
+TEST(CpuCacheTest, MinimumShardsForGenericCache) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  CpuCache cache;
+  cache.Activate();
+
+  using ShardedManager = TestStaticForwarder::ShardedManager;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed - 1;
+  ASSERT(kNumShards > 0);
+  forwarder.InitializeShardedManager(kNumShards);
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
+  forwarder.SetGenericShardedCache(true);
+
+  constexpr int kCpuId = 0;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+  EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
+  EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+  EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass), 0);
+
+  constexpr size_t kSizeClass = 1;
+  const size_t num_to_move = cache.forwarder().num_objects_to_move(kSizeClass);
+
+  // Allocate an object. As we are using less than kMinShardsAllowed number of
+  // shards, we should bypass sharded transfer cache entirely.
+  void* ptr = cache.Allocate<OOMHandler>(kSizeClass);
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    EXPECT_FALSE(sharded_transfer_cache.should_use(size_class));
+    EXPECT_EQ(sharded_transfer_cache.GetStats(size_class).capacity, 0);
+    EXPECT_EQ(sharded_transfer_cache.GetStats(size_class).max_capacity, 0);
+  }
+  // No requests are sent to sharded transfer cache. So, it should stay
+  // uninitialized.
+  EXPECT_EQ(sharded_transfer_cache.tc_length(kCpuId, kSizeClass), 0);
+  EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
+  EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+  EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass), 0);
+
+  cache.Deallocate(ptr, kSizeClass);
+  cache.Reclaim(0);
+  EXPECT_EQ(sharded_transfer_cache.tc_length(kCpuId, kSizeClass), 0);
+  EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
+  EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
+  // We should deallocate directly to the LIFO transfer cache.
+  EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass), num_to_move);
+}
+
 TEST(CpuCacheTest, UsesShardedAsBackingCache) {
   if (!subtle::percpu::IsFast()) {
     return;
@@ -183,9 +237,12 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
   CpuCache cache;
   cache.Activate();
 
+  using ShardedManager = TestStaticForwarder::ShardedManager;
   TestStaticForwarder& forwarder = cache.forwarder();
-  TestStaticForwarder::ShardedManager& sharded_transfer_cache =
-      forwarder.sharded_transfer_cache();
+  ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  forwarder.InitializeShardedManager(kNumShards);
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
   forwarder.SetGenericShardedCache(true);
 
   ScopedFakeCpuId fake_cpu_id(0);

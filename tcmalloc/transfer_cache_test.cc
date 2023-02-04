@@ -552,63 +552,86 @@ TEST(ShardedTransferCacheManagerTest, DefaultConstructorDisables) {
   }
 }
 
-TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
+TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
 
-  FakeShardedTransferCacheEnvironment env;
-  FakeShardedTransferCacheEnvironment::ShardedManager& manager =
-      env.sharded_manager();
+  using ShardedManager = FakeShardedTransferCacheEnvironment::ShardedManager;
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed - 1;
+  ASSERT(kNumShards > 0);
+  FakeShardedTransferCacheEnvironment env(kNumShards,
+                                          /*use_generic_cache=*/true);
+  ShardedManager& manager = env.sharded_manager();
 
   // Sharded cache manager uses a flexible transfer cache.
   env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
 
   EXPECT_FALSE(manager.shard_initialized(0));
   EXPECT_FALSE(manager.shard_initialized(1));
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    EXPECT_FALSE(manager.should_use(size_class));
+  }
 
   size_t metadata = env.MetadataAllocated();
-  // We already allocated some data for the sharded transfer cache.
+  // We should have allocated some bare minimum metadata to make sure that any
+  // requests are properly redirected to the lower caches if any request comes
+  // our way.
   EXPECT_GT(metadata, 0);
 
-  // Push something onto cpu 0/shard0.
+  // Push something onto cpu 0/shard 0. We should initialize new shard, but any
+  // request to it shouldn't change its state. It's capacity should also be zero
+  // after initialization.
   {
     void* ptr;
     env.central_freelist().AllocateBatch(&ptr, 1);
     env.SetCurrentCpu(0);
     manager.Push(kSizeClass, ptr);
+    // We should be able to initialize the shard, but its capacity should be
+    // zero. That is, the number of objects in the cache should remain zero
+    // after the Push.
     EXPECT_TRUE(manager.shard_initialized(0));
-    EXPECT_EQ(manager.tc_length(0, kSizeClass), 1);
     EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_GT(env.MetadataAllocated(), metadata);
     metadata = env.MetadataAllocated();
   }
 
-  // Popping again should work, but not deinitialize the shard.
+  // Popping should not change sharded transfer cache's state, but it should
+  // also not deinitialize the shard.
   {
     void* ptr = manager.Pop(kSizeClass);
     ASSERT_NE(ptr, nullptr);
     env.central_freelist().FreeBatch({&ptr, 1});
     EXPECT_TRUE(manager.shard_initialized(0));
-    EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
     EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_EQ(env.MetadataAllocated(), metadata);
   }
 
-  // Push something onto cpu 1, also shard 0.
+  // Push something onto cpu 1, also shard 0. As before, this shouldn't change
+  // sharded transfer cache's state.
   {
     void* ptr;
     env.central_freelist().AllocateBatch(&ptr, 1);
     env.SetCurrentCpu(1);
     manager.Push(kSizeClass, ptr);
     EXPECT_TRUE(manager.shard_initialized(0));
-    EXPECT_EQ(manager.tc_length(1, kSizeClass), 1);
     EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_EQ(manager.tc_length(1, kSizeClass), 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     // No new metadata allocated
     EXPECT_EQ(env.MetadataAllocated(), metadata);
   }
 
-  // Push something onto cpu 2/shard 1.
+  // Push something onto cpu 2/shard 1. We should initialize new shard, but any
+  // request to it shouldn't change its state. It's capacity should also be zero
+  // after initialization.
   {
     void* ptr;
     env.central_freelist().AllocateBatch(&ptr, 1);
@@ -616,8 +639,83 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
     manager.Push(kSizeClass, ptr);
     EXPECT_TRUE(manager.shard_initialized(0));
     EXPECT_TRUE(manager.shard_initialized(1));
-    EXPECT_EQ(manager.tc_length(2, kSizeClass), 1);
+    EXPECT_EQ(manager.tc_length(2, kSizeClass), 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
+    EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_GT(env.MetadataAllocated(), metadata);
+  }
+}
+
+TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  using ShardedManager = FakeShardedTransferCacheEnvironment::ShardedManager;
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  for (bool generic_cache_enabled : {false, true}) {
+    FakeShardedTransferCacheEnvironment env(kNumShards, generic_cache_enabled);
+    ShardedManager& manager = env.sharded_manager();
+
+    // Sharded cache manager uses a flexible transfer cache.
+    env.transfer_cache_manager().SetPartialLegacyTransferCache(true);
+
+    EXPECT_FALSE(manager.shard_initialized(0));
+    EXPECT_FALSE(manager.shard_initialized(1));
+    EXPECT_FALSE(manager.shard_initialized(2));
+
+    size_t metadata = env.MetadataAllocated();
+    // We already allocated some data for the sharded transfer cache.
+    EXPECT_GT(metadata, 0);
+
+    // Push something onto cpu 0/shard0.
+    {
+      void* ptr;
+      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.SetCurrentCpu(0);
+      manager.Push(kSizeClass, ptr);
+      EXPECT_TRUE(manager.shard_initialized(0));
+      EXPECT_EQ(manager.tc_length(0, kSizeClass), 1);
+      EXPECT_FALSE(manager.shard_initialized(1));
+      EXPECT_GT(env.MetadataAllocated(), metadata);
+      metadata = env.MetadataAllocated();
+    }
+
+    // Popping again should work, but not deinitialize the shard.
+    {
+      void* ptr = manager.Pop(kSizeClass);
+      ASSERT_NE(ptr, nullptr);
+      env.central_freelist().FreeBatch({&ptr, 1});
+      EXPECT_TRUE(manager.shard_initialized(0));
+      EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+      EXPECT_FALSE(manager.shard_initialized(1));
+      EXPECT_EQ(env.MetadataAllocated(), metadata);
+    }
+
+    // Push something onto cpu 1, also shard 0.
+    {
+      void* ptr;
+      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.SetCurrentCpu(1);
+      manager.Push(kSizeClass, ptr);
+      EXPECT_TRUE(manager.shard_initialized(0));
+      EXPECT_EQ(manager.tc_length(1, kSizeClass), 1);
+      EXPECT_FALSE(manager.shard_initialized(1));
+      // No new metadata allocated
+      EXPECT_EQ(env.MetadataAllocated(), metadata);
+    }
+
+    // Push something onto cpu 2/shard 1.
+    {
+      void* ptr;
+      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.SetCurrentCpu(2);
+      manager.Push(kSizeClass, ptr);
+      EXPECT_TRUE(manager.shard_initialized(0));
+      EXPECT_TRUE(manager.shard_initialized(1));
+      EXPECT_EQ(manager.tc_length(2, kSizeClass), 1);
+      EXPECT_GT(env.MetadataAllocated(), metadata);
+    }
   }
 }
 

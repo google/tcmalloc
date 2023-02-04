@@ -398,9 +398,16 @@ class TwoSizeClassEnv {
 class FakeCpuLayout {
  public:
   static constexpr int kNumCpus = 4;
+  static constexpr int kCpusPerShard = 2;
+
   static constexpr int kNumShards = 2;
 
   FakeCpuLayout() : current_cpu_(0) {}
+  void Init(int shards) {
+    ASSERT(shards > 0);
+    ASSERT(shards * kCpusPerShard <= CPU_SETSIZE);
+    num_shards_ = shards;
+  }
 
   int CurrentCpu() { return current_cpu_; }
 
@@ -411,15 +418,18 @@ class FakeCpuLayout {
   }
 
   static int BuildCacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
-    l3_cache_index[0] = 0;
-    l3_cache_index[1] = 0;
-    l3_cache_index[2] = 1;
-    l3_cache_index[3] = 1;
-    return kNumShards;
+    ASSERT(num_shards_ > 0);
+    ASSERT(num_shards_ * kCpusPerShard <= CPU_SETSIZE);
+    for (int cpu = 0; cpu < num_shards_ * kCpusPerShard; ++cpu) {
+      int shard = cpu / kCpusPerShard;
+      l3_cache_index[cpu] = shard;
+    }
+    return num_shards_;
   }
 
  private:
   int current_cpu_;
+  static int num_shards_;
 };
 
 // Defines transfer cache manager for testing legacy transfer cache.
@@ -517,8 +527,16 @@ class FakeShardedTransferCacheEnvironment {
       ShardedTransferCacheManagerBase<Manager, FakeCpuLayout,
                                       MinimalFakeCentralFreeList>;
 
-  FakeShardedTransferCacheEnvironment()
+  explicit FakeShardedTransferCacheEnvironment(int num_shards,
+                                               bool use_generic_cache)
       : sharded_manager_(&owner_, &cpu_layout_) {
+    if (use_generic_cache) {
+      owner_.SetGenericCache(true);
+    } else {
+      owner_.SetCacheForLargeClassesOnly(true);
+    }
+
+    cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }
 
@@ -539,6 +557,10 @@ class FakeShardedTransferCacheEnvironment {
     for (int cpu = 0; cpu < FakeCpuLayout::kNumCpus; ++cpu) {
       Remove(cpu, sharded_manager_.tc_length(cpu, kSizeClass));
     }
+  }
+
+  TransferCacheStats GetStats(int size_class) {
+    return sharded_manager_.GetStats(size_class);
   }
 
   ShardedManager& sharded_manager() { return sharded_manager_; }

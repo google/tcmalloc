@@ -445,7 +445,7 @@ class CpuCache {
   // Returns true if we use sharded transfer cache as a backing cache for
   // per-cpu caches. If a sharded transfer cache is used, we fetch/release
   // from/to a sharded transfer cache. Else, we use a legacy transfer cache.
-  bool UseBackingShardedTransferCache() const;
+  bool UseBackingShardedTransferCache(size_t size_class) const;
 
   // Called on <size_class> freelist overflow/underflow on <cpu> to balance
   // cache capacity between size classes. Returns number of objects to
@@ -780,7 +780,7 @@ template <class Forwarder>
 inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
                                                       void** batch,
                                                       size_t count) {
-  if (UseBackingShardedTransferCache()) {
+  if (UseBackingShardedTransferCache(size_class)) {
     return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch,
                                                            count);
   }
@@ -790,7 +790,7 @@ inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
 template <class Forwarder>
 inline void CpuCache<Forwarder>::ReleaseToBackingCache(
     size_t size_class, absl::Span<void*> batch) {
-  if (UseBackingShardedTransferCache()) {
+  if (UseBackingShardedTransferCache(size_class)) {
     forwarder_.sharded_transfer_cache().InsertRange(size_class, batch);
     return;
   }
@@ -869,10 +869,12 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
 }
 
 template <class Forwarder>
-inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache() const {
+inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
+    size_t size_class) const {
   // We enable sharded cache as a backing cache for all size classes when
   // generic configuration is enabled.
-  return forwarder_.UseGenericShardedCache();
+  return forwarder_.sharded_transfer_cache().should_use(size_class) &&
+         forwarder_.UseGenericShardedCache();
 }
 
 template <class Forwarder>

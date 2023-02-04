@@ -135,12 +135,21 @@ class ShardedTransferCacheManagerBase {
                                             CpuLayout *cpu_layout)
       : owner_(owner), cpu_layout_(cpu_layout) {}
 
+  // We enable generic sharded transfer cache only when the number of cache
+  // domains is greater than or equal to kMinShardsAllowed.
+  //
+  // TODO(b/210049384): We should use cache topology along with the number of
+  // NUMA nodes to disable cache when we have only one cache domain per NUMA
+  // node. kMinShardsAllowed is a workaround for now that hardcodes this.
+  static constexpr int kMinShardsAllowed = 3;
+
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     owner_->Init();
     num_shards_ = CpuLayout::BuildCacheMap(l3_cache_index_);
     shards_ = reinterpret_cast<Shard *>(
         owner_->Alloc(sizeof(Shard) * num_shards_, ABSL_CACHELINE_SIZE));
     ASSERT(shards_ != nullptr);
+
     for (int shard = 0; shard < num_shards_; ++shard) {
       new (&shards_[shard]) Shard;
     }
@@ -150,8 +159,16 @@ class ShardedTransferCacheManagerBase {
       // generic sharded transfer cache is enabled. Otherwise, we enable it for
       // size classes of >= 4096 with a traditional sharded cache
       // implementation.
-      static const int min_size = UseGenericCache() ? 0 : 4096;
-      active_for_class_[size_class] = size_per_object >= min_size;
+      //
+      // Finally, we enable generic sharded transfer caches only on platforms
+      // that have multiple cache domains. On platforms with less than three
+      // cache domains, the traditional LIFO transfer cache should suffice.
+      int min_size = UseGenericCache() ? 0 : 4096;
+      bool use_sharded_cache =
+          UseCacheForLargeClassesOnly() ||
+          (UseGenericCache() && (num_shards_ >= kMinShardsAllowed));
+      active_for_class_[size_class] =
+          use_sharded_cache && size_per_object >= min_size;
     }
   }
 
@@ -331,6 +348,7 @@ class ShardedTransferCacheManagerBase {
   }
 
   Capacity ScaledCacheCapacity(size_t size_class) const {
+    if (!should_use(size_class)) return {0, 0};
     auto [capacity, max_capacity] = TransferCache::CapacityNeeded(size_class);
     return {capacity, max_capacity};
   }
