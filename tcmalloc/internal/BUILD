@@ -798,6 +798,7 @@ cc_library(
 
 cc_test(
     name = "stacktrace_filter_test",
+    timeout = "long",
     srcs = ["stacktrace_filter_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
