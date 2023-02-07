@@ -91,13 +91,29 @@ class TestStaticForwarder {
                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   }
 
+  void* AllocReportedImpending(size_t size, std::align_val_t alignment) {
+    arena_reported_impending_bytes_ -= static_cast<int64_t>(size);
+    return mmap(nullptr, size, PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  }
+
   static void Dealloc(void* ptr, size_t size, std::align_val_t /*alignment*/) {
     munmap(ptr, size);
   }
 
-  void ArenaReportNonresident(size_t unused_bytes, size_t reused_bytes) {
-    arena_reported_nonresident_bytes_ += unused_bytes;
-    arena_reported_nonresident_bytes_ -= reused_bytes;
+  void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
+                                          int64_t nonresident) {
+    if (nonresident == 0) {
+      arena_reported_impending_bytes_ += allocated;
+    } else {
+      arena_reported_impending_bytes_ = 0;
+    }
+    arena_reported_nonresident_bytes_ += nonresident;
+  }
+
+  void ShrinkToUsageLimit() {
+    EXPECT_GT(arena_reported_impending_bytes_, 0);
+    ++shrink_to_usage_limit_calls_;
   }
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
@@ -162,6 +178,8 @@ class TestStaticForwarder {
   }
 
   size_t arena_reported_nonresident_bytes_ = 0;
+  int64_t arena_reported_impending_bytes_ = 0;
+  size_t shrink_to_usage_limit_calls_ = 0;
   bool dynamic_slab_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
 
@@ -591,6 +609,9 @@ TEST(CpuCacheTest, DynamicSlab) {
 
   size_t prev_reported_nonresident_bytes =
       forwarder.arena_reported_nonresident_bytes_;
+  EXPECT_EQ(forwarder.arena_reported_impending_bytes_, 0);
+  size_t prev_shrink_to_usage_limit_calls =
+      forwarder.shrink_to_usage_limit_calls_;
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_ = DynamicSlab::kNoop;
 
@@ -626,6 +647,8 @@ TEST(CpuCacheTest, DynamicSlab) {
         if (dynamic_slab != DynamicSlab::kNoop && shift != end_shift) {
           EXPECT_LT(prev_reported_nonresident_bytes,
                     forwarder.arena_reported_nonresident_bytes_);
+          EXPECT_EQ(forwarder.shrink_to_usage_limit_calls_,
+                    1 + prev_shrink_to_usage_limit_calls);
           shift += shift_update;
         } else {
           EXPECT_EQ(prev_reported_nonresident_bytes,
@@ -633,6 +656,10 @@ TEST(CpuCacheTest, DynamicSlab) {
         }
         prev_reported_nonresident_bytes =
             forwarder.arena_reported_nonresident_bytes_;
+
+        EXPECT_EQ(forwarder.arena_reported_impending_bytes_, 0);
+        prev_shrink_to_usage_limit_calls =
+            forwarder.shrink_to_usage_limit_calls_;
       }
     }
   };

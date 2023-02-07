@@ -78,16 +78,33 @@ class StaticForwarder {
     // TODO(ckennelly): Push the stronger alignment type into Alloc.
     return tc_globals.arena().Alloc(size, static_cast<size_t>(alignment));
   }
+  static void* AllocReportedImpending(size_t size, std::align_val_t alignment)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    ASSERT(tc_globals.IsInited());
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    // Negate previous update to allocated that accounted for this allocation.
+    tc_globals.arena().UpdateAllocatedAndNonresident(
+        -static_cast<int64_t>(size), 0);
+    // TODO(ckennelly): Push the stronger alignment type into Alloc.
+    return tc_globals.arena().Alloc(size, static_cast<size_t>(alignment));
+  }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
     ASSERT(false);
   }
 
-  static void ArenaReportNonresident(size_t unused_bytes, size_t reused_bytes)
+  static void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
+                                                 int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    tc_globals.arena().ReportNonresident(unused_bytes, reused_bytes);
+    tc_globals.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
+  }
+
+  static void ShrinkToUsageLimit() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    ASSERT(tc_globals.IsInited());
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    tc_globals.page_allocator().ShrinkToUsageLimit(Length(0));
   }
 
   static bool per_cpu_caches_dynamic_slab_enabled() {
@@ -1615,19 +1632,27 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return;
   }
 
+  const auto new_shift = subtle::percpu::ToShiftType(per_cpu_shift);
+  const int64_t new_slabs_size =
+      subtle::percpu::GetSlabsAllocSize(new_shift, num_cpus);
+  // Account for impending allocation/reusing of new slab so that we can avoid
+  // going over memory limit.
+  forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
+  forwarder_.ShrinkToUsageLimit();
+
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
   ResizeSlabsInfo info;
-  size_t reused_bytes;
+  int64_t reused_bytes;
   {
     // We can't allocate while holding the per-cpu spinlocks.
     AllocationGuard enforce_no_alloc;
 
-    subtle::percpu::Shift new_shift =
-        subtle::percpu::ToShiftType(per_cpu_shift);
     Freelist::Slabs* new_slabs;
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
-        &forwarder_.Alloc, new_shift, absl::base_internal::NumCPUs(),
-        ShiftOffset(per_cpu_shift, numa_shift));
+        [&](size_t size, std::align_val_t align) {
+          return forwarder_.AllocReportedImpending(size, align);
+        },
+        new_shift, num_cpus, ShiftOffset(per_cpu_shift, numa_shift));
     info = freelist_.ResizeSlabs(
         new_shift, new_slabs, &forwarder_.Alloc,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, numa_shift},
@@ -1647,7 +1672,9 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         info.old_slabs_size, std::memory_order_relaxed);
   }
-  forwarder_.ArenaReportNonresident(info.old_slabs_size, reused_bytes);
+  const int64_t old_slabs_size = info.old_slabs_size;
+  forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
+                                                old_slabs_size - reused_bytes);
 }
 
 template <class Forwarder>

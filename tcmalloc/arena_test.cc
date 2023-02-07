@@ -100,7 +100,7 @@ TEST(Arena, ReportUnmapped) {
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    arena.ReportNonresident(5, 0);
+    arena.UpdateAllocatedAndNonresident(-5, 5);
     stats_after_alloc = arena.stats();
   }
 
@@ -109,12 +109,41 @@ TEST(Arena, ReportUnmapped) {
 
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    arena.ReportNonresident(2, 5);
+    arena.UpdateAllocatedAndNonresident(3, -3);
     stats_after_alloc = arena.stats();
   }
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 8);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 2);
+}
+
+TEST(Arena, BytesImpending) {
+  Arena arena;
+
+  ArenaStats stats;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    stats = arena.stats();
+  }
+  EXPECT_EQ(stats.bytes_allocated, 0);
+
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    arena.UpdateAllocatedAndNonresident(100, 0);
+    stats = arena.stats();
+  }
+
+  EXPECT_EQ(stats.bytes_allocated, 100);
+
+  void* ptr;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    arena.UpdateAllocatedAndNonresident(-100, 0);
+    ptr = arena.Alloc(100, 1);
+    stats = arena.stats();
+  }
+  EXPECT_NE(ptr, nullptr);
+  EXPECT_EQ(stats.bytes_allocated, 100);
 }
 
 }  // namespace
