@@ -202,7 +202,6 @@ class Profile final {
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
 
-  int64_t Period() const;
   ProfileType Type() const;
 
   // The duration the profile was collected for.  For instantaneous profiles

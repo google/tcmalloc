@@ -60,14 +60,6 @@ void Profile::Iterate(absl::FunctionRef<void(const Sample&)> f) const {
   impl_->Iterate(f);
 }
 
-int64_t Profile::Period() const {
-  if (!impl_) {
-    return -1;
-  }
-
-  return 1;
-}
-
 ProfileType Profile::Type() const {
   if (!impl_) {
     return ProfileType::kDoNotUse;
