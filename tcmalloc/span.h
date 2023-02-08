@@ -375,7 +375,7 @@ Span::ObjIdx Span::PtrToIdxSized(void* ptr, size_t size) const {
     // pointer.
     ASSERT(PageIdContaining(ptr) == first_page_);
     ASSERT(num_pages_ == Length(1));
-    off = (p & (kPageSize - 1)) / kAlignment;
+    off = (p & (kPageSize - 1)) / static_cast<size_t>(kAlignment);
   } else {
     off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
   }
@@ -461,7 +461,8 @@ bool Span::FreelistPushSized(void* ptr, size_t size) {
       ASSERT(num_pages_ == Length(1));
       host = reinterpret_cast<ObjIdx*>(
           (reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1)) +
-          static_cast<uintptr_t>(freelist_) * kAlignment);
+          static_cast<uintptr_t>(freelist_) *
+              static_cast<uintptr_t>(kAlignment));
       ASSERT(PtrToIdx(host, size) == freelist_);
     } else {
       host = IdxToPtrSized<align>(freelist_, size);

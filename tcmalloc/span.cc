@@ -150,7 +150,7 @@ Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
     // span, instead we compute the offset by taking low kPageShift bits of the
     // pointer.
     ASSERT(PageIdContaining(ptr) == first_page_);
-    off = (p & (kPageSize - 1)) / kAlignment;
+    off = (p & (kPageSize - 1)) / static_cast<size_t>(kAlignment);
   } else {
     off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
   }
@@ -272,7 +272,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   }
   allocated_.store(result, std::memory_order_relaxed);
 
-  ObjIdx idxStep = size / kAlignment;
+  ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.
   if (size > SizeMap::kMultiPageSize) {
     idxStep = size / SizeMap::kMultiPageAlignment;

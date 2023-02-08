@@ -49,9 +49,9 @@ class FakeTransferCacheManager {
     // TODO(b/170732338): test with multiple different num_objects_to_move
     return kNumToMove;
   }
-  void* Alloc(size_t size, size_t alignment = kAlignment) {
-    const std::align_val_t a = static_cast<std::align_val_t>(alignment);
-    memory_.push_back(std::make_unique<AlignedPtr>(::operator new(size, a), a));
+  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
+    memory_.push_back(std::make_unique<AlignedPtr>(
+        ::operator new(size, alignment), alignment));
     return memory_.back()->ptr;
   }
 
@@ -92,11 +92,12 @@ class ArenaBasedFakeTransferCacheManager {
     if (size_class == kSizeClass) return kNumToMove;
     return 0;
   }
-  void* Alloc(size_t size, size_t alignment = kAlignment) {
+  void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
     size_t space = kTotalSize - used_;
     if (space < size) return nullptr;
     void* head = &bytes_[used_];
-    void* aligned = std::align(alignment, size, head, space);
+    void* aligned =
+        std::align(static_cast<size_t>(alignment), size, head, space);
     if (aligned != nullptr) {
       // Increase by the allocated size plus the alignment offset.
       used_ += size + (kTotalSize - space);

@@ -97,8 +97,9 @@ TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
 }
 
 TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
-  constexpr size_t kLargeObjectAlignment = std::max(
-      kAlignment, static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__));
+  constexpr size_t kLargeObjectAlignment =
+      std::max(static_cast<size_t>(kAlignment),
+               static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__));
 
   for (size_t base_size = 1; base_size <= 64; base_size <<= 1) {
     for (size_t size : {base_size, base_size + 1}) {

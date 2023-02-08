@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstddef>
 #include <limits>
+#include <new>
 #include <optional>
 #include <utility>
 
@@ -64,7 +65,7 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size, int alignment = kAlignment)
+  static void *Alloc(size_t size, std::align_val_t alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static bool PartialLegacyTransferCache() {
     return Parameters::partial_transfer_cache();
@@ -146,8 +147,8 @@ class ShardedTransferCacheManagerBase {
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     owner_->Init();
     num_shards_ = CpuLayout::BuildCacheMap(l3_cache_index_);
-    shards_ = reinterpret_cast<Shard *>(
-        owner_->Alloc(sizeof(Shard) * num_shards_, ABSL_CACHELINE_SIZE));
+    shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
+        sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));
     ASSERT(shards_ != nullptr);
 
     for (int shard = 0; shard < num_shards_; ++shard) {
@@ -356,8 +357,9 @@ class ShardedTransferCacheManagerBase {
   // Initializes all transfer caches in the given shard.
   void InitShard(Shard &shard) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    TransferCache *new_caches = reinterpret_cast<TransferCache *>(owner_->Alloc(
-        sizeof(TransferCache) * kNumClasses, ABSL_CACHELINE_SIZE));
+    TransferCache *new_caches = reinterpret_cast<TransferCache *>(
+        owner_->Alloc(sizeof(TransferCache) * kNumClasses,
+                      std::align_val_t{ABSL_CACHELINE_SIZE}));
     ASSERT(new_caches != nullptr);
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)

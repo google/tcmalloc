@@ -48,7 +48,7 @@ class SpanTestPeer {
 namespace {
 
 size_t Alignment(size_t size) {
-  size_t ret = kAlignment;
+  size_t ret = static_cast<size_t>(kAlignment);
   if (size >= 1024) {
     // SizeMap::ClassIndexMaybe requires 128-byte alignment for sizes >=1024.
     ret = 128;

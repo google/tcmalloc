@@ -18,6 +18,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <new>
+
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
@@ -51,8 +53,8 @@ class Arena {
 
   // Returns a properly aligned byte array of length "bytes".  Crashes if
   // allocation fails.  Requires pageheap_lock is held.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(size_t bytes,
-                                             int alignment = kAlignment)
+  ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
+      size_t bytes, std::align_val_t alignment = kAlignment)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Updates the stats for allocated and non-resident bytes.

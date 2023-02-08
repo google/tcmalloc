@@ -118,7 +118,7 @@ TEST_F(GuardedAllocAlignmentTest, New) {
       // padding between the end of small allocations and their guard pages.
       size_t expected_align = std::min(
           absl::bit_ceil(size),
-          std::max(tcmalloc_internal::kAlignment,
+          std::max(static_cast<size_t>(tcmalloc_internal::kAlignment),
                    static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)));
 
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % expected_align, 0);

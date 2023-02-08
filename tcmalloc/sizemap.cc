@@ -15,6 +15,7 @@
 #include "tcmalloc/sizemap.h"
 
 #include <algorithm>
+#include <new>
 
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/environment.h"
@@ -40,7 +41,7 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   // Check required alignment
   size_t alignment = 128;
   if (size <= kMultiPageSize) {
-    alignment = kAlignment;
+    alignment = static_cast<size_t>(kAlignment);
   } else if (size <= SizeMap::kMaxSmallSize) {
     alignment = kMultiPageAlignment;
   }
@@ -176,7 +177,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
           ClassIndex(kMaxSize));
   }
 
-  static_assert(kAlignment <= 16, "kAlignment is too large");
+  static_assert(kAlignment <= std::align_val_t{16}, "kAlignment is too large");
 
   if (!SetSizeClasses(size_classes)) {
     return false;
@@ -186,10 +187,11 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   for (int c = 1; c < kNumClasses; c++) {
     const int max_size_in_class = class_to_size_[c];
 
-    for (int s = next_size; s <= max_size_in_class; s += kAlignment) {
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
       class_array_[ClassIndex(s)] = c;
     }
-    next_size = max_size_in_class + kAlignment;
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
     if (next_size > kMaxSize) {
       break;
     }
@@ -252,10 +254,11 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     cold_sizes_[cold_sizes_count_] = c;
     cold_sizes_count_++;
 
-    for (int s = next_size; s <= max_size_in_class; s += kAlignment) {
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
       class_array_[ClassIndex(s) + kClassArraySize] = c;
     }
-    next_size = max_size_in_class + kAlignment;
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
     if (next_size > kMaxSize) {
       break;
     }

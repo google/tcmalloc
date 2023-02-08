@@ -14,6 +14,8 @@
 
 #include "tcmalloc/arena.h"
 
+#include <new>
+
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
@@ -22,13 +24,12 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void* Arena::Alloc(size_t bytes, int alignment) {
-  ASSERT(alignment > 0);
+void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
+  size_t align = static_cast<size_t>(alignment);
+  ASSERT(align > 0);
   {  // First we need to move up to the correct alignment.
-    const int misalignment =
-        reinterpret_cast<uintptr_t>(free_area_) % alignment;
-    const int alignment_bytes =
-        misalignment != 0 ? alignment - misalignment : 0;
+    const int misalignment = reinterpret_cast<uintptr_t>(free_area_) % align;
+    const int alignment_bytes = misalignment != 0 ? align - misalignment : 0;
     free_area_ += alignment_bytes;
     free_avail_ -= alignment_bytes;
     bytes_allocated_ += alignment_bytes;
@@ -71,7 +72,7 @@ void* Arena::Alloc(size_t bytes, int alignment) {
     free_avail_ = actual_size;
   }
 
-  ASSERT(reinterpret_cast<uintptr_t>(free_area_) % alignment == 0);
+  ASSERT(reinterpret_cast<uintptr_t>(free_area_) % align == 0);
   result = free_area_;
   free_area_ += bytes;
   free_avail_ -= bytes;

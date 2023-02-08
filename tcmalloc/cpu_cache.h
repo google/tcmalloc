@@ -75,8 +75,7 @@ class StaticForwarder {
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    // TODO(ckennelly): Push the stronger alignment type into Alloc.
-    return tc_globals.arena().Alloc(size, static_cast<size_t>(alignment));
+    return tc_globals.arena().Alloc(size, alignment);
   }
   static void* AllocReportedImpending(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
@@ -85,8 +84,7 @@ class StaticForwarder {
     // Negate previous update to allocated that accounted for this allocation.
     tc_globals.arena().UpdateAllocatedAndNonresident(
         -static_cast<int64_t>(size), 0);
-    // TODO(ckennelly): Push the stronger alignment type into Alloc.
-    return tc_globals.arena().Alloc(size, static_cast<size_t>(alignment));
+    return tc_globals.arena().Alloc(size, alignment);
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {

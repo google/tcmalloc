@@ -373,7 +373,7 @@ void GuardedPageAllocator::MaybeRightAlign(size_t slot, size_t size,
   // __STDCPP_DEFAULT_NEW_ALIGNMENT__, we're safe aligning to that value.
   size_t default_alignment =
       std::min(absl::bit_ceil(size),
-               std::max(kAlignment,
+               std::max(static_cast<size_t>(kAlignment),
                         static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__)));
 
   // Ensure valid alignment.

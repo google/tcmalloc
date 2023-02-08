@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
 #include <type_traits>
 
 #include "absl/base/attributes.h"
@@ -216,9 +217,10 @@ inline constexpr size_t kPageSize = 1 << kPageShift;
 static_assert((kMaxSize / kPageSize) >= kMinPages || kPageShift >= 18,
               "Ratio of kMaxSize / kPageSize is too small");
 
-inline constexpr size_t kAlignment = 8;
+inline constexpr std::align_val_t kAlignment{8};
 // log2 (kAlignment)
-inline constexpr size_t kAlignmentShift = absl::bit_width(kAlignment - 1u);
+inline constexpr size_t kAlignmentShift =
+    absl::bit_width(static_cast<size_t>(kAlignment) - 1u);
 
 // The number of times that a deallocation can cause a freelist to
 // go over its max_length() before shrinking max_length().
