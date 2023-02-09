@@ -275,7 +275,7 @@ TEST_F(LimitTest, LifetimeAllocatorPath) {
   TCMalloc_Internal_SetHPAASubrelease(previous_subrelease);
 }
 
-TEST_F(LimitTest, LimitChangeTriggersRelease) {
+TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
   // Verify that changing the limit to below the current page heap size causes
   // memory to be released to the extent possible.
 
@@ -291,9 +291,6 @@ TEST_F(LimitTest, LimitChangeTriggersRelease) {
   // Trigger many allocations that will rest in the page heap momentarily.  We
   // alternate between allocations retained/deallocated to fragment the
   // HugePageFiller.
-  //
-  // TODO(b/268109909):  Support a contiguous allocation, resting in the
-  // HugeCache as well.
   for (size_t allocated = 0; allocated < kSize; allocated += kAllocSize) {
     void* alloc = ::operator new(kAllocSize);
 
@@ -351,6 +348,46 @@ TEST_F(LimitTest, LimitChangeTriggersRelease) {
       ::operator delete(ptr);
     }
   }
+}
+
+TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
+  // Verify that changing the limit to below the current page heap size causes
+  // memory to be released to the extent possible.
+
+  constexpr size_t kSize = 1 << 30;
+
+  const size_t heap_size =
+      *MallocExtension::GetNumericProperty("generic.heap_size");
+  const auto old_limit = MallocExtension::GetMemoryLimit();
+
+  // Trigger a large allocation that will rest in the page heap momentarily.
+  ::operator delete(::operator new(kSize));
+
+  const size_t old_free =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
+  const size_t old_unmapped =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
+  EXPECT_GE(old_free, kSize);
+
+  // Change limit.
+  MallocExtension::MemoryLimit new_limit;
+  new_limit.limit = heap_size + kSize / 2;
+  new_limit.hard = false;
+  MallocExtension::SetMemoryLimit(new_limit);
+
+  const size_t new_free =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
+  const size_t new_unmapped =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
+
+  EXPECT_LT(new_free, kSize / 2);
+  EXPECT_GE(new_unmapped,
+            old_unmapped + (old_free > new_free ? old_free - new_free : 0) / 2)
+      << new_unmapped << " " << old_unmapped << " " << new_free << " "
+      << old_free;
+
+  // Cleanup
+  MallocExtension::SetMemoryLimit(old_limit);
 }
 
 }  // namespace
