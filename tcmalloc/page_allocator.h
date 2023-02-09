@@ -286,6 +286,8 @@ inline void PageAllocator::set_limit(size_t limit, bool is_hard) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   limit_ = limit;
   limit_is_hard_ = is_hard;
+  // Attempt to shed memory to get below the new limit.
+  ShrinkToUsageLimit(Length(0));
 }
 
 inline std::pair<size_t, bool> PageAllocator::limit() const {

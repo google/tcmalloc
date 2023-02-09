@@ -25,10 +25,13 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/inlined_vector.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
@@ -37,6 +40,7 @@
 namespace tcmalloc {
 namespace {
 
+using tcmalloc_internal::kHugePageSize;
 using tcmalloc_internal::kPageSize;
 using ::testing::ContainsRegex;
 using ::testing::HasSubstr;
@@ -269,6 +273,84 @@ TEST_F(LimitTest, LifetimeAllocatorPath) {
   ::operator delete(ptr);
 
   TCMalloc_Internal_SetHPAASubrelease(previous_subrelease);
+}
+
+TEST_F(LimitTest, LimitChangeTriggersRelease) {
+  // Verify that changing the limit to below the current page heap size causes
+  // memory to be released to the extent possible.
+
+  constexpr size_t kSize = 1 << 30;
+  constexpr size_t kAllocSize = tcmalloc_internal::kHugePageSize / 4;
+  absl::flat_hash_map<uintptr_t, absl::InlinedVector<void*, 4>> pointers;
+  pointers.reserve(kSize / kAllocSize);
+
+  const size_t heap_size =
+      *MallocExtension::GetNumericProperty("generic.heap_size");
+  const auto old_limit = MallocExtension::GetMemoryLimit();
+
+  // Trigger many allocations that will rest in the page heap momentarily.  We
+  // alternate between allocations retained/deallocated to fragment the
+  // HugePageFiller.
+  //
+  // TODO(b/268109909):  Support a contiguous allocation, resting in the
+  // HugeCache as well.
+  for (size_t allocated = 0; allocated < kSize; allocated += kAllocSize) {
+    void* alloc = ::operator new(kAllocSize);
+
+    constexpr size_t kHugePageMask = ~(kHugePageSize - 1u);
+    pointers[reinterpret_cast<uintptr_t>(alloc) & kHugePageMask].push_back(
+        alloc);
+  }
+
+  // Under HPAA, we expect to have colocated allocations on the same huge page
+  // frequently.  We drain all-but-one allocation from each huge page.
+  size_t dropped = 0;
+  for (auto& [k, v] : pointers) {
+    for (size_t i = 1; i < v.size(); ++i) {
+      ::operator delete(v[i]);
+    }
+    dropped += v.size() - 1;
+    v.resize(1);
+  }
+
+  const size_t old_free =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
+  const size_t old_unmapped =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
+  // The page heap may be successful at coalescing some allocations, so we aim
+  // for a lowerbound of kSize/2.  This is still separated from the upperbound
+  // after changing the limit of 3*kSize/8.
+  EXPECT_GE(old_free, kSize / 2);
+
+  // Change limit.
+  MallocExtension::MemoryLimit new_limit;
+  new_limit.limit = heap_size + kSize / 2;
+  new_limit.hard = false;
+  MallocExtension::SetMemoryLimit(new_limit);
+
+  const size_t new_free =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
+  const size_t new_unmapped =
+      *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
+
+  // We use a lower bound of ~1/2 of the ~3/4 actually moving, since background
+  // allocations can throw off our stats and fragmentation is not guaranteed.
+  EXPECT_LT(new_free, 3 * kSize / 8);
+  EXPECT_GE(new_unmapped,
+            old_unmapped + (old_free > new_free ? old_free - new_free : 0) / 2)
+      << new_unmapped << " " << old_unmapped << " " << new_free << " "
+      << old_free;
+
+  // Expect that we dropped at least half of the allocations.
+  EXPECT_GE(dropped, kSize / kAllocSize / 2);
+
+  // Cleanup
+  MallocExtension::SetMemoryLimit(old_limit);
+  for (auto& [k, v] : pointers) {
+    for (void* ptr : v) {
+      ::operator delete(ptr);
+    }
+  }
 }
 
 }  // namespace
