@@ -208,12 +208,13 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
 
   using ShardedManager = TestStaticForwarder::ShardedManager;
   TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.SetShardedCacheForLargeClassesOnly(false);
+  forwarder.SetGenericShardedCache(true);
+
   ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
   constexpr int kNumShards = ShardedManager::kMinShardsAllowed - 1;
   ASSERT(kNumShards > 0);
   forwarder.InitializeShardedManager(kNumShards);
-  forwarder.SetShardedCacheForLargeClassesOnly(false);
-  forwarder.SetGenericShardedCache(true);
 
   constexpr int kCpuId = 0;
   ScopedFakeCpuId fake_cpu_id(kCpuId);
@@ -257,11 +258,13 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
 
   using ShardedManager = TestStaticForwarder::ShardedManager;
   TestStaticForwarder& forwarder = cache.forwarder();
-  ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
-  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
-  forwarder.InitializeShardedManager(kNumShards);
   forwarder.SetShardedCacheForLargeClassesOnly(false);
   forwarder.SetGenericShardedCache(true);
+
+  ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
+  constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
+  ASSERT(kNumShards > 0);
+  forwarder.InitializeShardedManager(kNumShards);
 
   ScopedFakeCpuId fake_cpu_id(0);
   EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
