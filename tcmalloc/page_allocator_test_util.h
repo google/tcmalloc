@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_TEST_UTIL_H_
-#define TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_TEST_UTIL_H_
+#ifndef TCMALLOC_PAGE_ALLOCATOR_TEST_UTIL_H_
+#define TCMALLOC_PAGE_ALLOCATOR_TEST_UTIL_H_
 
 #include <tuple>
 #include <utility>
@@ -76,4 +76,4 @@ class ExtraRegionFactory : public AddressRegionFactory {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_HUGE_PAGE_AWARE_ALLOCATOR_TEST_UTIL_H_
+#endif  // TCMALLOC_PAGE_ALLOCATOR_TEST_UTIL_H_
