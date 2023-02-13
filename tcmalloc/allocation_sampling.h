@@ -207,10 +207,6 @@ static void* SampleifyAllocation(State& state, Policy policy,
   }
 
   stack_trace.requested_size_returning = capacity != nullptr;
-  stack_trace.sampled_alloc_handle =
-      state.sampled_alloc_handle_generator.fetch_add(
-          1, std::memory_order_relaxed) +
-      1;
   stack_trace.access_hint = static_cast<uint8_t>(policy.access());
   stack_trace.weight = weight;
 
@@ -267,6 +263,10 @@ static void* SampleifyAllocation(State& state, Policy policy,
 
   ASSERT(span != nullptr);
 
+  stack_trace.sampled_alloc_handle =
+      state.sampled_alloc_handle_generator.fetch_add(
+          1, std::memory_order_relaxed) +
+      1;
   stack_trace.span_start_address = span->start_address();
   stack_trace.allocation_time = absl::Now();
   stack_trace.guarded_status = static_cast<int>(alloc_with_status.status);
