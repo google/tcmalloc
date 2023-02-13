@@ -26,6 +26,12 @@ ABSL_ATTRIBUTE_WEAK uint64_t TCMalloc_Internal_GetHeapSizeHardLimit();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHPAASubrelease();
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(absl::Duration* v);
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
+    absl::Duration* v);
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
+    absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPartialTransferCacheEnabled();
@@ -53,6 +59,11 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(absl::Duration v);
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
+    absl::Duration v);
+ABSL_ATTRIBUTE_WEAK void
+TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(absl::Duration v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLifetimeAllocatorOptions(
     absl::string_view s);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();

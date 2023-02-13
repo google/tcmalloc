@@ -832,14 +832,14 @@ class FillerTest {
     return r;
   }
 
-  Length ReleasePages(Length desired, absl::Duration d = absl::ZeroDuration()) {
+  Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, d, false);
+    return filler_.ReleasePages(desired, intervals, false);
   }
 
   Length HardReleasePages(Length desired) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, absl::ZeroDuration(), true);
+    return filler_.ReleasePages(desired, SkipSubreleaseIntervals{}, true);
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -983,7 +983,10 @@ TEST_P(FillerTestRegularAllocOnly, Release) {
 
 TEST_P(FillerTestRegularAllocOnly, ReleaseZero) {
   // Trying to release no pages should not crash.
-  EXPECT_EQ(ReleasePages(Length(0), absl::Seconds(1)), Length(0));
+  EXPECT_EQ(
+      ReleasePages(Length(0),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Seconds(1)}),
+      Length(0));
 }
 
 TEST_P(FillerTestRegularAllocOnly, ReleaseFailureOnRerelease) {
@@ -1566,46 +1569,58 @@ TEST_P(FillerTestRegularAllocOnly, SkipSubrelease) {
     GTEST_SKIP();
   }
 
-  // Generate a peak, wait for time interval a, generate a trough, subrelease,
-  // wait for time interval b, generate another peak.
-  const auto peak_trough_peak = [&](absl::Duration a, absl::Duration b,
-                                    absl::Duration peak_interval,
-                                    bool expected_subrelease) {
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a trough
+  // in demand and tries to subrelease. Finally, it waits for time interval c to
+  // generate the highest peak for evaluating subrelease correctness. Skip
+  // subrelease selects those demand points using provided time intervals.
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
     const Length N = kPagesPerHugePage;
+    // First peak: min_demand 3/4N, max_demand 1N.
+    PAlloc peak1a = Allocate(3 * N / 4);
+    PAlloc peak1b = Allocate(N / 4);
+    Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    Delete(peak1a);
+    Delete(peak1b);
+
     PAlloc half = Allocate(N / 2);
     PAlloc tiny1 = Allocate(N / 4);
     PAlloc tiny2 = Allocate(N / 4);
 
     // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
-    // necessary after we delete `half` below, as a half huge page for the peak
-    // would fill into the gap previously occupied by it.
-    PAlloc peak1a = Allocate(3 * N / 4);
-    PAlloc peak1b = Allocate(N / 4);
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    PAlloc peak2a = Allocate(3 * N / 4);
+    PAlloc peak2b = Allocate(N / 4);
     EXPECT_EQ(filler_.used_pages(), 2 * N);
-    Delete(peak1a);
-    Delete(peak1b);
-    Advance(a);
-
+    Delete(peak2a);
+    Delete(peak2b);
+    Advance(b);
     Delete(half);
     EXPECT_EQ(filler_.free_pages(), Length(N / 2));
     // The number of released pages is limited to the number of free pages.
     EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
-              ReleasePages(10 * N, peak_interval));
+              ReleasePages(10 * N, intervals));
 
-    Advance(b);
-
-    PAlloc peak2a = Allocate(3 * N / 4);
-    PAlloc peak2b = Allocate(N / 4);
-
+    Advance(c);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
     PAlloc peak3a = Allocate(3 * N / 4);
     PAlloc peak3b = Allocate(N / 4);
 
+    PAlloc peak4a = Allocate(3 * N / 4);
+    PAlloc peak4b = Allocate(N / 4);
+
     Delete(tiny1);
     Delete(tiny2);
-    Delete(peak2a);
-    Delete(peak2b);
     Delete(peak3a);
     Delete(peak3b);
+    Delete(peak4a);
+    Delete(peak4b);
 
     EXPECT_EQ(filler_.used_pages(), Length(0));
     EXPECT_EQ(filler_.unmapped_pages(), Length(0));
@@ -1615,25 +1630,93 @@ TEST_P(FillerTestRegularAllocOnly, SkipSubrelease) {
   };
 
   {
-    SCOPED_TRACE("peak-trough-peak 1");
-    peak_trough_peak(absl::Minutes(2), absl::Minutes(2), absl::Minutes(3),
-                     false);
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
   }
 
   Advance(absl::Minutes(30));
 
   {
-    SCOPED_TRACE("peak-trough-peak 2");
-    peak_trough_peak(absl::Minutes(2), absl::Minutes(7), absl::Minutes(3),
-                     false);
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
   }
 
   Advance(absl::Minutes(30));
 
   {
-    SCOPED_TRACE("peak-trough-peak 3");
-    peak_trough_peak(absl::Minutes(5), absl::Minutes(3), absl::Minutes(2),
-                     true);
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease. It
+    // incorrectly skips 128 pages.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
+  }
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses only short-term interval for skipping subrelease. It correctly
+    // skips 128 pages.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
   }
 
   Advance(absl::Minutes(30));
@@ -1642,9 +1725,20 @@ TEST_P(FillerTestRegularAllocOnly, SkipSubrelease) {
   // subrelease decision (in the same time series epoch), do not count this as
   // a correct subrelease decision.
   {
-    SCOPED_TRACE("peak-trough-peak 4");
-    peak_trough_peak(absl::Milliseconds(10), absl::Milliseconds(10),
-                     absl::Minutes(2), false);
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
   }
 
   Advance(absl::Minutes(30));
@@ -1661,8 +1755,8 @@ TEST_P(FillerTestRegularAllocOnly, SkipSubrelease) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 3 subreleases (384 pages) were skipped due to recent (120s) peaks.
-HugePageFiller: 33.3333% of decisions confirmed correct, 0 pending (33.3333% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
 
@@ -1694,7 +1788,9 @@ TEST_P(FillerTestRegularAllocOnly, ReportSkipSubreleases) {
   PAlloc peak3a = Allocate(3 * N / 4);
   EXPECT_EQ(filler_.free_pages(), 3 * N / 4);
   // Subreleases 0.5N free pages and skips 0.25N free pages.
-  EXPECT_EQ(N / 2, ReleasePages(10 * N, absl::Minutes(3)));
+  EXPECT_EQ(N / 2,
+            ReleasePages(10 * N, SkipSubreleaseIntervals{
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   PAlloc tiny1 = Allocate(N / 4);
   EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
@@ -1725,7 +1821,9 @@ TEST_P(FillerTestRegularAllocOnly, ReportSkipSubreleases) {
   Delete(peak5a);
   Delete(peak5b);
   PAlloc half2 = Allocate(N / 2);
-  EXPECT_EQ(Length(0), ReleasePages(10 * N, absl::Minutes(3)));
+  EXPECT_EQ(Length(0),
+            ReleasePages(10 * N, SkipSubreleaseIntervals{
+                                     .peak_interval = absl::Minutes(3)}));
   Advance(absl::Minutes(3));
   PAlloc half3 = Allocate(N / 2);
   Delete(half2);
@@ -1747,7 +1845,7 @@ TEST_P(FillerTestRegularAllocOnly, ReportSkipSubreleases) {
   buffer.resize(strlen(buffer.c_str()));
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
-HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to recent (180s) peaks.
+HugePageFiller: Since the start of the execution, 2 subreleases (192 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 )"));
 }
@@ -1781,6 +1879,12 @@ class FillerStatsTrackerTest : public testing::Test {
   // Generates a data point with a particular amount of demand pages, while
   // ignoring the specific number of hugepages.
   void GenerateDemandPoint(Length num_pages, Length num_free_pages);
+
+  void SetUp() override {
+    // Resets the clock used by FillerStatsTracker, allowing each test starts
+    // in epoch 0.
+    clock_ = 0;
+  }
 };
 
 int64_t FillerStatsTrackerTest::clock_{0};
@@ -1855,7 +1959,7 @@ HugePageFiller: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 rel
 HugePageFiller: at peak hps: 208 pages (and 111 free, 10 unmapped)
 HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
-HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased, 0 hugepages broken
 )"));
@@ -1877,34 +1981,68 @@ TEST_F(FillerStatsTrackerTest, ComputeRecentPeaks) {
   Advance(absl::Minutes(1));
   GenerateDemandPoint(Length(100), Length(2000));
   Advance(absl::Minutes(1));
-  GenerateDemandPoint(Length(200), Length(3000));
+  GenerateDemandPoint(Length(500), Length(3000));
 
-  GenerateDemandPoint(Length(200), Length(3000));
-  FillerStatsTracker<>::FillerStats stats =
-      tracker_.GetRecentPeak(absl::Minutes(3));
-  EXPECT_EQ(stats.num_pages, Length(1500));
-  EXPECT_EQ(stats.free_pages, Length(0));
-
-  FillerStatsTracker<>::FillerStats stats2 =
-      tracker_.GetRecentPeak(absl::Minutes(5));
-  EXPECT_EQ(stats2.num_pages, Length(3000));
-  EXPECT_EQ(stats2.free_pages, Length(1000));
+  Length peak = tracker_.GetRecentPeak(absl::Minutes(3));
+  EXPECT_EQ(peak, Length(1500));
+  Length peak2 = tracker_.GetRecentPeak(absl::Minutes(5));
+  EXPECT_EQ(peak2, Length(3000));
 
   Advance(absl::Minutes(4));
   GenerateDemandPoint(Length(200), Length(3000));
 
-  FillerStatsTracker<>::FillerStats stats3 =
-      tracker_.GetRecentPeak(absl::Minutes(4));
-  EXPECT_EQ(stats3.num_pages, Length(200));
-  EXPECT_EQ(stats3.free_pages, Length(3000));
+  Length peak3 = tracker_.GetRecentPeak(absl::Minutes(4));
+  EXPECT_EQ(peak3, Length(200));
 
   Advance(absl::Minutes(5));
+  GenerateDemandPoint(Length(150), Length(3000));
+
+  Length peak4 = tracker_.GetRecentPeak(absl::Minutes(5));
+  EXPECT_EQ(peak4, Length(150));
+}
+
+TEST_F(FillerStatsTrackerTest, ComputeRecentDemand) {
+  // Generates max and min demand in each epoch to create short-term demand
+  // fluctuations.
+  GenerateDemandPoint(Length(1500), Length(2000));
+  GenerateDemandPoint(Length(3000), Length(1000));
+  Advance(absl::Minutes(1.25));
+  GenerateDemandPoint(Length(500), Length(1000));
+  GenerateDemandPoint(Length(1500), Length(0));
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(Length(50), Length(1000));
+  GenerateDemandPoint(Length(100), Length(2000));
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(Length(100), Length(2000));
+  GenerateDemandPoint(Length(300), Length(3000));
+
+  Length short_long_peak_pages =
+      tracker_.GetRecentDemand(absl::Minutes(2), absl::Minutes(3));
+  EXPECT_EQ(short_long_peak_pages, Length(700));
+  Length short_long_peak_pages2 =
+      tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5));
+  EXPECT_EQ(short_long_peak_pages2, Length(3000));
+
+  Advance(absl::Minutes(4));
+  GenerateDemandPoint(Length(150), Length(500));
   GenerateDemandPoint(Length(200), Length(3000));
 
-  FillerStatsTracker<>::FillerStats stats4 =
-      tracker_.GetRecentPeak(absl::Minutes(5));
-  EXPECT_EQ(stats4.num_pages, Length(200));
-  EXPECT_EQ(stats4.free_pages, Length(3000));
+  Length short_long_peak_pages3 =
+      tracker_.GetRecentDemand(absl::Minutes(1), absl::ZeroDuration());
+  EXPECT_EQ(short_long_peak_pages3, Length(50));
+
+  Advance(absl::Minutes(5));
+  GenerateDemandPoint(Length(100), Length(700));
+  GenerateDemandPoint(Length(150), Length(800));
+
+  Length short_long_peak_pages4 =
+      tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(5));
+  EXPECT_EQ(short_long_peak_pages4, Length(100));
+  // The short_interval needs to be shorter or equal to the long_interval when
+  // they are both set.
+  EXPECT_DEBUG_DEATH(
+      tracker_.GetRecentDemand(absl::Minutes(2), absl::Minutes(1)),
+      testing::HasSubstr("short_interval <= long_interval"));
 }
 
 TEST_F(FillerStatsTrackerTest, TrackCorrectSubreleaseDecisions) {
@@ -2120,7 +2258,7 @@ HugePageFiller: at peak demand: 8 hps (5 regular, 1 donated, 0 partial, 2 releas
 HugePageFiller: at peak hps: 1774 pages (and 261 free, 13 unmapped)
 HugePageFiller: at peak hps: 8 hps (5 regular, 1 donated, 0 partial, 2 released)
 
-HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 269 pages subreleased, 3 hugepages broken
 )"));

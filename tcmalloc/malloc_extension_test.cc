@@ -64,15 +64,27 @@ TEST(MallocExtension, BackgroundReleaseRate) {
             0);
 }
 
-TEST(MallocExtension, SkipSubreleaseInterval) {
+TEST(MallocExtension, SkipSubreleaseIntervals) {
 
   // Mutate via MallocExtension.
   MallocExtension::SetSkipSubreleaseInterval(absl::Seconds(10));
   EXPECT_EQ(MallocExtension::GetSkipSubreleaseInterval(), absl::Seconds(10));
+  MallocExtension::SetSkipSubreleaseShortInterval(absl::Seconds(20));
+  EXPECT_EQ(MallocExtension::GetSkipSubreleaseShortInterval(),
+            absl::Seconds(20));
+  MallocExtension::SetSkipSubreleaseLongInterval(absl::Seconds(30));
+  EXPECT_EQ(MallocExtension::GetSkipSubreleaseLongInterval(),
+            absl::Seconds(30));
 
-  // Disable skip subrelease
+  // Disable skip subrelease by setting all intervals to zero.
   MallocExtension::SetSkipSubreleaseInterval(absl::ZeroDuration());
   EXPECT_EQ(MallocExtension::GetSkipSubreleaseInterval(), absl::ZeroDuration());
+  MallocExtension::SetSkipSubreleaseShortInterval(absl::ZeroDuration());
+  EXPECT_EQ(MallocExtension::GetSkipSubreleaseShortInterval(),
+            absl::ZeroDuration());
+  MallocExtension::SetSkipSubreleaseLongInterval(absl::ZeroDuration());
+  EXPECT_EQ(MallocExtension::GetSkipSubreleaseLongInterval(),
+            absl::ZeroDuration());
 }
 
 TEST(MallocExtension, Properties) {

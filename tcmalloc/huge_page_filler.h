@@ -206,6 +206,28 @@ class SkippedSubreleaseCorrectnessTracker {
       tracker_;
 };
 
+struct SkipSubreleaseIntervals {
+  // Interval that locates recent demand peak.
+  absl::Duration peak_interval;
+  // Interval that locates recent short-term demand fluctuation.
+  absl::Duration short_interval;
+  // Interval that locates recent long-term demand trend.
+  absl::Duration long_interval;
+  // Checks if the peak interval is set.
+  bool IsPeakIntervalSet() const {
+    return peak_interval != absl::ZeroDuration();
+  }
+  // Checks if the skip subrelease feature is enabled.
+  bool SkipSubreleaseEnabled() const {
+    if (peak_interval != absl::ZeroDuration() ||
+        short_interval != absl::ZeroDuration() ||
+        long_interval != absl::ZeroDuration()) {
+      return true;
+    }
+    return false;
+  }
+};
+
 struct SubreleaseStats {
   Length total_pages_subreleased;  // cumulative since startup
   Length num_pages_subreleased;
@@ -306,10 +328,10 @@ class FillerStatsTracker {
   // Calculates recent peaks for skipping subrelease decisions. If our allocated
   // memory is below the demand peak within the last peak_interval, we stop
   // subreleasing. If our demand is going above that peak again within another
-  // peak_interval, we report that we made the correct decision.
-  FillerStats GetRecentPeak(absl::Duration peak_interval) {
-    last_peak_interval_ = peak_interval;
-    FillerStats recent_peak;
+  // realized fragemenation interval, we report that we made the correct
+  // decision.
+  Length GetRecentPeak(absl::Duration peak_interval) {
+    last_skip_subrelease_intervals_.peak_interval = peak_interval;
     Length max_demand_pages;
 
     int64_t num_epochs = peak_interval / epoch_length_;
@@ -319,14 +341,64 @@ class FillerStatsTracker {
             // Identify the maximum number of demand pages we have seen within
             // the time interval.
             if (e.stats[kStatsAtMaxDemand].num_pages > max_demand_pages) {
-              recent_peak = e.stats[kStatsAtMaxDemand];
-              max_demand_pages = recent_peak.num_pages;
+              max_demand_pages = e.stats[kStatsAtMaxDemand].num_pages;
             }
           }
         },
         num_epochs);
 
-    return recent_peak;
+    return max_demand_pages;
+  }
+
+  // Calculates demand requirements for skip subrelease: HugePageFiller would
+  // not subrelease if it has less pages than (or equal to) the required
+  // amount. We report that the skipping is correct if future demand is going to
+  // be above the required amount within another realized fragemenation
+  // interval. The demand requirement is the sum of short-term demand
+  // fluctuation peak and long-term demand trend. The former is the largest max
+  // and min demand difference within short_interval, and the latter is the
+  // largest min demand within long_interval. When both set, short_interval
+  // should be (significantly) shorter or equal to long_interval to avoid
+  // realized fragmentation caused by non-recent (short-term) demand spikes.
+  Length GetRecentDemand(absl::Duration short_interval,
+                         absl::Duration long_interval) {
+    if (short_interval != absl::ZeroDuration() &&
+        long_interval != absl::ZeroDuration()) {
+      ASSERT(short_interval <= long_interval);
+    }
+    last_skip_subrelease_intervals_.short_interval = short_interval;
+    last_skip_subrelease_intervals_.long_interval = long_interval;
+    Length short_term_fluctuation_pages, long_term_trend_pages;
+    int64_t short_epochs = short_interval / epoch_length_;
+    int64_t long_epochs = long_interval / epoch_length_;
+
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
+          if (!e.empty()) {
+            Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
+                                       e.stats[kStatsAtMinDemand].num_pages;
+            // Identifies the highest demand fluctuation (i.e., difference
+            // between max_demand and min_demand) that we have seen within the
+            // time interval.
+            if (demand_difference > short_term_fluctuation_pages) {
+              short_term_fluctuation_pages = demand_difference;
+            }
+          }
+        },
+        short_epochs);
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
+          if (!e.empty()) {
+            // Identifies the long-term demand peak (i.e., largest minimum
+            // demand) that we have seen within the time interval.
+            if (e.stats[kStatsAtMinDemand].num_pages > long_term_trend_pages) {
+              long_term_trend_pages = e.stats[kStatsAtMinDemand].num_pages;
+            }
+          }
+        },
+        long_epochs);
+
+    return short_term_fluctuation_pages + long_term_trend_pages;
   }
 
   // Reports a skipped subrelease, which is evaluated by coming peaks within the
@@ -466,10 +538,10 @@ class FillerStatsTracker {
   TimeSeriesTracker<FillerStatsEntry, FillerStats, kEpochs> tracker_;
   SkippedSubreleaseCorrectnessTracker<kEpochs> skipped_subrelease_correctness_;
 
-  // Records the last peak_interval (for skipping subreleases) and expected next
-  // peak_interval (for evaluating skipped subreleases) values, for reporting
-  // and debugging only.
-  absl::Duration last_peak_interval_;
+  // Records most recent intervals for skipping subreleases, plus expected next
+  // peak_interval for evaluating skipped subreleases. All for reporting and
+  // debugging only.
+  SkipSubreleaseIntervals last_skip_subrelease_intervals_;
   absl::Duration last_next_peak_interval_;
 };
 
@@ -544,9 +616,12 @@ void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
 
   out->printf(
       "\nHugePageFiller: Since the start of the execution, %zu subreleases (%zu"
-      " pages) were skipped due to recent (%ds) peaks.\n",
+      " pages) were skipped due to either recent (%ds) peaks, or the sum of"
+      " short-term (%ds) fluctuations and long-term (%ds) trends.\n",
       total_skipped().count, total_skipped().pages.raw_num(),
-      absl::ToInt64Seconds(last_peak_interval_));
+      absl::ToInt64Seconds(last_skip_subrelease_intervals_.peak_interval),
+      absl::ToInt64Seconds(last_skip_subrelease_intervals_.short_interval),
+      absl::ToInt64Seconds(last_skip_subrelease_intervals_.long_interval));
 
   Length skipped_pages = total_skipped().pages - pending_skipped().pages;
   double correctly_skipped_pages_percentage =
@@ -584,8 +659,18 @@ template <size_t kEpochs>
 void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   {
     auto skip_subrelease = hpaa->CreateSubRegion("filler_skipped_subrelease");
-    skip_subrelease.PrintI64("skipped_subrelease_interval_ms",
-                             absl::ToInt64Milliseconds(last_peak_interval_));
+    skip_subrelease.PrintI64(
+        "skipped_subrelease_interval_ms",
+        absl::ToInt64Milliseconds(
+            last_skip_subrelease_intervals_.peak_interval));
+    skip_subrelease.PrintI64(
+        "skipped_subrelease_short_interval_ms",
+        absl::ToInt64Milliseconds(
+            last_skip_subrelease_intervals_.short_interval));
+    skip_subrelease.PrintI64(
+        "skipped_subrelease_long_interval_ms",
+        absl::ToInt64Milliseconds(
+            last_skip_subrelease_intervals_.long_interval));
     skip_subrelease.PrintI64("skipped_subrelease_pages",
                              total_skipped().pages.raw_num());
     skip_subrelease.PrintI64("correctly_skipped_subrelease_pages",
@@ -993,16 +1078,17 @@ class HugePageFiller {
   double hugepage_frac() const;
 
   // Returns the amount of memory to release if all remaining options of
-  // releasing memory involve subreleasing pages.
+  // releasing memory involve subreleasing pages. Provided intervals are used
+  // for making skip subrelease decisions.
   Length GetDesiredSubreleasePages(Length desired, Length total_released,
-                                   absl::Duration peak_interval)
+                                   SkipSubreleaseIntervals intervals)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Tries to release desired pages by iteratively releasing from the emptiest
-  // possible hugepage and releasing its free memory to the system.  Return the
-  // number of pages actually released.
-  Length ReleasePages(Length desired,
-                      absl::Duration skip_subrelease_after_peaks_interval,
+  // possible hugepage and releasing its free memory to the system. Returns the
+  // number of pages actually released. The releasing target can be reduced by
+  // skip subrelease which is disabled if all intervals are zero.
+  Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
                       bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -1069,9 +1155,8 @@ class HugePageFiller {
   // in huge pages that are not free (i.e., allocated).  Only the hugepages in
   // regular_alloc_released_ are considered.
   Length n_few_objects_used_released_;
-  //   n_few_objects_used_partial_released_ is the number of pages which have
-  //   been allocated from the hugepages in the set
-  //   regular_alloc_partial_released_.
+  // n_few_objects_used_partial_released_ is the number of pages which have been
+  // allocated from the hugepages in the set regular_alloc_partial_released.
   Length n_few_objects_used_partial_released_;
   // Similar to n_few_objects_used_partial_released_, but considers only
   // partially released pages in the alloc many_objects_alloc_.
@@ -1628,28 +1713,37 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
-    Length desired, Length total_released, absl::Duration peak_interval) {
-  // Don't subrelease pages if it wouldn't push you under the latest peak.
+    Length desired, Length total_released, SkipSubreleaseIntervals intervals) {
+  // Don't subrelease pages if it would push you under either the latest peak or
+  // the sum of short-term demand fluctuation peak and long-term demand trend.
   // This is a bit subtle: We want the current *mapped* pages not to be below
-  // the recent *demand* peak, i.e., if we have a large amount of free memory
-  // right now but demand is below a recent peak, we still want to subrelease.
+  // the recent *demand* requirement, i.e., if we have a large amount of free
+  // memory right now but demand is below the requirement, we still want to
+  // subrelease.
   ASSERT(total_released < desired);
-
-  if (peak_interval == absl::ZeroDuration()) {
+  if (!intervals.SkipSubreleaseEnabled()) {
     return desired;
   }
-
   UpdateFillerStatsTracker();
-  Length demand_at_peak =
-      fillerstats_tracker_.GetRecentPeak(peak_interval).num_pages;
+  Length required_pages;
+  // As mentioned above, there are two ways to calculate the demand
+  // requirement. We give priority to using the peak if peak_interval is set.
+  if (intervals.IsPeakIntervalSet()) {
+    required_pages =
+        fillerstats_tracker_.GetRecentPeak(intervals.peak_interval);
+  } else {
+    required_pages = fillerstats_tracker_.GetRecentDemand(
+        intervals.short_interval, intervals.long_interval);
+  }
+
   Length current_pages = used_pages() + free_pages();
 
-  if (demand_at_peak != Length(0)) {
+  if (required_pages != Length(0)) {
     Length new_desired;
-    if (demand_at_peak >= current_pages) {
+    if (required_pages >= current_pages) {
       new_desired = total_released;
     } else {
-      new_desired = total_released + (current_pages - demand_at_peak);
+      new_desired = total_released + (current_pages - required_pages);
     }
 
     if (new_desired >= desired) {
@@ -1666,12 +1760,12 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // mechanism, but never more than skipped free pages. In other words,
     // skipped_pages is zero if all free pages are allowed to be released by
     // this mechanism. Note, only free pages in the smaller of the two
-    // (current_pages and demand_at_peak) are skipped, the rest are allowed to
+    // (current_pages and required_pages) are skipped, the rest are allowed to
     // be subreleased.
     Length skipped_pages =
         std::min((free_pages() - releasable_pages), (desired - new_desired));
     fillerstats_tracker_.ReportSkippedSubreleasePages(
-        skipped_pages, std::min(current_pages, demand_at_peak));
+        skipped_pages, std::min(current_pages, required_pages));
     return new_desired;
   }
 
@@ -1679,12 +1773,11 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
 }
 
 // Tries to release desired pages by iteratively releasing from the emptiest
-// possible hugepage and releasing its free memory to the system.  Return the
+// possible hugepage and releasing its free memory to the system. Return the
 // number of pages actually released.
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(
-    Length desired, absl::Duration skip_subrelease_after_peaks_interval,
-    bool hit_limit) {
+    Length desired, SkipSubreleaseIntervals intervals, bool hit_limit) {
   Length total_released;
 
   // We also do eager release, once we've called this at least once:
@@ -1707,9 +1800,8 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     return total_released;
   }
 
-  if (skip_subrelease_after_peaks_interval != absl::ZeroDuration()) {
-    desired = GetDesiredSubreleasePages(desired, total_released,
-                                        skip_subrelease_after_peaks_interval);
+  if (intervals.SkipSubreleaseEnabled()) {
+    desired = GetDesiredSubreleasePages(desired, total_released, intervals);
     if (desired <= total_released) {
       return total_released;
     }

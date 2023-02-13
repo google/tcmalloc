@@ -419,6 +419,12 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "PARAMETER tcmalloc_skip_subrelease_interval %s\n",
         absl::FormatDuration(Parameters::filler_skip_subrelease_interval()));
+    out->printf("PARAMETER tcmalloc_skip_subrelease_short_interval %s\n",
+                absl::FormatDuration(
+                    Parameters::filler_skip_subrelease_short_interval()));
+    out->printf("PARAMETER tcmalloc_skip_subrelease_long_interval %s\n",
+                absl::FormatDuration(
+                    Parameters::filler_skip_subrelease_long_interval()));
     out->printf("PARAMETER flat vcpus %d\n",
                 subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_shuffle_per_cpu_caches %d\n",
@@ -568,6 +574,12 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64(
       "tcmalloc_skip_subrelease_interval_ns",
       absl::ToInt64Nanoseconds(Parameters::filler_skip_subrelease_interval()));
+  region.PrintI64("tcmalloc_skip_subrelease_short_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::filler_skip_subrelease_short_interval()));
+  region.PrintI64("tcmalloc_skip_subrelease_long_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::filler_skip_subrelease_long_interval()));
   region.PrintBool("tcmalloc_shuffle_per_cpu_caches",
                    Parameters::shuffle_per_cpu_caches());
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());

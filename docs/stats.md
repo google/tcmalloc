@@ -790,10 +790,17 @@ hugepages active at that time. If there are multiple peaks, we return the state
 at the latest one of them.
 
 If applicable, an additional section tracks the behavior that skips subreleasing
-hugepages if behind a recent peak (`--tcmalloc_skip_subrelease_interval`):
+hugepages if behind the recent demand requirement, which is either the peak
+within `--tcmalloc_skip_subrelease_interval`, or the sum of short-term
+fluctuation peak within `--tcmalloc_skip_subrelease_short_interval` and
+long-term trend within `--tcmalloc_skip_subrelease_long_interval`.
+
+**Note:** Conducting skip-subrelease using both short-term and long-term
+intervals is an experimental feature, and should not be enabled without
+understanding its performance tradeoffs.
 
 ```
-HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to recent (0s) peaks.
+HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends..
 HugePageFiller: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
 ```
 
@@ -801,12 +808,17 @@ This shows how many times a page that was meant to be subreleased was not (note
 that this can refer to the same page multiple times if subrelease of this page
 would have been triggered multiple times). The percentage shows what fraction of
 times this decision would have been correct (i.e., if we decided not to
-subrelease a page because of a peak within the last N minutes, did memory
+subrelease a page because of the calculated demand requirement, did memory
 consumption increase again within the *next* five minutes?). "Pending" refers to
 subrelease decisions that were less than five minutes in the past and we
 therefore do not know yet whether or not they were correct. The correctness
 evaluation chooses to use the five minutes interval as it is the interval used
 for realized fragmentation.
+
+The skip-subrelease feature prioritizes using the recent peak if
+`--tcmalloc_skip_subrelease_interval` is configured, otherwise it uses the
+combination of the recent short-term fluctuation peak and long-term trend. The
+feature is disabled if all three intervals are zero.
 
 ### Region Cache
 

@@ -402,6 +402,58 @@ void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
 #endif
 }
 
+absl::Duration MallocExtension::GetSkipSubreleaseShortInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetSkipSubreleaseShortInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetSkipSubreleaseShortInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetSkipSubreleaseShortInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetSkipSubreleaseShortInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetSkipSubreleaseShortInterval(value);
+#else
+  (void)value;
+#endif
+}
+
+absl::Duration MallocExtension::GetSkipSubreleaseLongInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetSkipSubreleaseLongInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetSkipSubreleaseLongInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetSkipSubreleaseLongInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetSkipSubreleaseLongInterval(value);
+#else
+  (void)value;
+#endif
+}
+
 absl::optional<size_t> MallocExtension::GetNumericProperty(
     absl::string_view property) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS

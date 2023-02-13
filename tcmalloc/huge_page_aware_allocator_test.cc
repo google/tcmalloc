@@ -322,9 +322,17 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   const bool old_subrelease = Parameters::hpaa_subrelease();
   Parameters::set_hpaa_subrelease(true);
 
-  const absl::Duration old_skip_subrelease =
+  const absl::Duration old_skip_subrelease_interval =
       Parameters::filler_skip_subrelease_interval();
   Parameters::set_filler_skip_subrelease_interval(absl::ZeroDuration());
+
+  const absl::Duration old_skip_subrelease_short_interval =
+      Parameters::filler_skip_subrelease_short_interval();
+  Parameters::set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
+
+  const absl::Duration old_skip_subrelease_long_interval =
+      Parameters::filler_skip_subrelease_long_interval();
+  Parameters::set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
 
   std::vector<Span*> live, dead;
   static const size_t N = kPagesPerHugePage.raw_num() * 128;
@@ -344,7 +352,11 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
   }
 
   Parameters::set_hpaa_subrelease(old_subrelease);
-  Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease);
+  Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease_interval);
+  Parameters::set_filler_skip_subrelease_short_interval(
+      old_skip_subrelease_short_interval);
+  Parameters::set_filler_skip_subrelease_long_interval(
+      old_skip_subrelease_long_interval);
 }
 
 TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {

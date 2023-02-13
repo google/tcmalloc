@@ -448,10 +448,16 @@ class MallocExtension final {
   // Sets the maximum thread cache size.  This is a whole-process limit.
   static void SetMaxTotalThreadCacheBytes(int64_t value);
 
-  // Gets the delayed subrelease interval (0 if delayed subrelease is disabled)
+  // Gets and sets intervals used for finding recent demand peak, short-term
+  // demand fluctuation, and long-term demand trend. Zero duration means not
+  // considering corresponding demand history for delayed subrelease. Delayed
+  // subrelease is disabled if all intervals are zero.
   static absl::Duration GetSkipSubreleaseInterval();
-  // Sets the delayed subrelease interval (0 to disable delayed subrelease)
   static void SetSkipSubreleaseInterval(absl::Duration value);
+  static absl::Duration GetSkipSubreleaseShortInterval();
+  static void SetSkipSubreleaseShortInterval(absl::Duration value);
+  static absl::Duration GetSkipSubreleaseLongInterval();
+  static void SetSkipSubreleaseLongInterval(absl::Duration value);
 
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may

@@ -44,6 +44,10 @@ constexpr absl::Duration kDefaultSkipSubreleaseInterval =
     absl::Seconds(60)
 #endif
     ;
+constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
+    absl::ZeroDuration();
+constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
+    absl::ZeroDuration();
 
 bool TestProfileSamplingRate() {
 
@@ -81,13 +85,29 @@ bool TestBackgroundReleaseRate() {
   return true;
 }
 
-bool TestSkipSubreleaseInterval() {
+bool TestSkipSubreleaseIntervals() {
 
-  auto extension_value = MallocExtension::GetSkipSubreleaseInterval();
-  if (extension_value != kDefaultSkipSubreleaseInterval) {
+  auto interval_extension_value = MallocExtension::GetSkipSubreleaseInterval();
+  if (interval_extension_value != kDefaultSkipSubreleaseInterval) {
     absl::FPrintF(stderr, "Skip Subrelease Interval: got %d, want %d\n",
-                  absl::ToInt64Seconds(extension_value),
+                  absl::ToInt64Seconds(interval_extension_value),
                   absl::ToInt64Seconds(kDefaultSkipSubreleaseInterval));
+    return false;
+  }
+  auto short_interval_extension_value =
+      MallocExtension::GetSkipSubreleaseShortInterval();
+  if (short_interval_extension_value != kDefaultSkipSubreleaseShortInterval) {
+    absl::FPrintF(stderr, "Skip Subrelease Short Interval: got %d, want %d\n",
+                  absl::ToInt64Seconds(short_interval_extension_value),
+                  absl::ToInt64Seconds(kDefaultSkipSubreleaseShortInterval));
+    return false;
+  }
+  auto long_interval_extension_value =
+      MallocExtension::GetSkipSubreleaseLongInterval();
+  if (long_interval_extension_value != kDefaultSkipSubreleaseLongInterval) {
+    absl::FPrintF(stderr, "Skip Subrelease Long Interval: got %d, want %d\n",
+                  absl::ToInt64Seconds(long_interval_extension_value),
+                  absl::ToInt64Seconds(kDefaultSkipSubreleaseLongInterval));
     return false;
   }
 
@@ -104,7 +124,7 @@ int main() {
   success = success & tcmalloc::TestProfileSamplingRate();
   success = success & tcmalloc::TestGuardedSamplingRate();
   success = success & tcmalloc::TestBackgroundReleaseRate();
-  success = success & tcmalloc::TestSkipSubreleaseInterval();
+  success = success & tcmalloc::TestSkipSubreleaseIntervals();
 
   if (success) {
     fprintf(stderr, "PASS");

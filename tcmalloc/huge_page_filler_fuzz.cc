@@ -41,6 +41,7 @@ using tcmalloc::tcmalloc_internal::PageId;
 using tcmalloc::tcmalloc_internal::PageIdContaining;
 using tcmalloc::tcmalloc_internal::PageTracker;
 using tcmalloc::tcmalloc_internal::Printer;
+using tcmalloc::tcmalloc_internal::SkipSubreleaseIntervals;
 
 // As we read the fuzzer input, we update these variables to control global
 // state.
@@ -261,15 +262,41 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // Release
         //
         // value[0]    - Whether are trying to apply TCMalloc's memory limits
-        // value[1:31] - Number of pages to try to release
+        // value[1]    - Whether using peak interval for skip subrelease
+        // If using peak interval:
+        // value[2:9]  - Peak interval for skip subrelease
+        // value[10:31]- Number of pages to try to release
+        // If not using peak interval:
+        // value[2:9]  - Short interval for skip subrelease
+        // value[10:17]- Long interval for skip subrelease
+        // value[18:31]- Number of pages to try to release
         bool hit_limit = value & 0x1;
-        value >>= 1;
+        bool use_peak_interval = (value >> 1) & 0x1;
+        SkipSubreleaseIntervals skip_subrelease_intervals;
+        if (use_peak_interval) {
+          const uint32_t peak_interval_s = (value >> 2) & 0xFF;
+          skip_subrelease_intervals.peak_interval =
+              absl::Seconds(peak_interval_s);
+          value >>= 10;
+        } else {
+          uint32_t short_interval_s = (value >> 2) & 0xFF;
+          uint32_t long_interval_s = (value >> 10) & 0xFF;
+          if (short_interval_s > long_interval_s) {
+            std::swap(short_interval_s, long_interval_s);
+          }
+          skip_subrelease_intervals.short_interval =
+              absl::Seconds(short_interval_s);
+          skip_subrelease_intervals.long_interval =
+              absl::Seconds(long_interval_s);
+          value >>= 18;
+        }
         Length desired(value);
 
         Length released;
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
-          released = filler.ReleasePages(desired, absl::Seconds(5), hit_limit);
+          released = filler.ReleasePages(desired, skip_subrelease_intervals,
+                                         hit_limit);
         }
         break;
       }

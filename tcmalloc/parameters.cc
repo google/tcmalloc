@@ -35,9 +35,10 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
   return &v;
 }
 
-// As skip_subrelease_interval_ns() is determined at runtime, we cannot require
-// constant initialization for the atomic.  This avoids an initialization order
-// fiasco.
+// As skip_subrelease_interval_ns(), skip_subrelease_short_interval_ns(), and
+// skip_subrelease_long_interval_ns() are determined at runtime, we cannot
+// require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
@@ -46,6 +47,18 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
       absl::Seconds(60)
 #endif
           ));
+  return v;
+}
+
+// Configures short and long intervals to zero by default. We expect to set them
+// to the non-zero durations once the feature is no longer experimental.
+static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
+  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(absl::ZeroDuration()));
+  return v;
+}
+
+static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
+  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(absl::ZeroDuration()));
   return v;
 }
 
@@ -108,6 +121,16 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
       skip_subrelease_interval_ns().load(std::memory_order_relaxed));
+}
+
+absl::Duration Parameters::filler_skip_subrelease_short_interval() {
+  return absl::Nanoseconds(
+      skip_subrelease_short_interval_ns().load(std::memory_order_relaxed));
+}
+
+absl::Duration Parameters::filler_skip_subrelease_long_interval() {
+  return absl::Nanoseconds(
+      skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
 }
 
 bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
@@ -189,6 +212,26 @@ void MallocExtension_Internal_GetSkipSubreleaseInterval(absl::Duration* ret) {
 
 void MallocExtension_Internal_SetSkipSubreleaseInterval(absl::Duration value) {
   Parameters::set_filler_skip_subrelease_interval(value);
+}
+
+void MallocExtension_Internal_GetSkipSubreleaseShortInterval(
+    absl::Duration* ret) {
+  *ret = Parameters::filler_skip_subrelease_short_interval();
+}
+
+void MallocExtension_Internal_SetSkipSubreleaseShortInterval(
+    absl::Duration value) {
+  Parameters::set_filler_skip_subrelease_short_interval(value);
+}
+
+void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
+    absl::Duration* ret) {
+  *ret = Parameters::filler_skip_subrelease_long_interval();
+}
+
+void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
+    absl::Duration value) {
+  Parameters::set_filler_skip_subrelease_long_interval(value);
 }
 
 tcmalloc::MallocExtension::BytesPerSecond
@@ -313,6 +356,28 @@ void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
     absl::Duration v) {
   tcmalloc::tcmalloc_internal::skip_subrelease_interval_ns().store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval(
+    absl::Duration* v) {
+  *v = Parameters::filler_skip_subrelease_short_interval();
+}
+
+void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
+    absl::Duration v) {
+  tcmalloc::tcmalloc_internal::skip_subrelease_short_interval_ns().store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
+    absl::Duration* v) {
+  *v = Parameters::filler_skip_subrelease_long_interval();
+}
+
+void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
+    absl::Duration v) {
+  tcmalloc::tcmalloc_internal::skip_subrelease_long_interval_ns().store(
       absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 

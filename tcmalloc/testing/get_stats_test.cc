@@ -83,6 +83,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 }
 
 TEST_F(GetStatsTest, Parameters) {
@@ -96,7 +98,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_max_per_cpu_cache_size(-1);
   Parameters::set_max_total_thread_cache_bytes(-1);
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
-
+  Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
+  Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
   {
     const std::string buf = MallocExtension::GetStats();
     const std::string pbtxt = GetStatsInPbTxt();
@@ -114,6 +117,12 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3s)"));
 
 #ifdef __x86_64__
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
@@ -126,6 +135,12 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 1000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_skip_subrelease_short_interval_ns: 2000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
   }
 
 #ifdef __x86_64__
@@ -137,6 +152,10 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);
   Parameters::set_filler_skip_subrelease_interval(absl::Milliseconds(60125));
+  Parameters::set_filler_skip_subrelease_short_interval(
+      absl::Milliseconds(120250));
+  Parameters::set_filler_skip_subrelease_long_interval(
+      absl::Milliseconds(180375));
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -160,6 +179,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1m0.125s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2m0.25s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
 
 #ifdef __x86_64__
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
@@ -175,6 +202,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 60125000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_short_interval_ns: 120250000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
   }
 }
 
