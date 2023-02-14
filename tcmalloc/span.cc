@@ -43,6 +43,7 @@ void Span::Sample(SampledAllocation* sampled_allocation) {
       static_cast<tcmalloc_internal::StatsCounter::Value>(
           AllocatedBytes(sampled_allocation->sampled_stack));
   tc_globals.sampled_objects_size_.Add(allocated_bytes);
+  tc_globals.total_sampled_count_.Add(1);
 }
 
 SampledAllocation* Span::Unsample() {

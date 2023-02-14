@@ -510,6 +510,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
     region.PrintI64("total_mapped", uint64_t(memstats.vss));
   }
 
+  region.PrintI64("total_sampled_count",
+                  tc_globals.total_sampled_count_.value());
+
   if (level >= 2) {
     {
 #ifndef TCMALLOC_SMALL_BUT_SLOW

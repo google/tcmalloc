@@ -131,6 +131,9 @@ class Static final {
   // allocation sizes being rounded up to size class/page boundaries.
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter
       sampled_internal_fragmentation_;
+  // total_sampled_count_ tracks the total number of allocations that are
+  // sampled.
+  ABSL_CONST_INIT static tcmalloc_internal::StatsCounter total_sampled_count_;
 
   ABSL_CONST_INIT static AllocationSampleList allocation_samples;
 

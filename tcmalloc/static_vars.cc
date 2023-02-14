@@ -61,6 +61,7 @@ ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
+ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::total_sampled_count_;
 ABSL_CONST_INIT AllocationSampleList Static::allocation_samples;
 ABSL_CONST_INIT deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
@@ -97,9 +98,8 @@ size_t Static::metadata_bytes() {
       sizeof(sampled_allocation_recorder_) + sizeof(bucket_allocator_) +
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
-      sizeof(sampled_internal_fragmentation_) +
-      sizeof(allocation_samples) +
-      sizeof(deallocation_samples) +
+      sizeof(sampled_internal_fragmentation_) + sizeof(total_sampled_count_) +
+      sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_);
   // LINT.ThenChange(:static_vars)
