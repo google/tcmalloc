@@ -101,10 +101,6 @@ struct SampleMergedData {
 
 // The equality and hash methods of Profile::Sample only use a subset of its
 // member fields.
-// TODO(b/239458966): Consider merging sample when building the profile proto,
-// as sample label and location id should uniquely identify the sample and cover
-// the fields below. This is best when labels on `sampled_resident_size` and
-// `swapped_size` are removed to avoid handling them specially.
 struct SampleEqWithSubFields {
   bool operator()(const Profile::Sample& a, const Profile::Sample& b) const {
     auto fields = [](const Profile::Sample& s) {

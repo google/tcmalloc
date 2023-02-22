@@ -51,11 +51,19 @@ StackTraceTable::~StackTraceTable() {
 
 void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   depth_total_ += t.depth;
+  // Note this makes a copy of the information from the stack trace and users
+  // would call TCMalloc public API and iterate over the copied data in the
+  // `StackTraceTable`. Ideally, we would want to avoid the copy and let the API
+  // iterate over the stack traces directly. However, this would result in
+  // deadlocks when users allocate while iterating. For example, allocationz/
+  // holds a global lock when calling `AddTrace` and is on the allocation path.
+  // New allocations happening under `AddTrace` can be sampled, re-enter the
+  // allocation path and cause deadlocks. Another example of deadlock happens
+  // when iterating over `tc_globals.sampled_allocation_recorder()` and
+  // allocating, see more details in "HeapProfilingTest.AllocateWhileIterating"
+  // under google3/tcmalloc/heap_profiling_test.cc.
   Bucket* b;
   {
-    // TODO(b/239458966): Avoid the extra copy of stack trace data to sample
-    // for cases where Iterate() can be directly based on TCMalloc's internal
-    // data structure.
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     b = tc_globals.bucket_allocator().New();
   }

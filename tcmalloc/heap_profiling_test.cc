@@ -204,5 +204,36 @@ TEST(HeapProfilingTest, CheckResidency) {
   }
 }
 
+// Make sure users can allocate when iterating over the heap samples. For now
+// `MallocExtension::SnapshotCurrent()` uses `StackTraceTable` to make a copy of
+// the sampled allocations from `tc_globals.sampled_allocation_recorder()` and
+// then iterate from the `StackTraceTable`. Ideally, we would want to avoid the
+// extra copy and iterate over sampled allocations directly. However, this would
+// result in deadlocks for the test case below. If we `Iterate()` directly on
+// `tc_globals.sampled_allocation_recorder()`, we hold the per-sample lock. As
+// we add data to a hashtable that stores allocations (always sampled here), the
+// hashtable can decide to `resize()`, deallocates the same sampled allocation
+// it is iterating at, wants to get the per-sample lock and ends up with a
+// deadlock. At the current state, making copies over sampled allocations and
+// iterate over those copies would not deadlock and the test case below passes.
+TEST(HeapProfilingTest, AllocateWhileIterating) {
+  ScopedProfileSamplingRate s(1);
+  absl::flat_hash_set<void*> set;
+  // This fills up the slots in hashtable and so there is a good chance it would
+  // call `resize()` when inserting new entries later. This makes it easier for
+  // the deadlock to happen (>95% of the cases when directly iterating over
+  // `tc_globals.sampled_allocation_recorder()`).
+  set.reserve(1);
+  set.insert(::operator new(100));
+  for (int i = 0; i < 3; i++) {
+    MallocExtension::SnapshotCurrent(ProfileType::kHeap)
+        .Iterate(
+            [&](const Profile::Sample& s) { set.insert(::operator new(100)); });
+  }
+  for (void* obj : set) {
+    ::operator delete(obj);
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc
