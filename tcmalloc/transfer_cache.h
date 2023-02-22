@@ -514,13 +514,14 @@ class TransferCacheManager : public StaticForwarder {
           "class %3d [ %8zu bytes ] : %8u"
           " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
           " max_capacity; %8u insert hits; %8u"
-          " insert misses (%8lu partial); %8u remove hits; %8u"
-          " remove misses (%8lu partial);\n",
+          " insert misses (%8lu partial, %10lu object misses); %8u remove hits;"
+          " %8u remove misses (%8lu partial, %10lu object misses);\n",
           size_class, class_to_size(size_class), tc_stats.used,
           class_bytes / MiB, cumulative_bytes / MiB, tc_stats.capacity,
           tc_stats.max_capacity, tc_stats.insert_hits, tc_stats.insert_misses,
-          tc_stats.insert_non_batch_misses, tc_stats.remove_hits,
-          tc_stats.remove_misses, tc_stats.remove_non_batch_misses);
+          tc_stats.insert_non_batch_misses, tc_stats.insert_object_misses,
+          tc_stats.remove_hits, tc_stats.remove_misses,
+          tc_stats.remove_non_batch_misses, tc_stats.remove_object_misses);
     }
   }
 
@@ -531,10 +532,12 @@ class TransferCacheManager : public StaticForwarder {
       entry.PrintI64("sizeclass", class_to_size(size_class));
       entry.PrintI64("insert_hits", tc_stats.insert_hits);
       entry.PrintI64("insert_misses", tc_stats.insert_misses);
+      entry.PrintI64("insert_object_misses", tc_stats.insert_object_misses);
       entry.PrintI64("insert_non_batch_misses",
                      tc_stats.insert_non_batch_misses);
       entry.PrintI64("remove_hits", tc_stats.remove_hits);
       entry.PrintI64("remove_misses", tc_stats.remove_misses);
+      entry.PrintI64("remove_object_misses", tc_stats.remove_object_misses);
       entry.PrintI64("remove_non_batch_misses",
                      tc_stats.remove_non_batch_misses);
       entry.PrintI64("used", tc_stats.used);

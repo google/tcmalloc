@@ -54,7 +54,7 @@ static constexpr int kInitialCapacityInBatches = 16;
 // Records counters for different types of misses.
 class MissCounts {
  public:
-  void Inc() { total_.fetch_add(1, std::memory_order_relaxed); }
+  void Inc(size_t value) { total_.fetch_add(value, std::memory_order_relaxed); }
 
   size_t Total() const { return total_.load(std::memory_order_relaxed); }
 
@@ -177,10 +177,11 @@ class TransferCache {
         }
       }
 
-      insert_misses_.Inc();
+      insert_misses_.Inc(1);
     } else {
-      insert_non_batch_misses_.Inc();
+      insert_non_batch_misses_.Inc(1);
     }
+    insert_object_misses_.Inc(N);
 
     freelist().InsertRange(batch);
   }
@@ -208,10 +209,11 @@ class TransferCache {
         }
       }
 
-      remove_misses_.Inc();
+      remove_misses_.Inc(1);
     } else {
-      remove_non_batch_misses_.Inc();
+      remove_non_batch_misses_.Inc(1);
     }
+    remove_object_misses_.Inc(N);
     return freelist().RemoveRange(batch, N);
   }
 
@@ -256,8 +258,12 @@ class TransferCache {
 
   // Fetches the misses for the latest interval and commits them to the total.
   size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
-    return insert_misses_.Commit() + insert_non_batch_misses_.Commit() +
-           remove_misses_.Commit() + remove_non_batch_misses_.Commit();
+    if (ABSL_PREDICT_TRUE(Manager::PartialLegacyTransferCache())) {
+      return insert_object_misses_.Commit() + remove_object_misses_.Commit();
+    } else {
+      return insert_misses_.Commit() + insert_non_batch_misses_.Commit() +
+             remove_misses_.Commit() + remove_non_batch_misses_.Commit();
+    }
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
@@ -267,8 +273,10 @@ class TransferCache {
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
     stats.insert_misses = insert_misses_.Total();
+    stats.insert_object_misses = insert_object_misses_.Total();
     stats.insert_non_batch_misses = insert_non_batch_misses_.Total();
     stats.remove_misses = remove_misses_.Total();
+    stats.remove_object_misses = remove_object_misses_.Total();
     stats.remove_non_batch_misses = remove_non_batch_misses_.Total();
 
     // For performance reasons, we only update a single atomic as part of the
@@ -332,7 +340,7 @@ class TransferCache {
       absl::base_internal::SpinLockHolder h(&lock_);
       auto info = slot_info_.load(std::memory_order_relaxed);
       if (info.capacity == 0) return false;
-      if (info.capacity < N) return false;
+      if (info.capacity <= N) return false;
 
       N = std::min(N, info.capacity);
       int unused = info.capacity - info.used;
@@ -401,8 +409,10 @@ class TransferCache {
   StatsCounter remove_hits_;
   // Miss counters do not hold lock_, so they use Add.
   MissCounts insert_misses_;
+  MissCounts insert_object_misses_;
   MissCounts insert_non_batch_misses_;
   MissCounts remove_misses_;
+  MissCounts remove_object_misses_;
   MissCounts remove_non_batch_misses_;
 
   // Number of currently used and available cached entries in slots_. This

@@ -59,9 +59,11 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   TransferCacheStats stats = e.transfer_cache().GetStats();
   EXPECT_EQ(stats.insert_hits, 0);
   EXPECT_EQ(stats.insert_misses, 0);
+  EXPECT_EQ(stats.insert_object_misses, 0);
   EXPECT_EQ(stats.insert_non_batch_misses, 0);
   EXPECT_EQ(stats.remove_hits, 0);
   EXPECT_EQ(stats.remove_misses, 0);
+  EXPECT_EQ(stats.remove_object_misses, 0);
   EXPECT_EQ(stats.remove_non_batch_misses, 0);
   EXPECT_EQ(stats.used, 0);
 
@@ -88,12 +90,14 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   if (e.transfer_cache().IsFlexible()) {
     EXPECT_EQ(stats.insert_hits, 3);
     EXPECT_EQ(stats.insert_misses, 0);
+    EXPECT_EQ(stats.insert_object_misses, 0);
     EXPECT_EQ(stats.insert_non_batch_misses, 0);
     used_expected += batch_size - 1;
     EXPECT_EQ(stats.used, used_expected);
   } else {
     EXPECT_EQ(stats.insert_hits, 2);
     EXPECT_EQ(stats.insert_misses, 1);
+    EXPECT_EQ(stats.insert_object_misses, batch_size - 1);
     EXPECT_EQ(stats.insert_non_batch_misses, 1);
     EXPECT_EQ(stats.used, used_expected);
   }
@@ -119,12 +123,14 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   if (e.transfer_cache().IsFlexible()) {
     EXPECT_EQ(stats.remove_hits, 3);
     EXPECT_EQ(stats.remove_misses, 0);
+    EXPECT_EQ(stats.remove_object_misses, 0);
     EXPECT_EQ(stats.remove_non_batch_misses, 0);
     used_expected -= (batch_size - 1);
     EXPECT_EQ(stats.used, used_expected);
   } else {
     EXPECT_EQ(stats.remove_hits, 2);
     EXPECT_EQ(stats.remove_misses, 1);
+    EXPECT_EQ(stats.remove_object_misses, batch_size - 1);
     EXPECT_EQ(stats.remove_non_batch_misses, 1);
     EXPECT_EQ(stats.used, used_expected);
   }
@@ -146,9 +152,11 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
   TransferCacheStats stats = e.transfer_cache().GetStats();
   ASSERT_EQ(stats.insert_hits, 1);
   ASSERT_EQ(stats.insert_misses, 0);
+  ASSERT_EQ(stats.insert_object_misses, 0);
   ASSERT_EQ(stats.insert_non_batch_misses, 0);
   ASSERT_EQ(stats.remove_hits, 1);
   ASSERT_EQ(stats.remove_misses, 0);
+  ASSERT_EQ(stats.remove_object_misses, 0);
   ASSERT_EQ(stats.remove_non_batch_misses, 0);
 
   std::atomic<bool> stop{false};
@@ -165,9 +173,11 @@ TYPED_TEST_P(TransferCacheTest, ReadStats) {
       TransferCacheStats stats = e.transfer_cache().GetStats();
       CHECK_CONDITION(stats.insert_hits >= 1);
       CHECK_CONDITION(stats.insert_misses == 0);
+      CHECK_CONDITION(stats.insert_object_misses == 0);
       CHECK_CONDITION(stats.insert_non_batch_misses == 0);
       CHECK_CONDITION(stats.remove_hits >= 1);
       CHECK_CONDITION(stats.remove_misses == 0);
+      CHECK_CONDITION(stats.remove_object_misses == 0);
       CHECK_CONDITION(stats.remove_non_batch_misses == 0);
     }
   });
@@ -204,6 +214,7 @@ TYPED_TEST_P(TransferCacheTest, FetchesFromFreelist) {
   EXPECT_CALL(e.central_freelist(), RemoveRange).Times(1);
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetStats().remove_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetStats().remove_object_misses, batch_size);
 }
 
 TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
@@ -222,6 +233,8 @@ TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
       });
   e.Remove(batch_size);
   EXPECT_EQ(e.transfer_cache().GetStats().remove_misses, 2);
+  EXPECT_EQ(e.transfer_cache().GetStats().remove_object_misses,
+            batch_size + batch_size / 2);
 }
 
 TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
@@ -237,6 +250,7 @@ TYPED_TEST_P(TransferCacheTest, PushesToFreelist) {
   e.Insert(batch_size);
   EXPECT_EQ(e.transfer_cache().GetStats().insert_hits, old_hits);
   EXPECT_EQ(e.transfer_cache().GetStats().insert_misses, 1);
+  EXPECT_EQ(e.transfer_cache().GetStats().insert_object_misses, batch_size);
 }
 
 TYPED_TEST_P(TransferCacheTest, WrappingWorks) {
@@ -437,6 +451,7 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
 
   bool flexible = env.transfer_cache().IsFlexible();
   TransferCacheStats previous_stats = env.transfer_cache().GetStats();
+  size_t expected_object_misses = 0;
   for (size_t size = 1; size <= batch_size; size++) {
     flexible = !flexible;
     env.transfer_cache_manager().SetPartialLegacyTransferCache(flexible);
@@ -444,6 +459,9 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
 
     env.Remove(size);
     env.Insert(size);
+    if (!flexible && size != batch_size) {
+      expected_object_misses += size;
+    }
   }
 
   // Make sure we haven't lost capacity and the number of used bytes in the
@@ -457,6 +475,8 @@ TEST(FlexibleTransferCacheTest, ToggleCacheFlexibility) {
   // not allow partial updates.
   EXPECT_EQ(current_stats.insert_misses, batch_size / 2);
   EXPECT_EQ(current_stats.insert_non_batch_misses, batch_size / 2);
+  EXPECT_EQ(current_stats.insert_object_misses, expected_object_misses);
+  EXPECT_EQ(current_stats.remove_object_misses, expected_object_misses);
 
   // Enable flexibility.
   flexible = true;
