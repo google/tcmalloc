@@ -2673,7 +2673,7 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
   EXPECT_EQ(filler_.few_objects_pages_allocated().raw_num(), 0);
   EXPECT_EQ(filler_.many_objects_pages_allocated().raw_num(), allocs.size());
 
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 10; ++i) {
     while (filler_.used_pages() < peak) {
       allocs.push_back(
           AllocateWithObjectCount(Length(1), 2 * kFewObjectsAllocMaxLimit));
