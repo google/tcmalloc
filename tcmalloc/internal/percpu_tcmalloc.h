@@ -798,7 +798,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab_Internal_Pop(
           "4:\n"
           // scratch = __rseq_abi.cpu_id;
           "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
-          // scratch = slabs + scratch
+          // scratch = slabs + (scratch << shift)
           "shlq %b[shift], %[scratch]\n"
           "add %[slabs], %[scratch]\n"
           // current = scratch->header[size_class].current;
