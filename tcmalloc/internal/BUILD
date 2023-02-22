@@ -107,7 +107,10 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":config",
+        ":util",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
