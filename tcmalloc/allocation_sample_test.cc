@@ -110,7 +110,7 @@ TEST(AllocationSample, Threaded) {
         // injected.  Consult the global state to see how many allocations are
         // active.
         absl::base_internal::SpinLockHolder h(&pageheap_lock);
-        allocations = tc_globals.bucket_allocator().stats().in_use;
+        allocations = tc_globals.linked_sample_allocator().stats().in_use;
       }
       if (allocations >= kMaxAllocations) {
         return;

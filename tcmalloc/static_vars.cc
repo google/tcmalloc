@@ -68,8 +68,8 @@ ABSL_CONST_INIT deallocationz::DeallocationProfilerList
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
-ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::Bucket>
-    Static::bucket_allocator_;
+ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::LinkedSample>
+    Static::linked_sample_allocator_;
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
@@ -95,7 +95,7 @@ size_t Static::metadata_bytes() {
       sizeof(sharded_transfer_cache_) + sizeof(transfer_cache_) +
       sizeof(cpu_cache_) + sizeof(sampledallocation_allocator_) +
       sizeof(span_allocator_) + +sizeof(threadcache_allocator_) +
-      sizeof(sampled_allocation_recorder_) + sizeof(bucket_allocator_) +
+      sizeof(sampled_allocation_recorder_) + sizeof(linked_sample_allocator_) +
       sizeof(inited_) + sizeof(cpu_cache_active_) + sizeof(page_allocator_) +
       sizeof(pagemap_) + sizeof(sampled_objects_size_) +
       sizeof(sampled_internal_fragmentation_) + sizeof(total_sampled_count_) +
@@ -143,7 +143,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
     span_allocator_.New();  // Reduce cache conflicts
-    bucket_allocator_.Init(&arena_);
+    linked_sample_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
     transfer_cache_.Init();

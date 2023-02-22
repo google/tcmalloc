@@ -86,7 +86,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     r->tc_stats = ThreadCache::HeapStats();
     r->span_stats = tc_globals.span_allocator().stats();
     r->stack_stats = tc_globals.sampledallocation_allocator().stats();
-    r->bucket_stats = tc_globals.bucket_allocator().stats();
+    r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
     r->metadata_bytes = tc_globals.metadata_bytes();
     r->pagemap_bytes = tc_globals.pagemap().bytes();
     r->pageheap = tc_globals.page_allocator().stats();
@@ -256,8 +256,8 @@ void DumpStats(Printer* out, int level) {
       "MALLOC:   %12u (%7.1f MiB) Thread heaps created\n"
       "MALLOC:   %12u               Stack traces in use\n"
       "MALLOC:   %12u (%7.1f MiB) Stack traces created\n"
-      "MALLOC:   %12u               Table buckets in use\n"
-      "MALLOC:   %12u (%7.1f MiB) Table buckets created\n"
+      "MALLOC:   %12u               Table linked samples in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Table linked samples created\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap bytes used\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap root resident bytes\n"
       "MALLOC:   %12u (%7.1f MiB) per-CPU slab bytes used\n"
@@ -292,9 +292,9 @@ void DumpStats(Printer* out, int level) {
       uint64_t(stats.stack_stats.in_use),
       uint64_t(stats.stack_stats.total),
       (stats.stack_stats.total * sizeof(StackTrace)) / MiB,
-      uint64_t(stats.bucket_stats.in_use),
-      uint64_t(stats.bucket_stats.total),
-      (stats.bucket_stats.total * sizeof(StackTraceTable::Bucket)) / MiB,
+      uint64_t(stats.linked_sample_stats.in_use),
+      uint64_t(stats.linked_sample_stats.total),
+      (stats.linked_sample_stats.total * sizeof(StackTraceTable::LinkedSample)) / MiB,
       uint64_t(stats.pagemap_bytes),
       stats.pagemap_bytes / MiB,
       stats.pagemap_root_bytes_res, stats.pagemap_root_bytes_res / MiB,
@@ -477,9 +477,10 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64("num_stack_traces", uint64_t(stats.stack_stats.in_use));
   region.PrintI64("num_stack_traces_created",
                   uint64_t(stats.stack_stats.total));
-  region.PrintI64("num_table_buckets", uint64_t(stats.bucket_stats.in_use));
-  region.PrintI64("num_table_buckets_created",
-                  uint64_t(stats.bucket_stats.total));
+  region.PrintI64("num_table_linked_samples",
+                  uint64_t(stats.linked_sample_stats.in_use));
+  region.PrintI64("num_table_linked_samples_created",
+                  uint64_t(stats.linked_sample_stats.total));
   region.PrintI64("pagemap_size", uint64_t(stats.pagemap_bytes));
   region.PrintI64("pagemap_root_residence", stats.pagemap_root_bytes_res);
   region.PrintI64("percpu_slab_size", stats.percpu_metadata_bytes);

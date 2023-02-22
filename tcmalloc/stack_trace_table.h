@@ -53,14 +53,9 @@ class StackTraceTable final : public ProfileBase {
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // Exposed for PageHeapAllocator
-  // TODO(b/239458966): Give a better name to this struct, since it is no longer
-  // representing a bucket of merged samples, but instead an individual sample.
-  // We might also need to update names of its allocator, TCMalloc stats
-  // reporting, and fields in google3/perftools/profiles/proto/mallocz.proto (
-  // which currently have fields as `num_table_buckets*`).
-  struct Bucket {
+  struct LinkedSample {
     Profile::Sample sample;
-    Bucket* next;
+    LinkedSample* next;
   };
 
   // For testing
@@ -72,7 +67,7 @@ class StackTraceTable final : public ProfileBase {
   void* ABSL_ATTRIBUTE_UNUSED padding_[2];
   absl::Duration duration_ = absl::ZeroDuration();
   int depth_total_;
-  Bucket* all_;
+  LinkedSample* all_;
 };
 
 }  // namespace tcmalloc_internal

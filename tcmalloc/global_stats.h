@@ -37,13 +37,13 @@ struct TCMallocStats {
   uint64_t per_cpu_bytes;              // Bytes in per-CPU cache
   uint64_t pagemap_root_bytes_res;     // Resident bytes of pagemap root node
   uint64_t percpu_metadata_bytes_res;  // Resident bytes of the per-CPU metadata
-  AllocatorStats tc_stats;       // ThreadCache objects
-  AllocatorStats span_stats;     // Span objects
-  AllocatorStats stack_stats;    // StackTrace objects
-  AllocatorStats bucket_stats;   // StackTraceTable::Bucket objects
-  size_t pagemap_bytes;          // included in metadata bytes
-  size_t percpu_metadata_bytes;  // included in metadata bytes
-  BackingStats pageheap;         // Stats from page heap
+  AllocatorStats tc_stats;             // ThreadCache objects
+  AllocatorStats span_stats;           // Span objects
+  AllocatorStats stack_stats;          // StackTrace objects
+  AllocatorStats linked_sample_stats;  // StackTraceTable::LinkedSample objects
+  size_t pagemap_bytes;                // included in metadata bytes
+  size_t percpu_metadata_bytes;        // included in metadata bytes
+  BackingStats pageheap;               // Stats from page heap
   PageAllocator::PeakStats peak_stats;
 
   ArenaStats arena;  // Stats from the metadata Arena

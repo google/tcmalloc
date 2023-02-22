@@ -145,8 +145,9 @@ class Static final {
   ABSL_CONST_INIT static std::atomic<AllocHandle>
       sampled_alloc_handle_generator;
 
-  static PageHeapAllocator<StackTraceTable::Bucket>& bucket_allocator() {
-    return bucket_allocator_;
+  static PageHeapAllocator<StackTraceTable::LinkedSample>&
+  linked_sample_allocator() {
+    return linked_sample_allocator_;
   }
 
   static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() {
@@ -205,7 +206,8 @@ class Static final {
   static SampledAllocationAllocator sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
-  static PageHeapAllocator<StackTraceTable::Bucket> bucket_allocator_;
+  static PageHeapAllocator<StackTraceTable::LinkedSample>
+      linked_sample_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;
   ABSL_CONST_INIT static PeakHeapTracker peak_heap_tracker_;

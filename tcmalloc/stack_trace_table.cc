@@ -36,13 +36,13 @@ StackTraceTable::StackTraceTable(ProfileType type)
     : type_(type), depth_total_(0), all_(nullptr) {}
 
 StackTraceTable::~StackTraceTable() {
-  Bucket* cur = all_;
+  LinkedSample* cur = all_;
   while (cur != nullptr) {
-    Bucket* next = cur->next;
-    cur->~Bucket();
+    LinkedSample* next = cur->next;
+    cur->~LinkedSample();
     {
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
-      tc_globals.bucket_allocator().Delete(cur);
+      tc_globals.linked_sample_allocator().Delete(cur);
     }
     cur = next;
   }
@@ -62,12 +62,12 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // when iterating over `tc_globals.sampled_allocation_recorder()` and
   // allocating, see more details in "HeapProfilingTest.AllocateWhileIterating"
   // under google3/tcmalloc/heap_profiling_test.cc.
-  Bucket* b;
+  LinkedSample* s;
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    b = tc_globals.bucket_allocator().New();
+    s = tc_globals.linked_sample_allocator().New();
   }
-  b = new (b) Bucket;
+  s = new (s) LinkedSample;
 
   // Report total bytes that are a multiple of the object size.
   size_t allocated_size = t.allocated_size;
@@ -81,34 +81,34 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // zero-byte allocations.
   ASSERT(allocated_size > 0);
   // The reported count of samples, with possible rounding up for unsample.
-  b->sample.count = (bytes + allocated_size / 2) / allocated_size;
-  b->sample.sum = b->sample.count * allocated_size;
-  b->sample.requested_size = requested_size;
-  b->sample.requested_alignment = t.requested_alignment;
-  b->sample.requested_size_returning = t.requested_size_returning;
-  b->sample.allocated_size = allocated_size;
-  b->sample.access_hint = static_cast<hot_cold_t>(t.access_hint);
-  b->sample.access_allocated = t.cold_allocated ? Profile::Sample::Access::Cold
+  s->sample.count = (bytes + allocated_size / 2) / allocated_size;
+  s->sample.sum = s->sample.count * allocated_size;
+  s->sample.requested_size = requested_size;
+  s->sample.requested_alignment = t.requested_alignment;
+  s->sample.requested_size_returning = t.requested_size_returning;
+  s->sample.allocated_size = allocated_size;
+  s->sample.access_hint = static_cast<hot_cold_t>(t.access_hint);
+  s->sample.access_allocated = t.cold_allocated ? Profile::Sample::Access::Cold
                                                 : Profile::Sample::Access::Hot;
-  b->sample.depth = t.depth;
-  b->sample.allocation_time = t.allocation_time;
+  s->sample.depth = t.depth;
+  s->sample.allocation_time = t.allocation_time;
 
-  b->sample.span_start_address = t.span_start_address;
-  b->sample.guarded_status =
+  s->sample.span_start_address = t.span_start_address;
+  s->sample.guarded_status =
       static_cast<Profile::Sample::GuardedStatus>(t.guarded_status);
 
   static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                 "Profile stack size smaller than internal stack sizes");
-  memcpy(b->sample.stack, t.stack,
-         sizeof(b->sample.stack[0]) * b->sample.depth);
+  memcpy(s->sample.stack, t.stack,
+         sizeof(s->sample.stack[0]) * s->sample.depth);
 
-  b->next = all_;
-  all_ = b;
+  s->next = all_;
+  all_ = s;
 }
 
 void StackTraceTable::Iterate(
     absl::FunctionRef<void(const Profile::Sample&)> func) const {
-  Bucket* cur = all_;
+  LinkedSample* cur = all_;
   while (cur != nullptr) {
     func(cur->sample);
     cur = cur->next;
