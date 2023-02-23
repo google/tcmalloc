@@ -256,8 +256,8 @@ void DumpStats(Printer* out, int level) {
       "MALLOC:   %12u (%7.1f MiB) Thread heaps created\n"
       "MALLOC:   %12u               Stack traces in use\n"
       "MALLOC:   %12u (%7.1f MiB) Stack traces created\n"
-      "MALLOC:   %12u               Table linked samples in use\n"
-      "MALLOC:   %12u (%7.1f MiB) Table linked samples created\n"
+      "MALLOC:   %12u               Table buckets in use\n"
+      "MALLOC:   %12u (%7.1f MiB) Table buckets created\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap bytes used\n"
       "MALLOC:   %12u (%7.1f MiB) Pagemap root resident bytes\n"
       "MALLOC:   %12u (%7.1f MiB) per-CPU slab bytes used\n"
@@ -478,9 +478,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64("num_stack_traces", uint64_t(stats.stack_stats.in_use));
   region.PrintI64("num_stack_traces_created",
                   uint64_t(stats.stack_stats.total));
-  region.PrintI64("num_table_linked_samples",
+  region.PrintI64("num_table_buckets",
                   uint64_t(stats.linked_sample_stats.in_use));
-  region.PrintI64("num_table_linked_samples_created",
+  region.PrintI64("num_table_buckets_created",
                   uint64_t(stats.linked_sample_stats.total));
   region.PrintI64("pagemap_size", uint64_t(stats.pagemap_bytes));
   region.PrintI64("pagemap_root_residence", stats.pagemap_root_bytes_res);
