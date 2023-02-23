@@ -323,10 +323,11 @@ void DumpStats(Printer* out, int level) {
 
   out->printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
-      "fragmentation), %zu bytes (peak)\n",
+      "fragmentation), %zu bytes (peak), %zu count (total)\n",
       static_cast<size_t>(tc_globals.sampled_objects_size_.value()),
       tc_globals.sampled_internal_fragmentation_.value(),
-      tc_globals.peak_heap_tracker().CurrentPeakSize());
+      tc_globals.peak_heap_tracker().CurrentPeakSize(),
+      tc_globals.total_sampled_count_.value());
 
   MemoryStats memstats;
   if (GetMemoryStats(&memstats)) {
