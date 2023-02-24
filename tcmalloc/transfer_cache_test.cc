@@ -772,8 +772,13 @@ INSTANTIATE_TYPED_TEST_SUITE_P(FlexibleTransferCache, TransferCacheTest,
 
 namespace resize_tests {
 struct MockTransferCacheManager {
-  static constexpr size_t kNumClasses = 6;
-  static constexpr size_t kMaxSizeClassesToResize = 2;
+  static constexpr size_t kNumBaseClasses = 3;
+  static constexpr bool kHasExpandedClasses = true;
+  static constexpr size_t kMaxSizeClassesToResize = 1;
+  static constexpr size_t kNumaPartitions = 2;
+  static constexpr size_t kExpandedClassesStart =
+      kNumaPartitions * kNumBaseClasses;
+  static constexpr size_t kNumClasses = 3 * kNumBaseClasses;
 
   MOCK_METHOD(bool, ShrinkCache, (int size_class));
   MOCK_METHOD(bool, CanIncreaseCapacity, (int size_class));
@@ -786,17 +791,26 @@ TEST(RealTransferCacheTest, ResizeOccurs) {
   {
     testing::InSequence seq;
     EXPECT_CALL(m, FetchCommitIntervalMisses)
-        .Times(6)
+        .Times(3)
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(2)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity(2)).WillOnce(Return(true));
+
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
+        .Times(3)
         .WillRepeatedly([](int size_class) { return size_class + 1; });
     EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
-    EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(3)).WillOnce(Return(false));
+    EXPECT_CALL(m, ShrinkCache(4)).WillOnce(Return(true));
     EXPECT_CALL(m, IncreaseCacheCapacity(5)).WillOnce(Return(true));
 
-    EXPECT_CALL(m, CanIncreaseCapacity(4)).WillOnce(Return(false));
-    EXPECT_CALL(m, CanIncreaseCapacity(3)).WillOnce(Return(true));
-    EXPECT_CALL(m, ShrinkCache(1)).WillOnce(Return(false));
-    EXPECT_CALL(m, ShrinkCache(2)).WillOnce(Return(true));
-    EXPECT_CALL(m, IncreaseCacheCapacity(3)).WillOnce(Return(true));
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
+        .Times(3)
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(8)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(6)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity(8)).WillOnce(Return(true));
   }
   internal_transfer_cache::TryResizingCaches(m);
   testing::Mock::VerifyAndClear(&m);
@@ -807,15 +821,36 @@ TEST(RealTransferCacheTest, DoesNotLeakCapacity) {
   {
     testing::InSequence seq;
     EXPECT_CALL(m, FetchCommitIntervalMisses)
-        .Times(6)
+        .Times(3)
         .WillRepeatedly([](int size_class) { return size_class + 1; });
-    EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
+    EXPECT_CALL(m, CanIncreaseCapacity(2)).WillOnce(Return(true));
     EXPECT_CALL(m, ShrinkCache(0)).WillOnce(Return(true));
     EXPECT_CALL(m, IncreaseCacheCapacity)
-        .Times(30)  // large enough to force scans across all size_classes
+        .Times(10)  // large enough to force scans across all size_classes
+        .WillRepeatedly(Return(false));
+    EXPECT_CALL(m, IncreaseCacheCapacity).WillOnce(Return(true));
+
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
+        .Times(3)
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(5)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(3)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity)
+        .Times(10)  // large enough to force scans across all size_classes
+        .WillRepeatedly(Return(false));
+    EXPECT_CALL(m, IncreaseCacheCapacity).WillOnce(Return(true));
+
+    EXPECT_CALL(m, FetchCommitIntervalMisses)
+        .Times(3)
+        .WillRepeatedly([](int size_class) { return size_class + 1; });
+    EXPECT_CALL(m, CanIncreaseCapacity(8)).WillOnce(Return(true));
+    EXPECT_CALL(m, ShrinkCache(6)).WillOnce(Return(true));
+    EXPECT_CALL(m, IncreaseCacheCapacity)
+        .Times(10)  // large enough to force scans across all size_classes
         .WillRepeatedly(Return(false));
     EXPECT_CALL(m, IncreaseCacheCapacity).WillOnce(Return(true));
   }
+
   internal_transfer_cache::TryResizingCaches(m);
   testing::Mock::VerifyAndClear(&m);
 }

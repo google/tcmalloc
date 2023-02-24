@@ -60,8 +60,16 @@ absl::string_view TransferCacheImplementationToLabel(
 
 class StaticForwarder {
  public:
+  static constexpr size_t kNumBaseClasses =
+      tcmalloc::tcmalloc_internal::kNumBaseClasses;
   static constexpr size_t kNumClasses =
       tcmalloc::tcmalloc_internal::kNumClasses;
+  static constexpr size_t kNumaPartitions =
+      tcmalloc::tcmalloc_internal::kNumaPartitions;
+  static constexpr size_t kHasExpandedClasses =
+      tcmalloc::tcmalloc_internal::kHasExpandedClasses;
+  static constexpr size_t kExpandedClassesStart =
+      tcmalloc::tcmalloc_internal::kExpandedClassesStart;
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);

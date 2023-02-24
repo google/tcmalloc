@@ -433,20 +433,23 @@ class TransferCache {
 } ABSL_CACHELINE_ALIGNED;
 
 template <typename Manager>
-void TryResizingCaches(Manager &manager) {
+void ResizeCaches(Manager &manager, int start_size_class) {
+  ASSERT(start_size_class >= 0);
+  ASSERT(start_size_class + Manager::kNumBaseClasses <= Manager::kNumClasses);
   // Tracks misses per size class.
   struct MissInfo {
     int size_class;
     uint64_t misses;
   };
 
-  std::array<MissInfo, Manager::kNumClasses> misses;
+  std::array<MissInfo, Manager::kNumBaseClasses> misses;
 
   // Collect misses for all the size classes that were incurred during the
   // previous resize interval.
-  for (int size_class = 0; size_class < Manager::kNumClasses; ++size_class) {
+  for (int i = 0; i < Manager::kNumBaseClasses; ++i) {
+    int size_class = start_size_class + i;
     size_t miss = manager.FetchCommitIntervalMisses(size_class);
-    misses[size_class] = {.size_class = size_class, .misses = miss};
+    misses[i] = {.size_class = size_class, .misses = miss};
   }
 
   // Prioritize shrinking cache that had least number of misses.
@@ -460,7 +463,8 @@ void TryResizingCaches(Manager &manager) {
 
   int total_grown = 0;
   int total_shrunk = 0;
-  for (int to_grow = 0, to_shrink = Manager::kNumClasses - 1;
+
+  for (int to_grow = 0, to_shrink = Manager::kNumBaseClasses - 1;
        to_grow < to_shrink; ++to_grow, --to_shrink) {
     if (total_grown == Manager::kMaxSizeClassesToResize) break;
     if (!manager.CanIncreaseCapacity(misses[to_grow].size_class)) {
@@ -488,17 +492,32 @@ void TryResizingCaches(Manager &manager) {
     }
   }
 
-  // It is possible that we successfully shrank our last shrink but were unable
-  // to grow our last grow, which would leave us with one spare capacity.  If we
-  // don't find someone to grow, the entire system loses capacity.
+  // It is possible that we successfully shrank our last shrink but were
+  // unable to grow our last grow, which would leave us with one spare
+  // capacity.  If we don't find someone to grow, the entire system loses
+  // capacity.
   while (ABSL_PREDICT_FALSE(total_grown < total_shrunk)) {
-    for (int i = 0; i < Manager::kNumClasses; ++i) {
+    for (int i = 0; i < Manager::kNumBaseClasses; ++i) {
       int grow_size_class = misses[i].size_class;
       if (manager.IncreaseCacheCapacity(grow_size_class)) {
         ++total_grown;
         break;
       }
     }
+  }
+}
+
+template <typename Manager>
+void TryResizingCaches(Manager &manager) {
+  // Resize transfer caches for each set of kNumBaseClasses.
+
+  // TODO(b/270726235): Revisit this once we start using expanded size classes
+  // more effectively.
+  for (int i = 0; i < Manager::kNumaPartitions; ++i) {
+    ResizeCaches(manager, i * Manager::kNumBaseClasses);
+  }
+  if (Manager::kHasExpandedClasses) {
+    ResizeCaches(manager, Manager::kExpandedClassesStart);
   }
 }
 
