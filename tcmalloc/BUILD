@@ -1553,3 +1553,15 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "variants_test",
+    srcs = ["variants_test.cc"],
+    deps = [
+        ":experiment",
+        "//tcmalloc/internal:environment",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

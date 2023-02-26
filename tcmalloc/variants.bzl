@@ -79,15 +79,6 @@ variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
     },
     {
-        "name": "256k_pages_pow2_below64",
-        "malloc": "//tcmalloc:tcmalloc_256k_pages",
-        "deps": [
-            "//tcmalloc:common_256k_pages",
-        ],
-        "copts": ["-DTCMALLOC_256K_PAGES"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_BELOW64_SIZECLASS"},
-    },
-    {
         "name": "numa_aware",
         "malloc": "//tcmalloc:tcmalloc_numa_aware",
         "deps": [
@@ -130,7 +121,7 @@ variants = [
         "name": "separate_allocs_for_few_and_many_objects_spans",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FOR_FEW_AND_MANY_OBJECTS_SPANS"},
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS"},
     },
 ]
 
