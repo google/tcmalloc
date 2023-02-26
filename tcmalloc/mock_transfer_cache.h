@@ -212,10 +212,14 @@ class FakeTransferCacheEnvironment {
       Grow();
     } else if (choice < 0.3) {
       cache_.HasSpareCapacity(kSizeClass);
-    } else if (choice < 0.6) {
+    } else if (choice < 0.4) {
       Insert(absl::Uniform(gen, 1, kBatchSize));
-    } else if (choice < 0.9) {
+    } else if (choice < 0.5) {
       Remove(absl::Uniform(gen, 1, kBatchSize));
+    } else if (choice < 0.7) {
+      Insert(kBatchSize);
+    } else if (choice < 0.9) {
+      Remove(kBatchSize);
     } else {
       TryPlunder();
     }
