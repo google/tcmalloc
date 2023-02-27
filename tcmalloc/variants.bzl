@@ -117,6 +117,22 @@ variants = [
         "deps": ["//tcmalloc:common"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS"},
     },
+    {
+        "name": "no_hpaa",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common",
+            "//tcmalloc:want_no_hpaa",
+        ],
+    },
+    {
+        "name": "hpaa",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common",
+            "//tcmalloc:want_hpaa",
+        ],
+    },
 ]
 
 def create_tcmalloc_variant_targets(create_one, name, srcs, **kwargs):

@@ -99,38 +99,6 @@ create_tcmalloc_benchmark_suite(
 )
 
 cc_test(
-    name = "tcmalloc_test_no_hp_aware",
-    timeout = "long",
-    srcs = ["tcmalloc_test.cc"],
-    copts = REGTEST_OPTS,
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc",
-    tags = ["nosan"],
-    deps = REGTEST_DEPS + [
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
-        "//tcmalloc:common",
-        "//tcmalloc:want_no_hpaa",
-    ],
-)
-
-cc_test(
-    name = "tcmalloc_test_hp_aware",
-    timeout = "long",
-    srcs = ["tcmalloc_test.cc"],
-    copts = REGTEST_OPTS,
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc",
-    tags = ["nosan"],
-    deps = REGTEST_DEPS + [
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
-        "//tcmalloc:common",
-        "//tcmalloc:want_hpaa",
-    ],
-)
-
-cc_test(
     name = "tcmalloc_test_deprecated_perthread",
     timeout = "long",
     srcs = ["tcmalloc_test.cc"],
@@ -423,46 +391,17 @@ create_tcmalloc_testsuite(
     deps = ["//tcmalloc:malloc_extension"],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "limit_test",
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_no_hpaa",
-        "//tcmalloc/internal:config",
-        "//tcmalloc/internal:logging",
-        "//tcmalloc/internal:parameter_accessors",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/container:inlined_vector",
-        "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_test(
-    name = "limit_test_hpaa",
-    srcs = ["limit_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    malloc = "//tcmalloc",
-    tags = [
-        "nosan",
-    ],
-    deps = [
-        ":testutil",
-        "//tcmalloc:common",
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_hpaa",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",

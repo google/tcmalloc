@@ -119,6 +119,8 @@ class LimitTest : public ::testing::Test {
   std::string stats_pbtxt_;
 };
 
+class LimitDeathTest : public LimitTest {};
+
 TEST_F(LimitTest, LimitRespected) {
   static const size_t kLim = 4ul * 1024 * 1024 * 1024;
   SetLimit(kLim, false);
@@ -142,22 +144,28 @@ TEST_F(LimitTest, LimitRespected) {
   // First allocate many small objects...
   size_t used = 0;
   std::vector<void*> ptrs;
+  // TODO(b/268541669): Small-but-slow currently has multiple objects per 4K
+  // span (kPageSize).  We need to avoid allocating solely kPageSize to prevent
+  // CFL fragmentation.
+  constexpr size_t kSmallAlloc = 4 * kPageSize;
   while (used < kLimForUse) {
-    ptrs.push_back(malloc_pages(kPageSize));
-    used += kPageSize;
+    ptrs.push_back(malloc_pages(kSmallAlloc));
+    used += kSmallAlloc;
   }
   DumpHeapStats("after allocating small objects");
+
   // return much of the space, fragmented...
   bool ret = false;
   for (auto& p : ptrs) {
     if (ret) {
       free(p);
       p = nullptr;
-      used -= kPageSize;
+      used -= kSmallAlloc;
     }
     ret = !ret;
   }
   DumpHeapStats("after freeing many small objects");
+
   // Now ensure we can re use it for large allocations.
 
   while (used < kLimForUse) {
@@ -182,7 +190,7 @@ TEST_F(LimitTest, LimitRespected) {
   }
 }
 
-TEST_F(LimitTest, HardLimitRespected) {
+TEST_F(LimitDeathTest, HardLimitRespected) {
   static const size_t kLim = 400 << 20;
   SetLimit(kLim, true);
 
@@ -204,7 +212,7 @@ TEST_F(LimitTest, HardLimitRespected) {
   SetLimit(std::numeric_limits<size_t>::max(), false);
 }
 
-TEST_F(LimitTest, HardLimitRespectsNoSubrelease) {
+TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
   static const size_t kLim = 300 << 20;
   SetLimit(kLim, true);
   TCMalloc_Internal_SetHPAASubrelease(false);
