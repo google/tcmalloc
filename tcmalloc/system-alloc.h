@@ -62,16 +62,8 @@ int SystemReleaseErrors();
 // performance.  (Only pages fully covered by the memory region will
 // be released, partial pages will not.)
 //
-// If maybe_mprotect is true and TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY is
-// an active experiment, memory is mprotect'd PROT_NONE.
-//
 // Returns true on success.
-ABSL_MUST_USE_RESULT bool SystemReleaseMaybeMprotect(void* start, size_t length,
-                                                     bool maybe_mprotect);
-
-ABSL_MUST_USE_RESULT inline bool SystemRelease(void* start, size_t length) {
-  return SystemReleaseMaybeMprotect(start, length, true);
-}
+ABSL_MUST_USE_RESULT bool SystemRelease(void* start, size_t length);
 
 // This call is the inverse of SystemRelease: the pages in this range
 // are in use and should be faulted in.  (In principle this is a

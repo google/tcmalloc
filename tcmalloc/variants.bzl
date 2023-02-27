@@ -106,12 +106,6 @@ variants = [
         "copts": [],
     },
     {
-        "name": "mprotect_released_memory",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_MPROTECT_RELEASED_MEMORY"},
-    },
-    {
         "name": "use_huge_region_more_often",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common"],
