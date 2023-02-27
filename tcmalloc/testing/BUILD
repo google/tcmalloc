@@ -181,7 +181,9 @@ create_tcmalloc_testsuite(
     copts = [
         "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
     ] + TCMALLOC_DEFAULT_COPTS,
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -299,7 +301,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -426,7 +430,9 @@ cc_test(
             }),
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",

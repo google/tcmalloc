@@ -942,7 +942,9 @@ cc_test(
     srcs = ["system-alloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "nosan",
+    ],
     deps = [
         ":common",
         ":malloc_extension",
