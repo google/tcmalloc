@@ -34,10 +34,8 @@ namespace tcmalloc_internal {
 
 bool PeakHeapTracker::IsNewPeak() {
   size_t current_peak_size = CurrentPeakSize();
-  return current_peak_size == 0 ||
-         (static_cast<double>(tc_globals.sampled_objects_size_.value()) /
-              current_peak_size >
-          Parameters::peak_sampling_heap_growth_fraction());
+  return (static_cast<double>(tc_globals.sampled_objects_size_.value()) >
+          current_peak_size * Parameters::peak_sampling_heap_growth_fraction());
 }
 
 void PeakHeapTracker::MaybeSaveSample() {
