@@ -2724,6 +2724,12 @@ INSTANTIATE_TEST_SUITE_P(All, FillerTestSeparateFewAndManyObjectsAllocs,
                          testing::Values(FillerPartialRerelease::Return,
                                          FillerPartialRerelease::Retain));
 
+TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
+  // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the filler.
+  // Make sure it doesn't signal that we should skip the limit.
+  EXPECT_FALSE(SkipSubreleaseIntervals{}.SkipSubreleaseEnabled());
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

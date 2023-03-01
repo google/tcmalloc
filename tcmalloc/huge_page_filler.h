@@ -1800,7 +1800,11 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     return total_released;
   }
 
-  if (intervals.SkipSubreleaseEnabled()) {
+  // Only reduce desired if skip subrelease is on.
+  //
+  // Additionally, if we hit the limit, we should not be applying skip
+  // subrelease.  OOM may be imminent.
+  if (intervals.SkipSubreleaseEnabled() && !hit_limit) {
     desired = GetDesiredSubreleasePages(desired, total_released, intervals);
     if (desired <= total_released) {
       return total_released;
