@@ -1569,3 +1569,12 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "pages_test",
+    srcs = ["pages_test.cc"],
+    deps = [
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
