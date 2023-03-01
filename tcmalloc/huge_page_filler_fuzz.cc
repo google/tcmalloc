@@ -101,7 +101,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // We interpret data as a small DSL for exploring the state space of
   // HugePageFiller.
   //
-  // [0] - We choose the partial release parameter.
+  // [0] - (available)
   // [1] - We choose the separate_allocs_for_few_and_many_objects_spans
   // parameter.
   //
@@ -114,8 +114,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
 
+  // TODO(b/160875299):  We temporarily pause fuzzing the Return path pending
+  // its imminent removal.  Remove FillerPartialRelease when that is done.
   const FillerPartialRerelease partial_rerelease =
-      data[0] ? FillerPartialRerelease::Retain : FillerPartialRerelease::Return;
+      FillerPartialRerelease::Retain;
   const bool separate_allocs_for_few_and_many_objects_spans =
       data[1] >= 128 ? true : false;
   data += 2;
