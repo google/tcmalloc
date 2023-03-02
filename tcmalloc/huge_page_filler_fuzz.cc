@@ -362,6 +362,24 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
         break;
       }
+      case 7: {
+        // Memory limit hit. Release.
+        //
+        // value[0:15]- Number of pages to try to release
+        Length desired(value & 0xFF);
+
+        Length released;
+        const Length free = filler.free_pages();
+        {
+          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          released = filler.ReleasePages(desired, SkipSubreleaseIntervals{},
+                                         /*hit_limit=*/true);
+        }
+        const Length expected =
+            unback_success ? std::min(free, desired) : Length(0);
+        CHECK_GE(released.raw_num(), expected.raw_num());
+        break;
+      }
     }
   }
 
