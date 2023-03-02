@@ -684,6 +684,21 @@ cc_fuzz_test(
 )
 
 cc_fuzz_test(
+    name = "central_freelist_fuzz",
+    testonly = 1,
+    srcs = ["central_freelist_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        ":mock_central_freelist",
+        ":mock_static_forwarder",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_fuzz_test(
     name = "transfer_cache_fuzz",
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
