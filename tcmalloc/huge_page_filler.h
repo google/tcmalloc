@@ -1091,6 +1091,10 @@ class HugePageFiller {
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
                       bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  // Number of candidate hugepages selected in each iteration for releasing
+  // their free memory.
+  static constexpr size_t kCandidatesForReleasingMemory =
+      kPagesPerHugePage.raw_num();
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
@@ -1634,6 +1638,8 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType*> candidates, int current_candidates,
     const PageTrackerLists<N>& tracker_list, size_t tracker_start) {
   auto PushCandidate = [&](TrackerType* pt) {
+    // TODO(b/271289285):  Assert that pt has pages that can be released.
+    //
     // If we have few candidates, we can avoid creating a heap.
     //
     // In ReleaseCandidates(), we unconditionally sort the list and linearly
@@ -1816,8 +1822,8 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
   // Optimize for releasing up to a huge page worth of small pages (scattered
   // over many parts of the filler).  Since we hold pageheap_lock, we cannot
   // allocate here.
-  constexpr size_t kCandidates = kPagesPerHugePage.raw_num();
-  using CandidateArray = std::array<TrackerType*, kCandidates>;
+  using CandidateArray =
+      std::array<TrackerType*, kCandidatesForReleasingMemory>;
 
   while (total_released < desired) {
     CandidateArray candidates;

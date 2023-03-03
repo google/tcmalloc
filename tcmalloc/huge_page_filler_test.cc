@@ -2699,20 +2699,21 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, BoundedVSS) {
   }
 }
 
-// In b/265337869, we observed failures in the huge_page_filler due to mixing of
-// hugepages between few and many object allocs.  The test below reproduces the
-// buggy situation.
+// In b/265337869, we observed failures in the huge_page_filler due to mixing
+// of hugepages between few and many object allocs.  The test below reproduces
+// the buggy situation.
 TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, CounterUnderflow) {
   randomize_objects_per_span_ = false;
   const Length N = kPagesPerHugePage;
   const Length kToBeReleased(kPagesPerHugePage / 2 + Length(1));
-  // First allocate a many objects span, then release the remaining pages on the
-  // hugepage.  This would move the hugepage to regular_alloc_partial_released_.
+  // First allocate a many objects span, then release the remaining pages on
+  // the hugepage.  This would move the hugepage to
+  // regular_alloc_partial_released_.
   auto manyalloc =
       AllocateWithObjectCount(N - kToBeReleased, kFewObjectsAllocMaxLimit * 2);
   EXPECT_EQ(ReleasePages(Length(kToBeReleased)), kToBeReleased);
-  // Then allocate a few objects span.  The previous hugepage should not be used
-  // since while allocating a few objects span, we do not check
+  // Then allocate a few objects span.  The previous hugepage should not be
+  // used since while allocating a few objects span, we do not check
   // many_object_allocs_.
   auto fewalloc = AllocateWithObjectCount(Length(kToBeReleased), 1);
   EXPECT_NE(fewalloc.pt, manyalloc.pt);
@@ -2720,13 +2721,61 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, CounterUnderflow) {
   Delete(manyalloc);
 }
 
+// In b/270916852, we observed that the huge_page_filler may fail to release
+// memory when many_objects_alloc_ is being used.  This is due to the presence
+// of partially released and fully released pages in many_objects_alloc_.  The
+// comparator in use does not make correct choices in presence of such
+// hugepages.  The test below reproduces the buggy situation.
+//
+// TODO(b/271289285): update the test when releasing memory from
+// many_objects_alloc_ has been fixed.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
+       ReleasePagesFromManyObjectsAlloc) {
+  randomize_objects_per_span_ = false;
+  constexpr size_t kCandidatesForReleasingMemory =
+      HugePageFiller<PageTracker>::kCandidatesForReleasingMemory;
+  // Make kCandidate memory allocations of length kPagesPerHugepage/2 + 1.  Note
+  // that a fresh hugepage will be used for each alloction.
+  const Length kToBeUsed1(kPagesPerHugePage / 2 + Length(1));
+  std::vector<PAlloc> allocs;
+  for (int i = 0; i < kCandidatesForReleasingMemory; ++i) {
+    allocs.push_back(
+        AllocateWithObjectCount(kToBeUsed1, kFewObjectsAllocMaxLimit * 2));
+  }
+  // Release the free portion from these hugepages.
+  const Length kExpectedReleased1 =
+      kCandidatesForReleasingMemory * (kPagesPerHugePage - kToBeUsed1);
+  EXPECT_EQ(ReleasePages(kExpectedReleased1), kExpectedReleased1);
+  //  Allocate kCandidate (does not really matter) more hugepages with
+  //  allocations of length kPagesPerHugepage/2 + 2. These allocations also need
+  //  one fresh hugepage each and they use more pages than the previously
+  //  allocated hugepages.
+  const Length kToBeUsed2(kPagesPerHugePage / 2 + Length(2));
+  for (int i = 0; i < kCandidatesForReleasingMemory; ++i) {
+    allocs.push_back(
+        AllocateWithObjectCount(kToBeUsed2, kFewObjectsAllocMaxLimit * 2));
+  }
+  // Try to release more memory.  The kCandidate hugepages allocated in the
+  // first step have less number of used pages.  So, they will always be chosen
+  // for release memory ahead of kCandidate hugepages allcoated in the third
+  // step.
+  const Length kExpectedReleased2 =
+      kCandidatesForReleasingMemory * (kPagesPerHugePage - kToBeUsed2);
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_EQ(ReleasePages(kExpectedReleased2), Length(0));
+  }
+  for (auto alloc : allocs) {
+    Delete(alloc);
+  }
+}
+
 INSTANTIATE_TEST_SUITE_P(All, FillerTestSeparateFewAndManyObjectsAllocs,
                          testing::Values(FillerPartialRerelease::Return,
                                          FillerPartialRerelease::Retain));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
-  // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the filler.
-  // Make sure it doesn't signal that we should skip the limit.
+  // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the
+  // filler. Make sure it doesn't signal that we should skip the limit.
   EXPECT_FALSE(SkipSubreleaseIntervals{}.SkipSubreleaseEnabled());
 }
 
