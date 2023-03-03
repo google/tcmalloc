@@ -32,16 +32,21 @@ using tcmalloc::tcmalloc_internal::FillerPartialRerelease;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
+using tcmalloc::tcmalloc_internal::kTop;
+using tcmalloc::tcmalloc_internal::LargeSpanStats;
 using tcmalloc::tcmalloc_internal::Length;
 using tcmalloc::tcmalloc_internal::LengthFromBytes;
 using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
 using tcmalloc::tcmalloc_internal::NHugePages;
+using tcmalloc::tcmalloc_internal::PageAgeHistograms;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PageId;
 using tcmalloc::tcmalloc_internal::PageIdContaining;
 using tcmalloc::tcmalloc_internal::PageTracker;
+using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::SkipSubreleaseIntervals;
+using tcmalloc::tcmalloc_internal::SmallSpanStats;
 
 // As we read the fuzzer input, we update these variables to control global
 // state.
@@ -145,7 +150,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     uint32_t value;
     memcpy(&value, &data[i + 1], sizeof(value));
 
-    switch (op & 0x7) {
+    switch (op & 0xF) {
       case 0: {
         // Allocate.  We divide up our random value by:
         //
@@ -378,6 +383,28 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         const Length expected =
             unback_success ? std::min(free, desired) : Length(0);
         CHECK_GE(released.raw_num(), expected.raw_num());
+        break;
+      }
+      case 8: {
+        // Gather stats in pbtxt format.
+        //
+        // value is unused.
+        std::string s;
+        s.resize(1 << 20);
+        Printer p(&s[0], s.size());
+        PbtxtRegion region(&p, kTop);
+        absl::base_internal::SpinLockHolder l(&pageheap_lock);
+        filler.PrintInPbtxt(&region);
+        break;
+      }
+      case 9: {
+        // Gather span stats.
+        //
+        // value populates ages' now argument.
+        SmallSpanStats small;
+        LargeSpanStats large;
+        PageAgeHistograms ages(value);
+        filler.AddSpanStats(&small, &large, &ages);
         break;
       }
     }
