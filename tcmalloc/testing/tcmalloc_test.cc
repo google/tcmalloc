@@ -1055,6 +1055,13 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
+  // Turn off guarded sampling, since it will cause us to return the exact size
+  // when we do sample and guard.
+  //
+  // This is not interesting for this test.  Other tests confirm that we get at
+  // least requested bytes back.
+  ScopedGuardedSamplingRate gs(-1);
+
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
   // properly aligned, so size 3 should always return extra capacity.
