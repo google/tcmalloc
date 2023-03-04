@@ -398,9 +398,7 @@ create_tcmalloc_testsuite(
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
