@@ -1688,6 +1688,17 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     TrackerType* best = candidates[i];
     ASSERT(best != nullptr);
 
+    // Verify that we have pages that we can release.
+    ASSERT(best->free_pages() != Length(0));
+    // TODO(b/271591033):  Impose free > released for
+    // separate_allocs_for_few_and_many_objects_spans_ as well.
+    //
+    // TODO(b/73749855):  This assertion may need to be relaxed if we release
+    // the pageheap_lock here.  A candidate could change state with another
+    // thread while we have the lock released for another candidate.
+    ASSERT(separate_allocs_for_few_and_many_objects_spans_ ||
+           best->free_pages() > best->released_pages());
+
 #ifndef NDEBUG
     // Double check that our sorting criteria were applied correctly.
     ASSERT(last <= best->used_pages());
