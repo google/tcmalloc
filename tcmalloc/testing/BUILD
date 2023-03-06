@@ -596,6 +596,7 @@ cc_test(
         ":testutil",
         "//tcmalloc:common",
         "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",

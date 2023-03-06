@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <pthread.h>
 #include <stddef.h>
+#include <string.h>
 
+#include <algorithm>
+#include <memory>
 #include <string>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/config.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -211,6 +216,59 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
   }
+}
+
+TEST_F(GetStatsTest, StackDepth) {
+  // We run a thread with a limited stack size to confirm that we do not use too
+  // much stack space gathering statistics.
+  //
+  // Running out of stack space will manifest as a segmentation fault.
+  constexpr size_t kMaxStackDepth = std::max(60 * 1024, PTHREAD_STACK_MIN);
+
+  struct Args {
+    bool plaintext;
+    std::string output;
+  };
+
+  Args args;
+
+  // We use raw pthreads to have control of the stack size.
+  pthread_t stats_thread;
+  pthread_attr_t thread_attributes;
+
+  ASSERT_EQ(pthread_attr_init(&thread_attributes), 0);
+  ASSERT_EQ(pthread_attr_setstacksize(&thread_attributes, kMaxStackDepth), 0);
+
+  auto get_stats = +[](void* arg) {
+    Args* args = static_cast<Args*>(arg);
+
+    if (args->plaintext) {
+      args->output = MallocExtension::GetStats();
+    } else {
+      args->output = GetStatsInPbTxt();
+    }
+    return static_cast<void*>(nullptr);
+  };
+
+  for (auto plaintext : {false, true}) {
+    SCOPED_TRACE(absl::StrCat("plaintext: ", plaintext));
+
+    args.plaintext = plaintext;
+    args.output.clear();
+    ASSERT_EQ(
+        pthread_create(&stats_thread, &thread_attributes, get_stats, &args), 0);
+    ASSERT_EQ(pthread_join(stats_thread, nullptr), 0);
+#if !(defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+      defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
+      defined(ABSL_HAVE_MEMORY_SANITIZER) ||  \
+      defined(ABSL_HAVE_THREAD_SANITIZER))
+    // We won't have data if we are running under a sanitizer, but everything
+    // should run cleanly.
+    EXPECT_FALSE(args.output.empty());
+#endif
+  }
+
+  ASSERT_EQ(pthread_attr_destroy(&thread_attributes), 0);
 }
 
 }  // namespace
