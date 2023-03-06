@@ -740,7 +740,8 @@ inline void CpuCache<Forwarder>::Activate() {
   }
 
   // Verify that all the possible shifts will have valid max capacities.
-  for (uint8_t shift = per_cpu_shift; shift <= kMaxPerCpuShift; ++shift) {
+  for (uint8_t shift = per_cpu_shift; shift <= kMaxPerCpuShift + numa_shift;
+       ++shift) {
     const auto [bytes_required, bytes_available] =
         EstimateSlabBytes({max_capacity_, shift, numa_shift});
     // We may make certain size classes no-ops by selecting "0" at runtime, so
