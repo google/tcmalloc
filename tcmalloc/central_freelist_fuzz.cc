@@ -53,7 +53,7 @@ int RunFuzzer(const uint8_t* data, size_t size) {
     uint32_t value;
     memcpy(&value, &data[i + 1], sizeof(value));
 
-    switch (op % 0x7) {
+    switch (op & 0x7) {
       case 0: {
         // Allocate objects.
         // value[7:0] : number of objects to allocate.
