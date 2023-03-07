@@ -43,6 +43,9 @@ int RunFuzzer(const uint8_t* data, size_t size) {
       case 2:
         env.TryPlunder();
         break;
+      case 3:
+        env.transfer_cache().GetStats();
+        break;
       default:
         if (++i < size) {
           int batch = data[i] % 32;
