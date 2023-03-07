@@ -151,7 +151,7 @@ int32_t Parameters::max_per_cpu_cache_size() {
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 
-// TODO(b/186636177): remove the default_want_disable_dynamic_slabs opt-out
+// TODO(b/271475288): remove the default_want_disable_dynamic_slabs opt-out
 // some time after 2023-02-01.
 static bool want_disable_dynamic_slabs() {
   if (default_want_disable_dynamic_slabs == nullptr) return false;
