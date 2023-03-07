@@ -1059,14 +1059,22 @@ class HugePageFiller {
   Length unmapped_pages() const { return unmapped_; }
   Length free_pages() const;
   Length used_pages_in_released() const {
+    ASSERT(n_used_released_[kFew] <=
+           regular_alloc_released_[kFew].size().in_pages());
+    ASSERT(n_used_released_[kMany] <=
+           regular_alloc_released_[kMany].size().in_pages());
     return n_used_released_[kMany] + n_used_released_[kFew];
   }
   Length used_pages_in_partial_released() const {
+    ASSERT(n_used_partial_released_[kFew] <=
+           regular_alloc_partial_released_[kFew].size().in_pages());
+    // TODO(b/271289285): Add a test for this.
+    ASSERT(n_used_partial_released_[kMany] <=
+           regular_alloc_partial_released_[kMany].size().in_pages());
     return n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
   }
   Length used_pages_in_any_subreleased() const {
-    return n_used_released_[kMany] + n_used_released_[kFew] +
-           n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
+    return used_pages_in_released() + used_pages_in_partial_released();
   }
 
   // Fraction of used pages that are on non-released hugepages and
@@ -2348,19 +2356,8 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   // How many of our used pages are on non-huge pages? Since
   // everything on a released hugepage is either used or released,
   // just the difference:
-  const Length nrel = regular_alloc_released_[kFew].size().in_pages() +
-                      regular_alloc_released_[kMany].size().in_pages();
   const Length used = used_pages();
-  const Length unmapped = unmapped_pages();
-  ASSERT(n_used_partial_released_[kFew] <=
-         regular_alloc_partial_released_[kFew].size().in_pages());
-  // TODO(b/271289285): Add a test for this.
-  ASSERT(n_used_partial_released_[kMany] <=
-         regular_alloc_partial_released_[kMany].size().in_pages());
-  // TODO(ckennelly): Is the ternary necessary still?
-  const Length used_on_rel = (nrel >= unmapped ? nrel - unmapped : Length(0)) +
-                             n_used_partial_released_[kFew] +
-                             n_used_partial_released_[kMany];
+  const Length used_on_rel = used_pages_in_any_subreleased();
   ASSERT(used >= used_on_rel);
   const Length used_on_huge = used - used_on_rel;
 
