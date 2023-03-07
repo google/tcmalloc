@@ -168,8 +168,8 @@ class FakeTransferCacheEnvironment {
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
-  void Shrink() { cache_.ShrinkCache(kSizeClass); }
-  void Grow() { cache_.IncreaseCacheCapacity(kSizeClass); }
+  bool Shrink() { return cache_.ShrinkCache(kSizeClass); }
+  bool Grow() { return cache_.IncreaseCacheCapacity(kSizeClass); }
 
   void Insert(int n) {
     std::vector<void*> bufs;

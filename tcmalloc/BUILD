@@ -722,6 +722,7 @@ cc_fuzz_test(
         ":common",
         ":mock_central_freelist",
         ":mock_transfer_cache",
+        "@com_google_absl//absl/log:check",
     ],
 )
 
