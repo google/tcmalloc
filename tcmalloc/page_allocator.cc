@@ -41,10 +41,6 @@ bool decide_want_hpaa() {
   return false;
 #endif
 
-  if (kPageSize < 8192 || kPageSize > 32768) {
-    return true;
-  }
-
   const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
