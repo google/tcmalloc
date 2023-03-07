@@ -2769,6 +2769,53 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
   }
 }
 
+// TODO(b/271289285):  Enable this.
+// TODO(b/271289285):  Run this for all values of separate few and many allocs.
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
+       DISABLED_ReleasedPagesStatistics) {
+  constexpr Length N = kPagesPerHugePage / 4;
+
+  PAlloc a1 = AllocateWithObjectCount(N, 2 * kFewObjectsAllocMaxLimit);
+
+  const Length released = ReleasePages(kPagesPerHugePage);
+  // We should have released some memory.
+  EXPECT_NE(released, Length(0));
+  // Since we have only a single allocation, its pages should all be used on
+  // released pages.
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), N);
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_released(), N);
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), N);
+
+  // Now differentiate fully released from partially released.  Make an
+  // allocation and return it.
+  PAlloc a2 = AllocateWithObjectCount(N, 2 * kFewObjectsAllocMaxLimit);
+
+  // We now have N pages for a1, N pages for a2, and 2N pages
+  // released.
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.used_pages(), 2 * N);
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_released(), 2 * N);
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), 2 * N);
+
+  if (GetParam() == FillerPartialRerelease::Return) {
+    // We simulate failure for FillerPartialRerelease::Return.
+    BlockingUnback::success_ = false;
+  }
+  Delete(a2);
+
+  // We now have N pages for a1, N pages free (but mapped), and 2N pages
+  // released.
+  EXPECT_EQ(filler_.used_pages(), N);
+  EXPECT_EQ(filler_.free_pages(), N);
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), N);
+
+  Delete(a1);
+}
+
 INSTANTIATE_TEST_SUITE_P(All, FillerTestSeparateFewAndManyObjectsAllocs,
                          testing::Values(FillerPartialRerelease::Return,
                                          FillerPartialRerelease::Retain));
