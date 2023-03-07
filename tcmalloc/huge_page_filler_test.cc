@@ -2727,8 +2727,8 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, CounterUnderflow) {
 // comparator in use does not make correct choices in presence of such
 // hugepages.  The test below reproduces the buggy situation.
 //
-// TODO(b/271289285): update the test when releasing memory from
-// many_objects_alloc_ has been fixed.
+// TODO(b/271289285): Have this test run on all versions of the filler (not just
+// with separation).
 TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
        ReleasePagesFromManyObjectsAlloc) {
   randomize_objects_per_span_ = false;
@@ -2755,24 +2755,21 @@ TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
     allocs.push_back(
         AllocateWithObjectCount(kToBeUsed2, kFewObjectsAllocMaxLimit * 2));
   }
-  // Try to release more memory.  The kCandidate hugepages allocated in the
-  // first step have less number of used pages.  So, they will always be chosen
-  // for release memory ahead of kCandidate hugepages allcoated in the third
-  // step.
+  // Try to release more memory.  We should continue to make progress and return
+  // all of the pages we tried to.
   const Length kExpectedReleased2 =
       kCandidatesForReleasingMemory * (kPagesPerHugePage - kToBeUsed2);
-  for (int i = 0; i < 10; ++i) {
-    EXPECT_EQ(ReleasePages(kExpectedReleased2), Length(0));
-  }
+  EXPECT_EQ(ReleasePages(kExpectedReleased2), kExpectedReleased2);
+  EXPECT_EQ(filler_.free_pages(), Length(0));
+
   for (auto alloc : allocs) {
     Delete(alloc);
   }
 }
 
-// TODO(b/271289285):  Enable this.
 // TODO(b/271289285):  Run this for all values of separate few and many allocs.
-TEST_P(FillerTestSeparateFewAndManyObjectsAllocs,
-       DISABLED_ReleasedPagesStatistics) {
+TEST_P(FillerTestSeparateFewAndManyObjectsAllocs, ReleasedPagesStatistics) {
+  randomize_objects_per_span_ = false;
   constexpr Length N = kPagesPerHugePage / 4;
 
   PAlloc a1 = AllocateWithObjectCount(N, 2 * kFewObjectsAllocMaxLimit);
