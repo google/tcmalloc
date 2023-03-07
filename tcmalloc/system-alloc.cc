@@ -489,35 +489,6 @@ bool SystemRelease(void* start, size_t length) {
   return result;
 }
 
-void SystemBack(void* start, size_t length) {
-  // TODO(b/134694141): use madvise when we have better support for that;
-  // taking faults is not free.
-
-  // TODO(b/134694141): enable this, if we can avoid causing trouble for apps
-  // that routinely make large mallocs they never touch (sigh).
-  return;
-
-  // Strictly speaking, not everything uses 4K pages.  However, we're
-  // not asking the OS for anything actually page-related, just taking
-  // a fault on every "page".  If the real page size is bigger, we do
-  // a few extra reads; this is not worth worrying about.
-  static const size_t kHardwarePageSize = 4 * 1024;
-  CHECK_CONDITION(reinterpret_cast<intptr_t>(start) % kHardwarePageSize == 0);
-  CHECK_CONDITION(length % kHardwarePageSize == 0);
-  const size_t num_pages = length / kHardwarePageSize;
-
-  struct PageStruct {
-    volatile size_t data[kHardwarePageSize / sizeof(size_t)];
-  };
-  CHECK_CONDITION(sizeof(PageStruct) == kHardwarePageSize);
-
-  PageStruct* ps = reinterpret_cast<PageStruct*>(start);
-  PageStruct* limit = ps + num_pages;
-  for (; ps < limit; ++ps) {
-    ps->data[0] = 0;
-  }
-}
-
 AddressRegionFactory* GetRegionFactory() {
   absl::base_internal::SpinLockHolder lock_holder(&spinlock);
   InitSystemAllocatorIfNecessary();
