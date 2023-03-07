@@ -43,13 +43,19 @@ class GetStatsTest : public ::testing::Test {};
 
 TEST_F(GetStatsTest, Pbtxt) {
   // Trigger a sampled allocation.
-  { ScopedAlwaysSample s; }
+  constexpr size_t kSize = 123456;
+  void* alloc;
+  {
+    ScopedAlwaysSample s;
+    alloc = ::operator new(kSize);
+  }
 
   const std::string buf = GetStatsInPbTxt();
 
   absl::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
       "tcmalloc.sampled_internal_fragmentation");
   ASSERT_THAT(fragmentation, testing::Ne(absl::nullopt));
+  EXPECT_GT(*fragmentation, 0);
 
   // Expect `buf` to be in pbtxt format.
   EXPECT_THAT(buf, ContainsRegex(R"(in_use_by_app: [0-9]+)"));
@@ -90,6 +96,8 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
+
+  sized_delete(alloc, kSize);
 }
 
 TEST_F(GetStatsTest, Parameters) {
