@@ -640,6 +640,19 @@ cc_library(
 )
 
 cc_fuzz_test(
+    name = "huge_page_aware_allocator_fuzz",
+    testonly = 1,
+    srcs = ["huge_page_aware_allocator_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_fuzz_test(
     name = "huge_page_filler_fuzz",
     testonly = 1,
     srcs = ["huge_page_filler_fuzz.cc"],
