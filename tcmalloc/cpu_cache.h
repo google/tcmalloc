@@ -40,7 +40,6 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
-#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -1660,14 +1659,17 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
-  // madvise away the old slabs memory.
+  // madvise away the old slabs memory.  It is important that we do not
+  // MADV_REMOVE the memory, since file-backed pages may SIGSEGV/SIGBUS if
+  // another thread sees the previous slab after this point and reads it.
+  //
   // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
   // kernel enables huge zero pages.
-  if (madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE)) {
-    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
-        info.old_slabs_size, std::memory_order_relaxed);
-  }
-  if (!SystemRelease(info.old_slabs, info.old_slabs_size)) {
+  // Note: we use bitwise OR to avoid short-circuiting.
+  const bool madvise_failed =
+      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
+      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
+  if (madvise_failed) {
     dynamic_slab_info_.madvise_failed_bytes.fetch_add(
         info.old_slabs_size, std::memory_order_relaxed);
   }
