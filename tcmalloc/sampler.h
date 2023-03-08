@@ -204,7 +204,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
   // effect on the distribution in Sampler::Unsample.
   k++;
 
-  // For efficiency reason, we're testing bytes_until_sample_ after
+  // For x86 efficiency, we're testing bytes_until_sample_ after
   // decrementing it by k. This allows compiler to do sub <reg>, <mem>
   // followed by conditional jump on sign. But it is correct only if k
   // is actually smaller than largest ssize_t value. Otherwise
@@ -219,9 +219,14 @@ Sampler::TryRecordAllocationFast(size_t k) {
   // are permitted. And thus it makes sense to assert on that.
   ASSERT(static_cast<ssize_t>(k) > 0);
 
+#ifdef __aarch64__
+  // TODO(b/271483758): This produces a more efficient compare on ARM.
+  if (ABSL_PREDICT_FALSE(bytes_until_sample_ <= k)) {
+#else
   bytes_until_sample_ -= static_cast<ssize_t>(k);
   if (ABSL_PREDICT_FALSE(bytes_until_sample_ <= 0)) {
-    // Note, we undo sampling counter update, since we're not actually
+#endif
+    // Note, on x86 we undo sampling counter update, since we're not actually
     // handling slow path in the "needs sampling" case (calling
     // RecordAllocationSlow to reset counter). And we do that in order
     // to avoid non-tail calls in malloc fast-path. See also comments
@@ -232,10 +237,15 @@ Sampler::TryRecordAllocationFast(size_t k) {
     // is no need to keep previous value of bytes_until_sample_ in
     // register. This helps compiler generate slightly more efficient
     // sub <reg>, <mem> instruction for subtraction above.
+#ifndef __aarch64__
     volatile ssize_t* ptr = const_cast<volatile ssize_t*>(&bytes_until_sample_);
     *ptr = *ptr + k;
+#endif
     return false;
   }
+#ifdef __aarch64__
+  bytes_until_sample_ -= static_cast<ssize_t>(k);
+#endif
   return true;
 }
 
