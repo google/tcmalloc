@@ -1001,6 +1001,17 @@ enum class FillerPartialRerelease : bool {
   Retain,
 };
 
+// As of March 2023, we allocate as if all spans have few objects on them.
+//
+// When we separate allocs into few/many spans
+// (separate_allocs_for_few_and_many_objects_spans_), we use both values of
+// ObjectCount.  Spans with more objects are allocated from index kMany.
+enum ObjectCount {
+  kFew = 0,
+  kMany = 1,
+  kObjectCounts,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -1048,10 +1059,10 @@ class HugePageFiller {
   HugeLength size() const { return size_; }
 
   // Useful statistics
-  Length many_objects_pages_allocated() const {
-    return pages_allocated_[kMany];
+  Length pages_allocated(ObjectCount type) const {
+    ASSERT(type < ObjectCount::kObjectCounts);
+    return pages_allocated_[type];
   }
-  Length few_objects_pages_allocated() const { return pages_allocated_[kFew]; }
   Length pages_allocated() const {
     return pages_allocated_[kMany] + pages_allocated_[kFew];
   }
@@ -1134,17 +1145,6 @@ class HugePageFiller {
   // Returns index for regular_alloc_.
   size_t ListFor(Length longest, size_t chunk) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
-
-  // As of March 2023, we allocate as if all spans have few objects on them.
-  //
-  // When we separate allocs into few/many spans
-  // (separate_allocs_for_few_and_many_objects_spans_), we use both values of
-  // ObjectCount.  Spans with more objects are allocated from index kMany.
-  enum ObjectCount {
-    kFew = 0,
-    kMany = 1,
-    kObjectCounts,
-  };
 
   // List of hugepages from which no pages have been released to the OS.
   PageTrackerLists<kNumLists> regular_alloc_[kObjectCounts];
