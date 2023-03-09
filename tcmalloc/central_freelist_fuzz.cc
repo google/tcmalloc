@@ -81,7 +81,14 @@ int RunFuzzer(const uint8_t* data, size_t size) {
         // order we allocated them.
         const int seed = value & 0x00FF;
         std::mt19937 rng(seed);
-        std::shuffle(objects.begin(), objects.end(), rng);
+        // Limit number of elements to shuffle so that we don't spend a lot of
+        // time in shuffling a large number of objects.
+        constexpr int kMaxToShuffle = 10 * kMaxObjectsToMove;
+        if (objects.size() <= kMaxToShuffle) {
+          std::shuffle(objects.begin(), objects.end(), rng);
+        } else {
+          std::shuffle(objects.end() - kMaxToShuffle, objects.end(), rng);
+        }
         break;
       }
       case 3: {
