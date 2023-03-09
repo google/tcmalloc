@@ -151,24 +151,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(
       filler_(decide_partial_rerelease(),
               Parameters::separate_allocs_for_few_and_many_objects_spans(),
               MemoryModifyFunction(SystemRelease)),
-      alloc_(
-          [](MemoryTag tag) {
-            // TODO(ckennelly): Remove the template parameter.
-            switch (tag) {
-              case MemoryTag::kNormal:
-                return AllocAndReport<MemoryTag::kNormal>;
-              case MemoryTag::kNormalP1:
-                return AllocAndReport<MemoryTag::kNormalP1>;
-              case MemoryTag::kSampled:
-                return AllocAndReport<MemoryTag::kSampled>;
-              case MemoryTag::kCold:
-                return AllocAndReport<MemoryTag::kCold>;
-              default:
-                ASSUME(false);
-                __builtin_unreachable();
-            }
-          }(tag),
-          MetaDataAlloc),
+      vm_allocator_(*this),
+      alloc_(vm_allocator_, MetaDataAlloc),
       cache_(HugeCache{&alloc_, MetaDataAlloc,
                        MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
@@ -812,10 +796,9 @@ void HugePageAwareAllocator::PrintInPbtxt(PbtxtRegion* region) {
   }
 }
 
-template <MemoryTag tag>
 AddressRange HugePageAwareAllocator::AllocAndReport(size_t bytes,
                                                     size_t align) {
-  auto ret = SystemAlloc(bytes, align, tag);
+  auto ret = SystemAlloc(bytes, align, tag_);
   if (ret.ptr == nullptr) return ret;
   const PageId page = PageIdContaining(ret.ptr);
   const Length page_len = BytesToLengthFloor(ret.bytes);

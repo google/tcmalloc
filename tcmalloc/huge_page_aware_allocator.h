@@ -163,6 +163,22 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     HugePageAwareAllocator* p_;
   };
 
+  class VirtualMemoryAllocator final : public VirtualAllocator {
+   public:
+    explicit VirtualMemoryAllocator(
+        HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
+        : hpaa_(hpaa) {}
+
+    ABSL_MUST_USE_RESULT AddressRange operator()(size_t bytes,
+                                                 size_t align) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      return hpaa_.AllocAndReport(bytes, align);
+    }
+
+   private:
+    HugePageAwareAllocator& hpaa_;
+  };
+
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
   static ABSL_MUST_USE_RESULT bool UnbackWithoutLock(void* start, size_t length)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -178,10 +194,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   void SetTracker(HugePage p, FillerType::Tracker* pt);
 
-  template <MemoryTag tag>
-  static AddressRange AllocAndReport(size_t bytes, size_t align)
+  AddressRange AllocAndReport(size_t bytes, size_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void* MetaDataAlloc(size_t bytes);
+
+  VirtualMemoryAllocator vm_allocator_ ABSL_GUARDED_BY(pageheap_lock);
   HugeAllocator alloc_ ABSL_GUARDED_BY(pageheap_lock);
   HugeCache cache_ ABSL_GUARDED_BY(pageheap_lock);
 

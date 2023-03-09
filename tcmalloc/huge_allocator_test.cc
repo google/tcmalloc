@@ -31,6 +31,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/mock_virtual_allocator.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -38,34 +39,25 @@ namespace {
 
 class HugeAllocatorTest : public testing::TestWithParam<bool> {
  private:
-  // Use a tiny fraction of actual size so we can test aggressively.
-  static AddressRange AllocateFake(size_t bytes, size_t align);
-
-  static constexpr size_t kMaxBacking = 1024 * 1024;
-  // This isn't super good form but we'll never have more than one HAT
-  // extant at once.
-  static std::vector<size_t> backing_;
-
   // We use actual malloc for metadata allocations, but we track them so they
   // can be deleted.
   static void* MallocMetadata(size_t size);
   static std::vector<void*> metadata_allocs_;
   static size_t metadata_bytes_;
-  static bool should_overallocate_;
-  static HugeLength huge_pages_requested_;
-  static HugeLength huge_pages_received_;
 
  protected:
-  HugeLength HugePagesRequested() { return huge_pages_requested_; }
-  HugeLength HugePagesReceived() { return huge_pages_received_; }
+  HugeLength HugePagesRequested() {
+    return vm_allocator_.huge_pages_requested_;
+  }
+  HugeLength HugePagesReceived() { return vm_allocator_.huge_pages_received_; }
 
   HugeAllocatorTest() {
-    should_overallocate_ = GetParam();
-    huge_pages_requested_ = NHugePages(0);
-    huge_pages_received_ = NHugePages(0);
+    vm_allocator_.should_overallocate_ = GetParam();
+    vm_allocator_.huge_pages_requested_ = NHugePages(0);
+    vm_allocator_.huge_pages_received_ = NHugePages(0);
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
-    backing_.resize(1024);
+    vm_allocator_.backing_.resize(1024);
     metadata_bytes_ = 0;
   }
 
@@ -74,10 +66,10 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
       free(p);
     }
     metadata_allocs_.clear();
-    backing_.clear();
+    vm_allocator_.backing_.clear();
   }
 
-  size_t* GetActual(HugePage p) { return &backing_[p.index()]; }
+  size_t* GetActual(HugePage p) { return &vm_allocator_.backing_[p.index()]; }
 
   // We're dealing with a lot of memory, so we don't want to do full memset
   // and then check every byte for corruption.  So set the first and last
@@ -101,30 +93,9 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
     EXPECT_EQ(used, expected_use);
   }
 
-  HugeAllocator allocator_{AllocateFake, MallocMetadata};
+  FakeVirtualAllocator vm_allocator_;
+  HugeAllocator allocator_{vm_allocator_, MallocMetadata};
 };
-
-// Use a tiny fraction of actual size so we can test aggressively.
-AddressRange HugeAllocatorTest::AllocateFake(size_t bytes, size_t align) {
-  CHECK_CONDITION(bytes % kHugePageSize == 0);
-  CHECK_CONDITION(align % kHugePageSize == 0);
-  HugeLength req = HLFromBytes(bytes);
-  huge_pages_requested_ += req;
-  // Test the case where our sys allocator provides too much.
-  if (should_overallocate_) ++req;
-  huge_pages_received_ += req;
-  // we'll actually provide hidden backing, one word per hugepage.
-  bytes = req / NHugePages(1);
-  align /= kHugePageSize;
-  size_t index = backing_.size();
-  if (index % align != 0) {
-    index += (align - (index & align));
-  }
-  if (index + bytes > kMaxBacking) return {nullptr, 0};
-  backing_.resize(index + bytes);
-  void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
-  return {ptr, req.in_bytes()};
-}
 
 // We use actual malloc for metadata allocations, but we track them so they
 // can be deleted.
@@ -135,12 +106,8 @@ void* HugeAllocatorTest::MallocMetadata(size_t size) {
   return ptr;
 }
 
-std::vector<size_t> HugeAllocatorTest::backing_;
 std::vector<void*> HugeAllocatorTest::metadata_allocs_;
 size_t HugeAllocatorTest::metadata_bytes_;
-bool HugeAllocatorTest::should_overallocate_;
-HugeLength HugeAllocatorTest::huge_pages_requested_;
-HugeLength HugeAllocatorTest::huge_pages_received_;
 
 TEST_P(HugeAllocatorTest, Basic) {
   std::vector<std::pair<HugeRange, size_t>> allocs;

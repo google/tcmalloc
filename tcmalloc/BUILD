@@ -597,6 +597,18 @@ cc_library(
 )
 
 cc_library(
+    name = "mock_virtual_allocator",
+    testonly = 1,
+    hdrs = ["mock_virtual_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":common",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
     name = "page_allocator_test_util",
     testonly = 1,
     srcs = [
@@ -777,6 +789,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
+        ":mock_virtual_allocator",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
@@ -795,6 +808,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
+        ":mock_virtual_allocator",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",

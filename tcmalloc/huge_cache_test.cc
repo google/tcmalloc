@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/mock_virtual_allocator.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
@@ -58,29 +59,6 @@ class HugeCacheTest : public testing::Test {
            clock_offset_ * GetClockFrequency() /
                absl::ToDoubleNanoseconds(absl::Seconds(1));
   }
-
-  // Use a tiny fraction of actual size so we can test aggressively.
-  static AddressRange AllocateFake(size_t bytes, size_t align) {
-    if (bytes % kHugePageSize != 0) {
-      Crash(kCrash, __FILE__, __LINE__, "not aligned", bytes, kHugePageSize);
-    }
-    if (align % kHugePageSize != 0) {
-      Crash(kCrash, __FILE__, __LINE__, "not aligned", align, kHugePageSize);
-    }
-    // we'll actually provide hidden backing, one word per hugepage.
-    bytes /= kHugePageSize;
-    align /= kHugePageSize;
-    size_t index = backing.size();
-    if (index % align != 0) {
-      index += (align - (index & align));
-    }
-    backing.resize(index + bytes);
-    void* ptr = reinterpret_cast<void*>(index * kHugePageSize);
-    return {ptr, bytes * kHugePageSize};
-  }
-  // This isn't super good form but we'll never have more than one HAT
-  // extant at once.
-  static std::vector<size_t> backing;
 
   // We use actual malloc for metadata allocations, but we track them so they
   // can be deleted.  (TODO make this an arena if we care, which I doubt)
@@ -113,7 +91,7 @@ class HugeCacheTest : public testing::Test {
   HugeCacheTest() {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
-    backing.resize(1024);
+    vm_allocator_.backing_.resize(1024);
     metadata_bytes = 0;
     mock_ = absl::make_unique<testing::NiceMock<MockBackingInterface>>();
   }
@@ -123,7 +101,6 @@ class HugeCacheTest : public testing::Test {
       free(p);
     }
     metadata_allocs.clear();
-    backing.clear();
     mock_.reset(nullptr);
 
     clock_offset_ = 0;
@@ -133,12 +110,12 @@ class HugeCacheTest : public testing::Test {
     clock_offset_ += absl::ToInt64Nanoseconds(d);
   }
 
-  HugeAllocator alloc_{AllocateFake, MallocMetadata};
+  FakeVirtualAllocator vm_allocator_;
+  HugeAllocator alloc_{vm_allocator_, MallocMetadata};
   HugeCache cache_{&alloc_, MallocMetadata, MemoryModifyFunction(MockUnback),
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
 
-std::vector<size_t> HugeCacheTest::backing;
 std::vector<void*> HugeCacheTest::metadata_allocs;
 size_t HugeCacheTest::metadata_bytes;
 std::unique_ptr<testing::NiceMock<HugeCacheTest::MockBackingInterface>>

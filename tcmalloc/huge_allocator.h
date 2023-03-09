@@ -19,6 +19,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_pages.h"
@@ -30,7 +31,21 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // these typedefs allow replacement of tcmalloc::System* for tests.
-using MemoryAllocFunction = AddressRange (*)(size_t bytes, size_t align);
+class VirtualAllocator {
+ public:
+  VirtualAllocator() = default;
+  virtual ~VirtualAllocator() = default;
+
+  VirtualAllocator(const VirtualAllocator&) = delete;
+  VirtualAllocator(VirtualAllocator&&) = delete;
+  VirtualAllocator& operator=(const VirtualAllocator&) = delete;
+  VirtualAllocator& operator=(VirtualAllocator&&) = delete;
+
+  // Allocates bytes of virtual address space with align alignment.
+  ABSL_MUST_USE_RESULT virtual AddressRange operator()(size_t bytes,
+                                                       size_t align) = 0;
+};
+
 using MetadataAllocFunction = void* (*)(size_t bytes);
 
 // This tracks available ranges of hugepages and fulfills requests for
@@ -38,7 +53,8 @@ using MetadataAllocFunction = void* (*)(size_t bytes);
 // hugepages are treated as (and assumed to be) unbacked.
 class HugeAllocator {
  public:
-  constexpr HugeAllocator(MemoryAllocFunction allocate,
+  constexpr HugeAllocator(VirtualAllocator& allocate
+                              ABSL_ATTRIBUTE_LIFETIME_BOUND,
                           MetadataAllocFunction meta_allocate)
       : free_(meta_allocate), allocate_(allocate) {}
 
@@ -97,7 +113,7 @@ class HugeAllocator {
   HugeLength from_system_{NHugePages(0)};
   HugeLength in_use_{NHugePages(0)};
 
-  MemoryAllocFunction allocate_;
+  VirtualAllocator& allocate_;
   HugeRange AllocateRange(HugeLength n);
 };
 
