@@ -131,7 +131,7 @@ Live span,          3 pages:  36000.0       0       0       0       0       0   
 
 Unmapped span   TOTAL PAGES:    546.0      20       0       0     202       0       0       0
 Unmapped span,      2 pages:     55.1      20       0       0       2       0       0       0
-Unmapped span,   >=64 pages:    600.0       0       0       0     200       0       0       0
+Unmapped span,  >=128 pages:    600.0       0       0       0     200       0       0       0
 )LIT";
   // clang-format on
   ExpectAges(ages, kExpected);
@@ -150,7 +150,7 @@ AgeTest cache entry age (count of pages in spans of a given size that have been 
 ------------------------------------------------
                                  mean     <1s      1s     30s      1m     30m      1h     8+h
 Live span       TOTAL PAGES:      0.5 4294967295       0       0       0       0       0       0
-Live span,       >=64 pages:      0.5 4294967295       0       0       0       0       0       0
+Live span,      >=128 pages:      0.5 4294967295       0       0       0       0       0       0
 
 Unmapped span   TOTAL PAGES:      0.0       0       0       0       0       0       0       0
 )LIT";

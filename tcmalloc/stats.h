@@ -18,6 +18,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
+
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/strings/string_view.h"
@@ -101,7 +103,7 @@ class PageAgeHistograms {
   void Print(const char* label, Printer* out) const;
 
   static constexpr size_t kNumBuckets = 7;
-  static constexpr size_t kNumSizes = 64;
+  static constexpr size_t kNumSizes = kMaxPages.raw_num();
 
   static constexpr Length kLargeSize = Length(kNumSizes);
   class Histogram {
