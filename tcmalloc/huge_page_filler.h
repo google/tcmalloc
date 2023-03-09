@@ -1919,7 +1919,16 @@ namespace huge_page_filler_internal {
 // (mostly) even buckets in the middle.
 class UsageInfo {
  public:
-  enum Type { kRegular, kDonated, kPartialReleased, kReleased, kNumTypes };
+  enum Type {
+    kFewObjectsRegular,
+    kManyObjectsRegular,
+    kDonated,
+    kFewObjectsPartialReleased,
+    kManyObjectsPartialReleased,
+    kFewObjectsReleased,
+    kManyObjectsReleased,
+    kNumTypes
+  };
 
   UsageInfo() {
     size_t i;
@@ -1953,6 +1962,7 @@ class UsageInfo {
 
   template <class TrackerType>
   void Record(const TrackerType* pt, Type which) {
+    ASSERT(which < kNumTypes);
     const Length free = kPagesPerHugePage - pt->used_pages();
     const Length lf = pt->longest_free_range();
     const size_t nalloc = pt->nallocs();
@@ -1964,36 +1974,35 @@ class UsageInfo {
   }
 
   void Print(Printer* out) {
-    PrintHisto(out, free_page_histo_[kRegular],
-               "# of regular hps with a<= # of free pages <b", 0);
-    PrintHisto(out, free_page_histo_[kDonated],
-               "# of donated hps with a<= # of free pages <b", 0);
-    PrintHisto(out, free_page_histo_[kPartialReleased],
-               "# of partial released hps with a<= # of free pages <b", 0);
-    PrintHisto(out, free_page_histo_[kReleased],
-               "# of released hps with a<= # of free pages <b", 0);
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintHisto(out, free_page_histo_[type], type,
+                 "hps with a<= # of free pages <b", 0);
+    }
+
     // For donated huge pages, number of allocs=1 and longest free range =
     // number of free pages, so it isn't useful to show the next two.
-    PrintHisto(out, longest_free_histo_[kRegular],
-               "# of regular hps with a<= longest free range <b", 0);
-    PrintHisto(out, longest_free_histo_[kPartialReleased],
-               "# of partial released hps with a<= longest free range <b", 0);
-    PrintHisto(out, longest_free_histo_[kReleased],
-               "# of released hps with a<= longest free range <b", 0);
-    PrintHisto(out, nalloc_histo_[kRegular],
-               "# of regular hps with a<= # of allocations <b", 1);
-    PrintHisto(out, nalloc_histo_[kPartialReleased],
-               "# of partial released hps with a<= # of allocations <b", 1);
-    PrintHisto(out, nalloc_histo_[kReleased],
-               "# of released hps with a<= # of allocations <b", 1);
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      if (type == kDonated) continue;
+      PrintHisto(out, longest_free_histo_[type], type,
+                 "hps with a<= longest free range <b", 0);
+    }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      if (type == kDonated) continue;
+      PrintHisto(out, nalloc_histo_[type], type,
+                 "hps with a<= # of allocations <b", 1);
+    }
   }
 
   void Print(PbtxtRegion* hpaa) {
-    static constexpr absl::string_view kTrackerTypes[kNumTypes] = {
-        "REGULAR", "DONATED", "PARTIAL", "RELEASED"};
     for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
       PbtxtRegion scoped = hpaa->CreateSubRegion("filler_tracker");
-      scoped.PrintRaw("type", kTrackerTypes[i]);
+      scoped.PrintRaw("type", AllocType(type));
+      scoped.PrintRaw("objects", ObjectType(type));
       PrintHisto(&scoped, free_page_histo_[i], "free_pages_histogram", 0);
       PrintHisto(&scoped, longest_free_histo_[i],
                  "longest_free_range_histogram", 0);
@@ -2013,8 +2022,9 @@ class UsageInfo {
     return it - bucket_bounds_ - 1;
   }
 
-  void PrintHisto(Printer* out, Histo h, const char blurb[], size_t offset) {
-    out->printf("\nHugePageFiller: %s", blurb);
+  void PrintHisto(Printer* out, Histo h, Type type, const char blurb[],
+                  size_t offset) {
+    out->printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (i % 6 == 0) {
         out->printf("\nHugePageFiller:");
@@ -2033,6 +2043,70 @@ class UsageInfo {
                                             : bucket_bounds_[i + 1] - 1) +
                         offset);
       hist.PrintI64("value", h[i]);
+    }
+  }
+
+  absl::string_view TypeToStr(Type type) const {
+    ASSERT(type < kNumTypes);
+    switch (type) {
+      case kFewObjectsRegular:
+        return "few-object regular";
+      case kManyObjectsRegular:
+        return "many-object regular";
+      case kDonated:
+        return "donated";
+      case kFewObjectsPartialReleased:
+        return "few-object partial released";
+      case kManyObjectsPartialReleased:
+        return "many-object partial released";
+      case kFewObjectsReleased:
+        return "few-object released";
+      case kManyObjectsReleased:
+        return "many-object released";
+      default: {
+        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
+        return "bad type";
+      }
+    }
+  }
+
+  absl::string_view AllocType(Type type) const {
+    ASSERT(type < kNumTypes);
+    switch (type) {
+      case kFewObjectsRegular:
+      case kManyObjectsRegular:
+        return "REGULAR";
+      case kDonated:
+        return "DONATED";
+      case kFewObjectsPartialReleased:
+      case kManyObjectsPartialReleased:
+        return "PARTIAL";
+      case kFewObjectsReleased:
+      case kManyObjectsReleased:
+        return "RELEASED";
+      default: {
+        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
+        return "bad type";
+      }
+    }
+  }
+
+  absl::string_view ObjectType(Type type) const {
+    ASSERT(type < kNumTypes);
+    switch (type) {
+      case kFewObjectsRegular:
+      case kDonated:
+      case kFewObjectsPartialReleased:
+      case kFewObjectsReleased:
+        return "FEW_OBJECTS";
+      case kManyObjectsRegular:
+      case kManyObjectsPartialReleased:
+      case kManyObjectsReleased:
+        return "MANY_OBJECTS";
+      default: {
+        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
+        return "bad type";
+      }
     }
   }
 
@@ -2119,19 +2193,36 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   UsageInfo usage;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  for (const ObjectCount type : {kMany, kFew}) {
-    regular_alloc_[type].Iter(
-        [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); },
-        0);
-    regular_alloc_partial_released_[type].Iter(
-        [&](const TrackerType* pt) {
-          usage.Record(pt, UsageInfo::kPartialReleased);
-        },
-        0);
-    regular_alloc_released_[type].Iter(
-        [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
-        0);
-  }
+  regular_alloc_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsRegular);
+      },
+      0);
+  regular_alloc_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsRegular);
+      },
+      0);
+  regular_alloc_partial_released_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsPartialReleased);
+      },
+      0);
+  regular_alloc_partial_released_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsPartialReleased);
+      },
+      0);
+  regular_alloc_released_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsReleased);
+      },
+      0);
+  regular_alloc_released_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsReleased);
+      },
+      0);
 
   out->printf("\n");
   out->printf("HugePageFiller: fullness histograms\n");
@@ -2205,20 +2296,36 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   UsageInfo usage;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  for (const ObjectCount type : {kMany, kFew}) {
-    // TODO(b/271591033): Break out statistics for many and few separately.
-    regular_alloc_[type].Iter(
-        [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kRegular); },
-        0);
-    regular_alloc_partial_released_[type].Iter(
-        [&](const TrackerType* pt) {
-          usage.Record(pt, UsageInfo::kPartialReleased);
-        },
-        0);
-    regular_alloc_released_[type].Iter(
-        [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kReleased); },
-        0);
-  }
+  regular_alloc_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsRegular);
+      },
+      0);
+  regular_alloc_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsRegular);
+      },
+      0);
+  regular_alloc_partial_released_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsPartialReleased);
+      },
+      0);
+  regular_alloc_partial_released_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsPartialReleased);
+      },
+      0);
+  regular_alloc_released_[kFew].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kFewObjectsReleased);
+      },
+      0);
+  regular_alloc_released_[kMany].Iter(
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kManyObjectsReleased);
+      },
+      0);
 
   usage.Print(hpaa);
 
