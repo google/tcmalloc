@@ -102,6 +102,7 @@ inline bool ShouldGuardingBeAttempted(
     case Profile::Sample::GuardedStatus::NoAvailableSlots:
     case Profile::Sample::GuardedStatus::MProtectFailed:
     case Profile::Sample::GuardedStatus::Filtered:
+    case Profile::Sample::GuardedStatus::RateLimitedPermissive:
     case Profile::Sample::GuardedStatus::Unknown:
     case Profile::Sample::GuardedStatus::NotAttempted:
       return false;
