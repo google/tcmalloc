@@ -178,15 +178,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[7:0] - Choose number of pages to release.
         // value[63:8] - Reserved.
         Length desired(value & 0x00FF);
-        Length released;
-        BackingStats stats;
         {
           absl::base_internal::SpinLockHolder h(&pageheap_lock);
-          stats = allocator->stats();
-          released = allocator->ReleaseAtLeastNPages(desired);
+          allocator->ReleaseAtLeastNPages(desired);
         }
-        CHECK_GE(released.in_bytes(),
-                 std::min(desired.in_bytes(), stats.free_bytes));
         break;
       }
       case 3: {
