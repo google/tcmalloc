@@ -179,6 +179,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     HugePageAwareAllocator& hpaa_;
   };
 
+  class ArenaMetadataAllocator final : public MetadataAllocator {
+   public:
+    ABSL_MUST_USE_RESULT void* operator()(size_t bytes) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  };
+
   // Calls SystemRelease, but with dropping of pageheap_lock around the call.
   static ABSL_MUST_USE_RESULT bool UnbackWithoutLock(void* start, size_t length)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -199,6 +205,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   static void* MetaDataAlloc(size_t bytes);
 
   VirtualMemoryAllocator vm_allocator_ ABSL_GUARDED_BY(pageheap_lock);
+  ArenaMetadataAllocator metadata_allocator_ ABSL_GUARDED_BY(pageheap_lock);
   HugeAllocator alloc_ ABSL_GUARDED_BY(pageheap_lock);
   HugeCache cache_ ABSL_GUARDED_BY(pageheap_lock);
 

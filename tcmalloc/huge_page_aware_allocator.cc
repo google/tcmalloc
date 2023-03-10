@@ -152,8 +152,8 @@ HugePageAwareAllocator::HugePageAwareAllocator(
               Parameters::separate_allocs_for_few_and_many_objects_spans(),
               MemoryModifyFunction(SystemRelease)),
       vm_allocator_(*this),
-      alloc_(vm_allocator_, MetaDataAlloc),
-      cache_(HugeCache{&alloc_, MetaDataAlloc,
+      alloc_(vm_allocator_, metadata_allocator_),
+      cache_(HugeCache{&alloc_, metadata_allocator_,
                        MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
       lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_),
@@ -806,7 +806,7 @@ AddressRange HugePageAwareAllocator::AllocAndReport(size_t bytes,
   return ret;
 }
 
-void* HugePageAwareAllocator::MetaDataAlloc(size_t bytes)
+void* HugePageAwareAllocator::ArenaMetadataAllocator::operator()(size_t bytes)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   return tc_globals.arena().Alloc(bytes);
 }

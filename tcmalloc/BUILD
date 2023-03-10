@@ -253,6 +253,7 @@ common_deps = [
     ":explicitly_constructed",
     ":malloc_extension",
     ":malloc_tracing_extension",
+    ":metadata_allocator",
     ":new_extension",
     ":size_class_info",
     "@com_google_absl//absl/algorithm:container",
@@ -789,6 +790,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
+        ":mock_metadata_allocator",
         ":mock_virtual_allocator",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
@@ -808,6 +810,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
+        ":mock_metadata_allocator",
         ":mock_virtual_allocator",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
@@ -1096,6 +1099,26 @@ cc_fuzz_test(
     ],
 )
 
+cc_library(
+    name = "metadata_allocator",
+    hdrs = ["metadata_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
+    name = "mock_metadata_allocator",
+    testonly = 1,
+    hdrs = ["mock_metadata_allocator.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":metadata_allocator",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
 cc_test(
     name = "lifetime_based_allocator_test",
     srcs = ["lifetime_based_allocator_test.cc"],
@@ -1356,6 +1379,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common",
+        ":mock_metadata_allocator",
         "@com_google_googletest//:gtest_main",
     ],
 )

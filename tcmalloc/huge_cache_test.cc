@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/mock_metadata_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
 #include "tcmalloc/stats.h"
 
@@ -111,8 +112,10 @@ class HugeCacheTest : public testing::Test {
   }
 
   FakeVirtualAllocator vm_allocator_;
-  HugeAllocator alloc_{vm_allocator_, MallocMetadata};
-  HugeCache cache_{&alloc_, MallocMetadata, MemoryModifyFunction(MockUnback),
+  FakeMetadataAllocator metadata_allocator_;
+  HugeAllocator alloc_{vm_allocator_, metadata_allocator_};
+  HugeCache cache_{&alloc_, metadata_allocator_,
+                   MemoryModifyFunction(MockUnback),
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
 

@@ -31,6 +31,7 @@
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/mock_metadata_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
 
 namespace tcmalloc {
@@ -38,13 +39,6 @@ namespace tcmalloc_internal {
 namespace {
 
 class HugeAllocatorTest : public testing::TestWithParam<bool> {
- private:
-  // We use actual malloc for metadata allocations, but we track them so they
-  // can be deleted.
-  static void* MallocMetadata(size_t size);
-  static std::vector<void*> metadata_allocs_;
-  static size_t metadata_bytes_;
-
  protected:
   HugeLength HugePagesRequested() {
     return vm_allocator_.huge_pages_requested_;
@@ -58,14 +52,9 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
     vm_allocator_.backing_.resize(1024);
-    metadata_bytes_ = 0;
   }
 
   ~HugeAllocatorTest() override {
-    for (void* p : metadata_allocs_) {
-      free(p);
-    }
-    metadata_allocs_.clear();
     vm_allocator_.backing_.clear();
   }
 
@@ -94,20 +83,9 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
   }
 
   FakeVirtualAllocator vm_allocator_;
-  HugeAllocator allocator_{vm_allocator_, MallocMetadata};
+  FakeMetadataAllocator metadata_allocator_;
+  HugeAllocator allocator_{vm_allocator_, metadata_allocator_};
 };
-
-// We use actual malloc for metadata allocations, but we track them so they
-// can be deleted.
-void* HugeAllocatorTest::MallocMetadata(size_t size) {
-  metadata_bytes_ += size;
-  void* ptr = malloc(size);
-  metadata_allocs_.push_back(ptr);
-  return ptr;
-}
-
-std::vector<void*> HugeAllocatorTest::metadata_allocs_;
-size_t HugeAllocatorTest::metadata_bytes_;
 
 TEST_P(HugeAllocatorTest, Basic) {
   std::vector<std::pair<HugeRange, size_t>> allocs;

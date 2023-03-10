@@ -106,7 +106,8 @@ constexpr HugeLength MinMaxTracker<kEpochs>::kMaxVal;
 class HugeCache {
  public:
   // For use in production
-  HugeCache(HugeAllocator* allocator, MetadataAllocFunction meta_allocate,
+  HugeCache(HugeAllocator* allocator,
+            MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MemoryModifyFunction unback)
       : HugeCache(allocator, meta_allocate, unback,
                   Clock{.now = absl::base_internal::CycleClock::Now,
@@ -138,7 +139,8 @@ class HugeCache {
   // capture the empirical dynamics we've seen.  See "Beyond Malloc
   // Efficiency..." (https://research.google/pubs/pub50370/) for more
   // information.
-  HugeCache(HugeAllocator* allocator, MetadataAllocFunction meta_allocate,
+  HugeCache(HugeAllocator* allocator,
+            MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MemoryModifyFunction unback, Clock clock)
       : allocator_(allocator),
         cache_(meta_allocate),

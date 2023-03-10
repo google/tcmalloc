@@ -23,6 +23,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 
@@ -46,16 +47,14 @@ class VirtualAllocator {
                                                        size_t align) = 0;
 };
 
-using MetadataAllocFunction = void* (*)(size_t bytes);
-
 // This tracks available ranges of hugepages and fulfills requests for
 // usable memory, allocating more from the system as needed.  All
 // hugepages are treated as (and assumed to be) unbacked.
 class HugeAllocator {
  public:
-  constexpr HugeAllocator(VirtualAllocator& allocate
-                              ABSL_ATTRIBUTE_LIFETIME_BOUND,
-                          MetadataAllocFunction meta_allocate)
+  constexpr HugeAllocator(
+      VirtualAllocator& allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND)
       : free_(meta_allocate), allocate_(allocate) {}
 
   // Obtain a range of n unbacked hugepages, distinct from all other
