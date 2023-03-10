@@ -24,49 +24,29 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// This class maintains a small collection of StackTrace hashes that is used to
-// help select allocations which should be guarded more frequently.
-// It provides two functions:
-//    - Allow: which returns a boolean indicating that the provided StackTrace
-//      should be guarded.
-//    - Evaluate: a fine grained return value for Allow indicating why the
-//      provided StackTrace should be guarded.
+// This class maintains a small collection of StackTrace hashes which are used
+// to inform the selection of allocations to be guarded. It provides two
+// functions:
+//    - Evaluate: returns a double with a value between 0.0 and 1.0.
+//      0.0 indicates no guards have been placed on this StackTrace.
+//      1.0 indicates this StackTrace is guarded more than any others.
+//      The closer the value is to 0.0, then less frequently the StackTrace has
+//      been guarded.
 //    - Add: which adds the provided StackTrace to the filter, for use when
-//      responding to subsequent Allow calls.
+//      responding to subsequent Evaluate calls.
 // Based on the collection size (kSize), it uses the lower bits (kMask) of the
 // StackTrace hash as an index into stack_hashes_with_count_.  It stores a count
 // of the number of times a hash has been 'Add'-ed in the lower bits (kMask).
 //
 // To enhance selecting less frequent StackTrace hashes (stack traces), the most
 // frequently encountered StackTrace hash count is recorded as a high-water
-// mark. It is checked within Allow to prevent guarding this high frequency
+// mark. It is used within Evaluate to discourage guarding this high frequency
 // StackTrace hash.
 class StackTraceFilter {
  public:
   constexpr StackTraceFilter() = default;
 
-  bool Allow(const StackTrace& stacktrace) const {
-    switch (Evaluate(stacktrace)) {
-      case StackTraceFilter::EvaluateResult::DenyTooFrequent:
-      case EvaluateResult::Unknown:
-        return false;
-      case EvaluateResult::AllowNew:
-      case EvaluateResult::AllowNewCollision:
-      case EvaluateResult::AllowInfrequent:
-        return true;
-    }
-    return false;
-  }
-  // Positive values indicate allowed stack traces.
-  // Negative values indicate denied stack traces.
-  enum class EvaluateResult {
-    DenyTooFrequent = -1,
-    Unknown = 0,
-    AllowNew = 1,
-    AllowNewCollision = 2,
-    AllowInfrequent = 3,
-  };
-  EvaluateResult Evaluate(const StackTrace& stacktrace) const;
+  double Evaluate(const StackTrace& stacktrace) const;
   void Add(const StackTrace& stacktrace);
 
  private:
@@ -85,27 +65,25 @@ class StackTraceFilter {
   friend class StackTraceFilterThreadedTest;
 };
 
-inline StackTraceFilter::EvaluateResult StackTraceFilter::Evaluate(
-    const StackTrace& stacktrace) const {
+inline double StackTraceFilter::Evaluate(const StackTrace& stacktrace) const {
   size_t stack_hash = HashOfStackTrace(stacktrace);
   size_t existing_stack_hash_with_count =
       stack_hashes_with_count_[stack_hash % kSize].load(
           std::memory_order_relaxed);
   //  New stack trace
   if (existing_stack_hash_with_count == 0) {
-    return EvaluateResult::AllowNew;
+    return 0.0;
   }
   // Different stack trace, treat as new
   if ((stack_hash & ~kMask) != (existing_stack_hash_with_count & ~kMask)) {
-    return EvaluateResult::AllowNewCollision;
+    return 0.0;
   }
-  size_t count = existing_stack_hash_with_count & kMask;
-  // Other traces have been seen more frequently, so allow.
-  if (count < most_frequent_hash_count_.load(std::memory_order_relaxed)) {
-    return EvaluateResult::AllowInfrequent;
-  }
-
-  return EvaluateResult::DenyTooFrequent;
+  // Return a value based on the count of the most frequently guarded stack.
+  size_t most_frequent_hash_count =
+      most_frequent_hash_count_.load(std::memory_order_relaxed);
+  assert(most_frequent_hash_count > 0);
+  return static_cast<double>(existing_stack_hash_with_count & kMask) /
+         most_frequent_hash_count;
 }
 
 inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
@@ -117,17 +95,16 @@ inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
   if ((existing_stack_hash_with_count & ~kMask) == (stack_hash & ~kMask)) {
     // matching entry, increment count
     count = (existing_stack_hash_with_count & kMask) + 1;
-    // if more frequent, then raise limit
-    if (count > most_frequent_hash_count_.load(std::memory_order_relaxed) &&
-        count <= kHashCountLimit) {
-      most_frequent_hash_count_.store(count, std::memory_order_relaxed);
-    }
     // max count has been reached, skip storing incremented count
     if (count > kHashCountLimit) {
       return;
     }
     stack_hashes_with_count_[stack_hash % kSize].store(
         (stack_hash & ~kMask) | count, std::memory_order_relaxed);
+    // if more frequent, then raise limit
+    if (count > most_frequent_hash_count_.load(std::memory_order_relaxed)) {
+      most_frequent_hash_count_.store(count, std::memory_order_relaxed);
+    }
   } else {
     // New stack_hash being placed in (unoccupied entry || existing entry)
     stack_hashes_with_count_[stack_hash % kSize].store(
@@ -135,9 +112,8 @@ inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
     // For the case of replacing an existing entry, if it was the most
     // frequently encountered stack_hash, find the remaining
     // most frequent stack_hash count and store it.
-    if (existing_stack_hash_with_count != 0 &&
-        (existing_stack_hash_with_count & kMask) >=
-            most_frequent_hash_count_.load(std::memory_order_relaxed)) {
+    if ((existing_stack_hash_with_count & kMask) >=
+        most_frequent_hash_count_.load(std::memory_order_relaxed)) {
       // Search for highest value and use that.
       size_t new_most_frequent_hash_count = 1;
       std::atomic<size_t>* stack_hashes_with_count_ptr =

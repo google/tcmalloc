@@ -128,6 +128,13 @@ class StackTraceFilterTest : public testing::Test {
     return filter_.HashOfStackTrace(stacktrace);
   }
 
+  size_t count(const StackTrace& stacktrace) const {
+    return filter_
+               .stack_hashes_with_count_[HashOfStackTrace(stacktrace) & mask()]
+               .load(std::memory_order_relaxed) &
+           mask();
+  }
+
   StackTraceFilter filter_;
   StackTrace stacktrace1_{0};
   StackTrace stacktrace2_{0};
@@ -150,34 +157,30 @@ TEST_F(StackTraceFilterTest, ConstexprConstructor) {
 }
 
 TEST_F(StackTraceFilterTest, AllowNew) {
-  EXPECT_TRUE(filter_.Allow(stacktrace1_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace1_),
-            StackTraceFilter::EvaluateResult::AllowNew);
+  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AllowDifferent) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
-  EXPECT_TRUE(filter_.Allow(collider_stacktrace_));
-  EXPECT_EQ(filter_.Evaluate(collider_stacktrace_),
-            StackTraceFilter::EvaluateResult::AllowNewCollision);
+  EXPECT_EQ(0.0, filter_.Evaluate(collider_stacktrace_));
 }
 
 TEST_F(StackTraceFilterTest, AllowLessFrequent) {
   filter_.Add(stacktrace1_);
   filter_.Add(stacktrace1_);
   filter_.Add(stacktrace2_);
-  EXPECT_TRUE(filter_.Allow(stacktrace2_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace2_),
-            StackTraceFilter::EvaluateResult::AllowInfrequent);
+  EXPECT_EQ(0.5, filter_.Evaluate(stacktrace2_));
+  // Demonstrate that a lower value indicates less guarded.
+  filter_.Add(stacktrace1_);
+  filter_.Add(stacktrace1_);
+  EXPECT_EQ(0.25, filter_.Evaluate(stacktrace2_));
 }
 
 // Also covers case where add is in unused location
 TEST_F(StackTraceFilterTest, AllowDisallow) {
   filter_.Add(stacktrace1_);
-  EXPECT_FALSE(filter_.Allow(stacktrace1_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace1_),
-            StackTraceFilter::EvaluateResult::DenyTooFrequent);
+  EXPECT_EQ(1.0, filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddMoreFrequent) {
@@ -217,21 +220,13 @@ TEST_F(StackTraceFilterTest, AllowLessFrequentAfterAddReplace) {
   filter_.Add(collider_stacktrace_);
   EXPECT_EQ(most_frequent_hash_count(), 2);
   // Newly added, but still lest frequent
-  EXPECT_TRUE(filter_.Allow(collider_stacktrace_));
-  EXPECT_EQ(filter_.Evaluate(collider_stacktrace_),
-            StackTraceFilter::EvaluateResult::AllowInfrequent);
+  EXPECT_EQ(0.5, filter_.Evaluate(collider_stacktrace_));
   // Not present, functionally never seen before
-  EXPECT_TRUE(filter_.Allow(stacktrace1_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace1_),
-            StackTraceFilter::EvaluateResult::AllowNewCollision);
+  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace1_));
   // Current holder of maximum encounter (disallowed)
-  EXPECT_FALSE(filter_.Allow(stacktrace2_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace2_),
-            StackTraceFilter::EvaluateResult::DenyTooFrequent);
+  EXPECT_EQ(1.0, filter_.Evaluate(stacktrace2_));
   // Never seen before
-  EXPECT_TRUE(filter_.Allow(stacktrace3_));
-  EXPECT_EQ(filter_.Evaluate(stacktrace3_),
-            StackTraceFilter::EvaluateResult::AllowNew);
+  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace3_));
 }
 
 // A collection of threaded tests which are useful for demonstrating
@@ -291,7 +286,6 @@ class StackTraceFilterThreadedTest : public testing::Test {
         add_calls_counts[stacktrace_index] = add_calls_requested_;
       }
 
-      int allow_calls = 0;
       int add_calls = 0;
       while (!allow_calls_counts.empty() || !add_calls_counts.empty()) {
         bool do_allow_call = absl::Uniform(bitgen_, 0, 2);
@@ -300,8 +294,6 @@ class StackTraceFilterThreadedTest : public testing::Test {
           std::advance(iter,
                        absl::Uniform(bitgen_, 0UL, allow_calls_counts.size()));
           size_t stacktrace_index = iter->first;
-          filter_.Allow(stacktraces_[stacktrace_index]);
-          ++allow_calls;
           if (--allow_calls_counts[stacktrace_index] == 0) {
             allow_calls_counts.erase(iter);
           }
@@ -318,7 +310,6 @@ class StackTraceFilterThreadedTest : public testing::Test {
         }
       }
 
-      EXPECT_EQ(allow_calls, allow_calls_requested_ * stacktraces_.size());
       EXPECT_EQ(add_calls, add_calls_requested_ * stacktraces_.size());
 
       hasrun_.store(true, std::memory_order_relaxed);
