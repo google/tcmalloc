@@ -69,6 +69,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using huge_page_allocator_internal::HugeRegionCountOption;
 using testing::HasSubstr;
 
 class HugePageAwareAllocatorTest
@@ -209,6 +210,8 @@ class HugePageAwareAllocatorTest
     return ret;
   }
 
+  // TODO(b/242550501):  Replace this with one templated with a different
+  // forwarder, as to facilitate mocks.
   HugePageAwareAllocator* allocator_;
   ExtraRegionFactory* extra_;
   AddressRegionFactory* before_;

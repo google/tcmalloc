@@ -27,7 +27,6 @@
 namespace {
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
-using tcmalloc::tcmalloc_internal::HugeRegionCountOption;
 using tcmalloc::tcmalloc_internal::kNumaPartitions;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
 using tcmalloc::tcmalloc_internal::kTop;
@@ -38,6 +37,8 @@ using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::Span;
+using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+    HugeRegionCountOption;
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -118,6 +119,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // TODO(b/271282540): Add an additional op that simulates a failure for
   // Unback when releasing spans.
+  //
+  // TODO(b/242550501): Use mocks to change runtime parameters while running.
   for (size_t i = 0; i + 9 <= size; i += 9) {
     const uint16_t op = data[i];
     uint64_t value;

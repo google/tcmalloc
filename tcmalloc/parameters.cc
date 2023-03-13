@@ -31,7 +31,7 @@ namespace tcmalloc_internal {
 // As decide_subrelease() is determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
 static std::atomic<bool>* hpaa_subrelease_ptr() {
-  static std::atomic<bool> v(decide_subrelease());
+  static std::atomic<bool> v(huge_page_allocator_internal::decide_subrelease());
   return &v;
 }
 

@@ -45,6 +45,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using huge_page_allocator_internal::HugeRegionCountOption;
+
 constexpr absl::Duration kLifetimeThreshold = absl::Milliseconds(500);
 constexpr absl::Duration kWaitLong = absl::Milliseconds(510);
 constexpr absl::Duration kWaitShort = absl::Milliseconds(1);
