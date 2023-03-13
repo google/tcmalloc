@@ -45,6 +45,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 using huge_page_allocator_internal::HugeRegionCountOption;
 
 constexpr absl::Duration kLifetimeThreshold = absl::Milliseconds(500);
@@ -86,8 +87,12 @@ class LifetimesTest
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(
-        MemoryTag::kNormal, HugeRegionCountOption::kSlack, GetParam());
+    HugePageAwareAllocatorOptions options;
+    options.tag = MemoryTag::kNormal;
+    // TODO(b/242550501):  Allow this to use our default.
+    options.use_huge_region_more_often = HugeRegionCountOption::kSlack;
+    options.lifetime_options = GetParam();
+    allocator_ = new (p) HugePageAwareAllocator(options);
     lifetime_allocator_ = &allocator_->lifetime_based_allocator();
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.
@@ -539,16 +544,18 @@ INSTANTIATE_TEST_SUITE_P(
 class LifetimeBasedAllocatorEnableAtRuntimeTest : public LifetimesTest {
  public:
   explicit LifetimeBasedAllocatorEnableAtRuntimeTest() {
-    LifetimePredictionOptions options = LifetimePredictionOptions(
-        LifetimePredictionOptions::Mode::kDisabled,
-        LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions,
-        kLifetimeThreshold);
-
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(
-        MemoryTag::kNormal, HugeRegionCountOption::kSlack, options);
+    HugePageAwareAllocatorOptions options;
+    options.tag = MemoryTag::kNormal;
+    // TODO(b/242550501):  Allow this to use our default.
+    options.use_huge_region_more_often = HugeRegionCountOption::kSlack;
+    options.lifetime_options = LifetimePredictionOptions(
+        LifetimePredictionOptions::Mode::kDisabled,
+        LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions,
+        kLifetimeThreshold);
+    allocator_ = new (p) HugePageAwareAllocator(options);
     lifetime_allocator_ = &allocator_->lifetime_based_allocator();
 
     // Warm up the allocator so that objects aren't placed in (regular) regions.

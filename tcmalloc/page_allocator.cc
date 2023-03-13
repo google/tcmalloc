@@ -29,6 +29,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
+
 int ABSL_ATTRIBUTE_WEAK default_want_hpaa();
 
 bool decide_want_hpaa() {
@@ -92,18 +94,20 @@ PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
   has_cold_impl_ = ColdFeatureActive();
   if (kUseHPAA) {
-    default_hpaa_ =
-        new (&choices_[0].hpaa) HugePageAwareAllocator(MemoryTag::kNormal);
+    default_hpaa_ = new (&choices_[0].hpaa) HugePageAwareAllocator(
+        HugePageAwareAllocatorOptions{MemoryTag::kNormal});
     normal_impl_[0] = default_hpaa_;
     if (tc_globals.numa_topology().numa_aware()) {
-      normal_impl_[1] =
-          new (&choices_[1].hpaa) HugePageAwareAllocator(MemoryTag::kNormalP1);
+      normal_impl_[1] = new (&choices_[1].hpaa) HugePageAwareAllocator(
+          HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
     }
-    sampled_impl_ = new (&choices_[kNumaPartitions + 0].hpaa)
-        HugePageAwareAllocator(MemoryTag::kSampled);
+    sampled_impl_ =
+        new (&choices_[kNumaPartitions + 0].hpaa) HugePageAwareAllocator(
+            HugePageAwareAllocatorOptions{MemoryTag::kSampled});
     if (has_cold_impl_) {
-      cold_impl_ = new (&choices_[kNumaPartitions + 1].hpaa)
-          HugePageAwareAllocator(MemoryTag::kCold);
+      cold_impl_ =
+          new (&choices_[kNumaPartitions + 1].hpaa) HugePageAwareAllocator(
+              HugePageAwareAllocatorOptions{MemoryTag::kCold});
     } else {
       cold_impl_ = normal_impl_[0];
     }

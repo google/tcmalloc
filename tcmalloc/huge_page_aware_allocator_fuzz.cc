@@ -26,6 +26,7 @@
 
 namespace {
 using tcmalloc::tcmalloc_internal::BackingStats;
+using tcmalloc::tcmalloc_internal::FillerPartialRerelease;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
 using tcmalloc::tcmalloc_internal::kNumaPartitions;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
@@ -37,6 +38,8 @@ using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::Span;
+using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+    HugePageAwareAllocatorOptions;
 using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugeRegionCountOption;
 }  // namespace
@@ -97,6 +100,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           : LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions;
   absl::Duration lifetime_duration = absl::Milliseconds(data[4]);
   LifetimePredictionOptions lifetime_options(mode, strategy, lifetime_duration);
+  // TODO(b/271282540): Include this in fuzzing.
+  const bool separate_allocs_for_few_and_many_objects_spans = false;
 
   // data[12:5] - Reserve eight additional bytes for any features we might want
   // to add in the future.
@@ -106,9 +111,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
   // to one and construct in place.
   void* p = malloc(sizeof(HugePageAwareAllocator));
+  HugePageAwareAllocatorOptions options;
+  options.tag = tag;
+  options.use_huge_region_more_often = huge_region_option;
+  options.lifetime_options = lifetime_options;
+  options.partial_release = FillerPartialRerelease::Retain;
+  options.separate_allocs_for_few_and_many_objects_spans =
+      separate_allocs_for_few_and_many_objects_spans;
   HugePageAwareAllocator* allocator;
-  allocator =
-      new (p) HugePageAwareAllocator(tag, huge_region_option, lifetime_options);
+  allocator = new (p) HugePageAwareAllocator(options);
 
   struct SpanInfo {
     Span* span;

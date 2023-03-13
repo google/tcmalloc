@@ -61,12 +61,6 @@ HugeRegionCountOption use_huge_region_for_often();
 
 class StaticForwarder {
  public:
-  // TODO(b/242550501): Hoist this into the constructor, since it does not
-  // change after initialization.
-  static bool separate_allocs_for_few_and_many_objects_spans() {
-    return Parameters::separate_allocs_for_few_and_many_objects_spans();
-  }
-
   // Runtime parameters.  This can change between calls.
   static absl::Duration filler_skip_subrelease_interval() {
     return Parameters::filler_skip_subrelease_interval();
@@ -115,21 +109,32 @@ class StaticForwarder {
   }
 };
 
+struct HugePageAwareAllocatorOptions {
+  MemoryTag tag;
+  HugeRegionCountOption use_huge_region_more_often;
+  LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
+  FillerPartialRerelease partial_release = decide_partial_rerelease();
+  // TODO(b/242550501): Strongly type
+  bool separate_allocs_for_few_and_many_objects_spans =
+      Parameters::separate_allocs_for_few_and_many_objects_spans();
+};
+
 // An implementation of the PageAllocator interface that is hugepage-efficient.
 // Attempts to pack allocations into full hugepages wherever possible,
 // and aggressively returns empty ones to the system.
+//
+// Some notes: locking discipline here is a bit funny, because
+// we want to *not* hold the pageheap lock while backing memory.
+//
+// We have here a collection of slightly different allocators each
+// optimized for slightly different purposes.  This file has two main purposes:
+// - pick the right one for a given allocation
+// - provide enough data to figure out what we picked last time!
+
 template <typename Forwarder>
 class HugePageAwareAllocator final : public PageAllocatorInterface {
  public:
-  // TODO(b/242550501):  Consolidate these constructor overloads into an options
-  // struct that takes all relevant parameters.
-  explicit HugePageAwareAllocator(MemoryTag tag);
-  // For use in testing.
-  HugePageAwareAllocator(MemoryTag tag,
-                         HugeRegionCountOption use_huge_region_more_often);
-  HugePageAwareAllocator(MemoryTag tag,
-                         HugeRegionCountOption use_huge_region_more_often,
-                         LifetimePredictionOptions lifetime_options);
+  explicit HugePageAwareAllocator(const HugePageAwareAllocatorOptions& options);
   ~HugePageAwareAllocator() override = default;
 
   // Allocate a run of "n" pages.  Returns zero if out of memory.
@@ -359,32 +364,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
-// Some notes: locking discipline here is a bit funny, because
-// we want to *not* hold the pageheap lock while backing memory.
-
-// We have here a collection of slightly different allocators each
-// optimized for slightly different purposes.  This file has two main purposes:
-// - pick the right one for a given allocation
-// - provide enough data to figure out what we picked last time!
-
-template <class Forwarder>
-inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(MemoryTag tag)
-    : HugePageAwareAllocator(tag, use_huge_region_for_often(),
-                             decide_lifetime_predictions()) {}
-
 template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
-    MemoryTag tag, HugeRegionCountOption use_huge_region_more_often)
-    : HugePageAwareAllocator(tag, use_huge_region_more_often,
-                             decide_lifetime_predictions()) {}
-
-template <class Forwarder>
-inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
-    MemoryTag tag, HugeRegionCountOption use_huge_region_more_often,
-    LifetimePredictionOptions lifetime_options)
-    : PageAllocatorInterface("HugePageAware", tag),
-      filler_(decide_partial_rerelease(),
-              forwarder_.separate_allocs_for_few_and_many_objects_spans(),
+    const HugePageAwareAllocatorOptions& options)
+    : PageAllocatorInterface("HugePageAware", options.tag),
+      filler_(options.partial_release,
+              options.separate_allocs_for_few_and_many_objects_spans,
               MemoryModifyFunction(&forwarder_.ReleasePages)),
       vm_allocator_(*this),
       metadata_allocator_(*this),
@@ -392,8 +377,9 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       cache_(HugeCache{&alloc_, metadata_allocator_,
                        MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
-      lifetime_allocator_(lifetime_options, &lifetime_allocator_region_alloc_),
-      use_huge_region_more_often_(use_huge_region_more_often) {
+      lifetime_allocator_(options.lifetime_options,
+                          &lifetime_allocator_region_alloc_),
+      use_huge_region_more_often_(options.use_huge_region_more_often) {
   tracker_allocator_.Init(&forwarder_.arena());
   region_allocator_.Init(&forwarder_.arena());
 }

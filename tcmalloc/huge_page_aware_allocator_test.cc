@@ -69,6 +69,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 using huge_page_allocator_internal::HugeRegionCountOption;
 using testing::HasSubstr;
 
@@ -83,7 +84,11 @@ class HugePageAwareAllocatorTest
     // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
     // to one and construct in place.
     void* p = malloc(sizeof(HugePageAwareAllocator));
-    allocator_ = new (p) HugePageAwareAllocator(MemoryTag::kNormal, GetParam());
+    HugePageAwareAllocatorOptions options;
+    options.tag = MemoryTag::kNormal;
+    // TODO(b/242550501): Parameterize other parts of the options.
+    options.use_huge_region_more_often = GetParam();
+    allocator_ = new (p) HugePageAwareAllocator(options);
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -1104,6 +1109,8 @@ class StatTest : public testing::Test {
  protected:
   StatTest() : rng_() {}
 
+  // TODO(b/242550501): Replace this with a fake forwarder, rather than using
+  // the real page heap.
   class RegionFactory;
 
   class Region : public AddressRegion {
@@ -1182,7 +1189,8 @@ class StatTest : public testing::Test {
     memset(buf, 0, sizeof(buf));
     MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
     SetRegionFactory(&replacement_region_factory_);
-    alloc = new (buf) HugePageAwareAllocator(MemoryTag::kNormal);
+    alloc = new (buf) HugePageAwareAllocator(
+        HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   }
 
   ~StatTest() override {
