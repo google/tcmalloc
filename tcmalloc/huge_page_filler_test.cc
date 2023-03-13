@@ -966,6 +966,35 @@ TEST_P(FillerTest, Density) {
   }
 }
 
+TEST_P(FillerTest, AccountingForUsedPartialReleased) {
+  if (std::get<0>(GetParam()) == FillerPartialRerelease::Return) {
+    GTEST_SKIP();
+  }
+  static const Length kAlloc = kPagesPerHugePage / 2;
+  static const Length kL1 = kAlloc + Length(3);
+  static const Length kL2 = kAlloc + Length(5);
+  PAlloc p1 = Allocate(kL1);
+  PAlloc p2 = Allocate(kL2);
+  // We have two hugepages, both partially allocated.
+  ASSERT_EQ(ReleasePages(kMaxValidPages),
+            kPagesPerHugePage - kL1 + kPagesPerHugePage - kL2);
+  ASSERT_EQ(filler_.used_pages_in_released(), kL1 + kL2);
+  // Now we allocate more.
+  static const Length kL3 = kAlloc - Length(4);
+  static const Length kL4 = kAlloc - Length(7);
+  // Maintain the object count as above so that same alloc lists are used for
+  // the following two allocations.
+  PAlloc p3 = AllocateWithObjectCount(kL3, p1.num_objects);
+  PAlloc p4 = AllocateWithObjectCount(kL4, p2.num_objects);
+  EXPECT_EQ(filler_.used_pages_in_released(), kL1 + kL2 + kL3 + kL4);
+  Delete(p3);
+  Delete(p4);
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), kL1 + kL2);
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
+  Delete(p1);
+  Delete(p2);
+}
+
 TEST_P(FillerTest, Release) {
   static const Length kAlloc = kPagesPerHugePage / 2;
   // Maintain the object count for the second allocation so that the alloc list
@@ -2812,9 +2841,6 @@ TEST_P(FillerTest, CounterUnderflow) {
 // of partially released and fully released pages in many_objects_alloc_.  The
 // comparator in use does not make correct choices in presence of such
 // hugepages.  The test below reproduces the buggy situation.
-//
-// TODO(b/271289285): Have this test run on all versions of the filler (not just
-// with separation).
 TEST_P(FillerTest, ReleasePagesFromManyObjectsAlloc) {
   randomize_objects_per_span_ = false;
   constexpr size_t kCandidatesForReleasingMemory =
@@ -2852,7 +2878,6 @@ TEST_P(FillerTest, ReleasePagesFromManyObjectsAlloc) {
   }
 }
 
-// TODO(b/271289285):  Run this for all values of separate few and many allocs.
 TEST_P(FillerTest, ReleasedPagesStatistics) {
   constexpr Length N = kPagesPerHugePage / 4;
 

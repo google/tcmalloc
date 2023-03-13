@@ -1079,7 +1079,6 @@ class HugePageFiller {
   Length used_pages_in_partial_released() const {
     ASSERT(n_used_partial_released_[kFew] <=
            regular_alloc_partial_released_[kFew].size().in_pages());
-    // TODO(b/271289285): Add a test for this.
     ASSERT(n_used_partial_released_[kMany] <=
            regular_alloc_partial_released_[kMany].size().in_pages());
     return n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
