@@ -244,7 +244,7 @@ class CentralFreeList {
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
 #endif
 
-  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
 // Like a constructor and hence we disable thread safety analysis.

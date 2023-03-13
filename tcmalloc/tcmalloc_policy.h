@@ -305,9 +305,9 @@ class TCMallocPolicy {
   }
 
  private:
-  TCMALLOC_NO_UNIQUE_ADDRESS AlignPolicy align_;
-  TCMALLOC_NO_UNIQUE_ADDRESS AccessPolicy access_;
-  TCMALLOC_NO_UNIQUE_ADDRESS NumaPolicy numa_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS AlignPolicy align_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS AccessPolicy access_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS NumaPolicy numa_;
 };
 
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;

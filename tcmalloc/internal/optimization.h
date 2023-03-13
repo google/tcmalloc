@@ -43,11 +43,4 @@
 #define TCMALLOC_ATTRIBUTE_CONST
 #endif
 
-#if ABSL_HAVE_CPP_ATTRIBUTE(no_unique_address)
-#define TCMALLOC_NO_UNIQUE_ADDRESS [[no_unique_address]]
-#else
-#define TCMALLOC_NO_UNIQUE_ADDRESS
-#error
-#endif
-
 #endif  // TCMALLOC_INTERNAL_OPTIMIZATION_H_

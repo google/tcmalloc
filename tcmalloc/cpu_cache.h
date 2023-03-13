@@ -529,7 +529,7 @@ class CpuCache {
   // Per-core cache limit in bytes.
   std::atomic<uint64_t> max_per_cpu_cache_size_{kMaxCpuCacheSize};
 
-  TCMALLOC_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
   DynamicSlabInfo dynamic_slab_info_{};
 
