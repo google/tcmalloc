@@ -1119,6 +1119,11 @@ TEST_P(FillerTest, PrintFreeRatio) {
     GTEST_SKIP();
   }
 
+  // We prevent randomly choosing the number of objects per span since this
+  // test has hardcoded output which will change if the objects per span are
+  // chosen at random.
+  randomize_objects_per_span_ = false;
+
   // Allocate two huge pages, release one, verify that we do not get an invalid
   // (>1.) ratio of free : non-fulls.
 
@@ -1152,7 +1157,9 @@ TEST_P(FillerTest, PrintFreeRatio) {
         buffer,
         testing::StartsWith(
             R"(HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
+HugePageFiller: Overall, 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
+HugePageFiller: those with few objects, 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
+HugePageFiller: those with many objects, 0 total, 0 full, 0 partial, 0 released (0 partially), 0 quarantined
 HugePageFiller: 64 pages free in 2 hugepages, 0.1250 free
 HugePageFiller: among non-fulls, 0.2500 free
 HugePageFiller: 128 used pages in subreleased hugepages (128 of them in partially released)
@@ -1163,7 +1170,9 @@ HugePageFiller: 0.6667 of used pages hugepageable)"));
         buffer,
         testing::StartsWith(
             R"(HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
+HugePageFiller: Overall, 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
+HugePageFiller: those with few objects, 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
+HugePageFiller: those with many objects, 0 total, 0 full, 0 partial, 0 released (0 partially), 0 quarantined
 HugePageFiller: 0 pages free in 2 hugepages, 0.0000 free
 HugePageFiller: among non-fulls, 0.0000 free
 HugePageFiller: 128 used pages in subreleased hugepages (0 of them in partially released)
@@ -2180,7 +2189,7 @@ TEST_F(FillerStatsTrackerTest, SubreleaseCorrectnessWithChangingIntervals) {
 }
 
 std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
-  PAlloc a = Allocate(Length(1));
+  PAlloc a = AllocateWithObjectCount(Length(1), 1);
   EXPECT_EQ(ReleasePages(kMaxValidPages), kPagesPerHugePage - Length(1));
   Delete(a);
   // Get the report on the released page
@@ -2195,7 +2204,7 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
     result.push_back(
         AllocateWithObjectCount(kPagesPerHugePage - i - Length(1), 1));
     result.push_back(AllocateWithObjectCount(kPagesPerHugePage - i - Length(1),
-                                             a.num_objects));
+                                             2 * kFewObjectsAllocMaxLimit));
   }
 
   // Get released hugepages.
@@ -2207,12 +2216,12 @@ std::vector<FillerTest::PAlloc> FillerTest::GenerateInterestingAllocs() {
   // Fill some of the remaining pages with small allocations.
   for (int i = 0; i < 9; ++i) {
     result.push_back(AllocateWithObjectCount(Length(1), 1));
-    result.push_back(AllocateWithObjectCount(Length(1), a.num_objects));
+    result.push_back(
+        AllocateWithObjectCount(Length(1), 2 * kFewObjectsAllocMaxLimit));
   }
 
   // Finally, donate one hugepage.
-  result.push_back(AllocateWithObjectCount(Length(1), a.num_objects,
-                                           /*donated=*/true));
+  result.push_back(AllocateWithObjectCount(Length(1), 1, /*donated=*/true));
   return result;
 }
 
@@ -2532,9 +2541,11 @@ TEST_P(FillerTest, DISABLED_b258965495) {
   Delete(a1);
 }
 
-// Test the output of Print(). This is something of a change-detector test,
-// but that's not all bad in this case.
-TEST_P(FillerTest, Print) {
+TEST_P(FillerTest, CheckFillerStats) {
+  // Skip test for single alloc as we test for non-zero hardened output.
+  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  }
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
     // it would be way too much of a pain.
@@ -2542,7 +2553,58 @@ TEST_P(FillerTest, Print) {
   }
   // We prevent randomly choosing the number of objects per span since this
   // test has hardcoded output which will change if the objects per span are
-  // choosen at random.
+  // chosen at random.
+  randomize_objects_per_span_ = false;
+  auto allocs = GenerateInterestingAllocs();
+
+  const HugePageFillerStats stats = filler_.GetStats();
+  for (int i = 0; i < kObjectCounts; ++i) {
+    EXPECT_GE(stats.n_fully_released[i].raw_num(), 0);
+  }
+  // Check few-object filler stats.
+  EXPECT_EQ(stats.n_fully_released[kFew].raw_num(), 2);
+  EXPECT_EQ(stats.n_released[kFew].raw_num(), 2);
+  EXPECT_EQ(stats.n_partial_released[kFew].raw_num(), 0);
+  EXPECT_EQ(stats.n_total[kFew].raw_num(), 8);
+  EXPECT_EQ(stats.n_full[kFew].raw_num(), 3);
+  EXPECT_EQ(stats.n_partial[kFew].raw_num(), 3);
+
+  // Check many-object filler stats.
+  EXPECT_EQ(stats.n_fully_released[kMany].raw_num(), 2);
+  EXPECT_EQ(stats.n_released[kMany].raw_num(), 2);
+  EXPECT_EQ(stats.n_partial_released[kMany].raw_num(), 0);
+  EXPECT_EQ(stats.n_total[kMany].raw_num(), 7);
+  EXPECT_EQ(stats.n_full[kMany].raw_num(), 3);
+  EXPECT_EQ(stats.n_partial[kMany].raw_num(), 2);
+
+  // Check total filler stats.
+  EXPECT_EQ(stats.n_fully_released[kObjectCounts].raw_num(), 4);
+  EXPECT_EQ(stats.n_released[kObjectCounts].raw_num(), 4);
+  EXPECT_EQ(stats.n_partial_released[kObjectCounts].raw_num(), 0);
+  EXPECT_EQ(stats.n_total[kObjectCounts].raw_num(), 15);
+  EXPECT_EQ(stats.n_full[kObjectCounts].raw_num(), 6);
+  EXPECT_EQ(stats.n_partial[kObjectCounts].raw_num(), 5);
+
+  for (const auto& alloc : allocs) {
+    Delete(alloc);
+  }
+}
+
+// Test the output of Print(). This is something of a change-detector test,
+// but that's not all bad in this case.
+TEST_P(FillerTest, Print) {
+  // Skip test for single alloc as we test for non-zero hardened output.
+  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  }
+  if (kPagesPerHugePage != Length(256)) {
+    // The output is hardcoded on this assumption, and dynamically calculating
+    // it would be way too much of a pain.
+    return;
+  }
+  // We prevent randomly choosing the number of objects per span since this
+  // test has hardcoded output which will change if the objects per span are
+  // chosen at random.
   randomize_objects_per_span_ = false;
   auto allocs = GenerateInterestingAllocs();
 
@@ -2556,9 +2618,11 @@ TEST_P(FillerTest, Print) {
   EXPECT_THAT(
       buffer,
       StrEq(R"(HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: 15 total, 7 full, 4 partial, 4 released (0 partially), 0 quarantined
+HugePageFiller: Overall, 15 total, 6 full, 5 partial, 4 released (0 partially), 0 quarantined
+HugePageFiller: those with few objects, 8 total, 3 full, 3 partial, 2 released (0 partially), 0 quarantined
+HugePageFiller: those with many objects, 7 total, 3 full, 2 partial, 2 released (0 partially), 0 quarantined
 HugePageFiller: 267 pages free in 15 hugepages, 0.0695 free
-HugePageFiller: among non-fulls, 0.2607 free
+HugePageFiller: among non-fulls, 0.2086 free
 HugePageFiller: 998 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 4 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7186 of used pages hugepageable
@@ -2567,13 +2631,13 @@ HugePageFiller: Since startup, 282 pages subreleased, 5 hugepages broken, (0 pag
 HugePageFiller: fullness histograms
 
 HugePageFiller: # of few-object regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     7 <  1<=     0 <  2<=     1 <  3<=     0 <  4<=     2 < 16<=     0
+HugePageFiller: <  0<=     3 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     1 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of many-object regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: <  0<=     3 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     1 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
@@ -2597,25 +2661,25 @@ HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of few-object released hps with a<= # of free pages <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     4 < 16<=     0
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of many-object released hps with a<= # of free pages <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of few-object regular hps with a<= longest free range <b
-HugePageFiller: <  0<=     7 <  1<=     0 <  2<=     1 <  3<=     0 <  4<=     2 < 16<=     0
+HugePageFiller: <  0<=     3 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     1 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of many-object regular hps with a<= longest free range <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: <  0<=     3 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     1 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
@@ -2633,25 +2697,25 @@ HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of few-object released hps with a<= longest free range <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     4 < 16<=     0
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of many-object released hps with a<= longest free range <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 < 16<=     0
+HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     2 < 16<=     0
 HugePageFiller: < 32<=     0 < 48<=     0 < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0
 HugePageFiller: <128<=     0 <144<=     0 <160<=     0 <176<=     0 <192<=     0 <208<=     0
 HugePageFiller: <224<=     0 <240<=     0 <252<=     0 <253<=     0 <254<=     0 <255<=     0
 
 HugePageFiller: # of few-object regular hps with a<= # of allocations <b
-HugePageFiller: <  1<=     2 <  2<=     2 <  3<=     3 <  4<=     2 <  5<=     1 < 17<=     0
+HugePageFiller: <  1<=     1 <  2<=     1 <  3<=     1 <  4<=     2 <  5<=     0 < 17<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
 
 HugePageFiller: # of many-object regular hps with a<= # of allocations <b
-HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
+HugePageFiller: <  1<=     1 <  2<=     1 <  3<=     1 <  4<=     2 <  5<=     0 < 17<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
@@ -2669,13 +2733,13 @@ HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
 
 HugePageFiller: # of few-object released hps with a<= # of allocations <b
-HugePageFiller: <  1<=     4 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
+HugePageFiller: <  1<=     2 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0
 
 HugePageFiller: # of many-object released hps with a<= # of allocations <b
-HugePageFiller: <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
+HugePageFiller: <  1<=     2 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0 < 17<=     0
 HugePageFiller: < 33<=     0 < 49<=     0 < 65<=     0 < 81<=     0 < 97<=     0 <113<=     0
 HugePageFiller: <129<=     0 <145<=     0 <161<=     0 <177<=     0 <193<=     0 <209<=     0
 HugePageFiller: <225<=     0 <241<=     0 <253<=     0 <254<=     0 <255<=     0 <256<=     0

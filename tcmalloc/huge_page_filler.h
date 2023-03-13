@@ -1012,6 +1012,25 @@ enum ObjectCount {
   kObjectCounts,
 };
 
+// Records number of hugepages in different types of allocs.
+//
+// We use an additional element in the array to record the total sum of pages
+// in kFew and kMany allocs.
+struct HugePageFillerStats {
+  // Number of hugepages in fully-released alloc.
+  HugeLength n_fully_released[kObjectCounts + 1];
+  // Number of hugepages in partially-released alloc.
+  HugeLength n_partial_released[kObjectCounts + 1];
+  // Total hugepages that are either in fully- or partially-released allocs.
+  HugeLength n_released[kObjectCounts + 1];
+  // Total hugepages in the filler of a particular object count.
+  HugeLength n_total[kObjectCounts + 1];
+  // Total hugepages that have been fully allocated.
+  HugeLength n_full[kObjectCounts + 1];
+  // Number of hugepages in partially allocated (but not released) allocs.
+  HugeLength n_partial[kObjectCounts + 1];
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -1118,6 +1137,8 @@ class HugePageFiller {
 
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
+
+  HugePageFillerStats GetStats() const;
   void Print(Printer* out, bool everything) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
@@ -1180,6 +1201,9 @@ class HugePageFiller {
   // multi-hugepage allocation.
   void DonateToFillerList(TrackerType* pt);
 
+  void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion* hpaa,
+                              const HugePageFillerStats& stats,
+                              ObjectCount count) const;
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(TrackerType* a, TrackerType* b) {
@@ -2119,27 +2143,52 @@ class UsageInfo {
 }  // namespace huge_page_filler_internal
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer* out,
-                                               bool everything) const {
-  out->printf("HugePageFiller: densely pack small requests into hugepages\n");
-
-  const HugeLength n_fully_released = regular_alloc_released_[kFew].size() +
-                                      regular_alloc_released_[kMany].size();
-  const HugeLength n_partial_released =
-      regular_alloc_partial_released_[kFew].size() +
-      regular_alloc_partial_released_[kMany].size();
-
-  const HugeLength n_released = n_fully_released + n_partial_released;
-  HugeLength nfull = NHugePages(0);
+inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
+  HugePageFillerStats stats;
 
   // note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
-    // TODO(b/271591033): Break out statistics for many and few separately.
-    nfull += NHugePages(
+    stats.n_full[kFew] += NHugePages(
         regular_alloc_[kFew][ListFor(/*longest=*/Length(0), chunk)].length());
-    nfull += NHugePages(
+    stats.n_full[kMany] += NHugePages(
         regular_alloc_[kMany][ListFor(/*longest=*/Length(0), chunk)].length());
   }
+  stats.n_full[kObjectCounts] = stats.n_full[kFew] + stats.n_full[kMany];
+
+  // We only use donated allocs for allocating few-object pages.
+  stats.n_total[kFew] = donated_alloc_.size();
+  for (const ObjectCount count : {kFew, kMany}) {
+    stats.n_fully_released[count] = regular_alloc_released_[count].size();
+    stats.n_partial_released[count] =
+        regular_alloc_partial_released_[count].size();
+    stats.n_released[count] =
+        stats.n_fully_released[count] + stats.n_partial_released[count];
+    stats.n_total[count] +=
+        stats.n_released[count] + regular_alloc_[count].size();
+    stats.n_partial[count] =
+        stats.n_total[count] - stats.n_released[count] - stats.n_full[count];
+  }
+
+  // Collect total stats that is the sum of both kFew and kMany allocs.
+  stats.n_fully_released[kObjectCounts] =
+      stats.n_fully_released[kFew] + stats.n_fully_released[kMany];
+  stats.n_partial_released[kObjectCounts] =
+      stats.n_partial_released[kFew] + stats.n_partial_released[kMany];
+  stats.n_released[kObjectCounts] =
+      stats.n_released[kFew] + stats.n_released[kMany];
+
+  stats.n_total[kObjectCounts] = size();
+  stats.n_partial[kObjectCounts] =
+      size() - stats.n_released[kObjectCounts] - stats.n_full[kObjectCounts];
+  return stats;
+}
+
+template <class TrackerType>
+inline void HugePageFiller<TrackerType>::Print(Printer* out,
+                                               bool everything) const {
+  out->printf("HugePageFiller: densely pack small requests into hugepages\n");
+  const HugePageFillerStats stats = GetStats();
+
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
   ASSERT(donated_alloc_[0].empty());
@@ -2149,17 +2198,34 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
                           : static_cast<double>(a.raw_num()) /
                                 static_cast<double>(b.raw_num());
   };
-  const HugeLength n_partial = size() - n_released - nfull;
-  const HugeLength n_nonfull = n_partial + n_partial_released;
   out->printf(
-      "HugePageFiller: %zu total, %zu full, %zu partial, %zu released "
+      "HugePageFiller: Overall, %zu total, %zu full, %zu partial, %zu released "
       "(%zu partially), 0 quarantined\n",
-      size().raw_num(), nfull.raw_num(), n_partial.raw_num(),
-      n_released.raw_num(), n_partial_released.raw_num());
+      size().raw_num(), stats.n_full[kObjectCounts].raw_num(),
+      stats.n_partial[kObjectCounts].raw_num(),
+      stats.n_released[kObjectCounts].raw_num(),
+      stats.n_partial_released[kObjectCounts].raw_num());
+
+  out->printf(
+      "HugePageFiller: those with few objects, %zu total, %zu full, %zu "
+      "partial, %zu released (%zu partially), 0 quarantined\n",
+      stats.n_total[kFew].raw_num(), stats.n_full[kFew].raw_num(),
+      stats.n_partial[kFew].raw_num(), stats.n_released[kFew].raw_num(),
+      stats.n_partial_released[kFew].raw_num());
+
+  out->printf(
+      "HugePageFiller: those with many objects, %zu total, %zu full, %zu "
+      "partial, %zu released (%zu partially), 0 quarantined\n",
+      stats.n_total[kMany].raw_num(), stats.n_full[kMany].raw_num(),
+      stats.n_partial[kMany].raw_num(), stats.n_released[kMany].raw_num(),
+      stats.n_partial_released[kMany].raw_num());
+
   out->printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
               free_pages().raw_num(), size().raw_num(),
               safe_div(free_pages(), size().in_pages()));
 
+  const HugeLength n_nonfull =
+      stats.n_partial[kObjectCounts] + stats.n_partial_released[kObjectCounts];
   ASSERT(free_pages() <= n_nonfull.in_pages());
   out->printf("HugePageFiller: among non-fulls, %.4f free\n",
               safe_div(free_pages(), n_nonfull.in_pages()));
@@ -2172,7 +2238,8 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 
   out->printf(
       "HugePageFiller: %zu hugepages partially released, %.4f released\n",
-      n_released.raw_num(), safe_div(unmapped_pages(), n_released.in_pages()));
+      stats.n_released[kObjectCounts].raw_num(),
+      safe_div(unmapped_pages(), stats.n_released[kObjectCounts].in_pages()));
   out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
               hugepage_frac());
 
@@ -2232,49 +2299,57 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 }
 
 template <class TrackerType>
+inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
+    absl::string_view field, PbtxtRegion* hpaa,
+    const HugePageFillerStats& stats, ObjectCount count) const {
+  ASSERT(count < ObjectCount::kObjectCounts);
+  PbtxtRegion alloc_region = hpaa->CreateSubRegion(field);
+  alloc_region.PrintI64("full_huge_pages", stats.n_full[count].raw_num());
+  alloc_region.PrintI64("partial_huge_pages", stats.n_partial[count].raw_num());
+  alloc_region.PrintI64("released_huge_pages",
+                        stats.n_released[count].raw_num());
+  alloc_region.PrintI64("partially_released_huge_pages",
+                        stats.n_partial_released[count].raw_num());
+}
+
+template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
-  const HugeLength n_fully_released = regular_alloc_released_[kFew].size() +
-                                      regular_alloc_released_[kMany].size();
-  const HugeLength n_partial_released =
-      regular_alloc_partial_released_[kFew].size() +
-      regular_alloc_partial_released_[kMany].size();
+  const HugePageFillerStats stats = GetStats();
 
-  const HugeLength n_released = n_fully_released + n_partial_released;
-
-  HugeLength nfull = NHugePages(0);
-
-  // note kChunks, not kNumLists here--we're iterating *full* lists.
-  for (size_t chunk = 0; chunk < kChunks; ++chunk) {
-    // TODO(b/271591033): Break out statistics for many and few separately.
-    nfull += NHugePages(
-        regular_alloc_[kFew][ListFor(/*longest=*/Length(0), chunk)].length());
-    nfull += NHugePages(
-        regular_alloc_[kMany][ListFor(/*longest=*/Length(0), chunk)].length());
-  }
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
   ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
   const auto safe_div = [](Length a, Length b) {
-    return b == Length(0) ? 0
+    return b == Length(0) ? 0.
                           : static_cast<double>(a.raw_num()) /
                                 static_cast<double>(b.raw_num());
   };
-  const HugeLength n_partial = size() - n_released - nfull;
-  hpaa->PrintI64("filler_full_huge_pages", nfull.raw_num());
-  hpaa->PrintI64("filler_partial_huge_pages", n_partial.raw_num());
-  hpaa->PrintI64("filler_released_huge_pages", n_released.raw_num());
+
+  hpaa->PrintI64("filler_full_huge_pages",
+                 stats.n_full[kObjectCounts].raw_num());
+  hpaa->PrintI64("filler_partial_huge_pages",
+                 stats.n_partial[kObjectCounts].raw_num());
+  hpaa->PrintI64("filler_released_huge_pages",
+                 stats.n_released[kObjectCounts].raw_num());
   hpaa->PrintI64("filler_partially_released_huge_pages",
-                 n_partial_released.raw_num());
+                 stats.n_partial_released[kObjectCounts].raw_num());
+
+  PrintAllocStatsInPbtxt("filler_few_object_alloc_stats", hpaa, stats,
+                         ObjectCount::kFew);
+  PrintAllocStatsInPbtxt("filler_many_object_alloc_stats", hpaa, stats,
+                         ObjectCount::kMany);
+
   hpaa->PrintI64("filler_free_pages", free_pages().raw_num());
   hpaa->PrintI64("filler_used_pages_in_subreleased",
                  used_pages_in_any_subreleased().raw_num());
   hpaa->PrintI64("filler_used_pages_in_partial_released",
                  used_pages_in_partial_released().raw_num());
-  hpaa->PrintI64(
-      "filler_unmapped_bytes",
-      static_cast<uint64_t>(n_released.raw_num() *
-                            safe_div(unmapped_pages(), n_released.in_pages())));
+  hpaa->PrintI64("filler_unmapped_bytes",
+                 static_cast<uint64_t>(
+                     stats.n_released[kObjectCounts].raw_num() *
+                     safe_div(unmapped_pages(),
+                              stats.n_released[kObjectCounts].in_pages())));
   hpaa->PrintI64("filler_hugepageable_used_bytes",
                  static_cast<uint64_t>(
                      hugepage_frac() *
