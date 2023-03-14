@@ -19,15 +19,19 @@
 #include <vector>
 
 #include "absl/log/check.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 
 namespace {
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::FillerPartialRerelease;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
+using tcmalloc::tcmalloc_internal::kMaxSize;
+using tcmalloc::tcmalloc_internal::kMinObjectsToMove;
 using tcmalloc::tcmalloc_internal::kNumaPartitions;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
 using tcmalloc::tcmalloc_internal::kTop;
@@ -37,6 +41,7 @@ using tcmalloc::tcmalloc_internal::MemoryTag;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
+using tcmalloc::tcmalloc_internal::SizeMap;
 using tcmalloc::tcmalloc_internal::Span;
 using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
@@ -62,7 +67,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // [2] - Lifetime allocator options: Mode.
   // [3] - Lifetime allocator options: Strategy.
   // [4] - Lifetime allocator options: Short-lived threshold.
-  // [12:5] - Reserved.
+  // [5] - Determine if we use separate filler allocs based on number of
+  // objects per span.
+  // [6:12] - Reserved.
   //
   // Afterwards, we read 9 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the allocator
@@ -100,11 +107,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           : LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions;
   absl::Duration lifetime_duration = absl::Milliseconds(data[4]);
   LifetimePredictionOptions lifetime_options(mode, strategy, lifetime_duration);
-  // TODO(b/271282540): Include this in fuzzing.
-  const bool separate_allocs_for_few_and_many_objects_spans = false;
+  const bool separate_allocs_for_few_and_many_objects_spans = data[5];
 
-  // data[12:5] - Reserve eight additional bytes for any features we might want
-  // to add in the future.
+  // data[6:12] - Reserve additional bytes for any features we might want to add
+  // in the future.
   data += 13;
   size -= 13;
 
@@ -149,7 +155,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[63:49] - Reserved.
         const Length length(std::clamp<size_t>(
             value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
-        const size_t num_objects = (value >> 16) & 0xFFFF;
+        size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
+        size_t object_size = length.in_bytes() / num_objects;
+
+        if (object_size > kMaxSize) {
+          // Truncate to a single object.
+          num_objects = 1;
+        } else if (!SizeMap::IsValidSizeClass(object_size, length.raw_num(),
+                                              kMinObjectsToMove)) {
+          // This is an invalid size class, so skip it.
+          break;
+        }
 
         const bool use_aligned = ((value >> 48) & 0x1) == 0;
         Span* s;
