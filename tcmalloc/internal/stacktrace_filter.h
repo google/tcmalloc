@@ -81,7 +81,7 @@ inline double StackTraceFilter::Evaluate(const StackTrace& stacktrace) const {
   // Return a value based on the count of the most frequently guarded stack.
   size_t most_frequent_hash_count =
       most_frequent_hash_count_.load(std::memory_order_relaxed);
-  assert(most_frequent_hash_count > 0);
+  ASSERT(most_frequent_hash_count > 0);
   return static_cast<double>(existing_stack_hash_with_count & kMask) /
          most_frequent_hash_count;
 }
