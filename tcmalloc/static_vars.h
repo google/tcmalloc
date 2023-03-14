@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/peak_heap_tracker.h"
@@ -109,6 +110,8 @@ class Static final {
   static GuardedPageAllocator& guardedpage_allocator() {
     return guardedpage_allocator_;
   }
+
+  static StackTraceFilter& stacktrace_filter() { return stacktrace_filter_; }
 
   static SampledAllocationAllocator& sampledallocation_allocator() {
     return sampledallocation_allocator_;
@@ -203,6 +206,7 @@ class Static final {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CpuCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
+  ABSL_CONST_INIT static StackTraceFilter stacktrace_filter_;
   static SampledAllocationAllocator sampledallocation_allocator_;
   static PageHeapAllocator<Span> span_allocator_;
   static PageHeapAllocator<ThreadCache> threadcache_allocator_;
