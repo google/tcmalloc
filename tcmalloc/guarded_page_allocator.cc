@@ -214,6 +214,12 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
 }
 
+size_t GuardedPageAllocator::SuccessfulAllocations() {
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+  ASSERT(num_allocation_requests_ >= num_failed_allocations_);
+  return num_allocation_requests_ - num_failed_allocations_;
+}
+
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {

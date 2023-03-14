@@ -84,6 +84,7 @@ class GuardedPageAllocatorParamTest
 TEST_F(GuardedPageAllocatorTest, SingleAllocDealloc) {
   auto alloc_with_status = gpa_.Allocate(PageSize(), 0);
   EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), 1);
   char* buf = static_cast<char*>(alloc_with_status.alloc);
   EXPECT_NE(buf, nullptr);
   EXPECT_TRUE(gpa_.PointerIsMine(buf));
@@ -101,6 +102,7 @@ TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
       std::max(static_cast<size_t>(kAlignment),
                static_cast<size_t>(__STDCPP_DEFAULT_NEW_ALIGNMENT__));
 
+  int allocation_count = 0;
   for (size_t base_size = 1; base_size <= 64; base_size <<= 1) {
     for (size_t size : {base_size, base_size + 1}) {
       SCOPED_TRACE(size);
@@ -117,6 +119,7 @@ TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
         ptrs[i] = alloc_with_status.alloc;
         EXPECT_NE(ptrs[i], nullptr);
         EXPECT_TRUE(gpa_.PointerIsMine(ptrs[i]));
+        ++allocation_count;
 
         size_t observed_alignment =
             1 << absl::countr_zero(absl::bit_cast<uintptr_t>(ptrs[i]));
@@ -128,6 +131,7 @@ TEST_F(GuardedPageAllocatorTest, NoAlignmentProvided) {
       }
     }
   }
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), allocation_count);
 }
 
 TEST_F(GuardedPageAllocatorTest, AllocDeallocAligned) {
@@ -140,6 +144,7 @@ TEST_F(GuardedPageAllocatorTest, AllocDeallocAligned) {
     EXPECT_TRUE(gpa_.PointerIsMine(alloc_with_status.alloc));
     EXPECT_EQ(reinterpret_cast<uintptr_t>(alloc_with_status.alloc) % align, 0);
   }
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), (32 - __builtin_clz(PageSize())));
 }
 
 TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
@@ -153,6 +158,7 @@ TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
     EXPECT_NE(bufs[i], nullptr);
     EXPECT_TRUE(gpa_.PointerIsMine(bufs[i]));
   }
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), num_pages);
   auto alloc_with_status = gpa_.Allocate(1, 0);
   EXPECT_EQ(alloc_with_status.status,
             Profile::Sample::GuardedStatus::NoAvailableSlots);
@@ -163,6 +169,7 @@ TEST_P(GuardedPageAllocatorParamTest, AllocDeallocAllPages) {
   bufs[0] = reinterpret_cast<char*>(alloc_with_status.alloc);
   EXPECT_NE(bufs[0], nullptr);
   EXPECT_TRUE(gpa_.PointerIsMine(bufs[0]));
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), num_pages + 1);
   for (size_t i = 0; i < num_pages; i++) {
     bufs[i][0] = 'A';
     gpa_.Deallocate(bufs[i]);
@@ -174,6 +181,7 @@ INSTANTIATE_TEST_SUITE_P(VaryNumPages, GuardedPageAllocatorParamTest,
 TEST_F(GuardedPageAllocatorTest, PointerIsMine) {
   auto alloc_with_status = gpa_.Allocate(1, 0);
   EXPECT_EQ(alloc_with_status.status, Profile::Sample::GuardedStatus::Guarded);
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), 1);
   void* buf = alloc_with_status.alloc;
   int stack_var;
   auto malloc_ptr = absl::make_unique<char>();
@@ -217,6 +225,7 @@ TEST_F(GuardedPageAllocatorTest, ThreadedAllocCount) {
   }
   allocations_set.erase(nullptr);
   EXPECT_EQ(allocations_set.size(), kMaxGpaPages);
+  EXPECT_EQ(gpa_.SuccessfulAllocations(), kMaxGpaPages);
 }
 
 // Test that allocator remains in consistent state under high contention and

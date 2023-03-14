@@ -198,6 +198,8 @@ class GuardedPageAllocator {
     return max_alloced_pages_ - num_alloced_pages_;
   }
 
+  size_t SuccessfulAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
