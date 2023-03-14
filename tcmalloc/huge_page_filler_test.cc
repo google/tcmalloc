@@ -777,7 +777,7 @@ class FillerTest : public testing::TestWithParam<
     BlockingUnback::success_ = true;
   }
 
-  ~FillerTest() { EXPECT_EQ(filler_.size(), NHugePages(0)); }
+  ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
 
   struct PAlloc {
     PageTracker* pt;
