@@ -408,6 +408,9 @@ void DumpStats(Printer* out, int level) {
                 is_hard ? "(hard)" : "");
     out->printf("Number of times limit was hit: %lld\n",
                 tc_globals.page_allocator().limit_hits());
+    out->printf(
+        "Number of times memory shrank below limit: %lld\n",
+        tc_globals.page_allocator().successful_shrinks_after_limit_hit());
 
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 Parameters::per_cpu_caches() ? 1 : 0);
@@ -561,6 +564,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64("desired_usage_limit_bytes", limit_bytes);
   region.PrintBool("hard_limit", is_hard);
   region.PrintI64("limit_hits", tc_globals.page_allocator().limit_hits());
+  region.PrintI64(
+      "successful_shrinks_after_limit_hit",
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit());
 
   {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
@@ -771,6 +777,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
       amount = std::numeric_limits<size_t>::max();
     }
     *value = amount;
+    return true;
+  }
+  if (name == "tcmalloc.limit_hits") {
+    *value = tc_globals.page_allocator().limit_hits();
+    return true;
+  }
+  if (name == "tcmalloc.successful_shrinks_after_limit_hit") {
+    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit();
     return true;
   }
 

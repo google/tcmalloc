@@ -474,6 +474,10 @@ extern "C" void MallocExtension_Internal_GetProperties(
         std::numeric_limits<size_t>::max();
     (*result)["tcmalloc.desired_usage_limit_bytes"].value = amount;
   }
+  (*result)["tcmalloc.limit_hits"].value =
+      tc_globals.page_allocator().limit_hits();
+  (*result)["tcmalloc.successful_shrinks_after_limit_hit"].value =
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit();
 
   WalkExperiments([&](absl::string_view name, bool active) {
     (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;

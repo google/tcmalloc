@@ -133,11 +133,14 @@ TEST_F(LimitTest, LimitRespected) {
                  kLim);
   EXPECT_THAT(statsBuf, HasSubstr(buf));
   EXPECT_THAT(statsBuf, HasSubstr("Number of times limit was hit: 0"));
+  EXPECT_THAT(statsBuf,
+              HasSubstr("Number of times memory shrank below limit: 0"));
 
   absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
   EXPECT_THAT(statsPbtxt, HasSubstr(buf));
   EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: false"));
   EXPECT_THAT(statsPbtxt, HasSubstr("limit_hits: 0"));
+  EXPECT_THAT(statsPbtxt, HasSubstr("successful_shrinks_after_limit_hit: 0"));
 
   // Avoid failing due to usage by test itself.
   static const size_t kLimForUse = kLim * 9 / 10;
@@ -183,7 +186,12 @@ TEST_F(LimitTest, LimitRespected) {
   // The HugePageAwareAllocator hits the limit more than once.
   EXPECT_THAT(statsBuf,
               ContainsRegex(R"(Number of times limit was hit: [1-9]\d*)"));
+  EXPECT_THAT(
+      statsBuf,
+      ContainsRegex(R"(Number of times memory shrank below limit: [1-9]\d*)"));
   EXPECT_THAT(statsPbtxt, ContainsRegex(R"(limit_hits: [1-9]\d*)"));
+  EXPECT_THAT(statsPbtxt,
+              ContainsRegex(R"(successful_shrinks_after_limit_hit: [1-9\d*])"));
 
   for (auto p : ptrs) {
     free(p);

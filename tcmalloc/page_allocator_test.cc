@@ -138,6 +138,36 @@ TEST_F(PageAllocatorTest, PrintIt) {
   EXPECT_THAT(output, testing::ContainsRegex("stats on allocation sizes"));
 }
 
+TEST_F(PageAllocatorTest, ShrinkFailureTest) {
+  // Turn off subrelease so that we take the ShrinkHardBy path.
+  const bool old_subrelease = Parameters::hpaa_subrelease();
+  Parameters::set_hpaa_subrelease(false);
+  Span* normal = New(kPagesPerHugePage / 2, 1, MemoryTag::kNormal);
+  Span* sampled = New(kPagesPerHugePage / 2, 1, MemoryTag::kSampled);
+
+  BackingStats stats;
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    stats = allocator_->stats();
+  }
+  EXPECT_EQ(stats.system_bytes, 2 * kHugePageSize);
+  EXPECT_EQ(stats.free_bytes, kHugePageSize);
+  EXPECT_EQ(stats.unmapped_bytes, 0);
+
+  // Choose a limit so that we hit and we are not able to satisfy it.
+  allocator_->set_limit(kPagesPerHugePage.in_bytes(), false);
+  {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    allocator_->ShrinkToUsageLimit(Length(0));
+  }
+  EXPECT_LE(1, allocator_->limit_hits());
+  EXPECT_LE(0, allocator_->successful_shrinks_after_limit_hit());
+
+  Delete(normal, 1, MemoryTag::kNormal);
+  Delete(sampled, 1, MemoryTag::kSampled);
+  Parameters::set_hpaa_subrelease(old_subrelease);
+}
+
 TEST_F(PageAllocatorTest, b270916852) {
   // Turn off subrelease so that we take the ShrinkHardBy path.
   const bool old_subrelease = Parameters::hpaa_subrelease();
@@ -171,6 +201,7 @@ TEST_F(PageAllocatorTest, b270916852) {
     allocator_->ShrinkToUsageLimit(Length(0));
   }
   EXPECT_LE(1, allocator_->limit_hits());
+  EXPECT_LE(1, allocator_->successful_shrinks_after_limit_hit());
 
   Delete(normal, 1, MemoryTag::kNormal);
   Delete(sampled, 1, MemoryTag::kSampled);

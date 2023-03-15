@@ -84,6 +84,8 @@ class PageAllocator {
   void set_limit(size_t limit, bool is_hard) ABSL_LOCKS_EXCLUDED(pageheap_lock);
   std::pair<size_t, bool> limit() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
   int64_t limit_hits() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  int64_t successful_shrinks_after_limit_hit() const
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // If we have a usage limit set, ensure we're not violating it from our latest
   // allocation.
@@ -140,6 +142,9 @@ class PageAllocator {
   size_t limit_{std::numeric_limits<size_t>::max()};
   // The number of times the limit has been hit.
   int64_t limit_hits_{0};
+  // Number of times we succeeded in shrinking the memory usage to be less than
+  // or at the limit.
+  int64_t successful_shrinks_after_limit_hit_{0};
 
   // peak_backed_bytes_ tracks the maximum number of pages backed (with physical
   // memory) in the page heap and metadata.
@@ -293,6 +298,11 @@ inline std::pair<size_t, bool> PageAllocator::limit() const {
 inline int64_t PageAllocator::limit_hits() const {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   return limit_hits_;
+}
+
+inline int64_t PageAllocator::successful_shrinks_after_limit_hit() const {
+  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  return successful_shrinks_after_limit_hit_;
 }
 
 inline const PageAllocInfo& PageAllocator::info(MemoryTag tag) const {
