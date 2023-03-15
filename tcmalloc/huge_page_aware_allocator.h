@@ -185,6 +185,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
+  BackingStats FillerStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return filler_.stats();
+  }
+
   HugeLength DonatedHugePages() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return donated_huge_pages_;

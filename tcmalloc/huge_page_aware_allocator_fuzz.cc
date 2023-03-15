@@ -225,7 +225,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         BackingStats stats;
         {
           absl::base_internal::SpinLockHolder h(&pageheap_lock);
-          stats = allocator->stats();
+          stats = allocator->FillerStats();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
         }
         CHECK_GE(released.in_bytes(),
