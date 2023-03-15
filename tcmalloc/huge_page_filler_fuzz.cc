@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
@@ -169,6 +170,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           // We need to choose few objects, so only top four bits are used.
           num_objects = std::max<size_t>(lval >> 12, 1);
         }
+
+        // Truncate to single object for larger allocations. This ensures that
+        // we always allocate few-object spans from donations.
+        if (n > kPagesPerHugePage / 2) {
+          num_objects = 1;
+        }
+
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
