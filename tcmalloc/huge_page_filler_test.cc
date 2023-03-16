@@ -726,8 +726,7 @@ enum FillerPath {
   FewAndManyAllocLists,
 };
 
-class FillerTest : public testing::TestWithParam<
-                       std::tuple<FillerPartialRerelease, FillerPath>> {
+class FillerTest : public testing::TestWithParam<std::tuple<FillerPath>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -767,10 +766,9 @@ class FillerTest : public testing::TestWithParam<
   HugePageFiller<PageTracker> filler_;
 
   FillerTest()
-      : filler_(/*partial_rerelease=*/std::get<0>(GetParam()),
-                Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
+      : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_few_and_many_objects_spans=*/
-                std::get<1>(GetParam()) == FillerPath::FewAndManyAllocLists,
+                std::get<0>(GetParam()) == FillerPath::FewAndManyAllocLists,
                 MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
     // Reset success state
@@ -865,7 +863,7 @@ class FillerTest : public testing::TestWithParam<
     EXPECT_LT(n, kPagesPerHugePage);
     // Many object spans are not allocated from donated hugepages.  So assert
     // that we do not test such a situation.
-    EXPECT_TRUE(std::get<1>(GetParam()) == FillerPath::SingleAllocList ||
+    EXPECT_TRUE(std::get<0>(GetParam()) == FillerPath::SingleAllocList ||
                 (!donated || objects <= kFewObjectsAllocMaxLimit));
     PAlloc ret;
     ret.n = n;
@@ -935,7 +933,7 @@ TEST_P(FillerTest, Density) {
   for (auto d : doomed_allocs) {
     Delete(d);
   }
-  const FillerPath path = std::get<1>(GetParam());
+  const FillerPath path = std::get<0>(GetParam());
   if (path == FillerPath::SingleAllocList) {
     EXPECT_EQ(filler_.size(), kNumHugePages);
   } else {
@@ -967,9 +965,6 @@ TEST_P(FillerTest, Density) {
 }
 
 TEST_P(FillerTest, AccountingForUsedPartialReleased) {
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Return) {
-    GTEST_SKIP();
-  }
   static const Length kAlloc = kPagesPerHugePage / 2;
   static const Length kL1 = kAlloc + Length(3);
   static const Length kL2 = kAlloc + Length(5);
@@ -1029,42 +1024,6 @@ TEST_P(FillerTest, ReleaseZero) {
       ReleasePages(Length(0),
                    SkipSubreleaseIntervals{.peak_interval = absl::Seconds(1)}),
       Length(0));
-}
-
-TEST_P(FillerTest, ReleaseFailureOnRerelease) {
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    // We do not encounter the rerelease path during the test setup.
-    return;
-  }
-
-  PAlloc a1 = Allocate(Length(1));
-  PAlloc a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
-
-  EXPECT_EQ(filler_.used_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), kPagesPerHugePage - Length(2));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-
-  // Release memory.  The rest of the huge page is now released.
-  EXPECT_TRUE(BlockingUnback::success_);
-  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
-
-  EXPECT_EQ(filler_.used_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
-
-  // Because std::get<0>(GetParam()) == FillerPartialRerelease::Return,
-  // Delete(a2) will return memory.  Simulate failure.
-  BlockingUnback::success_ = false;
-  Delete(a2);
-
-  // unmapped_pages is unchanged.
-  EXPECT_EQ(filler_.used_pages(), Length(1));
-  EXPECT_EQ(filler_.free_pages(), Length(1));
-  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
-
-  // Deallocate a1, freeing the huge page.  This should not crash.
-  Delete(a1);
-  EXPECT_EQ(filler_.size(), NHugePages(0));
 }
 
 void FillerTest::FragmentationTest() {
@@ -1152,11 +1111,9 @@ TEST_P(FillerTest, PrintFreeRatio) {
     buffer.erase(printer.SpaceRequired());
   }
 
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    EXPECT_THAT(
-        buffer,
-        testing::StartsWith(
-            R"(HugePageFiller: densely pack small requests into hugepages
+  EXPECT_THAT(buffer,
+              testing::StartsWith(
+                  R"(HugePageFiller: densely pack small requests into hugepages
 HugePageFiller: Overall, 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
 HugePageFiller: those with few objects, 2 total, 1 full, 0 partial, 1 released (1 partially), 0 quarantined
 HugePageFiller: those with many objects, 0 total, 0 full, 0 partial, 0 released (0 partially), 0 quarantined
@@ -1165,20 +1122,6 @@ HugePageFiller: among non-fulls, 0.2500 free
 HugePageFiller: 128 used pages in subreleased hugepages (128 of them in partially released)
 HugePageFiller: 1 hugepages partially released, 0.2500 released
 HugePageFiller: 0.6667 of used pages hugepageable)"));
-  } else {
-    EXPECT_THAT(
-        buffer,
-        testing::StartsWith(
-            R"(HugePageFiller: densely pack small requests into hugepages
-HugePageFiller: Overall, 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
-HugePageFiller: those with few objects, 2 total, 1 full, 0 partial, 1 released (0 partially), 0 quarantined
-HugePageFiller: those with many objects, 0 total, 0 full, 0 partial, 0 released (0 partially), 0 quarantined
-HugePageFiller: 0 pages free in 2 hugepages, 0.0000 free
-HugePageFiller: among non-fulls, 0.0000 free
-HugePageFiller: 128 used pages in subreleased hugepages (0 of them in partially released)
-HugePageFiller: 1 hugepages partially released, 0.5000 released
-HugePageFiller: 0.6667 of used pages hugepageable)"));
-  }
 
   // Cleanup remaining allocs.
   Delete(a1);
@@ -1309,11 +1252,9 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(filler_.unmapped_pages(), N - Length(2));
   // This shouldn't trigger a release
   Delete(tiny1);
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    EXPECT_EQ(filler_.unmapped_pages(), N - Length(2));
-    // Until we call ReleasePages()
-    EXPECT_EQ(ReleasePages(Length(1)), Length(1));
-  }
+  EXPECT_EQ(filler_.unmapped_pages(), N - Length(2));
+  // Until we call ReleasePages()
+  EXPECT_EQ(ReleasePages(Length(1)), Length(1));
   EXPECT_EQ(filler_.unmapped_pages(), N - Length(1));
 
   // As should this, but this will drop the whole hugepage
@@ -1323,11 +1264,7 @@ TEST_P(FillerTest, ReleaseAccounting) {
 
   // This shouldn't trigger any release: we just claim credit for the
   // releases we did automatically on tiny2.
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    EXPECT_EQ(ReleasePages(Length(1)), Length(1));
-  } else {
-    EXPECT_EQ(ReleasePages(Length(2)), Length(2));
-  }
+  EXPECT_EQ(ReleasePages(Length(1)), Length(1));
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.size(), NHugePages(1));
 
@@ -1347,22 +1284,20 @@ TEST_P(FillerTest, ReleaseAccounting) {
   EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
   EXPECT_EQ(filler_.used_pages_in_released(), N / 2);
 
-  // Check accounting for partially released hugepages with partial rerelease
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    // Allocating and deallocating a small object causes the page to turn from
-    // a released hugepage into a partially released hugepage.
-    //
-    // The number of objects for each allocation is same as that for half2 so to
-    // ensure that same alloc list is used.
-    auto tiny3 = AllocateWithObjectCount(Length(1), half2.num_objects);
-    auto tiny4 = AllocateWithObjectCount(Length(1), half2.num_objects);
-    Delete(tiny4);
-    EXPECT_EQ(filler_.used_pages(), N / 2 + Length(1));
-    EXPECT_EQ(filler_.used_pages_in_any_subreleased(), N / 2 + Length(1));
-    EXPECT_EQ(filler_.used_pages_in_partial_released(), N / 2 + Length(1));
-    EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
-    Delete(tiny3);
-  }
+  // Check accounting for partially released hugepages with partial rerelease.
+  // Allocating and deallocating a small object causes the page to turn from a
+  // released hugepage into a partially released hugepage.
+  //
+  // The number of objects for each allocation is same as that for half2 so to
+  // ensure that same alloc list is used.
+  auto tiny3 = AllocateWithObjectCount(Length(1), half2.num_objects);
+  auto tiny4 = AllocateWithObjectCount(Length(1), half2.num_objects);
+  Delete(tiny4);
+  EXPECT_EQ(filler_.used_pages(), N / 2 + Length(1));
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), N / 2 + Length(1));
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), N / 2 + Length(1));
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
+  Delete(tiny3);
 
   Delete(half2);
   EXPECT_EQ(filler_.size(), NHugePages(0));
@@ -1458,170 +1393,6 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   for (const PAlloc& alloc : regular) {
     Delete(alloc);
   }
-}
-
-TEST_P(FillerTest, ParallelUnlockingSubrelease) {
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    // When rerelease happens without going to Unback(), this test
-    // (intentionally) deadlocks, as we never receive the call.
-    return;
-  }
-
-  // Verify that we can deallocate a partial huge page and successfully unlock
-  // the pageheap_lock without introducing race conditions around the metadata
-  // for PageTracker::released_.
-  //
-  // Currently, HPAA unbacks *all* subsequent deallocations to a huge page once
-  // we have broken up *any* part of it.
-  //
-  // If multiple deallocations are in-flight, we need to leave sufficient
-  // breadcrumbs to ourselves (PageTracker::releasing_ is a Length, not a bool)
-  // so that one deallocation completing does not have us "forget" that another
-  // deallocation is about to unback other parts of the hugepage.
-  //
-  // If PageTracker::releasing_ were a bool, the completion of "t1" and
-  // subsequent reallocation of "a2" in this test would mark the entirety of the
-  // page as full, so we would choose to *not* unback a2 (when deallocated) or
-  // a3 (when deallocated by t3).
-  constexpr Length N = kPagesPerHugePage;
-
-  auto a1 = Allocate(N / 2);
-  auto a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
-  auto a3 = AllocateWithObjectCount(Length(1), a1.num_objects);
-
-  // Trigger subrelease.  The filler now has a partial hugepage, so subsequent
-  // calls to Delete() will cause us to unback the remainder of it.
-  EXPECT_GT(ReleasePages(kMaxValidPages), Length(0));
-
-  auto m1 = absl::make_unique<absl::Mutex>();
-  auto m2 = absl::make_unique<absl::Mutex>();
-
-  m1->Lock();
-  m2->Lock();
-
-  absl::BlockingCounter counter(2);
-  BlockingUnback::counter_ = &counter;
-
-  std::thread t1([&]() {
-    BlockingUnback::set_lock(m1.get());
-
-    Delete(a2);
-  });
-
-  std::thread t2([&]() {
-    BlockingUnback::set_lock(m2.get());
-
-    Delete(a3);
-  });
-
-  // Wait for t1 and t2 to block.
-  counter.Wait();
-
-  // At this point, t1 and t2 are blocked (as if they were on a long-running
-  // syscall) on "unback" (m1 and m2, respectively).  pageheap_lock is not held.
-  //
-  // Allocating a4 will complete the hugepage, but we have on-going releaser
-  // threads.
-  auto a4 = AllocateWithObjectCount((N / 2) - Length(2), a1.num_objects);
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-
-  // Let one of the threads proceed.  The huge page consists of:
-  // * a1 (N/2  ):  Allocated
-  // * a2 (    1):  Unbacked
-  // * a3 (    1):  Unbacking (blocked on m2)
-  // * a4 (N/2-2):  Allocated
-  m1->Unlock();
-  t1.join();
-
-  // Reallocate a2.  We should still consider the huge page partially backed for
-  // purposes of subreleasing.
-  a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-  Delete(a2);
-
-  // Let the other thread proceed.  The huge page consists of:
-  // * a1 (N/2  ):  Allocated
-  // * a2 (    1):  Unbacked
-  // * a3 (    1):  Unbacked
-  // * a4 (N/2-2):  Allocated
-  m2->Unlock();
-  t2.join();
-
-  EXPECT_EQ(filler_.used_pages(), N - Length(2));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-
-  // Clean up.
-  Delete(a1);
-  Delete(a4);
-
-  BlockingUnback::counter_ = nullptr;
-}
-
-TEST_P(FillerTest, PartialRereleaseReturnFailure) {
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Retain) {
-    // When we retain pages, we do not encounter a potentially unexpected state
-    // of free_pages!=released_pages.
-    return;
-  }
-
-  PAlloc a1 = Allocate(Length(1));
-  PAlloc a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
-
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-  EXPECT_EQ(filler_.used_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), kPagesPerHugePage - Length(2));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-
-  // Release successfully.
-  ASSERT_TRUE(BlockingUnback::success_);
-  EXPECT_EQ(ReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
-
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-  EXPECT_EQ(filler_.used_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
-
-  // Simulate failure to return.  unmapped_pages() remains unchanged.
-  BlockingUnback::success_ = false;
-  Delete(a2);
-
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-  EXPECT_EQ(filler_.used_pages(), Length(1));
-  EXPECT_EQ(filler_.free_pages(), Length(1));
-  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
-
-  // Gather stats.
-  {
-    std::string buffer(1024 * 1024, '\0');
-    Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
-  }
-
-  // Reallocate a2.  The filler should not grow.
-  a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
-
-  EXPECT_EQ(filler_.size(), NHugePages(1));
-  EXPECT_EQ(filler_.used_pages(), Length(2));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), kPagesPerHugePage - Length(2));
-
-  // Gather stats.
-  {
-    std::string buffer(1024 * 1024, '\0');
-    Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
-  }
-
-  // Cleanup.
-  BlockingUnback::success_ = true;
-  Delete(a1);
-  Delete(a2);
-
-  EXPECT_EQ(filler_.size(), NHugePages(0));
-  EXPECT_EQ(filler_.used_pages(), Length(0));
-  EXPECT_EQ(filler_.free_pages(), Length(0));
-  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
 }
 
 TEST_P(FillerTest, SkipSubrelease) {
@@ -2543,7 +2314,7 @@ TEST_P(FillerTest, DISABLED_b258965495) {
 
 TEST_P(FillerTest, CheckFillerStats) {
   // Skip test for single alloc as we test for non-zero hardened output.
-  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
     GTEST_SKIP() << "Skipping test for SingleAllocList";
   }
   if (kPagesPerHugePage != Length(256)) {
@@ -2594,7 +2365,7 @@ TEST_P(FillerTest, CheckFillerStats) {
 // but that's not all bad in this case.
 TEST_P(FillerTest, Print) {
   // Skip test for single alloc as we test for non-zero hardened output.
-  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
     GTEST_SKIP() << "Skipping test for SingleAllocList";
   }
   if (kPagesPerHugePage != Length(256)) {
@@ -2769,7 +2540,7 @@ HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased, 5 hug
 TEST_P(FillerTest, GetsAndPuts) {
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
     GTEST_SKIP() << "Skipping test for SingleAllocList";
   }
 
@@ -2811,7 +2582,7 @@ TEST_P(FillerTest, GetsAndPuts) {
 TEST_P(FillerTest, ReleasePriorityFewAndManyAllocs) {
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
     GTEST_SKIP() << "Skipping test for SingleAllocList";
   }
 
@@ -2878,7 +2649,7 @@ TEST_P(FillerTest, CounterUnderflow) {
   // skip when using a single alloc list.
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<1>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
     GTEST_SKIP() << "Skipping test for single alloc";
   }
 
@@ -2970,10 +2741,6 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
   EXPECT_EQ(filler_.used_pages_in_released(), 2 * N);
   EXPECT_EQ(filler_.used_pages_in_any_subreleased(), 2 * N);
 
-  if (std::get<0>(GetParam()) == FillerPartialRerelease::Return) {
-    // We simulate failure for FillerPartialRerelease::Return.
-    BlockingUnback::success_ = false;
-  }
   Delete(a2);
 
   // We now have N pages for a1, N pages free (but mapped), and 2N pages
@@ -2988,9 +2755,7 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
 
 INSTANTIATE_TEST_SUITE_P(
     All, FillerTest,
-    testing::Combine(testing::Values(FillerPartialRerelease::Return,
-                                     FillerPartialRerelease::Retain),
-                     testing::Values(FillerPath::SingleAllocList,
+    testing::Combine(testing::Values(FillerPath::SingleAllocList,
                                      FillerPath::FewAndManyAllocLists)));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {

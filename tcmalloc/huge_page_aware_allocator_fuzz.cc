@@ -28,7 +28,6 @@
 
 namespace {
 using tcmalloc::tcmalloc_internal::BackingStats;
-using tcmalloc::tcmalloc_internal::FillerPartialRerelease;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
 using tcmalloc::tcmalloc_internal::kMaxSize;
 using tcmalloc::tcmalloc_internal::kMinObjectsToMove;
@@ -121,7 +120,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.lifetime_options = lifetime_options;
-  options.partial_release = FillerPartialRerelease::Retain;
   options.separate_allocs_for_few_and_many_objects_spans =
       separate_allocs_for_few_and_many_objects_spans;
   HugePageAwareAllocator* allocator;

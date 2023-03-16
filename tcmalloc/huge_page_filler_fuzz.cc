@@ -29,7 +29,6 @@
 namespace {
 
 using tcmalloc::tcmalloc_internal::Clock;
-using tcmalloc::tcmalloc_internal::FillerPartialRerelease;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
@@ -120,17 +119,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
 
-  // TODO(b/160875299):  We temporarily pause fuzzing the Return path pending
-  // its imminent removal.  Remove FillerPartialRelease when that is done.
-  const FillerPartialRerelease partial_rerelease =
-      FillerPartialRerelease::Retain;
   const bool separate_allocs_for_few_and_many_objects_spans =
       data[1] >= 128 ? true : false;
   data += 2;
   size -= 2;
 
   HugePageFiller<PageTracker> filler(
-      partial_rerelease, Clock{.now = mock_clock, .freq = freq},
+      Clock{.now = mock_clock, .freq = freq},
       separate_allocs_for_few_and_many_objects_spans,
       MemoryModifyFunction(MockUnback));
 

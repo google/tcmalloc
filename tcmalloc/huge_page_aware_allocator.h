@@ -112,7 +112,6 @@ struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionCountOption use_huge_region_more_often;
   LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
-  FillerPartialRerelease partial_release = FillerPartialRerelease::Retain;
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
       Parameters::separate_allocs_for_few_and_many_objects_spans();
@@ -372,8 +371,7 @@ template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     const HugePageAwareAllocatorOptions& options)
     : PageAllocatorInterface("HugePageAware", options.tag),
-      filler_(options.partial_release,
-              options.separate_allocs_for_few_and_many_objects_spans,
+      filler_(options.separate_allocs_for_few_and_many_objects_spans,
               MemoryModifyFunction(&forwarder_.ReleasePages)),
       vm_allocator_(*this),
       metadata_allocator_(*this),

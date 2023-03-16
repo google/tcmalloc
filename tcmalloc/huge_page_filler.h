@@ -986,21 +986,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   }
 };
 
-enum class FillerPartialRerelease : bool {
-  // Once we break a hugepage by returning a fraction of it, we return
-  // *anything* unused on an already-released huge page.  This simplifies
-  // tracking.
-  //
-  // TODO(b/160875299):  Remove this option.
-  Return,
-  // When deallocating a page onto an already-released huge page, retain the
-  // page rather than releasing it back to the OS.  This can reduce minor page
-  // faults for hot pages.
-  //
-  // As of 6/2020, this is the default behavior.
-  Retain,
-};
-
 // As of March 2023, we allocate as if all spans have few objects on them.
 //
 // When we separate allocs into few/many spans
@@ -1037,10 +1022,9 @@ struct HugePageFillerStats {
 template <class TrackerType>
 class HugePageFiller {
  public:
-  explicit HugePageFiller(FillerPartialRerelease partial_rerelease,
-                          bool separate_allocs_for_few_and_many_objects_spans,
+  explicit HugePageFiller(bool separate_allocs_for_few_and_many_objects_spans,
                           MemoryModifyFunction unback);
-  HugePageFiller(FillerPartialRerelease partial_rerelease, Clock clock,
+  HugePageFiller(Clock clock,
                  bool separate_allocs_for_few_and_many_objects_spans,
                  MemoryModifyFunction unback);
 
@@ -1246,8 +1230,6 @@ class HugePageFiller {
   // not reported to ReleasePages calls?
   Length unmapping_unaccounted_;
 
-  FillerPartialRerelease partial_rerelease_;
-
   // Functionality related to time series tracking.
   void UpdateFillerStatsTracker();
   using StatsTrackerType = FillerStatsTracker<600>;
@@ -1393,24 +1375,20 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    FillerPartialRerelease partial_rerelease,
     bool separate_allocs_for_few_and_many_objects_spans,
     MemoryModifyFunction unback)
-    : HugePageFiller(partial_rerelease,
-                     Clock{.now = absl::base_internal::CycleClock::Now,
+    : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
                      separate_allocs_for_few_and_many_objects_spans, unback) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    FillerPartialRerelease partial_rerelease, Clock clock,
-    bool separate_allocs_for_few_and_many_objects_spans,
+    Clock clock, bool separate_allocs_for_few_and_many_objects_spans,
     MemoryModifyFunction unback)
     : separate_allocs_for_few_and_many_objects_spans_(
           separate_allocs_for_few_and_many_objects_spans),
       size_(NHugePages(0)),
-      partial_rerelease_(partial_rerelease),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback) {}
 
@@ -1551,24 +1529,6 @@ template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
                                                      Length n,
                                                      size_t num_objects) {
-  // Consider releasing [p, p+n).  We do this here:
-  // * To unback the memory before we mark it as free.  When partially
-  //   unbacking, we release the pageheap_lock.  Another thread could see the
-  //   "free" memory and begin using it before we retake the lock.
-  // * To maintain maintain the invariant that
-  //     pt->released() => regular_alloc_released_.size() > 0 ||
-  //                       regular_alloc_partial_released_.size() > 0
-  //   We do this before removing pt from our lists, since another thread may
-  //   encounter our post-RemoveFromFillerList() update to
-  //   regular_alloc_released_.size() and regular_alloc_partial_released_.size()
-  //   while encountering pt.
-  bool maybe_released = false;
-  if (ABSL_PREDICT_FALSE(partial_rerelease_ ==
-                         FillerPartialRerelease::Return) &&
-      pt->released()) {
-    maybe_released = pt->MaybeRelease(p, n, unback_);
-  }
-
   RemoveFromFillerList(pt);
   pt->Put(p, n);
   if (pt->HasManyObjectsSpans()) {
@@ -1577,10 +1537,6 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   } else {
     ASSERT(pages_allocated_[kFew] >= n);
     pages_allocated_[kFew] -= n;
-  }
-  if (ABSL_PREDICT_FALSE(maybe_released) && pt->released()) {
-    unmapped_ += n;
-    unmapping_unaccounted_ += n;
   }
 
   if (pt->longest_free_range() == kPagesPerHugePage) {
@@ -1594,13 +1550,6 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
       unmapped_ -= released_pages;
 
       if (free_pages > released_pages) {
-        // We should only see a difference between free pages and released pages
-        // when we retain returned pages, whether due to:
-        //
-        // * partial_rerelease_ == FillerPartialRerelease::Retain
-        // * partial_rerelease_ == FillerPartialRerelease::Return, but we failed
-        //   to PageTracker::MaybeRelease.
-        //
         // pt is partially released.  As the rest of the hugepage-aware
         // allocator works in terms of whole hugepages, we need to release the
         // rest of the hugepage.  This simplifies subsequent accounting by
