@@ -267,11 +267,6 @@ class PageTrackerTest : public testing::Test {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
     return tracker_.ReleaseFree(MemoryModifyFunction(MockUnback));
   }
-
-  ABSL_MUST_USE_RESULT bool MaybeRelease(PAlloc a) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return tracker_.MaybeRelease(a.p, a.n, MemoryModifyFunction(MockUnback));
-  }
 };
 
 bool PageTrackerTest::MockUnback(void* p, size_t len) {
@@ -322,45 +317,7 @@ TEST_F(PageTrackerTest, ReleasingReturn) {
   EXPECT_EQ(tracker_.released_pages(), a2.n + a4.n);
   EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
 
-  // Now we return the other parts, and they *should* get released.
-  ExpectPages(a1, /*success=*/true);
-  ExpectPages(a3, /*success=*/true);
-
-  EXPECT_TRUE(MaybeRelease(a1));
   Put(a1);
-
-  EXPECT_TRUE(MaybeRelease(a3));
-  Put(a3);
-}
-
-TEST_F(PageTrackerTest, ReleasingReturnFailure) {
-  static const Length kAllocSize = kPagesPerHugePage / 4;
-  PAlloc a1 = Get(kAllocSize - Length(3), 1);
-  PAlloc a2 = Get(kAllocSize, 1);
-  PAlloc a3 = Get(kAllocSize + Length(1), 1);
-  PAlloc a4 = Get(kAllocSize + Length(2), 1);
-
-  Put(a2);
-  Put(a4);
-  // We now have a hugepage that looks like [alloced] [free] [alloced] [free].
-  // The free parts should be released from a2 when we mark the hugepage as
-  // such, but not the allocated parts.
-  ExpectPages(a2, /*success=*/true);
-  ExpectPages(a4, /*success=*/false);
-  ReleaseFree();
-  mock_.VerifyAndClear();
-
-  EXPECT_EQ(tracker_.released_pages(), a2.n);
-  EXPECT_EQ(tracker_.free_pages(), a2.n + a4.n);
-
-  // Now we return the other parts, and they *should* get released.
-  ExpectPages(a1, /*success=*/true);
-  ExpectPages(a3, /*success=*/false);
-
-  EXPECT_TRUE(MaybeRelease(a1));
-  Put(a1);
-
-  EXPECT_FALSE(MaybeRelease(a3));
   Put(a3);
 }
 
@@ -2279,8 +2236,7 @@ TEST_P(FillerTest, ReleasePriority) {
   }
 }
 
-// TODO(b/258965495): Enable this test.
-TEST_P(FillerTest, DISABLED_b258965495) {
+TEST_P(FillerTest, b258965495) {
   // 1 huge page:  2 pages allocated, kPagesPerHugePage-2 free, 0 released
   auto a1 = Allocate(Length(2));
   EXPECT_EQ(filler_.size(), NHugePages(1));
@@ -2291,7 +2247,7 @@ TEST_P(FillerTest, DISABLED_b258965495) {
 
   BlockingUnback::success_ = false;
   // 1 huge page:  3 pages allocated, 0 free, kPagesPerHugePage-3 released
-  auto a2 = Allocate(Length(1));
+  auto a2 = AllocateWithObjectCount(Length(1), a1.num_objects);
   EXPECT_EQ(filler_.size(), NHugePages(1));
   // Even if PartialRerelease::Return, returning a2 fails, so a2's pages stay
   // freed rather than released.
@@ -2300,8 +2256,6 @@ TEST_P(FillerTest, DISABLED_b258965495) {
   Delete(a2);
 
   BlockingUnback::success_ = true;
-  // TODO(b/258965495): Improve maintenance of partial released lists.
-  //
   // During the deallocation of a1 under PartialRerelease::Return, but before we
   // mark the pages as free (PageTracker::MaybeRelease), we have:
   //

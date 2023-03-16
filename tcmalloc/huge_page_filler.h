@@ -865,42 +865,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length ReleaseFree(MemoryModifyFunction unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Return this allocation to the system, if policy warrants it.
-  //
-  // As of 6/2020 our default policy is to retain the page rather than return
-  // anything unused.
-  ABSL_MUST_USE_RESULT bool MaybeRelease(PageId p, Length n,
-                                         MemoryModifyFunction unback)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    ASSERT(released_count_ != 0);
-
-    // Mark pages as released.
-    Length index = p - location_.first_page();
-    ASSERT(released_by_page_.CountBits(index.raw_num(), n.raw_num()) == 0);
-
-    // Speculatively assume we succeeded.  When this method is called, we have
-    // not yet marked the pages as freed, so the number of in-use pages in
-    // HugePageFiller::n_used_released_ is bounded by used_pages().
-    //
-    // ReleasePagesWithoutLock means another thread can see this state since we
-    // release the pageheap_lock.
-    released_by_page_.SetRange(index.raw_num(), n.raw_num());
-    released_count_ += n.raw_num();
-    ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
-           released_count_);
-
-    if (ABSL_PREDICT_FALSE(!ReleasePagesWithoutLock(p, n, unback))) {
-      // If release fails, undo the change to SetRange above.
-      released_by_page_.ClearRange(index.raw_num(), n.raw_num());
-      released_count_ -= n.raw_num();
-      ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
-             released_count_);
-      return false;
-    }
-
-    return true;
-  }
-
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
   bool HasManyObjectsSpans() const { return has_many_objects_spans_; }
@@ -963,22 +927,6 @@ class PageTracker : public TList<PageTracker>::Elem {
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
     bool success = unback(ptr, byte_len);
-    if (ABSL_PREDICT_TRUE(success)) {
-      unbroken_ = false;
-    }
-    return success;
-  }
-
-  ABSL_MUST_USE_RESULT bool ReleasePagesWithoutLock(PageId p, Length n,
-                                                    MemoryModifyFunction unback)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    pageheap_lock.Unlock();
-
-    void* ptr = p.start_addr();
-    size_t byte_len = n.in_bytes();
-    bool success = unback(ptr, byte_len);
-
-    pageheap_lock.Lock();
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;
     }
