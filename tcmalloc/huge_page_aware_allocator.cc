@@ -94,21 +94,6 @@ bool decide_subrelease() {
   return true;
 }
 
-FillerPartialRerelease decide_partial_rerelease() {
-  const char* e = thread_safe_getenv("TCMALLOC_PARTIAL_RELEASE_CONTROL");
-  if (e) {
-    if (e[0] == '0') {
-      return FillerPartialRerelease::Return;
-    }
-    if (e[0] == '1') {
-      return FillerPartialRerelease::Retain;
-    }
-    Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-  }
-
-  return FillerPartialRerelease::Retain;
-}
-
 LifetimePredictionOptions decide_lifetime_predictions() {
   // See LifetimePredictionOptions::FromFlag for a description of the format.
   const char* e = tcmalloc::tcmalloc_internal::thread_safe_getenv(

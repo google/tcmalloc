@@ -41,7 +41,6 @@ namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
 LifetimePredictionOptions decide_lifetime_predictions();
-FillerPartialRerelease decide_partial_rerelease();
 bool decide_subrelease();
 
 enum class HugeRegionCountOption : bool {
@@ -113,7 +112,7 @@ struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionCountOption use_huge_region_more_often;
   LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
-  FillerPartialRerelease partial_release = decide_partial_rerelease();
+  FillerPartialRerelease partial_release = FillerPartialRerelease::Retain;
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
       Parameters::separate_allocs_for_few_and_many_objects_spans();
