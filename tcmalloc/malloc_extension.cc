@@ -30,6 +30,84 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal_malloc_extension.h"
 
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) ||    \
+    defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
+    defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_DATAFLOW_SANITIZER) || defined(ABSL_HAVE_LEAK_SANITIZER)
+#define TCMALLOC_UNDER_SANITIZERS 1
+static constexpr size_t kTerabyte = (size_t)(1ULL << 40);
+
+#include <sanitizer/allocator_interface.h>
+
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER)
+static size_t SanitizerVirtualMemoryOverhead() { return 20 * kTerabyte; }
+
+static size_t SanitizerMemoryUsageMultiplier() { return 2; }
+
+static size_t SanitizerStackSizeMultiplier() { return 4; }
+#endif
+
+#if defined(ABSL_HAVE_THREAD_SANITIZER)
+static size_t SanitizerVirtualMemoryOverhead() { return 98 * kTerabyte; }
+
+static size_t SanitizerMemoryUsageMultiplier() { return 5; }
+
+static size_t SanitizerStackSizeMultiplier() { return 5; }
+#endif
+
+#if defined(ABSL_HAVE_MEMORY_SANITIZER)
+#include <sanitizer/msan_interface.h>
+
+static size_t SanitizerVirtualMemoryOverhead() {
+  return (__msan_get_track_origins() ? 40 : 20) * kTerabyte;
+}
+
+static size_t SanitizerMemoryUsageMultiplier() {
+  return __msan_get_track_origins() ? 3 : 2;
+}
+
+static size_t SanitizerStackSizeMultiplier() {
+  // Very rough estimate based on analysing "sub $.*, %rsp" instructions.
+  return 2;
+}
+#endif
+
+#if defined(ABSL_HAVE_HWADDRESS_SANITIZER)
+static size_t SanitizerVirtualMemoryOverhead() { return 20 * kTerabyte; }
+
+static size_t SanitizerMemoryUsageMultiplier() { return 1; }
+
+static size_t SanitizerStackSizeMultiplier() { return 1; }
+#endif
+
+#if defined(ABSL_HAVE_DATAFLOW_SANITIZER)
+#include <sanitizer/dfsan_interface.h>
+
+static size_t SanitizerVirtualMemoryOverhead() { return 40 * kTerabyte; }
+
+static size_t SanitizerMemoryUsageMultiplier() {
+  return dfsan_get_track_origins() ? 3 : 2;
+}
+
+static size_t SanitizerStackSizeMultiplier() {
+  // Very rough estimate based on analysing "sub $.*, %rsp" instructions.
+  return dfsan_get_track_origins() ? 3 : 2;
+}
+#endif
+
+#if defined(ABSL_HAVE_LEAK_SANITIZER) && !defined(ABSL_HAVE_ADDRESS_SANITIZER)
+static size_t SanitizerVirtualMemoryOverhead() { return 0; }
+
+static size_t SanitizerMemoryUsageMultiplier() { return 1; }
+
+static size_t SanitizerStackSizeMultiplier() { return 1; }
+#endif
+
+#else
+#define TCMALLOC_UNDER_SANITIZERS 0
+#endif
+
 namespace tcmalloc {
 
 MallocExtension::AllocationProfilingToken::AllocationProfilingToken(
@@ -117,13 +195,17 @@ void* AddressRegionFactory::MallocInternal(size_t size) {
 #endif
 
 std::string MallocExtension::GetStats() {
-  std::string ret;
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetStats != nullptr) {
+    std::string ret;
     MallocExtension_Internal_GetStats(&ret);
+    return ret;
   }
 #endif
-  return ret;
+#if defined(ABSL_HAVE_THREAD_SANITIZER)
+  return "NOT IMPLEMENTED";
+#endif
+  return "";
 }
 
 void MallocExtension::ReleaseMemoryToSystem(size_t num_bytes) {
@@ -209,6 +291,9 @@ void MallocExtension::MarkThreadIdle() {
 
   MallocExtension_Internal_MarkThreadIdle();
 #endif
+  // TODO(b/273799005) -  move __tsan_on_thread_idle call here from
+  // testing/tsan/v2/allocator.cconce we have it available in shared tsan
+  // libraries.
 }
 
 void MallocExtension::MarkThreadBusy() {
@@ -465,6 +550,40 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
     }
   }
 #endif
+#if TCMALLOC_UNDER_SANITIZERS
+  // TODO(b/273946827): Add local tcmalloc tests for the various sanitizer
+  // configs as opposed to depending on
+  // //testing/sanitizer_common:malloc_extension_test
+  if (property == "dynamic_tool.virtual_memory_overhead") {
+    return SanitizerVirtualMemoryOverhead();
+  }
+  if (property == "dynamic_tool.memory_usage_multiplier") {
+    return SanitizerMemoryUsageMultiplier();
+  }
+  if (property == "dynamic_tool.stack_size_multiplier") {
+    return SanitizerStackSizeMultiplier();
+  }
+  if (property == "generic.current_allocated_bytes") {
+    return __sanitizer_get_current_allocated_bytes();
+  }
+  if (property == "generic.heap_size") {
+    return __sanitizer_get_heap_size();
+  }
+  if (property == "tcmalloc.per_cpu_caches_active") {
+    // Queried by ReleasePerCpuMemoryToOS().
+    return 0;
+  }
+  if (property == "tcmalloc.pageheap_free_bytes") {
+    return __sanitizer_get_free_bytes();
+  }
+  if (property == "tcmalloc.pageheap_unmapped_bytes") {
+    return __sanitizer_get_unmapped_bytes();
+  }
+  if (property == "tcmalloc.slack_bytes") {
+    // Kept for backwards compatibility.
+    return __sanitizer_get_free_bytes() + __sanitizer_get_unmapped_bytes();
+  }
+#endif  // TCMALLOC_UNDER_SANITIZERS
   return absl::nullopt;
 }
 
@@ -478,6 +597,9 @@ absl::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
     return MallocExtension_Internal_GetAllocatedSize(p);
   }
 #endif
+#if TCMALLOC_UNDER_SANITIZERS
+  return __sanitizer_get_allocated_size(p);
+#endif
   return absl::nullopt;
 }
 
@@ -487,12 +609,30 @@ MallocExtension::Ownership MallocExtension::GetOwnership(const void* p) {
     return MallocExtension_Internal_GetOwnership(p);
   }
 #endif
+#if TCMALLOC_UNDER_SANITIZERS
+  return __sanitizer_get_ownership(p)
+             ? tcmalloc::MallocExtension::Ownership::kOwned
+             : tcmalloc::MallocExtension::Ownership::kNotOwned;
+#endif
   return MallocExtension::Ownership::kUnknown;
 }
 
 std::map<std::string, MallocExtension::Property>
 MallocExtension::GetProperties() {
   std::map<std::string, MallocExtension::Property> ret;
+#if TCMALLOC_UNDER_SANITIZERS
+  // Unlike other extension points this one fills in sanitizer data before the
+  // weak function is called so that the weak function can override as needed.
+  ret["generic.current_allocated_bytes"].value =
+      __sanitizer_get_current_allocated_bytes();
+  ret["generic.heap_size"].value = __sanitizer_get_heap_size();
+  ret["tcmalloc.per_cpu_caches_active"].value = 0;
+  ret["tcmalloc.pageheap_free_bytes"].value = __sanitizer_get_free_bytes();
+  ret["tcmalloc.pageheap_unmapped_bytes"].value =
+      __sanitizer_get_unmapped_bytes();
+  ret["tcmalloc.slack_bytes"].value =
+      __sanitizer_get_free_bytes() + __sanitizer_get_unmapped_bytes();
+#endif  // TCMALLOC_UNDER_SANITIZERS
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetProperties != nullptr) {
     MallocExtension_Internal_GetProperties(&ret);
@@ -550,6 +690,9 @@ void MallocExtension::SetBackgroundReleaseRate(BytesPerSecond rate) {
 // this weak function with a better implementation.
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE size_t nallocx(size_t size,
                                                            int) noexcept {
+#if TCMALLOC_UNDER_SANITIZERS
+  return __sanitizer_get_estimated_allocated_size(size);
+#endif
   return size;
 }
 
