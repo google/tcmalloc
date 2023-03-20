@@ -231,7 +231,7 @@ TEST_F(GetStatsTest, StackDepth) {
   // much stack space gathering statistics.
   //
   // Running out of stack space will manifest as a segmentation fault.
-  constexpr size_t kMaxStackDepth = std::max(60 * 1024, PTHREAD_STACK_MIN);
+  const size_t kMaxStackDepth = std::max<size_t>(60 * 1024, PTHREAD_STACK_MIN);
 
   struct Args {
     bool plaintext;
