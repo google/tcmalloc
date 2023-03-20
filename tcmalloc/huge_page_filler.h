@@ -230,7 +230,9 @@ struct SkipSubreleaseIntervals {
 
 struct SubreleaseStats {
   Length total_pages_subreleased;  // cumulative since startup
+  Length total_partial_alloc_pages_subreleased;  // cumulative since startup
   Length num_pages_subreleased;
+  Length num_partial_alloc_pages_subreleased;
   HugeLength total_hugepages_broken{NHugePages(0)};  // cumulative since startup
   HugeLength num_hugepages_broken{NHugePages(0)};
 
@@ -241,8 +243,11 @@ struct SubreleaseStats {
 
   void reset() {
     total_pages_subreleased += num_pages_subreleased;
+    total_partial_alloc_pages_subreleased +=
+        num_partial_alloc_pages_subreleased;
     total_hugepages_broken += num_hugepages_broken;
     num_pages_subreleased = Length(0);
+    num_partial_alloc_pages_subreleased = Length(0);
     num_hugepages_broken = NHugePages(0);
   }
 
@@ -275,6 +280,7 @@ class FillerStatsTracker {
     Length used_pages_in_subreleased_huge_pages;
     HugeLength huge_pages[kNumTypes];
     Length num_pages_subreleased;
+    Length num_partial_alloc_pages_subreleased;
     HugeLength num_hugepages_broken = NHugePages(0);
 
     HugeLength total_huge_pages() const {
@@ -485,6 +491,7 @@ class FillerStatsTracker {
     Length min_free_pages = kDefaultValue;
     Length min_free_backed_pages = kDefaultValue;
     Length num_pages_subreleased;
+    Length num_partial_alloc_pages_subreleased;
     HugeLength num_hugepages_broken = NHugePages(0);
 
     static FillerStatsEntry Nil() { return FillerStatsEntry(); }
@@ -520,6 +527,8 @@ class FillerStatsTracker {
 
       // Subrelease stats
       num_pages_subreleased += e.num_pages_subreleased;
+      num_partial_alloc_pages_subreleased +=
+          e.num_partial_alloc_pages_subreleased;
       num_hugepages_broken += e.num_hugepages_broken;
     }
 
@@ -641,18 +650,23 @@ void FillerStatsTracker<kEpochs>::Print(Printer* out) const {
 
   // Print subrelease stats
   Length total_subreleased;
+  Length total_partial_alloc_pages_subreleased;
   HugeLength total_broken = NHugePages(0);
   tracker_.Iter(
       [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
         total_subreleased += e.num_pages_subreleased;
+        total_partial_alloc_pages_subreleased +=
+            e.num_partial_alloc_pages_subreleased;
         total_broken += e.num_hugepages_broken;
       },
       tracker_.kSkipEmptyEntries);
   out->printf(
       "HugePageFiller: Subrelease stats last %d min: total "
-      "%zu pages subreleased, %zu hugepages broken\n",
+      "%zu pages subreleased (%zu pages from partial allocs), "
+      "%zu hugepages broken\n",
       static_cast<int64_t>(absl::ToInt64Minutes(window_)),
-      total_subreleased.raw_num(), total_broken.raw_num());
+      total_subreleased.raw_num(),
+      total_partial_alloc_pages_subreleased.raw_num(), total_broken.raw_num());
 }
 
 template <size_t kEpochs>
@@ -715,6 +729,8 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                         e.num_pages_subreleased.raw_num());
         region.PrintI64("num_hugepages_broken",
                         e.num_hugepages_broken.raw_num());
+        region.PrintI64("partial_alloc_pages_subreleased",
+                        e.num_partial_alloc_pages_subreleased.raw_num());
         for (int i = 0; i < kNumStatsTypes; i++) {
           auto m = region.CreateSubRegion(labels[i]);
           FillerStats stats = e.stats[i];
@@ -1038,6 +1054,8 @@ class HugePageFiller {
     return used_pages_in_released() + used_pages_in_partial_released();
   }
 
+  Length FreePagesInPartialAllocs() const;
+
   // Fraction of used pages that are on non-released hugepages and
   // thus could be backed by kernel hugepages. (Of course, we can't
   // guarantee that the kernel had available 2-mib regions of physical
@@ -1053,11 +1071,14 @@ class HugePageFiller {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Tries to release desired pages by iteratively releasing from the emptiest
-  // possible hugepage and releasing its free memory to the system. Returns the
-  // number of pages actually released. The releasing target can be reduced by
-  // skip subrelease which is disabled if all intervals are zero.
+  // possible hugepage and releasing its free memory to the system. If
+  // release_partial_alloc_pages is enabled, it also releases all the free
+  // pages from the partial allocs. Note that the number of pages released may
+  // be greater than the desired number of pages.
+  // Returns the number of pages actually released. The releasing target can be
+  // reduced by skip subrelease which is disabled if all intervals are zero.
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
-                      bool hit_limit)
+                      bool release_partial_alloc_pages, bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Number of candidate hugepages selected in each iteration for releasing
   // their free memory.
@@ -1644,6 +1665,15 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 }
 
 template <class TrackerType>
+inline Length HugePageFiller<TrackerType>::FreePagesInPartialAllocs() const {
+  return regular_alloc_partial_released_[kFew].size().in_pages() +
+         regular_alloc_partial_released_[kMany].size().in_pages() +
+         regular_alloc_released_[kFew].size().in_pages() +
+         regular_alloc_released_[kMany].size().in_pages() -
+         used_pages_in_any_subreleased() - unmapped_pages();
+}
+
+template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     Length desired, Length total_released, SkipSubreleaseIntervals intervals) {
   // Don't subrelease pages if it would push you under either the latest peak or
@@ -1684,7 +1714,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
     // Remaining target amount to release after applying skip subrelease. Note:
     // the remaining target should always be smaller or equal to the number of
     // free pages according to the mechanism (recent peak is always larger or
-    // equal to current used_pages), however, we still caculate allowed release
+    // equal to current used_pages), however, we still calculate allowed release
     // using the minimum of the two to avoid relying on that assumption.
     Length releasable_pages =
         std::min(free_pages(), (new_desired - total_released));
@@ -1709,8 +1739,24 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
 // number of pages actually released.
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::ReleasePages(
-    Length desired, SkipSubreleaseIntervals intervals, bool hit_limit) {
+    Length desired, SkipSubreleaseIntervals intervals,
+    bool release_partial_alloc_pages, bool hit_limit) {
   Length total_released;
+
+  // If the feature to release all free pages in partially-released allocs is
+  // enabled, we increase the desired number of pages below to the total number
+  // of releasable pages in partially-released allocs. We disable this feature
+  // for cases when hit_limit is set to true (i.e. when memory limit is hit).
+  const bool release_all_from_partial_allocs =
+      release_partial_alloc_pages && !hit_limit;
+  if (ABSL_PREDICT_FALSE(release_all_from_partial_allocs)) {
+    // If we have fewer than desired number of free pages in partial allocs, we
+    // would try to release pages from full allocs as well (after we include
+    // unaccounted unmapped pages and release from partial allocs). Else, we aim
+    // to release up to the total number of free pages in partially-released
+    // allocs.
+    desired = std::max(desired, FreePagesInPartialAllocs());
+  }
 
   // We also do eager release, once we've called this at least once:
   // claim credit for anything that gets done.
@@ -1720,11 +1766,6 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     Length n = unmapping_unaccounted_;
     unmapping_unaccounted_ = Length(0);
     subrelease_stats_.num_pages_subreleased += n;
-
-    if (n >= desired) {
-      return n;
-    }
-
     total_released += n;
   }
 
@@ -1768,6 +1809,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
                           desired - total_released);
+    subrelease_stats_.num_partial_alloc_pages_subreleased += released;
     if (released == Length(0)) {
       break;
     }
@@ -2324,6 +2366,8 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
         regular_alloc_released_[type].size();
   }
   stats.num_pages_subreleased = subrelease_stats_.num_pages_subreleased;
+  stats.num_partial_alloc_pages_subreleased =
+      subrelease_stats_.num_partial_alloc_pages_subreleased;
   stats.num_hugepages_broken = subrelease_stats_.num_hugepages_broken;
   fillerstats_tracker_.Report(stats);
   subrelease_stats_.reset();

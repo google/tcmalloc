@@ -138,7 +138,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   std::vector<PageTracker*> trackers;
   absl::flat_hash_map<PageTracker*, std::vector<Alloc>> allocs;
 
-  // Running counter to allocate psuedo-random addresses
+  // Running counter to allocate pseudo-random addresses
   size_t next_hugepage = 1;
 
   for (size_t i = 0; i + 5 <= size; i += 5) {
@@ -279,7 +279,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // If not using peak interval:
         // value[2:9]  - Short interval for skip subrelease
         // value[10:17]- Long interval for skip subrelease
-        // value[18:31]- Number of pages to try to release
+        // value[18:29]- Number of pages to try to release
+        // value[30] - Whether we release all free pages from partial allocs.
+        // value[31] - Reserved.
         bool hit_limit = value & 0x1;
         bool use_peak_interval = (value >> 1) & 0x1;
         SkipSubreleaseIntervals skip_subrelease_intervals;
@@ -300,13 +302,24 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
               absl::Seconds(long_interval_s);
           value >>= 18;
         }
-        Length desired(value);
+        Length desired(value & 0xFFF);
+        const bool release_partial_allocs = (value >> 12) & 0x1;
+        Length free_pages_in_partial_allocs;
 
         Length released;
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          free_pages_in_partial_allocs = filler.FreePagesInPartialAllocs();
           released = filler.ReleasePages(desired, skip_subrelease_intervals,
-                                         hit_limit);
+                                         release_partial_allocs, hit_limit);
+        }
+
+        // We should be able to release all the free pages in partial allocs if
+        // skip-subrelease is disabled.
+        if (release_partial_allocs && !hit_limit &&
+            !skip_subrelease_intervals.SkipSubreleaseEnabled() &&
+            unback_success) {
+          CHECK_GE(released.raw_num(), free_pages_in_partial_allocs.raw_num());
         }
         break;
       }
@@ -381,6 +394,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
           released = filler.ReleasePages(desired, SkipSubreleaseIntervals{},
+                                         /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
         }
         const Length expected =

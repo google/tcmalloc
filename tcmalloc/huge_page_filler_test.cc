@@ -800,12 +800,24 @@ class FillerTest : public testing::TestWithParam<std::tuple<FillerPath>> {
 
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, intervals, false);
+    return filler_.ReleasePages(desired, intervals,
+                                /*release_partial_alloc_pages=*/false,
+                                /*hit_limit=*/false);
+  }
+
+  Length ReleasePartialPages(Length desired,
+                             SkipSubreleaseIntervals intervals = {}) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    return filler_.ReleasePages(desired, intervals,
+                                /*release_partial_alloc_pages=*/true,
+                                /*hit_limit=*/false);
   }
 
   Length HardReleasePages(Length desired) {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return filler_.ReleasePages(desired, SkipSubreleaseIntervals{}, true);
+    return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
+                                /*release_partial_alloc_pages=*/false,
+                                /*hit_limit=*/true);
   }
 
   // Generates an "interesting" pattern of allocations that highlights all the
@@ -919,6 +931,106 @@ TEST_P(FillerTest, Density) {
     Delete(a);
     ASSERT_EQ(filler_.pages_allocated(), Length(--n));
   }
+}
+
+// This test makes sure that we continue releasing from regular (non-partial)
+// allocs when we enable a feature to release all free pages from partial
+// allocs.
+TEST_P(FillerTest, ReleaseFromFullAllocs) {
+  static const Length kAlloc = kPagesPerHugePage / 2;
+  // Maintain the object count for the second allocation so that the alloc list
+  // remains the same for the two allocations.
+  PAlloc p1 = Allocate(kAlloc - Length(1));
+  PAlloc p2 = AllocateWithObjectCount(kAlloc + Length(1), p1.num_objects);
+
+  PAlloc p3 = Allocate(kAlloc - Length(2));
+  PAlloc p4 = AllocateWithObjectCount(kAlloc + Length(2), p3.num_objects);
+  // We have two hugepages, both full: nothing to release.
+  ASSERT_EQ(ReleasePartialPages(kMaxValidPages), Length(0));
+  Delete(p1);
+  Delete(p3);
+  // Now we should see the p1 hugepage - emptier - released.
+  ASSERT_EQ(ReleasePartialPages(kAlloc - Length(1)), kAlloc - Length(1));
+  EXPECT_EQ(filler_.unmapped_pages(), kAlloc - Length(1));
+  ASSERT_TRUE(p1.pt->released());
+  ASSERT_FALSE(p3.pt->released());
+
+  // Check subrelease stats.
+  SubreleaseStats subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_pages_subreleased, kAlloc - Length(1));
+  EXPECT_EQ(subrelease.num_partial_alloc_pages_subreleased, Length(0));
+
+  // We expect to reuse p1.pt.
+  PAlloc p5 = AllocateWithObjectCount(kAlloc - Length(1), p1.num_objects);
+  ASSERT_TRUE(p1.pt == p5.pt);
+
+  Delete(p2);
+  Delete(p4);
+  Delete(p5);
+}
+
+// This test makes sure that we release all the free pages from partial allocs
+// even when we request fewer pages to release. It also confirms that we
+// continue to release desired number of pages from the full allocs even when
+// release_partial_alloc_pages option is enabled.
+TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs) {
+  static const Length kAlloc = kPagesPerHugePage / 2;
+  static const Length kL1 = kAlloc - Length(1);
+  static const Length kL2 = kAlloc + Length(1);
+
+  static const Length kL3 = kAlloc - Length(1);
+  static const Length kL4 = kAlloc + Length(1);
+  PAlloc p1 = Allocate(kL1);
+  PAlloc p2 = AllocateWithObjectCount(kL2, p1.num_objects);
+  PAlloc p3 = Allocate(kL3);
+  PAlloc p4 = AllocateWithObjectCount(kL4, p3.num_objects);
+
+  // As there are no free pages, we shouldn't be able to release anything.
+  EXPECT_EQ(ReleasePartialPages(kMaxValidPages), Length(0));
+
+  Delete(p2);
+  Delete(p4);
+
+  // Check subrelease stats.
+  SubreleaseStats subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
+  EXPECT_EQ(subrelease.num_partial_alloc_pages_subreleased, Length(0));
+
+  // As we do not have any pages in partially-released lists, we should continue
+  // to release the requested number of pages.
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+  EXPECT_EQ(ReleasePartialPages(kL2), kL2);
+  EXPECT_EQ(ReleasePartialPages(kL4), kL4);
+
+  // Check subrelease stats.
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_pages_subreleased, kL2 + kL4);
+  EXPECT_EQ(subrelease.num_partial_alloc_pages_subreleased, Length(0));
+  // Now we allocate more.
+  static const Length kL5 = kL2 - Length(2);
+  static const Length kL6 = kL4 - Length(2);
+  PAlloc p5 = AllocateWithObjectCount(kL5, p1.num_objects);
+  PAlloc p6 = AllocateWithObjectCount(kL6, p3.num_objects);
+  EXPECT_EQ(filler_.used_pages_in_released(), kL1 + kL3 + kL5 + kL6);
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+
+  Delete(p5);
+  Delete(p6);
+
+  // We have some free pages in partially-released allocs now.
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), kL1 + kL3);
+  // We should release all the free pages from partially-released allocs at
+  // once. The second call to ReleasePartialPages should find nothing.
+  EXPECT_EQ(ReleasePartialPages(kL5), kL5 + kL6);
+  EXPECT_EQ(ReleasePartialPages(kL5), Length(0));
+
+  // Check subrelease stats.
+  subrelease = filler_.subrelease_stats();
+  EXPECT_EQ(subrelease.num_pages_subreleased, kL5 + kL6);
+  EXPECT_EQ(subrelease.num_partial_alloc_pages_subreleased, kL5 + kL6);
+
+  Delete(p1);
+  Delete(p3);
 }
 
 TEST_P(FillerTest, AccountingForUsedPartialReleased) {
@@ -1191,6 +1303,63 @@ TEST_P(FillerTest, DISABLED_ReleaseFrac) {
   }
 }
 
+// Make sure we release appropriate number of pages when using
+// ReleasePartialPages.
+TEST_P(FillerTest, ReleasePagesFromPartialAllocs) {
+  const Length N = kPagesPerHugePage;
+  auto big = Allocate(N - Length(2));
+  auto tiny1 = AllocateWithObjectCount(Length(1), big.num_objects);
+  auto tiny2 = AllocateWithObjectCount(Length(1), big.num_objects);
+  auto half1 = Allocate(N / 2);
+  auto half2 = AllocateWithObjectCount(N / 2, half1.num_objects);
+
+  Delete(half1);
+  Delete(big);
+
+  ASSERT_EQ(filler_.size(), NHugePages(2));
+
+  // We should pick the [empty big][full tiny] hugepage here.
+  EXPECT_EQ(ReleasePartialPages(N - Length(2)), N - Length(2));
+  EXPECT_EQ(filler_.unmapped_pages(), N - Length(2));
+  // This shouldn't trigger a release.
+  Delete(tiny1);
+  EXPECT_EQ(filler_.unmapped_pages(), N - Length(2));
+  // Until we call ReleasePartialPages() again.
+  EXPECT_EQ(ReleasePartialPages(Length(1)), Length(1));
+
+  // As should this, but this will drop the whole hugepage.
+  Delete(tiny2);
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+
+  // We should release tiny2 here.
+  EXPECT_EQ(ReleasePartialPages(Length(1)), Length(1));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.size(), NHugePages(1));
+
+  // Check subrelease stats.
+  EXPECT_EQ(filler_.used_pages(), N / 2);
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_released(), Length(0));
+
+  // Now we pick the half/half hugepage. We should be able to release pages from
+  // full allocs with ReleasePartialPages even though partially-released allocs
+  // are empty.
+  EXPECT_EQ(ReleasePartialPages(kMaxValidPages), N / 2);
+  EXPECT_EQ(filler_.unmapped_pages(), N / 2);
+
+  // Check subrelease stats.
+  EXPECT_EQ(filler_.used_pages(), N / 2);
+  EXPECT_EQ(filler_.used_pages_in_any_subreleased(), N / 2);
+  EXPECT_EQ(filler_.used_pages_in_partial_released(), Length(0));
+  EXPECT_EQ(filler_.used_pages_in_released(), N / 2);
+
+  Delete(half2);
+  EXPECT_EQ(filler_.size(), NHugePages(0));
+  EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+}
+
 TEST_P(FillerTest, ReleaseAccounting) {
   const Length N = kPagesPerHugePage;
   auto big = Allocate(N - Length(2));
@@ -1350,6 +1519,204 @@ TEST_P(FillerTest, StronglyPreferNonDonated) {
   for (const PAlloc& alloc : regular) {
     Delete(alloc);
   }
+}
+
+TEST_P(FillerTest, SkipPartialAllocSubrelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (kPagesPerHugePage != Length(256)) {
+    GTEST_SKIP();
+  }
+
+  // Firstly, this test generates a peak (long-term demand peak) and waits for
+  // time interval a. Then, it generates a higher peak plus a short-term
+  // fluctuation peak, and waits for time interval b. It then generates a trough
+  // in demand and tries to subrelease. Finally, it waits for time interval c to
+  // generate the highest peak for evaluating subrelease correctness. Skip
+  // subrelease selects those demand points using provided time intervals.
+  const auto demand_pattern =
+      [&](absl::Duration a, absl::Duration b, absl::Duration c,
+          SkipSubreleaseIntervals intervals, bool expected_subrelease) {
+        const Length N = kPagesPerHugePage;
+        // First peak: min_demand 3/4N, max_demand 1N.
+        PAlloc peak1a = Allocate(3 * N / 4);
+        PAlloc peak1b = AllocateWithObjectCount(N / 4, peak1a.num_objects);
+        Advance(a);
+        // Second peak: min_demand 0, max_demand 2N.
+        Delete(peak1a);
+        Delete(peak1b);
+
+        PAlloc half = Allocate(N / 2);
+        PAlloc tiny1 = AllocateWithObjectCount(N / 4, half.num_objects);
+        PAlloc tiny2 = AllocateWithObjectCount(N / 4, half.num_objects);
+
+        // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+        // necessary after we delete `half` below, as a half huge page for the
+        // peak would fill into the gap previously occupied by it.
+        PAlloc peak2a = Allocate(3 * N / 4);
+        PAlloc peak2b = AllocateWithObjectCount(N / 4, peak2a.num_objects);
+        EXPECT_EQ(filler_.used_pages(), 2 * N);
+        Delete(peak2a);
+        Delete(peak2b);
+        Advance(b);
+        Delete(half);
+        EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+        // The number of released pages is limited to the number of free pages.
+        EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+                  ReleasePartialPages(10 * N, intervals));
+
+        Advance(c);
+        // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+        PAlloc peak3a = Allocate(3 * N / 4);
+        PAlloc peak3b = AllocateWithObjectCount(N / 4, peak3a.num_objects);
+
+        PAlloc peak4a = Allocate(3 * N / 4);
+        PAlloc peak4b = AllocateWithObjectCount(N / 4, peak4a.num_objects);
+
+        Delete(tiny1);
+        Delete(tiny2);
+        Delete(peak3a);
+        Delete(peak3b);
+        Delete(peak4a);
+        Delete(peak4b);
+
+        EXPECT_EQ(filler_.used_pages(), Length(0));
+        EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+        EXPECT_EQ(filler_.free_pages(), Length(0));
+
+        EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+                  ReleasePartialPages(10 * N));
+      };
+
+  {
+    // Uses peak interval for skipping subrelease. We should correctly skip
+    // 128 pages.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses peak interval for skipping subrelease, subreleasing all free pages.
+    // The short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Skip subrelease feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease. It
+    // incorrectly skips 128 pages.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses short-term and long-term intervals for skipping subrelease,
+    // subreleasing all free pages.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   true);
+  }
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses only short-term interval for skipping subrelease. It correctly
+    // skips 128 pages.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  {
+    // Uses only long-term interval for skipping subrelease, subreleased all
+    // free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   true);
+  }
+
+  Advance(absl::Minutes(30));
+
+  // This captures a corner case: If we hit another peak immediately after a
+  // subrelease decision (in the same time series epoch), do not count this as
+  // a correct subrelease decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(
+        absl::Milliseconds(10), absl::Milliseconds(10), absl::Milliseconds(10),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)}, false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that subrelease decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   false);
+  }
+
+  Advance(absl::Minutes(30));
+
+  // Ensure that the tracker is updated.
+  auto tiny = Allocate(Length(1));
+  Delete(tiny);
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugePageFiller: Since the start of the execution, 6 subreleases (768 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
 }
 
 TEST_P(FillerTest, SkipSubrelease) {
@@ -1752,7 +2119,7 @@ HugePageFiller: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 releas
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
-HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased, 0 hugepages broken
+HugePageFiller: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
 )"));
   }
 }
@@ -1975,6 +2342,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   Advance(absl::Minutes(1));
   SubreleaseStats subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(0));
+  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 0);
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(19));
   EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 2);
@@ -1987,6 +2355,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   }
   subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
+  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
@@ -2000,6 +2369,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
 
   subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(19));
+  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 2);
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(21));
   EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 3);
@@ -2013,6 +2383,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   }
   subrelease = filler_.subrelease_stats();
   EXPECT_EQ(subrelease.total_pages_subreleased, Length(40));
+  EXPECT_EQ(subrelease.total_partial_alloc_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.total_hugepages_broken.raw_num(), 5);
   EXPECT_EQ(subrelease.num_pages_subreleased, Length(0));
   EXPECT_EQ(subrelease.num_hugepages_broken.raw_num(), 0);
@@ -2034,7 +2405,8 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
           "limit)"));
   ASSERT_THAT(buffer, testing::EndsWith(
                           "HugePageFiller: Subrelease stats last 10 min: total "
-                          "21 pages subreleased, 3 hugepages broken\n"));
+                          "21 pages subreleased (0 pages from partial allocs), "
+                          "3 hugepages broken\n"));
 
   for (const auto& alloc : result) {
     Delete(alloc);
@@ -2480,7 +2852,7 @@ HugePageFiller: at peak hps: 15 hps (10 regular, 1 donated, 0 partial, 4 release
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
-HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased, 5 hugepages broken
+HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pages from partial allocs), 5 hugepages broken
 )"));
   for (const auto& alloc : allocs) {
     Delete(alloc);

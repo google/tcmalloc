@@ -71,6 +71,10 @@ class StaticForwarder {
     return Parameters::filler_skip_subrelease_long_interval();
   }
 
+  static bool release_partial_alloc_pages() {
+    return Parameters::release_partial_alloc_pages();
+  }
+
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
   // Arena state.
@@ -891,6 +895,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
                   forwarder_.filler_skip_subrelease_short_interval(),
               .long_interval =
                   forwarder_.filler_skip_subrelease_long_interval()},
+          forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
     }
   }
@@ -1073,7 +1078,8 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   // We desperately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the filler.
   return filler_.ReleasePages(n, SkipSubreleaseIntervals{},
-                              /*hit_limit*/ true);
+                              /*release_partial_alloc_pages=*/false,
+                              /*hit_limit=*/true);
 }
 
 template <class Forwarder>

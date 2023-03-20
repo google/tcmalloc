@@ -97,6 +97,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: false"));
+
   sized_delete(alloc, kSize);
 }
 
@@ -137,6 +139,8 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3s)"));
 
+    EXPECT_THAT(
+        buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 0)"));
 #ifdef __x86_64__
     EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
 #endif
