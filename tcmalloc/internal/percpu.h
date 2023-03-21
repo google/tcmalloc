@@ -81,7 +81,8 @@ inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi;
+extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
