@@ -169,7 +169,7 @@ cc_test(
         "nosan",
     ],
     deps = [
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_googletest//:gtest_main",
     ],
@@ -285,7 +285,7 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":testutil",
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -315,7 +315,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     deps = [
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_googletest//:gtest_main",
     ],
@@ -329,7 +329,7 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":testutil",
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc/internal:lifetime_tracker",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
@@ -448,7 +448,7 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
@@ -594,7 +594,7 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
@@ -611,7 +611,7 @@ cc_test(
     malloc = "//tcmalloc",
     tags = ["nosan"],
     deps = [
-        "//tcmalloc:common",
+        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_hpaa",
         "//tcmalloc/internal:config",
