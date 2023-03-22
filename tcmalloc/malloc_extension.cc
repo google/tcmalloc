@@ -17,10 +17,13 @@
 #include <assert.h>
 #include <string.h>
 
+#include <array>
 #include <atomic>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 
 #include "absl/base/attributes.h"
@@ -554,6 +557,7 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
   // TODO(b/273946827): Add local tcmalloc tests for the various sanitizer
   // configs as opposed to depending on
   // //testing/sanitizer_common:malloc_extension_test
+  // LINT.IfChange(SantizerGetProperty)
   if (property == "dynamic_tool.virtual_memory_overhead") {
     return SanitizerVirtualMemoryOverhead();
   }
@@ -583,6 +587,7 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
     // Kept for backwards compatibility.
     return __sanitizer_get_free_bytes() + __sanitizer_get_unmapped_bytes();
   }
+  // LINT.ThenChange(:SantizerGetProperties)
 #endif  // TCMALLOC_UNDER_SANITIZERS
   return absl::nullopt;
 }
@@ -623,15 +628,24 @@ MallocExtension::GetProperties() {
 #if TCMALLOC_UNDER_SANITIZERS
   // Unlike other extension points this one fills in sanitizer data before the
   // weak function is called so that the weak function can override as needed.
-  ret["generic.current_allocated_bytes"].value =
-      __sanitizer_get_current_allocated_bytes();
-  ret["generic.heap_size"].value = __sanitizer_get_heap_size();
-  ret["tcmalloc.per_cpu_caches_active"].value = 0;
-  ret["tcmalloc.pageheap_free_bytes"].value = __sanitizer_get_free_bytes();
-  ret["tcmalloc.pageheap_unmapped_bytes"].value =
-      __sanitizer_get_unmapped_bytes();
-  ret["tcmalloc.slack_bytes"].value =
-      __sanitizer_get_free_bytes() + __sanitizer_get_unmapped_bytes();
+  // LINT.IfChange(SantizerGetProperties)
+  const std::array properties = {"dynamic_tool.virtual_memory_overhead",
+                                 "dynamic_tool.memory_usage_multiplier",
+                                 "dynamic_tool.stack_size_multiplier",
+                                 "generic.current_allocated_bytes",
+                                 "generic.heap_size",
+                                 "tcmalloc.per_cpu_caches_active",
+                                 "tcmalloc.pageheap_free_bytes",
+                                 "tcmalloc.pageheap_unmapped_bytes",
+                                 "tcmalloc.slack_bytes"};
+  // LINT.ThenChange(:SantizerGetProperty)
+
+  for (const auto& p : properties) {
+    const auto& value = GetNumericProperty(p);
+    if (value) {
+      ret[p].value = *value;
+    }
+  }
 #endif  // TCMALLOC_UNDER_SANITIZERS
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetProperties != nullptr) {
