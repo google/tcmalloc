@@ -257,10 +257,12 @@ TEST_F(TcMallocTest, OffsetAndLength) {
   };
   EXPECT_DEATH(RepeatUseAfterFree(3999, -42),
                ">>> Access at offset -42 into buffer of length 3999");
-  EXPECT_DEATH(RepeatUseAfterFree(6543, 1221),
-               ">>> Access at offset 1221 into buffer of length 6543");
-  EXPECT_DEATH(RepeatUseAfterFree(8192, 8484),
-               ">>> Access at offset 8484 into buffer of length 8192");
+  if (kPageSize > 4096) {
+    EXPECT_DEATH(RepeatUseAfterFree(6543, 1221),
+                 ">>> Access at offset 1221 into buffer of length 6543");
+    EXPECT_DEATH(RepeatUseAfterFree(8192, 8484),
+                 ">>> Access at offset 8484 into buffer of length 8192");
+  }
 }
 
 // Ensure non-GWP-ASan segfaults also crash.
@@ -307,7 +309,8 @@ TEST(AlwaysSamplingTest, DoubleFree) {
     ::operator delete(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(DoubleFree(), "span != nullptr|Span::Unsample\\(\\)");
+  EXPECT_DEATH(DoubleFree(),
+               "span != nullptr|Span::Unsample\\(\\)|Span::IN_USE");
 }
 
 }  // namespace

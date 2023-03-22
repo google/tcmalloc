@@ -143,11 +143,10 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "memalign_test",
     srcs = ["memalign_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
@@ -160,16 +159,14 @@ cc_test(
 )
 
 # Fragmentation timing and test
-cc_test(
+create_tcmalloc_testsuite(
     name = "frag_test",
     srcs = ["frag_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
     deps = [
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_googletest//:gtest_main",
     ],
@@ -218,12 +215,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "current_allocated_bytes_test",
     size = "small",
     srcs = ["current_allocated_bytes_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -276,16 +272,14 @@ create_tcmalloc_testsuite(
 )
 
 # Test of sampler class
-cc_test(
+create_tcmalloc_testsuite(
     name = "sampler_test",
     timeout = "long",
     srcs = ["sampler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     deps = [
         ":testutil",
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_googletest//:gtest_main",
@@ -308,14 +302,12 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "large_alloc_size_test",
     srcs = ["large_alloc_size_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     deps = [
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_googletest//:gtest_main",
     ],
@@ -351,11 +343,10 @@ cc_library(
     linkopts = ["-pthread"],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "thread_ctor_test",
     srcs = ["thread_ctor_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [":thread_ctor_test_lib"],
 )
 
@@ -414,7 +405,7 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "aligned_new_test",
     timeout = "long",
     srcs = ["aligned_new_test.cc"],
@@ -423,7 +414,6 @@ cc_test(
                 "//conditions:default": [],
             }),
     linkstatic = 1,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
@@ -437,18 +427,16 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "nompu64",  # until b/243344691 is fixed
         "nosan",
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
@@ -604,16 +592,13 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "releasing_test",
     srcs = ["releasing_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = ["nosan"],
     deps = [
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_hpaa",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",

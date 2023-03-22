@@ -265,7 +265,7 @@ void PageHeap::Delete(Span* span, size_t objects_per_span) {
   ASSERT(GetMemoryTag(span->start_address()) == tag_);
   info_.RecordFree(span->first_page(), span->num_pages(), objects_per_span);
   ASSERT(Check());
-  ASSERT(span->location() == Span::IN_USE);
+  CHECK_CONDITION(span->location() == Span::IN_USE);
   ASSERT(!span->sampled());
   ASSERT(span->num_pages() > Length(0));
   ASSERT(pagemap_->GetDescriptor(span->first_page()) == span);
