@@ -98,23 +98,6 @@ create_tcmalloc_benchmark_suite(
     ],
 )
 
-cc_test(
-    name = "tcmalloc_test_deprecated_perthread",
-    timeout = "long",
-    srcs = ["tcmalloc_test.cc"],
-    copts = REGTEST_OPTS + ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
-    linkstatic = 1,  # get the most realistic performance
-    malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
-    tags = [
-        "nosan",
-    ],
-    deps = REGTEST_DEPS + [
-        "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:optional",
-        "//tcmalloc:common_deprecated_perthread",
-    ],
-)
-
 create_tcmalloc_testsuite(
     name = "threadcachesize_test",
     srcs = ["threadcachesize_test.cc"],

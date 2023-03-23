@@ -22,6 +22,7 @@ build_variants = [
     {
         "name": "deprecated_perthread",
         "copts": ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
+        "visibility": ["//tcmalloc:tcmalloc_tests"],
     },
     {
         "name": "large_pages",
@@ -163,6 +164,30 @@ test_variants = [
             "//tcmalloc:common_8k_pages",
             "//tcmalloc:want_hpaa",
         ],
+    },
+    {
+        "name": "deprecated_perthread",
+        "malloc": "//tcmalloc:tcmalloc_deprecated_perthread",
+        "copts": ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
+        "deps": [
+            "//tcmalloc:common_deprecated_perthread",
+        ],
+    },
+    {
+        "name": "flat_cpu_caches",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"PERCPU_VCPU_MODE": "flat"},
+    },
+    {
+        "name": "real_cpu_caches",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"PERCPU_VCPU_MODE": "none"},
     },
 ]
 
