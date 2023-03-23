@@ -56,7 +56,7 @@ enum class HugeRegionCountOption : bool {
   kAbandonedCount
 };
 
-HugeRegionCountOption use_huge_region_for_often();
+HugeRegionCountOption huge_region_option();
 
 class StaticForwarder {
  public:
@@ -114,7 +114,7 @@ class StaticForwarder {
 
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
-  HugeRegionCountOption use_huge_region_more_often;
+  HugeRegionCountOption use_huge_region_more_often = huge_region_option();
   LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
@@ -1002,6 +1002,8 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
     ages.Print("HugePageAware", out);
   }
 
+  out->printf("PARAMETER use_huge_region_more_often %d\n",
+              UseHugeRegionMoreOften() ? 1 : 0);
   out->printf("PARAMETER hpaa_subrelease %d\n",
               forwarder_.hpaa_subrelease() ? 1 : 0);
 }
@@ -1019,6 +1021,7 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     auto hpaa = region->CreateSubRegion("huge_page_allocator");
     hpaa.PrintBool("using_hpaa", true);
     hpaa.PrintBool("using_hpaa_subrelease", forwarder_.hpaa_subrelease());
+    hpaa.PrintBool("use_huge_region_more_often", UseHugeRegionMoreOften());
 
     // Fill HPAA Usage
     auto fstats = filler_.stats();
