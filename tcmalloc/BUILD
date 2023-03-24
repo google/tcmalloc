@@ -580,8 +580,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["huge_page_aware_allocator_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         "@com_google_absl//absl/log:check",
@@ -593,8 +591,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["huge_page_filler_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:clock",
@@ -610,8 +606,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
@@ -623,8 +617,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["sizemap_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         ":size_class_info",
@@ -637,8 +629,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["central_freelist_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
@@ -652,8 +642,6 @@ cc_fuzz_test(
     testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
@@ -776,8 +764,6 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = [
-    ],
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
@@ -1115,9 +1101,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
-    tags = [
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:logging",

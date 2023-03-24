@@ -414,10 +414,7 @@ create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "nompu64",  # until b/243344691 is fixed
-        "nosan",
-    ],
+    tags = ["nosan"],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
