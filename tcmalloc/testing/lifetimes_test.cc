@@ -105,18 +105,18 @@ class LifetimesTest
   // traces (A/B). Inlining and tail call optimizations need to be disabled to
   // ensure that the stack traces are guaranteed to be distinct.
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span* AllocateA() {
-    return allocator_->New(Length(kAllocationSize), 1);
+    return allocator_->New(kAllocationSize, 1);
   }
 
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span* AllocateB() {
-    return allocator_->New(Length(kAllocationSize), 1);
+    return allocator_->New(kAllocationSize, 1);
   }
 
   // Generates distinct allocation stack traces based on the value of id.
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span*
   AllocateWithStacktraceId(int id) {
     if (id == 0) {
-      return allocator_->New(Length(kAllocationSize), 1);
+      return allocator_->New(kAllocationSize, 1);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);
     } else {
@@ -130,7 +130,7 @@ class LifetimesTest
   }
 
  protected:
-  const int kAllocationSize = kPagesPerHugePage.raw_num() - 2;
+  const Length kAllocationSize = kPagesPerHugePage - Length(2);
 
   HugePageAwareAllocator* allocator_;
   LifetimeBasedAllocator* lifetime_allocator_;
@@ -148,7 +148,7 @@ class LifetimesTest
   ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Span*
   AllocateWithStacktraceId_2(int id) {
     if (id == 0) {
-      return allocator_->New(Length(kAllocationSize), 1);
+      return allocator_->New(kAllocationSize, 1);
     } else if (id % 2 == 0) {
       return AllocateWithStacktraceId(id / 2);
     } else {
@@ -202,9 +202,9 @@ TEST_P(LifetimesTest, Basic) {
     EXPECT_EQ(110, stats.tracker.expired_lifetimes);
     EXPECT_EQ(0, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(210, stats.region.allocations);
-    EXPECT_EQ(53340, stats.region.allocated_pages);
+    EXPECT_EQ(210 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(210, stats.region.deallocations);
-    EXPECT_EQ(53340, stats.region.deallocated_pages);
+    EXPECT_EQ(210 * kAllocationSize, Length(stats.region.deallocated_pages));
   } else {
     // The first 20 short-lived allocations are not allocated in the short-lived
     // region because the lifetime-based allocator does not yet have enough
@@ -215,9 +215,9 @@ TEST_P(LifetimesTest, Basic) {
     EXPECT_EQ(0, stats.tracker.expired_lifetimes);
     EXPECT_EQ(20, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(80, stats.region.allocations);
-    EXPECT_EQ(20320, stats.region.allocated_pages);
+    EXPECT_EQ(80 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(80, stats.region.deallocations);
-    EXPECT_EQ(20320, stats.region.deallocated_pages);
+    EXPECT_EQ(80 * kAllocationSize, Length(stats.region.deallocated_pages));
   }
 
   EXPECT_NE(LifetimePredictionOptions::Mode::kDisabled, stats.opts.mode());
@@ -271,18 +271,18 @@ TEST_P(LifetimesTest, IntermediateState) {
     EXPECT_EQ(0, stats.tracker.expired_lifetimes);
     EXPECT_EQ(0, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(1000, stats.region.allocations);
-    EXPECT_EQ(254000, stats.region.allocated_pages);
+    EXPECT_EQ(1000 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(900, stats.region.deallocations);
-    EXPECT_EQ(228600, stats.region.deallocated_pages);
+    EXPECT_EQ(900 * kAllocationSize, Length(stats.region.deallocated_pages));
   } else {
     EXPECT_EQ(900, stats.tracker.short_lived_predictions);
     EXPECT_EQ(100, stats.tracker.long_lived_predictions);
     EXPECT_EQ(0, stats.tracker.expired_lifetimes);
     EXPECT_EQ(100, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(900, stats.region.allocations);
-    EXPECT_EQ(228600, stats.region.allocated_pages);
+    EXPECT_EQ(900 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(800, stats.region.deallocations);
-    EXPECT_EQ(203200, stats.region.deallocated_pages);
+    EXPECT_EQ(800 * kAllocationSize, Length(stats.region.deallocated_pages));
   }
 
   EXPECT_NE(LifetimePredictionOptions::Mode::kDisabled, stats.opts.mode());
@@ -292,7 +292,7 @@ TEST_P(LifetimesTest, IntermediateState) {
   // In both enabled and counterfactual mode, the allocated objects should be
   // correctly accounted for in the top-level allocator.
   BackingStats current_stats = GetAllocatorStats();
-  int64_t used = kAllocations * kAllocationSize * kPageSize;
+  int64_t used = kAllocations * kAllocationSize.in_bytes();
   EXPECT_EQ(GetUsedBytes(current_stats), GetUsedBytes(initial_stats) + used);
 
   if (GetParam().mode() == LifetimePredictionOptions::Mode::kEnabled) {
@@ -518,7 +518,7 @@ TEST_P(LifetimesTest, CounterfactualDonatedPagesCornerCase) {
   // couterfactual object twice.
   for (int i = 0; i < 10; ++i) {
     Span* donated_object =
-        allocator_->New(Length(kPagesPerHugePage) - Length(8), 1);
+        allocator_->New(Length(kPagesPerHugePage) - Length(7), 1);
     Span* additional_object = allocator_->New(Length(2), 1);
     Delete(donated_object);
     Delete(additional_object);
@@ -527,7 +527,7 @@ TEST_P(LifetimesTest, CounterfactualDonatedPagesCornerCase) {
   // The same operations in the opposite order.
   for (int i = 0; i < 10; ++i) {
     Span* donated_object =
-        allocator_->New(Length(kPagesPerHugePage) - Length(8), 1);
+        allocator_->New(Length(kPagesPerHugePage) - Length(7), 1);
     Span* additional_object = allocator_->New(Length(2), 1);
     Delete(additional_object);
     Delete(donated_object);
@@ -612,9 +612,9 @@ TEST_P(LifetimeBasedAllocatorEnableAtRuntimeTest, Basic) {
     EXPECT_EQ(110, stats.tracker.expired_lifetimes);
     EXPECT_EQ(0, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(210, stats.region.allocations);
-    EXPECT_EQ(53340, stats.region.allocated_pages);
+    EXPECT_EQ(210 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(210, stats.region.deallocations);
-    EXPECT_EQ(53340, stats.region.deallocated_pages);
+    EXPECT_EQ(210 * kAllocationSize, Length(stats.region.deallocated_pages));
   } else {
     // The first 20 short-lived allocations are not allocated in the short-lived
     // region because the lifetime-based allocator does not yet have enough
@@ -625,9 +625,9 @@ TEST_P(LifetimeBasedAllocatorEnableAtRuntimeTest, Basic) {
     EXPECT_EQ(0, stats.tracker.expired_lifetimes);
     EXPECT_EQ(20, stats.tracker.overestimated_lifetimes);
     EXPECT_EQ(80, stats.region.allocations);
-    EXPECT_EQ(20320, stats.region.allocated_pages);
+    EXPECT_EQ(80 * kAllocationSize, Length(stats.region.allocated_pages));
     EXPECT_EQ(80, stats.region.deallocations);
-    EXPECT_EQ(20320, stats.region.deallocated_pages);
+    EXPECT_EQ(80 * kAllocationSize, Length(stats.region.deallocated_pages));
   }
 
   EXPECT_NE(LifetimePredictionOptions::Mode::kDisabled, stats.opts.mode());

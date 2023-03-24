@@ -23,6 +23,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/config.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -85,15 +86,24 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("percpu_slab_residence: 0"));
   }
   EXPECT_THAT(buf, ContainsRegex("(cpus_allowed: [1-9][0-9]*)"));
+#ifdef TCMALLOC_SMALL_BUT_SLOW
+  EXPECT_THAT(buf,
+              HasSubstr("transfer_cache_implementation: NO_TRANSFERCACHE"));
+#else
   EXPECT_THAT(buf, HasSubstr("transfer_cache_implementation: LIFO"));
+#endif
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf,
               HasSubstr(absl::StrCat("profile_sampling_rate: ",
                                      Parameters::profile_sampling_rate())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
+#ifdef TCMALLOC_SMALL_BUT_SLOW
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
+#else
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
+#endif
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 
@@ -103,11 +113,7 @@ TEST_F(GetStatsTest, Pbtxt) {
 }
 
 TEST_F(GetStatsTest, Parameters) {
-#ifdef __x86_64__
-  // HPAA is not enabled by default for non-x86 platforms, so we do not print
-  // parameters related to it (like subrelease) in these situations.
   Parameters::set_hpaa_subrelease(false);
-#endif
   Parameters::set_guarded_sampling_rate(-1);
   Parameters::set_per_cpu_caches(false);
   Parameters::set_max_per_cpu_cache_size(-1);
@@ -115,13 +121,18 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+
+  auto using_hpaa = [](absl::string_view sv) {
+    return absl::StrContains(sv, "HugePageAwareAllocator");
+  };
+
   {
     const std::string buf = MallocExtension::GetStats();
     const std::string pbtxt = GetStatsInPbTxt();
 
-#ifdef __x86_64__
-    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 0)"));
-#endif
+    if (using_hpaa(buf)) {
+      EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
+    }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter -1)"));
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
@@ -141,9 +152,10 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 0)"));
-#ifdef __x86_64__
-    EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: false)"));
-#endif
+    if (using_hpaa(buf)) {
+      EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
+    }
+
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: -1)"));
@@ -160,9 +172,7 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
   }
 
-#ifdef __x86_64__
   Parameters::set_hpaa_subrelease(true);
-#endif
   Parameters::set_guarded_sampling_rate(50 *
                                         Parameters::profile_sampling_rate());
   Parameters::set_per_cpu_caches(true);
@@ -178,9 +188,9 @@ TEST_F(GetStatsTest, Parameters) {
     const std::string buf = MallocExtension::GetStats();
     const std::string pbtxt = GetStatsInPbTxt();
 
-#ifdef __x86_64__
-    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
-#endif
+    if (using_hpaa(buf)) {
+      EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
+    }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
     EXPECT_THAT(
@@ -205,9 +215,9 @@ TEST_F(GetStatsTest, Parameters) {
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
 
-#ifdef __x86_64__
-    EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
-#endif
+    if (using_hpaa(buf)) {
+      EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
+    }
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: 50)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(desired_usage_limit_bytes: -1)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(hard_limit: false)"));

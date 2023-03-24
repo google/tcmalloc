@@ -296,15 +296,13 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "lifetimes_test",
     srcs = ["lifetimes_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     deps = [
         ":testutil",
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc/internal:lifetime_tracker",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/flags:flag",
@@ -333,12 +331,11 @@ create_tcmalloc_testsuite(
     deps = [":thread_ctor_test_lib"],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "sample_size_class_test",
     srcs = ["sample_size_class_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
@@ -551,18 +548,16 @@ cc_binary(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "get_stats_test",
     srcs = ["get_stats_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/strings",
