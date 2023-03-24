@@ -106,8 +106,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 #ifndef TCMALLOC_SMALL_BUT_SLOW
     // Try to plunder and reclaim unused objects from transfer caches.
     if (now - last_transfer_cache_plunder_check >=
-            kTransferCachePlunderPeriod &&
-        Parameters::partial_transfer_cache()) {
+        kTransferCachePlunderPeriod) {
       tc_globals.transfer_cache().TryPlunder();
       last_transfer_cache_plunder_check = now;
     }

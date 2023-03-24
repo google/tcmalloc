@@ -143,12 +143,6 @@ class TransferCache {
     return {capacity, max_capacity};
   }
 
-  // Historically, this transfer cache implementation did not deal with
-  // non-batch sized inserts and removes. Hence, partial updates are disabled by
-  // default. However, we enable partial updates to the transfer cache when the
-  // corresponding experiment is enabled.
-  bool IsFlexible() const { return Manager::PartialLegacyTransferCache(); }
-
   // These methods all do internal locking.
 
   // Insert the specified batch into the transfer cache.  N is the number of
@@ -156,31 +150,26 @@ class TransferCache {
   void InsertRange(int size_class, absl::Span<void *> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
-    const int B = Manager::num_objects_to_move(size_class);
-    ASSERT(0 < N && N <= B);
+    ASSERT(0 < N && N <= Manager::num_objects_to_move(size_class));
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B || IsFlexible()) {
-      if (info.used + N <= max_capacity_) {
-        absl::base_internal::SpinLockHolder h(&lock_);
-        // As caches are resized in the background, we do not attempt to grow
-        // them here. Instead, we just check if they have spare free capacity.
-        info = slot_info_.load(std::memory_order_relaxed);
-        const bool has_space = (info.capacity - info.used >= N);
-        if (has_space) {
-          info.used += N;
-          SetSlotInfo(info);
+    if (info.used + N <= max_capacity_) {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      // As caches are resized in the background, we do not attempt to grow
+      // them here. Instead, we just check if they have spare free capacity.
+      info = slot_info_.load(std::memory_order_relaxed);
+      const bool has_space = (info.capacity - info.used >= N);
+      if (has_space) {
+        info.used += N;
+        SetSlotInfo(info);
 
-          void **entry = GetSlot(info.used - N);
-          memcpy(entry, batch.data(), sizeof(void *) * N);
-          insert_hits_.LossyAdd(1);
-          return;
-        }
+        void **entry = GetSlot(info.used - N);
+        memcpy(entry, batch.data(), sizeof(void *) * N);
+        insert_hits_.LossyAdd(1);
+        return;
       }
-
-      insert_misses_.Inc(1);
-    } else {
-      insert_non_batch_misses_.Inc(1);
     }
+
+    insert_misses_.Inc(1);
     insert_object_misses_.Inc(N);
 
     freelist().InsertRange(batch);
@@ -190,29 +179,24 @@ class TransferCache {
   // batch.
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int N)
       ABSL_LOCKS_EXCLUDED(lock_) {
-    ASSERT(N > 0);
-    const int B = Manager::num_objects_to_move(size_class);
+    ASSERT(0 < N && N <= Manager::num_objects_to_move(size_class));
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (N == B || IsFlexible()) {
+    if (info.used >= N) {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      // Refetch with the lock
+      info = slot_info_.load(std::memory_order_relaxed);
       if (info.used >= N) {
-        absl::base_internal::SpinLockHolder h(&lock_);
-        // Refetch with the lock
-        info = slot_info_.load(std::memory_order_relaxed);
-        if (info.used >= N) {
-          info.used -= N;
-          SetSlotInfo(info);
-          void **entry = GetSlot(info.used);
-          memcpy(batch, entry, sizeof(void *) * N);
-          remove_hits_.LossyAdd(1);
-          low_water_mark_ = std::min(low_water_mark_, info.used);
-          return N;
-        }
+        info.used -= N;
+        SetSlotInfo(info);
+        void **entry = GetSlot(info.used);
+        memcpy(batch, entry, sizeof(void *) * N);
+        remove_hits_.LossyAdd(1);
+        low_water_mark_ = std::min(low_water_mark_, info.used);
+        return N;
       }
+    }
 
       remove_misses_.Inc(1);
-    } else {
-      remove_non_batch_misses_.Inc(1);
-    }
     remove_object_misses_.Inc(N);
     return freelist().RemoveRange(batch, N);
   }
@@ -258,12 +242,7 @@ class TransferCache {
 
   // Fetches the misses for the latest interval and commits them to the total.
   size_t FetchCommitIntervalMisses() ABSL_LOCKS_EXCLUDED(lock_) {
-    if (ABSL_PREDICT_TRUE(Manager::PartialLegacyTransferCache())) {
-      return insert_object_misses_.Commit() + remove_object_misses_.Commit();
-    } else {
-      return insert_misses_.Commit() + insert_non_batch_misses_.Commit() +
-             remove_misses_.Commit() + remove_non_batch_misses_.Commit();
-    }
+    return insert_object_misses_.Commit() + remove_object_misses_.Commit();
   }
 
   // Returns the number of transfer cache insert/remove hits/misses.
@@ -274,17 +253,8 @@ class TransferCache {
     stats.remove_hits = remove_hits_.value();
     stats.insert_misses = insert_misses_.Total();
     stats.insert_object_misses = insert_object_misses_.Total();
-    stats.insert_non_batch_misses = insert_non_batch_misses_.Total();
     stats.remove_misses = remove_misses_.Total();
     stats.remove_object_misses = remove_object_misses_.Total();
-    stats.remove_non_batch_misses = remove_non_batch_misses_.Total();
-
-    // For performance reasons, we only update a single atomic as part of the
-    // actual allocation operation.  For reporting, we keep reporting all
-    // misses together and separately break-out how many of those misses were
-    // non-batch sized.
-    stats.insert_misses += stats.insert_non_batch_misses;
-    stats.remove_misses += stats.remove_non_batch_misses;
 
     auto info = slot_info_.load(std::memory_order_relaxed);
     stats.used = info.used;
@@ -410,10 +380,8 @@ class TransferCache {
   // Miss counters do not hold lock_, so they use Add.
   MissCounts insert_misses_;
   MissCounts insert_object_misses_;
-  MissCounts insert_non_batch_misses_;
   MissCounts remove_misses_;
   MissCounts remove_object_misses_;
-  MissCounts remove_non_batch_misses_;
 
   // Number of currently used and available cached entries in slots_. This
   // variable is updated under a lock but can be read without one.

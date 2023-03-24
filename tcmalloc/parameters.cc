@@ -96,8 +96,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     false);
-ABSL_CONST_INIT std::atomic<bool> Parameters::partial_transfer_cache_enabled_(
-    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -267,10 +265,6 @@ bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
 
-bool TCMalloc_Internal_GetPartialTransferCacheEnabled() {
-  return Parameters::partial_transfer_cache();
-}
-
 double TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction() {
   return Parameters::peak_sampling_heap_growth_fraction();
 }
@@ -326,11 +320,6 @@ void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
   Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetPartialTransferCacheEnabled(bool v) {
-  Parameters::partial_transfer_cache_enabled_.store(v,
-                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {

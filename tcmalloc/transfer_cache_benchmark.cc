@@ -214,24 +214,12 @@ void BM_RealisticHitRate(benchmark::State& state) {
 
   const TransferCacheStats stats = e.transfer_cache().GetStats();
   const size_t total_inserts = stats.insert_hits + stats.insert_misses;
-  const size_t insert_batch_misses =
-      stats.insert_misses - stats.insert_non_batch_misses;
   state.counters["insert_aggregate_miss_ratio"] =
       static_cast<double>(stats.insert_misses) / total_inserts;
-  state.counters["insert_batch_miss_ratio"] =
-      static_cast<double>(insert_batch_misses) / total_inserts;
-  state.counters["insert_non_batch_miss_ratio"] =
-      static_cast<double>(stats.insert_non_batch_misses) / total_inserts;
 
   const size_t total_removes = stats.remove_hits + stats.remove_misses;
-  const size_t remove_batch_misses =
-      stats.remove_misses - stats.remove_non_batch_misses;
   state.counters["remove_aggregate_miss_ratio"] =
       static_cast<double>(stats.remove_misses) / total_removes;
-  state.counters["remove_batch_miss_ratio"] =
-      static_cast<double>(remove_batch_misses) / total_removes;
-  state.counters["remove_non_batch_miss_ratio"] =
-      static_cast<double>(stats.remove_non_batch_misses) / total_removes;
 }
 
 BENCHMARK_TEMPLATE(BM_CrossThread, TransferCacheEnv)->ThreadRange(2, 64);
