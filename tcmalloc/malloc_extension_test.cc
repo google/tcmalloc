@@ -149,7 +149,7 @@ TEST(MallocExtension, Properties) {
 // Test that when we resize the slab repeatedly, the metadata metric is
 // positive.
 TEST(MallocExtension, DynamicSlabMallocMetadata) {
-  if (!subtle::percpu::IsFast()) {
+  if (!tc_globals.CpuCacheActive()) {
     GTEST_SKIP() << "CPU cache disabled.";
   }
 

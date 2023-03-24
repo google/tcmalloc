@@ -547,12 +547,11 @@ cc_library(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "page_heap_test",
     srcs = ["page_heap_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common_8k_pages",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
@@ -650,13 +649,12 @@ cc_fuzz_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "arena_test",
     timeout = "moderate",
     srcs = ["arena_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common_8k_pages",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -857,32 +855,29 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "pagemap_test",
     srcs = ["pagemap_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common_8k_pages",
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/random",
         "@com_google_googletest//:gtest_main",
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "realloc_test",
     srcs = ["realloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = ["@com_google_googletest//:gtest_main"],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "stack_trace_table_test",
     srcs = ["stack_trace_table_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common_8k_pages",
         ":malloc_extension",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
@@ -910,19 +905,17 @@ cc_test(
 
 # This test has been named "large" since before tests were s/m/l.
 # The "large" refers to large allocation sizes.
-cc_test(
+create_tcmalloc_testsuite(
     name = "tcmalloc_large_test",
     size = "small",
     timeout = "moderate",
     srcs = ["tcmalloc_large_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "noasan",
         "noubsan",
     ],
     deps = [
-        ":common_8k_pages",
         ":malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
@@ -944,16 +937,14 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "malloc_extension_test",
     srcs = ["malloc_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
     deps = [
-        ":common_8k_pages",
         ":malloc_extension",
         "//tcmalloc/internal:percpu",
         "@com_google_absl//absl/strings",
@@ -1128,16 +1119,14 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "heap_profiling_test",
     srcs = ["heap_profiling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     tags = [
         "nosan",
     ],
     deps = [
-        ":common_8k_pages",
         ":malloc_extension",
         ":sampled_allocation",
         "//tcmalloc/internal:logging",
@@ -1267,13 +1256,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "sampled_allocation_allocator_test",
     srcs = ["sampled_allocation_allocator_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc",
     deps = [
-        ":common_8k_pages",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_googletest//:gtest_main",
@@ -1513,12 +1500,11 @@ cc_test(
     ],
 )
 
-cc_test(
+create_tcmalloc_testsuite(
     name = "allocation_sample_test",
     srcs = ["allocation_sample_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":common_8k_pages",
         "//tcmalloc/internal:logging",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base:core_headers",
