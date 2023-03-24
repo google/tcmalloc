@@ -33,10 +33,6 @@ build_variants = [
         "copts": ["-DTCMALLOC_256K_PAGES"],
     },
     {
-        "name": "256k_pages_and_numa",
-        "copts": ["-DTCMALLOC_256K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
-    },
-    {
         "name": "small_but_slow",
         "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
     },
@@ -66,25 +62,6 @@ test_variants = [
         "copts": [
             "-DTCMALLOC_256K_PAGES",
         ],
-    },
-    {
-        "name": "256k_pages_and_numa_disabled",
-        "malloc": "//tcmalloc:tcmalloc_256k_pages_and_numa",
-        "deps": ["//tcmalloc:common_256k_pages_and_numa"],
-        "copts": [
-            "-DTCMALLOC_256K_PAGES",
-            "-DTCMALLOC_NUMA_AWARE",
-        ],
-    },
-    {
-        "name": "256k_pages_and_numa_enabled",
-        "malloc": "//tcmalloc:tcmalloc_256k_pages_and_numa",
-        "deps": ["//tcmalloc:common_256k_pages_and_numa"],
-        "copts": [
-            "-DTCMALLOC_256K_PAGES",
-            "-DTCMALLOC_NUMA_AWARE",
-        ],
-        "env": {"TCMALLOC_NUMA_AWARE": "1"},
     },
     {
         "name": "small_but_slow",
