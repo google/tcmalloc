@@ -805,7 +805,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     }
   }
 
-  // LINT.ThenChange(//depot/google3/tcmalloc/malloc_extension_test.cc)
+  // LINT.ThenChange(//depot/google3/tcmalloc/testing/malloc_extension_test.cc)
   return false;
 }
 
