@@ -108,8 +108,7 @@ LifetimePredictionOptions decide_lifetime_predictions() {
 
 HugeRegionCountOption huge_region_option() {
   return (IsExperimentActive(
-              Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN) ||
-          IsExperimentActive(Experiment::TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN))
+             Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN))
              ? HugeRegionCountOption::kAbandonedCount
              : HugeRegionCountOption::kSlack;
 }
