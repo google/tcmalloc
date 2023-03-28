@@ -492,11 +492,14 @@ static bool NilUnback(void* p, size_t bytes) {
   return true;
 }
 
-class HugeRegionSetTest : public testing::Test {
+class HugeRegionSetTest
+    : public ::testing::TestWithParam<HugeRegionUsageOption> {
  protected:
   typedef HugeRegion Region;
 
-  HugeRegionSetTest() { next_ = HugePageContaining(nullptr); }
+  HugeRegionSetTest() : set_(/*use_huge_region_more_often=*/GetParam()) {
+    next_ = HugePageContaining(nullptr);
+  }
 
   std::unique_ptr<Region> GetRegion() {
     // These regions are backed by "real" memory, but we don't touch it.
@@ -505,6 +508,8 @@ class HugeRegionSetTest : public testing::Test {
     next_ += Region::size();
     return r;
   }
+
+  bool UseHugeRegionMoreOften() const { return set_.UseHugeRegionMoreOften(); }
 
   HugeRegionSet<Region> set_;
   HugePage next_;
@@ -515,7 +520,38 @@ class HugeRegionSetTest : public testing::Test {
   };
 };
 
-TEST_F(HugeRegionSetTest, Set) {
+TEST_P(HugeRegionSetTest, Release) {
+  absl::BitGen rng;
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage + Length(1);
+  bool from_released;
+  ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+  BackingStats stats = set_.stats();
+  EXPECT_EQ(stats.unmapped_bytes, 0);
+
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+  }
+
+  stats = set_.stats();
+  EXPECT_EQ(stats.unmapped_bytes,
+            UseHugeRegionMoreOften() ? 0 : stats.system_bytes);
+  Length released = set_.ReleasePages();
+  stats = set_.stats();
+  EXPECT_EQ(released.in_bytes(),
+            UseHugeRegionMoreOften() ? stats.system_bytes : 0);
+  EXPECT_EQ(stats.unmapped_bytes, stats.system_bytes);
+}
+
+TEST_P(HugeRegionSetTest, Set) {
   absl::BitGen rng;
   PageId p;
   constexpr Length kSize = kPagesPerHugePage + Length(1);
@@ -579,10 +615,15 @@ TEST_F(HugeRegionSetTest, Set) {
   EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
             regions[1]->used_pages().raw_num());
   // and last two "empty" (ish.)
-  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
-            regions[2]->unmapped_pages().raw_num());
-  EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
-            regions[3]->unmapped_pages().raw_num());
+  if (UseHugeRegionMoreOften()) {
+    EXPECT_EQ(regions[2]->unmapped_pages().raw_num(), 0);
+    EXPECT_EQ(regions[3]->unmapped_pages().raw_num(), 0);
+  } else {
+    EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+              regions[2]->unmapped_pages().raw_num());
+    EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
+              regions[3]->unmapped_pages().raw_num());
+  }
 
   // Check the stats line up.
   auto stats = set_.stats();
@@ -600,6 +641,11 @@ TEST_F(HugeRegionSetTest, Set) {
   set_.Print(&out);
   printf("%s\n", &buf[0]);
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    All, HugeRegionSetTest,
+    testing::Values(HugeRegionUsageOption::kDefault,
+                    HugeRegionUsageOption::kUseForAllLargeAllocs));
 
 }  // namespace
 }  // namespace tcmalloc_internal

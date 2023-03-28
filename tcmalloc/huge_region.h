@@ -31,6 +31,19 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+enum class HugeRegionUsageOption : bool {
+  // This is a default behavior. We use slack to determine when to use
+  // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
+  // greater than the number of small allocations, we allocate large allocations
+  // from HugeRegion.
+  kDefault,
+  // When the experiment TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN is
+  // enabled, we use number of abandoned pages in addition to slack to make a
+  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
+  // small binaries), we use HugeRegion for large allocations.
+  kUseForAllLargeAllocs
+};
+
 // Track allocations from a fixed-size multiple huge page region.
 // Similar to PageTracker but a few important differences:
 // - crosses multiple hugepages
@@ -135,7 +148,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 template <typename Region>
 class HugeRegionSet {
  public:
-  HugeRegionSet() : n_(0) {}
+  explicit HugeRegionSet(HugeRegionUsageOption use_huge_region_more_often)
+      : n_(0), use_huge_region_more_often_(use_huge_region_more_often) {}
 
   // If available, return a range of n free pages, setting *from_released =
   // true iff the returned range is currently unbacked.
@@ -148,12 +162,19 @@ class HugeRegionSet {
   // Add region to the set.
   void Contribute(Region* region);
 
+  // Release any hugepages that are unused but backed.
+  Length ReleasePages();
+
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
   BackingStats stats() const;
   size_t ActiveRegions() const;
+  bool UseHugeRegionMoreOften() const {
+    return use_huge_region_more_often_ ==
+           HugeRegionUsageOption::kUseForAllLargeAllocs;
+  }
 
  private:
   void Fix(Region* r) {
@@ -209,6 +230,7 @@ class HugeRegionSet {
   }
 
   size_t n_;
+  HugeRegionUsageOption use_huge_region_more_often_;
   // Sorted by longest_free increasing.
   TList<Region> list_;
 };
@@ -251,16 +273,19 @@ inline void HugeRegion::Put(PageId p, Length n, bool release) {
 }
 
 // Release any hugepages that are unused but backed.
+// TODO(b/199203282): We release all unused but backed pages from the region. We
+// can explore a more sophisticated mechanism similar to Filler, that accounts
+// for a recent peak while releasing pages.
 inline HugeLength HugeRegion::Release() {
   HugeLength r = NHugePages(0);
-  bool should_unback_[kNumHugePages] = {};
+  bool should_unback[kNumHugePages] = {};
   for (size_t i = 0; i < kNumHugePages; ++i) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
-      should_unback_[i] = true;
+      should_unback[i] = true;
       ++r;
     }
   }
-  UnbackHugepages(should_unback_);
+  UnbackHugepages(should_unback);
   return r;
 }
 
@@ -392,7 +417,7 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
 
 inline void HugeRegion::Dec(PageId p, Length n, bool release) {
   const int64_t now = absl::base_internal::CycleClock::Now();
-  bool should_unback_[kNumHugePages] = {};
+  bool should_unback[kNumHugePages] = {};
   while (n > Length(0)) {
     const HugePage hp = HugePageContaining(p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
@@ -405,13 +430,13 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
         here, now, kPagesPerHugePage - pages_used_[i], last_touched_[i]);
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
-      should_unback_[i] = true;
+      should_unback[i] = true;
     }
     p += here;
     n -= here;
   }
   if (release) {
-    UnbackHugepages(should_unback_);
+    UnbackHugepages(should_unback);
   }
 }
 
@@ -462,9 +487,13 @@ inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
 // Return an allocation to a region (if one matches!)
 template <typename Region>
 inline bool HugeRegionSet<Region>::MaybePut(PageId p, Length n) {
+  // When HugeRegionMoreOften experiment is enabled, we do not release
+  // free-but-backed hugepages when we deallocate pages, but we do that
+  // periodically on the background thread.
+  const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
     if (region->contains(p)) {
-      region->Put(p, n, true);
+      region->Put(p, n, release);
       Fix(region);
       return true;
     }
@@ -478,6 +507,15 @@ template <typename Region>
 inline void HugeRegionSet<Region>::Contribute(Region* region) {
   n_++;
   AddToList(region);
+}
+
+template <typename Region>
+inline Length HugeRegionSet<Region>::ReleasePages() {
+  Length released;
+  for (Region* region : list_) {
+    released += region->Release().in_pages();
+  }
+  return released;
 }
 
 template <typename Region>

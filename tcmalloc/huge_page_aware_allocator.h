@@ -43,20 +43,7 @@ namespace huge_page_allocator_internal {
 LifetimePredictionOptions decide_lifetime_predictions();
 bool decide_subrelease();
 
-enum class HugeRegionCountOption : bool {
-  // This is a default behavior. We use slack to determine when to use
-  // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
-  // greater than the number of small allocations, we allocate large allocations
-  // from HugeRegion.
-  kSlack,
-  // When the experiment TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN is
-  // enabled, we use number of abandoned pages in addition to slack to make a
-  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
-  // small binaries), we use HugeRegion for large allocations.
-  kAbandonedCount
-};
-
-HugeRegionCountOption huge_region_option();
+HugeRegionUsageOption huge_region_option();
 
 class StaticForwarder {
  public:
@@ -114,7 +101,7 @@ class StaticForwarder {
 
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
-  HugeRegionCountOption use_huge_region_more_often = huge_region_option();
+  HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
   LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
@@ -311,15 +298,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   RegionAllocImpl lifetime_allocator_region_alloc_;
   LifetimeBasedAllocator lifetime_allocator_;
 
-  // Ddetermines if the experiment is enabled. If enabled, we use
-  // abandoned_count_ in addition to slack in determining when to use
-  // HugeRegion.
-  const HugeRegionCountOption use_huge_region_more_often_;
-  bool UseHugeRegionMoreOften() const {
-    return use_huge_region_more_often_ ==
-           HugeRegionCountOption::kAbandonedCount;
-  }
-
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -377,6 +355,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     : PageAllocatorInterface("HugePageAware", options.tag),
       filler_(options.separate_allocs_for_few_and_many_objects_spans,
               MemoryModifyFunction(&forwarder_.ReleasePages)),
+      regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
@@ -384,8 +363,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
                        MemoryModifyFunction(UnbackWithoutLock)}),
       lifetime_allocator_region_alloc_(this),
       lifetime_allocator_(options.lifetime_options,
-                          &lifetime_allocator_region_alloc_),
-      use_huge_region_more_often_(options.use_huge_region_more_often) {
+                          &lifetime_allocator_region_alloc_) {
   tracker_allocator_.Init(&forwarder_.arena());
   region_allocator_.Init(&forwarder_.arena());
 }
@@ -526,7 +504,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   // If not, just fall back to direct allocation (and hope we do hit that case!)
   const Length slack = info_.slack();
   const Length donated =
-      UseHugeRegionMoreOften() ? abandoned_pages_ + slack : slack;
+      regions_.UseHugeRegionMoreOften() ? abandoned_pages_ + slack : slack;
   // Don't bother at all until the binary is reasonably sized.
   if (donated < HLFromBytes(64 * 1024 * 1024).in_pages()) {
     return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
@@ -540,7 +518,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   // If we enable an experiment that tries to use huge regions more frequently,
   // we skip the check.
   const Length small = info_.small();
-  if (slack < small && !UseHugeRegionMoreOften()) {
+  if (slack < small && !regions_.UseHugeRegionMoreOften()) {
     return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
                                                   from_released);
   }
@@ -900,9 +878,14 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
     }
   }
 
-  // TODO(b/134690769):
-  // - perhaps release region?
-  // - refuse to release if we're too close to zero?
+  // Release all backed-but-free hugepages from HugeRegion.
+  // TODO(b/199203282): We release all the free hugepages from HugeRegions when
+  // the experiment is enabled. We can also explore releasing only a desired
+  // number of pages.
+  if (regions_.UseHugeRegionMoreOften()) {
+    released += regions_.ReleasePages();
+  }
+
   info_.RecordRelease(num_pages, released);
   return released;
 }
@@ -1003,7 +986,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   }
 
   out->printf("PARAMETER use_huge_region_more_often %d\n",
-              UseHugeRegionMoreOften() ? 1 : 0);
+              regions_.UseHugeRegionMoreOften() ? 1 : 0);
   out->printf("PARAMETER hpaa_subrelease %d\n",
               forwarder_.hpaa_subrelease() ? 1 : 0);
 }
@@ -1021,7 +1004,8 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     auto hpaa = region->CreateSubRegion("huge_page_allocator");
     hpaa.PrintBool("using_hpaa", true);
     hpaa.PrintBool("using_hpaa_subrelease", forwarder_.hpaa_subrelease());
-    hpaa.PrintBool("use_huge_region_more_often", UseHugeRegionMoreOften());
+    hpaa.PrintBool("use_huge_region_more_often",
+                   regions_.UseHugeRegionMoreOften());
 
     // Fill HPAA Usage
     auto fstats = filler_.stats();

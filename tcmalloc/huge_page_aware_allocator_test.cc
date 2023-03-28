@@ -70,11 +70,10 @@ namespace tcmalloc_internal {
 namespace {
 
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
-using huge_page_allocator_internal::HugeRegionCountOption;
 using testing::HasSubstr;
 
 class HugePageAwareAllocatorTest
-    : public ::testing::TestWithParam<HugeRegionCountOption> {
+    : public ::testing::TestWithParam<HugeRegionUsageOption> {
  protected:
   HugePageAwareAllocatorTest() : rng_() {
     before_ = MallocExtension::GetRegionFactory();
@@ -192,6 +191,11 @@ class HugePageAwareAllocatorTest
     return allocator_->ReleaseAtLeastNPages(k);
   }
 
+  bool UseHugeRegionMoreOften() {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    return allocator_->region().UseHugeRegionMoreOften();
+  }
+
   std::string Print() {
     std::string ret;
     const size_t kSize = 1 << 20;
@@ -225,7 +229,6 @@ class HugePageAwareAllocatorTest
   absl::flat_hash_map<Span*, size_t> ids_;
   size_t next_id_{0};
   Length total_;
-  bool use_huge_regions_more_often_;
 };
 
 struct SpanInfo {
@@ -381,6 +384,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   HugeLength donated_huge_pages;
   Length abandoned_pages;
   size_t active_regions;
+  BackingStats region_stats;
 
   auto RefreshStats = [&]() {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
@@ -389,6 +393,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
     active_regions = allocator_->region().ActiveRegions();
+    region_stats = allocator_->region().stats();
   };
 
   std::vector<Span*> small_spans;
@@ -440,39 +445,59 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
 
   // At this point, we have exhausted the 64MB slack for the donated pages to
   // the filler. A large allocation should trigger allocation from a huge
-  // region if we are in HugeRegionCountOption::kAbandonedCount mode. If we are
-  // using slack for determining when to use region, we should allocate from
-  // filler and number of donated pages should continue to grow.
+  // region if we are using huge regions more often. If we are using slack for
+  // determining when to use region, we should allocate from filler and the
+  // number of donated pages should continue to grow.
   //
   // We allocate a slightly larger object than before (kLargeSize + Length(1))
   // to make sure that filler doesn't try to pack it on the pages we released
   // due to deallocations in the previous step.
   static constexpr Length kSmallSize2 = kSmallSize - Length(1);
   static constexpr Length kLargeSize2 = kLargeSize + Length(1);
+
   for (int i = 0; i < 100; ++i) {
     Span* large = New(kLargeSize2, 1);
     Span* small = New(kSmallSize2, 1);
     large_spans.emplace_back(large);
     small_spans.emplace_back(small);
     RefreshStats();
-    if (GetParam() == HugeRegionCountOption::kSlack) {
+    if (UseHugeRegionMoreOften()) {
+      EXPECT_EQ(abandoned_pages, expected_abandoned);
+      EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
+      EXPECT_EQ(active_regions, 1);
+    } else {
       ASSERT_LT(slack, small_pages);
       ++huge_pages;
       EXPECT_EQ(abandoned_pages, expected_abandoned);
       EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
       EXPECT_EQ(active_regions, 0);
-    } else {
-      RefreshStats();
-      EXPECT_EQ(abandoned_pages, expected_abandoned);
-      EXPECT_EQ(donated_huge_pages, NHugePages(huge_pages));
-      EXPECT_EQ(active_regions, 1);
     }
   }
+  // Check stats to confirm that pages have been allocated from huge regions.
+  RefreshStats();
+  size_t unmapped_bytes = region_stats.unmapped_bytes;
+  size_t backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+  if (UseHugeRegionMoreOften()) {
+    EXPECT_GT(unmapped_bytes, 0);
+  }
 
-  // Clean up.
+  // Deallocate large spans and make sure that HugeRegion does not unback that
+  // memory. This is because we do not unback objects during deallocation when a
+  // configuration to use huge region often is enabled.
   for (auto l : large_spans) {
     Delete(l, 1);
+    RefreshStats();
+    EXPECT_EQ(region_stats.unmapped_bytes, unmapped_bytes);
   }
+
+  // Release pages and make sure we release all the free-but-backed pages from
+  // huge region, more than what we ask allocator to release.
+  if (UseHugeRegionMoreOften()) {
+    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    Length released = allocator_->ReleaseAtLeastNPages(Length(1));
+    EXPECT_GT(released.in_bytes(), backed_bytes);
+  }
+
   for (auto s : small_spans) {
     Delete(s, 1);
   }
@@ -1402,8 +1427,8 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
 
 INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
-    testing::Values(HugeRegionCountOption::kSlack,
-                    HugeRegionCountOption::kAbandonedCount));
+    testing::Values(HugeRegionUsageOption::kDefault,
+                    HugeRegionUsageOption::kUseForAllLargeAllocs));
 
 }  // namespace
 }  // namespace tcmalloc_internal

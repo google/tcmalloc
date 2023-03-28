@@ -46,7 +46,6 @@ namespace tcmalloc_internal {
 namespace {
 
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
-using huge_page_allocator_internal::HugeRegionCountOption;
 
 constexpr absl::Duration kLifetimeThreshold = absl::Milliseconds(500);
 constexpr absl::Duration kWaitLong = absl::Milliseconds(510);
@@ -90,7 +89,7 @@ class LifetimesTest
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
     // TODO(b/242550501):  Allow this to use our default.
-    options.use_huge_region_more_often = HugeRegionCountOption::kSlack;
+    options.use_huge_region_more_often = HugeRegionUsageOption::kDefault;
     options.lifetime_options = GetParam();
     allocator_ = new (p) HugePageAwareAllocator(options);
     lifetime_allocator_ = &allocator_->lifetime_based_allocator();
@@ -550,7 +549,7 @@ class LifetimeBasedAllocatorEnableAtRuntimeTest : public LifetimesTest {
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
     // TODO(b/242550501):  Allow this to use our default.
-    options.use_huge_region_more_often = HugeRegionCountOption::kSlack;
+    options.use_huge_region_more_often = HugeRegionUsageOption::kDefault;
     options.lifetime_options = LifetimePredictionOptions(
         LifetimePredictionOptions::Mode::kDisabled,
         LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions,

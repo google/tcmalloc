@@ -29,6 +29,7 @@
 namespace {
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
+using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
 using tcmalloc::tcmalloc_internal::kMaxSize;
 using tcmalloc::tcmalloc_internal::kMinObjectsToMove;
 using tcmalloc::tcmalloc_internal::kNumaPartitions;
@@ -44,8 +45,6 @@ using tcmalloc::tcmalloc_internal::SizeMap;
 using tcmalloc::tcmalloc_internal::Span;
 using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
-using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
-    HugeRegionCountOption;
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -89,9 +88,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             ? MemoryTag::kNormalP0
             : tag;
 
-  HugeRegionCountOption huge_region_option =
-      data[1] >= 128 ? HugeRegionCountOption::kSlack
-                     : HugeRegionCountOption::kAbandonedCount;
+  const HugeRegionUsageOption huge_region_option =
+      data[1] >= 128 ? HugeRegionUsageOption::kDefault
+                     : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
   // Initialize lifetime-aware allocator.
   LifetimePredictionOptions::Mode mode =

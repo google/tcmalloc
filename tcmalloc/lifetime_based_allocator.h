@@ -150,7 +150,9 @@ class LifetimeBasedRegion {
   };
 
   explicit LifetimeBasedRegion(bool counterfactual)
-      : counterfactual_(counterfactual) {}
+      : regions_(
+            /*use_huge_region_more_often=*/HugeRegionUsageOption::kDefault),
+        counterfactual_(counterfactual) {}
 
   // Tries to allocate from the lifetime region. Fails if counterfactual or if
   // the maximum size of the lifetime region is reached.

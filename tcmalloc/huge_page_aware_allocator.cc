@@ -106,11 +106,20 @@ LifetimePredictionOptions decide_lifetime_predictions() {
   return LifetimePredictionOptions::Default();
 }
 
-HugeRegionCountOption huge_region_option() {
+HugeRegionUsageOption huge_region_option() {
+  // By default, we use slack to determine when to use HugeRegion. When slack is
+  // greater than 64MB (to ignore small binaries), and greater than the number
+  // of small allocations, we allocate large allocations from HugeRegion.
+  //
+  // When the experiment is enabled, we use number of abandoned pages in
+  // addition to slack to make a decision. If the size of abandoned pages plus
+  // slack exceeds 64MB (to ignore small binaries), we use HugeRegion for large
+  // allocations. This results in using HugeRegions for all the large
+  // allocations once the size exceeds 64MB.
   return (IsExperimentActive(
              Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN))
-             ? HugeRegionCountOption::kAbandonedCount
-             : HugeRegionCountOption::kSlack;
+             ? HugeRegionUsageOption::kUseForAllLargeAllocs
+             : HugeRegionUsageOption::kDefault;
 }
 
 Arena& StaticForwarder::arena() { return tc_globals.arena(); }
