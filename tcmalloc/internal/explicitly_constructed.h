@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_EXPLICITLY_CONSTRUCTED_H_
-#define TCMALLOC_EXPLICITLY_CONSTRUCTED_H_
+#ifndef TCMALLOC_INTERNAL_EXPLICITLY_CONSTRUCTED_H_
+#define TCMALLOC_INTERNAL_EXPLICITLY_CONSTRUCTED_H_
 
 #include <stdint.h>
 
@@ -59,4 +59,4 @@ class ExplicitlyConstructed {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_EXPLICITLY_CONSTRUCTED_H_
+#endif  // TCMALLOC_INTERNAL_EXPLICITLY_CONSTRUCTED_H_

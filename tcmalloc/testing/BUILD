@@ -845,10 +845,10 @@ create_tcmalloc_testsuite(
     ],
     deps = [
         "//tcmalloc:malloc_extension",
-        "//tcmalloc:sampled_allocation",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",
+        "//tcmalloc/internal:sampled_allocation",
         "//tcmalloc/testing:test_allocator_harness",
         "//tcmalloc/testing:thread_manager",
         "@com_google_absl//absl/base",

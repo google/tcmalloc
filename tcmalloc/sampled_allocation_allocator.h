@@ -18,8 +18,8 @@
 #include <utility>
 
 #include "tcmalloc/arena.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/page_heap_allocator.h"
-#include "tcmalloc/sampled_allocation.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

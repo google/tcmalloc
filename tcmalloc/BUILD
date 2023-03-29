@@ -70,7 +70,6 @@ tcmalloc_deps = [
     ":malloc_extension",
     ":malloc_tracing_extension",
     ":new_extension",
-    ":sampled_allocation",
     "@com_google_absl//absl/base",
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
@@ -89,6 +88,7 @@ tcmalloc_deps = [
     "//tcmalloc/internal:logging",
     "//tcmalloc/internal:optimization",
     "//tcmalloc/internal:percpu",
+    "//tcmalloc/internal:sampled_allocation",
 ]
 
 # This library provides tcmalloc always
@@ -249,19 +249,17 @@ create_tcmalloc_libraries(
     visibility = [":tcmalloc_tests"],
     deps = [
         ":experiment",
-        ":explicitly_constructed",
         ":malloc_extension",
         ":malloc_tracing_extension",
         ":metadata_allocator",
         ":new_extension",
         ":size_class_info",
-        "//tcmalloc:sampled_allocation",
-        "//tcmalloc:sampled_allocation_recorder",
         "//tcmalloc/internal:atomic_stats_counter",
         "//tcmalloc/internal:cache_topology",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:environment",
+        "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:lifetime_predictions",
         "//tcmalloc/internal:lifetime_tracker",
         "//tcmalloc/internal:linked_list",
@@ -276,6 +274,8 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:prefetch",
         "//tcmalloc/internal:range_tracker",
+        "//tcmalloc/internal:sampled_allocation",
+        "//tcmalloc/internal:sampled_allocation_recorder",
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:timeseries_tracker",
         "//tcmalloc/internal:util",
@@ -299,16 +299,6 @@ create_tcmalloc_libraries(
         "@com_google_absl//absl/types:span",
     ],
     alwayslink = 1,
-)
-
-cc_library(
-    name = "explicitly_constructed",
-    hdrs = ["explicitly_constructed.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
-    deps = [
-        "//tcmalloc/internal:config",
-    ],
 )
 
 # TEMPORARY. WILL BE REMOVED.
@@ -985,59 +975,6 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/types:span",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_library(
-    name = "sampled_allocation",
-    srcs = ["sampled_allocation.cc"],
-    hdrs = ["sampled_allocation.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
-    deps = [
-        ":sampled_allocation_recorder",
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/debugging:stacktrace",
-    ],
-)
-
-cc_test(
-    name = "sampled_allocation_test",
-    srcs = ["sampled_allocation_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":sampled_allocation",
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/debugging:stacktrace",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-cc_library(
-    name = "sampled_allocation_recorder",
-    hdrs = ["sampled_allocation_recorder.h"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/functional:function_ref",
-    ],
-)
-
-cc_test(
-    name = "sampled_allocation_recorder_test",
-    srcs = ["sampled_allocation_recorder_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":explicitly_constructed",
-        ":sampled_allocation_recorder",
-        "//tcmalloc/testing:thread_manager",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )

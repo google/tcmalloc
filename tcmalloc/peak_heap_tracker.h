@@ -20,10 +20,10 @@
 
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/explicitly_constructed.h"
+#include "tcmalloc/internal/explicitly_constructed.h"
+#include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sampled_allocation_allocator.h"
-#include "tcmalloc/sampled_allocation_recorder.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

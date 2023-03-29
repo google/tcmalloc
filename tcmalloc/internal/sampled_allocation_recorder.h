@@ -19,8 +19,8 @@
 // This header file defines a lock-free linked list for recording TCMalloc
 // sampled allocations collected from a random/stochastic process.
 
-#ifndef TCMALLOC_SAMPLED_ALLOCATION_RECORDER_H_
-#define TCMALLOC_SAMPLED_ALLOCATION_RECORDER_H_
+#ifndef TCMALLOC_INTERNAL_SAMPLED_ALLOCATION_RECORDER_H_
+#define TCMALLOC_INTERNAL_SAMPLED_ALLOCATION_RECORDER_H_
 
 #include <atomic>
 #include <cstddef>
@@ -250,4 +250,4 @@ void SampleRecorder<T, Allocator>::Iterate(
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_SAMPLED_ALLOCATION_RECORDER_H_
+#endif  // TCMALLOC_INTERNAL_SAMPLED_ALLOCATION_RECORDER_H_

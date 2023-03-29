@@ -29,8 +29,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/sampled_allocation.h"
 #include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

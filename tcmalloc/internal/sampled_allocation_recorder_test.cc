@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/sampled_allocation_recorder.h"
+#include "tcmalloc/internal/sampled_allocation_recorder.h"
 
 #include <assert.h>
 
@@ -30,7 +30,7 @@
 #include "absl/synchronization/notification.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/explicitly_constructed.h"
+#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
@@ -91,9 +91,10 @@ class SampleRecorderTest : public ::testing::Test {
   SampleRecorder<Info, TestAllocator> sample_recorder_;
 };
 
-// In static_vars.cc, we use tcmalloc/explicitly_constructed.h to
-// set up the sample recorder. Have a test here to verify that it is properly
-// initialized and functional through this approach.
+// In static_vars.cc, we use
+// tcmalloc/internal/explicitly_constructed.h to set up the sample
+// recorder. Have a test here to verify that it is properly initialized and
+// functional through this approach.
 TEST_F(SampleRecorderTest, ExplicitlyConstructed) {
   ExplicitlyConstructed<SampleRecorder<Info, TestAllocator>>
       sample_recorder_helper;

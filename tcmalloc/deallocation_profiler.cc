@@ -35,9 +35,9 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/sampled_allocation.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

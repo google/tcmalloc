@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/sampled_allocation.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 
 #include "gtest/gtest.h"
 #include "absl/debugging/stacktrace.h"

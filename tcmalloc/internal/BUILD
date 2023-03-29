@@ -144,6 +144,16 @@ cc_test(
 )
 
 cc_library(
+    name = "explicitly_constructed",
+    hdrs = ["explicitly_constructed.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":config",
+    ],
+)
+
+cc_library(
     name = "fake_profile",
     hdrs = ["fake_profile.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -781,6 +791,59 @@ cc_test(
         ":range_tracker",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "sampled_allocation",
+    srcs = ["sampled_allocation.cc"],
+    hdrs = ["sampled_allocation.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        ":sampled_allocation_recorder",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/debugging:stacktrace",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_test",
+    srcs = ["sampled_allocation_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":sampled_allocation",
+        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/debugging:stacktrace",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "sampled_allocation_recorder",
+    hdrs = ["sampled_allocation_recorder.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/functional:function_ref",
+    ],
+)
+
+cc_test(
+    name = "sampled_allocation_recorder_test",
+    srcs = ["sampled_allocation_recorder_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":explicitly_constructed",
+        ":sampled_allocation_recorder",
+        "//tcmalloc/testing:thread_manager",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
