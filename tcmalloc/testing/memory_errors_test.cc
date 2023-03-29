@@ -310,7 +310,9 @@ TEST(AlwaysSamplingTest, DoubleFree) {
     ::operator delete(buf);
   };
   EXPECT_DEATH(DoubleFree(),
-               "span != nullptr|Span::Unsample\\(\\)|Span::IN_USE");
+               "span != "
+               "nullptr|Span::Unsample\\(\\)|Span::IN_USE|invoke_delete_hooks_"
+               "and_free<>\\(\\)");
 }
 
 }  // namespace

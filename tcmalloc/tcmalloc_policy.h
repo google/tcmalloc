@@ -171,6 +171,16 @@ struct NoHooksPolicy {
   static constexpr bool invoke_hooks() { return false; }
 };
 
+// IsSizeReturningPolicy: Allocation returns size externally
+struct IsSizeReturningPolicy {
+  static constexpr bool size_returning() { return true; }
+};
+
+// NonSizeReturningPolicy: Allocation does not return size externally
+struct NonSizeReturningPolicy {
+  static constexpr bool size_returning() { return false; }
+};
+
 // Use a fixed NUMA partition.
 class FixedNumaPartitionPolicy {
  public:
@@ -207,6 +217,7 @@ template <typename OomPolicy = CppOomPolicy,
           typename AlignPolicy = DefaultAlignPolicy,
           typename AccessPolicy = DefaultAllocationAccessPolicy,
           typename HooksPolicy = InvokeHooksPolicy,
+          typename SizeReturningPolicy = NonSizeReturningPolicy,
           typename NumaPolicy = LocalNumaPartitionPolicy>
 class TCMallocPolicy {
  public:
@@ -236,61 +247,76 @@ class TCMallocPolicy {
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
 
+  static constexpr bool size_returning() {
+    return SizeReturningPolicy::size_returning();
+  }
+
   // Returns this policy aligned as 'align'
   template <typename align_t>
   constexpr TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
-                           NumaPolicy>
+                           SizeReturningPolicy, NumaPolicy>
   AlignAs(align_t align) const {
     return TCMallocPolicy<OomPolicy, AlignAsPolicy, AccessPolicy, HooksPolicy,
-                          NumaPolicy>(AlignAsPolicy{align}, numa_);
+                          SizeReturningPolicy, NumaPolicy>(AlignAsPolicy{align},
+                                                           numa_);
   }
 
   // Returns this policy with access hit
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
-                           HooksPolicy, NumaPolicy>
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
   AccessAs(hot_cold_t access) const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
-                          HooksPolicy, NumaPolicy>(align_, access, numa_);
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy>(
+        align_, access, numa_);
   }
 
   // Returns this policy for frequent access
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
-                           HooksPolicy, NumaPolicy>
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
   AccessAsHot() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
-                          HooksPolicy, NumaPolicy>(align_, numa_);
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy>(align_,
+                                                                        numa_);
   }
 
   // Returns this policy for infrequent access
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
-                           HooksPolicy, NumaPolicy>
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
   AccessAsCold() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessColdPolicy,
-                          HooksPolicy, NumaPolicy>(align_, numa_);
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy>(align_,
+                                                                        numa_);
   }
 
   // Returns this policy with a nullptr OOM policy.
   constexpr TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy,
-                           HooksPolicy, NumaPolicy>
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
   Nothrow() const {
     return TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          NumaPolicy>(align_, numa_);
+                          SizeReturningPolicy, NumaPolicy>(align_, numa_);
   }
 
   // Returns this policy with NewAllocHook invocations disabled.
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                           NumaPolicy>
+                           SizeReturningPolicy, NumaPolicy>
   WithoutHooks() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                          NumaPolicy>(align_, numa_);
+                          SizeReturningPolicy, NumaPolicy>(align_, numa_);
+  }
+
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                           IsSizeReturningPolicy, NumaPolicy>
+  SizeReturning() const {
+    return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
+                          IsSizeReturningPolicy, NumaPolicy>(align_, numa_);
   }
 
   // Returns this policy with a fixed NUMA partition.
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                           FixedNumaPartitionPolicy>
+                           SizeReturningPolicy, FixedNumaPartitionPolicy>
   InNumaPartition(size_t partition) const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                          FixedNumaPartitionPolicy>(
+                          SizeReturningPolicy, FixedNumaPartitionPolicy>(
         align_, FixedNumaPartitionPolicy{partition});
   }
 
