@@ -106,7 +106,7 @@ struct SampleEqWithSubFields {
     auto fields = [](const Profile::Sample& s) {
       return std::tie(s.depth, s.requested_size, s.requested_alignment,
                       s.requested_size_returning, s.allocated_size,
-                      s.access_hint, s.access_allocated);
+                      s.access_hint, s.access_allocated, s.guarded_status);
     };
     return fields(a) == fields(b) &&
            std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
@@ -118,7 +118,7 @@ struct SampleHashWithSubFields {
     return absl::HashOf(absl::MakeConstSpan(s.stack, s.depth), s.depth,
                         s.requested_size, s.requested_alignment,
                         s.requested_size_returning, s.allocated_size,
-                        s.access_hint, s.access_allocated);
+                        s.access_hint, s.access_allocated, s.guarded_status);
   }
 };
 

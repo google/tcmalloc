@@ -370,6 +370,43 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
     sample.access_allocated = Profile::Sample::Access::Hot;
   }
 
+  {  // We have three samples here that will be merged (if guarded_status is not
+     // considered). The second and third samples have different
+     // guarded_status-es.
+    Profile::Sample sample;
+
+    sample.sum = 1235;
+    sample.count = 2;
+    sample.requested_size = 2;
+    sample.requested_alignment = 4;
+    sample.requested_size_returning = true;
+    sample.allocated_size = 16;
+
+    std::vector<char> bytes(sample.allocated_size);
+    sample.span_start_address = bytes.data();
+
+    // This stack is mostly artificial, but we include a real symbol from the
+    // binary to confirm that at least one location was indexed into its
+    // mapping.
+    sample.depth = 5;
+    sample.stack[0] = absl::bit_cast<void*>(uintptr_t{0x12345});
+    sample.stack[1] = absl::bit_cast<void*>(uintptr_t{0x23451});
+    sample.stack[2] = absl::bit_cast<void*>(uintptr_t{0x34512});
+    sample.stack[3] = absl::bit_cast<void*>(uintptr_t{0x45123});
+    sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
+    sample.access_hint = hot_cold_t{253};
+    sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
+    samples.push_back(sample);
+
+    Profile::Sample sample2 = sample;
+    sample2.guarded_status = Profile::Sample::GuardedStatus::Filtered;
+    samples.push_back(sample2);
+
+    Profile::Sample sample3 = sample;
+    sample3.guarded_status = Profile::Sample::GuardedStatus::Guarded;
+    samples.push_back(sample3);
+  }
   auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(profile_type);
   fake_profile->SetDuration(duration);
@@ -490,7 +527,22 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("bytes", 16), Pair("request", 16),
               Pair("sampled_resident_bytes", 0), Pair("swapped_bytes", 0),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown"))));
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
+              Pair("access_hint", 253), Pair("access_allocated", "cold"),
+              Pair("size_returning", 1), Pair("guarded_status", "RateLimited")),
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
+              Pair("access_hint", 253), Pair("access_allocated", "cold"),
+              Pair("size_returning", 1), Pair("guarded_status", "Filtered")),
+          UnorderedElementsAre(
+              Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
+              Pair("access_hint", 253), Pair("access_allocated", "cold"),
+              Pair("size_returning", 1), Pair("guarded_status", "Guarded"))));
 
   ASSERT_GE(converted.sample().size(), 3);
   // The addresses for the samples at stack[0], stack[1] should match.
