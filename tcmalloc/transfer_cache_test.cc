@@ -320,8 +320,7 @@ static size_t PickCoprimeBatchSize(size_t max_batch_size) {
   return max_batch_size;
 }
 
-// TODO(b/172283201): Improve the performance of this test and reenable it.
-TYPED_TEST_P(TransferCacheTest, DISABLED_b172283201) {
+TYPED_TEST_P(TransferCacheTest, b172283201) {
   // This test is designed to exercise the wraparound behavior for the transfer
   // cache, which manages its indices in uint32_t's.  Because it uses a
   // non-standard batch size (kBatchSize) as part of PickCoprimeBatchSize, it
@@ -331,7 +330,7 @@ TYPED_TEST_P(TransferCacheTest, DISABLED_b172283201) {
   // For performance reasons, limit to optimized builds.
 #if !defined(NDEBUG)
   GTEST_SKIP() << "skipping long running test on debug build";
-#elif defined(THREAD_SANITIZER)
+#elif defined(ABSL_HAVE_THREAD_SANITIZER)
   // This test is single threaded, so thread sanitizer will not be useful.
   GTEST_SKIP() << "skipping under thread sanitizer, which slows test execution";
 #endif
@@ -375,11 +374,9 @@ TYPED_TEST_P(TransferCacheTest, DISABLED_b172283201) {
   const size_t kObjects = env.transfer_cache().tc_length() + 2 * batch_size;
 
   // From now on, calls to InsertRange() should result in a corresponding call
-  // to the freelist whenever the cache is full. This doesn't happen on every
-  // call, as we return up to num_to_move (i.e. kBatchSize) items to the free
-  // list in one batch.
-  EXPECT_CALL(env.central_freelist(),
-              InsertRange(testing::SizeIs(TypeParam::kBatchSize)))
+  // to the freelist whenever the cache is full. Once the transfer cache is
+  // full, we should return batch_size number of items to the free list.
+  EXPECT_CALL(env.central_freelist(), InsertRange(testing::SizeIs(batch_size)))
       .Times(testing::AnyNumber());
   for (size_t i = 0; i < kObjects; i += batch_size) {
     env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));
@@ -402,7 +399,7 @@ TYPED_TEST_P(TransferCacheTest, DISABLED_b172283201) {
 REGISTER_TYPED_TEST_SUITE_P(TransferCacheTest, IsolatedSmoke, ReadStats,
                             FetchesFromFreelist, PartialFetchFromFreelist,
                             PushesToFreelist, WrappingWorks, SingleItemSmoke,
-                            Plunder, DISABLED_b172283201);
+                            Plunder, b172283201);
 
 template <typename Env>
 using FuzzTest = ::testing::Test;
