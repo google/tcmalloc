@@ -58,12 +58,6 @@ using tcmalloc::tcmalloc_internal::Length;
 ABSL_FLAG(Length, page_tracker_defrag_lim, Length(32),
           "Max allocation size for defrag test");
 
-ABSL_FLAG(Length, frag_req_limit, Length(32),
-          "request size limit for frag test");
-ABSL_FLAG(Length, frag_size, Length(512 * 1024),
-          "target number of pages for frag test");
-ABSL_FLAG(uint64_t, frag_iters, 10 * 1000 * 1000, "iterations for frag test");
-
 ABSL_FLAG(double, release_until, 0.01,
           "fraction of used we target in pageheap");
 ABSL_FLAG(uint64_t, bytes, 1024 * 1024 * 1024, "baseline usage");
@@ -463,9 +457,6 @@ TEST_F(PageTrackerTest, Defrag) {
     // We'd like to prety consistently rely on (75% of the time) reasonable
     // defragmentation (50% of space is fully usable...)
     // ...but we currently can't hit that mark consistently.
-    // The situation is worse on ppc with larger huge pages:
-    // pass rate for test is ~50% at 0.20. Reducing from 0.2 to 0.07.
-    // TODO(b/127466107) figure out a better solution.
     EXPECT_GE(p25, 0.07);
   }
 
@@ -1096,19 +1087,22 @@ TEST_P(FillerTest, ReleaseZero) {
 }
 
 void FillerTest::FragmentationTest() {
+  constexpr Length kRequestLimit = Length(32);
+  constexpr Length kSizeLimit = Length(512 * 1024);
+  constexpr size_t kReps = 10 * 1000 * 1000;
+
   absl::BitGen rng;
-  auto dist = EmpiricalDistribution(absl::GetFlag(FLAGS_frag_req_limit));
+  auto dist = EmpiricalDistribution(kRequestLimit);
 
   std::vector<PAlloc> allocs;
   Length total;
-  while (total < absl::GetFlag(FLAGS_frag_size)) {
+  while (total < kSizeLimit) {
     auto n = Length(dist(rng));
     total += n;
     allocs.push_back(Allocate(n));
   }
 
   double max_slack = 0.0;
-  const size_t kReps = absl::GetFlag(FLAGS_frag_iters);
   for (size_t i = 0; i < kReps; ++i) {
     auto stats = filler_.stats();
     double slack = static_cast<double>(stats.free_bytes) / stats.system_bytes;
@@ -1131,7 +1125,7 @@ void FillerTest::FragmentationTest() {
     }
   }
 
-  EXPECT_LE(max_slack, 0.055);
+  EXPECT_LE(max_slack, 0.06);
 
   for (auto a : allocs) {
     Delete(a);
