@@ -31,6 +31,8 @@
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/debugging/symbolize.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
@@ -44,8 +46,10 @@
 namespace tcmalloc {
 namespace {
 
+constexpr int kMaxDemangledFunctionName = 256;
+
 bool StackMatches(const char* target, const void* const* stack, size_t len) {
-  char buf[256];
+  char buf[kMaxDemangledFunctionName];
 
   for (size_t i = 0; i < len; ++i) {
     if (!absl::Symbolize(stack[i], buf, sizeof(buf))) continue;
@@ -172,6 +176,13 @@ ABSL_ATTRIBUTE_NOINLINE static void* AllocateRandomBytes() {
   return ::operator new(absl::LogUniform<size_t>(rng, 1, 1 << 21));
 }
 
+// We disable inlining and tail calls to ensure that we have a stack entry for
+// that function.
+ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Profile
+GetHeapSnapshotNoinline() {
+  return MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+}
+
 TEST(Sampling, InternalFragmentation) {
   ScopedGuardedSamplingRate gs(-1);
   ScopedProfileSamplingRate s(1);
@@ -196,10 +207,18 @@ TEST(Sampling, InternalFragmentation) {
 
   auto ProfiledFragmentation = [&]() {
     size_t fragmentation = 0;
-    auto profile = MallocExtension::SnapshotCurrent(ProfileType::kHeap);
+    auto profile = GetHeapSnapshotNoinline();
     profile.Iterate([&](const tcmalloc::Profile::Sample& e) {
       EXPECT_GE(e.allocated_size, e.requested_size);
       EXPECT_GT(e.allocated_size, 0);
+      // Ignore temporary allocations from creating the snapshot. These
+      // allocations are not accounted for in
+      // "tcmalloc.sampled_internal_fragmentation".
+      if (StackMatches("GetHeapSnapshotNoinline", e.stack, e.depth)) {
+        LOG(INFO) << "ignoring allocation of size " << e.requested_size
+                  << " within `MallocExtension::SnapshotCurrent`";
+        return;
+      }
       fragmentation +=
           (e.allocated_size - e.requested_size) * (e.sum / e.allocated_size);
     });

@@ -63,8 +63,6 @@ class StackTraceTable final : public ProfileBase {
 
  private:
   ProfileType type_;
-  // TODO(b/245788128): Investigate why this impacts sampling_test.cc.
-  void* ABSL_ATTRIBUTE_UNUSED padding_[2];
   absl::Duration duration_ = absl::ZeroDuration();
   int depth_total_;
   LinkedSample* all_;
