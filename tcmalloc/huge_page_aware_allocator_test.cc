@@ -38,6 +38,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
 #include "absl/meta/type_traits.h"
+#include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -75,7 +76,7 @@ using testing::HasSubstr;
 class HugePageAwareAllocatorTest
     : public ::testing::TestWithParam<HugeRegionUsageOption> {
  protected:
-  HugePageAwareAllocatorTest() : rng_() {
+  HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
     extra_ = new ExtraRegionFactory(before_);
     MallocExtension::SetRegionFactory(extra_);
@@ -172,17 +173,15 @@ class HugePageAwareAllocatorTest
   }
 
   // Mostly small things, some large ones.
-  std::pair<Length, size_t> RandomAllocSize() {
-    // TODO(b/128521238): scalable RNG
-    absl::base_internal::SpinLockHolder h(&lock_);
-    size_t objects = absl::Uniform<size_t>(rng_, 1, 256);
-    if (absl::Bernoulli(rng_, 1.0 / 1000)) {
+  std::pair<Length, size_t> RandomAllocSize(absl::BitGenRef rng) {
+    size_t objects = absl::Uniform<size_t>(rng, 1, 256);
+    if (absl::Bernoulli(rng, 1.0 / 1000)) {
       Length n =
-          Length(1024) * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 8) - 1));
-      n += Length(absl::Uniform<int32_t>(rng_, 0, 1024));
+          Length(1024) * (1 + absl::LogUniform<int32_t>(rng, 0, (1 << 8) - 1));
+      n += Length(absl::Uniform<int32_t>(rng, 0, 1024));
       return {n, objects};
     }
-    return {Length(1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1)),
+    return {Length(1 + absl::LogUniform<int32_t>(rng, 0, (1 << 9) - 1)),
             objects};
   }
 
@@ -224,7 +223,6 @@ class HugePageAwareAllocatorTest
   HugePageAwareAllocator* allocator_;
   ExtraRegionFactory* extra_;
   AddressRegionFactory* before_;
-  absl::BitGen rng_;
   absl::base_internal::SpinLock lock_;
   absl::flat_hash_map<Span*, size_t> ids_;
   size_t next_id_{0};
@@ -237,20 +235,21 @@ struct SpanInfo {
 };
 
 TEST_P(HugePageAwareAllocatorTest, Fuzz) {
+  absl::BitGen rng;
   std::vector<SpanInfo> allocs;
   for (int i = 0; i < 5000; ++i) {
-    auto [n, objects] = RandomAllocSize();
+    auto [n, objects] = RandomAllocSize(rng);
     Span* s = New(n, objects);
     allocs.push_back(SpanInfo{s, objects});
   }
   static const size_t kReps = 50 * 1000;
   for (int i = 0; i < kReps; ++i) {
     SCOPED_TRACE(absl::StrFormat("%d reps, %d pages", i, total_.raw_num()));
-    size_t index = absl::Uniform<int32_t>(rng_, 0, allocs.size());
+    size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
     Span* old_span = allocs[index].span;
     const size_t old_objects = allocs[index].objects_per_span;
     Delete(old_span, old_objects);
-    auto [n, objects] = RandomAllocSize();
+    auto [n, objects] = RandomAllocSize(rng);
     allocs[index] = SpanInfo{New(n, objects), objects};
   }
 
@@ -300,7 +299,7 @@ TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
       absl::BitGen rng;
       std::vector<SpanInfo> allocs;
       for (int i = 0; i < 150; ++i) {
-        auto [n, objects] = RandomAllocSize();
+        auto [n, objects] = RandomAllocSize(rng);
         allocs.push_back(SpanInfo{New(n, objects), objects});
       }
       b1.Block();
@@ -308,7 +307,7 @@ TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
       for (int i = 0; i < kReps; ++i) {
         size_t index = absl::Uniform<int32_t>(rng, 0, allocs.size());
         Delete(allocs[index].span, allocs[index].objects_per_span);
-        auto [n, objects] = RandomAllocSize();
+        auto [n, objects] = RandomAllocSize(rng);
         allocs[index] = SpanInfo{New(n, objects), objects};
       }
       b2.Block();
@@ -1132,7 +1131,7 @@ void TouchTHP(Span* s) {
 // and without the validation
 class StatTest : public testing::Test {
  protected:
-  StatTest() : rng_() {}
+  StatTest() = default;
 
   // TODO(b/242550501): Replace this with a fake forwarder, rather than using
   // the real page heap.
@@ -1229,19 +1228,19 @@ class StatTest : public testing::Test {
   }
 
   // Use bigger allocs here to ensure growth:
-  Length RandomAllocSize() {
+  Length RandomAllocSize(absl::BitGenRef rng) {
     // Since we touch all of the pages, try to avoid OOM'ing by limiting the
     // number of big allocations.
     const Length kMaxBigAllocs = Length(4096);
 
-    if (big_allocs_ < kMaxBigAllocs && absl::Bernoulli(rng_, 1.0 / 50)) {
+    if (big_allocs_ < kMaxBigAllocs && absl::Bernoulli(rng, 1.0 / 50)) {
       auto n =
-          Length(1024 * (1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 9) - 1)));
-      n += Length(absl::Uniform<int32_t>(rng_, 0, 1024));
+          Length(1024 * (1 + absl::LogUniform<int32_t>(rng, 0, (1 << 9) - 1)));
+      n += Length(absl::Uniform<int32_t>(rng, 0, 1024));
       big_allocs_ += n;
       return n;
     }
-    return Length(1 + absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1));
+    return Length(1 + absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1));
   }
 
   Span* Alloc(Length n) {
@@ -1301,7 +1300,6 @@ class StatTest : public testing::Test {
   char buf[sizeof(HugePageAwareAllocator)];
   HugePageAwareAllocator* alloc;
   RegionFactory replacement_region_factory_{GetRegionFactory()};
-  absl::BitGen rng_;
 
   Length total_;
   Length longest_;
@@ -1311,6 +1309,7 @@ class StatTest : public testing::Test {
 
 TEST_F(StatTest, Basic) {
   static const size_t kNumAllocs = 500;
+  absl::BitGen rng;
   Span* allocs[kNumAllocs];
 
   const bool always_check_usage = absl::GetFlag(FLAGS_always_check_usage);
@@ -1321,7 +1320,7 @@ TEST_F(StatTest, Basic) {
   // (note we can't stop background threads, but hopefully they're idle enough.)
 
   for (int i = 0; i < kNumAllocs; ++i) {
-    Length k = RandomAllocSize();
+    Length k = RandomAllocSize(rng);
     allocs[i] = Alloc(k);
     // stats are expensive, don't always check
     if (i % 10 != 0 && !always_check_usage) continue;
@@ -1330,14 +1329,14 @@ TEST_F(StatTest, Basic) {
 
   static const size_t kReps = 1000;
   for (int i = 0; i < kReps; ++i) {
-    size_t index = absl::Uniform<int32_t>(rng_, 0, kNumAllocs);
+    size_t index = absl::Uniform<int32_t>(rng, 0, kNumAllocs);
 
     Free(allocs[index]);
-    Length k = RandomAllocSize();
+    Length k = RandomAllocSize(rng);
     allocs[index] = Alloc(k);
 
-    if (absl::Bernoulli(rng_, 1.0 / 3)) {
-      Length pages(absl::LogUniform<int32_t>(rng_, 0, (1 << 10) - 1) + 1);
+    if (absl::Bernoulli(rng, 1.0 / 3)) {
+      Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
       absl::base_internal::SpinLockHolder h(&pageheap_lock);
       alloc->ReleaseAtLeastNPages(pages);
     }
