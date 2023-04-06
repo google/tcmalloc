@@ -17,6 +17,8 @@
 // tuning the internal implementation of TCMalloc. The internal implementation
 // functions use weak linkage, allowing an application to link against the
 // extensions without always linking against TCMalloc.
+//
+// Many of these APIs are also supported when built with sanitizers.
 
 #ifndef TCMALLOC_MALLOC_EXTENSION_H_
 #define TCMALLOC_MALLOC_EXTENSION_H_
