@@ -99,7 +99,9 @@ static size_t SanitizerStackSizeMultiplier() {
 }
 #endif
 
-#if defined(ABSL_HAVE_LEAK_SANITIZER) && !defined(ABSL_HAVE_ADDRESS_SANITIZER)
+#if defined(ABSL_HAVE_LEAK_SANITIZER) &&     \
+    !defined(ABSL_HAVE_ADDRESS_SANITIZER) && \
+    !defined(ABSL_HAVE_HWADDRESS_SANITIZER)
 static size_t SanitizerVirtualMemoryOverhead() { return 0; }
 
 static size_t SanitizerMemoryUsageMultiplier() { return 1; }
