@@ -797,7 +797,6 @@ cc_test(
 
 cc_library(
     name = "sampled_allocation",
-    srcs = ["sampled_allocation.cc"],
     hdrs = ["sampled_allocation.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc:__subpackages__"],

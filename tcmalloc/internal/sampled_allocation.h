@@ -35,7 +35,7 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
   // When no object is available on the freelist, we allocate for a new
   // SampledAllocation object and invoke this constructor with
   // `PrepareForSampling()`.
-  explicit SampledAllocation(StackTrace stack_trace) {
+  explicit SampledAllocation(StackTrace&& stack_trace) {
     PrepareForSampling(std::move(stack_trace));
   }
 
@@ -47,8 +47,10 @@ struct SampledAllocation : public tcmalloc_internal::Sample<SampledAllocation> {
 
   // Prepares the state of the object. It is invoked when either a new sampled
   // allocation is constructed or when an object is revived from the freelist.
-  void PrepareForSampling(StackTrace stack_trace)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock);
+  void PrepareForSampling(StackTrace&& stack_trace)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock) {
+    sampled_stack = std::move(stack_trace);
+  }
 
   // The stack trace of the sampled allocation.
   StackTrace sampled_stack = {};
