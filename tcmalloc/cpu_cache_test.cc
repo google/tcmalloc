@@ -21,6 +21,7 @@
 #include <iostream>
 #include <limits>
 #include <new>
+#include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 
@@ -1235,6 +1236,80 @@ TEST(CpuCacheTest, Fuzz) {
   Printer p(mallocz.data(), mallocz.size());
   env.cache().Print(&p);
   std::cout << mallocz;
+}
+
+// TODO(b/179516472):  Enable this test.
+TEST(CpuCacheTest, DISABLED_ChangingSizes) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  constexpr int kThreads = 10;
+  struct ABSL_CACHELINE_ALIGNED ThreadState {
+    absl::BitGen rng;
+  };
+  std::vector<ThreadState> thread_state(kThreads);
+
+  CpuCacheEnvironment env;
+  ThreadManager threads;
+  const size_t initial_size = env.cache().CacheLimit();
+  ASSERT_GT(initial_size, 0);
+  bool rseq_active_for_size_changing_thread = false;
+  int index = 0;
+  size_t last_cache_size = initial_size;
+
+  env.Activate();
+
+  threads.Start(kThreads, [&](int thread_id) {
+    // Ensure this thread has registered itself with the kernel to use
+    // restartable sequences.
+    if (thread_id > 0) {
+      CHECK_CONDITION(subtle::percpu::IsFast());
+      env.RandomlyPoke(thread_state[thread_id].rng);
+      return;
+    }
+
+    // Alternative between having the thread register for rseq and not, to
+    // ensure that we can call SetCacheLimit with either precondition.
+    std::optional<ScopedUnregisterRseq> rseq;
+    if (rseq_active_for_size_changing_thread) {
+      CHECK_CONDITION(subtle::percpu::IsFast());
+    } else {
+      rseq.emplace();
+    }
+    rseq_active_for_size_changing_thread =
+        !rseq_active_for_size_changing_thread;
+
+    // Vary the cache size up and down.  Exclude 1. from the list so that we
+    // will always expect to see a nontrivial change after the threads stop
+    // work.
+    constexpr double kConversions[] = {0.25, 0.5, 0.75, 1.25, 1.5};
+    size_t new_cache_size = initial_size * kConversions[index];
+    index = (index + 1) % 5;
+
+    env.cache().SetCacheLimit(new_cache_size);
+    last_cache_size = new_cache_size;
+  });
+
+  absl::SleepFor(absl::Seconds(0.5));
+
+  threads.Stop();
+
+  // Inspect the CpuCache and validate invariants.
+
+  // The number of caches * per-core limit should be equivalent to the bytes
+  // managed by the cache.
+  size_t capacity = 0;
+  size_t allocated = 0;
+  size_t unallocated = 0;
+  for (int i = 0, n = env.num_cpus(); i < n; i++) {
+    capacity += env.cache().Capacity(i);
+    allocated += env.cache().Allocated(i);
+    unallocated += env.cache().Unallocated(i);
+  }
+
+  EXPECT_EQ(allocated + unallocated, capacity);
+  EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
 }
 
 }  // namespace
