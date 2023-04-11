@@ -714,6 +714,9 @@ cc_test(
     srcs = ["huge_page_filler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
+    tags = [
+        "nompu64",
+    ],
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:clock",

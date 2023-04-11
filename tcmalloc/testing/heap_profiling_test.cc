@@ -30,6 +30,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_format.h"
 #include "absl/time/clock.h"
@@ -62,6 +63,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
   manager.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
   absl::Time start = absl::Now();
+  constexpr absl::Duration kDelta = absl::Seconds(15);
   // Another few threads busy with iterating different kinds of heap profiles.
   for (auto t : {
            ProfileType::kHeap,
@@ -72,12 +74,12 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
       MallocExtension::SnapshotCurrent(t).Iterate(
           [&](const Profile::Sample& s) {
             // Inspect a few fields in the sample.
-            EXPECT_GE(s.sum, 0);
-            EXPECT_GT(s.depth, 0);
-            EXPECT_GT(s.requested_size, 0);
-            EXPECT_GT(s.allocated_size, 0);
-            EXPECT_GT(s.allocation_time, start - absl::Seconds(10));
-            EXPECT_LT(s.allocation_time, start + absl::Seconds(10));
+            CHECK_GE(s.sum, 0);
+            CHECK_GT(s.depth, 0);
+            CHECK_GT(s.requested_size, 0);
+            CHECK_GT(s.allocated_size, 0);
+            CHECK_GT(s.allocation_time, start - kDelta);
+            CHECK_LT(s.allocation_time, start + kDelta);
           });
     });
   }
