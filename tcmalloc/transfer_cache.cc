@@ -62,13 +62,14 @@ bool use_generic_sharded_transfer_cache() {
   }
 
   const char *e =
-      thread_safe_getenv("TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE_CONTROL");
+      thread_safe_getenv("TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE_DISABLE");
   if (e) {
     switch (e[0]) {
       case '0':
+        // TODO(b/250929998): Enable this.
         return false;
       case '1':
-        return true;
+        return false;
       default:
         Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
         return false;
