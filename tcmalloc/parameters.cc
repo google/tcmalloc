@@ -396,6 +396,9 @@ bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled() {
 }
 
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v) {
+  // We only allow disabling dynamic slabs using both the flag and
+  // want_disable_dynamic_slabs.
+  if (!v && !tcmalloc::tcmalloc_internal::want_disable_dynamic_slabs()) return;
   Parameters::per_cpu_caches_dynamic_slab_.store(v, std::memory_order_relaxed);
 }
 
