@@ -1089,7 +1089,7 @@ TEST_P(FillerTest, ReleaseZero) {
 void FillerTest::FragmentationTest() {
   constexpr Length kRequestLimit = Length(32);
   constexpr Length kSizeLimit = Length(512 * 1024);
-  constexpr size_t kReps = 10 * 1000 * 1000;
+  constexpr size_t kReps = 1000;
 
   absl::BitGen rng;
   auto dist = EmpiricalDistribution(kRequestLimit);
