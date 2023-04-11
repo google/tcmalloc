@@ -36,6 +36,7 @@
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/cache_topology.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/transfer_cache_stats.h"
@@ -57,6 +58,8 @@ absl::string_view TransferCacheImplementationToLabel(
     TransferCacheImplementation type);
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
+
+bool use_generic_sharded_transfer_cache();
 
 class StaticForwarder {
  public:
@@ -85,10 +88,10 @@ class ShardedStaticForwarder : public StaticForwarder {
     // To make sure that we do not change the behavior of the traditional
     // sharded cache configuration, we use generic version of the cache only
     // when the traditional version is not enabled.
-    //
-    // TODO(b/250929998): Enable generic sharded transfer cache when
-    // sharded-cache experiment for large size classes is disabled.
-    use_generic_cache_ = false;
+    use_generic_cache_ =
+        use_generic_sharded_transfer_cache() &&
+        !IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
     // Traditionally, we enable sharded transfer cache for large size
     // classes alone.
     enable_cache_for_large_classes_only_ = IsExperimentActive(
@@ -210,6 +213,10 @@ class ShardedTransferCacheManagerBase {
     out->printf("of the sharded transfer cache freelists.\n");
     out->printf("It also reports insert/remove hits/misses by size class.\n");
     out->printf("------------------------------------------------\n");
+    out->printf("Sharded transfer cache state: %s\n",
+                UseCacheForLargeClassesOnly() || UseGenericCache()
+                    ? "ACTIVE"
+                    : "INACTIVE");
     out->printf("Number of active sharded transfer caches: %3d\n",
                 NumActiveShards());
     out->printf("------------------------------------------------\n");

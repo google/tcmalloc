@@ -429,6 +429,29 @@ create_tcmalloc_testsuite(
 )
 
 cc_binary(
+    name = "want_disable_sharded_transfer_cache_test_helper",
+    testonly = 1,
+    srcs = ["want_disable_sharded_transfer_cache_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
+    name = "want_disable_sharded_transfer_cache_test_helper_disable",
+    testonly = 1,
+    srcs = ["want_disable_sharded_transfer_cache_test_helper.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:want_disable_sharded_transfer_cache",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_binary(
     name = "want_hpaa_test_helper",
     testonly = 1,
     srcs = ["want_hpaa_test_helper.cc"],

@@ -51,7 +51,33 @@ absl::string_view TransferCacheImplementationToLabel(
   }
 }
 
+ABSL_ATTRIBUTE_WEAK bool default_want_disable_sharded_transfer_cache();
+
 #ifndef TCMALLOC_SMALL_BUT_SLOW
+
+bool use_generic_sharded_transfer_cache() {
+  // Disable generic sharded transfer cache if built against an opt-out.
+  if (default_want_disable_sharded_transfer_cache != nullptr) {
+    return false;
+  }
+
+  const char *e =
+      thread_safe_getenv("TCMALLOC_GENERIC_SHARDED_TRANSFER_CACHE_CONTROL");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        return false;
+      case '1':
+        return true;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
+  }
+
+  // TODO(b/250929998): Enable this by default.
+  return false;
+}
 
 size_t StaticForwarder::class_to_size(int size_class) {
   return tc_globals.sizemap().class_to_size(size_class);
