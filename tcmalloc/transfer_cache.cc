@@ -66,8 +66,7 @@ bool use_generic_sharded_transfer_cache() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/250929998): Enable this.
-        return false;
+        return true;
       case '1':
         return false;
       default:
@@ -76,8 +75,7 @@ bool use_generic_sharded_transfer_cache() {
     }
   }
 
-  // TODO(b/250929998): Enable this by default.
-  return false;
+  return true;
 }
 
 size_t StaticForwarder::class_to_size(int size_class) {
