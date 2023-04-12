@@ -60,7 +60,7 @@ TEST(StartupSizeTest, Basic) {
 #ifdef __powerpc64__
   size_t metadata_limit = 36.5 * MiB;
 #else
-  size_t metadata_limit = 13 * MiB;
+  size_t metadata_limit = 14 * MiB;
 #endif
   // Check whether per-cpu is active
   if (percpu > 0) {

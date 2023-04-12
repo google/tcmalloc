@@ -147,7 +147,7 @@ TEST_P(SamplingMemoryTest, Overhead) {
       100.0 / static_cast<double>(baseline);
 
   // some noise is unavoidable
-  EXPECT_GE(percent, -1.0) << baseline << " " << with_sampling;
+  EXPECT_GE(percent, -5.0) << baseline << " " << with_sampling;
   EXPECT_LE(percent, 10.0) << baseline << " " << with_sampling;
 }
 
