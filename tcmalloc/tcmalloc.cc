@@ -485,6 +485,8 @@ extern "C" void MallocExtension_Internal_GetProperties(
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
+  if (ABSL_PREDICT_FALSE(!subtle::percpu::IsFast())) return 0;
+
   size_t bytes = 0;
   if (tc_globals.CpuCacheActive()) {
     bytes = tc_globals.cpu_cache().Reclaim(cpu);

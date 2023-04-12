@@ -886,6 +886,8 @@ inline bool CpuCache<Forwarder>::BypassCpuCache(size_t size_class) const {
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
     size_t size_class) const {
+  // Make sure that the thread is registered with rseq.
+  ASSERT(subtle::percpu::IsFastNoInit());
   // We enable sharded cache as a backing cache for all size classes when
   // generic configuration is enabled.
   return forwarder_.sharded_transfer_cache().should_use(size_class) &&
