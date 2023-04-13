@@ -117,7 +117,9 @@ HugeRegionUsageOption huge_region_option() {
   // allocations. This results in using HugeRegions for all the large
   // allocations once the size exceeds 64MB.
   return (IsExperimentActive(
-             Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN))
+              Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN) ||
+          IsExperimentActive(
+              Experiment::TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN_V2))
              ? HugeRegionUsageOption::kUseForAllLargeAllocs
              : HugeRegionUsageOption::kDefault;
 }
