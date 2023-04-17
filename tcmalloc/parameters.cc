@@ -84,10 +84,21 @@ void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
 
-ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
-    Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
-        0
-    });
+// As background_release_rate() is determined at runtime, we cannot require
+// constant initialization for the atomic.  This avoids an initialization order
+// fiasco.
+static std::atomic<MallocExtension::BytesPerSecond>& malloc_release_rate() {
+  static std::atomic<MallocExtension::BytesPerSecond> v([]() {
+    return MallocExtension::BytesPerSecond(0);
+  }());
+
+  return v;
+}
+
+MallocExtension::BytesPerSecond Parameters::background_release_rate() {
+  return malloc_release_rate().load(std::memory_order_relaxed);
+}
+
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 // TODO(b/263387812): remove when experimentation is complete
@@ -245,8 +256,9 @@ void MallocExtension_Internal_SetBackgroundReleaseRate(
 }
 
 void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
-  Parameters::background_release_rate_.store(
-      static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
+  tcmalloc::tcmalloc_internal::malloc_release_rate().store(
+      static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value),
+      std::memory_order_relaxed);
 }
 
 uint64_t TCMalloc_Internal_GetHeapSizeHardLimit() {

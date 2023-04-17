@@ -32,9 +32,7 @@ namespace tcmalloc_internal {
 
 class Parameters {
  public:
-  static MallocExtension::BytesPerSecond background_release_rate() {
-    return background_release_rate_.load(std::memory_order_relaxed);
-  }
+  static MallocExtension::BytesPerSecond background_release_rate();
 
   static void set_background_release_rate(
       MallocExtension::BytesPerSecond value) {
@@ -192,7 +190,6 @@ class Parameters {
       absl::string_view s);
   friend void ::TCMalloc_Internal_SetMadviseFree(bool v);
 
-  static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
   // TODO(b/263387812): remove when experimentation is complete
   static std::atomic<bool> improved_guarded_sampling_;
