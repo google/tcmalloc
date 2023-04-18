@@ -28,7 +28,8 @@
 // up trying to consume all of RAM+swap, and that can take quite some time.  By
 // limiting the address-space size we get sufficient coverage without blowing
 // out job limits.
-void SetTestResourceLimit();
+void SetTestResourceLimit(size_t limit);
+size_t GetTestResourceLimit();
 
 namespace tcmalloc {
 
@@ -100,6 +101,20 @@ class ScopedProfileSamplingRate {
 
  private:
   int64_t previous_;
+};
+
+// Sets a custom resource limit when in scope.
+class ScopedResourceLimit {
+ public:
+  explicit ScopedResourceLimit(size_t limit)
+      : previous_(GetTestResourceLimit()) {
+    SetTestResourceLimit(limit);
+  }
+
+  ~ScopedResourceLimit() { SetTestResourceLimit(previous_); }
+
+ private:
+  size_t previous_;
 };
 
 class ScopedGuardedSamplingRate {

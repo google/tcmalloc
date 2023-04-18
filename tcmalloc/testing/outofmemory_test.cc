@@ -30,7 +30,11 @@ namespace {
 
 class OutOfMemoryTest : public ::testing::Test {
  public:
-  OutOfMemoryTest() { SetTestResourceLimit(); }
+  static const size_t kGiB = 1024 * 1024 * 1024;
+  OutOfMemoryTest() : limit_(ScopedResourceLimit(6 * kGiB)) {}
+
+ private:
+  ScopedResourceLimit limit_;
 };
 
 TEST_F(OutOfMemoryTest, TestUntilFailure) {

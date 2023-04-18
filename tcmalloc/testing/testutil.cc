@@ -27,7 +27,7 @@
 // up trying to consume all of RAM+swap, and that can take quite some time.  By
 // limiting the address-space size we get sufficient coverage without blowing
 // out job limits.
-void SetTestResourceLimit() {
+void SetTestResourceLimit(size_t limit) {
   // The actual resource we need to set varies depending on which flavour of
   // unix.  On Linux we need RLIMIT_AS because that covers the use of mmap.
   // Otherwise hopefully RLIMIT_RSS is good enough.  (Unfortunately 64-bit
@@ -38,20 +38,34 @@ void SetTestResourceLimit() {
 #define USE_RESOURCE RLIMIT_RSS
 #endif
 
-  // Restrict the test to 8GiB by default.
   // Be careful we don't overflow rlim - if we would, this is a no-op
   // and we can just do nothing.
-  const int64_t lim = static_cast<int64_t>(8) * 1024 * 1024 * 1024;
+  const int64_t lim = static_cast<int64_t>(limit);
   if (lim > std::numeric_limits<rlim_t>::max()) return;
   const rlim_t kMaxMem = lim;
 
   struct rlimit rlim;
   if (getrlimit(USE_RESOURCE, &rlim) == 0) {
-    if (rlim.rlim_cur == RLIM_INFINITY || rlim.rlim_cur > kMaxMem) {
-      rlim.rlim_cur = kMaxMem;
-      setrlimit(USE_RESOURCE, &rlim);  // ignore result
-    }
+    rlim.rlim_cur = kMaxMem;
+    setrlimit(USE_RESOURCE, &rlim);  // ignore result
   }
+}
+
+// Fetch the current resource limit applied to the test job.
+size_t GetTestResourceLimit() {
+  // The actual resource we need to set varies depending on which flavour of
+  // unix.  On Linux we need RLIMIT_AS because that covers the use of mmap.
+  // Otherwise hopefully RLIMIT_RSS is good enough.  (Unfortunately 64-bit
+  // and 32-bit headers disagree on the type of these constants!)
+#ifdef RLIMIT_AS
+#define USE_RESOURCE RLIMIT_AS
+#else
+#define USE_RESOURCE RLIMIT_RSS
+#endif
+
+  struct rlimit rlim;
+  CHECK_CONDITION(getrlimit(USE_RESOURCE, &rlim) == 0);
+  return rlim.rlim_cur;
 }
 
 namespace tcmalloc {

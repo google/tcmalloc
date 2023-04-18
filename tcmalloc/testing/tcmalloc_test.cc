@@ -108,7 +108,8 @@ extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
 
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
-  SetTestResourceLimit();
+  constexpr size_t kGiB = 1024 * 1024 * 1024;
+  SetTestResourceLimit(/*limit=*/8 * kGiB);
 
   return RUN_ALL_TESTS();
 }
