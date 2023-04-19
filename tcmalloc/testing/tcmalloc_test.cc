@@ -1228,6 +1228,220 @@ TEST(HotColdTest, HotColdNew) {
   }
 }
 
+TEST(HotColdTest, NothrowHotColdNew) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    void* ptr = ::operator new(size, std::nothrow,
+                               static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size});
+
+    if (label >= 128) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << size << " " << label;
+    }
+  }
+
+  for (SizedPtr s : ptrs) {
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+}
+
+TEST(HotColdTest, AlignedNothrowHotColdNew) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+    std::align_val_t alignment;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    void* ptr = ::operator new(size, alignment, std::nothrow,
+                               static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size, alignment});
+
+    if (label >= 128) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << size << " " << label;
+    }
+  }
+
+  for (auto p : ptrs) {
+    int choice = absl::Uniform(rng, 0, 3);
+
+    switch (choice) {
+      case 0:
+        ::operator delete(p.ptr);
+        break;
+      case 1:
+        ::operator delete(p.ptr, p.alignment);
+        break;
+      case 2:
+        ::operator delete(p.ptr, p.size, p.alignment);
+        break;
+    }
+  }
+}
+
+TEST(HotColdTest, ArrayNothrowHotColdNew) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    void* ptr = ::operator new[](size, std::nothrow,
+                                 static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size});
+
+    if (label >= 128) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << size << " " << label;
+    }
+  }
+
+  for (SizedPtr s : ptrs) {
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+}
+
+TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+    std::align_val_t alignment;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const std::align_val_t alignment =
+        static_cast<std::align_val_t>(1 << absl::Uniform(rng, 0, 6));
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    void* ptr = ::operator new[](size, alignment, std::nothrow,
+                                 static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size, alignment});
+
+    if (label >= 128) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << size << " " << label;
+    }
+  }
+
+  for (auto p : ptrs) {
+    int choice = absl::Uniform(rng, 0, 3);
+
+    switch (choice) {
+      case 0:
+        ::operator delete(p.ptr);
+        break;
+      case 1:
+        sized_array_delete(p.ptr, p.size);
+        break;
+      case 2:
+        sized_array_aligned_delete(p.ptr, p.size, p.alignment);
+        break;
+    }
+  }
+}
+
 TEST(HotColdTest, SizeReturningHotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
   if (!expectColdTags) {
