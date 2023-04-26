@@ -120,10 +120,6 @@ class StackTraceFilterTest : public testing::Test {
 
   static size_t mask() { return StackTraceFilter::kMask; }
 
-  size_t most_frequent_hash_count() const {
-    return filter_.most_frequent_hash_count_.load(std::memory_order_relaxed);
-  }
-
   size_t HashOfStackTrace(const StackTrace& stacktrace) const {
     return filter_.HashOfStackTrace(stacktrace);
   }
@@ -157,76 +153,40 @@ TEST_F(StackTraceFilterTest, ConstexprConstructor) {
 }
 
 TEST_F(StackTraceFilterTest, EvaluateNew) {
-  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(0, filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, EvaluateDifferent) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(0.0, filter_.Evaluate(collider_stacktrace_));
+  EXPECT_EQ(0, filter_.Evaluate(collider_stacktrace_));
 }
 
-TEST_F(StackTraceFilterTest, EvaluateLessFrequent) {
+TEST_F(StackTraceFilterTest, Add) {
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.Evaluate(stacktrace1_));
   filter_.Add(stacktrace1_);
-  filter_.Add(stacktrace2_);
-  EXPECT_EQ(0.5, filter_.Evaluate(stacktrace2_));
-  // Demonstrate that a lower value indicates less guarded.
-  filter_.Add(stacktrace1_);
-  filter_.Add(stacktrace1_);
-  EXPECT_EQ(0.25, filter_.Evaluate(stacktrace2_));
-}
-
-// Also covers case where add is in unused location
-TEST_F(StackTraceFilterTest, EvaluateDisallow) {
-  filter_.Add(stacktrace1_);
-  EXPECT_EQ(1.0, filter_.Evaluate(stacktrace1_));
-}
-
-TEST_F(StackTraceFilterTest, AddMoreFrequent) {
-  filter_.Add(stacktrace1_);
-  EXPECT_EQ(most_frequent_hash_count(), 1);
-  filter_.Add(stacktrace1_);
-  EXPECT_EQ(most_frequent_hash_count(), 2);
+  EXPECT_EQ(2, filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddCountLimitReached) {
-  while (most_frequent_hash_count() < mask()) {
+  while (count(stacktrace1_) < mask()) {
     filter_.Add(stacktrace1_);
   }
-  size_t current_most_frequent_hash_count = most_frequent_hash_count();
+  EXPECT_EQ(mask(), filter_.Evaluate(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(current_most_frequent_hash_count, most_frequent_hash_count());
+  EXPECT_EQ(mask(), filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddReplace) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(most_frequent_hash_count(), 1);
+  EXPECT_EQ(1, filter_.Evaluate(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(most_frequent_hash_count(), 2);
+  EXPECT_EQ(2, filter_.Evaluate(stacktrace1_));
   filter_.Add(collider_stacktrace_);
-  EXPECT_EQ(most_frequent_hash_count(), 1);
-}
-
-TEST_F(StackTraceFilterTest, EvaluateLessFrequentAfterAddReplace) {
-  InitializeColliderStackTrace();
-  filter_.Add(stacktrace1_);
-  filter_.Add(stacktrace1_);
-  filter_.Add(stacktrace1_);
-  filter_.Add(stacktrace2_);
-  filter_.Add(stacktrace2_);
-  EXPECT_EQ(most_frequent_hash_count(), 3);
-  filter_.Add(collider_stacktrace_);
-  EXPECT_EQ(most_frequent_hash_count(), 2);
-  // Newly added, but still lest frequent
-  EXPECT_EQ(0.5, filter_.Evaluate(collider_stacktrace_));
-  // Not present, functionally never seen before
-  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace1_));
-  // Current holder of maximum encounter (disallowed)
-  EXPECT_EQ(1.0, filter_.Evaluate(stacktrace2_));
-  // Never seen before
-  EXPECT_EQ(0.0, filter_.Evaluate(stacktrace3_));
+  EXPECT_EQ(0, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(1, filter_.Evaluate(collider_stacktrace_));
 }
 
 // A collection of threaded tests which are useful for demonstrating
