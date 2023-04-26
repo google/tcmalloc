@@ -156,17 +156,17 @@ TEST_F(StackTraceFilterTest, ConstexprConstructor) {
   [[maybe_unused]] Wrapper wrapper;
 }
 
-TEST_F(StackTraceFilterTest, AllowNew) {
+TEST_F(StackTraceFilterTest, EvaluateNew) {
   EXPECT_EQ(0.0, filter_.Evaluate(stacktrace1_));
 }
 
-TEST_F(StackTraceFilterTest, AllowDifferent) {
+TEST_F(StackTraceFilterTest, EvaluateDifferent) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
   EXPECT_EQ(0.0, filter_.Evaluate(collider_stacktrace_));
 }
 
-TEST_F(StackTraceFilterTest, AllowLessFrequent) {
+TEST_F(StackTraceFilterTest, EvaluateLessFrequent) {
   filter_.Add(stacktrace1_);
   filter_.Add(stacktrace1_);
   filter_.Add(stacktrace2_);
@@ -178,7 +178,7 @@ TEST_F(StackTraceFilterTest, AllowLessFrequent) {
 }
 
 // Also covers case where add is in unused location
-TEST_F(StackTraceFilterTest, AllowDisallow) {
+TEST_F(StackTraceFilterTest, EvaluateDisallow) {
   filter_.Add(stacktrace1_);
   EXPECT_EQ(1.0, filter_.Evaluate(stacktrace1_));
 }
@@ -209,7 +209,7 @@ TEST_F(StackTraceFilterTest, AddReplace) {
   EXPECT_EQ(most_frequent_hash_count(), 1);
 }
 
-TEST_F(StackTraceFilterTest, AllowLessFrequentAfterAddReplace) {
+TEST_F(StackTraceFilterTest, EvaluateLessFrequentAfterAddReplace) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
   filter_.Add(stacktrace1_);
@@ -236,12 +236,12 @@ class StackTraceFilterThreadedTest : public testing::Test {
   class FilterExerciser {
    public:
     FilterExerciser(StackTraceFilter& filter, int stacktrace_count,
-                    int colliding_stacktrace_count, int allow_calls_requested,
-                    int add_calls_requested)
+                    int colliding_stacktrace_count,
+                    int evaluate_calls_requested, int add_calls_requested)
         : filter_(filter),
           stacktraces_(stacktrace_count),
           colliding_stacktrace_count_(colliding_stacktrace_count),
-          allow_calls_requested_(allow_calls_requested),
+          evaluate_calls_requested_(evaluate_calls_requested),
           add_calls_requested_(add_calls_requested) {}
 
     void Initialize() {
@@ -278,26 +278,29 @@ class StackTraceFilterThreadedTest : public testing::Test {
       if (hasrun()) {
         return;
       }
-      absl::flat_hash_map<int, int> allow_calls_counts;
+      absl::flat_hash_map<int, int> evaluate_calls_count;
       absl::flat_hash_map<int, int> add_calls_counts;
       for (int stacktrace_index = 0; stacktrace_index < stacktraces_.size();
            ++stacktrace_index) {
-        allow_calls_counts[stacktrace_index] = allow_calls_requested_;
+        evaluate_calls_count[stacktrace_index] = evaluate_calls_requested_;
         add_calls_counts[stacktrace_index] = add_calls_requested_;
       }
 
+      int evaluate_calls = 0;
       int add_calls = 0;
-      while (!allow_calls_counts.empty() || !add_calls_counts.empty()) {
-        bool do_allow_call = absl::Uniform(bitgen_, 0, 2);
-        if (do_allow_call && !allow_calls_counts.empty()) {
-          auto iter = allow_calls_counts.begin();
-          std::advance(iter,
-                       absl::Uniform(bitgen_, 0UL, allow_calls_counts.size()));
+      while (!evaluate_calls_count.empty() || !add_calls_counts.empty()) {
+        bool do_evaluate_call = absl::Uniform(bitgen_, 0, 2);
+        if (do_evaluate_call && !evaluate_calls_count.empty()) {
+          auto iter = evaluate_calls_count.begin();
+          std::advance(
+              iter, absl::Uniform(bitgen_, 0UL, evaluate_calls_count.size()));
           size_t stacktrace_index = iter->first;
-          if (--allow_calls_counts[stacktrace_index] == 0) {
-            allow_calls_counts.erase(iter);
+          filter_.Evaluate(stacktraces_[stacktrace_index]);
+          ++evaluate_calls;
+          if (--evaluate_calls_count[stacktrace_index] == 0) {
+            evaluate_calls_count.erase(iter);
           }
-        } else if (!do_allow_call && !add_calls_counts.empty()) {
+        } else if (!do_evaluate_call && !add_calls_counts.empty()) {
           auto iter = add_calls_counts.begin();
           std::advance(iter,
                        absl::Uniform(bitgen_, 0UL, add_calls_counts.size()));
@@ -310,6 +313,8 @@ class StackTraceFilterThreadedTest : public testing::Test {
         }
       }
 
+      EXPECT_EQ(evaluate_calls,
+                evaluate_calls_requested_ * stacktraces_.size());
       EXPECT_EQ(add_calls, add_calls_requested_ * stacktraces_.size());
 
       hasrun_.store(true, std::memory_order_relaxed);
@@ -330,7 +335,7 @@ class StackTraceFilterThreadedTest : public testing::Test {
     int colliding_stacktrace_count_;
     // Each exerciser must have its own, as BitGen is not thread safe.
     absl::BitGen bitgen_;
-    int allow_calls_requested_;
+    int evaluate_calls_requested_;
     int add_calls_requested_;
     std::atomic<bool> hasrun_{false};
 
