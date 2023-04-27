@@ -53,6 +53,11 @@ TEST(ProfileTest, HeapProfile) {
 
   auto deleter = [](void* ptr) { ::operator delete(ptr); };
   std::vector<std::unique_ptr<void, decltype(deleter)>> allocs;
+  // Sometimes the compiler duplicates the tcmalloc call depending on if the
+  // fast path of the first `emplace_back` is taken. We reserve enough space for
+  // all insertions so that all `emplace_back` calls go through the fast path
+  // and there is only one stack trace for tcmalloc.
+  allocs.reserve(kAllocs * 2);
   for (int i = 0; i < kAllocs; i++) {
     allocs.emplace_back(::operator new(alloc_size), deleter);
     allocs.emplace_back(tcmalloc_size_returning_operator_new(alloc_size).p,
@@ -116,15 +121,8 @@ TEST(ProfileTest, HeapProfile) {
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 2 samples, one for
   // ::operator new and one for tcmalloc_size_returning_operator_new.
-#ifndef __aarch64__
   EXPECT_EQ(samples, 2);
   EXPECT_EQ(size_returning_samples, 1);
-#else
-  // TODO(b/246562683):  We can see two distinct size-returning new callstacks
-  // on AArch64.
-  EXPECT_GE(samples, 2);
-  EXPECT_GE(size_returning_samples, 1);
-#endif
 
   absl::flat_hash_set<int> mapping_ids;
   mapping_ids.reserve(converted.mapping().size());
