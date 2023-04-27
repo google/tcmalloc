@@ -92,7 +92,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
 };
 
 TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
-  ScopedAlwaysSample sas;
+  ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
@@ -103,7 +103,7 @@ TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
-  ScopedProfileSamplingRate spsr(4096);
+  ScopedProfileSamplingRate profile_sampling_rate(4096);
   auto token = MallocExtension::StartAllocationProfiling();
 
   constexpr size_t alloc_size = 2 * 1024 * 1024;
@@ -126,7 +126,7 @@ TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
-  ScopedAlwaysSample sas;
+  ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
@@ -150,8 +150,8 @@ TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
-  ScopedGuardedSamplingRate sgsr(-1);
-  ScopedProfileSamplingRate spsr(1);
+  ScopedGuardedSamplingRate guarded_sampling_rate(-1);
+  ScopedProfileSamplingRate profile_sampling_rate(1);
   auto token = MallocExtension::StartAllocationProfiling();
 
   AllocateUntil(1024, [&](void* alloc) -> NextSteps { return {true, true}; });
@@ -161,8 +161,8 @@ TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
-  ScopedGuardedSamplingRate sgsr(1);
-  ScopedProfileSamplingRate spsr(1);
+  ScopedGuardedSamplingRate guarded_sampling_rate(1);
+  ScopedProfileSamplingRate profile_sampling_rate(1);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // Keep allocating until something is sampled
@@ -207,7 +207,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {
-  ScopedAlwaysSample sas;
+  ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
@@ -236,7 +236,7 @@ TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
-  ScopedAlwaysSample sas;
+  ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
 
   std::vector<std::unique_ptr<char>> allocs;
