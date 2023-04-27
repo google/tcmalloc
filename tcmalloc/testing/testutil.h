@@ -224,6 +224,23 @@ class ScopedFakeCpuId {
   const ScopedUnregisterRseq unregister_rseq_;
 };
 
+// TODO(b/263387812): remove when experimentation is complete.
+// Temporarily enables or disables improved guarded sampling.
+class ScopedImprovedGuardedSampling {
+ public:
+  explicit ScopedImprovedGuardedSampling(bool is_enabled)
+      : previous_(MallocExtension::GetImprovedGuardedSampling()) {
+    MallocExtension::SetImprovedGuardedSampling(is_enabled);
+  }
+
+  ~ScopedImprovedGuardedSampling() {
+    MallocExtension::SetImprovedGuardedSampling(previous_);
+  }
+
+ private:
+  bool previous_;
+};
+
 // This pragma ensures that a loop does not get unrolled, in which case the
 // different loop iterations would map to different call sites instead of the
 // same ones as expected by some tests. Supported pragmas differ between GCC and
