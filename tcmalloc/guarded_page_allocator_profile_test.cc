@@ -261,6 +261,21 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::NoAvailableSlots, {});
 }
 
+TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
+  ScopedProfileSamplingRate profile_sampling_rate(0);
+  auto token = MallocExtension::StartAllocationProfiling();
+
+  int alloc_count = AllocateUntil(1025, [&](void* alloc) -> NextSteps {
+    return {true, true};
+  });
+  ASSERT_EQ(alloc_count, 1);
+
+  auto profile = std::move(token).Stop();
+  int samples = 0;
+  profile.Iterate([&](const Profile::Sample& s) { ++samples; });
+  EXPECT_EQ(samples, 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
