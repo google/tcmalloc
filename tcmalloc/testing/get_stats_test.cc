@@ -108,6 +108,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: false"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_resize_cpu_cache_size_classes: false"));
 
   sized_delete(alloc, kSize);
 }
@@ -152,6 +153,9 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 0)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_resize_cpu_cache_size_classes 0)"));
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
     }

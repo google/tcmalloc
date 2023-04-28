@@ -49,6 +49,9 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
   absl::Time last_shuffle = absl::Now();
 
+  constexpr absl::Duration kSizeClassResizePeriod = absl::Seconds(2);
+  absl::Time last_size_class_resize = absl::Now();
+
   // See if we should resize the slab once per kCpuCacheSlabResizePeriod. This
   // period is coprime to kCpuCacheShufflePeriod and kCpuCacheReclaimPeriod.
   constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(29);
@@ -90,6 +93,12 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
           now - last_shuffle >= kCpuCacheShufflePeriod) {
         tc_globals.cpu_cache().ShuffleCpuCaches();
         last_shuffle = now;
+      }
+
+      if (Parameters::resize_cpu_cache_size_classes() &&
+          now - last_size_class_resize >= kSizeClassResizePeriod) {
+        tc_globals.cpu_cache().ResizeSizeClasses();
+        last_size_class_resize = now;
       }
 
       // See if we need to grow the slab once every kCpuCacheSlabResizePeriod

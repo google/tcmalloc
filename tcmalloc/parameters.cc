@@ -113,6 +113,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::resize_cpu_cache_size_classes_enabled_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
@@ -281,6 +283,10 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
   return Parameters::hpaa_subrelease();
 }
 
+bool TCMalloc_Internal_GetResizeCpuCacheSizeClassesEnabled() {
+  return Parameters::resize_cpu_cache_size_classes();
+}
+
 bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled() {
   return Parameters::shuffle_per_cpu_caches();
 }
@@ -334,6 +340,11 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
 
 void TCMalloc_Internal_SetHPAASubrelease(bool v) {
   tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr()->store(
+      v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
+  Parameters::resize_cpu_cache_size_classes_enabled_.store(
       v, std::memory_order_relaxed);
 }
 

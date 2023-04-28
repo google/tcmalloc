@@ -439,6 +439,8 @@ void DumpStats(Printer* out, int level) {
         "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
         "%d\n",
         Parameters::separate_allocs_for_few_and_many_objects_spans());
+    out->printf("PARAMETER tcmalloc_resize_cpu_cache_size_classes %d\n",
+                Parameters::resize_cpu_cache_size_classes() ? 1 : 0);
   }
 }
 
@@ -600,6 +602,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
   region.PrintI64("separate_allocs_for_few_and_many_objects_spans",
                   Parameters::separate_allocs_for_few_and_many_objects_spans());
+  region.PrintBool("tcmalloc_resize_cpu_cache_size_classes",
+                   Parameters::resize_cpu_cache_size_classes());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

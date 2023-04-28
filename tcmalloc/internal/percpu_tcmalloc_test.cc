@@ -548,7 +548,7 @@ void StressThread(size_t thread_id, Context& ctx) {
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*ctx.stop) {
     size_t size_class = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
-    const int what = absl::Uniform<int32_t>(rnd, 0, 91);
+    const int what = absl::Uniform<int32_t>(rnd, 0, 101);
     if (what < 10) {
       if (!block.empty()) {
         if (ctx.slab->Push(size_class, block.back(), &Handler::Overflow,
@@ -652,6 +652,33 @@ void StressThread(size_t thread_id, Context& ctx) {
       EXPECT_LE(total_shrunk, to_shrink);
       EXPECT_LE(0, total_shrunk);
       ctx.capacity->fetch_add(total_shrunk);
+    } else if (what < 100) {
+      size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
+      for (;;) {
+        size_t c = ctx.capacity->load();
+        to_grow = std::min(to_grow, c);
+        if (to_grow == 0) {
+          break;
+        }
+        if (ctx.capacity->compare_exchange_weak(c, c - to_grow)) {
+          break;
+        }
+      }
+      if (to_grow != 0) {
+        int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
+
+        // GrowOtherCache mutates the header array and must be operating on an
+        // initialized core.
+        InitCpuOnce(ctx, cpu);
+
+        absl::MutexLock lock(&ctx.mutexes[cpu]);
+        size_t grown = ctx.slab->GrowOtherCache(
+            cpu, size_class, to_grow,
+            [](uint8_t shift) { return kStressCapacity; });
+        EXPECT_LE(grown, to_grow);
+        EXPECT_GE(grown, 0);
+        ctx.capacity->fetch_add(to_grow - grown);
+      }
     } else {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
       // Flip coin on whether to unregister rseq on this thread.

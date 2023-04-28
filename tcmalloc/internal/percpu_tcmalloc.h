@@ -224,6 +224,18 @@ class TcmallocSlab {
   // REQUIRES: len > 0.
   size_t PopBatch(size_t size_class, void** batch, size_t len);
 
+  // Grows the cpu/size_class slab's capacity to no greater than
+  // min(capacity+len, max_capacity(<shift>)) and returns the increment
+  // applied.
+  // <max_capacity> is a callback that takes the current slab shift as input and
+  // returns the max capacity of <size_class> for that shift value - this is in
+  // order to ensure that the shift value used is consistent with the one used
+  // in the rest of this function call. Note: max_capacity must be the same as
+  // returned by capacity callback passed to Init.
+  // This may be called from another processor, not just the <cpu>.
+  size_t GrowOtherCache(int cpu, size_t size_class, size_t len,
+                        absl::FunctionRef<size_t(uint8_t)> max_capacity);
+
   // Decrements the cpu/size_class slab's capacity to no less than
   // max(capacity-len, 0) and returns the actual decrement applied. It attempts
   // to shrink any unused capacity (i.e end-current) in cpu/size_class's slab;
@@ -322,6 +334,12 @@ class TcmallocSlab {
     // regardless of current value.
     bool IsLocked() const;
     void Lock();
+
+    bool IsInitialized() const {
+      // Once we initialize a header, begin/end are never simultaneously 0
+      // to avoid pointing at the Header array.
+      return lock_update != 0;
+    }
   };
 
   // We cast Header to std::atomic<int64_t>.
@@ -1381,6 +1399,43 @@ void* TcmallocSlab<NumClasses>::Destroy(
        kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
   return slabs;
+}
+
+template <size_t NumClasses>
+size_t TcmallocSlab<NumClasses>::GrowOtherCache(
+    int cpu, size_t size_class, size_t len,
+    absl::FunctionRef<size_t(uint8_t)> max_capacity) {
+  ASSERT(cpu >= 0);
+  ASSERT(cpu < absl::base_internal::NumCPUs());
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
+  const size_t max_cap = max_capacity(ToUint8(shift));
+
+  // Phase 1: Collect begin as it will be overwritten by the lock.
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
+  Header hdr = LoadHeader(hdrp);
+  CHECK_CONDITION(!hdr.IsLocked());
+  ASSERT(hdr.IsInitialized());
+  const uint16_t begin = hdr.begin;
+
+  // Phase 2: stop concurrent mutations for <cpu> for size class <size_class>.
+  do {
+    LockHeader(slabs, shift, cpu, size_class);
+    FenceCpu(cpu, virtual_cpu_id_offset);
+    hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
+    // If the header was overwritten in Grow/Shrink, then we need to try again.
+  } while (!hdr.IsLocked());
+
+  // Phase 3: Grow the capacity. Use a copy of begin and end_copy to
+  // restore the header, shrink it, and return the length by which the
+  // region was shrunk.
+  uint16_t to_grow = std::min<uint16_t>(len, max_cap - (hdr.end_copy - begin));
+
+  hdr.begin = begin;
+  hdr.end_copy += to_grow;
+  hdr.end = hdr.end_copy;
+  StoreHeader(hdrp, hdr);
+  return to_grow;
 }
 
 template <size_t NumClasses>

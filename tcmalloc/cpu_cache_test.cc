@@ -17,8 +17,8 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <new>
 #include <optional>
@@ -119,6 +119,8 @@ class TestStaticForwarder {
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
 
+  bool resize_size_classes_enabled() { return resize_size_classes_enabled_; }
+
   double per_cpu_caches_dynamic_slab_grow_threshold() {
     return dynamic_slab_ == DynamicSlab::kGrow
                ? -1.0
@@ -183,6 +185,7 @@ class TestStaticForwarder {
   size_t shrink_to_usage_limit_calls_ = 0;
   bool dynamic_slab_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
+  bool resize_size_classes_enabled_ = false;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -196,6 +199,7 @@ class TestStaticForwarder {
 
 using CpuCache = cpu_cache_internal::CpuCache<TestStaticForwarder>;
 using MissCount = CpuCache::MissCount;
+using PerClassMissType = CpuCache::PerClassMissType;
 
 constexpr size_t kStressSlabs = 4;
 void* OOMHandler(size_t) { return nullptr; }
@@ -519,6 +523,19 @@ TEST(CpuCacheTest, CacheMissStats) {
   cache.Deactivate();
 }
 
+static void ResizeSizeClasses(CpuCache& cache, const std::atomic<bool>& stop) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  // Wake up every 10ms to resize size classes. Let miss stats acummulate over
+  // those 10ms.
+  while (!stop.load(std::memory_order_acquire)) {
+    cache.ResizeSizeClasses();
+    absl::SleepFor(absl::Milliseconds(10));
+  }
+}
+
 static void ShuffleThread(CpuCache& cache, const std::atomic<bool>& stop) {
   if (!subtle::percpu::IsFast()) {
     return;
@@ -560,6 +577,49 @@ static void StressThread(CpuCache& cache, size_t thread_id,
   for (int i = 0; i < blocks.size(); i++) {
     cache.Deallocate(blocks[i].second, blocks[i].first);
   }
+}
+
+TEST(CpuCacheTest, StressSizeClassResize) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.resize_size_classes_enabled_ = true;
+  cache.Activate();
+
+  std::vector<std::thread> threads;
+  std::thread resize_thread;
+  const int n_threads = absl::base_internal::NumCPUs();
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+  }
+  resize_thread =
+      std::thread(ResizeSizeClasses, std::ref(cache), std::ref(stop));
+
+  absl::SleepFor(absl::Seconds(5));
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+  resize_thread.join();
+
+  // Check that the total capacity is preserved after the stress test.
+  size_t capacity = 0;
+  const int num_cpus = absl::base_internal::NumCPUs();
+  const size_t kTotalCapacity = num_cpus * Parameters::max_per_cpu_cache_size();
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
+              cache.Capacity(cpu));
+    capacity += cache.Capacity(cpu);
+  }
+  EXPECT_EQ(capacity, kTotalCapacity);
+
+  cache.Deactivate();
 }
 
 TEST(CpuCacheTest, StealCpuCache) {
@@ -679,6 +739,111 @@ TEST(CpuCacheTest, DynamicSlab) {
     t.join();
   }
 
+  cache.Deactivate();
+}
+
+void AllocateThenDeallocate(CpuCache& cache, int cpu, size_t size_class,
+                            int ops) {
+  std::vector<void*> objects;
+  for (int i = 0; i < ops; ++i) {
+    void* ptr = cache.Allocate<OOMHandler>(size_class);
+    objects.push_back(ptr);
+  }
+  for (auto* ptr : objects) {
+    cache.Deallocate(ptr, size_class);
+  }
+  objects.clear();
+}
+
+// In this test, we check if we can resize size classes based on the number of
+// misses they encounter. First, we exhaust cache capacity by filling up
+// larger size class as much as possible. Then, we try to allocate objects for
+// the smaller size class. This should result in misses as we do not resize its
+// capacity in the foreground when the feature is enabled. We confirm that it
+// indeed encounters a capacity miss. When then resize size classes and allocate
+// small size class objects again. We should be able to utilize an increased
+// capacity for the size class to allocate and deallocate these objects. We also
+// confirm that we do not lose the overall cpu cache capacity when we resize
+// size class capacities.
+TEST(CpuCacheTest, ResizeSizeClassesTest) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  CpuCache cache;
+  cache.Activate();
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.resize_size_classes_enabled_ = true;
+
+  // Temporarily fake being on the given CPU.
+  constexpr int kCpuId = 0;
+  ScopedFakeCpuId fake_cpu_id(kCpuId);
+  constexpr int kMaxCapacity = 1024;
+
+  const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
+  constexpr int kSmallClass = 1;
+  constexpr int kLargeClass = 2;
+
+  const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
+  ASSERT_GT(large_class_size * kMaxCapacity, max_cpu_cache_size);
+
+  const size_t batch_size_small =
+      cache.forwarder().num_objects_to_move(kSmallClass);
+  const size_t batch_size_large =
+      cache.forwarder().num_objects_to_move(kLargeClass);
+
+  size_t ops = 0;
+  while (true) {
+    // We allocate and deallocate additional batch_size number of objects each
+    // time so that cpu cache suffers successive underflow and overflow, and it
+    // can grow.
+    ops += batch_size_large;
+    if (ops > kMaxCapacity || cache.Allocated(kCpuId) == max_cpu_cache_size)
+      break;
+
+    AllocateThenDeallocate(cache, kCpuId, kLargeClass, ops);
+  }
+
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
+
+  size_t interval_misses = cache.GetIntervalSizeClassMisses(
+      kCpuId, kSmallClass, PerClassMissType::kResize);
+  EXPECT_EQ(interval_misses, 0);
+
+  AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
+
+  interval_misses = cache.GetIntervalSizeClassMisses(kCpuId, kSmallClass,
+                                                     PerClassMissType::kResize);
+  EXPECT_EQ(interval_misses, 2 * batch_size_small);
+
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
+
+  const int num_resizes =
+      absl::base_internal::NumCPUs() / CpuCache::kNumCpuCachesToResize;
+  for (int i = 0; i < num_resizes; ++i) {
+    cache.ResizeSizeClasses();
+  }
+
+  // Since we just resized size classes, we started a new interval. So, miss
+  // this interval should be zero.
+  interval_misses = cache.GetIntervalSizeClassMisses(kCpuId, kSmallClass,
+                                                     PerClassMissType::kResize);
+  EXPECT_EQ(interval_misses, 0);
+
+  AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
+  interval_misses = cache.GetIntervalSizeClassMisses(kCpuId, kSmallClass,
+                                                     PerClassMissType::kResize);
+  EXPECT_EQ(interval_misses, 0);
+
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+  EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), batch_size_small);
+
+  // Reclaim caches.
   cache.Deactivate();
 }
 
