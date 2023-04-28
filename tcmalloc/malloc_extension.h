@@ -50,7 +50,7 @@
 // 0   - The allocation is rarely accessed.
 // ...
 // 255 - The allocation is accessed very frequently.
-enum class hot_cold_t : uint8_t;
+enum class __hot_cold_t : uint8_t;
 
 // TODO(ckennelly): Lifetimes
 
@@ -58,7 +58,7 @@ namespace tcmalloc {
 
 // Alias to the newer type in the global namespace, so that existing code works
 // as is.
-using ::hot_cold_t;
+using hot_cold_t = __hot_cold_t;
 
 }  // namespace tcmalloc
 
