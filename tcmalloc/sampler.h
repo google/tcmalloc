@@ -102,7 +102,8 @@ class Sampler {
   bool TryRecordAllocationFast(size_t k);
 
   // If the guarded sampling point has been reached, selects a new sampling
-  // point and returns true.  Otherwise returns false.
+  // point and returns GuardedStatus::Required.  Otherwise returns status
+  // indicating the reason for not guarding.
   Profile::Sample::GuardedStatus ShouldSampleGuardedAllocation();
 
   // Returns the Sampler's cached tc_globals.IsOnFastPath state.  This may

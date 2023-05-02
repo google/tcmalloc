@@ -39,7 +39,7 @@ class SamplerTest {
 
 namespace {
 
-// Note that these tests are stochastic. This mean that the chance of correct
+// Note that these tests are stochastic. This means that the chance of correct
 // code passing the test is ~(1 - 10 ^ -kSigmas).
 static const double kSigmas = 6;
 static const size_t kSamplingInterval =
