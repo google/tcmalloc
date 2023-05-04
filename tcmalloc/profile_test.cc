@@ -24,6 +24,7 @@
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
+#include "absl/container/btree_set.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "absl/time/clock.h"
@@ -187,7 +188,7 @@ TEST(AllocationSampleTest, SampleAccuracy) {
       {64, 0, tcmalloc::hot_cold_t{255}, true, true},
       {8192, 0, tcmalloc::hot_cold_t{0}, false, true},
   };
-  std::set<size_t> sizes_expected;
+  absl::btree_set<size_t> sizes_expected;
   for (auto s : sizes) {
     sizes_expected.insert(s.size);
   }
