@@ -413,7 +413,7 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
   fake_profile->SetSamples(std::move(samples));
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
   auto converted_or = MakeProfileProto(profile);
-  CHECK(converted_or.ok());
+  CHECK_OK(converted_or.status());
   return **converted_or;
 }
 
