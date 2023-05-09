@@ -716,6 +716,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     data = [
         "testdata/b180635896.so",
+        "testdata/gnu-property.so",
     ],
     deps = [
         ":environment",

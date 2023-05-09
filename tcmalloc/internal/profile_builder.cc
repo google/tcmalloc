@@ -170,11 +170,6 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
 //
 // On failure, returns an empty string.
 std::string GetBuildId(const dl_phdr_info* const info) {
-  const ElfW(Phdr)* pt_note = GetFirstSegment(info, PT_NOTE);
-  if (pt_note == nullptr) {
-    // Failed to find note segment.
-    return "";
-  }
   std::string result;
 
   // pt_note contains entries (of type ElfW(Nhdr)) starting at
@@ -183,54 +178,53 @@ std::string GetBuildId(const dl_phdr_info* const info) {
   //   pt_note->p_memsz
   //
   // The length of each entry is given by
-  //   sizeof(ElfW(Nhdr)) + AlignTo4Bytes(nhdr->n_namesz) +
-  //   AlignTo4Bytes(nhdr->n_descsz)
-  const char* note =
-      reinterpret_cast<char*>(info->dlpi_addr + pt_note->p_vaddr);
-  const char* const last = note + pt_note->p_memsz;
-  while (note < last) {
-    const ElfW(Nhdr)* const nhdr = reinterpret_cast<const ElfW(Nhdr)*>(note);
-    if (note + sizeof(*nhdr) > last) {
-      // Corrupt PT_NOTE
-      break;
-    }
+  //   Align(sizeof(ElfW(Nhdr)) + nhdr->n_namesz) + Align(nhdr->n_descsz)
+  for (int i = 0; i < info->dlpi_phnum; ++i) {
+    const ElfW(Phdr)* pt_note = &info->dlpi_phdr[i];
+    if (pt_note->p_type != PT_NOTE) continue;
 
-    ElfW(Word) name_size = nhdr->n_namesz;
-    ElfW(Word) desc_size = nhdr->n_descsz;
-    if (name_size >= static_cast<ElfW(Word)>(-3) ||
-        desc_size >= static_cast<ElfW(Word)>(-3)) {
-      // These would wrap around when aligned.  The PT_NOTE is corrupt.
-      break;
-    }
-
-    // Beware of overflows / wrap-around.
-    if (name_size >= pt_note->p_memsz || desc_size >= pt_note->p_memsz ||
-        note + sizeof(*nhdr) + name_size + desc_size > last) {
-      // Corrupt PT_NOTE
-      break;
-    }
-
-    if (nhdr->n_type == NT_GNU_BUILD_ID) {
-      const char* const note_name = note + sizeof(*nhdr);
-      // n_namesz is the length of note_name.
-      if (name_size == 4 && memcmp(note_name, "GNU\0", 4) == 0) {
-        if (!result.empty()) {
-          // Repeated build-ids.  Ignore them.
-          return "";
-        }
-        const char* note_data =
-            reinterpret_cast<const char*>(nhdr) + sizeof(*nhdr) + name_size;
-        result =
-            absl::BytesToHexString(absl::string_view(note_data, desc_size));
+    const char* note =
+        reinterpret_cast<char*>(info->dlpi_addr + pt_note->p_vaddr);
+    const char* const last = note + pt_note->p_filesz;
+    const ElfW(Word) align = pt_note->p_align;
+    while (note < last) {
+      const ElfW(Nhdr)* const nhdr = reinterpret_cast<const ElfW(Nhdr)*>(note);
+      if (note + sizeof(*nhdr) > last) {
+        // Corrupt PT_NOTE
+        break;
       }
+
+      // Both the start and end of the descriptor are aligned by sh_addralign
+      // (= p_align).
+      const ElfW(Word) desc_start =
+          (sizeof(*nhdr) + nhdr->n_namesz + align - 1) & -align;
+      const ElfW(Word) size =
+          desc_start + ((nhdr->n_descsz + align - 1) & -align);
+
+      // Beware of overflows / wrap-around.
+      if (nhdr->n_namesz >= static_cast<ElfW(Word)>(-align) ||
+          nhdr->n_descsz >= static_cast<ElfW(Word)>(-align) ||
+          size < sizeof(*nhdr) || note + size > last) {
+        // Corrupt PT_NOTE
+        break;
+      }
+
+      if (nhdr->n_type == NT_GNU_BUILD_ID) {
+        const char* const note_name = note + sizeof(*nhdr);
+        // n_namesz is the length of note_name.
+        if (nhdr->n_namesz == 4 && memcmp(note_name, "GNU\0", 4) == 0) {
+          if (!result.empty()) {
+            // Repeated build-ids.  Ignore them.
+            return "";
+          }
+          result = absl::BytesToHexString(
+              absl::string_view(note + desc_start, nhdr->n_descsz));
+        }
+      }
+      note += size;
     }
-
-    // Align name_size, desc_size.
-    name_size = (name_size + 3) & ~3;
-    desc_size = (desc_size + 3) & ~3;
-
-    note += name_size + desc_size + sizeof(*nhdr);
   }
+
   return result;
 }
 #endif  // defined(__linux__)

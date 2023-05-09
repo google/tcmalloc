@@ -822,7 +822,44 @@ TEST(BuildId, CorruptImage_b180635896) {
       reinterpret_cast<ElfW(Phdr)*>(info.dlpi_addr + ehdr->e_phoff);
   info.dlpi_phnum = ehdr->e_phnum;
 
-  EXPECT_EQ(GetBuildId(&info), "eef53a1c14b9bb601e82514621e51dc58145f1ab");
+  EXPECT_EQ(GetBuildId(&info), "");
+  munmap(p, 4096);
+}
+
+// There are two PT_NOTE segments, one with .note.gnu.property and the other
+// with .note.gnu.build-id. Test that we correctly skip .note.gnu.property.
+//
+// .note.gnu.property intentionally contains two NT_GNU_PROPERTY_TYPE_0 notes
+// to simulate outputs from old linkers (no NT_GNU_PROPERTY_TYPE_0 merging).
+// Test that we correctly parse and skip the notes.
+TEST(BuildId, GnuProperty) {
+  std::string image_path;
+  const char* srcdir = thread_safe_getenv("TEST_SRCDIR");
+  if (srcdir) {
+    absl::StrAppend(&image_path, srcdir, "/");
+  }
+  const char* workspace = thread_safe_getenv("TEST_WORKSPACE");
+  if (workspace) {
+    absl::StrAppend(&image_path, workspace, "/");
+  }
+  absl::StrAppend(&image_path,
+                  "tcmalloc/internal/testdata/gnu-property.so");
+
+  int fd = open(image_path.c_str(), O_RDONLY);
+  ASSERT_TRUE(fd != -1) << "open: " << errno << " " << image_path;
+  void* p = mmap(nullptr, /*size*/ 4096, PROT_READ, MAP_PRIVATE, fd, /*off*/ 0);
+  ASSERT_TRUE(p != MAP_FAILED) << "mmap: " << errno;
+  close(fd);
+
+  const ElfW(Ehdr)* const ehdr = reinterpret_cast<ElfW(Ehdr)*>(p);
+  dl_phdr_info info = {};
+  info.dlpi_name = image_path.c_str();
+  info.dlpi_addr = reinterpret_cast<ElfW(Addr)>(p);
+  info.dlpi_phdr =
+      reinterpret_cast<ElfW(Phdr)*>(info.dlpi_addr + ehdr->e_phoff);
+  info.dlpi_phnum = ehdr->e_phnum;
+
+  EXPECT_EQ(GetBuildId(&info), "1f2a67344247b1cb91260e53c03817f9");
   munmap(p, 4096);
 }
 
