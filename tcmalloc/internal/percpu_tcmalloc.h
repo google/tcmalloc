@@ -565,8 +565,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   return 0;
 overflow_label:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path.  The values on the taken branches are
-  // undefined.
+  // values for the fallthrough path. The values on the taken branches are
+  // undefined. As this is the slow path, reloading the cpuid is negligible.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
   return overflow_handler(cpu, size_class, item, arg);
 }
@@ -704,10 +704,8 @@ overflow_label:
   // undefined.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
 #else
-  // With asm goto--without output constraints--the value of scratch is
-  // well-defined by the compiler and our implementation.  As an optimization on
-  // this case, we can avoid looking up cpu_id again, by undoing the
-  // transformation of cpu_id to the value of scratch.
+  // With asm goto --without output constraints--, we can avoid looking up
+  // cpu_id again.
   int cpu = cpu_id;
 #endif
   return overflow_handler(cpu, size_class, item, arg);
@@ -881,21 +879,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   PrefetchNextObject(rcx);
   return result;
 underflow_path:
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path.  The values on the taken branches are
-  // undefined.
+  // values for the fallthrough path. The values on the taken branches are
+  // undefined. As this is the slow path, reloading the cpuid is negligible.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
-#else
-  // With asm goto--without output constraints--the value of scratch is
-  // well-defined by the compiler and our implementation.  As an optimization on
-  // this case, we can avoid looking up cpu_id again, by undoing the
-  // transformation of cpu_id to the value of scratch.
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  int cpu =
-      (reinterpret_cast<char*>(scratch) - reinterpret_cast<char*>(slabs)) >>
-      ToUint8(shift);
-#endif
   return underflow_handler(cpu, size_class, arg);
 }
 #endif  // defined(__x86_64__)
@@ -1062,18 +1049,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   PrefetchNextObject(prefetch);
   return result;
 underflow_path:
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path.  The values on the taken branches are
-  // undefined.
+  // values for the fallthrough path. The values on the taken branches are
+  // undefined. As this is the slow path, reloading the cpuid is negligible.
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
-#else
-  // With asm goto--without output constraints--the value of scratch is
-  // well-defined by the compiler and our implementation.  As an optimization on
-  // this case, we can avoid looking up cpu_id again, by undoing the
-  // transformation of cpu_id to the value of scratch.
-  int cpu = cpu_id;
-#endif
   return underflow_handler(cpu, size_class, arg);
 }
 #endif  // defined(__aarch64__)
