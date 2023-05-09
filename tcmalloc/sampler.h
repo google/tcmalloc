@@ -102,7 +102,8 @@ class Sampler {
   bool TryRecordAllocationFast(size_t k);
 
   // If the guarded sampling point has been reached, selects a new sampling
-  // point and returns GuardedStatus::Required.  Otherwise returns status
+  // point and returns GuardedStatus::Required. When improved guarding is
+  // enabled returns GuardedStatus::Requested. Otherwise returns status
   // indicating the reason for not guarding.
   Profile::Sample::GuardedStatus ShouldSampleGuardedAllocation();
 
@@ -254,6 +255,9 @@ inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::ShouldSampleGuardedAllocation() {
   if (Parameters::guarded_sampling_rate() < 0) {
     return Profile::Sample::GuardedStatus::Disabled;
+  }
+  if (Parameters::improved_guarded_sampling()) {
+    return Profile::Sample::GuardedStatus::Requested;
   }
   allocs_until_guarded_sample_--;
   if (ABSL_PREDICT_FALSE(allocs_until_guarded_sample_ < 0)) {

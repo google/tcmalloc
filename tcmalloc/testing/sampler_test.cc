@@ -302,6 +302,15 @@ TEST(Sampler, TestShouldSampleGuardedAllocation) {
   EXPECT_LE(fabs(sd), kSigmas);
 }
 
+TEST(Sampler, TestShouldSampleGuardedAllocationWithImprovedSampling) {
+  tcmalloc::MallocExtension::SetImprovedGuardedSampling(true);
+
+  Sampler sampler;
+  SamplerTest::Init(&sampler, 1);
+  EXPECT_EQ(sampler.ShouldSampleGuardedAllocation(),
+            Profile::Sample::GuardedStatus::Requested);
+}
+
 template <typename Body>
 void DoCheckMean(size_t mean, int num_samples, Body next_sampling_point) {
   size_t total = 0;

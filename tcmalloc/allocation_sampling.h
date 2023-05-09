@@ -15,6 +15,9 @@
 #ifndef TCMALLOC_ALLOCATION_SAMPLING_H_
 #define TCMALLOC_ALLOCATION_SAMPLING_H_
 
+#include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <memory>
 #include <utility>
 
@@ -151,15 +154,115 @@ inline bool ShouldGuardingBeAttempted(
 // returns a guarded allocation Span.  Otherwise returns nullptr.
 template <typename State>
 static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
-    State& state, size_t size, size_t alignment, Length num_pages) {
+    State& state, size_t size, size_t alignment, Length num_pages,
+    const StackTrace& stack_trace) {
   if (num_pages != Length(1)) {
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
   Profile::Sample::GuardedStatus guarded_status =
       GetThreadSampler()->ShouldSampleGuardedAllocation();
-  // If there is a reason not to guard, then return.
   if (!ShouldGuardingBeAttempted(guarded_status)) {
     return {nullptr, guarded_status};
+  }
+  // Assumes Parameters::improved_guarded_sampling() is true, as that is the
+  // only way Requested can be returned.
+  if (guarded_status == Profile::Sample::GuardedStatus::Requested) {
+    // TODO(b/273954799): Possible optimization: only calculate this when
+    // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
+    // margin_multiplier below.
+    const int64_t profile_sampling_rate =
+        tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
+    const int64_t guarded_sampling_rate =
+        tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
+    // If guarded_sampling_rate < 0, then do not guard at all.
+    // This is an edge case which is usually caught in
+    // ShouldSampleGuardedAllocation().
+    if (guarded_sampling_rate < 0) {
+      return {nullptr, Profile::Sample::GuardedStatus::Disabled};
+    }
+    // If guarded_sampling_rate == 0, then attempt to guard, as usual.
+    if (guarded_sampling_rate > 0) {
+      const double configured_sampled_to_guarded_ratio =
+          profile_sampling_rate > 0
+              ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
+              : 1.0;
+      // Select a multiplier of the configured_sampled_to_guarded_ratio that
+      // yields a product at least 2.0 greater than
+      // configured_sampled_to_guarded_ratio.
+      //
+      //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
+      //        configured_sampled_to_guarded_ratio) >= 2.0
+      //
+      // This multiplier is applied to configured_sampled_to_guarded_ratio to
+      // create the maximum, and configured_sampled_to_guarded_ratio is the
+      // minimum. This max and min are the boundaries between which
+      // current_sampled_to_guarded_ratio travels between.  While traveling
+      // towards the maximum, no guarding is attempted.  While traveling towards
+      // the minimum, guarding of every sample is attempted.
+      const double margin_multiplier =
+          std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
+                         configured_sampled_to_guarded_ratio,
+                     1.2, 2.0);
+      const double maximum_configured_sampled_to_guarded_ratio =
+          margin_multiplier * configured_sampled_to_guarded_ratio;
+      const double minimum_configured_sampled_to_guarded_ratio =
+          configured_sampled_to_guarded_ratio;
+
+      // Ensure that successful_allocations is at least 1 (not zero).
+      const size_t successful_allocations =
+          std::max(state.guardedpage_allocator().SuccessfulAllocations(), 1UL);
+      const size_t current_sampled_to_guarded_ratio =
+          state.total_sampled_count_.value() / successful_allocations;
+      static std::atomic<bool> striving_to_guard_{true};
+      if (striving_to_guard_.load(std::memory_order_relaxed)) {
+        if (current_sampled_to_guarded_ratio <=
+            minimum_configured_sampled_to_guarded_ratio) {
+          striving_to_guard_.store(false, std::memory_order_relaxed);
+          return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+        }
+        // Fall through to possible allocation below.
+      } else {
+        if (current_sampled_to_guarded_ratio >=
+            maximum_configured_sampled_to_guarded_ratio) {
+          striving_to_guard_.store(true, std::memory_order_relaxed);
+          // Fall through to possible allocation below.
+        } else {
+          return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+        }
+      }
+    }
+
+    size_t guard_count = state.stacktrace_filter().Evaluate(stack_trace);
+    static uint64_t rnd_ =
+        static_cast<uint64_t>(absl::ToUnixNanos(absl::Now()));
+    if (guard_count > 0 && guard_count < 4) {
+      rnd_ = Sampler::NextRandom(rnd_);
+    }
+    switch (guard_count) {
+      case 0:
+        // Fall through to allocation below.
+        break;
+      case 1:
+        /* 25% */
+        if (rnd_ % 4 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      case 2:
+        /* 12.5% */
+        if (rnd_ % 8 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      case 3:
+        /* ~1% */
+        if (rnd_ % 128 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      default:
+        return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+    }
   }
   // The num_pages == 1 constraint ensures that size <= kPageSize.  And
   // since alignments above kPageSize cause size_class == 0, we're also
@@ -167,7 +270,13 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   //
   // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
   // are met.
-  return state.guardedpage_allocator().Allocate(size, alignment);
+  GuardedPageAllocator::AllocWithStatus alloc_with_status =
+      state.guardedpage_allocator().Allocate(size, alignment);
+  if (Parameters::improved_guarded_sampling() &&
+      alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
+    state.stacktrace_filter().Add(stack_trace);
+  }
+  return alloc_with_status;
 }
 
 // ShouldSampleAllocation() is called when an allocation of the given requested
@@ -256,7 +365,8 @@ static void* SampleifyAllocation(State& state, Policy policy,
     // If the caller didn't provide a span, allocate one:
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
     alloc_with_status = TrySampleGuardedAllocation(
-        state, requested_size, stack_trace.requested_alignment, num_pages);
+        state, requested_size, stack_trace.requested_alignment, num_pages,
+        stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
@@ -264,10 +374,11 @@ static void* SampleifyAllocation(State& state, Policy policy,
       span = Span::New(p, num_pages);
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not
-      // report the allocated_size, as we guard the size to 'requested_size',
-      // and we maintain the invariant that GetAllocatedSize() must match the
-      // returned size from size returning allocations. So in that case, we
-      // report the requested size for both capacity and GetAllocatedSize().
+      // report the stack_trace.allocated_size, as we guard the size to
+      // 'requested_size', and we maintain the invariant that GetAllocatedSize()
+      // must match the returned size from size returning allocations. So in
+      // that case, we report the requested size for both capacity and
+      // GetAllocatedSize().
       if (Policy::size_returning()) {
         stack_trace.allocated_size = requested_size;
       }
@@ -290,7 +401,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
       obj = nullptr;
     }
   } else {
-    // Set allocated_size to the exact size for a page allocation.
+    // Set stack_trace.allocated_size to the exact size for a page allocation.
     // NOTE: if we introduce gwp-asan sampling / guarded allocations
     // for page allocations, then we need to revisit do_malloc_pages as
     // the current assumption is that only class sized allocs are sampled
