@@ -57,6 +57,44 @@ class SizeMap {
       absl::bit_width(kMultiPageAlignment - 1u);
 
  private:
+  // Shifts the provided value right by `n` bits.
+  //
+  // TODO(b/281517865): the LLVM codegen for ClassIndexMaybe() doesn't use
+  // an immediate shift for the `>> 3` and `>> 7` operations due to a missed
+  // optimization / miscompile in clang, resulting in this codegen:
+  //
+  //   mov        $0x3,%ecx
+  //   mov        $0x7,%eax
+  //   add        %edi,%eax
+  //   shr        %cl,%rax
+  //
+  // Immediate shift has latency 1 vs 3 for cl shift, and also the `add` can
+  // be far more efficient, which we force into inline assembly here:
+  //
+  //   lea        0x7(%rdi),%rax
+  //   shr        $0x3,%rax
+  //
+  // Benchmark:
+  // BM_new_sized_delete/1      6.51ns ± 5%   6.00ns ± 1%   -7.73%  (p=0.000)
+  // BM_new_sized_delete/8      6.51ns ± 5%   6.01ns ± 1%   -7.66%  (p=0.000)
+  // BM_new_sized_delete/64     6.52ns ± 5%   6.04ns ± 1%   -7.37%  (p=0.000)
+  // BM_new_sized_delete/512    6.71ns ± 6%   6.21ns ± 1%   -7.40%  (p=0.000)
+  template <int n>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t Shr(size_t value) {
+#if defined(__x86_64__)
+    asm("shr %[n], %[value]" : [value] "+r"(value) : [n] "n"(n));
+    return value;
+#elif defined(__aarch64__)
+    size_t result;
+    asm("lsr %[result], %[value], %[n]"
+        : [result] "=r"(result)
+        : [value] "r"(value), [n] "n"(n));
+    return result;
+#else
+    return value >> n;
+#endif
+  }
+
   //-------------------------------------------------------------------
   // Mapping from size to size_class and vice versa
   //-------------------------------------------------------------------
@@ -103,21 +141,21 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(
-      size_t s, uint32_t* idx) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
+                                                                  size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kMaxSmallSize)) {
-      *idx = (static_cast<uint32_t>(s) + 7) >> 3;
+      idx = Shr<3>(s + 7);
       return true;
     } else if (s <= kMaxSize) {
-      *idx = (static_cast<uint32_t>(s) + 127 + (120 << 7)) >> 7;
+      idx = Shr<7>(s + 127 + (120 << 7));
       return true;
     }
     return false;
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
-    uint32_t ret;
-    CHECK_CONDITION(ClassIndexMaybe(s, &ret));
+    size_t ret;
+    CHECK_CONDITION(ClassIndexMaybe(s, ret));
     return ret;
   }
 
@@ -172,8 +210,8 @@ class SizeMap {
       return false;
     }
 
-    uint32_t idx;
-    if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, &idx))) {
+    size_t idx;
+    if (ABSL_PREDICT_FALSE(!ClassIndexMaybe(size, idx))) {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
       return false;
     }
