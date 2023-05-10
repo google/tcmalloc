@@ -187,15 +187,7 @@ static bool want_disable_separate_allocs_for_few_and_many_objects_spans() {
 
 bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
   static bool v([]() {
-    if (IsExperimentActive(
-            Experiment::
-                TEST_ONLY_TCMALLOC_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS) ||
-        IsExperimentActive(
-            Experiment::
-                TCMALLOC_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS3)) {
-      return true;
-    }
-    return false;
+    return !want_disable_separate_allocs_for_few_and_many_objects_spans();
   }());
   return v;
 }
