@@ -158,6 +158,33 @@ absl::Duration Parameters::filler_skip_subrelease_long_interval() {
       skip_subrelease_long_interval_ns().load(std::memory_order_relaxed));
 }
 
+int ABSL_ATTRIBUTE_WEAK
+default_want_disable_separate_allocs_for_few_and_many_objects_spans();
+
+// TODO(b/257064106): remove the
+// default_want_disable_separate_allocs_for_few_and_many_objects_spans and the
+// env TCMALLOC_DISABLE_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS
+// opt-out some time after 2023-12-01.
+static bool want_disable_separate_allocs_for_few_and_many_objects_spans() {
+  if (default_want_disable_separate_allocs_for_few_and_many_objects_spans !=
+      nullptr)
+    return true;
+  const char* e = thread_safe_getenv(
+      "TCMALLOC_DISABLE_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        return false;
+      case '1':
+        return true;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
+  }
+  return false;
+}
+
 bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
   static bool v([]() {
     if (IsExperimentActive(
