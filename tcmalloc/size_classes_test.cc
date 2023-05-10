@@ -22,6 +22,7 @@
 #include "absl/random/random.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
@@ -461,6 +462,21 @@ TEST(SizeMapTest, SizeClass) {
     const size_t mapped_size = m.class_to_size(size_class);
     // The size class needs to hold size.
     ASSERT_GE(mapped_size, size);
+  }
+}
+
+TEST(SizeMapTest, ValidateConditionsForSeparateAllocsInHugePageFiller) {
+  SizeMap m;
+  // After m.Init(), SizeClass should return a size class.
+  m.Init(kSizeClasses);
+
+  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+    size_t object_size = m.class_to_size(size_class);
+    Length pages_per_span = Length(m.class_to_pages(size_class));
+    size_t objects_per_span =
+        pages_per_span.in_bytes() / (object_size > 0 ? object_size : 1);
+    EXPECT_TRUE(pages_per_span.in_bytes() <= kHugePageSize / 2 ||
+                objects_per_span <= kFewObjectsAllocMaxLimit);
   }
 }
 

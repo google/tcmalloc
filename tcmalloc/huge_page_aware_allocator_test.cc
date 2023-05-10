@@ -39,6 +39,7 @@
 #include "absl/flags/flag.h"
 #include "absl/meta/type_traits.h"
 #include "absl/random/bit_gen_ref.h"
+#include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
@@ -174,15 +175,20 @@ class HugePageAwareAllocatorTest
 
   // Mostly small things, some large ones.
   std::pair<Length, size_t> RandomAllocSize(absl::BitGenRef rng) {
-    size_t objects = absl::Uniform<size_t>(rng, 1, 256);
+    Length n;
     if (absl::Bernoulli(rng, 1.0 / 1000)) {
-      Length n =
-          Length(1024) * (1 + absl::LogUniform<int32_t>(rng, 0, (1 << 8) - 1));
+      n = Length(1024) * (1 + absl::LogUniform<int32_t>(rng, 0, (1 << 8) - 1));
       n += Length(absl::Uniform<int32_t>(rng, 0, 1024));
-      return {n, objects};
+    } else {
+      n = Length(1 + absl::LogUniform<int32_t>(rng, 0, (1 << 9) - 1));
     }
-    return {Length(1 + absl::LogUniform<int32_t>(rng, 0, (1 << 9) - 1)),
-            objects};
+    // The condition used here ensures that if the allocated hugepage is donated
+    // to the HugePageFiller, then the number of objects is below the limit used
+    // for allocating from many objects alloc.
+    size_t objects = (n <= kPagesPerHugePage / 2)
+                         ? absl::Uniform<size_t>(rng, 1, 256)
+                         : absl::Uniform<size_t>(rng, 1, 16);
+    return {n, objects};
   }
 
   Length ReleasePages(Length k) {
