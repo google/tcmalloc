@@ -179,8 +179,6 @@ class Profile final {
       MProtectFailed = -6,
       // Used in an improved guarding selection algorithm.
       Filtered = -7,
-      // Same as RateLimited, but allow new guards if they are unique.
-      RateLimitedPermissive = -8,
       // An unexpected state, which represents that branch for selection was
       // missed.
       Unknown = -100,
