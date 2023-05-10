@@ -102,7 +102,8 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 
 typedef int (*OverflowHandler)(int cpu, size_t size_class, void* item,
                                void* arg);
-typedef void* (*UnderflowHandler)(int cpu, size_t size_class, void* arg);
+template <typename Pointer>
+using UnderflowHandler = Pointer (*)(int cpu, size_t size_class, void* arg);
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.

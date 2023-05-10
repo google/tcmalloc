@@ -16,13 +16,32 @@
 //
 // An allocation policy encapsulates four policies:
 //
+// - Size returning policy
+//   Manages the return type and contents of returned pointer values.
+//
+//   struct SizeReturningPolicyTemplate {
+//     // The type to return. E.g: void* or size_ptr_t.
+//     using pointer_type = <pointer type>;
+//
+//     // Returns true if this policy includes sizes information.
+//     static constexpr bool size_returning();
+//
+//     // Returns a pointer from the provide raw pointer and size information.
+//     static pointer_type as_pointer(void* ptr, size_t capacity);
+//
+//     // Returns a pointer based on the provide raw pointer and size class.
+//     static pointer_type to_pointer(void* ptr, size_t size_class);
+//   };
+//
 // - Out of memory policy.
 //   Dictates how to handle OOM conditions.
 //
 //   struct OomPolicyTemplate {
-//     // Invoked when we failed to allocate memory
-//     // Must either terminate, throw, or return nullptr
-//     static void* handle_oom(size_t size);
+//     // Invoked when we failed to allocate memory.
+//     // This method is templated on a size returning policy documented above.
+//     // Must either terminate, throw, or return nullptr.
+//     template <typename Policy>
+//     static Policy::pointer_type handle_oom(size_t size);
 //   };
 //
 // - Alignment policy
@@ -72,6 +91,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/new_extension.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -80,16 +100,20 @@ namespace tcmalloc_internal {
 
 // NullOomPolicy: returns nullptr
 struct NullOomPolicy {
-  static inline constexpr void* handle_oom(size_t size) { return nullptr; }
+  template <typename Policy, typename Pointer = typename Policy::pointer_type>
+  static inline constexpr Pointer handle_oom(size_t size) {
+    return Policy::as_pointer(nullptr, 0);
+  }
 
   static constexpr bool can_return_nullptr() { return true; }
 };
 
 // MallocOomPolicy: sets errno to ENOMEM and returns nullptr
 struct MallocOomPolicy {
-  static inline void* handle_oom(size_t size) {
+  template <typename Policy, typename Pointer = typename Policy::pointer_type>
+  static inline Pointer handle_oom(size_t size) {
     errno = ENOMEM;
-    return nullptr;
+    return Policy::as_pointer(nullptr, 0);
   }
 
   static constexpr bool can_return_nullptr() { return true; }
@@ -97,8 +121,9 @@ struct MallocOomPolicy {
 
 // CppOomPolicy: terminates the program
 struct CppOomPolicy {
-  static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN void* handle_oom(
-      size_t size) {
+  template <typename Policy, typename Pointer = typename Policy::pointer_type>
+  static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN Pointer
+  handle_oom(size_t size) {
     Crash(kCrashWithStats, __FILE__, __LINE__,
           "Unable to allocate (new failed)", size);
     __builtin_unreachable();
@@ -173,12 +198,28 @@ struct NoHooksPolicy {
 
 // IsSizeReturningPolicy: Allocation returns size externally
 struct IsSizeReturningPolicy {
+  using pointer_type = sized_ptr_t;
+
   static constexpr bool size_returning() { return true; }
+
+  static constexpr pointer_type as_pointer(void* ptr, size_t capacity) {
+    return {ptr, capacity};
+  }
+
+  static pointer_type to_pointer(void* ptr, size_t size_class) {
+    return {ptr, tc_globals.sizemap().class_to_size(size_class)};
+  }
 };
 
 // NonSizeReturningPolicy: Allocation does not return size externally
 struct NonSizeReturningPolicy {
+  using pointer_type = void*;
+
   static constexpr bool size_returning() { return false; }
+
+  static constexpr pointer_type as_pointer(void* ptr, size_t) { return ptr; }
+
+  static pointer_type to_pointer(void* ptr, size_t) { return ptr; }
 };
 
 // Use a fixed NUMA partition.
@@ -221,6 +262,9 @@ template <typename OomPolicy = CppOomPolicy,
           typename NumaPolicy = LocalNumaPartitionPolicy>
 class TCMallocPolicy {
  public:
+  // Size returning / pointer type
+  using pointer_type = typename SizeReturningPolicy::pointer_type;
+
   constexpr TCMallocPolicy() = default;
   explicit constexpr TCMallocPolicy(AlignPolicy align, NumaPolicy numa)
       : align_(align), numa_(numa) {}
@@ -229,7 +273,9 @@ class TCMallocPolicy {
       : align_(align), access_(access), numa_(numa) {}
 
   // OOM policy
-  static void* handle_oom(size_t size) { return OomPolicy::handle_oom(size); }
+  static pointer_type handle_oom(size_t size) {
+    return OomPolicy::template handle_oom<SizeReturningPolicy>(size);
+  }
 
   // Alignment policy
   constexpr size_t align() const { return align_.align(); }
@@ -247,8 +293,15 @@ class TCMallocPolicy {
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
 
+  // Size returning functions
   static constexpr bool size_returning() {
     return SizeReturningPolicy::size_returning();
+  }
+  static pointer_type as_pointer(void* ptr, size_t capacity) {
+    return SizeReturningPolicy::as_pointer(ptr, capacity);
+  }
+  static pointer_type to_pointer(void* ptr, size_t size_class) {
+    return SizeReturningPolicy::to_pointer(ptr, size_class);
   }
 
   // Returns this policy aligned as 'align'
@@ -338,6 +391,7 @@ class TCMallocPolicy {
 
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;
 using MallocPolicy = TCMallocPolicy<MallocOomPolicy, MallocAlignPolicy>;
+using NothrowPolicy = TCMallocPolicy<NullOomPolicy, DefaultAlignPolicy>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

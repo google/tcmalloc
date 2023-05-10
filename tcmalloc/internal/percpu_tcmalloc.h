@@ -207,10 +207,20 @@ class TcmallocSlab {
   bool Push(size_t size_class, void* item, OverflowHandler overflow_handler,
             void* arg);
 
+  // Minimum policy required for Pop().
+  struct NoopPolicy {
+    using pointer_type = void*;
+    static void* to_pointer(void* p, size_t size_class) { return p; }
+    static constexpr bool size_returning() { return false; }
+  };
+
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  ABSL_MUST_USE_RESULT void* Pop(size_t size_class,
-                                 UnderflowHandler underflow_handler, void* arg);
+  template <typename Policy = NoopPolicy>
+  ABSL_MUST_USE_RESULT auto Pop(
+      size_t class_size,
+      UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+      void* arg);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -757,8 +767,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class, UnderflowHandler underflow_handler, void* arg) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
+    size_t size_class,
+    UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+    void* arg) {
   ASSERT(IsFastNoInit());
 
   void* rcx;
@@ -877,7 +890,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TSANAcquire(result);
 
   PrefetchNextObject(rcx);
-  return result;
+  return Policy::to_pointer(result, size_class);
 underflow_path:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path. The values on the taken branches are
@@ -889,8 +902,11 @@ underflow_path:
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class, UnderflowHandler underflow_handler, void* arg) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
+    size_t size_class,
+    UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+    void* arg) {
   ASSERT(IsFastNoInit());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
@@ -1047,7 +1063,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #endif
   TSANAcquire(result);
   PrefetchNextObject(prefetch);
-  return result;
+  return Policy::to_pointer(result, size_class);
 underflow_path:
   // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
   // values for the fallthrough path. The values on the taken branches are
@@ -1059,9 +1075,13 @@ underflow_path:
 
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class, UnderflowHandler underflow_handler, void* arg) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
+    size_t size_class,
+    UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+    void* arg) {
   Crash(kCrash, __FILE__, __LINE__, "RSEQ Pop called on unsupported platform.");
+  return Policy::to_pointer(nullptr, 0);
 }
 #endif
 

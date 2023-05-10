@@ -257,11 +257,16 @@ TEST_F(TcmallocSlabTest, Unit) {
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), 0);
 
+      struct Policy {
+        using pointer_type = void*;
+        static void* to_pointer(void* p, size_t size_class) { return p; }
+        static constexpr bool size_returning() { return false; }
+      };
       if (!initialized[cpu]) {
 #pragma GCC diagnostic ignored "-Wnonnull"
-        void* ptr = slab_.Pop(
+        void* ptr = slab_.Pop<Policy>(
             size_class,
-            [](int cpu, size_t size_class, void* arg) {
+            +[](int cpu, size_t size_class, void* arg) {
               static_cast<TcmallocSlab*>(arg)->InitCpu(
                   cpu, [](size_t size_class) { return kCapacity; });
 

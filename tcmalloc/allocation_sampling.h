@@ -34,39 +34,6 @@
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal {
-struct CapacityHolder final {
-  // Decide where to store capacity requested from do_malloc_pages or
-  // AllocSmall. Capacity passed from the entry point (in size returning
-  // allocations) is preferred, as that must be set before returning.
-  template <typename Policy>
-  CapacityHolder(Policy, size_t* capacity, size_t* unambiguous_capacity)
-      : c(capacity) {
-    ASSERT(capacity != nullptr);
-    ASSERT(unambiguous_capacity != nullptr);
-  }
-
-  // In the case where the entry point is non-size-returning, a std::nullptr_t
-  // is passed for capacity, so it cannot be used as storage. In this case we
-  // use unambiguous_capacity, an unambiguously valid local store, which is
-  // owned by the immediate caller.
-  template <typename Policy>
-  CapacityHolder(Policy, std::nullptr_t capacity, size_t* unambiguous_capacity)
-      : c(Policy::invoke_hooks() ? unambiguous_capacity : nullptr) {
-    ASSERT(unambiguous_capacity != nullptr);
-    static_assert(!Policy::size_returning());
-  }
-
-  void ABSL_ATTRIBUTE_ALWAYS_INLINE set(size_t sz) {
-    if (c != nullptr) {  // The compiler should figure out this is a constexpr
-      *c = sz;
-    }
-  }
-  size_t ABSL_ATTRIBUTE_ALWAYS_INLINE get() const { return *c; }
-  size_t* ABSL_ATTRIBUTE_ALWAYS_INLINE get_ptr() const { return c; }
-
- private:
-  size_t* const c;
-};
 
 // This function computes a profile that maps a live stack trace to
 // the number of bytes of central-cache memory pinned by an allocation
@@ -329,10 +296,10 @@ ABSL_ATTRIBUTE_NOINLINE static inline void FreeProxyObject(State& state,
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
 template <typename State, typename Policy>
-static void* SampleifyAllocation(State& state, Policy policy,
-                                 size_t requested_size, size_t weight,
-                                 size_t size_class, void* obj, Span* span,
-                                 CapacityHolder capacity) {
+static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
+                                       size_t requested_size, size_t weight,
+                                       size_t size_class, void* obj,
+                                       Span* span) {
   CHECK_CONDITION((size_class != 0 && obj != nullptr && span == nullptr) ||
                   (size_class == 0 && obj == nullptr && span != nullptr));
 
@@ -356,6 +323,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
   GuardedPageAllocator::AllocWithStatus alloc_with_status{
       nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
+  size_t capacity = 0;
   if (size_class != 0) {
     ASSERT(size_class == state.pagemap().sizeclass(PageIdContaining(obj)));
 
@@ -382,13 +350,13 @@ static void* SampleifyAllocation(State& state, Policy policy,
       if (Policy::size_returning()) {
         stack_trace.allocated_size = requested_size;
       }
-      capacity.set(requested_size);
+      capacity = requested_size;
     } else if ((span = state.page_allocator().New(
                     num_pages, 1, MemoryTag::kSampled)) == nullptr) {
-      capacity.set(stack_trace.allocated_size);
-      return obj;
+      capacity = stack_trace.allocated_size;
+      return {obj, capacity};
     } else {
-      capacity.set(stack_trace.allocated_size);
+      capacity = stack_trace.allocated_size;
     }
 
     size_t span_size =
@@ -408,7 +376,7 @@ static void* SampleifyAllocation(State& state, Policy policy,
     // for gwp-asan.
     stack_trace.allocated_size = span->bytes_in_span();
     stack_trace.cold_allocated = IsColdMemory(span->start_address());
-    capacity.set(stack_trace.allocated_size);
+    capacity = stack_trace.allocated_size;
   }
 
   ASSERT(span != nullptr);
@@ -454,8 +422,9 @@ static void* SampleifyAllocation(State& state, Policy policy,
     ASSERT(size_class != 0);
     FreeProxyObject(state, obj, size_class);
   }
-  return (alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
-                                              : span->start_address();
+  return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
+                                               : span->start_address(),
+          capacity};
 }
 
 template <typename State>
@@ -511,20 +480,19 @@ inline void MaybeUnsampleAllocation(State& state, void* ptr, Span* span) {
 }
 
 template <typename State, typename Policy>
-static void* SampleLargeAllocation(State& state, Policy policy,
-                                   size_t requested_size, size_t weight,
-                                   Span* span, CapacityHolder capacity) {
+static sized_ptr_t SampleLargeAllocation(State& state, Policy policy,
+                                         size_t requested_size, size_t weight,
+                                         Span* span) {
   return SampleifyAllocation(state, policy, requested_size, weight, 0, nullptr,
-                             span, capacity);
+                             span);
 }
 
 template <typename State, typename Policy>
-static void* SampleSmallAllocation(State& state, Policy policy,
-                                   size_t requested_size, size_t weight,
-                                   size_t size_class, void* obj,
-                                   CapacityHolder capacity) {
+static sized_ptr_t SampleSmallAllocation(State& state, Policy policy,
+                                         size_t requested_size, size_t weight,
+                                         size_t size_class, sized_ptr_t res) {
   return SampleifyAllocation(state, policy, requested_size, weight, size_class,
-                             obj, nullptr, capacity);
+                             res.p, nullptr);
 }
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

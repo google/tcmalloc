@@ -247,15 +247,15 @@ class CpuCache {
   void Deactivate();
 
   // Allocate an object of the given size class. When allocation fails
-  // (from this cache and after running Refill), OOMHandler(size) is
-  // called and its return value is returned from
-  // Allocate. OOMHandler is used to parameterize out-of-memory
+  // (from this cache and after running Refill), Policy::oom_handler(size) is
+  // called and its return value is returned from Allocate.
+  // Policy::oom_handler is used to parameterize out-of-memory
   // handling (raising exception, returning nullptr, calling
-  // new_handler or anything else). "Passing" OOMHandler in this way
-  // allows Allocate to be used in tail-call position in fast-path,
-  // making Allocate use jump (tail-call) to slow path code.
-  template <void* OOMHandler(size_t)>
-  void* Allocate(size_t size_class);
+  // new_handler or anything else). "Passing" oom handlers in this way
+  // through policies allows Allocate to be used in tail-call position in
+  // fast-path, making Allocate use jump (tail-call) to slow path code.
+  template <class Policy>
+  auto Allocate(size_t size_class);
 
   // Free an object of the given class.
   void Deallocate(void* ptr, size_t size_class);
@@ -606,16 +606,16 @@ class CpuCache {
 };
 
 template <class Forwarder>
-template <void* OOMHandler(size_t)>
-inline void* ABSL_ATTRIBUTE_ALWAYS_INLINE
-CpuCache<Forwarder>::Allocate(size_t size_class) {
+template <class Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto CpuCache<Forwarder>::Allocate(
+    size_t size_class) {
   ASSERT(size_class > 0);
 
   struct Helper {
-    static void* ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t size_class,
-                                                   void* arg) {
+    static auto ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t size_class,
+                                                  void* arg) {
       CpuCache& cache = *static_cast<CpuCache*>(arg);
-      void* ret = nullptr;
+      void* ret;
       if (cache.BypassCpuCache(size_class)) {
         ret = cache.forwarder().sharded_transfer_cache().Pop(size_class);
       } else {
@@ -624,12 +624,12 @@ CpuCache<Forwarder>::Allocate(size_t size_class) {
       }
       if (ABSL_PREDICT_FALSE(ret == nullptr)) {
         size_t size = cache.forwarder().class_to_size(size_class);
-        return OOMHandler(size);
+        return Policy::handle_oom(size);
       }
-      return ret;
+      return Policy::to_pointer(ret, size_class);
     }
   };
-  return freelist_.Pop(size_class, &Helper::Underflow, this);
+  return freelist_.Pop<Policy>(size_class, &Helper::Underflow, this);
 }
 
 template <class Forwarder>
