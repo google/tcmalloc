@@ -194,11 +194,14 @@ void GuardedPageAllocator::Print(Printer* out) {
       "Slots Currently Allocated: %zu\n"
       "Slots Currently Quarantined: %zu\n"
       "Maximum Slots Allocated: %zu / %zu\n"
-      "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
+      "PARAMETER tcmalloc_guarded_sample_parameter %d\n"
+      // TODO(b/263387812): remove when experiment is finished
+      "PARAMETER tcmalloc_improved_guarded_sampling %d\n",
       num_allocation_requests_ - num_failed_allocations_,
       num_failed_allocations_, num_alloced_pages_,
       total_pages_ - num_alloced_pages_, num_alloced_pages_max_,
-      max_alloced_pages_, GetChainedRate());
+      max_alloced_pages_, GetChainedRate(),
+      Parameters::improved_guarded_sampling());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
@@ -212,6 +215,9 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("max_slots_allocated", num_alloced_pages_max_);
   gwp_asan->PrintI64("allocated_slot_limit", max_alloced_pages_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
+  // TODO(b/263387812): remove when experiment is finished
+  gwp_asan->PrintI64("tcmalloc_improved_guarded_sampling",
+                     Parameters::improved_guarded_sampling());
 }
 
 size_t GuardedPageAllocator::SuccessfulAllocations() {

@@ -136,6 +136,8 @@ TEST_F(GetStatsTest, Parameters) {
     }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter -1)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 0)"));
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size -1)"));
@@ -156,6 +158,8 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_resize_cpu_cache_size_classes 0)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 0)"));
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(using_hpaa_subrelease: false)"));
     }
@@ -187,6 +191,7 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
+  Parameters::set_improved_guarded_sampling(true);
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -197,6 +202,8 @@ TEST_F(GetStatsTest, Parameters) {
     }
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
+    EXPECT_THAT(buf,
+                HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 1)"));
     EXPECT_THAT(
         buf,
         HasSubstr(
