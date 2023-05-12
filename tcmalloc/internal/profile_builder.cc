@@ -201,10 +201,11 @@ std::string GetBuildId(const dl_phdr_info* const info) {
       const ElfW(Word) size =
           desc_start + ((nhdr->n_descsz + align - 1) & -align);
 
-      // Beware of overflows / wrap-around.
+      // Beware of wrap-around.
       if (nhdr->n_namesz >= static_cast<ElfW(Word)>(-align) ||
           nhdr->n_descsz >= static_cast<ElfW(Word)>(-align) ||
-          size < sizeof(*nhdr) || note + size > last) {
+          desc_start < sizeof(*nhdr) || size < desc_start ||
+          size > last - note) {
         // Corrupt PT_NOTE
         break;
       }
