@@ -58,6 +58,15 @@ class LimitTest : public ::testing::Test {
     stats_pbtxt_.reserve(3 << 20);
   }
 
+  void ReleaseMemory() {
+    MallocExtension::SetMemoryLimit({.limit = 0, .hard = false});
+
+    // This will cause a donation that will be immediately subreleased because
+    // of the memory limit.
+    void* ptr = ::operator new(1544 * 1024);  // Slightly larger than 1.5 MiB
+    ::operator delete(ptr);
+  }
+
   void SetLimit(size_t limit, bool is_hard) {
     MallocExtension::MemoryLimit v;
     v.limit = limit;
@@ -292,6 +301,8 @@ TEST_F(LimitTest, LifetimeAllocatorPath) {
 }
 
 TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
+  ReleaseMemory();  // needed to isolate this test from previous allocations.
+
   // Verify that changing the limit to below the current page heap size causes
   // memory to be released to the extent possible.
 
@@ -367,6 +378,8 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
 }
 
 TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
+  ReleaseMemory();  // needed to isolate this test from previous allocations.
+
   // Verify that changing the limit to below the current page heap size causes
   // memory to be released to the extent possible.
 
