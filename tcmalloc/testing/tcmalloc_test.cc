@@ -72,6 +72,7 @@
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/new_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -1502,6 +1503,63 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
       sized_delete(s.ptr, absl::Uniform(rng, s.requested, s.actual));
     }
   }
+}
+
+// Test that setting the min_hot_access_hint parameter has the expected effect
+// on treatment of the allocated data as cold.
+TEST(HotColdTest, HotColdNewMinHotFlag) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+  using tcmalloc_internal::IsColdMemory;
+  using tcmalloc_internal::IsSampledMemory;
+  using tcmalloc_internal::Parameters;
+
+  // Test using a non-default threshold.
+  Parameters::set_min_hot_access_hint(static_cast<tcmalloc::hot_cold_t>(1));
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  absl::BitGen rng;
+
+  // Allocate some objects
+  struct SizedPtr {
+    void* ptr;
+    size_t size;
+  };
+
+  std::vector<SizedPtr> ptrs;
+  ptrs.reserve(1000);
+  for (int i = 0; i < 1000; i++) {
+    const size_t size = absl::LogUniform<size_t>(rng, kSmall, kLarge);
+    const uint8_t label = absl::Uniform<uint8_t>(rng, 0, 255);
+
+    void* ptr = ::operator new(size, static_cast<tcmalloc::hot_cold_t>(label));
+
+    ptrs.emplace_back(SizedPtr{ptr, size});
+
+    // The hotness threshold should have been set to 1 above via SetFlag.
+    if (label >= 1) {
+      // Hot
+      EXPECT_FALSE(IsColdMemory(ptr));
+    } else {
+      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
+          << size << " " << label;
+    }
+  }
+
+  for (SizedPtr s : ptrs) {
+    if (absl::Bernoulli(rng, 0.2)) {
+      ::operator delete(s.ptr);
+    } else {
+      sized_delete(s.ptr, s.size);
+    }
+  }
+
+  // Reset parameter to default.
+  Parameters::set_min_hot_access_hint(static_cast<tcmalloc::hot_cold_t>(128));
 }
 
 // Test that when we use size-returning new, we can pass any of the sizes

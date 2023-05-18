@@ -73,6 +73,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetLifetimeAllocatorOptions(
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseColdRegionsNoHugepage();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseColdRegionsNoHugepage(
     bool v);
+ABSL_ATTRIBUTE_WEAK uint8_t TCMalloc_Internal_GetMinHotAccessHint();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 [[maybe_unused]] ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_PossiblyCold(
     const void* ptr);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPerCpuCachesDynamicSlabEnabled();

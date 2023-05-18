@@ -957,6 +957,7 @@ using tcmalloc::tcmalloc_internal::do_malloc_trim;
 using tcmalloc::tcmalloc_internal::do_mallopt;
 using tcmalloc::tcmalloc_internal::GetThreadSampler;
 using tcmalloc::tcmalloc_internal::MallocPolicy;
+using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
@@ -1155,7 +1156,7 @@ extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
     tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
         size_t size, tcmalloc::hot_cold_t hot_cold) {
-  return static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+  return hot_cold >= Parameters::min_hot_access_hint()
              ? fast_alloc(CppPolicy().AccessAsHot().SizeReturning(), size)
              : fast_alloc(CppPolicy().AccessAsCold().SizeReturning(), size);
 }
@@ -1165,7 +1166,7 @@ extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
         size_t size, std::align_val_t alignment,
         tcmalloc::hot_cold_t hot_cold) {
   ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
-  return static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+  return hot_cold >= Parameters::min_hot_access_hint()
              ? fast_alloc(
                    CppPolicy().AlignAs(alignment).AccessAsHot().SizeReturning(),
                    size)
@@ -1302,7 +1303,7 @@ extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
     tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
         size_t size, tcmalloc::hot_cold_t hot_cold) noexcept {
-  return static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+  return hot_cold >= Parameters::min_hot_access_hint()
              ? fast_alloc(CppPolicy().AccessAsHot().Nothrow().SizeReturning(),
                           size)
              : fast_alloc(CppPolicy().AccessAsCold().Nothrow().SizeReturning(),
@@ -1315,7 +1316,7 @@ extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
         size_t size, std::align_val_t alignment,
         tcmalloc::hot_cold_t hot_cold) noexcept {
   ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
-  return static_cast<uint8_t>(hot_cold) >= uint8_t{128}
+  return hot_cold >= Parameters::min_hot_access_hint()
              ? fast_alloc(CppPolicy()
                               .AlignAs(alignment)
                               .AccessAsHot()
@@ -1549,7 +1550,7 @@ GOOGLE_MALLOC_SECTION_END
 
 ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().AccessAsCold(), size);
@@ -1559,7 +1560,7 @@ ABSL_CACHELINE_ALIGNED void* operator new(
 ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().Nothrow().AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().Nothrow().AccessAsCold(), size);
@@ -1570,7 +1571,7 @@ ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, std::align_val_t align,
     tcmalloc::hot_cold_t hot_cold) noexcept(false) {
   ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().AlignAs(align).AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().AlignAs(align).AccessAsCold(), size);
@@ -1581,7 +1582,7 @@ ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, std::align_val_t align, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
   ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsCold(),
@@ -1591,7 +1592,7 @@ ABSL_CACHELINE_ALIGNED void* operator new(
 
 ABSL_CACHELINE_ALIGNED void* operator new[](
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().AccessAsCold(), size);
@@ -1601,7 +1602,7 @@ ABSL_CACHELINE_ALIGNED void* operator new[](
 ABSL_CACHELINE_ALIGNED void* operator new[](
     size_t size, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().Nothrow().AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().Nothrow().AccessAsCold(), size);
@@ -1612,7 +1613,7 @@ ABSL_CACHELINE_ALIGNED void* operator new[](
     size_t size, std::align_val_t align,
     tcmalloc::hot_cold_t hot_cold) noexcept(false) {
   ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().AlignAs(align).AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().AlignAs(align).AccessAsCold(), size);
@@ -1623,7 +1624,7 @@ ABSL_CACHELINE_ALIGNED void* operator new[](
     size_t size, std::align_val_t align, const std::nothrow_t&,
     tcmalloc::hot_cold_t hot_cold) noexcept {
   ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
-  if (static_cast<uint8_t>(hot_cold) >= uint8_t{128}) {
+  if (hot_cold >= Parameters::min_hot_access_hint()) {
     return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsHot(), size);
   } else {
     return fast_alloc(CppPolicy().Nothrow().AlignAs(align).AccessAsCold(),

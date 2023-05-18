@@ -131,6 +131,8 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_free_(false);
+ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
+    Parameters::min_hot_access_hint_(static_cast<tcmalloc::hot_cold_t>(128));
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
@@ -479,6 +481,15 @@ bool TCMalloc_Internal_GetMadviseFree() { return Parameters::madvise_free(); }
 
 void TCMalloc_Internal_SetMadviseFree(bool v) {
   Parameters::madvise_free_.store(v, std::memory_order_relaxed);
+}
+
+uint8_t TCMalloc_Internal_GetMinHotAccessHint() {
+  return static_cast<uint8_t>(Parameters::min_hot_access_hint());
+}
+
+void TCMalloc_Internal_SetMinHotAccessHint(uint8_t v) {
+  Parameters::min_hot_access_hint_.store(static_cast<tcmalloc::hot_cold_t>(v),
+                                         std::memory_order_relaxed);
 }
 
 }  // extern "C"

@@ -81,6 +81,14 @@ class Parameters {
     TCMalloc_Internal_SetMadviseFree(value);
   }
 
+  static tcmalloc::hot_cold_t min_hot_access_hint() {
+    return min_hot_access_hint_.load(std::memory_order_relaxed);
+  }
+
+  static void set_min_hot_access_hint(tcmalloc::hot_cold_t value) {
+    TCMalloc_Internal_SetMinHotAccessHint(static_cast<uint8_t>(value));
+  }
+
   static void set_max_total_thread_cache_bytes(int64_t value) {
     TCMalloc_Internal_SetMaxTotalThreadCacheBytes(value);
   }
@@ -193,6 +201,7 @@ class Parameters {
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
   friend void ::TCMalloc_Internal_SetMadviseFree(bool v);
+  friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
   static std::atomic<int64_t> guarded_sampling_rate_;
   // TODO(b/263387812): remove when experimentation is complete
@@ -206,6 +215,7 @@ class Parameters {
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<bool> madvise_free_;
+  static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
 };

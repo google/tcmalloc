@@ -41,6 +41,8 @@
 #include "absl/base/policy_checks.h"
 #include "absl/base/port.h"
 #include "absl/functional/function_ref.h"
+#include "absl/strings/numbers.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
@@ -61,6 +63,25 @@ namespace tcmalloc {
 using hot_cold_t = __hot_cold_t;
 
 }  // namespace tcmalloc
+
+inline bool AbslParseFlag(absl::string_view text, tcmalloc::hot_cold_t* hotness,
+                          std::string* /* error */) {
+  uint32_t value;
+  if (!absl::SimpleAtoi(text, &value)) {
+    return false;
+  }
+  // hot_cold_t is a uint8_t, so make sure the flag is within the allowable
+  // range before casting.
+  if (value > std::numeric_limits<uint8_t>::max()) {
+    return false;
+  }
+  *hotness = static_cast<tcmalloc::hot_cold_t>(value);
+  return true;
+}
+
+inline std::string AbslUnparseFlag(tcmalloc::hot_cold_t hotness) {
+  return absl::StrCat(hotness);
+}
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
