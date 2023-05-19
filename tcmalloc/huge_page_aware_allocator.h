@@ -106,6 +106,7 @@ struct HugePageAwareAllocatorOptions {
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
       Parameters::separate_allocs_for_few_and_many_objects_spans();
+  size_t chunks_per_alloc = Parameters::chunks_per_alloc();
 };
 
 // An implementation of the PageAllocator interface that is hugepage-efficient.
@@ -354,6 +355,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     const HugePageAwareAllocatorOptions& options)
     : PageAllocatorInterface("HugePageAware", options.tag),
       filler_(options.separate_allocs_for_few_and_many_objects_spans,
+              options.chunks_per_alloc,
               MemoryModifyFunction(&forwarder_.ReleasePages)),
       regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),

@@ -674,7 +674,8 @@ enum FillerPath {
   FewAndManyAllocLists,
 };
 
-class FillerTest : public testing::TestWithParam<std::tuple<FillerPath>> {
+class FillerTest
+    : public testing::TestWithParam<std::tuple<FillerPath, size_t>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -717,6 +718,7 @@ class FillerTest : public testing::TestWithParam<std::tuple<FillerPath>> {
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_few_and_many_objects_spans=*/
                 std::get<0>(GetParam()) == FillerPath::FewAndManyAllocLists,
+                /*chunks_per_alloc=*/std::get<1>(GetParam()),
                 MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
     // Reset success state
@@ -3076,7 +3078,8 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
 INSTANTIATE_TEST_SUITE_P(
     All, FillerTest,
     testing::Combine(testing::Values(FillerPath::SingleAllocList,
-                                     FillerPath::FewAndManyAllocLists)));
+                                     FillerPath::FewAndManyAllocLists),
+                     testing::Values(8, 12, 16)));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the

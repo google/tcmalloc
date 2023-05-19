@@ -82,8 +82,10 @@ bool MockUnback(void* start, size_t len) {
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  if (size < 3 || size > 100000) {
-    // size < 3 for needing some entropy to initialize the filler with.
+  constexpr int kInitBytes = 3;
+  if (size <= kInitBytes || size > 100000) {
+    // size <= kInitBytes for needing some entropy to initialize the filler
+    // with.
     //
     // size > 100000 for avoiding overly large inputs given we do extra
     // checking.
@@ -108,6 +110,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //
   // [0] - (available)
   // [1] - We choose the separate_allocs_for_few_and_many_objects_spans
+  // [2] - choose the number of chunks for each alloc
   // parameter.
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
@@ -121,12 +124,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   const bool separate_allocs_for_few_and_many_objects_spans =
       data[1] >= 128 ? true : false;
-  data += 2;
-  size -= 2;
+  // Up to 16 chunks since that's the limit we assert in the implementation.
+  const size_t chunks_per_alloc = 1 + (data[2] & 15);
+  data += kInitBytes;
+  size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(
       Clock{.now = mock_clock, .freq = freq},
-      separate_allocs_for_few_and_many_objects_spans,
+      separate_allocs_for_few_and_many_objects_spans, chunks_per_alloc,
       MemoryModifyFunction(MockUnback));
 
   struct Alloc {
