@@ -1231,7 +1231,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
 
     if (new_size > old_size && new_size < lower_bound_to_grow) {
       // Avoid fast_alloc() reporting a hook with the lower bound size
-      // as we the expectation for pointer returning allocation functions
+      // as the expectation for pointer returning allocation functions
       // is that malloc hooks are invoked with the requested_size.
       auto res =
           fast_alloc(MallocPolicy().Nothrow().WithoutHooks().SizeReturning(),
@@ -1241,7 +1241,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
       new_ptr = res.p;
     }
     if (new_ptr == nullptr) {
-      // Either new_size is not a tiny increment, or last do_malloc failed.
+      // Either new_size is not a tiny increment, or last fast_alloc failed.
       new_ptr = fast_alloc(MallocPolicy(), new_size);
     }
     if (new_ptr == nullptr) {

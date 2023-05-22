@@ -365,8 +365,6 @@ class TransferCache {
 
   Manager *const owner_;
 
-  // This lock protects all the data members.  used_slots_ and cache_slots_
-  // may be looked at without holding the lock.
   absl::base_internal::SpinLock lock_;
 
   // Maximum size of the cache.
