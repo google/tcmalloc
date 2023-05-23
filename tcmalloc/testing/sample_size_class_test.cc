@@ -19,6 +19,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/testing/testutil.h"
 
 // This tests that heap profiling works properly in the face of allocations
 // being rounded up to the next size class.
@@ -70,9 +71,12 @@ TEST(SampleSizeClassTest, Main) {
   // new kRequestSize.
   const size_t kRequestSize = 17;
   const size_t kActualSize = 32;
-  void* p = malloc(kRequestSize);
-  EXPECT_EQ(kActualSize, MallocExtension::GetAllocatedSize(p));
-  free(p);
+  {
+    ScopedNeverSample never_sample;  // sampling can affect reported sizes
+    void* p = malloc(kRequestSize);
+    EXPECT_EQ(kActualSize, MallocExtension::GetAllocatedSize(p));
+    free(p);
+  }
 
   // Allocate a large amount of data.  We construct a linked list with the
   // pointers to avoid having to allocate auxiliary data for keeping track of

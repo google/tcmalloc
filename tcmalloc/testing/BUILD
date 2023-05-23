@@ -342,6 +342,7 @@ create_tcmalloc_testsuite(
         "nosan",
     ],
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:logging",
