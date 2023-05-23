@@ -159,13 +159,13 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
 }
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetStackTraces(
-    const void* ptr, GpaStackTrace* alloc_trace,
-    GpaStackTrace* dealloc_trace) const {
+    const void* ptr, GpaStackTrace** alloc_trace,
+    GpaStackTrace** dealloc_trace) const {
   ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   size_t slot = GetNearestSlot(addr);
-  *alloc_trace = data_[slot].alloc_trace;
-  *dealloc_trace = data_[slot].dealloc_trace;
+  *alloc_trace = &data_[slot].alloc_trace;
+  *dealloc_trace = &data_[slot].dealloc_trace;
   return GetErrorType(addr, data_[slot]);
 }
 
@@ -474,7 +474,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   if (signo != SIGSEGV) return;
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
-  GuardedPageAllocator::GpaStackTrace alloc_trace, dealloc_trace;
+  GuardedPageAllocator::GpaStackTrace *alloc_trace, *dealloc_trace;
   GuardedPageAllocator::ErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
                                                         &dealloc_trace);
@@ -492,15 +492,15 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
       "into buffer of length", size);
   Log(kLog, __FILE__, __LINE__,
-      "Error originates from memory allocated in thread", alloc_trace.tid,
+      "Error originates from memory allocated in thread", alloc_trace->tid,
       "at:");
-  PrintStackTrace(alloc_trace.stack, alloc_trace.depth);
+  PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
   switch (error) {
     case GuardedPageAllocator::ErrorType::kUseAfterFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace.tid, "at:");
-      PrintStackTrace(dealloc_trace.stack, dealloc_trace.depth);
+          dealloc_trace->tid, "at:");
+      PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       Log(kLog, __FILE__, __LINE__, "Use-after-free occurs in thread",
           current_thread, "at:");
       RecordCrash("use-after-free");
@@ -517,8 +517,8 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       break;
     case GuardedPageAllocator::ErrorType::kDoubleFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace.tid, "at:");
-      PrintStackTrace(dealloc_trace.stack, dealloc_trace.depth);
+          dealloc_trace->tid, "at:");
+      PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       Log(kLog, __FILE__, __LINE__, "Double free occurs in thread",
           current_thread, "at:");
       RecordCrash("double-free");

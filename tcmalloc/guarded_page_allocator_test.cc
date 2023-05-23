@@ -325,18 +325,18 @@ TEST_F(GuardedPageAllocatorTest, SignalHandlerStackConsumption) {
   }
 #if defined(__x86_64__)
 #if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 13800;
-  constexpr size_t kUsageSlack = 20;
+  constexpr size_t kExpectedUsage = 12800;
+  constexpr size_t kUsageSlack = 25;
 #else
-  constexpr size_t kExpectedUsage = 15400;
-  constexpr size_t kUsageSlack = 40;
+  constexpr size_t kExpectedUsage = 14400;
+  constexpr size_t kUsageSlack = 45;
 #endif
 #elif defined(__aarch64__)
 #if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 13500;
+  constexpr size_t kExpectedUsage = 12500;
   constexpr size_t kUsageSlack = 10;
 #else
-  constexpr size_t kExpectedUsage = 17000;
+  constexpr size_t kExpectedUsage = 16000;
   constexpr size_t kUsageSlack = 30;
 #endif
 #else

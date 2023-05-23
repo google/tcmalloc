@@ -170,8 +170,8 @@ class GuardedPageAllocator {
   // Returns the likely error type for an access at ptr.
   //
   // Requires that ptr points to memory mapped by this class.
-  ErrorType GetStackTraces(const void* ptr, GpaStackTrace* alloc_trace,
-                           GpaStackTrace* dealloc_trace) const;
+  ErrorType GetStackTraces(const void* ptr, GpaStackTrace** alloc_trace,
+                           GpaStackTrace** dealloc_trace) const;
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
