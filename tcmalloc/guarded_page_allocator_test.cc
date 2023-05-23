@@ -45,6 +45,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -347,6 +348,23 @@ TEST_F(GuardedPageAllocatorTest, SignalHandlerStackConsumption) {
   EXPECT_GT(usage, 0);
   EXPECT_LT(usage, kExpectedUsage);
   EXPECT_GT(usage, kExpectedUsage * (100 - kUsageSlack) / 100);
+}
+
+TEST_F(GuardedPageAllocatorTest, DeleteSizeCheck) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "requires debug build";
+#endif
+  for (size_t i = 0; i < 1000; ++i) {
+    void* ptr = ::operator new(1000);
+    if (!tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
+      ::operator delete(ptr);
+      continue;
+    }
+    EXPECT_DEATH(sized_delete(ptr, 2000);, "size check failed 1000 2000");
+    ::operator delete(ptr);
+    return;
+  }
+  GTEST_SKIP() << "can't get a guarded allocation, giving up";
 }
 
 ABSL_CONST_INIT ABSL_ATTRIBUTE_UNUSED GuardedPageAllocator

@@ -252,11 +252,12 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
 
-  std::vector<std::unique_ptr<char>> allocs;
+  std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
   // Guard until there are no slots available.
   AllocateUntil(1039, [&](void* alloc) -> NextSteps {
     if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
-      allocs.emplace_back(static_cast<char*>(alloc));
+      allocs.emplace_back(alloc,
+                          static_cast<void (*)(void*)>(::operator delete));
       return {Static::guardedpage_allocator().GetNumAvailablePages() == 0,
               false};
     }

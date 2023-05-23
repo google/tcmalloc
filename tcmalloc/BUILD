@@ -805,6 +805,7 @@ cc_test(
         ":malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:page_size",
+        "//tcmalloc/testing:testutil",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",

@@ -846,7 +846,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   uint32_t size_class = 0;
   // Round-up passed in size to how much tcmalloc allocates for that size.
   if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
-    size = tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
+    // For guarded allocations we recorded the actual requested size.
   } else if (tc_globals.sizemap().GetSizeClass(
                  CppPolicy().AlignAs(align.align()), size, &size_class)) {
     size = tc_globals.sizemap().class_to_size(size_class);
