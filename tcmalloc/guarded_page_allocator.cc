@@ -470,7 +470,7 @@ static void PrintStackTraceFromSignalHandler(void* context) {
 
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
-static void SegvHandler(int signo, siginfo_t* info, void* context) {
+void SegvHandler(int signo, siginfo_t* info, void* context) {
   if (signo != SIGSEGV) return;
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;

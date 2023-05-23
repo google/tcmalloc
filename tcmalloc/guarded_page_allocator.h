@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 #define TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -309,6 +310,8 @@ class GuardedPageAllocator {
   // Set to true if a write overflow was detected on deallocation.
   bool write_overflow_detected_;
 };
+
+void SegvHandler(int signo, siginfo_t* info, void* context);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
