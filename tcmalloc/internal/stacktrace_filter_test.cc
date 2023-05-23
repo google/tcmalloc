@@ -44,9 +44,10 @@ class StackTraceFilterTest : public testing::Test {
       ASSERT_NE(pc, 0);
       stacktrace.stack[0] = reinterpret_cast<void*>(pc);
       auto hash = HashOfStackTrace(stacktrace);
-      if (!hash_bases.contains(hash & mask()) && !hashes.contains(hash)) {
+      size_t hash_base = HashBaseOfStackTrace(stacktrace);
+      if (!hash_bases.contains(hash_base) && !hashes.contains(hash)) {
         hashes.insert(hash);
-        hash_bases.insert(hash & mask());
+        hash_bases.insert(hash_base);
         break;
       }
     }
@@ -63,14 +64,14 @@ class StackTraceFilterTest : public testing::Test {
     // insure no collisions among test set (the initializer above should prove
     // this, but this is additional insurance)
     ASSERT_NE(HashOfStackTrace(stacktrace1_), HashOfStackTrace(stacktrace2_));
-    ASSERT_NE(HashOfStackTrace(stacktrace1_) & mask(),
-              HashOfStackTrace(stacktrace2_) & mask());
+    ASSERT_NE(HashBaseOfStackTrace(stacktrace1_),
+              HashBaseOfStackTrace(stacktrace2_));
     ASSERT_NE(HashOfStackTrace(stacktrace1_), HashOfStackTrace(stacktrace3_));
-    ASSERT_NE(HashOfStackTrace(stacktrace1_) & mask(),
-              HashOfStackTrace(stacktrace3_) & mask());
+    ASSERT_NE(HashBaseOfStackTrace(stacktrace1_),
+              HashBaseOfStackTrace(stacktrace3_));
     ASSERT_NE(HashOfStackTrace(stacktrace2_), HashOfStackTrace(stacktrace3_));
-    ASSERT_NE(HashOfStackTrace(stacktrace2_) & mask(),
-              HashOfStackTrace(stacktrace3_) & mask());
+    ASSERT_NE(HashBaseOfStackTrace(stacktrace2_),
+              HashBaseOfStackTrace(stacktrace3_));
   }
 
   void InitializeColliderStackTrace() {
@@ -81,24 +82,25 @@ class StackTraceFilterTest : public testing::Test {
     // created.
     hashes.insert(HashOfStackTrace(stacktrace1_));
     hashes.insert(HashOfStackTrace(stacktrace2_));
-    hash_bases.insert(HashOfStackTrace(stacktrace2_) & mask());
+    hash_bases.insert(HashBaseOfStackTrace(stacktrace2_));
     hashes.insert(HashOfStackTrace(stacktrace3_));
-    hash_bases.insert(HashOfStackTrace(stacktrace3_) & mask());
+    hash_bases.insert(HashBaseOfStackTrace(stacktrace3_));
 
-    auto hash1_base = HashOfStackTrace(stacktrace1_) & mask();
+    size_t hash1_base = HashBaseOfStackTrace(stacktrace1_);
     collider_stacktrace_.depth = 1;
     uint64_t pc = reinterpret_cast<uint64_t>(stacktrace1_.stack[0]);
     size_t collider_hash;
+    size_t collider_hash_base;
     while (true) {
       ++pc;
       // Checking for wrap around
       ASSERT_NE(pc, 0);
       collider_stacktrace_.stack[0] = reinterpret_cast<void*>(pc);
       collider_hash = HashOfStackTrace(collider_stacktrace_);
+      collider_hash_base = HashBaseOfStackTrace(collider_stacktrace_);
       // if a possible match, check to avoid collisions with others
-      if (hash1_base == (collider_hash & mask()) &&
-          !hashes.contains(collider_hash) &&
-          !hash_bases.contains(collider_hash & mask())) {
+      if (hash1_base == collider_hash_base && !hashes.contains(collider_hash) &&
+          !hash_bases.contains(collider_hash_base)) {
         break;
       }
     }
@@ -106,29 +108,34 @@ class StackTraceFilterTest : public testing::Test {
     // Double check the work above
     ASSERT_NE(HashOfStackTrace(stacktrace1_),
               HashOfStackTrace(collider_stacktrace_));
-    ASSERT_EQ(HashOfStackTrace(stacktrace1_) & mask(),
-              HashOfStackTrace(collider_stacktrace_) & mask());
+    ASSERT_EQ(HashBaseOfStackTrace(stacktrace1_),
+              HashBaseOfStackTrace(collider_stacktrace_));
     ASSERT_NE(HashOfStackTrace(stacktrace2_),
               HashOfStackTrace(collider_stacktrace_));
-    ASSERT_NE(HashOfStackTrace(stacktrace2_) & mask(),
-              HashOfStackTrace(collider_stacktrace_) & mask());
+    ASSERT_NE(HashBaseOfStackTrace(stacktrace2_),
+              HashBaseOfStackTrace(collider_stacktrace_));
     ASSERT_NE(HashOfStackTrace(stacktrace3_),
               HashOfStackTrace(collider_stacktrace_));
-    ASSERT_NE(HashOfStackTrace(stacktrace3_) & mask(),
-              HashOfStackTrace(collider_stacktrace_) & mask());
+    ASSERT_NE(HashBaseOfStackTrace(stacktrace3_),
+              HashBaseOfStackTrace(collider_stacktrace_));
   }
 
-  static size_t mask() { return StackTraceFilter::kMask; }
+  static size_t filter_hash_count_limit() {
+    return StackTraceFilter::kHashCountLimit;
+  }
 
   size_t HashOfStackTrace(const StackTrace& stacktrace) const {
     return filter_.HashOfStackTrace(stacktrace);
   }
 
+  size_t HashBaseOfStackTrace(const StackTrace& stacktrace) const {
+    return filter_.HashOfStackTrace(stacktrace) % StackTraceFilter::kSize;
+  }
+
   size_t count(const StackTrace& stacktrace) const {
-    return filter_
-               .stack_hashes_with_count_[HashOfStackTrace(stacktrace) & mask()]
+    return filter_.stack_hashes_with_count_[HashBaseOfStackTrace(stacktrace)]
                .load(std::memory_order_relaxed) &
-           mask();
+           StackTraceFilter::kMask;
   }
 
   StackTraceFilter filter_;
@@ -170,12 +177,12 @@ TEST_F(StackTraceFilterTest, Add) {
 }
 
 TEST_F(StackTraceFilterTest, AddCountLimitReached) {
-  while (count(stacktrace1_) < mask()) {
+  while (count(stacktrace1_) < filter_hash_count_limit()) {
     filter_.Add(stacktrace1_);
   }
-  EXPECT_EQ(mask(), filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(filter_hash_count_limit(), filter_.Evaluate(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(mask(), filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(filter_hash_count_limit(), filter_.Evaluate(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddReplace) {
@@ -220,7 +227,7 @@ class StackTraceFilterThreadedTest : public testing::Test {
                             std::numeric_limits<size_t>::max()));
         }
         hashes.insert(HashOfStackTrace(stacktrace));
-        hash_bases.insert(HashOfStackTrace(stacktrace) & mask());
+        hash_bases.insert(HashBaseOfStackTrace(stacktrace));
       }
 
       // Create colliding stack traces
@@ -280,10 +287,12 @@ class StackTraceFilterThreadedTest : public testing::Test {
       hasrun_.store(true, std::memory_order_relaxed);
     }
 
-    static size_t mask() { return StackTraceFilter::kMask; }
-
     size_t HashOfStackTrace(const StackTrace& stacktrace) const {
       return filter_.HashOfStackTrace(stacktrace);
+    }
+
+    size_t HashBaseOfStackTrace(const StackTrace& stacktrace) const {
+      return filter_.HashOfStackTrace(stacktrace) % StackTraceFilter::kSize;
     }
 
     const std::vector<StackTrace>& stacktraces() const { return stacktraces_; }
@@ -304,7 +313,7 @@ class StackTraceFilterThreadedTest : public testing::Test {
                                       const StackTrace& target_stacktrace,
                                       StackTrace& stacktrace) {
       stacktrace = target_stacktrace;
-      size_t target_hash_base = HashOfStackTrace(target_stacktrace) & mask();
+      size_t target_hash_base = HashBaseOfStackTrace(target_stacktrace);
       hash_bases.erase(target_hash_base);
 
       uint64_t pc = 0;
@@ -314,10 +323,11 @@ class StackTraceFilterThreadedTest : public testing::Test {
         ASSERT_NE(pc, 0);
         stacktrace.stack[0] = reinterpret_cast<void*>(pc);
         auto hash = HashOfStackTrace(stacktrace);
-        if ((hash & mask()) == target_hash_base &&
-            !hash_bases.contains(hash & mask()) && !hashes.contains(hash)) {
+        size_t hash_base = HashBaseOfStackTrace(stacktrace);
+        if (hash_base == target_hash_base && !hash_bases.contains(hash_base) &&
+            !hashes.contains(hash)) {
           hashes.insert(hash);
-          hash_bases.insert(hash & mask());
+          hash_bases.insert(hash_base);
           break;
         }
       }
@@ -351,7 +361,7 @@ class StackTraceFilterThreadedTest : public testing::Test {
     for (auto& filter_exerciser : filter_exercisers) {
       for (const auto& stacktrace : filter_exerciser->stacktraces()) {
         auto hash_base =
-            filter_.HashOfStackTrace(stacktrace) & StackTraceFilter::kMask;
+            filter_.HashOfStackTrace(stacktrace) % StackTraceFilter::kSize;
         if (hash_bases.contains(hash_base)) {
           colliding_base_to_stacktrace_hashes[hash_base].insert(
               filter_.HashOfStackTrace(stacktrace));
