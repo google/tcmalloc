@@ -101,6 +101,10 @@ class Sampler {
   // "escalate" to fuller and slower logic only if necessary.
   bool TryRecordAllocationFast(size_t k);
 
+  // Check if the next allocation of size "k" will be sampled
+  // without changing the internal state.
+  bool WillRecordAllocation(size_t k);
+
   // If the guarded sampling point has been reached, selects a new sampling
   // point and returns GuardedStatus::Required. When improved guarding is
   // enabled returns GuardedStatus::Requested. Otherwise returns status
@@ -249,6 +253,10 @@ Sampler::TryRecordAllocationFast(size_t k) {
   bytes_until_sample_ -= static_cast<ssize_t>(k);
 #endif
   return true;
+}
+
+inline bool Sampler::WillRecordAllocation(size_t k) {
+  return ABSL_PREDICT_FALSE(bytes_until_sample_ <= (k + 1));
 }
 
 inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE

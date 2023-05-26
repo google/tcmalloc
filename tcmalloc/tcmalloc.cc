@@ -1229,7 +1229,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
     // Need to reallocate.
     void* new_ptr = nullptr;
 
-    if (new_size > old_size && new_size < lower_bound_to_grow) {
+    // Note: we shouldn't use larger size if the allocation will be sampled
+    // b/c we will record wrong size and guarded page allocator won't be able
+    // to properly enforce size limit.
+    if (new_size > old_size && new_size < lower_bound_to_grow &&
+        !GetThreadSampler()->WillRecordAllocation(lower_bound_to_grow)) {
       // Avoid fast_alloc() reporting a hook with the lower bound size
       // as the expectation for pointer returning allocation functions
       // is that malloc hooks are invoked with the requested_size.

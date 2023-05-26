@@ -315,5 +315,24 @@ TEST(AlwaysSamplingTest, DoubleFree) {
                "and_free<>\\(\\)");
 }
 
+TEST(AlwaysSamplingTest, ReallocLarger) {
+  // Note: sizes are chosen so that size + 2 access below
+  // does not write out of actual allocation bounds.
+  for (size_t size : {2, 29, 60, 505}) {
+    EXPECT_DEATH(
+        {
+          fprintf(stderr, "size=%zu\n", size);
+          ScopedAlwaysSample always_sample;
+          for (size_t i = 0; i < 10000; ++i) {
+            char* volatile ptr = static_cast<char*>(malloc(size));
+            ptr = static_cast<char*>(realloc(ptr, size + 1));
+            ptr[size + 2] = 'A';
+            free(ptr);
+          }
+        },
+        "SIGSEGV");
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc
