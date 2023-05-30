@@ -111,17 +111,14 @@ HugeRegionUsageOption huge_region_option() {
   // greater than 64MB (to ignore small binaries), and greater than the number
   // of small allocations, we allocate large allocations from HugeRegion.
   //
-  // When the experiment is enabled, we use number of abandoned pages in
-  // addition to slack to make a decision. If the size of abandoned pages plus
-  // slack exceeds 64MB (to ignore small binaries), we use HugeRegion for large
-  // allocations. This results in using HugeRegions for all the large
-  // allocations once the size exceeds 64MB.
-  return (IsExperimentActive(
-              Experiment::TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN) ||
-          IsExperimentActive(
-              Experiment::TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN_V2))
-             ? HugeRegionUsageOption::kUseForAllLargeAllocs
-             : HugeRegionUsageOption::kDefault;
+  // We may also use number of abandoned pages in addition to slack to make a
+  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
+  // small binaries), we use HugeRegion for large allocations. This results in
+  // using HugeRegions for all the large allocations once the size exceeds 64MB
+  // TODO(b/199203282). Enable this by returning
+  // HugeRegionUsageOption::kUseForAllLargeAllocs.
+
+  return HugeRegionUsageOption::kDefault;
 }
 
 Arena& StaticForwarder::arena() { return tc_globals.arena(); }

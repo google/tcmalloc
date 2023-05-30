@@ -115,12 +115,6 @@ test_variants = [
         "copts": [],
     },
     {
-        "name": "use_huge_region_more_often",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_HUGE_REGIONS_MORE_OFTEN"},
-    },
-    {
         "name": "chunks_for_page_tracker_lists",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
