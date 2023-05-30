@@ -1789,6 +1789,7 @@ inline auto CpuCache<Forwarder>::AllocOrReuseSlabs(
     // Enable huge pages for reused slabs.
     // TODO(b/214241843): we should be able to remove this once the kernel
     // enables huge zero pages.
+    ErrnoRestorer errno_restorer;
     madvise(reused_slabs, size, MADV_HUGEPAGE);
   } else {
     reused_slabs = static_cast<Freelist::Slabs*>(
@@ -1869,6 +1870,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
   // kernel enables huge zero pages.
   // Note: we use bitwise OR to avoid short-circuiting.
+  ErrnoRestorer errno_restorer;
   const bool madvise_failed =
       madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
       madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);

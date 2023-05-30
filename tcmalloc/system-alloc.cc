@@ -199,6 +199,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   if (hint_ == AddressRegionFactory::UsageHint::kInfrequentAccess ||
       hint_ == AddressRegionFactory::UsageHint::kInfrequentAllocation) {
     // This is only advisory, so ignore the error.
+    ErrnoRestorer errno_restorer;
     (void)madvise(result_ptr, actual_size, MADV_NOHUGEPAGE);
   }
   free_size_ -= actual_size;
@@ -397,6 +398,8 @@ AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
 }
 
 static bool ReleasePages(void* start, size_t length) {
+  ErrnoRestorer errno_restorer;
+
   int ret;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
@@ -441,7 +444,7 @@ int SystemReleaseErrors() {
 }
 
 bool SystemRelease(void* start, size_t length) {
-  int saved_errno = errno;
+  ErrnoRestorer errno_restorer;
 
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
   const size_t pagemask = GetPageSize() - 1;
@@ -485,7 +488,6 @@ bool SystemRelease(void* start, size_t length) {
   }
 #endif
 
-  errno = saved_errno;
   return result;
 }
 

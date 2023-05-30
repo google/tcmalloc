@@ -373,6 +373,19 @@ inline double safe_div(double a, double b) {
   }
 }
 
+// RAII class that will restore errno to the value it has when created.
+class ErrnoRestorer {
+ public:
+  ErrnoRestorer() : saved_errno_(errno) {}
+  ~ErrnoRestorer() { errno = saved_errno_; }
+
+  ErrnoRestorer(const ErrnoRestorer&) = delete;
+  ErrnoRestorer& operator=(const ErrnoRestorer&) = delete;
+
+ private:
+  int saved_errno_;
+};
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

@@ -60,6 +60,7 @@ void PageMap::MapRootWithSmallPages() {
   // so we will not end up forcing it to be small pages.
   if (rend > rbegin) {
     size_t rlength = rend - rbegin;
+    ErrnoRestorer errno_restorer;
     madvise(reinterpret_cast<void*>(rbegin), rlength, MADV_NOHUGEPAGE);
   }
 }
