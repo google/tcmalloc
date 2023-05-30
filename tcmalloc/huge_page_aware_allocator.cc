@@ -106,8 +106,7 @@ bool use_huge_region_more_often() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/199203282): Enable this.
-        return false;
+        return true;
       case '1':
         return false;
       default:
@@ -116,8 +115,7 @@ bool use_huge_region_more_often() {
     }
   }
 
-  // TODO(b/199203282): Enable this by default.
-  return false;
+  return true;
 }
 
 LifetimePredictionOptions decide_lifetime_predictions() {
