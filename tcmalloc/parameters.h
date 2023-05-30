@@ -110,7 +110,9 @@ class Parameters {
     return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
 
-  static bool release_partial_alloc_pages();
+  static bool release_partial_alloc_pages() {
+    return release_partial_alloc_pages_.load(std::memory_order_relaxed);
+  }
 
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
@@ -213,6 +215,7 @@ class Parameters {
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
+  static std::atomic<bool> release_partial_alloc_pages_;
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<bool> madvise_free_;

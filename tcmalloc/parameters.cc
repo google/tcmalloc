@@ -35,16 +35,6 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
   return &v;
 }
 
-// As release_pages_in_partial_alloc() is determined at runtime, we cannot
-// require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-static std::atomic<bool>& release_pages_in_partial_alloc() {
-  static std::atomic<bool> v([]() {
-    return IsExperimentActive(Experiment::TCMALLOC_RELEASE_PARTIAL_ALLOC_PAGES);
-  }());
-  return v;
-}
-
 // As skip_subrelease_interval_ns(), skip_subrelease_short_interval_ns(), and
 // skip_subrelease_long_interval_ns() are determined at runtime, we cannot
 // require constant initialization for the atomic.  This avoids an
@@ -117,6 +107,9 @@ ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
+// TODO(b/274508460): Enable release_partial_alloc_pages_ by default.
+ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
+    false);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -140,10 +133,6 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
-
-bool Parameters::release_partial_alloc_pages() {
-  return release_pages_in_partial_alloc().load(std::memory_order_relaxed);
-}
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -386,8 +375,7 @@ void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::release_pages_in_partial_alloc().store(
-      v, std::memory_order_relaxed);
+  Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
