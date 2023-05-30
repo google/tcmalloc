@@ -94,6 +94,32 @@ bool decide_subrelease() {
   return true;
 }
 
+ABSL_ATTRIBUTE_WEAK bool default_want_disable_huge_region_more_often();
+bool use_huge_region_more_often() {
+  // Disable huge regions more often feature if built against an opt-out.
+  if (default_want_disable_huge_region_more_often != nullptr) {
+    return false;
+  }
+
+  const char* e =
+      thread_safe_getenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // TODO(b/199203282): Enable this.
+        return false;
+      case '1':
+        return false;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
+  }
+
+  // TODO(b/199203282): Enable this by default.
+  return false;
+}
+
 LifetimePredictionOptions decide_lifetime_predictions() {
   // See LifetimePredictionOptions::FromFlag for a description of the format.
   const char* e = tcmalloc::tcmalloc_internal::thread_safe_getenv(
@@ -111,14 +137,14 @@ HugeRegionUsageOption huge_region_option() {
   // greater than 64MB (to ignore small binaries), and greater than the number
   // of small allocations, we allocate large allocations from HugeRegion.
   //
-  // We may also use number of abandoned pages in addition to slack to make a
-  // decision. If the size of abandoned pages plus slack exceeds 64MB (to ignore
-  // small binaries), we use HugeRegion for large allocations. This results in
-  // using HugeRegions for all the large allocations once the size exceeds 64MB
-  // TODO(b/199203282). Enable this by returning
-  // HugeRegionUsageOption::kUseForAllLargeAllocs.
-
-  return HugeRegionUsageOption::kDefault;
+  // When huge-region-more-often feature is enabled, we use number of abandoned
+  // pages in addition to slack to make a decision. If the size of abandoned
+  // pages plus slack exceeds 64MB (to ignore small binaries), we use HugeRegion
+  // for large allocations. This results in using HugeRegions for all the large
+  // allocations once the size exceeds 64MB.
+  return use_huge_region_more_often()
+             ? HugeRegionUsageOption::kUseForAllLargeAllocs
+             : HugeRegionUsageOption::kDefault;
 }
 
 Arena& StaticForwarder::arena() { return tc_globals.arena(); }

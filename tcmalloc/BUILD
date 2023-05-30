@@ -357,6 +357,15 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "want_disable_huge_region_more_often",
+    srcs = ["want_disable_huge_region_more_often.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/base:core_headers"],
+    alwayslink = 1,
+)
+
 # Add a dep to this if you want your binary to enable NUMA awareness by
 # default.
 cc_library(

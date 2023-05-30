@@ -44,6 +44,7 @@ LifetimePredictionOptions decide_lifetime_predictions();
 bool decide_subrelease();
 
 HugeRegionUsageOption huge_region_option();
+bool use_huge_region_more_often();
 
 class StaticForwarder {
  public:
