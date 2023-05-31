@@ -256,7 +256,7 @@ TEST_F(GetStatsTest, StackDepth) {
   // much stack space gathering statistics.
   //
   // Running out of stack space will manifest as a segmentation fault.
-  const size_t kMaxStackDepth = std::max<size_t>(60 * 1024, PTHREAD_STACK_MIN);
+  const size_t max_stack_depth = std::max<size_t>(60 * 1024, PTHREAD_STACK_MIN);
 
   struct Args {
     bool plaintext;
@@ -270,7 +270,7 @@ TEST_F(GetStatsTest, StackDepth) {
   pthread_attr_t thread_attributes;
 
   ASSERT_EQ(pthread_attr_init(&thread_attributes), 0);
-  ASSERT_EQ(pthread_attr_setstacksize(&thread_attributes, kMaxStackDepth), 0);
+  ASSERT_EQ(pthread_attr_setstacksize(&thread_attributes, max_stack_depth), 0);
 
   auto get_stats = +[](void* arg) {
     Args* args = static_cast<Args*>(arg);
