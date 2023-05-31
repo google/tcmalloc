@@ -1220,20 +1220,29 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   //    . If we need to grow, grow to max(new_size, old_size * 1.X)
   //    . Don't shrink unless new_size < old_size * 0.Y
   // X and Y trade-off time for wasted space.  For now we do 1.25 and 0.5.
+  // Also reallocate if the current allocation is guarded or if the new
+  // allocation will be sampled (and potentially guarded), this allows
+  // to detect both use-after-frees on the old pointer and precise
+  // out-of-bounds accesses on the new pointer for all possible combinations
+  // of new/old size.
   const size_t min_growth = std::min(
       old_size / 4,
       std::numeric_limits<size_t>::max() - old_size);  // Avoid overflow.
   const size_t lower_bound_to_grow = old_size + min_growth;
   const size_t upper_bound_to_shrink = old_size / 2;
-  if ((new_size > old_size) || (new_size < upper_bound_to_shrink)) {
+  const size_t alloc_size =
+      new_size > old_size ? std::max(new_size, lower_bound_to_grow) : new_size;
+  const bool will_sample = GetThreadSampler()->WillRecordAllocation(alloc_size);
+  if ((new_size > old_size) || (new_size < upper_bound_to_shrink) ||
+      will_sample ||
+      tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
     // Need to reallocate.
     void* new_ptr = nullptr;
 
     // Note: we shouldn't use larger size if the allocation will be sampled
     // b/c we will record wrong size and guarded page allocator won't be able
     // to properly enforce size limit.
-    if (new_size > old_size && new_size < lower_bound_to_grow &&
-        !GetThreadSampler()->WillRecordAllocation(lower_bound_to_grow)) {
+    if (new_size > old_size && new_size < lower_bound_to_grow && !will_sample) {
       // Avoid fast_alloc() reporting a hook with the lower bound size
       // as the expectation for pointer returning allocation functions
       // is that malloc hooks are invoked with the requested_size.

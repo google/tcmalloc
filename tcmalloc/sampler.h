@@ -256,7 +256,9 @@ Sampler::TryRecordAllocationFast(size_t k) {
 }
 
 inline bool Sampler::WillRecordAllocation(size_t k) {
-  return ABSL_PREDICT_FALSE(bytes_until_sample_ <= (k + 1));
+  return ABSL_PREDICT_FALSE(
+      (was_on_fast_path_ ? bytes_until_sample_ : true_bytes_until_sample_) <=
+      (k + 1));
 }
 
 inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE

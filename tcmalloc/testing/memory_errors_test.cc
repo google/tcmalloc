@@ -334,5 +334,45 @@ TEST(AlwaysSamplingTest, ReallocLarger) {
   }
 }
 
+TEST(AlwaysSamplingTest, ReallocSmaller) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+  for (size_t size : {8, 29, 60, 505}) {
+    SCOPED_TRACE(absl::StrCat("size=", size));
+    EXPECT_DEATH(
+        {
+          ScopedAlwaysSample always_sample;
+          for (size_t i = 0; i < 10000; ++i) {
+            char* volatile ptr = static_cast<char*>(malloc(size));
+            ptr = static_cast<char*>(realloc(ptr, size - 1));
+            ptr[size - 1] = 'A';
+            free(ptr);
+          }
+        },
+        "SIGSEGV");
+  }
+}
+
+TEST(AlwaysSamplingTest, ReallocUseAfterFree) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+  for (size_t size : {8, 29, 60, 505}) {
+    SCOPED_TRACE(absl::StrCat("size=", size));
+    EXPECT_DEATH(
+        {
+          ScopedAlwaysSample always_sample;
+          for (size_t i = 0; i < 10000; ++i) {
+            char* volatile old_ptr = static_cast<char*>(malloc(size));
+            void* volatile new_ptr = realloc(old_ptr, size - 1);
+            old_ptr[0] = 'A';
+            free(new_ptr);
+          }
+        },
+        "SIGSEGV");
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc
