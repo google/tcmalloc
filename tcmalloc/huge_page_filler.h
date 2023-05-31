@@ -29,7 +29,6 @@
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
-#include "tcmalloc/internal/lifetime_tracker.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
@@ -870,9 +869,6 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   bool unbroken() const { return unbroken_; }
 
-  // Returns a linked list of trackers ordered by deadline.
-  LifetimeTracker::Tracker* lifetime_tracker() { return &lifetime_tracker_; }
-
   // Returns the hugepage whose availability is being tracked.
   HugePage location() const { return location_; }
 
@@ -932,9 +928,6 @@ class PageTracker : public TList<PageTracker>::Elem {
   static_assert(kPagesPerHugePage.raw_num() <
                     std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
-
-  // Tracks the lifetime of the donated object associated with this tracker.
-  LifetimeTracker::Tracker lifetime_tracker_;
 
   bool has_many_objects_spans_ = false;
 

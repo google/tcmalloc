@@ -21,6 +21,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/debugging/stacktrace.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"

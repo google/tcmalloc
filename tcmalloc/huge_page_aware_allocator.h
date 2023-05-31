@@ -27,7 +27,6 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/prefetch.h"
-#include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/parameters.h"
@@ -40,7 +39,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-LifetimePredictionOptions decide_lifetime_predictions();
 bool decide_subrelease();
 
 HugeRegionUsageOption huge_region_option();
@@ -103,7 +101,6 @@ class StaticForwarder {
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
-  LifetimePredictionOptions lifetime_options = decide_lifetime_predictions();
   // TODO(b/242550501): Strongly type
   bool separate_allocs_for_few_and_many_objects_spans =
       Parameters::separate_allocs_for_few_and_many_objects_spans();
@@ -194,10 +191,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   const HugeCache* cache() const { return &cache_; }
 
-  LifetimeBasedAllocator& lifetime_based_allocator() {
-    return lifetime_allocator_;
-  }
-
   const HugeRegionSet<HugeRegion>& region() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return regions_;
@@ -206,29 +199,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
  private:
   typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
-
-  class RegionAllocImpl final : public LifetimeBasedAllocator::RegionAlloc {
-   public:
-    explicit RegionAllocImpl(HugePageAwareAllocator* p) : p_(p) {}
-
-    // We need to explicitly instantiate the destructor here so that it gets
-    // placed within GOOGLE_MALLOC_SECTION.
-    ~RegionAllocImpl() override {}
-
-    HugeRegion* AllocRegion(HugeLength n, HugeRange* range) override
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-      if (!range->valid()) {
-        *range = p_->alloc_.Get(n);
-      }
-      if (!range->valid()) return nullptr;
-      HugeRegion* region = p_->region_allocator_.New();
-      new (region) HugeRegion(*range, MemoryModifyFunction(SystemRelease));
-      return region;
-    }
-
-   private:
-    HugePageAwareAllocator* p_;
-  };
 
   class VirtualMemoryAllocator final : public VirtualAllocator {
    public:
@@ -295,11 +265,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // reassembled.
   Length abandoned_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
-  // Performs lifetime predictions for large objects and places short-lived
-  // objects into a separate region to reduce filler contention.
-  RegionAllocImpl lifetime_allocator_region_alloc_;
-  LifetimeBasedAllocator lifetime_allocator_;
-
   void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -319,22 +284,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   Span* AllocSmall(Length n, size_t objects_per_span, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocLarge(Length n, size_t objects_per_span, bool* from_released,
-                   LifetimeStats* lifetime_context)
+  Span* AllocLarge(Length n, size_t objects_per_span, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   Span* AllocEnormous(Length n, size_t objects_per_span, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   Span* AllocRawHugepages(Length n, size_t num_objects, bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-
-  // Allocates a span and adds a tracker. This span has to be associated with a
-  // filler donation and have an associated page tracker. A tracker will only be
-  // added if there is an associated lifetime prediction.
-  Span* AllocRawHugepagesAndMaybeTrackLifetime(
-      Length n, size_t num_objects,
-      const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
-      bool* from_released) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
@@ -363,10 +319,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
       cache_(HugeCache{&alloc_, metadata_allocator_,
-                       MemoryModifyFunction(UnbackWithoutLock)}),
-      lifetime_allocator_region_alloc_(this),
-      lifetime_allocator_(options.lifetime_options,
-                          &lifetime_allocator_region_alloc_) {
+                       MemoryModifyFunction(UnbackWithoutLock)}) {
   tracker_allocator_.Init(&forwarder_.arena());
   region_allocator_.Init(&forwarder_.arena());
 }
@@ -459,8 +412,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
 
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
-    Length n, size_t objects_per_span, bool* from_released,
-    LifetimeStats* lifetime_context) {
+    Length n, size_t objects_per_span, bool* from_released) {
   // If it's an exact page multiple, just pull it from pages directly.
   HugeLength hl = HLFromPages(n);
   if (hl.in_pages() == n) {
@@ -475,18 +427,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
       *from_released = false;
       return Finalize(n, objects_per_span, page);
     }
-  }
-
-  // Try to perform a lifetime-based allocation.
-  LifetimeBasedAllocator::AllocationResult lifetime =
-      lifetime_allocator_.MaybeGet(n, from_released, lifetime_context);
-
-  // TODO(mmaas): Implement tracking if this is subsequently put into a
-  // conventional region (currently ignored).
-
-  // Was an object allocated in the lifetime region? If so, we return it.
-  if (lifetime.TryGetAllocation(&page)) {
-    return Finalize(n, objects_per_span, page);
   }
 
   // If we're using regions in this binary (see below comment), is
@@ -510,8 +450,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
       regions_.UseHugeRegionMoreOften() ? abandoned_pages_ + slack : slack;
   // Don't bother at all until the binary is reasonably sized.
   if (donated < HLFromBytes(64 * 1024 * 1024).in_pages()) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
-                                                  from_released);
+    return AllocRawHugepages(n, objects_per_span, from_released);
   }
 
   // In the vast majority of binaries, we have many small allocations which
@@ -522,15 +461,13 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   // we skip the check.
   const Length small = info_.small();
   if (slack < small && !regions_.UseHugeRegionMoreOften()) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
-                                                  from_released);
+    return AllocRawHugepages(n, objects_per_span, from_released);
   }
 
   // We couldn't allocate a new region. They're oversized, so maybe we'd get
   // lucky with a smaller request?
   if (!AddRegion()) {
-    return AllocRawHugepagesAndMaybeTrackLifetime(n, objects_per_span, lifetime,
-                                                  from_released);
+    return AllocRawHugepages(n, objects_per_span, from_released);
   }
 
   CHECK_CONDITION(regions_.MaybeGet(n, &page, from_released));
@@ -575,33 +512,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   return span;
 }
 
-template <class Forwarder>
-inline Span*
-HugePageAwareAllocator<Forwarder>::AllocRawHugepagesAndMaybeTrackLifetime(
-    Length n, size_t num_objects,
-    const LifetimeBasedAllocator::AllocationResult& lifetime_alloc,
-    bool* from_released) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  Span* result = AllocRawHugepages(n, num_objects, from_released);
-
-  if (result != nullptr) {
-    // If this is an object with a lifetime prediction and led to a donation,
-    // add it to the tracker so that we can track its lifetime.
-    HugePage hp = HugePageContaining(result->last_page());
-    FillerType::Tracker* pt = GetTracker(hp);
-    ASSERT(pt != nullptr);
-
-    // The allocator may shrink the heap in response to allocations, which may
-    // cause the page to be subreleased and not donated anymore once we get
-    // here. If it still is, we attach a lifetime tracker (if enabled).
-    if (ABSL_PREDICT_TRUE(pt->donated())) {
-      lifetime_allocator_.MaybeAddTracker(lifetime_alloc,
-                                          pt->lifetime_tracker());
-    }
-  }
-
-  return result;
-}
-
 inline static void BackSpan(Span* span) {
   SystemBack(span->start_address(), span->bytes_in_span());
 }
@@ -627,10 +537,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(Length n,
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
     Length n, size_t objects_per_span, bool* from_released) {
-  // Check whether we may perform lifetime-based allocation, and if so, collect
-  // the allocation context without holding the lock.
-  LifetimeStats* lifetime_ctx = lifetime_allocator_.CollectLifetimeContext(n);
-
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
@@ -641,7 +547,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
   // For anything too big for the filler, we use either a direct hugepage
   // allocation, or possibly the regions if we are worried about slack.
   if (n <= HugeRegion::size().in_pages()) {
-    return AllocLarge(n, objects_per_span, from_released, lifetime_ctx);
+    return AllocLarge(n, objects_per_span, from_released);
   }
 
   // In the worst case, we just fall back to directly allocating a run
@@ -694,7 +600,6 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
   } else {
     ASSERT(pt->abandoned_count() == Length(0));
   }
-  lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
   ReleaseHugepage(pt);
 }
 
@@ -737,7 +642,6 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   // b) We got put into a region, possibly crossing hugepages -
   //    return our allocation to the region.
   if (regions_.MaybePut(p, n)) return;
-  if (lifetime_allocator_.MaybePut(p, n)) return;
 
   // c) we came straight from the HugeCache - return straight there.  (We
   //    might have had slack put into the filler - if so, return that virtual
@@ -750,7 +654,6 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
     ASSERT(GetTracker(last) == nullptr);
   } else {
     pt = GetTracker(last);
-    lifetime_allocator_.MaybePutTracker(pt->lifetime_tracker(), n);
     CHECK_CONDITION(pt != nullptr);
     ASSERT(pt->was_donated());
     // We put the slack into the filler (see AllocEnormous.)
@@ -784,7 +687,6 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
         // Get rid of the tracker *object*, but not the *hugepage* (which is
         // still part of our range.)
         SetTracker(pt->location(), nullptr);
-        ASSERT(!pt->lifetime_tracker()->is_tracked());
         tracker_allocator_.Delete(pt);
       }
     }
@@ -805,7 +707,6 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     cache_.Release(r);
   }
 
-  ASSERT(!pt->lifetime_tracker()->is_tracked());
   tracker_allocator_.Delete(pt);
 }
 
@@ -817,7 +718,6 @@ inline BackingStats HugePageAwareAllocator<Forwarder>::stats() const {
   stats += cache_.stats();
   stats += filler_.stats();
   stats += regions_.stats();
-  stats += lifetime_allocator_.GetRegionStats().value_or(BackingStats());
   // the "system" (total managed) byte count is wildly double counted,
   // since it all comes from HugeAllocator but is then managed by
   // cache/regions/filler. Adjust for that.
@@ -942,12 +842,6 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   auto rstats = regions_.stats();
   BreakdownStats(out, rstats, "HugePageAware: region  ");
 
-  // Report short-lived region allocations when enabled.
-  auto lstats = lifetime_allocator_.GetRegionStats();
-  if (lstats.has_value()) {
-    BreakdownStats(out, lstats.value(), "HugePageAware: lifetime");
-  }
-
   auto cstats = cache_.stats();
   // Everything in the filler came from the cache -
   // adjust the totals so we see the amount used by the mutator.
@@ -957,8 +851,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   auto astats = alloc_.stats();
   // Everything in *all* components came from here -
   // so again adjust the totals.
-  astats.system_bytes -=
-      (fstats + rstats + lstats.value_or(BackingStats()) + cstats).system_bytes;
+  astats.system_bytes -= (fstats + rstats + cstats).system_bytes;
   BreakdownStats(out, astats, "HugePageAware: alloc   ");
   out->printf("\n");
 
@@ -976,8 +869,6 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
     regions_.Print(out);
     out->printf("\n");
     cache_.Print(out);
-    lifetime_allocator_.Print(out);
-    out->printf("\n");
     alloc_.Print(out);
     out->printf("\n");
 
@@ -1028,19 +919,12 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     // so again adjust the totals.
     astats.system_bytes -= (fstats + rstats + cstats).system_bytes;
 
-    auto lstats = lifetime_allocator_.GetRegionStats();
-    if (lstats.has_value()) {
-      astats.system_bytes -= lstats.value().system_bytes;
-      BreakdownStatsInPbtxt(&hpaa, lstats.value(), "lifetime_region_usage");
-    }
-
     BreakdownStatsInPbtxt(&hpaa, astats, "alloc_usage");
 
     filler_.PrintInPbtxt(&hpaa);
     regions_.PrintInPbtxt(&hpaa);
     cache_.PrintInPbtxt(&hpaa);
     alloc_.PrintInPbtxt(&hpaa);
-    lifetime_allocator_.PrintInPbtxt(&hpaa);
 
     // Use statistics
     info_.PrintInPbtxt(&hpaa, "hpaa_stat");

@@ -298,23 +298,6 @@ create_tcmalloc_testsuite(
     ],
 )
 
-create_tcmalloc_testsuite(
-    name = "lifetimes_test",
-    srcs = ["lifetimes_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    linkstatic = 1,
-    deps = [
-        ":testutil",
-        "//tcmalloc/internal:lifetime_tracker",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/flags:flag",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
 # Test for b/3485510.  Threads which heavily use malloc before TCMalloc's
 # static initializers are invoked caused a race and crashes before cl/19792144
 # fixed that race.

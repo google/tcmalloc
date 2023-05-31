@@ -102,9 +102,6 @@ class PageAllocator {
 
   Algorithm algorithm() const { return alg_; }
 
-  // Returns the main hugepage-aware heap, or nullptr if not using HPAA.
-  HugePageAwareAllocator* default_hpaa() const { return default_hpaa_; }
-
   struct PeakStats {
     size_t backed_bytes;
     size_t sampled_application_bytes;
@@ -156,8 +153,6 @@ class PageAllocator {
   // requires minimal work to compute.
   size_t peak_backed_bytes_{0};
   size_t peak_sampled_application_bytes_{0};
-
-  HugePageAwareAllocator* default_hpaa_{nullptr};
 };
 
 inline PageAllocatorInterface* PageAllocator::impl(MemoryTag tag) const {

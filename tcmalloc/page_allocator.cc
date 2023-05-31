@@ -94,9 +94,8 @@ PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
   has_cold_impl_ = ColdFeatureActive();
   if (kUseHPAA) {
-    default_hpaa_ = new (&choices_[0].hpaa) HugePageAwareAllocator(
+    normal_impl_[0] = new (&choices_[0].hpaa) HugePageAwareAllocator(
         HugePageAwareAllocatorOptions{MemoryTag::kNormal});
-    normal_impl_[0] = default_hpaa_;
     if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] = new (&choices_[1].hpaa) HugePageAwareAllocator(
           HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});

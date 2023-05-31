@@ -30,11 +30,9 @@
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/lifetime_predictions.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/prefetch.h"
-#include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
@@ -116,18 +114,6 @@ bool use_huge_region_more_often() {
   }
 
   return true;
-}
-
-LifetimePredictionOptions decide_lifetime_predictions() {
-  // See LifetimePredictionOptions::FromFlag for a description of the format.
-  const char* e = tcmalloc::tcmalloc_internal::thread_safe_getenv(
-      "TCMALLOC_LIFETIMES_CONTROL");
-
-  if (e != nullptr) {
-    return LifetimePredictionOptions::FromFlag(e);
-  }
-
-  return LifetimePredictionOptions::Default();
 }
 
 HugeRegionUsageOption huge_region_option() {

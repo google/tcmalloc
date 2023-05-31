@@ -21,7 +21,6 @@
 #include "absl/log/check.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
-#include "tcmalloc/lifetime_based_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
@@ -36,7 +35,6 @@ using tcmalloc::tcmalloc_internal::kNumaPartitions;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
 using tcmalloc::tcmalloc_internal::kTop;
 using tcmalloc::tcmalloc_internal::Length;
-using tcmalloc::tcmalloc_internal::LifetimePredictionOptions;
 using tcmalloc::tcmalloc_internal::MemoryTag;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
@@ -62,9 +60,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //
   // [0] - Memory tag.
   // [1] - HugeRegionsMode.
-  // [2] - Lifetime allocator options: Mode.
-  // [3] - Lifetime allocator options: Strategy.
-  // [4] - Lifetime allocator options: Short-lived threshold.
+  // [2:4] - ReservedLifetime allocator options: Mode.
   // [5] - Determine if we use separate filler allocs based on number of
   // objects per span.
   // [6:12] - Reserved.
@@ -92,19 +88,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       data[1] >= 128 ? HugeRegionUsageOption::kDefault
                      : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
-  // Initialize lifetime-aware allocator.
-  LifetimePredictionOptions::Mode mode =
-      data[2] < 85
-          ? LifetimePredictionOptions::Mode::kEnabled
-          : (data[2] < 170 ? LifetimePredictionOptions::Mode::kDisabled
-                           : LifetimePredictionOptions::Mode::kCounterfactual);
-
-  LifetimePredictionOptions::Strategy strategy =
-      data[3] >= 128
-          ? LifetimePredictionOptions::Strategy::kAlwaysShortLivedRegions
-          : LifetimePredictionOptions::Strategy::kPredictedLifetimeRegions;
-  absl::Duration lifetime_duration = absl::Milliseconds(data[4]);
-  LifetimePredictionOptions lifetime_options(mode, strategy, lifetime_duration);
   const bool separate_allocs_for_few_and_many_objects_spans = data[5];
 
   // data[6:12] - Reserve additional bytes for any features we might want to add
@@ -118,7 +101,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
-  options.lifetime_options = lifetime_options;
   options.separate_allocs_for_few_and_many_objects_spans =
       separate_allocs_for_few_and_many_objects_spans;
   HugePageAwareAllocator* allocator;
