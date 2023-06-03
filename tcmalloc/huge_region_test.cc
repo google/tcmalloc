@@ -544,10 +544,15 @@ TEST_P(HugeRegionSetTest, Release) {
   stats = set_.stats();
   EXPECT_EQ(stats.unmapped_bytes,
             UseHugeRegionMoreOften() ? 0 : stats.system_bytes);
+  // All the huge pages in the region would be free, but backed, when
+  // huge-region-more-often feature is enabled.
+  EXPECT_EQ(r1->free_backed().raw_num(),
+            UseHugeRegionMoreOften() ? Region::size().raw_num() : 0);
   Length released = set_.ReleasePages();
   stats = set_.stats();
   EXPECT_EQ(released.in_bytes(),
             UseHugeRegionMoreOften() ? stats.system_bytes : 0);
+  EXPECT_EQ(r1->free_backed().in_bytes(), 0);
   EXPECT_EQ(stats.unmapped_bytes, stats.system_bytes);
 }
 
@@ -618,11 +623,17 @@ TEST_P(HugeRegionSetTest, Set) {
   if (UseHugeRegionMoreOften()) {
     EXPECT_EQ(regions[2]->unmapped_pages().raw_num(), 0);
     EXPECT_EQ(regions[3]->unmapped_pages().raw_num(), 0);
+    EXPECT_GT(regions[2]->free_backed().raw_num(),
+              Region::size().raw_num() * 0.9);
+    EXPECT_GT(regions[3]->free_backed().raw_num(),
+              Region::size().raw_num() * 0.9);
   } else {
     EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
               regions[2]->unmapped_pages().raw_num());
     EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,
               regions[3]->unmapped_pages().raw_num());
+    EXPECT_EQ(regions[2]->free_backed().raw_num(), 0);
+    EXPECT_EQ(regions[3]->free_backed().raw_num(), 0);
   }
 
   // Check the stats line up.

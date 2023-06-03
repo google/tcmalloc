@@ -95,6 +95,11 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   HugeLength backed() const;
 
+  // Returns the number of hugepages that have been fully free (i.e. no
+  // allocated pages on them), but are backed. We release hugepages lazily when
+  // huge-regions-more-often feature is enabled.
+  HugeLength free_backed() const;
+
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* detail) const;
 
@@ -351,6 +356,16 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
   CHECK_CONDITION(u == unmapped_pages());
 }
 
+inline HugeLength HugeRegion::free_backed() const {
+  HugeLength r = NHugePages(0);
+  for (size_t i = 0; i < kNumHugePages; ++i) {
+    if (backed_[i] && pages_used_[i] == Length(0)) {
+      ++r;
+    }
+  }
+  return r;
+}
+
 inline HugeLength HugeRegion::backed() const {
   HugeLength b;
   for (int i = 0; i < kNumHugePages; ++i) {
@@ -383,6 +398,7 @@ inline void HugeRegion::PrintInPbtxt(PbtxtRegion* detail) const {
   const HugeLength unbacked = size() - backed();
   detail->PrintI64("unbacked_bytes", unbacked.in_bytes());
   detail->PrintI64("total_unbacked_bytes", total_unbacked_.in_bytes());
+  detail->PrintI64("backed_fully_free_bytes", free_backed().in_bytes());
 }
 
 inline BackingStats HugeRegion::stats() const {
@@ -525,15 +541,20 @@ inline void HugeRegionSet<Region>::Print(Printer* out) const {
   out->printf("HugeRegionSet: %zu total regions\n", n_);
   Length total_free;
   HugeLength total_backed = NHugePages(0);
+  HugeLength total_free_backed = NHugePages(0);
 
   for (Region* region : list_) {
     region->Print(out);
     total_free += region->free_pages();
     total_backed += region->backed();
+    total_free_backed += region->free_backed();
   }
 
-  out->printf("HugeRegionSet: %zu hugepages backed out of %zu total\n",
-              total_backed.raw_num(), Region::size().raw_num() * n_);
+  out->printf(
+      "HugeRegionSet: %zu hugepages backed, %zu backed and free, "
+      "out of %zu total\n",
+      total_backed.raw_num(), total_free_backed.raw_num(),
+      Region::size().raw_num() * n_);
 
   const Length in_pages = total_backed.in_pages();
   out->printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
