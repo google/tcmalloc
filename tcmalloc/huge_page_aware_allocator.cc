@@ -92,7 +92,9 @@ bool decide_subrelease() {
   return true;
 }
 
-ABSL_ATTRIBUTE_WEAK bool default_want_disable_huge_region_more_often();
+extern "C" ABSL_ATTRIBUTE_WEAK bool
+default_want_disable_huge_region_more_often();
+
 bool use_huge_region_more_often() {
   // Disable huge regions more often feature if built against an opt-out.
   if (default_want_disable_huge_region_more_often != nullptr) {
