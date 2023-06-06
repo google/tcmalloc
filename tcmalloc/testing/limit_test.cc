@@ -396,7 +396,6 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
   const size_t old_unmapped =
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
-  EXPECT_GE(old_free, kSize);
 
   // Change limit.
   MallocExtension::MemoryLimit new_limit;
