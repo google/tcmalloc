@@ -14,6 +14,8 @@
 
 #include <errno.h>
 
+#include <algorithm>
+
 #include "absl/base/internal/sysinfo.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -126,10 +128,17 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     }
 #endif
 
-    const ssize_t bytes_to_release =
+    // If time goes backwards, we would like to cap the release rate at 0.
+    ssize_t bytes_to_release =
         static_cast<size_t>(Parameters::background_release_rate()) *
         absl::ToDoubleSeconds(now - prev_time);
-    if (bytes_to_release > 0) {  // may be negative if time goes backwards
+    bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
+
+    // If release rate is set to 0, do not release memory to system. However, if
+    // we want to release free and backed hugepages from HugeRegion,
+    // ReleaseMemoryToSystem should be able to release those pages to the
+    // system even with bytes_to_release = 0.
+    if (bytes_to_release > 0 || Parameters::release_pages_from_huge_region()) {
       tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
     }
 

@@ -18,6 +18,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 
+#include <array>
 #include <utility>
 
 #include "absl/base/thread_annotations.h"
@@ -236,19 +237,14 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
   // resilient to not being on huge pages.
   if (has_cold_impl_) {
     released = cold_impl_->ReleaseAtLeastNPages(num_pages);
-    if (released >= num_pages) {
-      return released;
-    }
   }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
-    released +=
-        normal_impl_[partition]->ReleaseAtLeastNPages(num_pages - released);
-    if (released >= num_pages) {
-      return released;
-    }
+    released += normal_impl_[partition]->ReleaseAtLeastNPages(
+        num_pages > released ? num_pages - released : Length(0));
   }
 
-  released += sampled_impl_->ReleaseAtLeastNPages(num_pages - released);
+  released += sampled_impl_->ReleaseAtLeastNPages(
+      num_pages > released ? num_pages - released : Length(0));
   return released;
 }
 
