@@ -49,6 +49,17 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
+// As resize_cpu_cache_size_classes_enabled() is determined at runtime, we
+// cannot require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
+static std::atomic<bool>& resize_cpu_cache_size_classes_enabled() {
+  static std::atomic<bool> v([]() {
+    return IsExperimentActive(
+        Experiment::TCMALLOC_RESIZE_CPU_CACHE_SIZE_CLASSES);
+  }());
+  return v;
+}
+
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
@@ -102,8 +113,6 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::resize_cpu_cache_size_classes_enabled_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
@@ -133,6 +142,11 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
+
+bool Parameters::resize_cpu_cache_size_classes() {
+  return resize_cpu_cache_size_classes_enabled().load(
+      std::memory_order_relaxed);
+}
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -369,7 +383,7 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 }
 
 void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
-  Parameters::resize_cpu_cache_size_classes_enabled_.store(
+  tcmalloc::tcmalloc_internal::resize_cpu_cache_size_classes_enabled().store(
       v, std::memory_order_relaxed);
 }
 

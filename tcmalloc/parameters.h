@@ -101,10 +101,7 @@ class Parameters {
     TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
   }
 
-  static bool resize_cpu_cache_size_classes() {
-    return resize_cpu_cache_size_classes_enabled_.load(
-        std::memory_order_relaxed);
-  }
+  static bool resize_cpu_cache_size_classes();
 
   static bool shuffle_per_cpu_caches() {
     return shuffle_per_cpu_caches_enabled_.load(std::memory_order_relaxed);
@@ -214,7 +211,6 @@ class Parameters {
   static std::atomic<int64_t> guarded_sampling_rate_;
   // TODO(b/263387812): remove when experimentation is complete
   static std::atomic<bool> improved_guarded_sampling_;
-  static std::atomic<bool> resize_cpu_cache_size_classes_enabled_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
