@@ -140,12 +140,6 @@ class TestStaticForwarder {
 
   static absl::Span<const size_t> cold_size_classes() { return {}; }
 
-  static size_t max_per_cpu_cache_size() {
-    // TODO(b/179516472):  Move this to CpuCache itself so it can be informed
-    // when the parameter is changed at runtime.
-    return Parameters::max_per_cpu_cache_size();
-  }
-
   size_t num_objects_to_move(int size_class) const {
     return transfer_cache_.num_objects_to_move(size_class);
   }
@@ -160,7 +154,6 @@ class TestStaticForwarder {
                                       MinimalFakeCentralFreeList>;
 
   ShardedManager& sharded_transfer_cache() { return sharded_manager_; }
-  FakeShardedTransferCacheManager& transfer_cache_owner() { return owner_; }
 
   const ShardedManager& sharded_transfer_cache() const {
     return sharded_manager_;
@@ -201,9 +194,6 @@ class TestStaticForwarder {
 using CpuCache = cpu_cache_internal::CpuCache<TestStaticForwarder>;
 using MissCount = CpuCache::MissCount;
 using PerClassMissType = CpuCache::PerClassMissType;
-
-constexpr size_t kStressSlabs = 4;
-void* OOMHandler(size_t) { return nullptr; }
 
 TEST(CpuCacheTest, MinimumShardsForGenericCache) {
   if (!subtle::percpu::IsFast()) {

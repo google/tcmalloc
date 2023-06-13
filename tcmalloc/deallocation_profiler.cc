@@ -70,10 +70,6 @@ class AllocAdaptor final {
     return static_cast<T*>(Alloc::Allocate(n * sizeof(T)));
   }
   void deallocate(T* p, size_t n) { Alloc::Free(p, n * sizeof(T)); }
-
-  // There's no state, so these allocators are always equal
-  bool operator==(const AllocAdaptor&) const { return true; }
-  bool operator!=(const AllocAdaptor&) const { return false; }
 };
 
 const int64_t kMaxStackDepth = 64;

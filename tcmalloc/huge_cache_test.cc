@@ -61,17 +61,6 @@ class HugeCacheTest : public testing::Test {
                absl::ToDoubleNanoseconds(absl::Seconds(1));
   }
 
-  // We use actual malloc for metadata allocations, but we track them so they
-  // can be deleted.  (TODO make this an arena if we care, which I doubt)
-  static void* MallocMetadata(size_t size) {
-    metadata_bytes += size;
-    void* ptr = calloc(size, 1);
-    metadata_allocs.push_back(ptr);
-    return ptr;
-  }
-  static std::vector<void*> metadata_allocs;
-  static size_t metadata_bytes;
-
   // This is wordy, but necessary for mocking:
   class BackingInterface {
    public:
@@ -93,15 +82,10 @@ class HugeCacheTest : public testing::Test {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
     vm_allocator_.backing_.resize(1024);
-    metadata_bytes = 0;
     mock_ = absl::make_unique<testing::NiceMock<MockBackingInterface>>();
   }
 
   ~HugeCacheTest() override {
-    for (void* p : metadata_allocs) {
-      free(p);
-    }
-    metadata_allocs.clear();
     mock_.reset(nullptr);
 
     clock_offset_ = 0;
@@ -119,8 +103,6 @@ class HugeCacheTest : public testing::Test {
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
 
-std::vector<void*> HugeCacheTest::metadata_allocs;
-size_t HugeCacheTest::metadata_bytes;
 std::unique_ptr<testing::NiceMock<HugeCacheTest::MockBackingInterface>>
     HugeCacheTest::mock_;
 
