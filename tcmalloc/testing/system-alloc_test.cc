@@ -18,6 +18,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 
 #include <limits>
 #include <new>
@@ -25,15 +26,48 @@
 #include <utility>
 
 #include "benchmark/benchmark.h"
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/strings/str_format.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
+
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
+#endif
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
+
+using ::testing::HasSubstr;
+
+// Returns the filename associated with the runtime mapping that includes the
+// [start, start+size) address range, or the empty string if not found.
+std::string MappingName(void* mmap_start, size_t mmap_size) {
+  uintptr_t mmap_start_addr = reinterpret_cast<uintptr_t>(mmap_start);
+  uintptr_t mmap_end_addr = mmap_start_addr + mmap_size;
+
+  uint64_t start, end, offset;
+  int64_t inode;
+  char *flags, *filename;
+
+  ProcMapsIterator::Buffer iterbuf;
+  ProcMapsIterator it(0, &iterbuf);  // 0 means "current pid"
+  while (
+      it.NextExt(&start, &end, &flags, &offset, &inode, &filename, nullptr)) {
+    if (start <= mmap_start_addr && mmap_end_addr <= end) {
+      return std::string(filename);
+    }
+  }
+  return "";
+}
 
 class MmapAlignedTest : public testing::TestWithParam<size_t> {
  protected:
@@ -49,8 +83,29 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
       EXPECT_EQ(IsSampledMemory(p), tag == MemoryTag::kSampled);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
+      if (PrSetVmaIsSupported()) {
+        EXPECT_THAT(MappingName(p, size),
+                    HasSubstr(absl::StrFormat("tcmalloc_region_%s",
+                                              MemoryTagToLabel(tag))));
+      }
       EXPECT_EQ(munmap(p, size), 0);
     }
+  }
+
+  static bool PrSetVmaIsSupported() {
+    static bool pr_set_vma_works = [] {
+      constexpr size_t kMmapSize = 4096;
+      void* addr = mmap(NULL, kMmapSize, PROT_NONE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      if (addr == MAP_FAILED) {
+        return false;
+      }
+      int err =
+          prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, addr, kMmapSize, "test");
+      munmap(addr, kMmapSize);
+      return err == 0;
+    }();
+    return pr_set_vma_works;
   }
 };
 INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,

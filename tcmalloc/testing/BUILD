@@ -748,6 +748,7 @@ cc_test(
         "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:proc_maps",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_googletest//:gtest_main",

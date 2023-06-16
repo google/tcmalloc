@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
@@ -34,6 +35,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/strings/str_format.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
@@ -48,6 +50,17 @@
 // form of the name instead.
 #ifndef MAP_ANONYMOUS
 #define MAP_ANONYMOUS MAP_ANON
+#endif
+
+// The <sys/prctl.h> on some systems may not define these macros yet even though
+// the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
+// define them here.
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_SET_VMA_ANON_NAME
+#define PR_SET_VMA_ANON_NAME 0
 #endif
 
 // Solaris has a bug where it doesn't declare madvise() for C++.
@@ -600,6 +613,19 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
                       next_addr <= uintptr_t{1} << kAddressBits);
 
       ASSERT((reinterpret_cast<uintptr_t>(result) & (alignment - 1)) == 0);
+      // Give the mmaped region a name based on its tag.
+#ifdef __linux__
+      // Make a best-effort attempt to name the allocated region based on its
+      // tag.
+      //
+      // The call to prctl() may fail if the kernel was not configured with the
+      // CONFIG_ANON_VMA_NAME kernel option.  This is OK since the call is
+      // primarily a debugging aid.
+      char name[256];
+      absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
+                     MemoryTagToLabel(tag));
+      prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, size, name);
+#endif  // __linux__
       return result;
     }
     if (result == MAP_FAILED) {
