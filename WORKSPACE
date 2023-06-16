@@ -35,10 +35,18 @@ http_archive(
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 http_archive(
-    name = "com_google_googletest",  # 2021-05-19T20:10:13Z
-    urls = ["https://github.com/google/googletest/archive/aa9b44a18678dfdf57089a5ac22c1edb69f35da5.zip"],
-    strip_prefix = "googletest-aa9b44a18678dfdf57089a5ac22c1edb69f35da5",
-    sha256 = "8cf4eaab3a13b27a95b7e74c58fb4c0788ad94d1f7ec65b20665c4caf1d245e8",
+    name = "com_google_googletest",  # 2023-06-15T14:52:03Z
+    urls = ["https://github.com/google/googletest/archive/18fa6a4db32a30675c0b19bf72f8b5f693d21a23.zip"],
+    strip_prefix = "googletest-18fa6a4db32a30675c0b19bf72f8b5f693d21a23",
+    sha256 = "35908733d9ea615be95517f6e15aea46191b2670d791b17ac841944272093ed2",
+)
+
+# RE2
+http_archive(
+    name = "com_googlesource_code_re2",
+    sha256 = "ef516fb84824a597c4d5d0d6d330daedb18363b5a99eda87d027e6bdd9cba299",
+    strip_prefix = "re2-03da4fc0857c285e3a26782f6bc8931c4c950df4",
+    urls = ["https://github.com/google/re2/archive/03da4fc0857c285e3a26782f6bc8931c4c950df4.tar.gz"],
 )
 
 # Google benchmark.
