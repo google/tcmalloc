@@ -58,6 +58,9 @@ class LimitTest : public ::testing::Test {
     stats_pbtxt_.reserve(3 << 20);
   }
 
+  void LimitChangeTriggersReleaseLargeAllocs();
+  void LimitRespected();
+
   void ReleaseMemory() {
     MallocExtension::SetMemoryLimit({.limit = 0, .hard = false});
 
@@ -130,7 +133,10 @@ class LimitTest : public ::testing::Test {
 
 class LimitDeathTest : public LimitTest {};
 
-TEST_F(LimitTest, LimitRespected) {
+void LimitTest::LimitRespected() {
+  // Needed to see what expectation failed (if any).
+  testing::UnitTest::GetInstance()->listeners().SuppressEventForwarding(false);
+
   static const size_t kLim = 4ul * 1024 * 1024 * 1024;
   SetLimit(kLim, false);
 
@@ -205,6 +211,14 @@ TEST_F(LimitTest, LimitRespected) {
   for (auto p : ptrs) {
     free(p);
   }
+  // Exit status indicates whether we've failed any of the expectations above.
+  exit(testing::Test::HasFailure());
+}
+
+TEST_F(LimitTest, LimitRespected) {
+  // Run the test in a separate subprocess, so it doesn't interfere with other
+  // tests.
+  EXPECT_EXIT(LimitRespected(), testing::ExitedWithCode(0), "");
 }
 
 TEST_F(LimitDeathTest, HardLimitRespected) {
@@ -377,8 +391,9 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
   }
 }
 
-TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
-  ReleaseMemory();  // needed to isolate this test from previous allocations.
+void LimitTest::LimitChangeTriggersReleaseLargeAllocs() {
+  // Needed to see what expectation failed (if any).
+  testing::UnitTest::GetInstance()->listeners().SuppressEventForwarding(false);
 
   // Verify that changing the limit to below the current page heap size causes
   // memory to be released to the extent possible.
@@ -387,7 +402,6 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
 
   const size_t heap_size =
       *MallocExtension::GetNumericProperty("generic.heap_size");
-  const auto old_limit = MallocExtension::GetMemoryLimit();
 
   // Trigger a large allocation that will rest in the page heap momentarily.
   ::operator delete(::operator new(kSize));
@@ -413,9 +427,15 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
             old_unmapped + (old_free > new_free ? old_free - new_free : 0) / 2)
       << new_unmapped << " " << old_unmapped << " " << new_free << " "
       << old_free;
+  // Exit status indicates whether we've failed any of the expectations above.
+  exit(testing::Test::HasFailure());
+}
 
-  // Cleanup
-  MallocExtension::SetMemoryLimit(old_limit);
+TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
+  // Run the test in a separate subprocess, so it doesn't interfere with other
+  // tests.
+  EXPECT_EXIT(LimitChangeTriggersReleaseLargeAllocs(),
+              testing::ExitedWithCode(0), "");
 }
 
 }  // namespace
