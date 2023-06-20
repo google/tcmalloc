@@ -44,6 +44,7 @@
 #include <functional>
 #include <limits>
 #include <new>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -186,17 +187,23 @@ TEST(TcmallocTest, Calloc) {
 
 TEST(TcmallocTest, Realloc) {
   // Test that realloc doesn't always reallocate and copy memory.
-
-  // When sampling, we always allocate in units of page-size, which makes
-  // reallocs of small sizes do extra work (thus, failing these checks).  Since
-  // sampling is random, we turn off sampling to make sure that doesn't happen
-  // to us here.
-  ScopedNeverSample never_sample;
-
-  constexpr int start_sizes[] = {100, 1000, 10000, 100000};
-  constexpr int deltas[] = {1, -2, 4, -8, 16, -32, 64, -128};
+  constexpr int kLargeSize = (1 << 20) - (1 << 10);
+  ASSERT_GT(kLargeSize, tcmalloc_internal::kMaxSize);
+  constexpr int start_sizes[] = {100, 1000, 10000, 100000, kLargeSize};
+  constexpr int deltas[] = {1,   -2, 4,    -8,      16,
+                            -32, 64, -128, 1 << 10, -(2 << 10)};
 
   for (int s = 0; s < sizeof(start_sizes) / sizeof(*start_sizes); ++s) {
+    // When sampling, we always allocate in units of page-size, which makes
+    // reallocs of small sizes do extra work (thus, failing these checks).
+    // Since sampling is random, we turn off sampling to make sure that
+    // doesn't happen to us here. But very large blocks shouldn't be
+    // reallocated even with sampling.
+    std::optional<ScopedNeverSample> never_sample;
+    if (start_sizes[s] != kLargeSize) {
+      never_sample.emplace();
+    }
+
     void* p = malloc(start_sizes[s]);
     // We stash a copy of the pointer p so we can reference it later.  We must
     // work with the return value of p.

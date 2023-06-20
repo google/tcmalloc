@@ -1232,7 +1232,16 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
   const size_t upper_bound_to_shrink = old_size / 2;
   const size_t alloc_size =
       new_size > old_size ? std::max(new_size, lower_bound_to_grow) : new_size;
-  const bool will_sample = GetThreadSampler()->WillRecordAllocation(alloc_size);
+  // Sampled allocations are reallocated and copied even if not strictly
+  // necessary. This is problematic for very large allocations, since some old
+  // programs rely on realloc to be very efficient (e.g. call realloc to the
+  // same size repeatedly assuming it will do nothing). Very large allocations
+  // are both all sampled and expensive to allocate and copy, so don't
+  // reallocate them if not necessary. The use of kMaxSize here as a notion of
+  // "very large" is somewhat arbitrary.
+  const bool will_sample =
+      alloc_size <= tcmalloc::tcmalloc_internal::kMaxSize &&
+      GetThreadSampler()->WillRecordAllocation(alloc_size);
   if ((new_size > old_size) || (new_size < upper_bound_to_shrink) ||
       will_sample ||
       tc_globals.guardedpage_allocator().PointerIsMine(old_ptr)) {
