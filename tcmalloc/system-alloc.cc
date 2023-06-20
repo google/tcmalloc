@@ -624,6 +624,10 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       char name[256];
       absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
                      MemoryTagToLabel(tag));
+      // Save the existing errno and restore it after the prctl system call.
+      // Since PR_SET_VMA is a best effort call, we don't want it to overwrite
+      // the existing errno value.
+      ErrnoRestorer errno_restorer;
       prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, size, name);
 #endif  // __linux__
       return result;
