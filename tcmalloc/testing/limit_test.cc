@@ -59,6 +59,7 @@ class LimitTest : public ::testing::Test {
   }
 
   void LimitChangeTriggersReleaseLargeAllocs();
+  void LimitChangeTriggersReleaseSmallAllocs();
   void LimitRespected();
 
   void ReleaseMemory() {
@@ -314,8 +315,9 @@ TEST_F(LimitTest, LifetimeAllocatorPath) {
   TCMalloc_Internal_SetHPAASubrelease(previous_subrelease);
 }
 
-TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
-  ReleaseMemory();  // needed to isolate this test from previous allocations.
+void LimitTest::LimitChangeTriggersReleaseSmallAllocs() {
+  // Needed to see what expectation failed (if any).
+  testing::UnitTest::GetInstance()->listeners().SuppressEventForwarding(false);
 
   // Verify that changing the limit to below the current page heap size causes
   // memory to be released to the extent possible.
@@ -327,7 +329,6 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
 
   const size_t heap_size =
       *MallocExtension::GetNumericProperty("generic.heap_size");
-  const auto old_limit = MallocExtension::GetMemoryLimit();
 
   // Trigger many allocations that will rest in the page heap momentarily.  We
   // alternate between allocations retained/deallocated to fragment the
@@ -382,13 +383,15 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
   // Expect that we dropped at least half of the allocations.
   EXPECT_GE(dropped, kSize / kAllocSize / 2);
 
-  // Cleanup
-  MallocExtension::SetMemoryLimit(old_limit);
-  for (auto& [k, v] : pointers) {
-    for (void* ptr : v) {
-      ::operator delete(ptr);
-    }
-  }
+  // Exit status indicates whether we've failed any of the expectations above.
+  exit(testing::Test::HasFailure());
+}
+
+TEST_F(LimitTest, LimitChangeTriggersReleaseSmallAllocs) {
+  // Run the test in a separate subprocess, so it doesn't interfere with other
+  // tests.
+  EXPECT_EXIT(LimitChangeTriggersReleaseSmallAllocs(),
+              testing::ExitedWithCode(0), "");
 }
 
 void LimitTest::LimitChangeTriggersReleaseLargeAllocs() {
