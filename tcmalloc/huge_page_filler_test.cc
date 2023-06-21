@@ -1068,16 +1068,19 @@ TEST_P(FillerTest, Release) {
   // Now we should see the p1 hugepage - emptier - released.
   ASSERT_EQ(ReleasePages(kAlloc - Length(1)), kAlloc - Length(1));
   EXPECT_EQ(filler_.unmapped_pages(), kAlloc - Length(1));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
   ASSERT_TRUE(p1.pt->released());
   ASSERT_FALSE(p3.pt->released());
 
   // We expect to reuse p1.pt.
   PAlloc p5 = AllocateWithObjectCount(kAlloc - Length(1), p1.num_objects);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
   ASSERT_TRUE(p1.pt == p5.pt);
 
   Delete(p2);
   Delete(p4);
   Delete(p5);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 }
 
 TEST_P(FillerTest, ReleaseZero) {
@@ -1439,23 +1442,27 @@ TEST_P(FillerTest, ReleaseWithReuse) {
   // We should be able to release the pages from half1.
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
   EXPECT_EQ(filler_.unmapped_pages(), N / 2);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
   // Release tiny1, release more.
   Delete(tiny1);
 
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 4);
   EXPECT_EQ(filler_.unmapped_pages(), 3 * N / 4);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
   // Repopulate, confirm we can't release anything and unmapped pages goes to 0.
   tiny1 = AllocateWithObjectCount(N / 4, half.num_objects);
   EXPECT_EQ(Length(0), ReleasePages(kMaxValidPages));
   EXPECT_EQ(N / 2, filler_.unmapped_pages());
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
   // Continue repopulating.
   half = AllocateWithObjectCount(N / 2, half.num_objects);
   EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
   EXPECT_EQ(filler_.size(), NHugePages(1));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
 
   // Release everything and cleanup.
   Delete(half);
@@ -1463,6 +1470,67 @@ TEST_P(FillerTest, ReleaseWithReuse) {
   Delete(tiny2);
   EXPECT_EQ(filler_.size(), NHugePages(0));
   EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+}
+
+TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
+  const Length N = kPagesPerHugePage;
+  auto half = Allocate(N / 2);
+  auto tiny1 = AllocateWithObjectCount(N / 4, half.num_objects);
+  auto tiny2 = AllocateWithObjectCount(N / 4, half.num_objects);
+
+  Delete(half);
+
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  // We should be able to release the pages from half1.
+  EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+    buffer.resize(strlen(buffer.c_str()));
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            "HugePageFiller: 0 hugepages were previously released, but later "
+            "became full."));
+  }
+
+  // Repopulate.
+  half = AllocateWithObjectCount(N / 2, half.num_objects);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+    buffer.resize(strlen(buffer.c_str()));
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            "HugePageFiller: 1 hugepages were previously released, but later "
+            "became full."));
+  }
+
+  // Release everything and cleanup.
+  Delete(half);
+  Delete(tiny1);
+  Delete(tiny2);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+    buffer.resize(strlen(buffer.c_str()));
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            "HugePageFiller: 0 hugepages were previously released, but later "
+            "became full."));
+  }
 }
 
 TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
@@ -2719,6 +2787,7 @@ HugePageFiller: among non-fulls, 0.2086 free
 HugePageFiller: 998 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 4 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7186 of used pages hugepageable
+HugePageFiller: 0 hugepages were previously released, but later became full.
 HugePageFiller: Since startup, 282 pages subreleased, 5 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
 
 HugePageFiller: fullness histograms

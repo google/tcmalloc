@@ -767,6 +767,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         abandoned_count_(0),
         donated_(false),
         was_donated_(was_donated),
+        was_released_(false),
         abandoned_(false),
         unbroken_(true),
         free_{} {
@@ -843,6 +844,9 @@ class PageTracker : public TList<PageTracker>::Elem {
   // memory persistently donated to the filler.
   bool was_donated() const { return was_donated_; }
 
+  bool was_released() const { return was_released_; }
+  void set_was_released(bool status) { was_released_ = status; }
+
   // Tracks whether the page, previously donated to the filler, was abondoned.
   // When a large allocation is deallocated but the huge page is not
   // reassembled, the pages are abondoned to the filler for future allocations.
@@ -903,6 +907,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   uint16_t abandoned_count_;
   bool donated_;
   bool was_donated_;
+  bool was_released_;
   // Tracks whether we accounted for the abandoned state of the page. When a
   // large allocation is deallocated but the huge page can not be reassembled,
   // we measure the number of pages abandoned to the filler. To make sure that
@@ -1047,6 +1052,10 @@ class HugePageFiller {
     return used_pages_in_released() + used_pages_in_partial_released();
   }
 
+  HugeLength previously_released_huge_pages() const {
+    return n_was_released_[kMany] + n_was_released_[kFew];
+  }
+
   Length FreePagesInPartialAllocs() const;
 
   // Fraction of used pages that are on non-released hugepages and
@@ -1136,6 +1145,8 @@ class HugePageFiller {
   // free (i.e., allocated).  Only the hugepages in regular_alloc_released_ are
   // considered.
   Length n_used_released_[kObjectCounts];
+
+  HugeLength n_was_released_[kObjectCounts];
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[kObjectCounts];
@@ -1478,6 +1489,12 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   AddToFillerList(pt);
   pages_allocated_[type] += n;
 
+  // If it was in a released state earlier, and is about to be full again,
+  // record that the state has been toggled back and update the stat counter.
+  if (was_released && !pt->released() && !pt->was_released()) {
+    pt->set_was_released(/*status=*/true);
+    ++n_was_released_[type];
+  }
   ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
   (void)was_released;
   ASSERT(unmapped_ >= page_allocation.previously_unbacked);
@@ -1530,6 +1547,15 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
         if (ABSL_PREDICT_TRUE(success)) {
           unmapping_unaccounted_ += free_pages - released_pages;
         }
+      }
+    }
+
+    if (pt->was_released()) {
+      pt->set_was_released(/*status=*/false);
+      if (pt->HasManyObjectsSpans()) {
+        --n_was_released_[kMany];
+      } else {
+        --n_was_released_[kFew];
       }
     }
 
@@ -2181,6 +2207,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
       safe_div(unmapped_pages(), stats.n_released[kObjectCounts].in_pages()));
   out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
               hugepage_frac());
+  out->printf(
+      "HugePageFiller: %zu hugepages were previously released, but "
+      "later became full.\n",
+      previously_released_huge_pages().raw_num());
 
   // Subrelease
   out->printf(
@@ -2294,6 +2324,8 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                      hugepage_frac() *
                      static_cast<double>(pages_allocated_[kFew].in_bytes() +
                                          pages_allocated_[kMany].in_bytes())));
+  hpaa->PrintI64("filler_previously_released_huge_pages",
+                 previously_released_huge_pages().raw_num());
   hpaa->PrintI64("filler_num_pages_subreleased",
                  subrelease_stats_.total_pages_subreleased.raw_num());
   hpaa->PrintI64("filler_num_hugepages_broken",
