@@ -443,7 +443,7 @@ void DumpStats(Printer* out, int level) {
         Parameters::separate_allocs_for_few_and_many_objects_spans());
     out->printf("PARAMETER tcmalloc_resize_cpu_cache_size_classes %d\n",
                 Parameters::resize_cpu_cache_size_classes() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_chunks_per_alloc %d\n",
+    out->printf("PARAMETER tcmalloc_filler_chunks_per_alloc %d\n",
                 Parameters::chunks_per_alloc());
   }
 }
@@ -610,7 +610,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                   Parameters::separate_allocs_for_few_and_many_objects_spans());
   region.PrintBool("tcmalloc_resize_cpu_cache_size_classes",
                    Parameters::resize_cpu_cache_size_classes());
-  region.PrintI64("tcmalloc_chunks_per_alloc", Parameters::chunks_per_alloc());
+  region.PrintI64("tcmalloc_filler_chunks_per_alloc",
+                  Parameters::chunks_per_alloc());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
