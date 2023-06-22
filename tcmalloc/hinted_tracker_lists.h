@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_HINTED_TRACKER_LIST_H_
-#define TCMALLOC_HINTED_TRACKER_LIST_H_
+#ifndef TCMALLOC_HINTED_TRACKER_LISTS_H_
+#define TCMALLOC_HINTED_TRACKER_LISTS_H_
 
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/range_tracker.h"
@@ -123,4 +123,4 @@ class HintedTrackerLists {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_HINTED_TRACKER_LIST_H_
+#endif  // TCMALLOC_HINTED_TRACKER_LISTS_H_
