@@ -124,7 +124,7 @@ TEST_F(AgeTest, Basic) {
 R"LIT(------------------------------------------------
 AgeTest cache entry age (count of pages in spans of a given size that have been idle for up to the given period of time)
 ------------------------------------------------
-                                 mean     <1s      1s     30s      1m     30m      1h     8+h
+                                 mean     <1s    <30s     <1m    <30m     <1h     <8h    >=8h
 Live span       TOTAL PAGES:  18000.9       1       2       0       0       0       0       3
 Live span,          1 pages:      1.8       1       2       0       0       0       0       0
 Live span,          3 pages:  36000.0       0       0       0       0       0       0       3
@@ -148,7 +148,7 @@ TEST_F(AgeTest, Overflow) {
 R"LIT(------------------------------------------------
 AgeTest cache entry age (count of pages in spans of a given size that have been idle for up to the given period of time)
 ------------------------------------------------
-                                 mean     <1s      1s     30s      1m     30m      1h     8+h
+                                 mean     <1s    <30s     <1m    <30m     <1h     <8h    >=8h
 Live span       TOTAL PAGES:      0.5 4294967295       0       0       0       0       0       0
 Live span,      >=128 pages:      0.5 4294967295       0       0       0       0       0       0
 

@@ -116,12 +116,12 @@ struct HistBucket {
 static const HistBucket kSpanAgeHistBuckets[] = {
     // clang-format off
     {0, "<1s"},
-    {1, "1s"},
-    {30, "30s"},
-    {1 * 60, "1m"},
-    {30 * 60, "30m"},
-    {1 * 60 * 60, "1h"},
-    {8 * 60 * 60, "8+h"},
+    {1, "<30s"},
+    {30, "<1m"},
+    {1 * 60, "<30m"},
+    {30 * 60, "<1h"},
+    {1 * 60 * 60, "<8h"},
+    {8 * 60 * 60, ">=8h"},
     // clang-format on
 };
 
