@@ -2383,12 +2383,9 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   stats.num_pages = pages_allocated();
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
-  // TODO(b/271289285): Test that we do not omit kMany&&partial release
   stats.used_pages_in_subreleased_huge_pages =
       n_used_released_[kMany] + n_used_released_[kFew] +
       n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
-  // TODO(b/271289285): Break out statistics for many and few into the full
-  // cross-product (many v. few) x (normal, partial release, fully released).
   stats.huge_pages[StatsTrackerType::kDonated] = donated_alloc_.size();
   for (const ObjectCount type : {kMany, kFew}) {
     stats.huge_pages[StatsTrackerType::kRegular] += regular_alloc_[type].size();
