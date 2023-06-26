@@ -17,6 +17,7 @@
 
 #include <stddef.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
