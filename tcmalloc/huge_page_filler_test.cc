@@ -1981,6 +1981,49 @@ HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of 
 )"));
 }
 
+// TODO(b/197880883): Enable this test.
+TEST_P(FillerTest, DISABLED_SkipSubReleaseDemandPeak) {
+  // Tests that HugePageFiller can cap filler's short-term long-term
+  // skip-subrelease mechanism using the demand measured by subrelease
+  // intervals.
+
+  const Length N = kPagesPerHugePage;
+
+  // We trigger the demand such that short-term + long-term demand exceeds the
+  // peak demand. We should be able to sub-release memory from the HugeFiller
+  // up to the peak demand measured in the previous intervals.
+
+  // min_demand = 0.75N, max_demand = 2.5N
+  PAlloc peak1a = Allocate(3 * N / 4);
+  const int num_objects = peak1a.num_objects;
+  PAlloc peak1b = AllocateWithObjectCount(3 * N / 4, num_objects);
+  PAlloc half1a = AllocateWithObjectCount(N / 2, num_objects);
+  PAlloc half1b = AllocateWithObjectCount(N / 2, num_objects);
+  EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
+  Advance(absl::Minutes(1));
+
+  // min_demand = 2N, max_demand = 2.5N
+  Delete(half1b);
+  PAlloc half1c = AllocateWithObjectCount(N / 2, num_objects);
+  EXPECT_EQ(filler_.used_pages(), 2 * N + N / 2);
+  EXPECT_EQ(filler_.free_pages(), N / 2);
+  Advance(absl::Minutes(1));
+
+  // At this point, short-term fluctuation, which is the maximum of the
+  // difference between max_demand and min_demand in the previous two
+  // intervals, is equal to 1.75N. Long-term demand, which is the maximum of
+  // min_demand in the previous two intervals, is 2N. As peak demand of 2.5N is
+  // lower than 3.75N, we should be able to subrelease 0.5N pages.
+  EXPECT_EQ(Length(N / 2),
+            ReleasePages(10 * N, SkipSubreleaseIntervals{
+                                     .short_interval = absl::Minutes(2),
+                                     .long_interval = absl::Minutes(2)}));
+  Delete(peak1a);
+  Delete(peak1b);
+  Delete(half1a);
+  Delete(half1c);
+}
+
 TEST_P(FillerTest, ReportSkipSubreleases) {
   // Tests that HugePageFiller reports skipped subreleases using demand
   // requirement that is the smaller of two (recent peak and its
