@@ -474,7 +474,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
     void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
     const size_t virtual_cpu_id_offset) {
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+  uintptr_t scratch, current;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
   bool overflow;
@@ -515,46 +516,37 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "TcmallocSlab_Internal_Push_trampoline_%=;\n"
       ".popsection\n"
       // Prepare
-      //
-      // TODO(b/151503411):  Pending widespread availability of LLVM's asm
-      // goto with output contraints
-      // (https://github.com/llvm/llvm-project/commit/23c2a5ce33f0), we can
-      // return the register allocations to the compiler rather than using
-      // explicit clobbers.  Prior to this, blocks which use asm goto cannot
-      // also specify outputs.
-      //
-      // r10: Scratch
-      // r11: Current
       "3:\n"
-      "lea __rseq_cs_TcmallocSlab_Internal_Push_%=(%%rip), %%r10\n"
-      "mov %%r10, %c[rseq_cs_offset](%[rseq_abi])\n"
+      "lea __rseq_cs_TcmallocSlab_Internal_Push_%=(%%rip), %[scratch]\n"
+      "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
       // Start
       "4:\n"
       // scratch = __rseq_abi.cpu_id;
-      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %%r10d\n"
+      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
       // scratch = slabs + scratch
-      "shlq %b[shift], %%r10\n"
-      "add %[slabs], %%r10\n"
-      // r11 = slabs->current;
-      "movzwq (%%r10, %[size_class], 8), %%r11\n"
-      // if (ABSL_PREDICT_FALSE(r11 >= slabs->end)) { goto overflow_label; }
-      "cmp 6(%%r10, %[size_class], 8), %%r11w\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+      "shlq %b[shift], %[scratch]\n"
+      "add %[slabs], %[scratch]\n"
+      // current = slabs->current;
+      "movzwq (%[scratch], %[size_class], 8), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(current >= slabs->end)) { goto overflow_label; }
+      "cmp 6(%[scratch], %[size_class], 8), %w[current]\n"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jae %l[overflow_label]\n"
 #else
       "jae 5f\n"
   // Important! code below this must not affect any flags (i.e.: ccae)
   // If so, the above code needs to explicitly set a ccae return value.
 #endif
-      "mov %[item], (%%r10, %%r11, 8)\n"
-      "lea 1(%%r11), %%r11\n"
-      "mov %%r11w, (%%r10, %[size_class], 8)\n"
+      "mov %[item], (%[scratch], %[current], 8)\n"
+      "lea 1(%[current]), %[current]\n"
+      "mov %w[current], (%[scratch], %[size_class], 8)\n"
       // Commit
       "5:\n"
       :
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
-      [overflow] "=@ccae"(overflow)
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+      [overflow] "=@ccae"(overflow),
 #endif
+      [scratch] "=&r"(scratch), [current] "=&r"(current)
       : [rseq_abi] "r"(&__rseq_abi),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
@@ -562,12 +554,12 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         // We use "c" for shift because shl requires the c register.
         [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
         [size_class] "r"(size_class), [item] "r"(item)
-      : "cc", "memory", "r10", "r11"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+      : "cc", "memory", "r11"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
 #endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
