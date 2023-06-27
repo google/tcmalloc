@@ -1981,8 +1981,7 @@ HugePageFiller: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of 
 )"));
 }
 
-// TODO(b/197880883): Enable this test.
-TEST_P(FillerTest, DISABLED_SkipSubReleaseDemandPeak) {
+TEST_P(FillerTest, SkipSubReleaseDemandPeak) {
   // Tests that HugePageFiller can cap filler's short-term long-term
   // skip-subrelease mechanism using the demand measured by subrelease
   // intervals.

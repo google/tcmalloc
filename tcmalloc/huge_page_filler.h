@@ -403,7 +403,23 @@ class FillerStatsTracker {
         },
         long_epochs);
 
-    return short_term_fluctuation_pages + long_term_trend_pages;
+    // Since we are taking the sum of peaks, we can end up with a demand peak
+    // that is larger than the largest peak encountered so far, which could
+    // lead to OOMs. We adjust the peak in that case, by capping it to the
+    // largest peak observed in our time series.
+    Length demand_peak = Length(0);
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
+          if (!e.empty()) {
+            if (e.stats[kStatsAtMaxDemand].num_pages > demand_peak) {
+              demand_peak = e.stats[kStatsAtMaxDemand].num_pages;
+            }
+          }
+        },
+        -1);
+
+    return std::min(demand_peak,
+                    short_term_fluctuation_pages + long_term_trend_pages);
   }
 
   // Reports a skipped subrelease, which is evaluated by coming peaks within the
