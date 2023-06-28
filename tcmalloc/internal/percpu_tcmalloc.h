@@ -587,7 +587,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   uintptr_t end;
   // Multiply size_class by the bytesize of each header
   size_t size_class_lsl3 = size_class * 8;
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
   bool overflow;
@@ -625,13 +625,6 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "b 3f\n"
       ".popsection\n"
       // Prepare
-      //
-      // TODO(b/151503411):  Pending widespread availability of LLVM's asm
-      // goto with output contraints
-      // (https://github.com/llvm/llvm-project/commit/23c2a5ce33f0), we can
-      // return the register allocations to the compiler rather than using
-      // explicit clobbers.  Prior to this, blocks which use asm goto cannot
-      // also specify outputs.
       "3:\n"
       // Use current as scratch here to hold address of this function's
       // critical section
@@ -654,7 +647,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       "ldrh %w[end], [%[end_ptr], %[size_class_lsl3]]\n"
       // if (ABSL_PREDICT_FALSE(end <= current)) { goto overflow_label; }
       "cmp %[end], %[current]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "b.le %l[overflow_label]\n"
 #else
       "b.le 5f\n"
@@ -670,7 +663,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         [current] "=&r"(current), [end] "=&r"(end),
         [region_start] "=&r"(region_start)
 
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
             ,
         [overflow] "=@ccle"(overflow)
 #endif
@@ -693,7 +686,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       : "x16", "x17", "memory"
 #endif
   );
-#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(overflow)) {
     goto overflow_label;
   }
