@@ -54,14 +54,10 @@ class Parameters {
   }
 
   // TODO(b/263387812): remove when experimentation is complete
-  static bool improved_guarded_sampling() {
-    return improved_guarded_sampling_.load(std::memory_order_relaxed);
-  }
+  static bool improved_guarded_sampling();
 
   // TODO(b/263387812): remove when experimentation is complete
-  static void set_improved_guarded_sampling(bool enable) {
-    TCMalloc_Internal_SetImprovedGuardedSampling(enable);
-  }
+  static void set_improved_guarded_sampling(bool enable);
 
   static int32_t max_per_cpu_cache_size();
 
@@ -209,8 +205,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
   static std::atomic<int64_t> guarded_sampling_rate_;
-  // TODO(b/263387812): remove when experimentation is complete
-  static std::atomic<bool> improved_guarded_sampling_;
   static std::atomic<bool> shuffle_per_cpu_caches_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;

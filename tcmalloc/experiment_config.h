@@ -26,6 +26,8 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC,
   TCMALLOC_RESIZE_CPU_CACHE_SIZE_CLASSES,
   TCMALLOC_FILLER_CHUNKS_PER_ALLOC,
+  // TODO(b/286253010): remove when experimentation is complete
+  TCMALLOC_IMPROVED_GUARDED_SAMPLING,
   kMaxExperimentID,
 };
 
@@ -41,6 +43,9 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC, "TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
     {Experiment::TCMALLOC_RESIZE_CPU_CACHE_SIZE_CLASSES, "TCMALLOC_RESIZE_CPU_CACHE_SIZE_CLASSES"},
     {Experiment::TCMALLOC_FILLER_CHUNKS_PER_ALLOC, "TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
+    // TODO(b/286253010): remove when experimentation is complete
+    {Experiment::TCMALLOC_IMPROVED_GUARDED_SAMPLING,
+      "TCMALLOC_IMPROVED_GUARDED_SAMPLING"},
 };
 // clang-format on
 
