@@ -559,7 +559,7 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
   // TODO(b/273946827): Add local tcmalloc tests for the various sanitizer
   // configs as opposed to depending on
   // //testing/sanitizer_common:malloc_extension_test
-  // LINT.IfChange(SantizerGetProperty)
+  // LINT.IfChange(SanitizerGetProperty)
   if (property == "dynamic_tool.virtual_memory_overhead") {
     return SanitizerVirtualMemoryOverhead();
   }
@@ -589,7 +589,7 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
     // Kept for backwards compatibility.
     return __sanitizer_get_free_bytes() + __sanitizer_get_unmapped_bytes();
   }
-  // LINT.ThenChange(:SantizerGetProperties)
+  // LINT.ThenChange(:SanitizerGetProperties)
 #endif  // TCMALLOC_UNDER_SANITIZERS
   return absl::nullopt;
 }
@@ -630,7 +630,7 @@ MallocExtension::GetProperties() {
 #if TCMALLOC_UNDER_SANITIZERS
   // Unlike other extension points this one fills in sanitizer data before the
   // weak function is called so that the weak function can override as needed.
-  // LINT.IfChange(SantizerGetProperties)
+  // LINT.IfChange(SanitizerGetProperties)
   const std::array properties = {"dynamic_tool.virtual_memory_overhead",
                                  "dynamic_tool.memory_usage_multiplier",
                                  "dynamic_tool.stack_size_multiplier",
@@ -640,7 +640,7 @@ MallocExtension::GetProperties() {
                                  "tcmalloc.pageheap_free_bytes",
                                  "tcmalloc.pageheap_unmapped_bytes",
                                  "tcmalloc.slack_bytes"};
-  // LINT.ThenChange(:SantizerGetProperty)
+  // LINT.ThenChange(:SanitizerGetProperty)
 
   for (const auto& p : properties) {
     const auto& value = GetNumericProperty(p);
