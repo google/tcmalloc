@@ -236,7 +236,7 @@ TEST_F(GetStatsTest, Parameters) {
     }
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: 50)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(desired_usage_limit_bytes: -1)"));
-    EXPECT_THAT(pbtxt, HasSubstr(R"(hard_usage_limit_bytes: -1)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(hard_limit: false)"));
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: true)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 3145728)"));

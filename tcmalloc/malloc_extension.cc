@@ -20,7 +20,6 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
-#include <limits>
 #include <map>
 #include <memory>
 #include <new>
@@ -312,37 +311,21 @@ void MallocExtension::MarkThreadBusy() {
 #endif
 }
 
-size_t MallocExtension::GetMemoryLimit(LimitKind limit_kind) {
+MallocExtension::MemoryLimit MallocExtension::GetMemoryLimit() {
+  MemoryLimit ret;
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetMemoryLimit != nullptr) {
-    return MallocExtension_Internal_GetMemoryLimit(limit_kind);
+    MallocExtension_Internal_GetMemoryLimit(&ret);
   }
 #endif
-  return 0;
+  return ret;
 }
 
-ABSL_INTERNAL_DISABLE_DEPRECATED_DECLARATION_WARNING
-MallocExtension::MemoryLimit MallocExtension::GetMemoryLimit() {
-  MemoryLimit result;
-  const size_t hard_limit = GetMemoryLimit(LimitKind::kHard);
-  if (hard_limit != 0 && hard_limit != std::numeric_limits<size_t>::max()) {
-    result.limit = hard_limit;
-    result.hard = true;
-  } else {
-    result.limit = GetMemoryLimit(LimitKind::kSoft);
-    result.hard = false;
-  }
-  return result;
-}
-ABSL_INTERNAL_RESTORE_DEPRECATED_DECLARATION_WARNING
-
-void MallocExtension::SetMemoryLimit(const size_t limit, LimitKind limit_kind) {
+void MallocExtension::SetMemoryLimit(
+    const MallocExtension::MemoryLimit& limit) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_SetMemoryLimit != nullptr) {
-    // limit == 0 implies no limit.
-    const size_t new_limit =
-        (limit > 0) ? limit : std::numeric_limits<size_t>::max();
-    MallocExtension_Internal_SetMemoryLimit(new_limit, limit_kind);
+    MallocExtension_Internal_SetMemoryLimit(&limit);
   }
 #endif
 }

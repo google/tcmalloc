@@ -72,8 +72,8 @@ MallocExtension_Internal_StartLifetimeProfiling();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_ActivateGuardedSampling();
 ABSL_ATTRIBUTE_WEAK tcmalloc::MallocExtension::Ownership
 MallocExtension_Internal_GetOwnership(const void* ptr);
-ABSL_ATTRIBUTE_WEAK size_t MallocExtension_Internal_GetMemoryLimit(
-    tcmalloc::MallocExtension::LimitKind limit_kind);
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetMemoryLimit(
+    tcmalloc::MallocExtension::MemoryLimit* limit);
 ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetNumericProperty(
     const char* name_data, size_t name_size, size_t* value);
 ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetPerCpuCachesActive();
@@ -99,7 +99,7 @@ ABSL_ATTRIBUTE_WEAK size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu);
 ABSL_ATTRIBUTE_WEAK size_t
 MallocExtension_Internal_ReleaseMemoryToSystem(size_t bytes);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMemoryLimit(
-    size_t limit, tcmalloc::MallocExtension::LimitKind limit_kind);
+    const tcmalloc::MallocExtension::MemoryLimit* limit);
 
 ABSL_ATTRIBUTE_WEAK size_t
 MallocExtension_Internal_GetAllocatedSize(const void* ptr);
