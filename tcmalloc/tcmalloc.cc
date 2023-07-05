@@ -262,23 +262,25 @@ extern "C" bool MallocExtension_Internal_GetNumericProperty(
   return GetNumericProperty(name_data, name_size, value);
 }
 
-extern "C" void MallocExtension_Internal_GetMemoryLimit(
-    MallocExtension::MemoryLimit* limit) {
-  ASSERT(limit != nullptr);
+// Make sure the two definitions are in sync.
+static_assert(static_cast<int>(tcmalloc::MallocExtension::LimitKind::kSoft) ==
+              PageAllocator::kSoft);
+static_assert(static_cast<int>(tcmalloc::MallocExtension::LimitKind::kHard) ==
+              PageAllocator::kHard);
 
-  std::tie(limit->limit, limit->hard) = tc_globals.page_allocator().limit();
+extern "C" size_t MallocExtension_Internal_GetMemoryLimit(
+    tcmalloc::MallocExtension::LimitKind limit_kind) {
+  return tc_globals.page_allocator().limit(
+      static_cast<PageAllocator::LimitKind>(limit_kind));
 }
 
 extern "C" void MallocExtension_Internal_SetMemoryLimit(
-    const MallocExtension::MemoryLimit* limit) {
-  ASSERT(limit != nullptr);
-
-  if (!limit->hard) {
-    Parameters::set_heap_size_hard_limit(0);
-    tc_globals.page_allocator().set_limit(limit->limit, false /* !hard */);
-  } else {
-    Parameters::set_heap_size_hard_limit(limit->limit);
+    size_t limit, tcmalloc::MallocExtension::LimitKind limit_kind) {
+  if (limit_kind == tcmalloc::MallocExtension::LimitKind::kHard) {
+    Parameters::set_heap_size_hard_limit(limit);
   }
+  tc_globals.page_allocator().set_limit(
+      limit, static_cast<PageAllocator::LimitKind>(limit_kind));
 }
 
 extern "C" void MallocExtension_Internal_MarkThreadIdle() {
@@ -462,22 +464,35 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.required_bytes"].value = RequiredBytes(stats);
   (*result)["tcmalloc.slack_bytes"].value = SlackBytes(stats.pageheap);
 
-  size_t amount;
-  bool is_hard;
-  std::tie(amount, is_hard) = tc_globals.page_allocator().limit();
-  if (is_hard) {
-    (*result)["tcmalloc.hard_usage_limit_bytes"].value = amount;
-    (*result)["tcmalloc.desired_usage_limit_bytes"].value =
-        std::numeric_limits<size_t>::max();
-  } else {
-    (*result)["tcmalloc.hard_usage_limit_bytes"].value =
-        std::numeric_limits<size_t>::max();
-    (*result)["tcmalloc.desired_usage_limit_bytes"].value = amount;
-  }
+  const uint64_t hard_limit =
+      tc_globals.page_allocator().limit(PageAllocator::kHard);
+  const uint64_t soft_limit =
+      tc_globals.page_allocator().limit(PageAllocator::kSoft);
+  (*result)["tcmalloc.hard_usage_limit_bytes"].value = hard_limit;
+  (*result)["tcmalloc.desired_usage_limit_bytes"].value = soft_limit;
+  (*result)["tcmalloc.soft_limit_hits"].value =
+      tc_globals.page_allocator().limit_hits(PageAllocator::kSoft);
+  (*result)["tcmalloc.hard_limit_hits"].value =
+      tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
+
+  // TODO(b/288099265): delete this after 2024-02-01.
   (*result)["tcmalloc.limit_hits"].value =
-      tc_globals.page_allocator().limit_hits();
+      tc_globals.page_allocator().limit_hits(PageAllocator::kSoft) +
+      tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
+
+  (*result)["tcmalloc.successful_shrinks_after_soft_limit_hit"].value =
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kSoft);
+  (*result)["tcmalloc.successful_shrinks_after_hard_limit_hit"].value =
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kHard);
+
+  // TODO(b/288099265): delete this after 2024-02-01.
   (*result)["tcmalloc.successful_shrinks_after_limit_hit"].value =
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit();
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kSoft) +
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kHard);
 
   WalkExperiments([&](absl::string_view name, bool active) {
     (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;

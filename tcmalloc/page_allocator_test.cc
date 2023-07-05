@@ -155,13 +155,14 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   // Choose a limit so that we hit and we are not able to satisfy it.
-  allocator_->set_limit(kPagesPerHugePage.in_bytes(), false);
+  allocator_->set_limit(kPagesPerHugePage.in_bytes(), PageAllocator::kSoft);
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocator_->ShrinkToUsageLimit(Length(0));
   }
-  EXPECT_LE(1, allocator_->limit_hits());
-  EXPECT_LE(0, allocator_->successful_shrinks_after_limit_hit());
+  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(
+      0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, 1, MemoryTag::kNormal);
   Delete(sampled, 1, MemoryTag::kSampled);
@@ -195,13 +196,14 @@ TEST_F(PageAllocatorTest, b270916852) {
   }();
   allocator_->set_limit(
       metadata_bytes + (3 * kPagesPerHugePage / 2).in_bytes() + kPageSize,
-      false);
+      PageAllocator::kSoft);
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocator_->ShrinkToUsageLimit(Length(0));
   }
-  EXPECT_LE(1, allocator_->limit_hits());
-  EXPECT_LE(1, allocator_->successful_shrinks_after_limit_hit());
+  EXPECT_LE(1, allocator_->limit_hits(PageAllocator::kSoft));
+  EXPECT_LE(
+      1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
   Delete(normal, 1, MemoryTag::kNormal);
   Delete(sampled, 1, MemoryTag::kSampled);

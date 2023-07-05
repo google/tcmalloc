@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "tcmalloc/parameters.h"
 
+#include <atomic>
+
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -83,13 +85,7 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
 }
 
 uint64_t Parameters::heap_size_hard_limit() {
-  size_t amount;
-  bool is_hard;
-  std::tie(amount, is_hard) = tc_globals.page_allocator().limit();
-  if (!is_hard) {
-    amount = 0;
-  }
-  return amount;
+  return tc_globals.page_allocator().limit(PageAllocator::kHard);
 }
 
 void Parameters::set_heap_size_hard_limit(uint64_t value) {
@@ -330,6 +326,8 @@ void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
 }
 
 uint64_t TCMalloc_Internal_GetHeapSizeHardLimit() {
+  // Under ASan we could get here before globals have been initialized.
+  tc_globals.InitIfNecessary();
   return Parameters::heap_size_hard_limit();
 }
 
@@ -379,21 +377,16 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // Ensure that page allocator is set up.
   tc_globals.InitIfNecessary();
 
+  ASSERT(value > 0);
   absl::base_internal::SpinLockHolder l(&update_lock);
 
-  size_t limit = std::numeric_limits<size_t>::max();
-  bool active = false;
-  if (value > 0) {
-    limit = value;
-    active = true;
-  }
-
-  bool currently_hard = tc_globals.page_allocator().limit().second;
-  if (active || currently_hard) {
-    // Avoid resetting limit when current limit is soft.
-    tc_globals.page_allocator().set_limit(limit, active /* is_hard */);
+  using tcmalloc::tcmalloc_internal::PageAllocator;
+  const size_t old_limit =
+      tc_globals.page_allocator().limit(PageAllocator::kHard);
+  tc_globals.page_allocator().set_limit(value, PageAllocator::kHard);
+  if (value != old_limit) {
     Log(kLog, __FILE__, __LINE__, "[tcmalloc] set page heap hard limit to",
-        limit, "bytes");
+        value, "bytes");
   }
 }
 
