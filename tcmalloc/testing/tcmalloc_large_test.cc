@@ -118,6 +118,7 @@ class NoErrnoRegionFactory final : public AddressRegionFactory {
 
 class LargeAllocationTest : public ::testing::Test {
  public:
+
   LargeAllocationTest() {
     old_ = MallocExtension::GetRegionFactory();
     MallocExtension::SetRegionFactory(new NoErrnoRegionFactory(old_));

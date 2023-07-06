@@ -150,6 +150,7 @@ void testEntry(Params &p, const tcmalloc::Profile::Sample &e) {
 
 class DeallocationzTest : public ::testing::Test {
  public:
+
   void Run() {
     if (CheckerIsActive()) {
       LOG(INFO) << "Skipping checks due to enabled checkers";
