@@ -374,13 +374,15 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
   }
 
   if (bind_mode == NumaBindMode::kAdvisory) {
-    Log(kLogWithStack, __FILE__, __LINE__, "Warning: Unable to mbind memory",
-        err, base, nodemask);
+    Log(kLogWithStack, __FILE__, __LINE__,
+        "Warning: Unable to mbind memory (errno, base, nodemask)", errno, base,
+        nodemask);
     return;
   }
 
   ASSERT(bind_mode == NumaBindMode::kStrict);
-  Crash(kCrash, __FILE__, __LINE__, "Unable to mbind memory", err, base,
+  Crash(kCrash, __FILE__, __LINE__,
+        "Unable to mbind memory (errno, base, nodemask)", errno, base,
         nodemask);
 }
 
@@ -525,7 +527,8 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
         mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (seed == MAP_FAILED) {
       Crash(kCrash, __FILE__, __LINE__,
-            "Initial mmap() reservation failed (size)", kPageSize);
+            "Initial mmap() reservation failed (errno, size)", errno,
+            kPageSize);
     }
     munmap(seed, kPageSize);
     return reinterpret_cast<uintptr_t>(seed);
