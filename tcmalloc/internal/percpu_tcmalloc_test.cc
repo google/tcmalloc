@@ -260,7 +260,6 @@ TEST_F(TcmallocSlabTest, Unit) {
       struct Policy {
         using pointer_type = void*;
         static void* to_pointer(void* p, size_t size_class) { return p; }
-        static constexpr bool size_returning() { return false; }
       };
       if (!initialized[cpu]) {
 #pragma GCC diagnostic ignored "-Wnonnull"
