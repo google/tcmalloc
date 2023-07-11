@@ -194,6 +194,16 @@ class ShardedTransferCacheManagerBase {
     return out;
   }
 
+  int TotalObjectsOfClass(int size_class) const {
+    if (shards_ == nullptr) return 0;
+    int objects = 0;
+    for (int shard = 0; shard < num_shards_; ++shard) {
+      if (!shard_initialized(shard)) continue;
+      objects += shards_[shard].transfer_caches[size_class].tc_length();
+    }
+    return objects;
+  }
+
   void *Pop(int size_class) {
     ASSERT(subtle::percpu::IsFastNoInit());
     void *batch[1];
@@ -613,6 +623,7 @@ struct ShardedTransferCacheManager {
   static constexpr size_t TotalBytes() { return 0; }
   static constexpr void Plunder() {}
   static int tc_length(int cpu, int size_class) { return 0; }
+  static int TotalObjectsOfClass(int size_class) { return 0; }
   static constexpr TransferCacheStats GetStats(int size_class) { return {}; }
   bool UseGenericCache() const { return false; }
   bool UseCacheForLargeClassesOnly() const { return false; }

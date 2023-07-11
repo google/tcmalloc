@@ -516,6 +516,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
     EXPECT_TRUE(manager.shard_initialized(0));
     EXPECT_FALSE(manager.shard_initialized(1));
     EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+    EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_GT(env.MetadataAllocated(), metadata);
@@ -531,6 +532,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
     EXPECT_TRUE(manager.shard_initialized(0));
     EXPECT_FALSE(manager.shard_initialized(1));
     EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+    EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_EQ(env.MetadataAllocated(), metadata);
@@ -546,6 +548,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
     EXPECT_TRUE(manager.shard_initialized(0));
     EXPECT_FALSE(manager.shard_initialized(1));
     EXPECT_EQ(manager.tc_length(1, kSizeClass), 0);
+    EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     // No new metadata allocated
@@ -563,6 +566,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
     EXPECT_TRUE(manager.shard_initialized(0));
     EXPECT_TRUE(manager.shard_initialized(1));
     EXPECT_EQ(manager.tc_length(2, kSizeClass), 0);
+    EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).capacity, 0);
     EXPECT_EQ(manager.GetStats(kSizeClass).max_capacity, 0);
     EXPECT_GT(env.MetadataAllocated(), metadata);
@@ -599,6 +603,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
       manager.Push(kSizeClass, ptr);
       EXPECT_TRUE(manager.shard_initialized(0));
       EXPECT_EQ(manager.tc_length(0, kSizeClass), 1);
+      EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 1);
       EXPECT_FALSE(manager.shard_initialized(1));
       EXPECT_GT(env.MetadataAllocated(), metadata);
       metadata = env.MetadataAllocated();
@@ -611,6 +616,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
       env.central_freelist().FreeBatch({&ptr, 1});
       EXPECT_TRUE(manager.shard_initialized(0));
       EXPECT_EQ(manager.tc_length(0, kSizeClass), 0);
+      EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 0);
       EXPECT_FALSE(manager.shard_initialized(1));
       EXPECT_EQ(env.MetadataAllocated(), metadata);
     }
@@ -623,6 +629,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
       manager.Push(kSizeClass, ptr);
       EXPECT_TRUE(manager.shard_initialized(0));
       EXPECT_EQ(manager.tc_length(1, kSizeClass), 1);
+      EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 1);
       EXPECT_FALSE(manager.shard_initialized(1));
       // No new metadata allocated
       EXPECT_EQ(env.MetadataAllocated(), metadata);
@@ -637,6 +644,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
       EXPECT_TRUE(manager.shard_initialized(0));
       EXPECT_TRUE(manager.shard_initialized(1));
       EXPECT_EQ(manager.tc_length(2, kSizeClass), 1);
+      EXPECT_EQ(manager.TotalObjectsOfClass(kSizeClass), 2);
       EXPECT_GT(env.MetadataAllocated(), metadata);
     }
   }

@@ -58,6 +58,8 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     const size_t length = tc_globals.central_freelist(size_class).length();
     const size_t tc_length = tc_globals.transfer_cache().tc_length(size_class);
+    const size_t sharded_tc_length =
+        tc_globals.sharded_transfer_cache().TotalObjectsOfClass(size_class);
     const size_t cache_overhead =
         tc_globals.central_freelist(size_class).OverheadBytes();
     const size_t size = tc_globals.sizemap().class_to_size(size_class);
@@ -66,7 +68,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     if (class_count) {
       // Sum the lengths of all per-class freelists, except the per-thread
       // freelists, which get counted when we call GetThreadStats(), below.
-      class_count[size_class] = length + tc_length;
+      class_count[size_class] = length + tc_length + sharded_tc_length;
       if (UsePerCpuCache(tc_globals)) {
         class_count[size_class] +=
             tc_globals.cpu_cache().TotalObjectsOfClass(size_class);
