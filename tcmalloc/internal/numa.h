@@ -143,20 +143,6 @@ class NumaTopology {
 // returns the file descriptor.
 int OpenSysfsCpulist(size_t node);
 
-// Parse a CPU list in the format used by
-// /sys/devices/system/node/nodeX/cpulist files - that is, individual CPU
-// numbers or ranges in the format <start>-<end> inclusive all joined by comma
-// characters.
-//
-// Returns absl::nullopt on error.
-//
-// The read function is expected to operate much like the read syscall. It
-// should read up to `count` bytes into `buf` and return the number of bytes
-// actually read. If an error occurs during reading it should return -1 with
-// errno set to an appropriate error code.
-std::optional<cpu_set_t> ParseCpulist(
-    absl::FunctionRef<ssize_t(char* buf, size_t count)> read);
-
 // Initialize the data members of a NumaTopology<> instance.
 //
 // This function must only be called once per NumaTopology<> instance, and

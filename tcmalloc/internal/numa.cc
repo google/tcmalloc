@@ -30,11 +30,11 @@
 #include "absl/base/attributes.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/functional/function_ref.h"
-#include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -51,75 +51,6 @@ int OpenSysfsCpulist(size_t node) {
   snprintf(path, sizeof(path), "/sys/devices/system/node/node%zu/cpulist",
            node);
   return signal_safe_open(path, O_RDONLY | O_CLOEXEC);
-}
-
-namespace {
-bool IsInBounds(int cpu) { return 0 <= cpu && cpu < CPU_SETSIZE; }
-}  // namespace
-
-std::optional<cpu_set_t> ParseCpulist(
-    absl::FunctionRef<ssize_t(char*, size_t)> read) {
-  cpu_set_t set;
-  CPU_ZERO(&set);
-
-  std::array<char, 16> buf;
-  size_t carry_over = 0;
-  int cpu_from = -1;
-
-  while (true) {
-    const ssize_t rc = read(buf.data() + carry_over, buf.size() - carry_over);
-    if (ABSL_PREDICT_FALSE(rc < 0)) {
-      return std::nullopt;
-    }
-
-    const absl::string_view current(buf.data(), carry_over + rc);
-
-    // If we have no more data to parse & couldn't read any then we've reached
-    // the end of the input & are done.
-    if (current.empty() && rc == 0) {
-      break;
-    }
-    if (current == "\n" && rc == 0) {
-      break;
-    }
-
-    size_t consumed;
-    const size_t dash = current.find('-');
-    const size_t comma = current.find(',');
-    if (dash != absl::string_view::npos && dash < comma) {
-      if (!absl::SimpleAtoi(current.substr(0, dash), &cpu_from) ||
-          !IsInBounds(cpu_from)) {
-        return std::nullopt;
-      }
-      consumed = dash + 1;
-    } else if (comma != absl::string_view::npos || rc == 0) {
-      int cpu;
-      if (!absl::SimpleAtoi(current.substr(0, comma), &cpu) ||
-          !IsInBounds(cpu)) {
-        return std::nullopt;
-      }
-      if (comma == absl::string_view::npos) {
-        consumed = current.size();
-      } else {
-        consumed = comma + 1;
-      }
-      if (cpu_from != -1) {
-        for (int c = cpu_from; c <= cpu; c++) {
-          CPU_SET(c, &set);
-        }
-        cpu_from = -1;
-      } else {
-        CPU_SET(cpu, &set);
-      }
-    } else {
-      consumed = 0;
-    }
-
-    carry_over = current.size() - consumed;
-    memmove(buf.data(), buf.data() + consumed, carry_over);
-  }
-
-  return set;
 }
 
 bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],

@@ -409,22 +409,13 @@ cc_library(
         ":environment",
         ":logging",
         ":percpu",
+        ":sysinfo",
         ":util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
-    ],
-)
-
-cc_fuzz_test(
-    name = "numa_fuzz",
-    testonly = 1,
-    srcs = ["numa_fuzz.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        ":numa",
     ],
 )
 
@@ -807,6 +798,44 @@ cc_test(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/random",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "sysinfo",
+    srcs = ["sysinfo.cc"],
+    hdrs = ["sysinfo.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":config",
+        ":logging",
+        ":util",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_fuzz_test(
+    name = "sysinfo_fuzz",
+    testonly = 1,
+    srcs = ["sysinfo_fuzz.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":sysinfo",
+    ],
+)
+
+cc_test(
+    name = "sysinfo_test",
+    srcs = ["sysinfo_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":logging",
+        ":sysinfo",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
 )
