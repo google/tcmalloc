@@ -222,6 +222,13 @@ TEST_F(LimitTest, LimitRespected) {
   EXPECT_EXIT(LimitRespected(), testing::ExitedWithCode(0), "");
 }
 
+TEST_F(LimitTest, HardLimitZeroEqNoLimit) {
+  SetLimit(0, /*is_hard=*/true);
+
+  // Setting limit to 0 implies no limit. Verify we can still allocate.
+  ::operator delete(::operator new(1 << 20));
+}
+
 TEST_F(LimitDeathTest, HardLimitRespected) {
   static const size_t kLim = 400 << 20;
   SetLimit(kLim, true);
