@@ -403,17 +403,22 @@ void DumpStats(Printer* out, int level) {
     tc_globals.page_allocator().Print(out, MemoryTag::kCold);
     tc_globals.guardedpage_allocator().Print(out);
 
-    uint64_t limit_bytes;
-    bool is_hard;
-    std::tie(limit_bytes, is_hard) = tc_globals.page_allocator().limit();
-    out->printf("PARAMETER desired_usage_limit_bytes %u %s\n", limit_bytes,
-                is_hard ? "(hard)" : "");
-    out->printf("Number of times limit was hit: %lld\n",
-                tc_globals.page_allocator().limit_hits());
-    out->printf(
-        "Number of times memory shrank below limit: %lld\n",
-        tc_globals.page_allocator().successful_shrinks_after_limit_hit());
-
+    uint64_t soft_limit_bytes =
+        tc_globals.page_allocator().limit(PageAllocator::kSoft);
+    uint64_t hard_limit_bytes =
+        tc_globals.page_allocator().limit(PageAllocator::kHard);
+    out->printf("PARAMETER desired_usage_limit_bytes %u\n", soft_limit_bytes);
+    out->printf("PARAMETER hard_usage_limit_bytes %u\n", hard_limit_bytes);
+    out->printf("Number of times soft limit was hit: %lld\n",
+                tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
+    out->printf("Number of times hard limit was hit: %lld\n",
+                tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
+    out->printf("Number of times memory shrank below soft limit: %lld\n",
+                tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                    PageAllocator::kSoft));
+    out->printf("Number of times memory shrank below hard limit: %lld\n",
+                tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                    PageAllocator::kHard));
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 Parameters::per_cpu_caches() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
@@ -566,16 +571,25 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
   // We do not collect tracking information in pbtxt.
 
-  size_t limit_bytes;
-  bool is_hard;
-  std::tie(limit_bytes, is_hard) = tc_globals.page_allocator().limit();
-  region.PrintI64("desired_usage_limit_bytes", limit_bytes);
-  region.PrintBool("hard_limit", is_hard);
-  region.PrintI64("limit_hits", tc_globals.page_allocator().limit_hits());
-  region.PrintI64(
-      "successful_shrinks_after_limit_hit",
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit());
+  size_t soft_limit_bytes =
+      tc_globals.page_allocator().limit(PageAllocator::kSoft);
+  size_t hard_limit_bytes =
+      tc_globals.page_allocator().limit(PageAllocator::kHard);
 
+  region.PrintI64("desired_usage_limit_bytes", soft_limit_bytes);
+  region.PrintI64("hard_usage_limit_bytes", hard_limit_bytes);
+  region.PrintI64("soft_limit_hits",
+                  tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
+  region.PrintI64("hard_limit_hits",
+                  tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
+  region.PrintI64(
+      "successful_shrinks_after_soft_limit_hit",
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kSoft));
+  region.PrintI64(
+      "successful_shrinks_after_hard_limit_hit",
+      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+          PageAllocator::kHard));
   {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
     tc_globals.guardedpage_allocator().PrintInPbtxt(&gwp_asan);
@@ -782,23 +796,46 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
-  bool want_hard_limit = (name == "tcmalloc.hard_usage_limit_bytes");
-  if (want_hard_limit || name == "tcmalloc.desired_usage_limit_bytes") {
-    size_t amount;
-    bool is_hard;
-    std::tie(amount, is_hard) = tc_globals.page_allocator().limit();
-    if (want_hard_limit != is_hard) {
-      amount = std::numeric_limits<size_t>::max();
-    }
-    *value = amount;
+  auto limit_kind = (name == "tcmalloc.hard_usage_limit_bytes")
+                        ? PageAllocator::kHard
+                        : PageAllocator::kSoft;
+  if (limit_kind == PageAllocator::kHard ||
+      name == "tcmalloc.desired_usage_limit_bytes") {
+    *value = tc_globals.page_allocator().limit(limit_kind);
     return true;
   }
+  if (name == "tcmalloc.soft_limit_hits") {
+    *value = tc_globals.page_allocator().limit_hits(PageAllocator::kSoft);
+    return true;
+  }
+  if (name == "tcmalloc.hard_limit_hits") {
+    *value = tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
+    return true;
+  }
+  if (name == "tcmalloc.successful_shrinks_after_soft_limit_hit") {
+    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+        PageAllocator::kSoft);
+    return true;
+  }
+  if (name == "tcmalloc.successful_shrinks_after_hard_limit_hit") {
+    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+        PageAllocator::kHard);
+    return true;
+  }
+
+  // TODO(b/288099265): Delete "limit_hits" after 2024-02-01
   if (name == "tcmalloc.limit_hits") {
-    *value = tc_globals.page_allocator().limit_hits();
+    *value = tc_globals.page_allocator().limit_hits(PageAllocator::kSoft) +
+             tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
     return true;
   }
+  // TODO(b/288099265): Delete "successful_shrinks_after_limit_hit" after
+  // 2024-02-01
   if (name == "tcmalloc.successful_shrinks_after_limit_hit") {
-    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit();
+    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                 PageAllocator::kSoft) +
+             tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                 PageAllocator::kHard);
     return true;
   }
 

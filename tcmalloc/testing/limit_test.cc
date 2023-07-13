@@ -63,7 +63,7 @@ class LimitTest : public ::testing::Test {
   void LimitRespected();
 
   void ReleaseMemory() {
-    MallocExtension::SetMemoryLimit({.limit = 0, .hard = false});
+    MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kSoft);
 
     // This will cause a donation that will be immediately subreleased because
     // of the memory limit.
@@ -71,21 +71,8 @@ class LimitTest : public ::testing::Test {
     ::operator delete(ptr);
   }
 
-  void SetLimit(size_t limit, bool is_hard) {
-    MallocExtension::MemoryLimit v;
-    v.limit = limit;
-    v.hard = is_hard;
-    MallocExtension::SetMemoryLimit(v);
-  }
-
-  size_t GetLimit(bool is_hard) {
-    MallocExtension::MemoryLimit v = MallocExtension::GetMemoryLimit();
-    if (v.hard == is_hard) {
-      return v.limit;
-    } else {
-      // Return no limit, as we do not have a limit matching is_hard.
-      return std::numeric_limits<size_t>::max();
-    }
+  size_t GetLimit(MallocExtension::LimitKind limit_kind) {
+    return MallocExtension::GetMemoryLimit(limit_kind);
   }
 
   // avoid fragmentation in local caches
@@ -132,14 +119,22 @@ class LimitTest : public ::testing::Test {
   std::string stats_pbtxt_;
 };
 
-class LimitDeathTest : public LimitTest {};
+using LimitDeathTest = LimitTest;
+
+TEST_F(LimitTest, LimitZeroMeansNoLimit) {
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kSoft);
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kHard);
+
+  void* ptr = ::operator new(10000);  // Should allocate memory fine.
+  ::operator delete(ptr);
+}
 
 void LimitTest::LimitRespected() {
   // Needed to see what expectation failed (if any).
   testing::UnitTest::GetInstance()->listeners().SuppressEventForwarding(false);
 
   static const size_t kLim = 4ul * 1024 * 1024 * 1024;
-  SetLimit(kLim, false);
+  MallocExtension::SetMemoryLimit(kLim, MallocExtension::LimitKind::kSoft);
 
   absl::string_view statsBuf = GetStats();
   absl::string_view statsPbtxt = GetStatsInPbTxt();
@@ -148,15 +143,21 @@ void LimitTest::LimitRespected() {
   absl::SNPrintF(buf, sizeof(buf), "PARAMETER desired_usage_limit_bytes %u",
                  kLim);
   EXPECT_THAT(statsBuf, HasSubstr(buf));
-  EXPECT_THAT(statsBuf, HasSubstr("Number of times limit was hit: 0"));
+  EXPECT_THAT(statsBuf, HasSubstr("Number of times soft limit was hit: 0"));
   EXPECT_THAT(statsBuf,
-              HasSubstr("Number of times memory shrank below limit: 0"));
+              HasSubstr("Number of times memory shrank below soft limit: 0"));
+  EXPECT_THAT(statsBuf, HasSubstr("Number of times hard limit was hit: 0"));
+  EXPECT_THAT(statsBuf,
+              HasSubstr("Number of times memory shrank below hard limit: 0"));
 
   absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
   EXPECT_THAT(statsPbtxt, HasSubstr(buf));
-  EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: false"));
-  EXPECT_THAT(statsPbtxt, HasSubstr("limit_hits: 0"));
-  EXPECT_THAT(statsPbtxt, HasSubstr("successful_shrinks_after_limit_hit: 0"));
+  EXPECT_THAT(statsPbtxt, HasSubstr("soft_limit_hits: 0"));
+  EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit_hits: 0"));
+  EXPECT_THAT(statsPbtxt,
+              HasSubstr("successful_shrinks_after_soft_limit_hit: 0"));
+  EXPECT_THAT(statsPbtxt,
+              HasSubstr("successful_shrinks_after_hard_limit_hit: 0"));
 
   // Avoid failing due to usage by test itself.
   static const size_t kLimForUse = kLim * 9 / 10;
@@ -200,18 +201,25 @@ void LimitTest::LimitRespected() {
   statsBuf = GetStats();
   statsPbtxt = GetStatsInPbTxt();
   // The HugePageAwareAllocator hits the limit more than once.
-  EXPECT_THAT(statsBuf,
-              ContainsRegex(R"(Number of times limit was hit: [1-9]\d*)"));
   EXPECT_THAT(
       statsBuf,
-      ContainsRegex(R"(Number of times memory shrank below limit: [1-9]\d*)"));
-  EXPECT_THAT(statsPbtxt, ContainsRegex(R"(limit_hits: [1-9]\d*)"));
-  EXPECT_THAT(statsPbtxt,
-              ContainsRegex(R"(successful_shrinks_after_limit_hit: [1-9\d*])"));
+      AllOf(ContainsRegex(R"(Number of times soft limit was hit: [1-9]\d*)"),
+            ContainsRegex(R"(Number of times hard limit was hit: 0)")));
+  EXPECT_THAT(
+      statsBuf,
+      AllOf(ContainsRegex(
+                R"(Number of times memory shrank below soft limit: [1-9]\d*)"),
+            ContainsRegex(
+                R"(Number of times memory shrank below hard limit: 0)")));
+  EXPECT_THAT(statsPbtxt, ContainsRegex(R"(soft_limit_hits: [1-9]\d*)"));
+  EXPECT_THAT(
+      statsPbtxt,
+      ContainsRegex(R"(successful_shrinks_after_soft_limit_hit: [1-9\d*])"));
 
   for (auto p : ptrs) {
     free(p);
   }
+
   // Exit status indicates whether we've failed any of the expectations above.
   exit(testing::Test::HasFailure());
 }
@@ -223,7 +231,7 @@ TEST_F(LimitTest, LimitRespected) {
 }
 
 TEST_F(LimitTest, HardLimitZeroEqNoLimit) {
-  SetLimit(0, /*is_hard=*/true);
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kHard);
 
   // Setting limit to 0 implies no limit. Verify we can still allocate.
   ::operator delete(::operator new(1 << 20));
@@ -231,29 +239,28 @@ TEST_F(LimitTest, HardLimitZeroEqNoLimit) {
 
 TEST_F(LimitDeathTest, HardLimitRespected) {
   static const size_t kLim = 400 << 20;
-  SetLimit(kLim, true);
+  MallocExtension::SetMemoryLimit(kLim, MallocExtension::LimitKind::kHard);
 
   absl::string_view statsBuf = GetStats();
   absl::string_view statsPbtxt = GetStatsInPbTxt();
 
   // Avoid gmock matchers, as they require a std::string which may allocate.
   char buf[512];
-  absl::SNPrintF(buf, sizeof(buf),
-                 "PARAMETER desired_usage_limit_bytes %u (hard)", kLim);
+  absl::SNPrintF(buf, sizeof(buf), "PARAMETER hard_usage_limit_bytes %u", kLim);
   EXPECT_TRUE(absl::StrContains(statsBuf, buf)) << statsBuf;
 
-  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
+  absl::SNPrintF(buf, sizeof(buf), "hard_usage_limit_bytes: %u", kLim);
   EXPECT_TRUE(absl::StrContains(statsPbtxt, buf)) << statsPbtxt;
-  EXPECT_TRUE(absl::StrContains(statsPbtxt, "hard_limit: true")) << statsPbtxt;
 
   ASSERT_DEATH(malloc_pages(400 << 20), "limit");
 
-  SetLimit(std::numeric_limits<size_t>::max(), false);
+  MallocExtension::SetMemoryLimit(std::numeric_limits<size_t>::max(),
+                                  MallocExtension::LimitKind::kHard);
 }
 
 TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
   static const size_t kLim = 300 << 20;
-  SetLimit(kLim, true);
+  MallocExtension::SetMemoryLimit(kLim, MallocExtension::LimitKind::kHard);
   TCMalloc_Internal_SetHPAASubrelease(false);
   EXPECT_FALSE(TCMalloc_Internal_GetHPAASubrelease());
 
@@ -261,13 +268,11 @@ TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
   absl::string_view statsPbtxt = GetStatsInPbTxt();
 
   char buf[512];
-  absl::SNPrintF(buf, sizeof(buf),
-                 "PARAMETER desired_usage_limit_bytes %u (hard)", kLim);
+  absl::SNPrintF(buf, sizeof(buf), "PARAMETER hard_usage_limit_bytes %u", kLim);
   EXPECT_THAT(statsBuf, HasSubstr(buf));
 
-  absl::SNPrintF(buf, sizeof(buf), "desired_usage_limit_bytes: %u", kLim);
+  absl::SNPrintF(buf, sizeof(buf), "hard_usage_limit_bytes: %u", kLim);
   EXPECT_THAT(statsPbtxt, HasSubstr(buf));
-  EXPECT_THAT(statsPbtxt, HasSubstr("hard_limit: true"));
 
   ASSERT_DEATH(
       []() {
@@ -299,7 +304,8 @@ TEST_F(LimitDeathTest, HardLimitRespectsNoSubrelease) {
         DumpHeapStats("after freeing all objects");
       }(),
       "limit");
-  SetLimit(std::numeric_limits<size_t>::max(), false);
+  MallocExtension::SetMemoryLimit(std::numeric_limits<size_t>::max(),
+                                  MallocExtension::LimitKind::kHard);
 }
 
 // Tests interactions between the lifetime-based allocator and memory limits.
@@ -310,7 +316,7 @@ TEST_F(LimitTest, LifetimeAllocatorPath) {
   bool previous_subrelease = TCMalloc_Internal_GetHPAASubrelease();
   TCMalloc_Internal_SetHPAASubrelease(true);
   EXPECT_TRUE(TCMalloc_Internal_GetHPAASubrelease());
-  MallocExtension::SetMemoryLimit({.limit = 0, .hard = false});
+  MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kSoft);
 
   // This will cause a donation that will be immediately subreleased because of
   // the memory limit. This catches a problem in the allocation path where the
@@ -369,10 +375,8 @@ void LimitTest::LimitChangeTriggersReleaseSmallAllocs() {
   EXPECT_GE(old_free, kSize / 2);
 
   // Change limit.
-  MallocExtension::MemoryLimit new_limit;
-  new_limit.limit = heap_size + kSize / 2;
-  new_limit.hard = false;
-  MallocExtension::SetMemoryLimit(new_limit);
+  MallocExtension::SetMemoryLimit(heap_size + kSize / 2,
+                                  MallocExtension::LimitKind::kSoft);
 
   const size_t new_free =
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");
@@ -422,10 +426,8 @@ void LimitTest::LimitChangeTriggersReleaseLargeAllocs() {
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
 
   // Change limit.
-  MallocExtension::MemoryLimit new_limit;
-  new_limit.limit = heap_size + kSize / 2;
-  new_limit.hard = false;
-  MallocExtension::SetMemoryLimit(new_limit);
+  MallocExtension::SetMemoryLimit(heap_size + kSize / 2,
+                                  MallocExtension::LimitKind::kSoft);
 
   const size_t new_free =
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_free_bytes");

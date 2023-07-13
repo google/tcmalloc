@@ -19,6 +19,7 @@
 #include <stddef.h>
 
 #include <array>
+#include <limits>
 #include <utility>
 
 #include "absl/base/thread_annotations.h"
@@ -82,10 +83,19 @@ class PageAllocator {
   void PrintInPbtxt(PbtxtRegion* region, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  void set_limit(size_t limit, bool is_hard) ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  std::pair<size_t, bool> limit() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  int64_t limit_hits() const ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  int64_t successful_shrinks_after_limit_hit() const
+  enum LimitKind { kSoft, kHard, kNumLimits };
+  void set_limit(size_t limit, LimitKind limit_kind)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  int64_t limit(LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    ASSERT(limit_kind < kNumLimits);
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    return limits_[limit_kind];
+  }
+
+  int64_t limit_hits(LimitKind limit_kind) const
+      ABSL_LOCKS_EXCLUDED(pageheap_lock);
+
+  int64_t successful_shrinks_after_limit_hit(LimitKind limit_kind) const
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   // If we have a usage limit set, ensure we're not violating it from our latest
@@ -113,7 +123,8 @@ class PageAllocator {
   }
 
  private:
-  bool ShrinkHardBy(Length pages) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  bool ShrinkHardBy(Length page, LimitKind limit_kind)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   ABSL_ATTRIBUTE_RETURNS_NONNULL PageAllocatorInterface* impl(
       MemoryTag tag) const;
@@ -135,14 +146,17 @@ class PageAllocator {
   Algorithm alg_;
   bool has_cold_impl_;
 
-  bool limit_is_hard_{false};
   // Max size of backed spans we will attempt to maintain.
-  size_t limit_{std::numeric_limits<size_t>::max()};
+  // Crash if we can't maintain below limits_[kHard], which is guaranteed to be
+  // higher than limits_[kSoft].
+  size_t limits_[kNumLimits] = {std::numeric_limits<size_t>::max(),
+                                std::numeric_limits<size_t>::max()};
+
   // The number of times the limit has been hit.
-  int64_t limit_hits_{0};
+  int64_t limit_hits_[kNumLimits]{0};
   // Number of times we succeeded in shrinking the memory usage to be less than
   // or at the limit.
-  int64_t successful_shrinks_after_limit_hit_{0};
+  int64_t successful_shrinks_after_limit_hit_[kNumLimits]{0};
 
   // peak_backed_bytes_ tracks the maximum number of pages backed (with physical
   // memory) in the page heap and metadata.
@@ -273,27 +287,28 @@ inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
   impl(tag)->PrintInPbtxt(&pa);
 }
 
-inline void PageAllocator::set_limit(size_t limit, bool is_hard) {
+inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  limit_ = limit;
-  limit_is_hard_ = is_hard;
+  limits_[limit_kind] = limit;
+  if (limits_[kHard] < limits_[kSoft]) {
+    // Soft limit can not be higher than hard limit.
+    limits_[kSoft] = limits_[kHard];
+  }
   // Attempt to shed memory to get below the new limit.
   ShrinkToUsageLimit(Length(0));
 }
 
-inline std::pair<size_t, bool> PageAllocator::limit() const {
+inline int64_t PageAllocator::limit_hits(LimitKind limit_kind) const {
+  ASSERT(limit_kind < kNumLimits);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  return {limit_, limit_is_hard_};
+  return limit_hits_[limit_kind];
 }
 
-inline int64_t PageAllocator::limit_hits() const {
+inline int64_t PageAllocator::successful_shrinks_after_limit_hit(
+    LimitKind limit_kind) const {
+  ASSERT(limit_kind < kNumLimits);
   absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  return limit_hits_;
-}
-
-inline int64_t PageAllocator::successful_shrinks_after_limit_hit() const {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
-  return successful_shrinks_after_limit_hit_;
+  return successful_shrinks_after_limit_hit_[limit_kind];
 }
 
 inline const PageAllocInfo& PageAllocator::info(MemoryTag tag) const {

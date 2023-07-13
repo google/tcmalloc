@@ -416,7 +416,19 @@ class MallocExtension final {
   //   back in.
   static void ReleaseMemoryToSystem(size_t num_bytes);
 
-  struct MemoryLimit {
+  enum class LimitKind { kSoft, kHard };
+
+  // Make a best effort attempt to prevent more than limit bytes of memory
+  // from being allocated by the system. In particular, if satisfying a given
+  // malloc call would require passing this limit, release as much memory to
+  // the OS as needed to stay under it if possible.
+  //
+  // If limit_kind == kHard, crash if returning memory is unable to get below
+  // the limit.
+  static size_t GetMemoryLimit(LimitKind limit_kind);
+  static void SetMemoryLimit(size_t limit, LimitKind limit_kind);
+
+  struct ABSL_DEPRECATED("Use LimitKind instead") MemoryLimit {
     // Make a best effort attempt to prevent more than limit bytes of memory
     // from being allocated by the system. In particular, if satisfying a given
     // malloc call would require passing this limit, release as much memory to
@@ -430,8 +442,15 @@ class MallocExtension final {
     bool hard = false;
   };
 
-  static MemoryLimit GetMemoryLimit();
-  static void SetMemoryLimit(const MemoryLimit& limit);
+  // Deprecated compatibility shim.
+  ABSL_DEPRECATED("Use LimitKind version")
+  static void SetMemoryLimit(const MemoryLimit& limit) {
+    SetMemoryLimit(limit.limit,
+                   limit.hard ? LimitKind::kHard : LimitKind::kSoft);
+  }
+
+  // Deprecated compatibility shim.
+  ABSL_DEPRECATED("Use LimitKind version") static MemoryLimit GetMemoryLimit();
 
   // Gets the sampling rate.  Returns a value < 0 if unknown.
   static int64_t GetProfileSamplingRate();
