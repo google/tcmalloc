@@ -330,7 +330,6 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
 
-    // If the caller didn't provide a span, allocate one:
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
     alloc_with_status = TrySampleGuardedAllocation(
         state, requested_size, stack_trace.requested_alignment, num_pages,
@@ -380,6 +379,7 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
     capacity = stack_trace.allocated_size;
   }
 
+  // A span must be provided or created by this point.
   ASSERT(span != nullptr);
 
   stack_trace.sampled_alloc_handle =
