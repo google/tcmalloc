@@ -136,8 +136,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
         size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
         size_t object_size = length.in_bytes() / num_objects;
+        const bool use_aligned = ((value >> 48) & 0x1) == 0;
+        const Length align(
+            use_aligned ? std::clamp<size_t>((value >> 32) & 0xFFFF, 1,
+                                             kPagesPerHugePage.raw_num() - 1)
+                        : 1);
 
-        if (object_size > kMaxSize) {
+        if (object_size > kMaxSize || align > Length(1)) {
           // Truncate to a single object.
           num_objects = 1;
         } else if (!SizeMap::IsValidSizeClass(object_size, length.raw_num(),
@@ -146,11 +151,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           break;
         }
 
-        const bool use_aligned = ((value >> 48) & 0x1) == 0;
         Span* s;
         if (use_aligned) {
-          const Length align(std::clamp<size_t>(
-              (value >> 32) & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
           s = allocator->NewAligned(length, align, num_objects);
         } else {
           s = allocator->New(length, num_objects);
