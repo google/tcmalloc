@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/thread_manager.h"
 
@@ -48,17 +50,20 @@ namespace tcmalloc_internal {
 
 namespace central_freelist_internal {
 
-class StaticForwarderTest : public testing::TestWithParam<size_t> {
+class StaticForwarderTest : public testing::TestWithParam<
+                                std::tuple<AccessDensityPrediction, size_t>> {
  protected:
   size_t size_class_;
   size_t object_size_;
   Length pages_per_span_;
   size_t batch_size_;
   size_t objects_per_span_;
+  AccessDensityPrediction density_;
 
  private:
   void SetUp() override {
-    size_class_ = GetParam();
+    density_ = std::get<0>(GetParam());
+    size_class_ = std::get<1>(GetParam());
     if (IsExpandedSizeClass(size_class_)) {
 #if ABSL_HAVE_THREAD_SANITIZER
       GTEST_SKIP() << "Skipping test under sanitizers that conflict with "
@@ -84,8 +89,10 @@ class StaticForwarderTest : public testing::TestWithParam<size_t> {
 };
 
 TEST_P(StaticForwarderTest, Simple) {
-  Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
-                                             pages_per_span_);
+  SpanAllocInfo alloc_info = {.objects_per_span = objects_per_span_,
+                              .density = density_};
+  Span* span =
+      StaticForwarder::AllocateSpan(size_class_, alloc_info, pages_per_span_);
   ASSERT_NE(span, nullptr);
 
   absl::FixedArray<void*> batch(objects_per_span_);
@@ -106,8 +113,7 @@ TEST_P(StaticForwarderTest, Simple) {
     span->FreelistPush(ptr, object_size_);
   }
 
-  StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
-                                   absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(&span, 1));
 }
 
 class StaticForwarderEnvironment {
@@ -119,12 +125,13 @@ class StaticForwarderEnvironment {
  public:
   StaticForwarderEnvironment(int size_class, size_t object_size,
                              size_t objects_per_span, Length pages_per_span,
-                             int batch_size)
+                             int batch_size, AccessDensityPrediction density)
       : size_class_(size_class),
         object_size_(object_size),
         objects_per_span_(objects_per_span),
         pages_per_span_(pages_per_span),
-        batch_size_(batch_size) {}
+        batch_size_(batch_size),
+        density_(density) {}
 
   ~StaticForwarderEnvironment() { Drain(); }
 
@@ -169,14 +176,15 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
-                                     absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
   }
 
   void Grow() {
     // Allocate a Span
-    Span* span = StaticForwarder::AllocateSpan(size_class_, objects_per_span_,
-                                               pages_per_span_);
+    SpanAllocInfo alloc_info = {.objects_per_span = objects_per_span_,
+                                .density = density_};
+    Span* span =
+        StaticForwarder::AllocateSpan(size_class_, alloc_info, pages_per_span_);
     ASSERT_NE(span, nullptr);
 
     auto d = absl::make_unique<SpanData>();
@@ -228,8 +236,7 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
-                                     absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
   }
 
   void Shuffle(absl::BitGen& rng) {
@@ -249,6 +256,7 @@ class StaticForwarderEnvironment {
   size_t objects_per_span_;
   Length pages_per_span_;
   int batch_size_;
+  AccessDensityPrediction density_;
 
   absl::Mutex mu_;
   int64_t spans_allocated_ ABSL_GUARDED_BY(mu_) = 0;
@@ -270,7 +278,7 @@ TEST_P(StaticForwarderTest, Fuzz) {
   const auto page_heap_before = PageHeapStats();
 
   StaticForwarderEnvironment env(size_class_, object_size_, objects_per_span_,
-                                 pages_per_span_, batch_size_);
+                                 pages_per_span_, batch_size_, density_);
   ThreadManager threads;
   threads.Start(10, [&](int) { env.RandomlyPoke(); });
 
@@ -292,8 +300,11 @@ TEST_P(StaticForwarderTest, Fuzz) {
             bytes_allocated / 2);
 }
 
-INSTANTIATE_TEST_SUITE_P(All, StaticForwarderTest,
-                         testing::Range(size_t(1), kNumClasses));
+INSTANTIATE_TEST_SUITE_P(
+    All, StaticForwarderTest,
+    testing::Combine(testing::Values(AccessDensityPrediction::kSparse,
+                                     AccessDensityPrediction::kDense),
+                     testing::Range(size_t(1), kNumClasses)));
 
 }  // namespace central_freelist_internal
 
@@ -707,14 +718,13 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   EXPECT_EQ(stats.obj_capacity, 0);
 }
 
-TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
+TYPED_TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
   ASSERT_GT(TypeParam::kObjectsPerSpan, 1);
-  auto test_function = [&](size_t num_objects) {
+  auto test_function = [&](size_t num_objects,
+                           AccessDensityPrediction density) {
     TypeParam e;
     std::vector<void*> objects(TypeParam::kObjectsPerSpan);
-    EXPECT_CALL(
-        e.forwarder(),
-        AllocateSpan(testing::_, TypeParam::kObjectsPerSpan, testing::_))
+    EXPECT_CALL(e.forwarder(), AllocateSpan(testing::_, testing::_, testing::_))
         .Times(1);
     const size_t to_fetch =
         std::min(TypeParam::kObjectsPerSpan, TypeParam::kBatchSize);
@@ -722,9 +732,7 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
         e.central_freelist().RemoveRange(&objects[0], to_fetch);
     size_t returned = 0;
     while (returned < fetched) {
-      EXPECT_CALL(
-          e.forwarder(),
-          DeallocateSpans(testing::_, TypeParam::kObjectsPerSpan, testing::_))
+      EXPECT_CALL(e.forwarder(), DeallocateSpans(testing::_, testing::_))
           .Times(1);
       const size_t to_return =
           std::min(fetched - returned, TypeParam::kBatchSize);
@@ -732,8 +740,8 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanObjectCountToPageheap) {
       returned += to_return;
     }
   };
-  test_function(1);
-  test_function(TypeParam::kObjectsPerSpan);
+  test_function(1, AccessDensityPrediction::kDense);
+  test_function(TypeParam::kObjectsPerSpan, AccessDensityPrediction::kDense);
 }
 
 TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
@@ -774,7 +782,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
 REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
                             MultiNonEmptyLists, SpanPriority,
                             SpanUtilizationHistogram, MultipleSpans,
-                            SinglePopulate, PassSpanObjectCountToPageheap,
+                            SinglePopulate, PassSpanDensityToPageheap,
                             SpanFragmentation);
 
 namespace unit_tests {

@@ -33,6 +33,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -264,8 +265,8 @@ class FillerStatsTracker {
  public:
   enum Type {
     kRegular,
-    kFewObjects = kRegular,
-    kManyObjects,
+    kSparse = kRegular,
+    kDense,
     kDonated,
     kPartialReleased,
     kReleased,
@@ -765,9 +766,8 @@ void FillerStatsTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       tracker_.kSkipEmptyEntries);
 }
 
-static constexpr size_t kFewObjectsAllocMaxLimit = 16;
-inline bool IsManyObjectsSpan(int span_objects_count) {
-  return span_objects_count > kFewObjectsAllocMaxLimit;
+inline bool IsDenseSpan(AccessDensityPrediction density) {
+  return density == AccessDensityPrediction::kDense;
 }
 
 // PageTracker keeps track of the allocation status of every page in a HugePage.
@@ -899,8 +899,8 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
-  bool HasManyObjectsSpans() const { return has_many_objects_spans_; }
-  void SetHasManyObjectsSpans() { has_many_objects_spans_ = true; }
+  bool HasDenseSpans() const { return has_dense_spans_; }
+  void SetHasDenseSpans() { has_dense_spans_ = true; }
 
  private:
   void init_when(uint64_t w) {
@@ -950,7 +950,7 @@ class PageTracker : public TList<PageTracker>::Elem {
                     std::numeric_limits<uint16_t>::max(),
                 "nallocs must be able to support kPagesPerHugePage!");
 
-  bool has_many_objects_spans_ = false;
+  bool has_dense_spans_ = false;
 
   ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
                                          MemoryModifyFunction unback) {
@@ -964,34 +964,23 @@ class PageTracker : public TList<PageTracker>::Elem {
   }
 };
 
-// As of March 2023, we allocate as if all spans have few objects on them.
-//
-// When we separate allocs into few/many spans
-// (separate_allocs_for_few_and_many_objects_spans_), we use both values of
-// ObjectCount.  Spans with more objects are allocated from index kMany.
-enum ObjectCount {
-  kFew = 0,
-  kMany = 1,
-  kObjectCounts,
-};
-
 // Records number of hugepages in different types of allocs.
 //
 // We use an additional element in the array to record the total sum of pages
-// in kFew and kMany allocs.
+// in kSparse and kDense allocs.
 struct HugePageFillerStats {
   // Number of hugepages in fully-released alloc.
-  HugeLength n_fully_released[kObjectCounts + 1];
+  HugeLength n_fully_released[AccessDensityPrediction::kPredictionCounts + 1];
   // Number of hugepages in partially-released alloc.
-  HugeLength n_partial_released[kObjectCounts + 1];
+  HugeLength n_partial_released[AccessDensityPrediction::kPredictionCounts + 1];
   // Total hugepages that are either in fully- or partially-released allocs.
-  HugeLength n_released[kObjectCounts + 1];
+  HugeLength n_released[AccessDensityPrediction::kPredictionCounts + 1];
   // Total hugepages in the filler of a particular object count.
-  HugeLength n_total[kObjectCounts + 1];
+  HugeLength n_total[AccessDensityPrediction::kPredictionCounts + 1];
   // Total hugepages that have been fully allocated.
-  HugeLength n_full[kObjectCounts + 1];
+  HugeLength n_full[AccessDensityPrediction::kPredictionCounts + 1];
   // Number of hugepages in partially allocated (but not released) allocs.
-  HugeLength n_partial[kObjectCounts + 1];
+  HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
 // This tracks a set of unfilled hugepages, and fulfills allocations
@@ -1000,10 +989,9 @@ struct HugePageFillerStats {
 template <class TrackerType>
 class HugePageFiller {
  public:
-  explicit HugePageFiller(bool separate_allocs_for_few_and_many_objects_spans,
+  explicit HugePageFiller(bool separate_allocs_for_sparse_and_dense_spans,
                           size_t chunks_per_alloc, MemoryModifyFunction unback);
-  HugePageFiller(Clock clock,
-                 bool separate_allocs_for_few_and_many_objects_spans,
+  HugePageFiller(Clock clock, bool separate_allocs_for_sparse_and_dense_spans,
                  size_t chunks_per_alloc, MemoryModifyFunction unback);
 
   typedef TrackerType Tracker;
@@ -1022,54 +1010,66 @@ class HugePageFiller {
   // number of individual objects that would be allocated on these n pages.
   //
   // On failure, returns nullptr/PageId{0}.
-  TryGetResult TryGet(Length n, size_t num_objects)
+  TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Marks [p, p + n) as usable by new allocations into *pt; returns pt
   // if that hugepage is now empty (nullptr otherwise.)
   // REQUIRES: pt is owned by this object (has been Contribute()), and
   // {pt, p, n} was the result of a previous TryGet.
-  TrackerType* Put(TrackerType* pt, PageId p, Length n, size_t num_objects)
+  TrackerType* Put(TrackerType* pt, PageId p, Length n)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
   // marked as having come from the tail of a multi-hugepage allocation, which
   // causes it to be treated slightly differently.
-  void Contribute(TrackerType* pt, bool donated, size_t num_objects);
+  void Contribute(TrackerType* pt, bool donated, SpanAllocInfo span_alloc_info);
 
   HugeLength size() const { return size_; }
 
   // Useful statistics
-  Length pages_allocated(ObjectCount type) const {
-    ASSERT(type < ObjectCount::kObjectCounts);
+  Length pages_allocated(AccessDensityPrediction type) const {
+    ASSERT(type < AccessDensityPrediction::kPredictionCounts);
     return pages_allocated_[type];
   }
   Length pages_allocated() const {
-    return pages_allocated_[kMany] + pages_allocated_[kFew];
+    return pages_allocated_[AccessDensityPrediction::kSparse] +
+           pages_allocated_[AccessDensityPrediction::kDense];
   }
   Length used_pages() const { return pages_allocated(); }
   Length unmapped_pages() const { return unmapped_; }
   Length free_pages() const;
   Length used_pages_in_released() const {
-    ASSERT(n_used_released_[kFew] <=
-           regular_alloc_released_[kFew].size().in_pages());
-    ASSERT(n_used_released_[kMany] <=
-           regular_alloc_released_[kMany].size().in_pages());
-    return n_used_released_[kMany] + n_used_released_[kFew];
+    ASSERT(n_used_released_[AccessDensityPrediction::kSparse] <=
+           regular_alloc_released_[AccessDensityPrediction::kSparse]
+               .size()
+               .in_pages());
+    ASSERT(n_used_released_[AccessDensityPrediction::kDense] <=
+           regular_alloc_released_[AccessDensityPrediction::kDense]
+               .size()
+               .in_pages());
+    return n_used_released_[AccessDensityPrediction::kDense] +
+           n_used_released_[AccessDensityPrediction::kSparse];
   }
   Length used_pages_in_partial_released() const {
-    ASSERT(n_used_partial_released_[kFew] <=
-           regular_alloc_partial_released_[kFew].size().in_pages());
-    ASSERT(n_used_partial_released_[kMany] <=
-           regular_alloc_partial_released_[kMany].size().in_pages());
-    return n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
+    ASSERT(n_used_partial_released_[AccessDensityPrediction::kSparse] <=
+           regular_alloc_partial_released_[AccessDensityPrediction::kSparse]
+               .size()
+               .in_pages());
+    ASSERT(n_used_partial_released_[AccessDensityPrediction::kDense] <=
+           regular_alloc_partial_released_[AccessDensityPrediction::kDense]
+               .size()
+               .in_pages());
+    return n_used_partial_released_[AccessDensityPrediction::kDense] +
+           n_used_partial_released_[AccessDensityPrediction::kSparse];
   }
   Length used_pages_in_any_subreleased() const {
     return used_pages_in_released() + used_pages_in_partial_released();
   }
 
   HugeLength previously_released_huge_pages() const {
-    return n_was_released_[kMany] + n_was_released_[kFew];
+    return n_was_released_[AccessDensityPrediction::kDense] +
+           n_was_released_[AccessDensityPrediction::kSparse];
   }
 
   Length FreePagesInPartialAllocs() const;
@@ -1140,7 +1140,8 @@ class HugePageFiller {
   const size_t chunks_per_alloc_;
 
   // List of hugepages from which no pages have been released to the OS.
-  PageTrackerLists<kNumLists> regular_alloc_[kObjectCounts];
+  PageTrackerLists<kNumLists>
+      regular_alloc_[AccessDensityPrediction::kPredictionCounts];
   PageTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
@@ -1155,18 +1156,20 @@ class HugePageFiller {
   // regular_alloc_released_:  This list contains huge pages whose pages are
   // either allocated or returned to the OS.  There are no pages that are free,
   // but not returned to the OS.
-  PageTrackerLists<kNumLists> regular_alloc_partial_released_[kObjectCounts];
-  PageTrackerLists<kNumLists> regular_alloc_released_[kObjectCounts];
+  PageTrackerLists<kNumLists> regular_alloc_partial_released_
+      [AccessDensityPrediction::kPredictionCounts];
+  PageTrackerLists<kNumLists>
+      regular_alloc_released_[AccessDensityPrediction::kPredictionCounts];
   // n_used_released_ contains the number of pages in huge pages that are not
   // free (i.e., allocated).  Only the hugepages in regular_alloc_released_ are
   // considered.
-  Length n_used_released_[kObjectCounts];
+  Length n_used_released_[AccessDensityPrediction::kPredictionCounts];
 
-  HugeLength n_was_released_[kObjectCounts];
+  HugeLength n_was_released_[AccessDensityPrediction::kPredictionCounts];
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
-  Length n_used_partial_released_[kObjectCounts];
-  const bool separate_allocs_for_few_and_many_objects_spans_ = false;
+  Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
+  const bool separate_allocs_for_sparse_and_dense_spans_ = false;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -1178,7 +1181,7 @@ class HugePageFiller {
 
   void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion* hpaa,
                               const HugePageFillerStats& stats,
-                              ObjectCount count) const;
+                              AccessDensityPrediction count) const;
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(TrackerType* a, TrackerType* b) {
@@ -1187,13 +1190,12 @@ class HugePageFiller {
 
     if (a->used_pages() < b->used_pages()) return true;
     if (a->used_pages() > b->used_pages()) return false;
-    // If 'a' has many objects spans, then we do not prefer to release from 'a'
+    // If 'a' has dense spans, then we do not prefer to release from 'a'
     // compared to 'b'.
-    if (a->HasManyObjectsSpans()) return false;
-    // We know 'a' does not have many object spans.  If 'b' has many object
-    // spans, then we prefer to release from 'a'.  Otherwise, we do not prefer
-    // either.
-    return b->HasManyObjectsSpans();
+    if (a->HasDenseSpans()) return false;
+    // We know 'a' does not have dense spans.  If 'b' has dense spans, then we
+    // prefer to release from 'a'.  Otherwise, we do not prefer either.
+    return b->HasDenseSpans();
   }
 
   // SelectCandidates identifies the candidates.size() best candidates in the
@@ -1214,7 +1216,7 @@ class HugePageFiller {
 
   HugeLength size_;
 
-  Length pages_allocated_[kObjectCounts];
+  Length pages_allocated_[AccessDensityPrediction::kPredictionCounts];
   Length unmapped_;
 
   // How much have we eagerly unmapped (in already released hugepages), but
@@ -1366,21 +1368,21 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    bool separate_allocs_for_few_and_many_objects_spans,
-    size_t chunks_per_alloc, MemoryModifyFunction unback)
+    bool separate_allocs_for_sparse_and_dense_spans, size_t chunks_per_alloc,
+    MemoryModifyFunction unback)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     separate_allocs_for_few_and_many_objects_spans,
+                     separate_allocs_for_sparse_and_dense_spans,
                      chunks_per_alloc, unback) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    Clock clock, bool separate_allocs_for_few_and_many_objects_spans,
+    Clock clock, bool separate_allocs_for_sparse_and_dense_spans,
     size_t chunks_per_alloc, MemoryModifyFunction unback)
     : chunks_per_alloc_(chunks_per_alloc),
-      separate_allocs_for_few_and_many_objects_spans_(
-          separate_allocs_for_few_and_many_objects_spans),
+      separate_allocs_for_sparse_and_dense_spans_(
+          separate_allocs_for_sparse_and_dense_spans),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback) {
@@ -1389,7 +1391,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
-HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
+HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   ASSERT(n > Length(0));
 
   // How do we choose which hugepage to allocate from (among those with
@@ -1460,18 +1462,18 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   TrackerType* pt;
 
   bool was_released = false;
-  const ObjectCount type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
-              IsManyObjectsSpan(num_objects)
-          ? kMany
-          : kFew;
+  const AccessDensityPrediction type =
+      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+              IsDenseSpan(span_alloc_info.density)
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
   do {
     pt = regular_alloc_[type].GetLeast(ListFor(n, 0));
     if (pt) {
       ASSERT(!pt->donated());
       break;
     }
-    if (ABSL_PREDICT_TRUE(type == kFew)) {
+    if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
       pt = donated_alloc_.GetLeast(n.raw_num());
       if (pt) {
         break;
@@ -1498,9 +1500,9 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
   } while (false);
   ASSUME(pt != nullptr);
   ASSERT(pt->longest_free_range() >= n);
-  // type == kMany => pt->HasManyObjectsSpans().  This also verifies we do not
-  // end up with a donated pt on the kMany path.
-  ASSERT(type == kFew || pt->HasManyObjectsSpans());
+  // type == AccessDensityPrediction::kDense => pt->HasDenseSpans(). This
+  // also verifies we do not end up with a donated pt on the kDense path.
+  ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
   const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
@@ -1528,16 +1530,15 @@ HugePageFiller<TrackerType>::TryGet(Length n, size_t num_objects) {
 // {pt, p, n} was the result of a previous TryGet.
 template <class TrackerType>
 inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
-                                                     Length n,
-                                                     size_t num_objects) {
+                                                     Length n) {
   RemoveFromFillerList(pt);
   pt->Put(p, n);
-  if (pt->HasManyObjectsSpans()) {
-    ASSERT(pages_allocated_[kMany] >= n);
-    pages_allocated_[kMany] -= n;
+  if (pt->HasDenseSpans()) {
+    ASSERT(pages_allocated_[AccessDensityPrediction::kDense] >= n);
+    pages_allocated_[AccessDensityPrediction::kDense] -= n;
   } else {
-    ASSERT(pages_allocated_[kFew] >= n);
-    pages_allocated_[kFew] -= n;
+    ASSERT(pages_allocated_[AccessDensityPrediction::kSparse] >= n);
+    pages_allocated_[AccessDensityPrediction::kSparse] -= n;
   }
 
   if (pt->longest_free_range() == kPagesPerHugePage) {
@@ -1568,10 +1569,10 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 
     if (pt->was_released()) {
       pt->set_was_released(/*status=*/false);
-      if (pt->HasManyObjectsSpans()) {
-        --n_was_released_[kMany];
+      if (pt->HasDenseSpans()) {
+        --n_was_released_[AccessDensityPrediction::kDense];
       } else {
-        --n_was_released_[kFew];
+        --n_was_released_[AccessDensityPrediction::kSparse];
       }
     }
 
@@ -1584,26 +1585,25 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Contribute(TrackerType* pt,
-                                                    bool donated,
-                                                    size_t num_objects) {
+inline void HugePageFiller<TrackerType>::Contribute(
+    TrackerType* pt, bool donated, SpanAllocInfo span_alloc_info) {
   // A contributed huge page should not yet be subreleased.
   ASSERT(pt->released_pages() == Length(0));
 
-  const ObjectCount type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
-              IsManyObjectsSpan(num_objects)
-          ? kMany
-          : kFew;
+  const AccessDensityPrediction type =
+      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+              IsDenseSpan(span_alloc_info.density)
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
 
   pages_allocated_[type] += pt->used_pages();
-  ASSERT(!(type == kMany && donated));
+  ASSERT(!(type == AccessDensityPrediction::kDense && donated));
   if (donated) {
     ASSERT(pt->was_donated());
     DonateToFillerList(pt);
   } else {
-    if (type == kMany) {
-      pt->SetHasManyObjectsSpans();
+    if (type == AccessDensityPrediction::kDense) {
+      pt->SetHasDenseSpans();
     }
     AddToFillerList(pt);
   }
@@ -1707,10 +1707,18 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 
 template <class TrackerType>
 inline Length HugePageFiller<TrackerType>::FreePagesInPartialAllocs() const {
-  return regular_alloc_partial_released_[kFew].size().in_pages() +
-         regular_alloc_partial_released_[kMany].size().in_pages() +
-         regular_alloc_released_[kFew].size().in_pages() +
-         regular_alloc_released_[kMany].size().in_pages() -
+  return regular_alloc_partial_released_[AccessDensityPrediction::kSparse]
+             .size()
+             .in_pages() +
+         regular_alloc_partial_released_[AccessDensityPrediction::kDense]
+             .size()
+             .in_pages() +
+         regular_alloc_released_[AccessDensityPrediction::kSparse]
+             .size()
+             .in_pages() +
+         regular_alloc_released_[AccessDensityPrediction::kDense]
+             .size()
+             .in_pages() -
          used_pages_in_any_subreleased() - unmapped_pages();
 }
 
@@ -1840,12 +1848,14 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     //
     // We do not examine the regular_alloc_released_ lists, as only contain
     // completely released pages.
-    int n_candidates = SelectCandidates(absl::MakeSpan(candidates), 0,
-                                        regular_alloc_partial_released_[kFew],
-                                        chunks_per_alloc_);
-    n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
-                                    regular_alloc_partial_released_[kMany],
-                                    chunks_per_alloc_);
+    int n_candidates = SelectCandidates(
+        absl::MakeSpan(candidates), 0,
+        regular_alloc_partial_released_[AccessDensityPrediction::kSparse],
+        chunks_per_alloc_);
+    n_candidates = SelectCandidates(
+        absl::MakeSpan(candidates), n_candidates,
+        regular_alloc_partial_released_[AccessDensityPrediction::kDense],
+        chunks_per_alloc_);
 
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
@@ -1867,11 +1877,12 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // We select candidate hugepages from few_objects_alloc_ first as we expect
     // hugepages in this alloc to become free earlier than those in other
     // allocs.
-    int n_candidates =
-        SelectCandidates(absl::MakeSpan(candidates), /*current_candidates=*/0,
-                         regular_alloc_[kFew], chunks_per_alloc_);
-    n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
-                                    regular_alloc_[kMany], chunks_per_alloc_);
+    int n_candidates = SelectCandidates(
+        absl::MakeSpan(candidates), /*current_candidates=*/0,
+        regular_alloc_[AccessDensityPrediction::kSparse], chunks_per_alloc_);
+    n_candidates = SelectCandidates(
+        absl::MakeSpan(candidates), n_candidates,
+        regular_alloc_[AccessDensityPrediction::kDense], chunks_per_alloc_);
     // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
     // great candidate for partial release.
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
@@ -1899,7 +1910,8 @@ inline void HugePageFiller<TrackerType>::AddSpanStats(
   // We can skip the first chunks_per_tracker_list lists as they are known to be
   // 100% full.
   donated_alloc_.Iter(loop, 0);
-  for (const ObjectCount type : {kMany, kFew}) {
+  for (const AccessDensityPrediction type :
+       {AccessDensityPrediction::kDense, AccessDensityPrediction::kSparse}) {
     regular_alloc_[type].Iter(loop, chunks_per_alloc_);
     regular_alloc_partial_released_[type].Iter(loop, 0);
     regular_alloc_released_[type].Iter(loop, 0);
@@ -1923,13 +1935,13 @@ namespace huge_page_filler_internal {
 class UsageInfo {
  public:
   enum Type {
-    kFewObjectsRegular,
-    kManyObjectsRegular,
+    kSparseRegular,
+    kDenseRegular,
     kDonated,
-    kFewObjectsPartialReleased,
-    kManyObjectsPartialReleased,
-    kFewObjectsReleased,
-    kManyObjectsReleased,
+    kSparsePartialReleased,
+    kDensePartialReleased,
+    kSparseReleased,
+    kDenseReleased,
     kNumTypes
   };
 
@@ -2052,20 +2064,20 @@ class UsageInfo {
   absl::string_view TypeToStr(Type type) const {
     ASSERT(type < kNumTypes);
     switch (type) {
-      case kFewObjectsRegular:
-        return "few-object regular";
-      case kManyObjectsRegular:
-        return "many-object regular";
+      case kSparseRegular:
+        return "sparsely-accessed regular";
+      case kDenseRegular:
+        return "densely-accessed regular";
       case kDonated:
         return "donated";
-      case kFewObjectsPartialReleased:
-        return "few-object partial released";
-      case kManyObjectsPartialReleased:
-        return "many-object partial released";
-      case kFewObjectsReleased:
-        return "few-object released";
-      case kManyObjectsReleased:
-        return "many-object released";
+      case kSparsePartialReleased:
+        return "sparsely-accessed partial released";
+      case kDensePartialReleased:
+        return "densely-accessed partial released";
+      case kSparseReleased:
+        return "sparsely-accessed released";
+      case kDenseReleased:
+        return "densely-accessed released";
       default: {
         Crash(kCrash, __FILE__, __LINE__, "bad type", type);
         return "bad type";
@@ -2076,16 +2088,16 @@ class UsageInfo {
   absl::string_view AllocType(Type type) const {
     ASSERT(type < kNumTypes);
     switch (type) {
-      case kFewObjectsRegular:
-      case kManyObjectsRegular:
+      case kSparseRegular:
+      case kDenseRegular:
         return "REGULAR";
       case kDonated:
         return "DONATED";
-      case kFewObjectsPartialReleased:
-      case kManyObjectsPartialReleased:
+      case kSparsePartialReleased:
+      case kDensePartialReleased:
         return "PARTIAL";
-      case kFewObjectsReleased:
-      case kManyObjectsReleased:
+      case kSparseReleased:
+      case kDenseReleased:
         return "RELEASED";
       default: {
         Crash(kCrash, __FILE__, __LINE__, "bad type", type);
@@ -2097,15 +2109,15 @@ class UsageInfo {
   absl::string_view ObjectType(Type type) const {
     ASSERT(type < kNumTypes);
     switch (type) {
-      case kFewObjectsRegular:
+      case kSparseRegular:
       case kDonated:
-      case kFewObjectsPartialReleased:
-      case kFewObjectsReleased:
-        return "FEW_OBJECTS";
-      case kManyObjectsRegular:
-      case kManyObjectsPartialReleased:
-      case kManyObjectsReleased:
-        return "MANY_OBJECTS";
+      case kSparsePartialReleased:
+      case kSparseReleased:
+        return "SPARSELY_ACCESSED";
+      case kDenseRegular:
+      case kDensePartialReleased:
+      case kDenseReleased:
+        return "DENSELY_ACCESSED";
       default: {
         Crash(kCrash, __FILE__, __LINE__, "bad type", type);
         return "bad type";
@@ -2129,16 +2141,23 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
   // note chunks_per_alloc_, not kNumLists here--we're iterating *full*
   // lists.
   for (size_t chunk = 0; chunk < chunks_per_alloc_; ++chunk) {
-    stats.n_full[kFew] += NHugePages(
-        regular_alloc_[kFew][ListFor(/*longest=*/Length(0), chunk)].length());
-    stats.n_full[kMany] += NHugePages(
-        regular_alloc_[kMany][ListFor(/*longest=*/Length(0), chunk)].length());
+    stats.n_full[AccessDensityPrediction::kSparse] +=
+        NHugePages(regular_alloc_[AccessDensityPrediction::kSparse]
+                                 [ListFor(/*longest=*/Length(0), chunk)]
+                                     .length());
+    stats.n_full[AccessDensityPrediction::kDense] +=
+        NHugePages(regular_alloc_[AccessDensityPrediction::kDense]
+                                 [ListFor(/*longest=*/Length(0), chunk)]
+                                     .length());
   }
-  stats.n_full[kObjectCounts] = stats.n_full[kFew] + stats.n_full[kMany];
+  stats.n_full[AccessDensityPrediction::kPredictionCounts] =
+      stats.n_full[AccessDensityPrediction::kSparse] +
+      stats.n_full[AccessDensityPrediction::kDense];
 
-  // We only use donated allocs for allocating few-object pages.
-  stats.n_total[kFew] = donated_alloc_.size();
-  for (const ObjectCount count : {kFew, kMany}) {
+  // We only use donated allocs for allocating sparse pages.
+  stats.n_total[AccessDensityPrediction::kSparse] = donated_alloc_.size();
+  for (const AccessDensityPrediction count :
+       {AccessDensityPrediction::kSparse, AccessDensityPrediction::kDense}) {
     stats.n_fully_released[count] = regular_alloc_released_[count].size();
     stats.n_partial_released[count] =
         regular_alloc_partial_released_[count].size();
@@ -2150,17 +2169,21 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
         stats.n_total[count] - stats.n_released[count] - stats.n_full[count];
   }
 
-  // Collect total stats that is the sum of both kFew and kMany allocs.
-  stats.n_fully_released[kObjectCounts] =
-      stats.n_fully_released[kFew] + stats.n_fully_released[kMany];
-  stats.n_partial_released[kObjectCounts] =
-      stats.n_partial_released[kFew] + stats.n_partial_released[kMany];
-  stats.n_released[kObjectCounts] =
-      stats.n_released[kFew] + stats.n_released[kMany];
+  // Collect total stats that is the sum of both kSparse and kDense allocs.
+  stats.n_fully_released[AccessDensityPrediction::kPredictionCounts] =
+      stats.n_fully_released[AccessDensityPrediction::kSparse] +
+      stats.n_fully_released[AccessDensityPrediction::kDense];
+  stats.n_partial_released[AccessDensityPrediction::kPredictionCounts] =
+      stats.n_partial_released[AccessDensityPrediction::kSparse] +
+      stats.n_partial_released[AccessDensityPrediction::kDense];
+  stats.n_released[AccessDensityPrediction::kPredictionCounts] =
+      stats.n_released[AccessDensityPrediction::kSparse] +
+      stats.n_released[AccessDensityPrediction::kDense];
 
-  stats.n_total[kObjectCounts] = size();
-  stats.n_partial[kObjectCounts] =
-      size() - stats.n_released[kObjectCounts] - stats.n_full[kObjectCounts];
+  stats.n_total[AccessDensityPrediction::kPredictionCounts] = size();
+  stats.n_partial[AccessDensityPrediction::kPredictionCounts] =
+      size() - stats.n_released[AccessDensityPrediction::kPredictionCounts] -
+      stats.n_full[AccessDensityPrediction::kPredictionCounts];
   return stats;
 }
 
@@ -2182,31 +2205,38 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   out->printf(
       "HugePageFiller: Overall, %zu total, %zu full, %zu partial, %zu released "
       "(%zu partially), 0 quarantined\n",
-      size().raw_num(), stats.n_full[kObjectCounts].raw_num(),
-      stats.n_partial[kObjectCounts].raw_num(),
-      stats.n_released[kObjectCounts].raw_num(),
-      stats.n_partial_released[kObjectCounts].raw_num());
+      size().raw_num(),
+      stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num(),
+      stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num(),
+      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
+          .raw_num());
 
   out->printf(
-      "HugePageFiller: those with few objects, %zu total, %zu full, %zu "
-      "partial, %zu released (%zu partially), 0 quarantined\n",
-      stats.n_total[kFew].raw_num(), stats.n_full[kFew].raw_num(),
-      stats.n_partial[kFew].raw_num(), stats.n_released[kFew].raw_num(),
-      stats.n_partial_released[kFew].raw_num());
+      "HugePageFiller: those with sparsely-accessed spans, %zu total, "
+      "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
+      stats.n_total[AccessDensityPrediction::kSparse].raw_num(),
+      stats.n_full[AccessDensityPrediction::kSparse].raw_num(),
+      stats.n_partial[AccessDensityPrediction::kSparse].raw_num(),
+      stats.n_released[AccessDensityPrediction::kSparse].raw_num(),
+      stats.n_partial_released[AccessDensityPrediction::kSparse].raw_num());
 
   out->printf(
-      "HugePageFiller: those with many objects, %zu total, %zu full, %zu "
-      "partial, %zu released (%zu partially), 0 quarantined\n",
-      stats.n_total[kMany].raw_num(), stats.n_full[kMany].raw_num(),
-      stats.n_partial[kMany].raw_num(), stats.n_released[kMany].raw_num(),
-      stats.n_partial_released[kMany].raw_num());
+      "HugePageFiller: those with densely-accessed spans, %zu total, "
+      "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
+      stats.n_total[AccessDensityPrediction::kDense].raw_num(),
+      stats.n_full[AccessDensityPrediction::kDense].raw_num(),
+      stats.n_partial[AccessDensityPrediction::kDense].raw_num(),
+      stats.n_released[AccessDensityPrediction::kDense].raw_num(),
+      stats.n_partial_released[AccessDensityPrediction::kDense].raw_num());
 
   out->printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
               free_pages().raw_num(), size().raw_num(),
               safe_div(free_pages(), size().in_pages()));
 
   const HugeLength n_nonfull =
-      stats.n_partial[kObjectCounts] + stats.n_partial_released[kObjectCounts];
+      stats.n_partial[AccessDensityPrediction::kPredictionCounts] +
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts];
   ASSERT(free_pages() <= n_nonfull.in_pages());
   out->printf("HugePageFiller: among non-fulls, %.4f free\n",
               safe_div(free_pages(), n_nonfull.in_pages()));
@@ -2219,8 +2249,10 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 
   out->printf(
       "HugePageFiller: %zu hugepages partially released, %.4f released\n",
-      stats.n_released[kObjectCounts].raw_num(),
-      safe_div(unmapped_pages(), stats.n_released[kObjectCounts].in_pages()));
+      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
+      safe_div(unmapped_pages(),
+               stats.n_released[AccessDensityPrediction::kPredictionCounts]
+                   .in_pages()));
   out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
               hugepage_frac());
   out->printf(
@@ -2244,34 +2276,34 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   UsageInfo usage;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  regular_alloc_[kFew].Iter(
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsRegular);
+        usage.Record(pt, UsageInfo::kSparseRegular);
       },
       0);
-  regular_alloc_[kMany].Iter(
+  regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsRegular);
+        usage.Record(pt, UsageInfo::kDenseRegular);
       },
       0);
-  regular_alloc_partial_released_[kFew].Iter(
+  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsPartialReleased);
+        usage.Record(pt, UsageInfo::kSparsePartialReleased);
       },
       0);
-  regular_alloc_partial_released_[kMany].Iter(
+  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsPartialReleased);
+        usage.Record(pt, UsageInfo::kDensePartialReleased);
       },
       0);
-  regular_alloc_released_[kFew].Iter(
+  regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsReleased);
+        usage.Record(pt, UsageInfo::kSparseReleased);
       },
       0);
-  regular_alloc_released_[kMany].Iter(
+  regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsReleased);
+        usage.Record(pt, UsageInfo::kDenseReleased);
       },
       0);
 
@@ -2286,8 +2318,8 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
     absl::string_view field, PbtxtRegion* hpaa,
-    const HugePageFillerStats& stats, ObjectCount count) const {
-  ASSERT(count < ObjectCount::kObjectCounts);
+    const HugePageFillerStats& stats, AccessDensityPrediction count) const {
+  ASSERT(count < AccessDensityPrediction::kPredictionCounts);
   PbtxtRegion alloc_region = hpaa->CreateSubRegion(field);
   alloc_region.PrintI64("full_huge_pages", stats.n_full[count].raw_num());
   alloc_region.PrintI64("partial_huge_pages", stats.n_partial[count].raw_num());
@@ -2311,35 +2343,45 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                                 static_cast<double>(b.raw_num());
   };
 
-  hpaa->PrintI64("filler_full_huge_pages",
-                 stats.n_full[kObjectCounts].raw_num());
-  hpaa->PrintI64("filler_partial_huge_pages",
-                 stats.n_partial[kObjectCounts].raw_num());
-  hpaa->PrintI64("filler_released_huge_pages",
-                 stats.n_released[kObjectCounts].raw_num());
-  hpaa->PrintI64("filler_partially_released_huge_pages",
-                 stats.n_partial_released[kObjectCounts].raw_num());
+  hpaa->PrintI64(
+      "filler_full_huge_pages",
+      stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num());
+  hpaa->PrintI64(
+      "filler_partial_huge_pages",
+      stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num());
+  hpaa->PrintI64(
+      "filler_released_huge_pages",
+      stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num());
+  hpaa->PrintI64(
+      "filler_partially_released_huge_pages",
+      stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
+          .raw_num());
 
-  PrintAllocStatsInPbtxt("filler_few_object_alloc_stats", hpaa, stats,
-                         ObjectCount::kFew);
-  PrintAllocStatsInPbtxt("filler_many_object_alloc_stats", hpaa, stats,
-                         ObjectCount::kMany);
+  PrintAllocStatsInPbtxt("filler_sparsely_accessed_alloc_stats", hpaa, stats,
+                         AccessDensityPrediction::kSparse);
+  PrintAllocStatsInPbtxt("filler_densely_accessed_alloc_stats", hpaa, stats,
+                         AccessDensityPrediction::kDense);
 
   hpaa->PrintI64("filler_free_pages", free_pages().raw_num());
   hpaa->PrintI64("filler_used_pages_in_subreleased",
                  used_pages_in_any_subreleased().raw_num());
   hpaa->PrintI64("filler_used_pages_in_partial_released",
                  used_pages_in_partial_released().raw_num());
-  hpaa->PrintI64("filler_unmapped_bytes",
-                 static_cast<uint64_t>(
-                     stats.n_released[kObjectCounts].raw_num() *
-                     safe_div(unmapped_pages(),
-                              stats.n_released[kObjectCounts].in_pages())));
-  hpaa->PrintI64("filler_hugepageable_used_bytes",
-                 static_cast<uint64_t>(
-                     hugepage_frac() *
-                     static_cast<double>(pages_allocated_[kFew].in_bytes() +
-                                         pages_allocated_[kMany].in_bytes())));
+  hpaa->PrintI64(
+      "filler_unmapped_bytes",
+      static_cast<uint64_t>(
+          stats.n_released[AccessDensityPrediction::kPredictionCounts]
+              .raw_num() *
+          safe_div(unmapped_pages(),
+                   stats.n_released[AccessDensityPrediction::kPredictionCounts]
+                       .in_pages())));
+  hpaa->PrintI64(
+      "filler_hugepageable_used_bytes",
+      static_cast<uint64_t>(
+          hugepage_frac() *
+          static_cast<double>(
+              pages_allocated_[AccessDensityPrediction::kSparse].in_bytes() +
+              pages_allocated_[AccessDensityPrediction::kDense].in_bytes())));
   hpaa->PrintI64("filler_previously_released_huge_pages",
                  previously_released_huge_pages().raw_num());
   hpaa->PrintI64("filler_num_pages_subreleased",
@@ -2357,34 +2399,34 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   UsageInfo usage;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
-  regular_alloc_[kFew].Iter(
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsRegular);
+        usage.Record(pt, UsageInfo::kSparseRegular);
       },
       0);
-  regular_alloc_[kMany].Iter(
+  regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsRegular);
+        usage.Record(pt, UsageInfo::kDenseRegular);
       },
       0);
-  regular_alloc_partial_released_[kFew].Iter(
+  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsPartialReleased);
+        usage.Record(pt, UsageInfo::kSparsePartialReleased);
       },
       0);
-  regular_alloc_partial_released_[kMany].Iter(
+  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsPartialReleased);
+        usage.Record(pt, UsageInfo::kDensePartialReleased);
       },
       0);
-  regular_alloc_released_[kFew].Iter(
+  regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kFewObjectsReleased);
+        usage.Record(pt, UsageInfo::kSparseReleased);
       },
       0);
-  regular_alloc_released_[kMany].Iter(
+  regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kManyObjectsReleased);
+        usage.Record(pt, UsageInfo::kDenseReleased);
       },
       0);
 
@@ -2400,10 +2442,13 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
   stats.free_pages = free_pages();
   stats.unmapped_pages = unmapped_pages();
   stats.used_pages_in_subreleased_huge_pages =
-      n_used_released_[kMany] + n_used_released_[kFew] +
-      n_used_partial_released_[kMany] + n_used_partial_released_[kFew];
+      n_used_released_[AccessDensityPrediction::kDense] +
+      n_used_released_[AccessDensityPrediction::kSparse] +
+      n_used_partial_released_[AccessDensityPrediction::kDense] +
+      n_used_partial_released_[AccessDensityPrediction::kSparse];
   stats.huge_pages[StatsTrackerType::kDonated] = donated_alloc_.size();
-  for (const ObjectCount type : {kMany, kFew}) {
+  for (const AccessDensityPrediction type :
+       {AccessDensityPrediction::kDense, AccessDensityPrediction::kSparse}) {
     stats.huge_pages[StatsTrackerType::kRegular] += regular_alloc_[type].size();
     stats.huge_pages[StatsTrackerType::kPartialReleased] +=
         regular_alloc_partial_released_[type].size();
@@ -2460,11 +2505,11 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
 
   size_t chunk = IndexFor(pt);
   size_t i = ListFor(longest, chunk);
-  const ObjectCount type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
-              pt->HasManyObjectsSpans()
-          ? kMany
-          : kFew;
+  const AccessDensityPrediction type =
+      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+              pt->HasDenseSpans()
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
 
   if (!pt->released()) {
     regular_alloc_[type].Remove(pt, i);
@@ -2492,11 +2537,11 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   pt->set_donated(false);
 
   size_t i = ListFor(longest, chunk);
-  const ObjectCount type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_few_and_many_objects_spans_) &&
-              pt->HasManyObjectsSpans()
-          ? kMany
-          : kFew;
+  const AccessDensityPrediction type =
+      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+              pt->HasDenseSpans()
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
 
   if (!pt->released()) {
     regular_alloc_[type].Add(pt, i);

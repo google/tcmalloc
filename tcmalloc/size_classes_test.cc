@@ -22,7 +22,6 @@
 #include "absl/random/random.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
@@ -476,7 +475,8 @@ TEST(SizeMapTest, ValidateConditionsForSeparateAllocsInHugePageFiller) {
     size_t objects_per_span =
         pages_per_span.in_bytes() / (object_size > 0 ? object_size : 1);
     EXPECT_TRUE(pages_per_span.in_bytes() <= kHugePageSize / 2 ||
-                objects_per_span <= kFewObjectsAllocMaxLimit);
+                objects_per_span <=
+                    central_freelist_internal::kFewObjectsAllocMaxLimit);
   }
 }
 

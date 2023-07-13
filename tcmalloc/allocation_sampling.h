@@ -352,7 +352,8 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
       }
       capacity = requested_size;
     } else if ((span = state.page_allocator().New(
-                    num_pages, 1, MemoryTag::kSampled)) == nullptr) {
+                    num_pages, {1, AccessDensityPrediction::kSparse},
+                    MemoryTag::kSampled)) == nullptr) {
       capacity = stack_trace.allocated_size;
       return {obj, capacity};
     } else {

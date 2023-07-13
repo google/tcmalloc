@@ -48,6 +48,19 @@ inline constexpr size_t kBitmapMinObjectSize = kPageSize / 64;
 // value.
 inline constexpr size_t kBitmapScalingDenominator = 65536;
 
+enum AccessDensityPrediction {
+  // Predict that the span would be sparsely-accessed.
+  kSparse = 0,
+  // Predict that the span would be densely-accessed.
+  kDense = 1,
+  kPredictionCounts
+};
+
+struct SpanAllocInfo {
+  size_t objects_per_span;
+  AccessDensityPrediction density;
+};
+
 // Information kept for a span (a contiguous run of pages).
 //
 // Spans can be in different states. The current state determines set of methods

@@ -608,8 +608,7 @@ static void FreeSmallSlow(void* ptr, size_t size_class) {
 namespace {
 
 template <typename Policy>
-inline sized_ptr_t do_malloc_pages(Policy policy, size_t size,
-                                   int num_objects) {
+inline sized_ptr_t do_malloc_pages(Policy policy, size_t size) {
   // Page allocator does not deal well with num_pages = 0.
   Length num_pages = std::max<Length>(BytesToLengthCeil(size), Length(1));
 
@@ -620,7 +619,8 @@ inline sized_ptr_t do_malloc_pages(Policy policy, size_t size,
     tag = NumaNormalTag(policy.numa_partition());
   }
   Span* span = tc_globals.page_allocator().NewAligned(
-      num_pages, BytesToLengthCeil(policy.align()), num_objects, tag);
+      num_pages, BytesToLengthCeil(policy.align()),
+      {1, AccessDensityPrediction::kSparse}, tag);
   if (span == nullptr) return {nullptr, 0};
 
   // Set capacity to the exact size for a page allocation.  This needs to be
@@ -686,17 +686,17 @@ static void do_free_pages(void* ptr, const PageId p) {
         Span::Delete(span);
       } else if (IsColdMemory(ptr)) {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, 1, MemoryTag::kCold);
+        tc_globals.page_allocator().Delete(span, MemoryTag::kCold);
       } else {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, 1, MemoryTag::kSampled);
+        tc_globals.page_allocator().Delete(span, MemoryTag::kSampled);
       }
     } else if (kNumaPartitions != 1) {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, 1, GetMemoryTag(ptr));
+      tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, 1, MemoryTag::kNormal);
+      tc_globals.page_allocator().Delete(span, MemoryTag::kNormal);
     }
   }
 }
@@ -986,7 +986,7 @@ static Pointer ABSL_ATTRIBUTE_SECTION(google_malloc)
   if (ABSL_PREDICT_TRUE(is_small)) {
     res = AllocSmall(policy, size_class, size);
   } else {
-    res = do_malloc_pages(policy, size, 1);
+    res = do_malloc_pages(policy, size);
   }
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 

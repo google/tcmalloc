@@ -424,7 +424,7 @@ static Length RoundUp(Length value, Length alignment) {
                 ~(alignment.raw_num() - 1));
 }
 
-void PageAllocInfo::RecordAlloc(PageId p, Length n, size_t num_objects) {
+void PageAllocInfo::RecordAlloc(PageId p, Length n) {
   static_assert(kMaxPages.in_bytes() == 1024 * 1024, "threshold changed?");
   static_assert(kMaxPages < kPagesPerHugePage, "there should be slack");
   largest_seen_ = std::max(largest_seen_, n);
@@ -439,7 +439,7 @@ void PageAllocInfo::RecordAlloc(PageId p, Length n, size_t num_objects) {
   }
 }
 
-void PageAllocInfo::RecordFree(PageId p, Length n, size_t num_objects) {
+void PageAllocInfo::RecordFree(PageId p, Length n) {
   if (n <= kMaxPages) {
     total_small_ -= n;
     small_[n.raw_num() - 1].Free(n);

@@ -25,9 +25,11 @@
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/span.h"
 
 namespace {
 
+using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::Clock;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
@@ -47,6 +49,7 @@ using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::SkipSubreleaseIntervals;
 using tcmalloc::tcmalloc_internal::SmallSpanStats;
+using tcmalloc::tcmalloc_internal::SpanAllocInfo;
 
 // As we read the fuzzer input, we update these variables to control global
 // state.
@@ -137,7 +140,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   struct Alloc {
     PageId page;
     Length length;
-    size_t num_objects;
   };
 
   std::vector<PageTracker*> trackers;
@@ -159,24 +161,26 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[16:31] - We select num_to_objects.
         const Length n(std::clamp<size_t>(value & 0xFFFF, 1,
                                           kPagesPerHugePage.raw_num() - 1));
-        size_t num_objects;
+        AccessDensityPrediction density;
         const uint32_t lval = (value >> 16);
         // Choose many objects if the last bit is 1.
         if (lval & 1) {
-          num_objects = std::max<size_t>(
-              lval >> 1,
-              tcmalloc::tcmalloc_internal::kFewObjectsAllocMaxLimit + 1);
+          density = AccessDensityPrediction::kDense;
         } else {
           // We need to choose few objects, so only top four bits are used.
-          num_objects = std::max<size_t>(lval >> 12, 1);
+          density = AccessDensityPrediction::kSparse;
         }
+        size_t num_objects = std::max<size_t>(lval >> 1, 1);
 
         // Truncate to single object for larger allocations. This ensures that
         // we always allocate few-object spans from donations.
         if (n > kPagesPerHugePage / 2) {
           num_objects = 1;
+          density = AccessDensityPrediction::kSparse;
         }
 
+        SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
+                                    .density = density};
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
@@ -185,7 +189,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         HugePageFiller<PageTracker>::TryGetResult result;
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
-          result = filler.TryGet(n, num_objects);
+          result = filler.TryGet(n, alloc_info);
         }
 
         if (result.pt == nullptr) {
@@ -205,7 +209,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
             absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
             result.page = result.pt->Get(n).page;
-            filler.Contribute(result.pt, donated, num_objects);
+            filler.Contribute(result.pt, donated, alloc_info);
           }
 
           trackers.push_back(result.pt);
@@ -217,7 +221,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           released_set.erase(p);
         }
 
-        allocs[result.pt].push_back({result.page, n, num_objects});
+        allocs[result.pt].push_back({result.page, n});
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
         CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
@@ -253,7 +257,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         PageTracker* ret;
         {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
-          ret = filler.Put(pt, alloc.page, alloc.length, alloc.num_objects);
+          ret = filler.Put(pt, alloc.page, alloc.length);
         }
         CHECK_EQ(ret != nullptr, last_alloc);
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -371,7 +375,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           absl::base_internal::SpinLockHolder l(&pageheap_lock);
 
           start = pt->Get(n).page;
-          filler.Contribute(pt, /*donated=*/true, /*num_objects=*/1);
+          filler.Contribute(pt, /*donated=*/true,
+                            {1, AccessDensityPrediction::kSparse});
         }
 
         trackers.push_back(pt);
@@ -382,7 +387,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           released_set.erase(p);
         }
 
-        allocs[pt].push_back({start, n, 1});
+        allocs[pt].push_back({start, n});
 
         CHECK_EQ(filler.size().raw_num(), trackers.size());
         CHECK_EQ(filler.unmapped_pages().raw_num(), released_set.size());
@@ -440,7 +445,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       PageTracker* ret;
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
-        ret = filler.Put(pt, alloc.page, alloc.length, alloc.num_objects);
+        ret = filler.Put(pt, alloc.page, alloc.length);
       }
       CHECK_EQ(ret != nullptr, i + 1 == n);
     }

@@ -26,6 +26,7 @@
 #include "tcmalloc/span.h"
 
 namespace {
+using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
 using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
@@ -41,6 +42,7 @@ using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::SizeMap;
 using tcmalloc::tcmalloc_internal::Span;
+using tcmalloc::tcmalloc_internal::SpanAllocInfo;
 using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
 }  // namespace
@@ -60,7 +62,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //
   // [0] - Memory tag.
   // [1] - HugeRegionsMode.
-  // [2:4] - ReservedLifetime allocator options: Mode.
+  // [2:4] - Reserved.
   // [5] - Determine if we use separate filler allocs based on number of
   // objects per span.
   // [6:12] - Reserved.
@@ -88,7 +90,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       data[1] >= 128 ? HugeRegionUsageOption::kDefault
                      : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
-  const bool separate_allocs_for_few_and_many_objects_spans = data[5];
+  const bool separate_allocs_for_sparse_and_dense_spans = data[5];
 
   // data[6:12] - Reserve additional bytes for any features we might want to add
   // in the future.
@@ -101,8 +103,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
-  options.separate_allocs_for_few_and_many_objects_spans =
-      separate_allocs_for_few_and_many_objects_spans;
+  options.separate_allocs_for_sparse_and_dense_spans =
+      separate_allocs_for_sparse_and_dense_spans;
   HugePageAwareAllocator* allocator;
   allocator = new (p) HugePageAwareAllocator(options);
 
@@ -131,7 +133,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // to allocate.
         // value[32:47] - Alignment.
         // value[48] - Should we use aligned allocate?
-        // value[63:49] - Reserved.
+        // value[49] - Is the span sparsely- or densely-accessed?
+        // value[63:50] - Reserved.
         const Length length(std::clamp<size_t>(
             value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
         size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
@@ -142,9 +145,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                                              kPagesPerHugePage.raw_num() - 1)
                         : 1);
 
+        AccessDensityPrediction density = ((value >> 49) & 0x1) == 0
+                                              ? AccessDensityPrediction::kSparse
+                                              : AccessDensityPrediction::kDense;
         if (object_size > kMaxSize || align > Length(1)) {
           // Truncate to a single object.
           num_objects = 1;
+          // TODO(b/283843066): Revisit this once we have fluid partitioning.
+          density = AccessDensityPrediction::kSparse;
         } else if (!SizeMap::IsValidSizeClass(object_size, length.raw_num(),
                                               kMinObjectsToMove)) {
           // This is an invalid size class, so skip it.
@@ -152,10 +160,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         }
 
         Span* s;
+        SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
+                                    .density = density};
         if (use_aligned) {
-          s = allocator->NewAligned(length, align, num_objects);
+          s = allocator->NewAligned(length, align, alloc_info);
         } else {
-          s = allocator->New(length, num_objects);
+          s = allocator->New(length, alloc_info);
         }
         CHECK_CONDITION(s != nullptr);
         CHECK_GE(s->num_pages().raw_num(), length.raw_num());
@@ -179,7 +189,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         allocated -= span_info.span->num_pages();
         {
           absl::base_internal::SpinLockHolder h(&pageheap_lock);
-          allocator->Delete(span_info.span, span_info.objects_per_span);
+          allocator->Delete(span_info.span);
         }
         break;
       }
@@ -257,7 +267,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   for (auto span_info : allocs) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocated -= span_info.span->num_pages();
-    allocator->Delete(span_info.span, span_info.objects_per_span);
+    allocator->Delete(span_info.span);
   }
   CHECK_EQ(allocated.in_bytes(), 0);
   free(allocator);

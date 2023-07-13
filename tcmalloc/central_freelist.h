@@ -49,16 +49,19 @@ class StaticForwarder {
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
   static Span* MapObjectToSpan(const void* object);
-  static Span* AllocateSpan(int size_class, size_t objects_per_span,
+  static Span* AllocateSpan(int size_class, SpanAllocInfo span_alloc_info,
                             Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  static void DeallocateSpans(int size_class, size_t objects_per_span,
-                              absl::Span<Span*> free_spans)
+  static void DeallocateSpans(int size_class, absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
 
 // Specifies number of nonempty_ lists that keep track of non-empty spans.
 static constexpr size_t kNumLists = 8;
+
+// Specifies the threshold for number of objects per span. The threshold is
+// used to consider a span sparsely- vs. densely-accessed.
+static constexpr size_t kFewObjectsAllocMaxLimit = 16;
 
 // Data kept per size-class in central cache.
 template <typename ForwarderT>
@@ -412,7 +415,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
-    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
+    forwarder_.DeallocateSpans(size_class_,
                                absl::MakeSpan(free_spans, free_count));
   }
 }
@@ -480,8 +483,19 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
   // Note, this could result in multiple calls to populate each allocating
   // a new span and the pushing those partially full spans onto nonempty.
   lock_.Unlock();
-  Span* span =
-      forwarder_.AllocateSpan(size_class_, objects_per_span_, pages_per_span_);
+
+  // Use number of objects per span as a proxy for estimating access density of
+  // the span. If number of objects per span is higher than
+  // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
+  // long-lived.
+  const AccessDensityPrediction density =
+      objects_per_span_ > kFewObjectsAllocMaxLimit
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
+
+  SpanAllocInfo info = {.objects_per_span = objects_per_span_,
+                        .density = density};
+  Span* span = forwarder_.AllocateSpan(size_class_, info, pages_per_span_);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
         pages_per_span_.in_bytes());

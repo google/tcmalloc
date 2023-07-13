@@ -200,8 +200,8 @@ class PageAllocInfo {
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
-  void RecordAlloc(PageId p, Length n, size_t num_objects);
-  void RecordFree(PageId p, Length n, size_t num_objects);
+  void RecordAlloc(PageId p, Length n);
+  void RecordFree(PageId p, Length n);
   void RecordRelease(Length n, Length got);
   // And invoking this in their Print() implementation.
   void Print(Printer* out) const;
