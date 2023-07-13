@@ -47,12 +47,7 @@ cc_library(
         "experiment_config.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//assistant/assistant_server/rpcserver/internal:__pkg__",
-        "//production/midas/components:__pkg__",
-        "//tcmalloc/testing:__pkg__",
-        "//util/compiler:__pkg__",
-    ],
+    visibility = ["//tcmalloc/testing:__pkg__"],
     deps = [
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
