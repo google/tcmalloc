@@ -442,8 +442,6 @@ void DumpStats(Printer* out, int level) {
                 Parameters::release_pages_from_huge_region() ? 1 : 0);
     out->printf("PARAMETER flat vcpus %d\n",
                 subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_shuffle_per_cpu_caches %d\n",
-                Parameters::shuffle_per_cpu_caches() ? 1 : 0);
     out->printf(
         "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
         "%d\n",
@@ -617,8 +615,6 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    Parameters::release_partial_alloc_pages());
   region.PrintBool("tcmalloc_release_pages_from_huge_region",
                    Parameters::release_pages_from_huge_region());
-  region.PrintBool("tcmalloc_shuffle_per_cpu_caches",
-                   Parameters::shuffle_per_cpu_caches());
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
                   subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");

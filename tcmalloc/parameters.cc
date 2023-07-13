@@ -118,8 +118,6 @@ MallocExtension::BytesPerSecond Parameters::background_release_rate() {
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
-ABSL_CONST_INIT std::atomic<bool> Parameters::shuffle_per_cpu_caches_enabled_(
-    true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
@@ -340,10 +338,6 @@ bool TCMalloc_Internal_GetResizeCpuCacheSizeClassesEnabled() {
   return Parameters::resize_cpu_cache_size_classes();
 }
 
-bool TCMalloc_Internal_GetShufflePerCpuCachesEnabled() {
-  return Parameters::shuffle_per_cpu_caches();
-}
-
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
@@ -400,11 +394,6 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
   tcmalloc::tcmalloc_internal::resize_cpu_cache_size_classes_enabled().store(
       v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetShufflePerCpuCachesEnabled(bool v) {
-  Parameters::shuffle_per_cpu_caches_enabled_.store(v,
-                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {

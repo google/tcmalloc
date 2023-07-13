@@ -91,8 +91,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         last_reclaim = now;
       }
 
-      if (Parameters::shuffle_per_cpu_caches() &&
-          now - last_shuffle >= kCpuCacheShufflePeriod) {
+      if (now - last_shuffle >= kCpuCacheShufflePeriod) {
         tc_globals.cpu_cache().ShuffleCpuCaches();
         last_shuffle = now;
       }
