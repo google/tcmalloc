@@ -30,6 +30,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -114,8 +115,7 @@ TEST(ReclaimTest, ReclaimWorks) {
   GetMallocStats(&before);
   int cpu = -1;
   ssize_t used_bytes = -1;
-  for (int i = 0, num_cpus = absl::base_internal::NumCPUs(); i < num_cpus;
-       ++i) {
+  for (int i = 0, num_cpus = tcmalloc_internal::NumCPUs(); i < num_cpus; ++i) {
     used_bytes = ParseCpuCacheSize(before, i);
     if (used_bytes > 0) {
       cpu = i;
@@ -157,7 +157,7 @@ TEST(ReclaimTest, ReclaimStable) {
       int iter = 0;
       while (!sync->load(std::memory_order_acquire)) {
         iter++;
-        for (int i = 0, num_cpus = absl::base_internal::NumCPUs(); i < num_cpus;
+        for (int i = 0, num_cpus = tcmalloc_internal::NumCPUs(); i < num_cpus;
              ++i) {
           MallocExtension::ReleaseCpuMemory(i);
         }

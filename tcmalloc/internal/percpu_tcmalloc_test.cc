@@ -58,6 +58,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
@@ -81,8 +82,7 @@ TcmallocSlab::Slabs* AllocSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
     size_t raw_shift) {
   Shift shift = ToShiftType(raw_shift);
-  const size_t slabs_size =
-      GetSlabsAllocSize(shift, absl::base_internal::NumCPUs());
+  const size_t slabs_size = GetSlabsAllocSize(shift, NumCPUs());
   return static_cast<TcmallocSlab::Slabs*>(
       alloc(slabs_size, kPhysicalPageAlign));
 }
@@ -203,7 +203,7 @@ TEST_F(TcmallocSlabTest, Metadata) {
   r = slab_.MetadataMemoryUsage();
   // We may fault a whole hugepage, so round up the expected per-core share to
   // a full hugepage.
-  size_t expected = r.virtual_size / absl::base_internal::NumCPUs();
+  size_t expected = r.virtual_size / NumCPUs();
   expected = (expected + kHugePageSize - 1) & ~(kHugePageSize - 1);
 
   // A single core may be less than the full slab for that core, since we do
@@ -214,7 +214,7 @@ TEST_F(TcmallocSlabTest, Metadata) {
   EXPECT_GT(r.resident_size, 0);
 
   // Read stats from the slab.  This will fault additional memory.
-  for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; ++cpu) {
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     // To inhibit optimization, verify the values are sensible.
     for (int size_class = 0; size_class < kStressSlabs; ++size_class) {
       EXPECT_EQ(0, slab_.Length(cpu, size_class));
@@ -240,7 +240,7 @@ TEST_F(TcmallocSlabTest, Unit) {
 
   // Decide if we should expect a push or pop to be the first action on the CPU
   // slab to trigger initialization.
-  absl::FixedArray<bool, 0> initialized(absl::base_internal::NumCPUs(), false);
+  absl::FixedArray<bool, 0> initialized(NumCPUs(), false);
 
   for (auto cpu : AllowedCpus()) {
     SCOPED_TRACE(cpu);
@@ -529,7 +529,7 @@ void StressThread(size_t thread_id, Context& ctx) {
   struct Handler {
     static int Overflow(int cpu, size_t size_class, void* item, void* arg) {
       EXPECT_GE(cpu, 0);
-      EXPECT_LT(cpu, absl::base_internal::NumCPUs());
+      EXPECT_LT(cpu, NumCPUs());
       EXPECT_LT(size_class, kStressSlabs);
       EXPECT_NE(item, nullptr);
       Context& ctx = *static_cast<Context*>(arg);
@@ -539,7 +539,7 @@ void StressThread(size_t thread_id, Context& ctx) {
 
     static void* Underflow(int cpu, size_t size_class, void* arg) {
       EXPECT_GE(cpu, 0);
-      EXPECT_LT(cpu, absl::base_internal::NumCPUs());
+      EXPECT_LT(cpu, NumCPUs());
       EXPECT_LT(size_class, kStressSlabs);
       Context& ctx = *static_cast<Context*>(arg);
       InitCpuOnce(ctx, cpu);
@@ -548,7 +548,7 @@ void StressThread(size_t thread_id, Context& ctx) {
     }
   };
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*ctx.stop) {
     size_t size_class = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
@@ -734,7 +734,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
                        absl::Span<std::pair<void*, size_t>> old_slabs_span)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   absl::BitGen rnd;
-  const size_t num_cpus = absl::base_internal::NumCPUs();
+  const size_t num_cpus = NumCPUs();
   size_t shift = kResizeInitialShift;
   size_t old_slabs_idx = 0;
   for (int i = 0; i < 10; ++i) {
@@ -835,7 +835,7 @@ TEST_P(StressThreadTest, Stress) {
   size_t shift = Resize() ? kResizeInitialShift : kShift;
   InitSlab(slab, allocator, get_capacity, shift);
   std::vector<std::thread> threads;
-  const size_t num_cpus = absl::base_internal::NumCPUs();
+  const size_t num_cpus = NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
   const size_t n_threads = n_stress_threads + Resize();
 
@@ -919,7 +919,7 @@ INSTANTIATE_TEST_SUITE_P(GrowOrNot, StressThreadTest, ::testing::Bool());
 
 TEST(TcmallocSlab, SMP) {
   // For the other tests here to be meaningful, we need multiple cores.
-  ASSERT_GT(absl::base_internal::NumCPUs(), 1);
+  ASSERT_GT(NumCPUs(), 1);
 }
 
 #if ABSL_INTERNAL_HAVE_ELF_SYMBOLIZE
@@ -1026,7 +1026,7 @@ void BM_PushPop(benchmark::State& state) {
     return kBatchSize;
   };
   InitSlab(slab, allocator, get_capacity, kShift);
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
 
@@ -1064,7 +1064,7 @@ void BM_PushPopBatch(benchmark::State& state) {
     return kBatchSize;
   };
   InitSlab(slab, allocator, get_capacity, kShift);
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
   CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {

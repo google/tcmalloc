@@ -36,6 +36,7 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/sysinfo.h"
 
 #if defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 #if !defined(__clang__)
@@ -1218,7 +1219,7 @@ void TcmallocSlab<NumClasses>::Init(Slabs* slabs,
   }
 
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
     void** elems = curr_slab->mem;
@@ -1328,7 +1329,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
       GetSlabsAndShift(std::memory_order_relaxed);
   ASSERT(new_shift != old_shift);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, virtual_cpu_id_offset, capacity);
@@ -1392,8 +1393,7 @@ template <size_t NumClasses>
 void* TcmallocSlab<NumClasses>::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift, absl::base_internal::NumCPUs()),
-       kPhysicalPageAlign);
+  free(slabs, GetSlabsAllocSize(shift, NumCPUs()), kPhysicalPageAlign);
   slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
   return slabs;
 }
@@ -1403,7 +1403,7 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
   ASSERT(cpu >= 0);
-  ASSERT(cpu < absl::base_internal::NumCPUs());
+  ASSERT(cpu < NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
   const size_t max_cap = max_capacity(ToUint8(shift));
@@ -1439,7 +1439,7 @@ template <size_t NumClasses>
 size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     int cpu, size_t size_class, size_t len, ShrinkHandler shrink_handler) {
   ASSERT(cpu >= 0);
-  ASSERT(cpu < absl::base_internal::NumCPUs());
+  ASSERT(cpu < NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
@@ -1501,7 +1501,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
 template <size_t NumClasses>
 void TcmallocSlab<NumClasses>::Drain(int cpu, DrainHandler drain_handler) {
   CHECK_CONDITION(cpu >= 0);
-  CHECK_CONDITION(cpu < absl::base_internal::NumCPUs());
+  CHECK_CONDITION(cpu < NumCPUs());
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
 
@@ -1566,8 +1566,7 @@ template <size_t NumClasses>
 PerCPUMetadataState TcmallocSlab<NumClasses>::MetadataMemoryUsage() const {
   PerCPUMetadataState result;
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  result.virtual_size =
-      GetSlabsAllocSize(shift, absl::base_internal::NumCPUs());
+  result.virtual_size = GetSlabsAllocSize(shift, NumCPUs());
   result.resident_size = MInCore::residence(slabs, result.virtual_size);
   return result;
 }

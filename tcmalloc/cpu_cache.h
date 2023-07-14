@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
@@ -780,7 +781,7 @@ inline GetShiftMaxCapacity CpuCache<Forwarder>::GetMaxCapacityFunctor(
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::Activate() {
-  int num_cpus = absl::base_internal::NumCPUs();
+  int num_cpus = NumCPUs();
 
   uint8_t per_cpu_shift = forwarder_.per_cpu_caches_dynamic_slab_enabled()
                               ? kInitialPerCpuShift
@@ -845,7 +846,7 @@ inline void CpuCache<Forwarder>::Activate() {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::Deactivate() {
-  int num_cpus = absl::base_internal::NumCPUs();
+  int num_cpus = NumCPUs();
   for (int i = 0; i < num_cpus; i++) {
     Reclaim(i);
   }
@@ -1091,7 +1092,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::TryReclaimingCaches() {
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     // Nothing to reclaim if the cpu is not populated.
@@ -1135,7 +1136,7 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
   if (!forwarder_.resize_size_classes_enabled()) return;
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
   // capacities for up to kNumCpuCachesToResize per-cpu caches.
   int cpu = last_cpu_size_class_resize_.load(std::memory_order_relaxed);
@@ -1250,7 +1251,7 @@ inline void CpuCache<Forwarder>::ShuffleCpuCaches() {
   constexpr double kBytesToStealPercent = 5.0;
   constexpr int kMaxNumStealCpus = 5;
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   absl::FixedArray<std::pair<int, uint64_t>> misses(num_cpus);
 
   // Record the cumulative misses for the caches so that we can select the
@@ -1661,8 +1662,7 @@ inline PerCPUMetadataState CpuCache<Forwarder>::MetadataMemoryUsage() const {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::TotalUsedBytes() const {
   uint64_t total = 0;
-  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
-       ++cpu) {
+  for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     total += UsedBytes(cpu);
   }
   return total;
@@ -1674,7 +1674,7 @@ inline uint64_t CpuCache<Forwarder>::TotalObjectsOfClass(
   ASSERT(size_class < kNumClasses);
   uint64_t total_objects = 0;
   if (size_class > 0) {
-    for (int cpu = 0, n = absl::base_internal::NumCPUs(); cpu < n; cpu++) {
+    for (int cpu = 0, n = NumCPUs(); cpu < n; cpu++) {
       if (!HasPopulated(cpu)) {
         continue;
       }
@@ -1756,7 +1756,7 @@ inline uint64_t CpuCache<Forwarder>::GetNumResizes(int cpu) const {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::GetNumResizes() const {
   uint64_t resizes = 0;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu)
     resizes +=
         resize_[cpu].num_size_class_resizes.load(std::memory_order_relaxed);
@@ -1771,7 +1771,7 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims(int cpu) const {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
   uint64_t reclaims = 0;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu)
     reclaims += resize_[cpu].num_reclaims.load(std::memory_order_relaxed);
   return reclaims;
@@ -1805,7 +1805,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   uint8_t per_cpu_shift = freelist_.GetShift();
   const uint8_t numa_shift = NumaShift(forwarder_.numa_topology());
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   CpuCacheMissStats total_misses{};
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     total_misses +=
@@ -1906,7 +1906,7 @@ template <class Forwarder>
 inline typename CpuCache<Forwarder>::CpuCacheMissStats
 CpuCache<Forwarder>::GetTotalCacheMissStats() const {
   CpuCacheMissStats stats;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) stats += GetTotalCacheMissStats(cpu);
   return stats;
 }
@@ -1974,8 +1974,7 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 
   // Scan through all per-CPU caches and calculate minimum, average and maximum
   // capacities for the size class <size_class> across all the populated caches.
-  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
-       ++cpu) {
+  for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     // We do not include stats for non-populated cpus in our average.
     if (!HasPopulated(cpu)) {
       continue;
@@ -2002,7 +2001,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
 
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     static constexpr double MiB = 1048576.0;
@@ -2077,8 +2076,7 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   const cpu_set_t allowed_cpus = FillActiveCpuMask();
 
-  for (int cpu = 0, num_cpus = absl::base_internal::NumCPUs(); cpu < num_cpus;
-       ++cpu) {
+  for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     PbtxtRegion entry = region->CreateSubRegion("cpu_cache");
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);

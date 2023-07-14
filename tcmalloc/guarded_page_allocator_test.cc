@@ -43,6 +43,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
@@ -236,7 +237,7 @@ TEST_F(GuardedPageAllocatorTest, ThreadedAllocCount) {
 // Test that allocator remains in consistent state under high contention and
 // doesn't double-allocate pages or fail to deallocate pages.
 TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
-  const size_t kNumThreads = 4 * absl::base_internal::NumCPUs();
+  const size_t kNumThreads = 4 * NumCPUs();
   {
     std::vector<std::thread> threads;
     threads.reserve(kNumThreads);

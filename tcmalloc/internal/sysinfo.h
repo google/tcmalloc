@@ -20,6 +20,7 @@
 
 #include <optional>
 
+#include "absl/base/internal/sysinfo.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 
@@ -52,7 +53,8 @@ int NumPossibleCPUsNoCache();
 }  // namespace sysinfo_internal
 
 inline int NumCPUs() {
-  static const int result = sysinfo_internal::NumPossibleCPUsNoCache();
+  // TODO(b/67389555): Switch to NumCPUs()
+  static const int result = absl::base_internal::NumCPUs();
   return result;
 }
 

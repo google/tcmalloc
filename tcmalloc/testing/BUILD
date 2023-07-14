@@ -282,6 +282,7 @@ cc_test(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_googletest//:gtest_main",
     ],
@@ -694,6 +695,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:percpu",
+        "//tcmalloc/internal:sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",

@@ -107,7 +107,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
   // allocated prior to lookups. It has CPU_SETSIZE entries which ought to be
   // sufficient, but sanity check that indexing it by CPU number shouldn't
   // exceed its bounds.
-  int num_cpus = absl::base_internal::NumCPUs();
+  int num_cpus = NumCPUs();
   CHECK_CONDITION(num_cpus <= CPU_SETSIZE);
 
   // We could just always report that we're NUMA aware, but if a NUMA-aware

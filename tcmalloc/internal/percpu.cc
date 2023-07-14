@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -92,8 +93,7 @@ bool UsingFlatVirtualCpus() {
 }
 
 static void InitPerCpu() {
-  CHECK_CONDITION(absl::base_internal::NumCPUs() <=
-                  std::numeric_limits<uint16_t>::max());
+  CHECK_CONDITION(NumCPUs() <= std::numeric_limits<uint16_t>::max());
 
   // Based on the results of successfully initializing the first thread, mark
   // init_status to initialize all subsequent threads.
@@ -174,7 +174,7 @@ static void SlowFence(int target) {
   // side, if we are unable to run on a particular CPU, the same is true for our
   // siblings (up to some races, dealt with below), so we don't need to.
 
-  for (int cpu = 0; cpu < absl::base_internal::NumCPUs(); ++cpu) {
+  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     if (!NeedCpu(cpu, target)) {
       // unnecessary -- user doesn't care about synchronization on this cpu
       continue;
@@ -240,7 +240,7 @@ static void SlowFence(int target) {
     // everything in cpuset.cpus, so do that.
     cpu_set_t set;
     CPU_ZERO(&set);
-    for (int i = 0; i < absl::base_internal::NumCPUs(); ++i) {
+    for (int i = 0, n = NumCPUs(); i < n; ++i) {
       CPU_SET(i, &set);
     }
     CHECK_CONDITION(0 == sched_setaffinity(0, sizeof(cpu_set_t), &set));

@@ -34,6 +34,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -314,7 +315,7 @@ TEST(CpuCacheTest, Metadata) {
     return;
   }
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
 
   CpuCache cache;
   cache.Activate();
@@ -449,7 +450,7 @@ TEST(CpuCacheTest, CacheMissStats) {
     return;
   }
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
 
   CpuCache cache;
   cache.Activate();
@@ -582,7 +583,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
 
   std::vector<std::thread> threads;
   std::thread resize_thread;
-  const int n_threads = absl::base_internal::NumCPUs();
+  const int n_threads = NumCPUs();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -601,7 +602,7 @@ TEST(CpuCacheTest, StressSizeClassResize) {
 
   // Check that the total capacity is preserved after the stress test.
   size_t capacity = 0;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   const size_t kTotalCapacity = num_cpus * Parameters::max_per_cpu_cache_size();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
@@ -623,7 +624,7 @@ TEST(CpuCacheTest, StealCpuCache) {
 
   std::vector<std::thread> threads;
   std::thread shuffle_thread;
-  const int n_threads = absl::base_internal::NumCPUs();
+  const int n_threads = NumCPUs();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -641,7 +642,7 @@ TEST(CpuCacheTest, StealCpuCache) {
 
   // Check that the total capacity is preserved after the shuffle.
   size_t capacity = 0;
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   const size_t kTotalCapacity = num_cpus * Parameters::max_per_cpu_cache_size();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     EXPECT_EQ(cache.Allocated(cpu) + cache.Unallocated(cpu),
@@ -673,7 +674,7 @@ TEST(CpuCacheTest, DynamicSlab) {
   cache.Activate();
 
   std::vector<std::thread> threads;
-  const int n_threads = absl::base_internal::NumCPUs();
+  const int n_threads = NumCPUs();
   std::atomic<bool> stop(false);
 
   for (size_t t = 0; t < n_threads; ++t) {
@@ -813,8 +814,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
 
-  const int num_resizes =
-      absl::base_internal::NumCPUs() / CpuCache::kNumCpuCachesToResize;
+  const int num_resizes = NumCPUs() / CpuCache::kNumCpuCachesToResize;
   for (int i = 0; i < num_resizes; ++i) {
     cache.ResizeSizeClasses();
   }
@@ -843,7 +843,7 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
-  int n_threads = absl::base_internal::NumCPUs();
+  int n_threads = NumCPUs();
 #ifdef UNDEFINED_BEHAVIOR_SANITIZER
   // Prevent timeout issues by using fewer stress threads with UBSan.
   n_threads = std::min(n_threads, 2);
@@ -1023,7 +1023,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   cache.Activate();
 
   //  The number of underflows and overflows must be zero for all the caches.
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
     // Check that reclaim miss metrics are reset.
@@ -1094,8 +1094,7 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   }
 
   absl::BitGen rnd;
-  const int busy_cpu =
-      absl::Uniform<int32_t>(rnd, 0, absl::base_internal::NumCPUs());
+  const int busy_cpu = absl::Uniform<int32_t>(rnd, 0, NumCPUs());
   const size_t prev_used = cache.UsedBytes(busy_cpu);
   ColdCacheOperations(cache, busy_cpu, kBusySizeClass);
   EXPECT_GT(cache.UsedBytes(busy_cpu), prev_used);
@@ -1141,7 +1140,7 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
   CpuCache cache;
   cache.Activate();
 
-  const int num_cpus = absl::base_internal::NumCPUs();
+  const int num_cpus = NumCPUs();
   constexpr size_t kSizeClass = 2;
   const size_t batch_size = cache.forwarder().num_objects_to_move(kSizeClass);
 
@@ -1211,7 +1210,7 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
 
 class CpuCacheEnvironment {
  public:
-  CpuCacheEnvironment() : num_cpus_(absl::base_internal::NumCPUs()) {}
+  CpuCacheEnvironment() : num_cpus_(NumCPUs()) {}
   ~CpuCacheEnvironment() { cache_.Deactivate(); }
 
   void Activate() {
