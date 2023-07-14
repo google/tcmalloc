@@ -222,6 +222,26 @@ TEST_F(LimitTest, LimitRespected) {
   EXPECT_EXIT(LimitRespected(), testing::ExitedWithCode(0), "");
 }
 
+// TODO(b/270593199): remove this test after clients have migrated from
+// the deprecated MallocExtension::MemoryLimit.
+//
+// Prior to having separate soft and hard limits, setting a soft limit after
+// the hard one removed the hard limit.
+// Verify that we maintain this legacy behavior, until the legacy interfaces
+// are migrated from.
+TEST_F(LimitTest, LegacySoftLimitResetsHardLimit) {
+  size_t used = physical_memory_used();
+  constexpr size_t kMiB = 1 << 20;
+
+  MallocExtension::MemoryLimit limit{.limit = used + kMiB, .hard = true};
+  MallocExtension::SetMemoryLimit(limit);
+  limit.hard = false;
+  MallocExtension::SetMemoryLimit(limit);
+
+  // Only soft limit is in effect, we should be able to allocate 64MiB.
+  ::operator delete(::operator new(64 * kMiB));
+}
+
 TEST_F(LimitTest, HardLimitZeroEqNoLimit) {
   SetLimit(0, /*is_hard=*/true);
 
