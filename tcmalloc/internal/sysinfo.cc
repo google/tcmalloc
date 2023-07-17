@@ -29,6 +29,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+#if __linux__
 namespace {
 bool IsInBounds(int cpu) { return 0 <= cpu && cpu < CPU_SETSIZE; }
 }  // namespace
@@ -125,6 +126,9 @@ int NumPossibleCPUsNoCache() {
 }
 
 }  // namespace sysinfo_internal
+
+#endif  // __linux__
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
