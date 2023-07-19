@@ -342,12 +342,6 @@ class TransferCache {
     return freelist_do_not_access_directly_;
   }
 
-  // The const version of the wrapper, needed to call stats on
-  ABSL_ATTRIBUTE_ALWAYS_INLINE const FreeList &freelist() const
-      ABSL_LOCKS_EXCLUDED(lock_) {
-    return freelist_do_not_access_directly_;
-  }
-
   int32_t max_capacity() const { return max_capacity_; }
 
  private:
