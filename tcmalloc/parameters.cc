@@ -206,8 +206,7 @@ bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
 size_t Parameters::chunks_per_alloc() {
   static size_t v([]() {
     if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC) ||
-        IsExperimentActive(Experiment::TCMALLOC_FILLER_CHUNKS_PER_ALLOC)) {
+            Experiment::TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC)) {
       return 16;
     }
     return 8;
