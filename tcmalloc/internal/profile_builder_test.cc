@@ -670,7 +670,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
         .stddev_lifetime = absl::Nanoseconds(22),
         .min_lifetime = absl::Nanoseconds(55),
         .max_lifetime = absl::Nanoseconds(99),
-        .allocator_deallocator_cpu_matched = true,
+        .allocator_deallocator_physical_cpu_matched = true,
         .allocator_deallocator_thread_matched = false,
     };
     // This stack is mostly artificial, but we include a couple of real symbols
@@ -698,7 +698,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
     censored_alloc1.is_censored = true;
     // The *_matched fields are unset for censored allocations since we did not
     // observe the deallocation.
-    censored_alloc1.allocator_deallocator_cpu_matched = std::nullopt;
+    censored_alloc1.allocator_deallocator_physical_cpu_matched = std::nullopt;
     censored_alloc1.allocator_deallocator_thread_matched = std::nullopt;
     censored_alloc1.profile_id++;
     samples.push_back(censored_alloc1);

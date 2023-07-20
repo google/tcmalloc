@@ -176,7 +176,7 @@ class Profile final {
     // For the *_matched vars below we use true = "same", false = "different".
     // When the value is unavailable the profile contains "none". For
     // right-censored observations, CPU and thread matched values are "none".
-    std::optional<bool> allocator_deallocator_cpu_matched;
+    std::optional<bool> allocator_deallocator_physical_cpu_matched;
     std::optional<bool> allocator_deallocator_thread_matched;
 
     // Provide the status of GWP-ASAN guarding for a given sample.

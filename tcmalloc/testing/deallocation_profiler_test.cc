@@ -140,8 +140,9 @@ void testEntry(Params &p, const tcmalloc::Profile::Sample &e) {
     LOG(INFO) << "e.min_lifetime:" << e.min_lifetime;
     LOG(INFO) << "e.max_lifetime:" << e.max_lifetime;
     LOG(INFO) << "e.stddev_lifetime:" << e.stddev_lifetime;
-    LOG(INFO) << "e.allocator_deallocator_cpu_matched:"
-              << log_optional_bool(e.allocator_deallocator_cpu_matched);
+    LOG(INFO) << "e.allocator_deallocator_physical_cpu_matched:"
+              << log_optional_bool(
+                     e.allocator_deallocator_physical_cpu_matched);
     LOG(INFO) << "e.allocator_deallocator_thread_matched:"
               << log_optional_bool(e.allocator_deallocator_thread_matched);
     LOG(INFO) << "e.profile_id:" << e.profile_id;

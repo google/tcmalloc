@@ -109,12 +109,13 @@ struct DeallocationSampleRecord {
 
 // Tracks whether an object was allocated/deallocated by the same CPU/thread.
 struct CpuThreadMatchingStatus {
-  constexpr CpuThreadMatchingStatus(bool cpu_matched, bool thread_matched)
-      : cpu_matched(cpu_matched),
+  constexpr CpuThreadMatchingStatus(bool physical_cpu_matched,
+                                    bool thread_matched)
+      : physical_cpu_matched(physical_cpu_matched),
         thread_matched(thread_matched),
-        value((static_cast<int>(cpu_matched) << 1) |
+        value((static_cast<int>(physical_cpu_matched) << 1) |
               static_cast<int>(thread_matched)) {}
-  bool cpu_matched;
+  bool physical_cpu_matched;
   bool thread_matched;
   int value;
 };
@@ -524,8 +525,8 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
       // Only set the cpu and thread matched flags if the sample is not
       // censored.
       if (!sample.is_censored) {
-        sample.allocator_deallocator_cpu_matched =
-            matching_case.first.cpu_matched;
+        sample.allocator_deallocator_physical_cpu_matched =
+            matching_case.first.physical_cpu_matched;
         sample.allocator_deallocator_thread_matched =
             matching_case.first.thread_matched;
       }

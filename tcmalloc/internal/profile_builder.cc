@@ -535,8 +535,8 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
                        absl::ToInt64Nanoseconds(entry.max_lifetime));
 
     add_optional_string_label(active_cpu_id,
-                              entry.allocator_deallocator_cpu_matched, same_id,
-                              different_id);
+                              entry.allocator_deallocator_physical_cpu_matched,
+                              same_id, different_id);
     add_optional_string_label(active_thread_id,
                               entry.allocator_deallocator_thread_matched,
                               same_id, different_id);
