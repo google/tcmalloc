@@ -143,6 +143,8 @@ void testEntry(Params &p, const tcmalloc::Profile::Sample &e) {
     LOG(INFO) << "e.allocator_deallocator_physical_cpu_matched:"
               << log_optional_bool(
                      e.allocator_deallocator_physical_cpu_matched);
+    LOG(INFO) << "e.allocator_deallocator_virtual_cpu_matched:"
+              << log_optional_bool(e.allocator_deallocator_virtual_cpu_matched);
     LOG(INFO) << "e.allocator_deallocator_thread_matched:"
               << log_optional_bool(e.allocator_deallocator_thread_matched);
     LOG(INFO) << "e.profile_id:" << e.profile_id;

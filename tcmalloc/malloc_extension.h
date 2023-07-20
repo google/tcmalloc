@@ -177,6 +177,7 @@ class Profile final {
     // When the value is unavailable the profile contains "none". For
     // right-censored observations, CPU and thread matched values are "none".
     std::optional<bool> allocator_deallocator_physical_cpu_matched;
+    std::optional<bool> allocator_deallocator_virtual_cpu_matched;
     std::optional<bool> allocator_deallocator_thread_matched;
 
     // Provide the status of GWP-ASAN guarding for a given sample.

@@ -479,6 +479,7 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
   const int min_lifetime_id = builder->InternString("min_lifetime");
   const int max_lifetime_id = builder->InternString("max_lifetime");
   const int active_cpu_id = builder->InternString("active CPU");
+  const int active_vcpu_id = builder->InternString("active vCPU");
   const int same_id = builder->InternString("same");
   const int different_id = builder->InternString("different");
   const int active_thread_id = builder->InternString("active thread");
@@ -536,6 +537,9 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
 
     add_optional_string_label(active_cpu_id,
                               entry.allocator_deallocator_physical_cpu_matched,
+                              same_id, different_id);
+    add_optional_string_label(active_vcpu_id,
+                              entry.allocator_deallocator_virtual_cpu_matched,
                               same_id, different_id);
     add_optional_string_label(active_thread_id,
                               entry.allocator_deallocator_thread_matched,

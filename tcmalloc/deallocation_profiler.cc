@@ -33,6 +33,7 @@
 #include "absl/hash/hash.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -88,6 +89,7 @@ struct DeallocationSampleRecord {
   // creation_time is used to capture the life_time of sampled allocations
   absl::Time creation_time;
   int cpu_id = -1;
+  int vcpu_id = -1;
   pid_t thread_id = 0;
 
   template <typename H>
@@ -110,12 +112,16 @@ struct DeallocationSampleRecord {
 // Tracks whether an object was allocated/deallocated by the same CPU/thread.
 struct CpuThreadMatchingStatus {
   constexpr CpuThreadMatchingStatus(bool physical_cpu_matched,
+                                    bool virtual_cpu_matched,
                                     bool thread_matched)
       : physical_cpu_matched(physical_cpu_matched),
+        virtual_cpu_matched(virtual_cpu_matched),
         thread_matched(thread_matched),
-        value((static_cast<int>(physical_cpu_matched) << 1) |
+        value((static_cast<int>(physical_cpu_matched) << 2) |
+              (static_cast<int>(virtual_cpu_matched) << 1) |
               static_cast<int>(thread_matched)) {}
   bool physical_cpu_matched;
+  bool virtual_cpu_matched;
   bool thread_matched;
   int value;
 };
@@ -140,20 +146,35 @@ int ComputeIndex(CpuThreadMatchingStatus status, RpcMatchingStatus rpc_status) {
 }
 
 constexpr std::pair<CpuThreadMatchingStatus, RpcMatchingStatus> kAllCases[] = {
-    {CpuThreadMatchingStatus(false, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(false, true), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(true, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(true, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(0, 0)},
 
-    {CpuThreadMatchingStatus(false, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(false, true), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(true, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(true, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(1, 2)},
 
-    {CpuThreadMatchingStatus(false, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(false, true), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(true, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(true, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(1, 1)},
+
+    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(0, 0)},
+
+    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(1, 2)},
+
+    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(1, 1)},
 };
 }  // namespace
 
@@ -254,8 +275,7 @@ class DeallocationProfiler {
     // underlying arena must stay alive as long as the profile.
     MyAllocator::LowLevelArenaReference arena_ref_;
 
-    static constexpr int kNumCases =
-        12;  // CPUthreadMatchingStatus({T,F},{T,F}) x RPCMatchingStatus
+    static constexpr int kNumCases = ABSL_ARRAYSIZE(kAllCases);
 
     struct Key {
       DeallocationSampleRecord alloc;
@@ -344,6 +364,7 @@ class DeallocationProfiler {
     // TODO(mmaas): Do we need to worry about b/65384231 anymore?
     allocation.creation_time = stack_trace.allocation_time;
     allocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
+    allocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
     allocation.thread_id = absl::base_internal::GetTID();
     // We divide by the requested size to obtain the number of allocations.
     // TODO(b/248332543): Consider using AllocatedBytes from sampler.h.
@@ -450,6 +471,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
     const DeallocationSampleRecord& dealloc_trace) {
   CpuThreadMatchingStatus status =
       CpuThreadMatchingStatus(alloc_trace.cpu_id == dealloc_trace.cpu_id,
+                              alloc_trace.vcpu_id == dealloc_trace.vcpu_id,
                               alloc_trace.thread_id == dealloc_trace.thread_id);
 
   // Initialize a default rpc matched status.
@@ -465,6 +487,8 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   double life_time_ns = absl::ToDoubleNanoseconds(life_time);
 
   // Update mean and variance using Welford’s online algorithm.
+  ASSERT(index < ABSL_ARRAYSIZE(v.counts));
+
   double old_mean_ns = v.mean_life_times_ns[index];
   v.mean_life_times_ns[index] +=
       (life_time_ns - old_mean_ns) / static_cast<double>(v.counts[index] + 1);
@@ -527,6 +551,8 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
       if (!sample.is_censored) {
         sample.allocator_deallocator_physical_cpu_matched =
             matching_case.first.physical_cpu_matched;
+        sample.allocator_deallocator_virtual_cpu_matched =
+            matching_case.first.virtual_cpu_matched;
         sample.allocator_deallocator_thread_matched =
             matching_case.first.thread_matched;
       }
