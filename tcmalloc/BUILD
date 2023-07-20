@@ -430,7 +430,7 @@ cc_library(
     ],
     copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//visibility:public"],
+    visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
         ":common_small_but_slow",
         "//tcmalloc/internal:overflow",
