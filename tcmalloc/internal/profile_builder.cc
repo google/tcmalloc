@@ -429,19 +429,21 @@ void ProfileBuilder::AddCurrentMappings() {
 #endif  // defined(__linux__)
 }
 
-void ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
-                                uintptr_t file_offset,
-                                absl::string_view filename,
-                                absl::string_view build_id) {
+int ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
+                               uintptr_t file_offset,
+                               absl::string_view filename,
+                               absl::string_view build_id) {
   perftools::profiles::Mapping& mapping = *profile_->add_mapping();
-  mapping.set_id(profile_->mapping_size());
+  const int mapping_id = profile_->mapping_size();
+  mapping.set_id(mapping_id);
   mapping.set_memory_start(memory_start);
   mapping.set_memory_limit(memory_limit);
   mapping.set_file_offset(file_offset);
   mapping.set_filename(InternString(filename));
   mapping.set_build_id(InternString(build_id));
 
-  mappings_.emplace(memory_start, mapping.id() - 1);
+  mappings_.emplace(memory_start, mapping_id - 1);
+  return mapping_id;
 }
 
 static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
