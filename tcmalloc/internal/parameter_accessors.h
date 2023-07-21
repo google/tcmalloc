@@ -87,10 +87,6 @@ ABSL_ATTRIBUTE_WEAK double
 TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold();
 ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v);
-
-ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPassSpanObjectCountToPageheap();
-ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetPassSpanObjectCountToPageheap(
-    bool v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseFree();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseFree(bool v);
 }
