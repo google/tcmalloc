@@ -148,6 +148,8 @@ class ShardedTransferCacheManagerBase {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     owner_->Init();
+    // TODO(b/190711505):  Shift to using state available in Static, rather than
+    // maintaining our own copy.
     num_shards_ = CpuLayout::BuildCacheMap(l3_cache_index_);
     shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
         sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));

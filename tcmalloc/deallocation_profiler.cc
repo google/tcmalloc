@@ -90,6 +90,7 @@ struct DeallocationSampleRecord {
   absl::Time creation_time;
   int cpu_id = -1;
   int vcpu_id = -1;
+  int l3_id = -1;
   pid_t thread_id = 0;
 
   template <typename H>
@@ -112,16 +113,19 @@ struct DeallocationSampleRecord {
 // Tracks whether an object was allocated/deallocated by the same CPU/thread.
 struct CpuThreadMatchingStatus {
   constexpr CpuThreadMatchingStatus(bool physical_cpu_matched,
-                                    bool virtual_cpu_matched,
+                                    bool virtual_cpu_matched, bool l3_matched,
                                     bool thread_matched)
       : physical_cpu_matched(physical_cpu_matched),
         virtual_cpu_matched(virtual_cpu_matched),
+        l3_matched(l3_matched),
         thread_matched(thread_matched),
-        value((static_cast<int>(physical_cpu_matched) << 2) |
-              (static_cast<int>(virtual_cpu_matched) << 1) |
+        value((static_cast<int>(physical_cpu_matched) << 3) |
+              (static_cast<int>(virtual_cpu_matched) << 2) |
+              (static_cast<int>(l3_matched) << 1) |
               static_cast<int>(thread_matched)) {}
   bool physical_cpu_matched;
   bool virtual_cpu_matched;
+  bool l3_matched;
   bool thread_matched;
   int value;
 };
@@ -145,36 +149,107 @@ int ComputeIndex(CpuThreadMatchingStatus status, RpcMatchingStatus rpc_status) {
   return status.value * 3 + rpc_status.value;
 }
 
+int GetL3Id(int cpu_id) {
+  return cpu_id >= 0
+             ? tcmalloc_internal::Static::cache_topology().GetL3FromCpuId(
+                   cpu_id)
+             : -1;
+}
+
 constexpr std::pair<CpuThreadMatchingStatus, RpcMatchingStatus> kAllCases[] = {
-    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, false, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, false, true),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, true, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, false, true, true),
+     RpcMatchingStatus(0, 0)},
 
-    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, false, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, false, true),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, true, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, false, true, true),
+     RpcMatchingStatus(1, 2)},
 
-    {CpuThreadMatchingStatus(false, false, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(false, false, true), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(false, true, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(false, true, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, false, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, false, true),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, true, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, false, true, true),
+     RpcMatchingStatus(1, 1)},
 
-    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(0, 0)},
-    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, false, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, false, true),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, true, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(false, true, true, true), RpcMatchingStatus(0, 0)},
 
-    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(1, 2)},
-    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, false, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, false, true),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, true, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(false, true, true, true), RpcMatchingStatus(1, 2)},
 
-    {CpuThreadMatchingStatus(true, false, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(true, false, true), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(true, true, false), RpcMatchingStatus(1, 1)},
-    {CpuThreadMatchingStatus(true, true, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, false, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, false, true),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, true, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(false, true, true, true), RpcMatchingStatus(1, 1)},
+
+    {CpuThreadMatchingStatus(true, false, false, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, false, false, true),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, false, true, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, false, true, true), RpcMatchingStatus(0, 0)},
+
+    {CpuThreadMatchingStatus(true, false, false, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, false, false, true),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, false, true, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, false, true, true), RpcMatchingStatus(1, 2)},
+
+    {CpuThreadMatchingStatus(true, false, false, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, false, false, true),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, false, true, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, false, true, true), RpcMatchingStatus(1, 1)},
+
+    {CpuThreadMatchingStatus(true, true, false, false),
+     RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, true, false, true), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, true, true, false), RpcMatchingStatus(0, 0)},
+    {CpuThreadMatchingStatus(true, true, true, true), RpcMatchingStatus(0, 0)},
+
+    {CpuThreadMatchingStatus(true, true, false, false),
+     RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, true, false, true), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, true, true, false), RpcMatchingStatus(1, 2)},
+    {CpuThreadMatchingStatus(true, true, true, true), RpcMatchingStatus(1, 2)},
+
+    {CpuThreadMatchingStatus(true, true, false, false),
+     RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, true, false, true), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, true, true, false), RpcMatchingStatus(1, 1)},
+    {CpuThreadMatchingStatus(true, true, true, true), RpcMatchingStatus(1, 1)},
+
 };
 }  // namespace
 
@@ -365,6 +440,7 @@ class DeallocationProfiler {
     allocation.creation_time = stack_trace.allocation_time;
     allocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
     allocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
+    allocation.l3_id = GetL3Id(allocation.cpu_id);
     allocation.thread_id = absl::base_internal::GetTID();
     // We divide by the requested size to obtain the number of allocations.
     // TODO(b/248332543): Consider using AllocatedBytes from sampler.h.
@@ -391,6 +467,7 @@ class DeallocationProfiler {
     deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
     deallocation.vcpu_id =
         tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
+    deallocation.l3_id = GetL3Id(deallocation.cpu_id);
     deallocation.thread_id = absl::base_internal::GetTID();
     deallocation.depth =
         absl::GetStackTrace(deallocation.stack, kMaxStackDepth, 1);
@@ -474,6 +551,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   CpuThreadMatchingStatus status =
       CpuThreadMatchingStatus(alloc_trace.cpu_id == dealloc_trace.cpu_id,
                               alloc_trace.vcpu_id == dealloc_trace.vcpu_id,
+                              alloc_trace.l3_id == dealloc_trace.l3_id,
                               alloc_trace.thread_id == dealloc_trace.thread_id);
 
   // Initialize a default rpc matched status.

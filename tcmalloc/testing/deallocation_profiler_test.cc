@@ -227,7 +227,7 @@ class DeallocationzTest : public ::testing::Test {
       // testEntry() gets called 4 times (which leads to 4 times of increment of
       // the counter p.dealloc_bucket_counter)
       EXPECT_LE(p.dealloc_bucket_counter,
-                4 * n_alloc_funcs_ * m_dealloc_funcs_);
+                16 * n_alloc_funcs_ * m_dealloc_funcs_);
     }
   }
 
@@ -605,7 +605,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   // each of them (alloc/dealloc) and depending on whether or not the thread
   // migrates CPU during the execution, there are 1 or 2 instances of each.
   EXPECT_GE(counters.samples_count, 6);
-  EXPECT_LE(counters.samples_count, 24);
+  EXPECT_LE(counters.samples_count, 48);
 
   // Every allocation gets counted twice
   EXPECT_EQ(counters.sum, 7 * kNumAllocations * kMallocSize);

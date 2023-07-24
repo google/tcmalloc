@@ -16,6 +16,7 @@
 #define TCMALLOC_INTERNAL_CACHE_TOPOLOGY_H_
 
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -28,6 +29,26 @@ int BuildCpuToL3CacheMap(uint8_t l3_cache_index[CPU_SETSIZE]);
 
 // Helper function exposed to permit testing it.
 int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current);
+
+class CacheTopology {
+ public:
+  constexpr CacheTopology() = default;
+
+  void Init() { shard_count_ = BuildCpuToL3CacheMap(l3_cache_index_); }
+
+  unsigned shard_count() const { return shard_count_; }
+
+  unsigned GetL3FromCpuId(int cpu) const {
+    ASSERT(cpu >= 0);
+    ASSERT(cpu < ABSL_ARRAYSIZE(l3_cache_index_));
+    return l3_cache_index_[cpu];
+  }
+
+ private:
+  unsigned shard_count_ = 0;
+  // Mapping from cpu to the L3 cache used.
+  uint8_t l3_cache_index_[CPU_SETSIZE] = {0};
+};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
