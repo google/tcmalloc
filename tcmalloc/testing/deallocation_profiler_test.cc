@@ -605,7 +605,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   // each of them (alloc/dealloc) and depending on whether or not the thread
   // migrates CPU during the execution, there are 1 or 2 instances of each.
   EXPECT_GE(counters.samples_count, 6);
-  EXPECT_LE(counters.samples_count, 12);
+  EXPECT_LE(counters.samples_count, 24);
 
   // Every allocation gets counted twice
   EXPECT_EQ(counters.sum, 7 * kNumAllocations * kMallocSize);

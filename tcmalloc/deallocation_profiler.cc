@@ -389,6 +389,8 @@ class DeallocationProfiler {
     deallocation.requested_size = sample.requested_size;
     deallocation.creation_time = absl::Now();
     deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
+    deallocation.vcpu_id =
+        tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
     deallocation.thread_id = absl::base_internal::GetTID();
     deallocation.depth =
         absl::GetStackTrace(deallocation.stack, kMaxStackDepth, 1);
