@@ -55,8 +55,7 @@ int NumPossibleCPUsNoCache();
 #endif  // __linux__
 
 inline int NumCPUs() {
-  // TODO(b/67389555): Switch to NumCPUs()
-  static const int result = absl::base_internal::NumCPUs();
+  static const int result = sysinfo_internal::NumPossibleCPUsNoCache();
   return result;
 }
 
