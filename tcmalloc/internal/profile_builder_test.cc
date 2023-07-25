@@ -672,6 +672,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
         .max_lifetime = absl::Nanoseconds(99),
         .allocator_deallocator_physical_cpu_matched = true,
         .allocator_deallocator_virtual_cpu_matched = true,
+        .allocator_deallocator_l3_matched = true,
         .allocator_deallocator_thread_matched = false,
     };
     // This stack is mostly artificial, but we include a couple of real symbols
@@ -701,6 +702,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
     // observe the deallocation.
     censored_alloc1.allocator_deallocator_physical_cpu_matched = std::nullopt;
     censored_alloc1.allocator_deallocator_virtual_cpu_matched = std::nullopt;
+    censored_alloc1.allocator_deallocator_l3_matched = std::nullopt;
     censored_alloc1.allocator_deallocator_thread_matched = std::nullopt;
     censored_alloc1.profile_id++;
     samples.push_back(censored_alloc1);
@@ -767,14 +769,14 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
               Pair("max_lifetime", 99),
               Pair("active CPU", "same"), Pair("active vCPU", "same"),
-              Pair("active thread", "different")),
+              Pair("active L3", "same"), Pair("active thread", "different")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("callstack-pair-id", 33), Pair("avg_lifetime", 77),
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
               Pair("max_lifetime", 99),
               Pair("active CPU", "same"), Pair("active vCPU", "same"),
-              Pair("active thread", "different")),
+              Pair("active L3", "same"), Pair("active thread", "different")),
           // Check the contents of the censored sample.
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
@@ -782,7 +784,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
               Pair("stddev_lifetime", 22), Pair("min_lifetime", 55),
               Pair("max_lifetime", 99),
               Pair("active CPU", "none"), Pair("active vCPU", "none"),
-              Pair("active thread", "none"))));
+              Pair("active L3", "none"), Pair("active thread", "none"))));
 
   // Checks for common fields.
   EXPECT_THAT(converted.string_table(converted.drop_frames()),
