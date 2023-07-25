@@ -108,7 +108,7 @@ MallocExtension::BytesPerSecond Parameters::background_release_rate() {
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 ABSL_CONST_INIT std::atomic<bool>
-    Parameters::resize_cpu_cache_size_classes_enabled_(false);
+    Parameters::resize_cpu_cache_size_classes_enabled_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
