@@ -14,6 +14,7 @@
 
 #include "tcmalloc/page_allocator.h"
 
+#include <limits>
 #include <new>
 
 #include "tcmalloc/common.h"
@@ -22,6 +23,7 @@
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
@@ -150,25 +152,39 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   // occur if we allocate space for many objects preemptively and only later
   // sample them (incrementing sampled_objects_size_).
 
-  if (limit_ == std::numeric_limits<size_t>::max()) {
+  if (limits_[kSoft] == std::numeric_limits<size_t>::max()) {
+    // Limits are not set.
     return;
   }
-  if (backed <= limit_) {
+  if (backed <= limits_[kSoft]) {
     // We're already fine.
     return;
   }
 
-  ++limit_hits_;
-  const size_t overage = backed - limit_;
+  ++limit_hits_[kSoft];
+  if (limits_[kHard] < backed) ++limit_hits_[kHard];
+
+  const size_t overage = backed - limits_[kSoft];
   const Length pages = LengthFromBytes(overage + kPageSize - 1);
-  if (ShrinkHardBy(pages)) {
-    ++successful_shrinks_after_limit_hit_;
+  if (ShrinkHardBy(pages, kSoft)) {
+    ++successful_shrinks_after_limit_hit_[kSoft];
     return;
   }
 
   // We're still not below limit.
-  if (limit_is_hard_) {
-    limit_ = std::numeric_limits<decltype(limit_)>::max();
+  if (limits_[kHard] < std::numeric_limits<size_t>::max()) {
+    // Recompute how many pages we still need to release.
+    BackingStats s = stats();
+    const size_t backed =
+        s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+    const size_t overage = backed - limits_[kHard];
+    const Length pages = LengthFromBytes(overage + kPageSize - 1);
+    if (ShrinkHardBy(pages, kHard)) {
+      ++successful_shrinks_after_limit_hit_[kHard];
+      ASSERT(successful_shrinks_after_limit_hit_[kHard] == limit_hits_[kHard]);
+      return;
+    }
+    limits_[kHard] = std::numeric_limits<size_t>::max();
     Crash(
         kCrash, __FILE__, __LINE__,
         "Hit hard tcmalloc heap limit (e.g. --tcmalloc_heap_size_hard_limit). "
@@ -182,10 +198,10 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   if (warned) return;
   warned = true;
   Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of ",
-      limit_, "and OOM is likely to follow.");
+      limits_[kSoft], "and OOM is likely to follow.");
 }
 
-bool PageAllocator::ShrinkHardBy(Length pages) {
+bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
   Length ret = ReleaseAtLeastNPages(pages);
   if (alg_ == HPAA) {
     if (pages <= ret) {
@@ -196,12 +212,13 @@ bool PageAllocator::ShrinkHardBy(Length pages) {
     // At this point, we have no choice but to break up hugepages.
     // However, if the client has turned off subrelease, and is using hard
     // limits, then respect desire to do no subrelease ever.
-    if (limit_is_hard_ && !Parameters::hpaa_subrelease()) return false;
+    if (limit_kind == kHard && !Parameters::hpaa_subrelease()) return false;
 
     static bool warned_hugepages = false;
     if (!warned_hugepages) {
+      const size_t limit = limits_[limit_kind];
       Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of ",
-          limit_, "without breaking hugepages - performance will drop");
+          limit, "without breaking hugepages - performance will drop");
       warned_hugepages = true;
     }
     if (has_cold_impl_) {
