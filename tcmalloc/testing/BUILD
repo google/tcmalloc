@@ -68,6 +68,9 @@ create_tcmalloc_testsuite(
     timeout = "long",
     srcs = ["tcmalloc_test.cc"],
     copts = REGTEST_OPTS,
+    exec_properties = select({
+        "//conditions:default": None,
+    }),
     linkstatic = 1,  # get the most realistic performance
     tags = [
         "nosan",
