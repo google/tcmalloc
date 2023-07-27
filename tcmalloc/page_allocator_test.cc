@@ -68,9 +68,10 @@ class PageAllocatorTest : public testing::Test {
                    MemoryTag tag = MemoryTag::kNormal) {
     return allocator_->NewAligned(n, align, span_alloc_info, tag);
   }
-  void Delete(Span* s, MemoryTag tag = MemoryTag::kNormal) {
+  void Delete(Span* s, size_t objects_per_span,
+              MemoryTag tag = MemoryTag::kNormal) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    allocator_->Delete(s, tag);
+    allocator_->Delete(s, objects_per_span, tag);
   }
 
   std::string Print() {
@@ -92,7 +93,7 @@ TEST_F(PageAllocatorTest, Record) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/7,
                                        AccessDensityPrediction::kSparse};
   for (int i = 0; i < 15; ++i) {
-    Delete(New(Length(1), kSpanInfo));
+    Delete(New(Length(1), kSpanInfo), kSpanInfo.objects_per_span);
   }
 
   std::vector<Span*> spans;
@@ -101,7 +102,8 @@ TEST_F(PageAllocatorTest, Record) {
   }
 
   for (int i = 0; i < 25; ++i) {
-    Delete(NewAligned(Length(3), Length(2), kSpanInfo));
+    Delete(NewAligned(Length(3), Length(2), kSpanInfo),
+           kSpanInfo.objects_per_span);
   }
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
@@ -128,14 +130,14 @@ TEST_F(PageAllocatorTest, Record) {
       CHECK_CONDITION(0 == info.counts_for(i).nfree);
     }
   }
-  for (auto s : spans) Delete(s);
+  for (auto s : spans) Delete(s, kSpanInfo.objects_per_span);
 }
 
 // And that we call the print method properly.
 TEST_F(PageAllocatorTest, PrintIt) {
   constexpr SpanAllocInfo kSpanInfo = {/*objects_per_span=*/17,
                                        AccessDensityPrediction::kDense};
-  Delete(New(Length(1), kSpanInfo));
+  Delete(New(Length(1), kSpanInfo), kSpanInfo.objects_per_span);
   std::string output = Print();
   EXPECT_THAT(output, testing::ContainsRegex("stats on allocation sizes"));
 }
@@ -169,8 +171,8 @@ TEST_F(PageAllocatorTest, ShrinkFailureTest) {
   EXPECT_LE(
       0, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
-  Delete(normal, MemoryTag::kNormal);
-  Delete(sampled, MemoryTag::kSampled);
+  Delete(normal, kSpanInfo.objects_per_span, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo.objects_per_span, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 
@@ -212,8 +214,8 @@ TEST_F(PageAllocatorTest, b270916852) {
   EXPECT_LE(
       1, allocator_->successful_shrinks_after_limit_hit(PageAllocator::kSoft));
 
-  Delete(normal, MemoryTag::kNormal);
-  Delete(sampled, MemoryTag::kSampled);
+  Delete(normal, kSpanInfo.objects_per_span, MemoryTag::kNormal);
+  Delete(sampled, kSpanInfo.objects_per_span, MemoryTag::kSampled);
   Parameters::set_hpaa_subrelease(old_subrelease);
 }
 

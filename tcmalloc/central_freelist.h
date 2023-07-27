@@ -52,7 +52,8 @@ class StaticForwarder {
   static Span* AllocateSpan(int size_class, SpanAllocInfo span_alloc_info,
                             Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  static void DeallocateSpans(int size_class, absl::Span<Span*> free_spans)
+  static void DeallocateSpans(int size_class, size_t objects_per_span,
+                              absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
 
@@ -415,7 +416,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
-    forwarder_.DeallocateSpans(size_class_,
+    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
                                absl::MakeSpan(free_spans, free_count));
   }
 }

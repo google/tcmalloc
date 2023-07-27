@@ -49,10 +49,11 @@ void CheckStats(const PageHeap* ph, Length system_pages, Length free_pages,
   ASSERT_EQ(unmapped_pages.in_bytes(), stats.unmapped_bytes);
 }
 
-static void Delete(PageHeap* ph, Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+static void Delete(PageHeap* ph, Span* s, size_t objects_per_span)
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
-    ph->Delete(s);
+    ph->Delete(s, objects_per_span);
   }
 }
 
@@ -92,7 +93,7 @@ TEST_F(PageHeapTest, Stats) {
   CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf);
 
   // Delete the old one
-  Delete(ph, s1);
+  Delete(ph, s1, kSpanAllocInfo.objects_per_span);
   CheckStats(ph, kMinSpanLength * 2, kMinSpanLength, kHalf);
 
   // Release the space from there:
@@ -101,7 +102,7 @@ TEST_F(PageHeapTest, Stats) {
   CheckStats(ph, kMinSpanLength * 2, Length(0), kHalf + kMinSpanLength);
 
   // and delete the new one
-  Delete(ph, s2);
+  Delete(ph, s2, kSpanAllocInfo.objects_per_span);
   CheckStats(ph, kMinSpanLength * 2, kHalf, kHalf + kMinSpanLength);
 
   free(memory);

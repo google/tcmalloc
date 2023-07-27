@@ -113,7 +113,8 @@ TEST_P(StaticForwarderTest, Simple) {
     span->FreelistPush(ptr, object_size_);
   }
 
-  StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                   absl::MakeSpan(&span, 1));
 }
 
 class StaticForwarderEnvironment {
@@ -176,7 +177,8 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                     absl::MakeSpan(free_spans));
   }
 
   void Grow() {
@@ -236,7 +238,8 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, absl::MakeSpan(free_spans));
+    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+                                     absl::MakeSpan(free_spans));
   }
 
   void Shuffle(absl::BitGen& rng) {
@@ -732,7 +735,8 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
         e.central_freelist().RemoveRange(&objects[0], to_fetch);
     size_t returned = 0;
     while (returned < fetched) {
-      EXPECT_CALL(e.forwarder(), DeallocateSpans(testing::_, testing::_))
+      EXPECT_CALL(e.forwarder(),
+                  DeallocateSpans(testing::_, testing::_, testing::_))
           .Times(1);
       const size_t to_return =
           std::min(fetched - returned, TypeParam::kBatchSize);

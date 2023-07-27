@@ -701,17 +701,21 @@ static void do_free_pages(void* ptr, const PageId p) {
         Span::Delete(span);
       } else if (IsColdMemory(ptr)) {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, MemoryTag::kCold);
+        tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
+                                           MemoryTag::kCold);
       } else {
         ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, MemoryTag::kSampled);
+        tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
+                                           MemoryTag::kSampled);
       }
     } else if (kNumaPartitions != 1) {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));
+      tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
+                                         GetMemoryTag(ptr));
     } else {
       ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, MemoryTag::kNormal);
+      tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
+                                         MemoryTag::kNormal);
     }
   }
 }

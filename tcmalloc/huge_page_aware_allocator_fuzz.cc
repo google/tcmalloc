@@ -189,7 +189,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         allocated -= span_info.span->num_pages();
         {
           absl::base_internal::SpinLockHolder h(&pageheap_lock);
-          allocator->Delete(span_info.span);
+          allocator->Delete(span_info.span, span_info.objects_per_span);
         }
         break;
       }
@@ -267,7 +267,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   for (auto span_info : allocs) {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     allocated -= span_info.span->num_pages();
-    allocator->Delete(span_info.span);
+    allocator->Delete(span_info.span, span_info.objects_per_span);
   }
   CHECK_EQ(allocated.in_bytes(), 0);
   free(allocator);

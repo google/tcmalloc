@@ -263,7 +263,7 @@ Span* PageHeap::Carve(Span* span, Length n) {
   return span;
 }
 
-void PageHeap::Delete(Span* span) {
+void PageHeap::Delete(Span* span, size_t objects_per_span) {
   ASSERT(GetMemoryTag(span->start_address()) == tag_);
   info_.RecordFree(span->first_page(), span->num_pages());
   ASSERT(Check());
