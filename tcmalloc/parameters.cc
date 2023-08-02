@@ -42,13 +42,17 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
 // require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
-  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(
+  static std::atomic<int64_t> v([]() {
+    return absl::ToInt64Nanoseconds(
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
-      absl::ZeroDuration()
+        absl::ZeroDuration()
 #else
-      absl::Seconds(60)
+        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
+            ? absl::ZeroDuration()
+            : absl::Seconds(60)
 #endif
-          ));
+    );
+  }());
   return v;
 }
 
@@ -65,12 +69,32 @@ static std::atomic<bool>& improved_guarded_sampling_atomic() {
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
-  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(absl::ZeroDuration()));
+  static std::atomic<int64_t> v([]() {
+    return absl::ToInt64Nanoseconds(
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
+        absl::ZeroDuration()
+#else
+        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
+            ? absl::Seconds(10)
+            : absl::ZeroDuration()
+#endif
+    );
+  }());
   return v;
 }
 
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
-  static std::atomic<int64_t> v(absl::ToInt64Nanoseconds(absl::ZeroDuration()));
+  static std::atomic<int64_t> v([]() {
+    return absl::ToInt64Nanoseconds(
+#if defined(TCMALLOC_SMALL_BUT_SLOW)
+        absl::ZeroDuration()
+#else
+        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
+            ? absl::Seconds(300)
+            : absl::ZeroDuration()
+#endif
+    );
+  }());
   return v;
 }
 
