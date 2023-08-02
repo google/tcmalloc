@@ -21,6 +21,7 @@
 #include "absl/log/check.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
@@ -29,6 +30,7 @@ namespace {
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
+using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
 using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
 using tcmalloc::tcmalloc_internal::kMaxSize;
 using tcmalloc::tcmalloc_internal::kMinObjectsToMove;
@@ -90,7 +92,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       data[1] >= 128 ? HugeRegionUsageOption::kDefault
                      : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
-  const bool separate_allocs_for_sparse_and_dense_spans = data[5];
+  const HugePageFillerAllocsOption allocs_option =
+      data[5] >= 128 ? HugePageFillerAllocsOption::kUnifiedAllocs
+                     : HugePageFillerAllocsOption::kSeparateAllocs;
 
   // data[6:12] - Reserve additional bytes for any features we might want to add
   // in the future.
@@ -103,8 +107,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
-  options.separate_allocs_for_sparse_and_dense_spans =
-      separate_allocs_for_sparse_and_dense_spans;
+  options.allocs_for_sparse_and_dense_spans = allocs_option;
   HugePageAwareAllocator* allocator;
   allocator = new (p) HugePageAwareAllocator(options);
 

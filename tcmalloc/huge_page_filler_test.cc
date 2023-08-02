@@ -682,13 +682,8 @@ thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
 bool BlockingUnback::success_ = true;
 
-enum FillerPath {
-  SingleAllocList,
-  SparseDenseAllocLists,
-};
-
-class FillerTest
-    : public testing::TestWithParam<std::tuple<FillerPath, size_t>> {
+class FillerTest : public testing::TestWithParam<
+                       std::tuple<HugePageFillerAllocsOption, size_t>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -730,7 +725,7 @@ class FillerTest
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_sparse_and_dense_spans=*/
-                std::get<0>(GetParam()) == FillerPath::SparseDenseAllocLists,
+                std::get<0>(GetParam()),
                 /*chunks_per_alloc=*/std::get<1>(GetParam()),
                 MemoryModifyFunction(BlockingUnback::Unback)) {
     ResetClock();
@@ -844,7 +839,8 @@ class FillerTest
     EXPECT_LT(n, kPagesPerHugePage);
     // Densely-accessed spans are not allocated from donated hugepages.  So
     // assert that we do not test such a situation.
-    EXPECT_TRUE(std::get<0>(GetParam()) == FillerPath::SingleAllocList ||
+    EXPECT_TRUE(std::get<0>(GetParam()) ==
+                    HugePageFillerAllocsOption::kUnifiedAllocs ||
                 (!donated ||
                  span_alloc_info.density == AccessDensityPrediction::kSparse));
     PAlloc ret;
@@ -915,8 +911,8 @@ TEST_P(FillerTest, Density) {
   for (auto d : doomed_allocs) {
     Delete(d);
   }
-  const FillerPath path = std::get<0>(GetParam());
-  if (path == FillerPath::SingleAllocList) {
+  const HugePageFillerAllocsOption path = std::get<0>(GetParam());
+  if (path == HugePageFillerAllocsOption::kUnifiedAllocs) {
     EXPECT_EQ(filler_.size(), kNumHugePages);
   } else {
     EXPECT_LE(filler_.size(), kNumHugePages + NHugePages(1));
@@ -2776,8 +2772,8 @@ TEST_P(FillerTest, b258965495) {
 
 TEST_P(FillerTest, CheckFillerStats) {
   // Skip test for single alloc as we test for non-zero hardened output.
-  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
-    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
+    GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
   }
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
@@ -2840,8 +2836,8 @@ TEST_P(FillerTest, CheckFillerStats) {
 // but that's not all bad in this case.
 TEST_P(FillerTest, Print) {
   // Skip test for single alloc as we test for non-zero hardened output.
-  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
-    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
+    GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
   }
   if (kPagesPerHugePage != Length(256)) {
     // The output is hardcoded on this assumption, and dynamically calculating
@@ -3015,8 +3011,8 @@ HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pag
 TEST_P(FillerTest, GetsAndPuts) {
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
-    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
+    GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
   }
 
   randomize_density_ = false;
@@ -3066,8 +3062,8 @@ TEST_P(FillerTest, GetsAndPuts) {
 TEST_P(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
-    GTEST_SKIP() << "Skipping test for SingleAllocList";
+  if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
+    GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
   }
 
   randomize_density_ = false;
@@ -3137,7 +3133,7 @@ TEST_P(FillerTest, CounterUnderflow) {
   // skip when using a single alloc list.
   // TODO(b/257064106): remove the skipping part once the two separate allocs
   // become the only option.
-  if (std::get<0>(GetParam()) == FillerPath::SingleAllocList) {
+  if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
     GTEST_SKIP() << "Skipping test for single alloc";
   }
 
@@ -3249,9 +3245,10 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
 
 INSTANTIATE_TEST_SUITE_P(
     All, FillerTest,
-    testing::Combine(testing::Values(FillerPath::SingleAllocList,
-                                     FillerPath::SparseDenseAllocLists),
-                     testing::Values(8, 12, 16)));
+    testing::Combine(
+        testing::Values(HugePageFillerAllocsOption::kUnifiedAllocs,
+                        HugePageFillerAllocsOption::kSeparateAllocs),
+        testing::Values(8, 12, 16)));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the

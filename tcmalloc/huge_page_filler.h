@@ -29,6 +29,7 @@
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
@@ -983,15 +984,22 @@ struct HugePageFillerStats {
   HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
+enum class HugePageFillerAllocsOption : bool {
+  // Same allocs for sparse and dense spans
+  kUnifiedAllocs,
+  // Separate allocs for sparse and dense spans
+  kSeparateAllocs,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
 template <class TrackerType>
 class HugePageFiller {
  public:
-  explicit HugePageFiller(bool separate_allocs_for_sparse_and_dense_spans,
+  explicit HugePageFiller(HugePageFillerAllocsOption allocs_option,
                           size_t chunks_per_alloc, MemoryModifyFunction unback);
-  HugePageFiller(Clock clock, bool separate_allocs_for_sparse_and_dense_spans,
+  HugePageFiller(Clock clock, HugePageFillerAllocsOption allocs_options,
                  size_t chunks_per_alloc, MemoryModifyFunction unback);
 
   typedef TrackerType Tracker;
@@ -1169,7 +1177,8 @@ class HugePageFiller {
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
-  const bool separate_allocs_for_sparse_and_dense_spans_ = false;
+  const HugePageFillerAllocsOption allocs_for_sparse_and_dense_spans_ =
+      HugePageFillerAllocsOption::kUnifiedAllocs;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -1368,21 +1377,19 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    bool separate_allocs_for_sparse_and_dense_spans, size_t chunks_per_alloc,
+    HugePageFillerAllocsOption allocs_option, size_t chunks_per_alloc,
     MemoryModifyFunction unback)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     separate_allocs_for_sparse_and_dense_spans,
-                     chunks_per_alloc, unback) {}
+                     allocs_option, chunks_per_alloc, unback) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    Clock clock, bool separate_allocs_for_sparse_and_dense_spans,
+    Clock clock, HugePageFillerAllocsOption allocs_option,
     size_t chunks_per_alloc, MemoryModifyFunction unback)
     : chunks_per_alloc_(chunks_per_alloc),
-      separate_allocs_for_sparse_and_dense_spans_(
-          separate_allocs_for_sparse_and_dense_spans),
+      allocs_for_sparse_and_dense_spans_(allocs_option),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback) {
@@ -1463,7 +1470,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 
   bool was_released = false;
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
+                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -1591,7 +1599,8 @@ inline void HugePageFiller<TrackerType>::Contribute(
   ASSERT(pt->released_pages() == Length(0));
 
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
+                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -2506,7 +2515,8 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   size_t chunk = IndexFor(pt);
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
+                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -2538,7 +2548,8 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
+                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;

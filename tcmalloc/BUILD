@@ -249,6 +249,7 @@ create_tcmalloc_libraries(
         ":size_class_info",
         "//tcmalloc/internal:atomic_stats_counter",
         "//tcmalloc/internal:cache_topology",
+        "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:explicitly_constructed",

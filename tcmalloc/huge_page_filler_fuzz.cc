@@ -33,6 +33,7 @@ using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::Clock;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
+using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
 using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
 using tcmalloc::tcmalloc_internal::kTop;
 using tcmalloc::tcmalloc_internal::LargeSpanStats;
@@ -125,17 +126,18 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
 
-  const bool separate_allocs_for_few_and_many_objects_spans =
-      data[1] >= 128 ? true : false;
+  const HugePageFillerAllocsOption allocs_for_few_and_many_objects_spans =
+      data[1] >= 128 ? HugePageFillerAllocsOption::kSeparateAllocs
+                     : HugePageFillerAllocsOption::kUnifiedAllocs;
   // Up to 16 chunks since that's the limit we assert in the implementation.
   const size_t chunks_per_alloc = 1 + (data[2] & 15);
   data += kInitBytes;
   size -= kInitBytes;
 
-  HugePageFiller<PageTracker> filler(
-      Clock{.now = mock_clock, .freq = freq},
-      separate_allocs_for_few_and_many_objects_spans, chunks_per_alloc,
-      MemoryModifyFunction(MockUnback));
+  HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
+                                     allocs_for_few_and_many_objects_spans,
+                                     chunks_per_alloc,
+                                     MemoryModifyFunction(MockUnback));
 
   struct Alloc {
     PageId page;

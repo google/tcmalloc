@@ -102,9 +102,10 @@ class StaticForwarder {
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
-  // TODO(b/242550501): Strongly type
-  bool separate_allocs_for_sparse_and_dense_spans =
-      Parameters::separate_allocs_for_few_and_many_objects_spans();
+  HugePageFillerAllocsOption allocs_for_sparse_and_dense_spans =
+      Parameters::separate_allocs_for_few_and_many_objects_spans()
+          ? HugePageFillerAllocsOption::kSeparateAllocs
+          : HugePageFillerAllocsOption::kUnifiedAllocs;
   size_t chunks_per_alloc = Parameters::chunks_per_alloc();
 };
 
@@ -316,7 +317,7 @@ template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     const HugePageAwareAllocatorOptions& options)
     : PageAllocatorInterface("HugePageAware", options.tag),
-      filler_(options.separate_allocs_for_sparse_and_dense_spans,
+      filler_(options.allocs_for_sparse_and_dense_spans,
               options.chunks_per_alloc,
               MemoryModifyFunction(&forwarder_.ReleasePages)),
       regions_(options.use_huge_region_more_often),
