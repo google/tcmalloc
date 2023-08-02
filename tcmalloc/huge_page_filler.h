@@ -1463,7 +1463,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 
   bool was_released = false;
   const AccessDensityPrediction type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -1591,7 +1591,7 @@ inline void HugePageFiller<TrackerType>::Contribute(
   ASSERT(pt->released_pages() == Length(0));
 
   const AccessDensityPrediction type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -2506,7 +2506,7 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   size_t chunk = IndexFor(pt);
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -2538,7 +2538,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_FALSE(separate_allocs_for_sparse_and_dense_spans_) &&
+      ABSL_PREDICT_TRUE(separate_allocs_for_sparse_and_dense_spans_) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
