@@ -711,7 +711,7 @@ cc_test(
 
 cc_test(
     name = "huge_page_filler_test",
-    timeout = "long",
+    timeout = "eternal",
     srcs = ["huge_page_filler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
@@ -976,6 +976,7 @@ create_tcmalloc_testsuite(
 
 create_tcmalloc_testsuite(
     name = "span_test",
+    timeout = "long",
     srcs = ["span_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
