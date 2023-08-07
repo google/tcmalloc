@@ -2099,6 +2099,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     PbtxtRegion entry = region->CreateSubRegion("size_class_capacity");
+    entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
     entry.PrintI64("min_capacity", stats.min_capacity);
     entry.PrintDouble("avg_capacity", stats.avg_capacity);
     entry.PrintI64("max_capacity", stats.max_capacity);
