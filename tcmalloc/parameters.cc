@@ -179,7 +179,7 @@ absl::Duration Parameters::filler_skip_subrelease_long_interval() {
 int ABSL_ATTRIBUTE_WEAK
 default_want_disable_separate_allocs_for_few_and_many_objects_spans();
 
-// TODO(b/257064106): remove the
+// TODO(b/295252832): remove the
 // default_want_disable_separate_allocs_for_few_and_many_objects_spans and the
 // env TCMALLOC_DISABLE_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS
 // opt-out some time after 2023-12-01.

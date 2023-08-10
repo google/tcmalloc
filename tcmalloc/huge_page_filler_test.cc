@@ -3009,7 +3009,7 @@ HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pag
 // objects are provided.  We expect that Get requests with sparsely-accessed
 // and densely-accessed spans are satisfied by their respective allocs.
 TEST_P(FillerTest, GetsAndPuts) {
-  // TODO(b/257064106): remove the skipping part once the two separate allocs
+  // TODO(b/295252832): remove the skipping part once the two separate allocs
   // become the only option.
   if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
     GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
@@ -3060,7 +3060,7 @@ TEST_P(FillerTest, GetsAndPuts) {
 // Test that filler tries to release pages from the sparsely-accessed allocs
 // before attempting to release pages from the densely-accessed allocs.
 TEST_P(FillerTest, ReleasePrioritySparseAndDenseAllocs) {
-  // TODO(b/257064106): remove the skipping part once the two separate allocs
+  // TODO(b/295252832): remove the skipping part once the two separate allocs
   // become the only option.
   if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
     GTEST_SKIP() << "Skipping test for kUnifiedAllocs";
@@ -3131,7 +3131,7 @@ TEST_P(FillerTest, BoundedVSS) {
 TEST_P(FillerTest, CounterUnderflow) {
   // The test so specifically needs that both the alloc lists are used.  So, we
   // skip when using a single alloc list.
-  // TODO(b/257064106): remove the skipping part once the two separate allocs
+  // TODO(b/295252832): remove the skipping part once the two separate allocs
   // become the only option.
   if (std::get<0>(GetParam()) == HugePageFillerAllocsOption::kUnifiedAllocs) {
     GTEST_SKIP() << "Skipping test for single alloc";
