@@ -339,15 +339,6 @@ cc_library(
 )
 
 cc_library(
-    name = "want_disable_sharded_transfer_cache",
-    srcs = ["want_disable_sharded_transfer_cache.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc/testing:__pkg__"],
-    deps = ["@com_google_absl//absl/base:core_headers"],
-    alwayslink = 1,
-)
-
-cc_library(
     name = "want_disable_huge_region_more_often",
     srcs = ["want_disable_huge_region_more_often.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,

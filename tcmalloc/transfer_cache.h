@@ -59,8 +59,6 @@ absl::string_view TransferCacheImplementationToLabel(
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
 
-bool use_generic_sharded_transfer_cache();
-
 class StaticForwarder {
  public:
   static constexpr size_t kNumBaseClasses =
@@ -89,7 +87,6 @@ class ShardedStaticForwarder : public StaticForwarder {
     // sharded cache configuration, we use generic version of the cache only
     // when the traditional version is not enabled.
     use_generic_cache_ =
-        use_generic_sharded_transfer_cache() &&
         !IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
     // Traditionally, we enable sharded transfer cache for large size
