@@ -1170,6 +1170,8 @@ cc_test(
     name = "central_freelist_test",
     srcs = ["central_freelist_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
     deps = [
         ":common_8k_pages",
         ":mock_static_forwarder",
