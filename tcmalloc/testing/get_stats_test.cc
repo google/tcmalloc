@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "gmock/gmock.h"
@@ -53,9 +54,9 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   const std::string buf = GetStatsInPbTxt();
 
-  absl::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
+  std::optional<size_t> fragmentation = MallocExtension::GetNumericProperty(
       "tcmalloc.sampled_internal_fragmentation");
-  ASSERT_THAT(fragmentation, testing::Ne(absl::nullopt));
+  ASSERT_THAT(fragmentation, testing::Ne(std::nullopt));
   EXPECT_GT(*fragmentation, 0);
 
   // Expect `buf` to be in pbtxt format.

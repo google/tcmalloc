@@ -25,6 +25,7 @@
 
 #include <cstdio>
 #include <limits>
+#include <optional>
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -44,7 +45,7 @@ int64_t GetRSS() {
 }
 
 int64_t UnmappedBytes() {
-  absl::optional<size_t> value = tcmalloc::MallocExtension::GetNumericProperty(
+  std::optional<size_t> value = tcmalloc::MallocExtension::GetNumericProperty(
       "tcmalloc.pageheap_unmapped_bytes");
   CHECK_CONDITION(value.has_value());
   return *value;

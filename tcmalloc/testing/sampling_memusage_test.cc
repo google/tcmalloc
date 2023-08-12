@@ -15,6 +15,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <optional>
 #include <vector>
 
 #include "benchmark/benchmark.h"
@@ -45,7 +46,7 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
   }
 
   size_t Property(absl::string_view name) {
-    absl::optional<size_t> result = MallocExtension::GetNumericProperty(name);
+    std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
     CHECK_CONDITION(result.has_value());
     return *result;
   }

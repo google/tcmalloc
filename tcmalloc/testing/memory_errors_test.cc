@@ -149,7 +149,7 @@ class TcMallocTest : public testing::Test {
 TEST_F(TcMallocTest, UnderflowReadDetected) {
   auto RepeatUnderflowRead = []() {
     for (int i = 0; i < 1000000; i++) {
-      auto buf = absl::make_unique<char[]>(kPageSize / 2);
+      auto buf = std::make_unique<char[]>(kPageSize / 2);
       benchmark::DoNotOptimize(buf);
       // TCMalloc may crash without a GWP-ASan report if we underflow a regular
       // allocation.  Make sure we have a guarded allocation.
@@ -167,7 +167,7 @@ TEST_F(TcMallocTest, UnderflowReadDetected) {
 TEST_F(TcMallocTest, OverflowReadDetected) {
   auto RepeatOverflowRead = []() {
     for (int i = 0; i < 1000000; i++) {
-      auto buf = absl::make_unique<char[]>(kPageSize / 2);
+      auto buf = std::make_unique<char[]>(kPageSize / 2);
       benchmark::DoNotOptimize(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
@@ -221,7 +221,7 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
       // Make buffer smaller than kPageSize to test detection-at-free of write
       // overflows.
       constexpr size_t kSize = kPageSize - 1;
-      auto sink_buf = absl::make_unique<char[]>(kSize);
+      auto sink_buf = std::make_unique<char[]>(kSize);
       benchmark::DoNotOptimize(sink_buf);
       sink_buf[kSize] = '\0';
       benchmark::DoNotOptimize(sink_buf[kSize]);

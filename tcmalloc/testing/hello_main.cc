@@ -14,6 +14,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "absl/strings/str_cat.h"
@@ -24,7 +25,7 @@
 int main(int argc, char** argv) {
   std::string msg = absl::StrCat("hello ", argc < 2 ? "world" : argv[1], "!");
 
-  absl::optional<size_t> heap_size =
+  std::optional<size_t> heap_size =
       tcmalloc::MallocExtension::GetNumericProperty(
           "generic.current_allocated_bytes");
   if (heap_size.has_value()) {

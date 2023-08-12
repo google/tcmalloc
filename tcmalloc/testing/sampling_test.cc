@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -159,7 +160,7 @@ TEST(Sampling, AlwaysSampling) {
   }
   const absl::optional<size_t> alloc_size =
       MallocExtension::GetAllocatedSize(allocs[0]);
-  ASSERT_THAT(alloc_size, testing::Ne(absl::nullopt));
+  ASSERT_THAT(alloc_size, testing::Ne(std::nullopt));
   EXPECT_GT(*alloc_size, 0);
 
   size_t bytes = CountMatchingBytes<false>(
@@ -203,7 +204,7 @@ TEST(Sampling, InternalFragmentation) {
   const absl::optional<size_t> starting_fragmentation =
       MallocExtension::GetNumericProperty(
           "tcmalloc.sampled_internal_fragmentation");
-  ASSERT_THAT(starting_fragmentation, testing::Ne(absl::nullopt));
+  ASSERT_THAT(starting_fragmentation, testing::Ne(std::nullopt));
 
   auto ProfiledFragmentation = [&]() {
     size_t fragmentation = 0;
@@ -233,7 +234,7 @@ TEST(Sampling, InternalFragmentation) {
 
   const absl::optional<size_t> actual_low =
       MallocExtension::GetAllocatedSize(low[0]);
-  ASSERT_THAT(actual_low, testing::Ne(absl::nullopt));
+  ASSERT_THAT(actual_low, testing::Ne(std::nullopt));
 
   for (int i = 0; i < kNumHigh; i++) {
     high.push_back(::operator new(kHighFragmentationSize));
@@ -241,14 +242,14 @@ TEST(Sampling, InternalFragmentation) {
 
   const absl::optional<size_t> actual_high =
       MallocExtension::GetAllocatedSize(high[0]);
-  ASSERT_THAT(actual_high, testing::Ne(absl::nullopt));
+  ASSERT_THAT(actual_high, testing::Ne(std::nullopt));
 
   const size_t ending_profiled_fragmentation = ProfiledFragmentation();
 
   const absl::optional<size_t> ending_fragmentation =
       MallocExtension::GetNumericProperty(
           "tcmalloc.sampled_internal_fragmentation");
-  ASSERT_THAT(ending_fragmentation, testing::Ne(absl::nullopt));
+  ASSERT_THAT(ending_fragmentation, testing::Ne(std::nullopt));
   const std::string stats = MallocExtension::GetStats();
 
   for (void* p : low) {

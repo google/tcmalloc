@@ -414,7 +414,7 @@ TEST(TCMallocTest, EnormousAllocations) {
 }
 
 static size_t GetUnmappedBytes() {
-  absl::optional<size_t> bytes =
+  std::optional<size_t> bytes =
       MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
   CHECK_CONDITION(bytes.has_value());
   return *bytes;
@@ -877,8 +877,8 @@ TEST(TCMallocTest, sdallocx_alignment) {
 // Parse out a line like:
 // <allocator_name>: xxx bytes allocated
 // Return xxx as an int, nullopt if it can't be found
-absl::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
-                                               absl::string_view buf) {
+std::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
+                                              absl::string_view buf) {
   char needlebuf[32];
   int len =
       absl::SNPrintF(needlebuf, sizeof(needlebuf), "\n%s: ", allocator_name);
@@ -887,7 +887,7 @@ absl::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
 
   auto pos = buf.find(needle);
   if (pos == absl::string_view::npos) {
-    return absl::nullopt;
+    return std::nullopt;
   }
   // skip over the prefix.  Should now look like " <number> bytes allocated".
   pos += needle.size();
@@ -905,7 +905,7 @@ absl::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
 
   int64_t result;
   if (!absl::SimpleAtoi(buf, &result)) {
-    return absl::nullopt;
+    return std::nullopt;
   }
   return result;
 }
@@ -914,9 +914,9 @@ TEST(TCMallocTest, GetStatsReportsLowLevel) {
   std::string stats = MallocExtension::GetStats();
   fprintf(stderr, "%s\n", stats.c_str());
 
-  absl::optional<int64_t> low_level_bytes =
+  std::optional<int64_t> low_level_bytes =
       ParseLowLevelAllocator("MmapSysAllocator", stats);
-  ASSERT_THAT(low_level_bytes, testing::Ne(absl::nullopt));
+  ASSERT_THAT(low_level_bytes, testing::Ne(std::nullopt));
   EXPECT_GT(*low_level_bytes, 0);
   size_t heap_size =
       *MallocExtension::GetNumericProperty("generic.current_allocated_bytes");
