@@ -28,6 +28,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/optimization.h"
@@ -232,6 +233,10 @@ class CpuCache {
     size_t min_capacity = 0;
     double avg_capacity = 0;
     size_t max_capacity = 0;
+    absl::Duration min_last_underflow = absl::InfiniteDuration();
+    absl::Duration max_last_underflow;
+    absl::Duration min_last_overflow = absl::InfiniteDuration();
+    absl::Duration max_last_overflow;
   };
 
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
@@ -476,6 +481,7 @@ class CpuCache {
     MissCounts underflows;
     // Tracks number of overflows on deallocate.
     MissCounts overflows;
+    std::atomic<int64_t> last_miss_cycles[2][kNumClasses];
     // total cache space available on this CPU. This tracks the total
     // allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
@@ -483,6 +489,9 @@ class CpuCache {
     std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
     std::atomic<size_t> num_reclaims;
+    // Tracks last time this CPU was reclaimed.  If last underflow/overflow data
+    // appears before this point in time, we ignore the CPU.
+    std::atomic<int64_t> last_reclaim;
   };
 
   struct DynamicSlabInfo {
@@ -1004,8 +1013,13 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   size_t capacity = freelist_.Capacity(cpu, size_class);
   const bool grow_by_one = capacity < 2 * batch_length;
   uint32_t successive = 0;
-  bool grow_by_batch = resize_[cpu].per_class[size_class].Update(
-      overflow, grow_by_one, &successive);
+  ResizeInfo& resize = resize_[cpu];
+  const int64_t now = absl::base_internal::CycleClock::Now();
+  // TODO(ckennelly): Use a strongly typed enum.
+  resize.last_miss_cycles[overflow][size_class].store(
+      now, std::memory_order_relaxed);
+  bool grow_by_batch =
+      resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -1746,6 +1760,9 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   resize_[cpu].num_reclaims.store(
       resize_[cpu].num_reclaims.load(std::memory_order_relaxed) + 1,
       std::memory_order_relaxed);
+  resize_[cpu].last_reclaim.store(absl::base_internal::CycleClock::Now(),
+                                  std::memory_order_relaxed);
+
   return bytes;
 }
 template <class Forwarder>
@@ -1971,6 +1988,8 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
   // SizeClassCapacityStats struct to make sure we do not end up with SIZE_MAX
   // in stats.min_capacity when num_populated is equal to zero.
   size_t min_capacity = SIZE_MAX;
+  const double now = absl::base_internal::CycleClock::Now();
+  const double frequency = absl::base_internal::CycleClock::Frequency();
 
   // Scan through all per-CPU caches and calculate minimum, average and maximum
   // capacities for the size class <size_class> across all the populated caches.
@@ -1980,11 +1999,47 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
       continue;
     }
 
+    ++num_populated;
+
+    const auto last_reclaim =
+        resize_[cpu].last_reclaim.load(std::memory_order_relaxed);
+
+    const auto last_underflow_cycles =
+        resize_[cpu].last_miss_cycles[0][size_class].load(
+            std::memory_order_relaxed);
+    const auto last_overflow_cycles =
+        resize_[cpu].last_miss_cycles[1][size_class].load(
+            std::memory_order_relaxed);
+
     size_t cap = freelist_.Capacity(cpu, size_class);
     stats.max_capacity = std::max(stats.max_capacity, cap);
     min_capacity = std::min(min_capacity, cap);
     stats.avg_capacity += cap;
-    ++num_populated;
+
+    if (last_reclaim >= last_underflow_cycles ||
+        last_reclaim >= last_overflow_cycles) {
+      // Don't consider the underflow/overflow time on this CPU if we have
+      // recently reclaimed.
+      continue;
+    }
+
+    if (cap == 0) {
+      // Or if the capacity is empty.  We may simply not be allocating this size
+      // class.
+      continue;
+    }
+
+    const absl::Duration last_underflow =
+        absl::Seconds((now - last_underflow_cycles) / frequency);
+    const absl::Duration last_overflow =
+        absl::Seconds((now - last_overflow_cycles) / frequency);
+
+    stats.min_last_overflow = std::min(stats.min_last_overflow, last_overflow);
+    stats.max_last_overflow = std::max(stats.max_last_overflow, last_overflow);
+    stats.min_last_underflow =
+        std::min(stats.min_last_underflow, last_underflow);
+    stats.max_last_underflow =
+        std::max(stats.max_last_underflow, last_underflow);
   }
   if (num_populated > 0) {
     stats.avg_capacity /= num_populated;
@@ -2029,10 +2084,16 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
         "%6zu (minimum),"
         "%7.1f (average),"
         "%6zu (maximum),"
-        "%6zu maximum allowed capacity\n",
+        "%6zu maximum allowed capacity (underflow: [%d us, %d us]; overflow "
+        "[%d us, "
+        "%d us]\n",
         size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
         stats.avg_capacity, stats.max_capacity,
-        GetMaxCapacity(size_class, freelist_.GetShift()));
+        GetMaxCapacity(size_class, freelist_.GetShift()),
+        absl::ToInt64Microseconds(stats.min_last_underflow),
+        absl::ToInt64Microseconds(stats.max_last_underflow),
+        absl::ToInt64Microseconds(stats.min_last_overflow),
+        absl::ToInt64Microseconds(stats.max_last_overflow));
   }
 
   out->printf("------------------------------------------------\n");
@@ -2105,6 +2166,15 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     entry.PrintI64("max_capacity", stats.max_capacity);
     entry.PrintI64("max_allowed_capacity",
                    GetMaxCapacity(size_class, freelist_.GetShift()));
+
+    entry.PrintI64("min_last_underflow_ns",
+                   absl::ToInt64Nanoseconds(stats.min_last_underflow));
+    entry.PrintI64("max_last_underflow_ns",
+                   absl::ToInt64Nanoseconds(stats.max_last_underflow));
+    entry.PrintI64("min_last_overflow_ns",
+                   absl::ToInt64Nanoseconds(stats.min_last_overflow));
+    entry.PrintI64("max_last_overflow_ns",
+                   absl::ToInt64Nanoseconds(stats.max_last_overflow));
   }
 
   // Record dynamic slab statistics.
