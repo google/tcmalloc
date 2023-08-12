@@ -477,11 +477,11 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
-  EXPECT_THAT(
-      extracted_sample_type,
-      UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes"),
-                           Pair("resident_space", "bytes"),
-                           Pair("swapped_space", "bytes")));
+  EXPECT_THAT(extracted_sample_type,
+              UnorderedElementsAre(
+                  Pair("objects", "count"), Pair("space", "bytes"),
+                  Pair("resident_space", "bytes"),
+                  Pair("swapped_space", "bytes")));
 
   SampleLabels extracted;
   {
