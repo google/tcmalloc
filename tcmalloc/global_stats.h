@@ -52,11 +52,6 @@ struct TCMallocStats {
   TCMallocStats() = default;
 };
 
-void ExtractStats(TCMallocStats* r, uint64_t* class_count,
-                  SpanStats* span_stats, SmallSpanStats* small_spans,
-                  LargeSpanStats* large_spans, TransferCacheStats* tc_stats,
-                  bool report_residence);
-
 void ExtractTCMallocStats(TCMallocStats* r, bool report_residence);
 
 uint64_t InUseByApp(const TCMallocStats& stats);
