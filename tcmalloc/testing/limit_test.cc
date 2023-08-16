@@ -61,6 +61,7 @@ class LimitTest : public ::testing::Test {
   void LimitChangeTriggersReleaseLargeAllocs();
   void LimitChangeTriggersReleaseSmallAllocs();
   void LimitRespected();
+  void ExceedingSoftLimitDoesntCrashWithHardLimit();
 
   void ReleaseMemory() {
     MallocExtension::SetMemoryLimit(0, MallocExtension::LimitKind::kSoft);
@@ -469,6 +470,32 @@ TEST_F(LimitTest, LimitChangeTriggersReleaseLargeAllocs) {
   // Run the test in a separate subprocess, so it doesn't interfere with other
   // tests.
   EXPECT_EXIT(LimitChangeTriggersReleaseLargeAllocs(),
+              testing::ExitedWithCode(0), "");
+}
+
+void LimitTest::ExceedingSoftLimitDoesntCrashWithHardLimit() {
+  const size_t heap_size =
+      *MallocExtension::GetNumericProperty("generic.heap_size");
+
+  const size_t soft_limit = heap_size + (1 << 20);
+  const size_t hard_limit = soft_limit + (100 << 20);
+  MallocExtension::SetMemoryLimit(soft_limit,
+                                  MallocExtension::LimitKind::kSoft);
+  MallocExtension::SetMemoryLimit(hard_limit,
+                                  MallocExtension::LimitKind::kHard);
+
+  // Allocate 50MiB -- well above soft limit, but well below hard one.
+  // We should not crash.
+  ::operator delete(::operator new(50 << 20));
+
+  // Exit status indicates whether we've failed any of the expectations above.
+  exit(testing::Test::HasFailure());
+}
+
+TEST_F(LimitTest, ExceedingSoftLimitDoesntCrashWithHardLimit) {
+  // Run the test in a separate subprocess, so it doesn't interfere with other
+  // tests.
+  EXPECT_EXIT(ExceedingSoftLimitDoesntCrashWithHardLimit(),
               testing::ExitedWithCode(0), "");
 }
 
