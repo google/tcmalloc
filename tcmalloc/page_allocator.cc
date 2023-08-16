@@ -177,6 +177,10 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
     BackingStats s = stats();
     const size_t backed =
         s.system_bytes - s.unmapped_bytes + tc_globals.metadata_bytes();
+    if (backed <= limits_[kHard]) {
+      // We're already fine in terms of hard limit.
+      return;
+    }
     const size_t overage = backed - limits_[kHard];
     const Length pages = LengthFromBytes(overage + kPageSize - 1);
     if (ShrinkHardBy(pages, kHard)) {
