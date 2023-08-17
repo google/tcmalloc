@@ -56,16 +56,6 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   return v;
 }
 
-// TODO(b/263387812): remove when experimentation is complete
-// Determine value at runtime to avoid initialization order fiasco.
-static std::atomic<bool>& improved_guarded_sampling_atomic() {
-  static std::atomic<bool> v([]() {
-    return IsExperimentActive(Experiment::TCMALLOC_IMPROVED_GUARDED_SAMPLING);
-  }());
-
-  return v;
-}
-
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
@@ -133,6 +123,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(true);
+// TODO(b/263387812): remove when experimentation is complete
+ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
@@ -219,16 +211,6 @@ size_t Parameters::chunks_per_alloc() {
     return 8;
   }());
   return v;
-}
-
-// TODO(b/263387812): remove when experimentation is complete
-bool Parameters::improved_guarded_sampling() {
-  return improved_guarded_sampling_atomic().load(std::memory_order_relaxed);
-}
-
-// TODO(b/263387812): remove when experimentation is complete
-void Parameters::set_improved_guarded_sampling(bool enable) {
-  TCMalloc_Internal_SetImprovedGuardedSampling(enable);
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {
@@ -369,8 +351,7 @@ void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v) {
 
 // TODO(b/263387812): remove when experimentation is complete
 void TCMalloc_Internal_SetImprovedGuardedSampling(bool v) {
-  tcmalloc::tcmalloc_internal::improved_guarded_sampling_atomic().store(
-      v, std::memory_order_relaxed);
+  Parameters::improved_guarded_sampling_.store(v, std::memory_order_relaxed);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.
