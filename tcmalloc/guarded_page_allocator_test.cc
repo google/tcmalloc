@@ -36,7 +36,6 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -190,7 +189,7 @@ TEST_F(GuardedPageAllocatorTest, PointerIsMine) {
   EXPECT_EQ(gpa_.SuccessfulAllocations(), 1);
   void* buf = alloc_with_status.alloc;
   int stack_var;
-  auto malloc_ptr = absl::make_unique<char>();
+  auto malloc_ptr = std::make_unique<char>();
   EXPECT_TRUE(gpa_.PointerIsMine(buf));
   EXPECT_FALSE(gpa_.PointerIsMine(&stack_var));
   EXPECT_FALSE(gpa_.PointerIsMine(malloc_ptr.get()));
