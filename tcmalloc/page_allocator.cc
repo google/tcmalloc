@@ -188,10 +188,12 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
       ASSERT(successful_shrinks_after_limit_hit_[kHard] == limit_hits_[kHard]);
       return;
     }
+    const size_t hard_limit = limits_[kHard];
     limits_[kHard] = std::numeric_limits<size_t>::max();
     Crash(
-        kCrash, __FILE__, __LINE__,
-        "Hit hard tcmalloc heap limit (e.g. --tcmalloc_heap_size_hard_limit). "
+        kCrash, __FILE__, __LINE__, "Hit hard tcmalloc heap limit of",
+        hard_limit,
+        "(e.g. --tcmalloc_heap_size_hard_limit). "
         "Aborting.\nIt was most likely set to catch "
         "allocations that would crash the process anyway. "
     );
@@ -201,7 +203,7 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   static bool warned = false;
   if (warned) return;
   warned = true;
-  Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of ",
+  Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of",
       limits_[kSoft], "and OOM is likely to follow.");
 }
 
@@ -221,7 +223,7 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
     static bool warned_hugepages = false;
     if (!warned_hugepages) {
       const size_t limit = limits_[limit_kind];
-      Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of ",
+      Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of",
           limit, "without breaking hugepages - performance will drop");
       warned_hugepages = true;
     }
