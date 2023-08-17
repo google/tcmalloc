@@ -28,6 +28,7 @@
 #include "absl/base/casts.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
+#include "absl/strings/str_cat.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/declarations.h"
@@ -146,8 +147,12 @@ class TcMallocTest : public testing::Test {
   }
 };
 
-TEST_F(TcMallocTest, UnderflowReadDetected) {
-  auto RepeatUnderflowRead = []() {
+class ReadWriteTcMallocTest : public TcMallocTest,
+                              public testing::WithParamInterface<bool> {};
+
+TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
+  bool write_test = GetParam();
+  auto RepeatUnderflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
       auto buf = std::make_unique<char[]>(kPageSize / 2);
       benchmark::DoNotOptimize(buf);
@@ -155,17 +160,29 @@ TEST_F(TcMallocTest, UnderflowReadDetected) {
       // allocation.  Make sure we have a guarded allocation.
       if (tcmalloc::tc_globals.guardedpage_allocator().PointerIsMine(
               buf.get())) {
-        volatile char sink = buf[-1];
-        benchmark::DoNotOptimize(sink);
+        if (write_test) {
+          buf[-1] = 'A';
+        } else {
+          volatile char sink = buf[-1];
+          benchmark::DoNotOptimize(sink);
+        }
       }
     }
   };
-  EXPECT_DEATH(RepeatUnderflowRead(),
-               "Buffer underflow occurs in thread [0-9]+ at");
+  std::string expected_output =
+      absl::StrCat("Buffer underflow ",
+#if !defined(__riscv)
+                   write_test ? "\\(write\\)" : "\\(read\\)",
+#else
+                   "\\(unknown\\)",
+#endif
+                   " occurs in thread [0-9]+ at");
+  EXPECT_DEATH(RepeatUnderflow(), expected_output);
 }
 
-TEST_F(TcMallocTest, OverflowReadDetected) {
-  auto RepeatOverflowRead = []() {
+TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
+  bool write_test = GetParam();
+  auto RepeatOverflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
       auto buf = std::make_unique<char[]>(kPageSize / 2);
       benchmark::DoNotOptimize(buf);
@@ -173,28 +190,54 @@ TEST_F(TcMallocTest, OverflowReadDetected) {
       // allocation.  Make sure we have a guarded allocation.
       if (tcmalloc::tc_globals.guardedpage_allocator().PointerIsMine(
               buf.get())) {
-        volatile char sink = buf[kPageSize / 2];
-        benchmark::DoNotOptimize(sink);
+        if (write_test) {
+          buf[kPageSize / 2] = 'A';
+          benchmark::DoNotOptimize(buf[kPageSize / 2]);
+        } else {
+          volatile char sink = buf[kPageSize / 2];
+          benchmark::DoNotOptimize(sink);
+        }
       }
     }
   };
-  EXPECT_DEATH(RepeatOverflowRead(),
-               "Buffer overflow occurs in thread [0-9]+ at");
+  std::string expected_output =
+      absl::StrCat("Buffer overflow ",
+#if !defined(__riscv)
+                   write_test ? "\\(write\\)" : "\\(read\\)",
+#else
+                   "\\(unknown\\)",
+#endif
+                   " occurs in thread [0-9]+ at");
+  EXPECT_DEATH(RepeatOverflow(), expected_output);
 }
 
-TEST_F(TcMallocTest, UseAfterFreeDetected) {
-  auto RepeatUseAfterFree = []() {
+TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
+  bool write_test = GetParam();
+  auto RepeatUseAfterFree = [&]() {
     for (int i = 0; i < 1000000; i++) {
       char* sink_buf = new char[kPageSize];
       benchmark::DoNotOptimize(sink_buf);
       delete[] sink_buf;
-      volatile char sink = sink_buf[0];
-      benchmark::DoNotOptimize(sink);
+      if (write_test) {
+        sink_buf[0] = 'A';
+      } else {
+        volatile char sink = sink_buf[0];
+        benchmark::DoNotOptimize(sink);
+      }
     }
   };
-  EXPECT_DEATH(RepeatUseAfterFree(),
-               "Use-after-free occurs in thread [0-9]+ at");
+  std::string expected_output =
+      absl::StrCat("Use-after-free ",
+#if !defined(__riscv)
+                   write_test ? "\\(write\\)" : "\\(read\\)",
+#else
+                   "\\(unknown\\)",
+#endif
+                   " occurs in thread [0-9]+ at");
+  EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
+
+INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest, testing::Bool());
 
 // Double free triggers an ASSERT within TCMalloc in non-opt builds.  So only
 // run this test for opt builds.

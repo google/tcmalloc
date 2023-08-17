@@ -23,6 +23,7 @@
 #include <array>
 #include <cmath>
 #include <csignal>
+#include <cstdint>
 #include <tuple>
 #include <utility>
 
@@ -468,6 +469,61 @@ static void PrintStackTraceFromSignalHandler(void* context) {
   PrintStackTrace(stack_frames, depth);
 }
 
+enum class WriteFlag : int { Unknown, Read, Write };
+
+constexpr const char* WriteFlagToString(WriteFlag write_flag) {
+  switch (write_flag) {
+    case WriteFlag::Unknown:
+      return "(unknown)";
+    case WriteFlag::Read:
+      return "(read)";
+    case WriteFlag::Write:
+      return "(write)";
+  }
+  ASSUME(false);
+}
+
+#if defined(__aarch64__)
+struct __esr_context {
+  struct _aarch64_ctx head;
+  uint64_t esr;
+};
+
+static bool Aarch64GetESR(ucontext_t* ucontext, uint64_t* esr) {
+  static const uint32_t kEsrMagic = 0x45535201;
+  uint8_t* aux = reinterpret_cast<uint8_t*>(ucontext->uc_mcontext.__reserved);
+  while (true) {
+    _aarch64_ctx* ctx = (_aarch64_ctx*)aux;
+    if (ctx->size == 0) break;
+    if (ctx->magic == kEsrMagic) {
+      *esr = ((__esr_context*)ctx)->esr;
+      return true;
+    }
+    aux += ctx->size;
+  }
+  return false;
+}
+#endif
+
+static WriteFlag ExtractWriteFlagFromContext(void* context) {
+#if defined(__x86_64__)
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  uintptr_t value = uc->uc_mcontext.gregs[REG_ERR];
+  static const uint64_t PF_WRITE = 1U << 1;
+  return value & PF_WRITE ? WriteFlag::Write : WriteFlag::Read;
+#elif defined(__aarch64__)
+  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  uint64_t esr;
+  if (!Aarch64GetESR(uc, &esr)) return WriteFlag::Unknown;
+  static const uint64_t ESR_ELx_WNR = 1U << 6;
+  return esr & ESR_ELx_WNR ? WriteFlag::Write : WriteFlag::Read;
+#else
+  // __riscv is NOT (yet) supported
+  (void)context;
+  return WriteFlag::Unknown;
+#endif
+}
+
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 void SegvHandler(int signo, siginfo_t* info, void* context) {
@@ -496,23 +552,28 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       "at:");
   PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
+  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
+
   switch (error) {
     case GuardedPageAllocator::ErrorType::kUseAfterFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace->tid, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
-      Log(kLog, __FILE__, __LINE__, "Use-after-free occurs in thread",
-          current_thread, "at:");
+      Log(kLog, __FILE__, __LINE__, "Use-after-free",
+          WriteFlagToString(write_flag), "occurs in thread", current_thread,
+          "at:");
       RecordCrash("use-after-free");
       break;
     case GuardedPageAllocator::ErrorType::kBufferUnderflow:
-      Log(kLog, __FILE__, __LINE__, "Buffer underflow occurs in thread",
-          current_thread, "at:");
+      Log(kLog, __FILE__, __LINE__, "Buffer underflow",
+          WriteFlagToString(write_flag), "occurs in thread", current_thread,
+          "at:");
       RecordCrash("buffer-underflow");
       break;
     case GuardedPageAllocator::ErrorType::kBufferOverflow:
-      Log(kLog, __FILE__, __LINE__, "Buffer overflow occurs in thread",
-          current_thread, "at:");
+      Log(kLog, __FILE__, __LINE__, "Buffer overflow",
+          WriteFlagToString(write_flag), "occurs in thread", current_thread,
+          "at:");
       RecordCrash("buffer-overflow");
       break;
     case GuardedPageAllocator::ErrorType::kDoubleFree:
