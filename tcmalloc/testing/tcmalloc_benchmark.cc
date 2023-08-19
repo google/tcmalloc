@@ -90,6 +90,22 @@ static void BM_aligned_new(benchmark::State& state) {
 }
 BENCHMARK(BM_aligned_new)->RangePair(1, 1 << 20, 8, 64);
 
+static void BM_new_delete_slow_path(benchmark::State& state) {
+  // The benchmark is intended to cover CpuCache overflow/underflow paths,
+  // transfer cache and a bit of the central freelist.
+  std::vector<void*> allocs((4 << 10) + 128);
+  constexpr size_t kSize = 8;
+  for (auto s : state) {
+    for (void*& p : allocs) {
+      p = ::operator new(kSize);
+    }
+    for (void* p : allocs) {
+      ::operator delete(p, kSize);
+    }
+  }
+}
+BENCHMARK(BM_new_delete_slow_path);
+
 static void* malloc_pages(size_t pages) {
 #if defined(TCMALLOC_256K_PAGES)
   static const size_t kPageSize = 256 * 1024;
