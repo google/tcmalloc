@@ -270,6 +270,7 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
 
     // libc++ memory allocation routines
     "std::__u::__libcpp_allocate|"
+    "std::__u::__libcpp_operator_delete|"
     "std::__u::allocator::allocate|"
     "std::__u::allocator_traits::allocate|"
     "std::__u::__builtin_new_allocator::__allocate_bytes|"
