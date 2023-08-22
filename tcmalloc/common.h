@@ -123,7 +123,6 @@ inline constexpr size_t kMaxCpuCacheSize = 10 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize = kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = kMinThreadCacheSize;
 inline constexpr size_t kDefaultProfileSamplingRate = 1 << 19;
-inline constexpr size_t kMinPages = 2;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
 inline constexpr size_t kNumBaseClasses = 78;
@@ -136,7 +135,6 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
 inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
-inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
 inline constexpr size_t kNumBaseClasses = 89;
@@ -149,7 +147,6 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
 inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
-inline constexpr size_t kMinPages = 8;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
 inline constexpr size_t kNumBaseClasses = 86;
@@ -162,7 +159,6 @@ inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
 inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
-inline constexpr size_t kMinPages = 8;
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
@@ -204,18 +200,6 @@ inline constexpr size_t kMinObjectsToMove = 2;
 inline constexpr size_t kMaxObjectsToMove = 128;
 
 inline constexpr size_t kPageSize = 1 << kPageShift;
-// Verify that the page size used is at least 8x smaller than the maximum
-// element size in the thread cache.  This guarantees at most 12.5% internal
-// fragmentation (1/8). When page size is 256k (kPageShift == 18), the benefit
-// of increasing kMaxSize to be multiple of kPageSize is unclear. Object size
-// profile data indicates that the number of simultaneously live objects (of
-// size >= 256k) tends to be very small. Keeping those objects as 'large'
-// objects won't cause too much memory waste, while heap memory reuse can be
-// improved. Increasing kMaxSize to be too large has another bad side effect --
-// the thread cache pressure is increased, which will in turn increase traffic
-// between central cache and thread cache, leading to performance degradation.
-static_assert((kMaxSize / kPageSize) >= kMinPages || kPageShift >= 18,
-              "Ratio of kMaxSize / kPageSize is too small");
 
 inline constexpr std::align_val_t kAlignment{8};
 // log2 (kAlignment)
@@ -298,7 +282,7 @@ inline constexpr bool IsExpandedSizeClass(unsigned size_class) {
   return kHasExpandedClasses && (size_class >= kExpandedClassesStart);
 }
 
-#if !defined(TCMALLOC_SMALL_BUT_SLOW) && __SIZEOF_POINTER__ != 4
+#if !defined(TCMALLOC_SMALL_BUT_SLOW)
 // Always allocate at least a huge page
 inline constexpr size_t kMinSystemAlloc = kHugePageSize;
 inline constexpr size_t kMinMmapAlloc = 1 << 30;  // mmap() in 1GiB ranges.
