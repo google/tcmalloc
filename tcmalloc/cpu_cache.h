@@ -237,6 +237,10 @@ class CpuCache {
     absl::Duration max_last_underflow;
     absl::Duration min_last_overflow = absl::InfiniteDuration();
     absl::Duration max_last_overflow;
+    int min_last_underflow_cpu_id = -1;
+    int max_last_underflow_cpu_id = -1;
+    int min_last_overflow_cpu_id = -1;
+    int max_last_overflow_cpu_id = -1;
   };
 
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
@@ -2034,12 +2038,22 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
     const absl::Duration last_overflow =
         absl::Seconds((now - last_overflow_cycles) / frequency);
 
-    stats.min_last_overflow = std::min(stats.min_last_overflow, last_overflow);
-    stats.max_last_overflow = std::max(stats.max_last_overflow, last_overflow);
-    stats.min_last_underflow =
-        std::min(stats.min_last_underflow, last_underflow);
-    stats.max_last_underflow =
-        std::max(stats.max_last_underflow, last_underflow);
+    if (last_overflow < stats.min_last_overflow) {
+      stats.min_last_overflow = last_overflow;
+      stats.min_last_overflow_cpu_id = cpu;
+    }
+    if (last_overflow > stats.max_last_overflow) {
+      stats.max_last_overflow = last_overflow;
+      stats.max_last_overflow_cpu_id = cpu;
+    }
+    if (last_underflow < stats.min_last_underflow) {
+      stats.min_last_underflow = last_underflow;
+      stats.min_last_underflow_cpu_id = cpu;
+    }
+    if (last_underflow > stats.max_last_underflow) {
+      stats.max_last_underflow = last_underflow;
+      stats.max_last_underflow_cpu_id = cpu;
+    }
   }
   if (num_populated > 0) {
     stats.avg_capacity /= num_populated;
@@ -2081,19 +2095,20 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     out->printf(
         "class %3d [ %8zu bytes ] : "
-        "%6zu (minimum),"
-        "%7.1f (average),"
-        "%6zu (maximum),"
-        "%6zu maximum allowed capacity (underflow: [%d us, %d us]; overflow "
-        "[%d us, "
-        "%d us]\n",
+        "%6zu (minimum), %7.1f (average), %6zu (maximum), %6zu maximum allowed "
+        "capacity (underflow: [%d us CPU %d, %d us CPU %d]; "
+        "overflow [%d us CPU %d, %d us CPU %d]\n",
         size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
         stats.avg_capacity, stats.max_capacity,
         GetMaxCapacity(size_class, freelist_.GetShift()),
         absl::ToInt64Microseconds(stats.min_last_underflow),
+        stats.min_last_underflow_cpu_id,
         absl::ToInt64Microseconds(stats.max_last_underflow),
+        stats.max_last_underflow_cpu_id,
         absl::ToInt64Microseconds(stats.min_last_overflow),
-        absl::ToInt64Microseconds(stats.max_last_overflow));
+        stats.min_last_overflow_cpu_id,
+        absl::ToInt64Microseconds(stats.max_last_overflow),
+        stats.max_last_overflow_cpu_id);
   }
 
   out->printf("------------------------------------------------\n");
