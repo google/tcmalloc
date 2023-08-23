@@ -1144,15 +1144,11 @@ template <size_t NumClasses>
 inline int TcmallocSlab<NumClasses>::CompareAndSwapHeader(
     int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
     const size_t virtual_cpu_id_offset) {
-#if __SIZEOF_POINTER__ == 8
   const int64_t old_raw = absl::bit_cast<int64_t>(old);
   const int64_t new_raw = absl::bit_cast<int64_t>(hdr);
   return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
                               static_cast<intptr_t>(new_raw),
                               virtual_cpu_id_offset);
-#else
-  Crash(kCrash, __FILE__, __LINE__, "This architecture is not supported.");
-#endif
 }
 
 template <size_t NumClasses>

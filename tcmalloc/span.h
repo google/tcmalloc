@@ -28,6 +28,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
@@ -596,18 +597,8 @@ inline void Span::Prefetch() {
   // the first 16-bytes or the last 16-bytes in a different cache line.
   // Prefetch the cacheline that contains the most frequestly accessed
   // data by offseting into the middle of the Span.
-#if defined(__GNUC__)
-#if __WORDSIZE == 32
-  // The Span fits in one cache line, so simply prefetch the base pointer.
-  static_assert(sizeof(Span) == 32, "Update span prefetch offset");
-  __builtin_prefetch(this, 0, 3);
-#else
-  // The Span can occupy two cache lines, so prefetch the cacheline with the
-  // most frequently accessed parts of the Span.
   static_assert(sizeof(Span) == 48, "Update span prefetch offset");
-  __builtin_prefetch(&this->allocated_, 0, 3);
-#endif
-#endif
+  PrefetchT0(&this->allocated_);
 }
 
 inline void Span::Init(PageId p, Length n) {
