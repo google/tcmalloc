@@ -111,6 +111,7 @@ GuardedPageAllocator::AllocWithStatus GuardedPageAllocator::Allocate(
   d.alloc_trace.tid = absl::base_internal::GetTID();
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
+  d.write_flag = WriteFlag::Unknown;
 
   ASSERT(!alignment || d.allocation_start % alignment == 0);
   return {result, Profile::Sample::GuardedStatus::Guarded};
@@ -121,15 +122,17 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
   size_t slot = AddrToSlot(page_addr);
 
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
-  if (IsFreed(slot)) {
-    double_free_detected_ = true;
-  } else if (WriteOverflowOccurred(slot)) {
-    write_overflow_detected_ = true;
-  }
+  {
+    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+    if (IsFreed(slot)) {
+      double_free_detected_ = true;
+    } else if (WriteOverflowOccurred(slot)) {
+      write_overflow_detected_ = true;
+    }
 
-  CHECK_CONDITION(mprotect(reinterpret_cast<void*>(page_addr), page_size_,
-                           PROT_NONE) != -1);
+    CHECK_CONDITION(mprotect(reinterpret_cast<void*>(page_addr), page_size_,
+                             PROT_NONE) != -1);
+  }
 
   if (write_overflow_detected_ || double_free_detected_) {
     *reinterpret_cast<char*>(ptr) = 'X';  // Trigger SEGV handler.
@@ -137,6 +140,7 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   }
 
   // Record stack trace.
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   GpaStackTrace& trace = data_[slot].dealloc_trace;
   trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth,
                                     /*skip_count=*/2);
@@ -225,6 +229,13 @@ size_t GuardedPageAllocator::SuccessfulAllocations() {
   absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
   ASSERT(num_allocation_requests_ >= num_failed_allocations_);
   return num_allocation_requests_ - num_failed_allocations_;
+}
+
+void GuardedPageAllocator::SetWriteFlag(const void* ptr, WriteFlag write_flag) {
+  const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+  size_t slot = GetNearestSlot(addr);
+  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+  data_[slot].write_flag = write_flag;
 }
 
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
@@ -350,10 +361,35 @@ GuardedPageAllocator::ErrorType GuardedPageAllocator::GetErrorType(
   if (!d.allocation_start) return ErrorType::kUnknown;
   if (double_free_detected_) return ErrorType::kDoubleFree;
   if (write_overflow_detected_) return ErrorType::kBufferOverflowOnDealloc;
-  if (d.dealloc_trace.depth) return ErrorType::kUseAfterFree;
-  if (addr < d.allocation_start) return ErrorType::kBufferUnderflow;
+  if (d.dealloc_trace.depth > 0) {
+    switch (d.write_flag) {
+      case WriteFlag::Write:
+        return ErrorType::kUseAfterFreeWrite;
+      case WriteFlag::Read:
+        return ErrorType::kUseAfterFreeRead;
+      default:
+        return ErrorType::kUseAfterFree;
+    }
+  }
+  if (addr < d.allocation_start) {
+    switch (d.write_flag) {
+      case WriteFlag::Write:
+        return ErrorType::kBufferUnderflowWrite;
+      case WriteFlag::Read:
+        return ErrorType::kBufferUnderflowRead;
+      default:
+        return ErrorType::kBufferUnderflow;
+    }
+  }
   if (addr >= d.allocation_start + d.requested_size) {
-    return ErrorType::kBufferOverflow;
+    switch (d.write_flag) {
+      case WriteFlag::Write:
+        return ErrorType::kBufferOverflowWrite;
+      case WriteFlag::Read:
+        return ErrorType::kBufferOverflowRead;
+      default:
+        return ErrorType::kBufferOverflow;
+    }
   }
   return ErrorType::kUnknown;
 }
@@ -470,15 +506,14 @@ static void PrintStackTraceFromSignalHandler(void* context) {
   PrintStackTrace(stack_frames, depth);
 }
 
-enum class WriteFlag : int { Unknown, Read, Write };
-
-constexpr const char* WriteFlagToString(WriteFlag write_flag) {
+constexpr const char* WriteFlagToString(
+    GuardedPageAllocator::WriteFlag write_flag) {
   switch (write_flag) {
-    case WriteFlag::Unknown:
+    case GuardedPageAllocator::WriteFlag::Unknown:
       return "(unknown)";
-    case WriteFlag::Read:
+    case GuardedPageAllocator::WriteFlag::Read:
       return "(read)";
-    case WriteFlag::Write:
+    case GuardedPageAllocator::WriteFlag::Write:
       return "(write)";
   }
   ASSUME(false);
@@ -506,22 +541,25 @@ static bool Aarch64GetESR(ucontext_t* ucontext, uint64_t* esr) {
 }
 #endif
 
-static WriteFlag ExtractWriteFlagFromContext(void* context) {
+static GuardedPageAllocator::WriteFlag ExtractWriteFlagFromContext(
+    void* context) {
 #if defined(__x86_64__)
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   uintptr_t value = uc->uc_mcontext.gregs[REG_ERR];
   static const uint64_t PF_WRITE = 1U << 1;
-  return value & PF_WRITE ? WriteFlag::Write : WriteFlag::Read;
+  return value & PF_WRITE ? GuardedPageAllocator::WriteFlag::Write
+                          : GuardedPageAllocator::WriteFlag::Read;
 #elif defined(__aarch64__)
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   uint64_t esr;
-  if (!Aarch64GetESR(uc, &esr)) return WriteFlag::Unknown;
+  if (!Aarch64GetESR(uc, &esr)) return GuardedPageAllocator::WriteFlag::Unknown;
   static const uint64_t ESR_ELx_WNR = 1U << 6;
-  return esr & ESR_ELx_WNR ? WriteFlag::Write : WriteFlag::Read;
+  return esr & ESR_ELx_WNR ? GuardedPageAllocator::WriteFlag::Write
+                           : GuardedPageAllocator::WriteFlag::Read;
 #else
   // __riscv is NOT (yet) supported
   (void)context;
-  return WriteFlag::Unknown;
+  return GuardedPageAllocator::WriteFlag::Unknown;
 #endif
 }
 
@@ -531,6 +569,12 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   if (signo != SIGSEGV) return;
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
+
+  // Store load/store from context.
+  GuardedPageAllocator::WriteFlag write_flag =
+      ExtractWriteFlagFromContext(context);
+  tc_globals.guardedpage_allocator().SetWriteFlag(fault, write_flag);
+
   GuardedPageAllocator::GpaStackTrace *alloc_trace, *dealloc_trace;
   GuardedPageAllocator::ErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
@@ -553,10 +597,10 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       "at:");
   PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
-  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
-
   switch (error) {
     case GuardedPageAllocator::ErrorType::kUseAfterFree:
+    case GuardedPageAllocator::ErrorType::kUseAfterFreeRead:
+    case GuardedPageAllocator::ErrorType::kUseAfterFreeWrite:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace->tid, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
@@ -566,12 +610,16 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       RecordCrash("use-after-free");
       break;
     case GuardedPageAllocator::ErrorType::kBufferUnderflow:
+    case GuardedPageAllocator::ErrorType::kBufferUnderflowRead:
+    case GuardedPageAllocator::ErrorType::kBufferUnderflowWrite:
       Log(kLog, __FILE__, __LINE__, "Buffer underflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
       RecordCrash("buffer-underflow");
       break;
     case GuardedPageAllocator::ErrorType::kBufferOverflow:
+    case GuardedPageAllocator::ErrorType::kBufferOverflowRead:
+    case GuardedPageAllocator::ErrorType::kBufferOverflowWrite:
       Log(kLog, __FILE__, __LINE__, "Buffer overflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");

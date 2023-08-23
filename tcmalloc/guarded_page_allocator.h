@@ -76,12 +76,20 @@ class GuardedPageAllocator {
 
   enum class ErrorType {
     kUseAfterFree,
+    kUseAfterFreeRead,
+    kUseAfterFreeWrite,
     kBufferUnderflow,
+    kBufferUnderflowRead,
+    kBufferUnderflowWrite,
     kBufferOverflow,
+    kBufferOverflowRead,
+    kBufferOverflowWrite,
     kDoubleFree,
     kBufferOverflowOnDealloc,
     kUnknown,
   };
+
+  enum class WriteFlag : int { Unknown, Read, Write };
 
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::kConstInit,
@@ -201,6 +209,9 @@ class GuardedPageAllocator {
 
   size_t SuccessfulAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
+  void SetWriteFlag(const void* ptr, WriteFlag write_flag)
+      ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
@@ -208,6 +219,7 @@ class GuardedPageAllocator {
     GpaStackTrace dealloc_trace;
     size_t requested_size = 0;
     uintptr_t allocation_start = 0;
+    WriteFlag write_flag = WriteFlag::Unknown;
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
