@@ -293,6 +293,7 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
     // With virtual CPUs, we cannot identify the true physical core we need to
     // interrupt.
     FenceAllCpus();
+    return;
   }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
