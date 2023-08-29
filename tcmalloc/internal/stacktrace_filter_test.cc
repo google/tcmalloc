@@ -159,41 +159,41 @@ TEST_F(StackTraceFilterTest, ConstexprConstructor) {
   [[maybe_unused]] Wrapper wrapper;
 }
 
-TEST_F(StackTraceFilterTest, EvaluateNew) {
-  EXPECT_EQ(0, filter_.Evaluate(stacktrace1_));
+TEST_F(StackTraceFilterTest, CountNew) {
+  EXPECT_EQ(0, filter_.Count(stacktrace1_));
 }
 
-TEST_F(StackTraceFilterTest, EvaluateDifferent) {
+TEST_F(StackTraceFilterTest, CountDifferent) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(0, filter_.Evaluate(collider_stacktrace_));
+  EXPECT_EQ(0, filter_.Count(collider_stacktrace_));
 }
 
 TEST_F(StackTraceFilterTest, Add) {
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(1, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(1, filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(2, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(2, filter_.Count(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddCountLimitReached) {
   while (count(stacktrace1_) < filter_hash_count_limit()) {
     filter_.Add(stacktrace1_);
   }
-  EXPECT_EQ(filter_hash_count_limit(), filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(filter_hash_count_limit(), filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(filter_hash_count_limit(), filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(filter_hash_count_limit(), filter_.Count(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddReplace) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(1, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(1, filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
-  EXPECT_EQ(2, filter_.Evaluate(stacktrace1_));
+  EXPECT_EQ(2, filter_.Count(stacktrace1_));
   filter_.Add(collider_stacktrace_);
-  EXPECT_EQ(0, filter_.Evaluate(stacktrace1_));
-  EXPECT_EQ(1, filter_.Evaluate(collider_stacktrace_));
+  EXPECT_EQ(0, filter_.Count(stacktrace1_));
+  EXPECT_EQ(1, filter_.Count(collider_stacktrace_));
 }
 
 // A collection of threaded tests which are useful for demonstrating
@@ -262,7 +262,7 @@ class StackTraceFilterThreadedTest : public testing::Test {
           std::advance(
               iter, absl::Uniform(bitgen_, 0UL, evaluate_calls_count.size()));
           size_t stacktrace_index = iter->first;
-          filter_.Evaluate(stacktraces_[stacktrace_index]);
+          filter_.Count(stacktraces_[stacktrace_index]);
           ++evaluate_calls;
           if (--evaluate_calls_count[stacktrace_index] == 0) {
             evaluate_calls_count.erase(iter);

@@ -16,6 +16,7 @@
 #define TCMALLOC_INTERNAL_STACKTRACE_FILTER_H_
 
 #include <atomic>
+#include <cstddef>
 
 #include "absl/hash/hash.h"
 #include "absl/types/span.h"
@@ -27,10 +28,10 @@ namespace tcmalloc_internal {
 // This class maintains a small collection of StackTrace hashes which are used
 // to inform the selection of allocations to be guarded. It provides two
 // functions:
-//    - Evaluate: returns the number of times the location has
+//    - Count: returns the number of times the location has
 //      been Add-ed (represents guards placed on allocation from stack trace).
 //    - Add: which adds the provided StackTrace to the filter, for use when
-//      responding to subsequent Evaluate calls.
+//      responding to subsequent Count calls.
 // Based on the collection size (kSize), it uses the lower bits (kMask) of the
 // StackTrace hash as an index into stack_hashes_with_count_.  It stores a count
 // of the number of times a hash has been 'Add'-ed in the lower bits (kMask).
@@ -38,7 +39,7 @@ class StackTraceFilter {
  public:
   constexpr StackTraceFilter() = default;
 
-  size_t Evaluate(const StackTrace& stacktrace) const;
+  size_t Count(const StackTrace& stacktrace) const;
   void Add(const StackTrace& stacktrace);
 
  private:
@@ -56,7 +57,7 @@ class StackTraceFilter {
   friend class StackTraceFilterThreadedTest;
 };
 
-inline size_t StackTraceFilter::Evaluate(const StackTrace& stacktrace) const {
+inline size_t StackTraceFilter::Count(const StackTrace& stacktrace) const {
   size_t stack_hash = HashOfStackTrace(stacktrace);
   size_t existing_stack_hash_with_count =
       stack_hashes_with_count_[stack_hash % kSize].load(

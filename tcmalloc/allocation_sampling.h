@@ -199,7 +199,7 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
       }
     }
 
-    size_t guard_count = state.stacktrace_filter().Evaluate(stack_trace);
+    size_t guard_count = state.stacktrace_filter().Count(stack_trace);
     static uint64_t rnd_ =
         static_cast<uint64_t>(absl::ToUnixNanos(absl::Now()));
     if (guard_count > 0 && guard_count < 4) {
