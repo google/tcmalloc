@@ -15,18 +15,7 @@
 #ifndef TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 #define TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 
-#include <signal.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <sys/types.h>
-
-#include <utility>
-
-#include "absl/base/attributes.h"
-#include "absl/base/internal/spinlock.h"
-#include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -322,8 +311,6 @@ class GuardedPageAllocator {
   // Set to true if a write overflow was detected on deallocation.
   bool write_overflow_detected_;
 };
-
-void SegvHandler(int signo, siginfo_t* info, void* context);
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

@@ -14,36 +14,13 @@
 
 #include "tcmalloc/guarded_page_allocator.h"
 
-#include <signal.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-
-#include <algorithm>
-#include <array>
-#include <memory>
-#include <string>
 #include <thread>  // NOLINT(build/c++11)
-#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/attributes.h"
-#include "absl/base/casts.h"
-#include "absl/base/internal/spinlock.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/numeric/bits.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
-#include "tcmalloc/common.h"
-#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
-#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -279,75 +256,6 @@ TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
               Profile::Sample::GuardedStatus::Guarded);
     EXPECT_NE(alloc_with_status.alloc, nullptr);
   }
-}
-
-TEST_F(GuardedPageAllocatorTest, SignalHandlerStackConsumption) {
-  // Test the signal handler stack consumption. Since it runs on potentially
-  // limited signal stack, the consumption is important. If the test fails,
-  // the numbers may need to be updated. Reducing stack usage is always good,
-  // increasing may indicate a problem. Avoid setting too high slack,
-  // since it will prevent detection of usage changes in future.
-  auto ptr = tc_globals.guardedpage_allocator().Allocate(1, 0);
-  if (ptr.status != Profile::Sample::GuardedStatus::Guarded) {
-    GTEST_SKIP() << "did not get a guarded allocation";
-  }
-  ASSERT_NE(ptr.alloc, nullptr);
-  tc_globals.guardedpage_allocator().Deallocate(ptr.alloc);
-  static void* addr;
-  addr = ptr.alloc;
-  constexpr size_t kStackSize = 1 << 20;
-  void* altstack = mmap(nullptr, kStackSize, PROT_READ | PROT_WRITE,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  ASSERT_NE(altstack, MAP_FAILED);
-  stack_t sigstk = {};
-  sigstk.ss_sp = altstack;
-  sigstk.ss_size = kStackSize;
-  stack_t old_sigstk;
-  EXPECT_EQ(sigaltstack(&sigstk, &old_sigstk), 0);
-  struct sigaction act = {};
-  act.sa_flags = SA_SIGINFO | SA_ONSTACK;
-  act.sa_sigaction = [](int sig, siginfo_t* info, void* ctx) {
-    info->si_addr = addr;
-    SegvHandler(SIGSEGV, info, ctx);
-  };
-  struct sigaction oldact;
-  ASSERT_EQ(sigaction(SIGUSR1, &act, &oldact), 0);
-  constexpr char kFillValue = 0xe1;
-  memset(altstack, kFillValue, kStackSize);
-  for (int i = 0; i < 10; ++i) {
-    ASSERT_EQ(syscall(SYS_tgkill, getpid(), syscall(SYS_gettid), SIGUSR1), 0);
-  }
-  ASSERT_EQ(sigaltstack(&old_sigstk, nullptr), 0);
-  ASSERT_EQ(sigaction(SIGUSR1, &oldact, nullptr), 0);
-  size_t usage = kStackSize;
-  for (;
-       usage && static_cast<char*>(altstack)[kStackSize - usage] == kFillValue;
-       --usage) {
-  }
-#if defined(__x86_64__)
-#if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 12800;
-  constexpr size_t kUsageSlack = 25;
-#else
-  constexpr size_t kExpectedUsage = 14400;
-  constexpr size_t kUsageSlack = 45;
-#endif
-#elif defined(__aarch64__)
-#if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 12500;
-  constexpr size_t kUsageSlack = 10;
-#else
-  constexpr size_t kExpectedUsage = 16000;
-  constexpr size_t kUsageSlack = 30;
-#endif
-#else
-  constexpr size_t kExpectedUsage = 100000;
-  constexpr size_t kUsageSlack = 95;
-#endif
-  printf("stack usage: %zu\n", usage);
-  EXPECT_GT(usage, 0);
-  EXPECT_LT(usage, kExpectedUsage);
-  EXPECT_GT(usage, kExpectedUsage * (100 - kUsageSlack) / 100);
 }
 
 TEST_F(GuardedPageAllocatorTest, DeleteSizeCheck) {
