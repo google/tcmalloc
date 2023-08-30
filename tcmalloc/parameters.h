@@ -23,6 +23,7 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -119,6 +120,15 @@ class Parameters {
   }
 
   static void set_per_cpu_caches(bool value) {
+#if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
+    if (!value) {
+      Log(kLog, __FILE__, __LINE__,
+          "Using per-thread caches requires linking against "
+          ":tcmalloc_deprecated_perthread.");
+      return;
+    }
+#endif  // !TCMALLOC_DEPRECATED_PERTHREAD
+
     TCMalloc_Internal_SetPerCpuCachesEnabled(value);
   }
 

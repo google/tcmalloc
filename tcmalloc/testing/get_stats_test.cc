@@ -119,7 +119,9 @@ TEST_F(GetStatsTest, Pbtxt) {
 TEST_F(GetStatsTest, Parameters) {
   Parameters::set_hpaa_subrelease(false);
   Parameters::set_guarded_sampling_rate(-1);
+#ifdef TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_per_cpu_caches(false);
+#endif  // TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_max_per_cpu_cache_size(-1);
   Parameters::set_max_total_thread_cache_bytes(-1);
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
@@ -141,7 +143,9 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter -1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 1)"));
+#ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
+#endif  // TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_max_per_cpu_cache_size -1)"));
     EXPECT_THAT(
@@ -171,7 +175,9 @@ TEST_F(GetStatsTest, Parameters) {
     }
 
     EXPECT_THAT(pbtxt, HasSubstr(R"(guarded_sample_parameter: -1)"));
+#ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_per_cpu_caches: false)"));
+#endif  // TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(pbtxt, HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: -1)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
