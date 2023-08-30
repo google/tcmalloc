@@ -642,7 +642,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       return nullptr;
     }
     if (int err = munmap(result, size)) {
-      Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed");
+      Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed (error)",
+          strerror(errno));
       ASSERT(err == 0);
     }
     next_addr = RandomMmapHint(size, alignment, tag);
