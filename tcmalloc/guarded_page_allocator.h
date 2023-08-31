@@ -16,6 +16,7 @@
 #define TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 
 #include "tcmalloc/common.h"
+#include "tcmalloc/guarded_allocations.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -77,8 +78,6 @@ class GuardedPageAllocator {
     kBufferOverflowOnDealloc,
     kUnknown,
   };
-
-  enum class WriteFlag : int { Unknown, Read, Write };
 
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::kConstInit,

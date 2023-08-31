@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/static_vars.h"
@@ -96,14 +97,13 @@ static void PrintStackTraceFromSignalHandler(void* context) {
   PrintStackTrace(stack_frames, depth);
 }
 
-constexpr const char* WriteFlagToString(
-    GuardedPageAllocator::WriteFlag write_flag) {
+constexpr const char* WriteFlagToString(WriteFlag write_flag) {
   switch (write_flag) {
-    case GuardedPageAllocator::WriteFlag::Unknown:
+    case WriteFlag::Unknown:
       return "(unknown)";
-    case GuardedPageAllocator::WriteFlag::Read:
+    case WriteFlag::Read:
       return "(read)";
-    case GuardedPageAllocator::WriteFlag::Write:
+    case WriteFlag::Write:
       return "(write)";
   }
   ASSUME(false);
@@ -131,25 +131,22 @@ static bool Aarch64GetESR(ucontext_t* ucontext, uint64_t* esr) {
 }
 #endif
 
-static GuardedPageAllocator::WriteFlag ExtractWriteFlagFromContext(
-    void* context) {
+static WriteFlag ExtractWriteFlagFromContext(void* context) {
 #if defined(__x86_64__)
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   uintptr_t value = uc->uc_mcontext.gregs[REG_ERR];
   static const uint64_t PF_WRITE = 1U << 1;
-  return value & PF_WRITE ? GuardedPageAllocator::WriteFlag::Write
-                          : GuardedPageAllocator::WriteFlag::Read;
+  return value & PF_WRITE ? WriteFlag::Write : WriteFlag::Read;
 #elif defined(__aarch64__)
   ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
   uint64_t esr;
-  if (!Aarch64GetESR(uc, &esr)) return GuardedPageAllocator::WriteFlag::Unknown;
+  if (!Aarch64GetESR(uc, &esr)) return WriteFlag::Unknown;
   static const uint64_t ESR_ELx_WNR = 1U << 6;
-  return esr & ESR_ELx_WNR ? GuardedPageAllocator::WriteFlag::Write
-                           : GuardedPageAllocator::WriteFlag::Read;
+  return esr & ESR_ELx_WNR ? WriteFlag::Write : WriteFlag::Read;
 #else
   // __riscv is NOT (yet) supported
   (void)context;
-  return GuardedPageAllocator::WriteFlag::Unknown;
+  return WriteFlag::Unknown;
 #endif
 }
 
@@ -161,8 +158,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
 
   // Store load/store from context.
-  GuardedPageAllocator::WriteFlag write_flag =
-      ExtractWriteFlagFromContext(context);
+  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
   tc_globals.guardedpage_allocator().SetWriteFlag(fault, write_flag);
 
   GuardedPageAllocator::GpaStackTrace *alloc_trace, *dealloc_trace;
