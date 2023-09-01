@@ -33,6 +33,12 @@ class FakeStaticForwarder {
   static constexpr size_t class_to_size(int size_class) { return kClassSize; }
   static constexpr Length class_to_pages(int size_class) { return Length(1); }
 
+  void MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
+    for (size_t i = 0; i < batch.size(); ++i) {
+      spans[i] = MapObjectToSpan(batch[i]);
+    }
+  }
+
   Span* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
@@ -95,9 +101,11 @@ class FakeStaticForwarder {
 class RawMockStaticForwarder : public FakeStaticForwarder {
  public:
   RawMockStaticForwarder() {
-    ON_CALL(*this, MapObjectToSpan).WillByDefault([this](const void* object) {
-      return static_cast<FakeStaticForwarder*>(this)->MapObjectToSpan(object);
-    });
+    ON_CALL(*this, MapObjectsToSpans)
+        .WillByDefault([this](absl::Span<void*> batch, Span** spans) {
+          return static_cast<FakeStaticForwarder*>(this)->MapObjectsToSpans(
+              batch, spans);
+        });
     ON_CALL(*this, AllocateSpan)
         .WillByDefault([this](int size_class, SpanAllocInfo span_alloc_info,
                               Length pages_per_span) {
@@ -112,7 +120,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
         });
   }
 
-  MOCK_METHOD(Span*, MapObjectToSpan, (const void* object));
+  MOCK_METHOD(void, MapObjectsToSpans, (absl::Span<void*> batch, Span** spans));
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, SpanAllocInfo span_alloc_info,
                Length pages_per_span));

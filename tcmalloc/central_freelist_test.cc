@@ -106,7 +106,9 @@ TEST_P(StaticForwarderTest, Simple) {
   // span_test.cc provides test coverage for Span, but we need to obtain several
   // objects to confirm we can map back to the Span pointer from the PageMap.
   for (void* ptr : batch) {
-    EXPECT_EQ(span, StaticForwarder::MapObjectToSpan(ptr));
+    Span* got;
+    StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got);
+    EXPECT_EQ(span, got);
   }
 
   for (void* ptr : batch) {
@@ -172,7 +174,9 @@ class StaticForwarderEnvironment {
       EXPECT_EQ(size_class_,
                 tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
-      EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
+      Span* got;
+      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got);
+      EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);
     }
@@ -199,7 +203,9 @@ class StaticForwarderEnvironment {
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
     // Confirm we can map at least one object back.
-    EXPECT_EQ(span, StaticForwarder::MapObjectToSpan(d->batch[0]));
+    Span* got;
+    StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got);
+    EXPECT_EQ(span, got);
 
     absl::MutexLock l(&mu_);
     spans_allocated_++;
@@ -233,7 +239,9 @@ class StaticForwarderEnvironment {
       EXPECT_EQ(size_class_,
                 tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
-      EXPECT_EQ(data->span, StaticForwarder::MapObjectToSpan(data->batch[0]));
+      Span* got;
+      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got);
+      EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);
     }
@@ -340,7 +348,7 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
     }
   }
 
-  EXPECT_CALL(e.forwarder(), MapObjectToSpan).Times(allocated);
+  EXPECT_CALL(e.forwarder(), MapObjectsToSpans).Times(1);
   EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(1);
 
   SpanStats stats = e.central_freelist().GetSpanStats();

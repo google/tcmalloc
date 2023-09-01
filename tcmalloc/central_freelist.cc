@@ -48,10 +48,15 @@ Length StaticForwarder::class_to_pages(int size_class) {
   return Length(tc_globals.sizemap().class_to_pages(size_class));
 }
 
-Span* StaticForwarder::MapObjectToSpan(const void* object) {
-  const PageId p = PageIdContaining(object);
-  Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-  return span;
+void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
+  // Prefetch Span objects to reduce cache misses.
+  for (int i = 0; i < batch.size(); ++i) {
+    const PageId p = PageIdContaining(batch[i]);
+    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+    ASSERT(span != nullptr);
+    span->Prefetch();
+    spans[i] = span;
+  }
 }
 
 Span* StaticForwarder::AllocateSpan(int size_class,

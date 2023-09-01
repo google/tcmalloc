@@ -48,7 +48,7 @@ class StaticForwarder {
  public:
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static Span* MapObjectToSpan(const void* object);
+  static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans);
   static Span* AllocateSpan(int size_class, SpanAllocInfo span_alloc_info,
                             Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
@@ -384,19 +384,15 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   CHECK_CONDITION(!batch.empty() && batch.size() <= kMaxObjectsToMove);
   Span* spans[kMaxObjectsToMove];
+  // First, map objects to spans and prefetch spans outside of our mutex
+  // (to reduce critical section size and cache misses).
+  forwarder_.MapObjectsToSpans(batch, spans);
+
   // Safe to store free spans into freed up space in span array.
   Span** free_spans = spans;
   int free_count = 0;
 
-  // Prefetch Span objects to reduce cache misses.
-  for (int i = 0; i < batch.size(); ++i) {
-    Span* span = forwarder_.MapObjectToSpan(batch[i]);
-    ASSERT(span != nullptr);
-    span->Prefetch();
-    spans[i] = span;
-  }
-
-  // First, release all individual objects into spans under our mutex
+  // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
     // Use local copy of variable to ensure that it is not reloaded.
