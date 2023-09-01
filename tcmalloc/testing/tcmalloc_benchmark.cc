@@ -88,7 +88,7 @@ static void BM_aligned_new(benchmark::State& state) {
     operator delete(ptr, size, static_cast<std::align_val_t>(alignment));
   }
 }
-BENCHMARK(BM_aligned_new)->RangePair(1, 1 << 20, 8, 64);
+BENCHMARK(BM_aligned_new)->RangePair(1, 1 << 20, 8, 64)->ArgPair(65, 64);
 
 static void BM_new_delete_slow_path(benchmark::State& state) {
   // The benchmark is intended to cover CpuCache overflow/underflow paths,
