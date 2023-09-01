@@ -974,6 +974,40 @@ inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
          forwarder_.UseGenericShardedCache();
 }
 
+// Calculate number of objects to return/request from transfer cache.
+inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
+                                        size_t successive) {
+  // Calculate number of objects to return/request from transfer cache.
+  // Generally we prefer to transfer a single batch, because transfer cache
+  // handles it efficiently. Except for 2 special cases:
+  size_t target = batch_length;
+  // "capacity + 1" because on overflow we already have one object from caller,
+  // so we can return a whole batch even if capacity is one less. Similarly,
+  // on underflow we need to return one object to caller, so we can request
+  // a whole batch even if capacity is one less.
+  if ((capacity + 1) < batch_length) {
+    // If we don't have a full batch, return/request just half. We are missing
+    // transfer cache anyway, and cost of insertion into central freelist is
+    // ~O(number of objects).
+    target = std::max<size_t>(1, (capacity + 1) / 2);
+    ASSERT(target <= batch_length);
+  } else if (successive > 0 && capacity >= 3 * batch_length) {
+    // If the freelist is large and we are hitting series of overflows or
+    // underflows, return/request several batches at once. On the first overflow
+    // we return 1 batch, on the second -- 2, on the third -- 4 and so on up to
+    // half of the batches we have. We do this to save on the cost of hitting
+    // malloc/free slow path, reduce instruction cache pollution, avoid cache
+    // misses when accessing transfer/central caches, etc.
+    size_t num_batches =
+        std::min<size_t>(1 << std::min<uint32_t>(successive, 10),
+                         ((capacity / batch_length) + 1) / 2);
+    target = num_batches * batch_length;
+  }
+  ASSERT(target <= capacity + 1);
+  ASSERT(target != 0);
+  return target;
+}
+
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
                                                   size_t batch_length,
@@ -1036,33 +1070,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
     Grow(cpu, size_class, increase, to_return);
     capacity = freelist_.Capacity(cpu, size_class);
   }
-  // Calculate number of objects to return/request from transfer cache.
-  // Generally we prefer to transfer a single batch, because transfer cache
-  // handles it efficiently. Except for 2 special cases:
-  size_t target = batch_length;
-  // "capacity + 1" because on overflow we already have one object from caller,
-  // so we can return a whole batch even if capacity is one less. Similarly,
-  // on underflow we need to return one object to caller, so we can request
-  // a whole batch even if capacity is one less.
-  if ((capacity + 1) < batch_length) {
-    // If we don't have a full batch, return/request just half. We are missing
-    // transfer cache anyway, and cost of insertion into central freelist is
-    // ~O(number of objects).
-    target = std::max<size_t>(1, (capacity + 1) / 2);
-  } else if (successive > 0 && capacity >= 3 * batch_length) {
-    // If the freelist is large and we are hitting series of overflows or
-    // underflows, return/request several batches at once. On the first overflow
-    // we return 1 batch, on the second -- 2, on the third -- 4 and so on up to
-    // half of the batches we have. We do this to save on the cost of hitting
-    // malloc/free slow path, reduce instruction cache pollution, avoid cache
-    // misses when accessing transfer/central caches, etc.
-    size_t num_batches =
-        std::min<size_t>(1 << std::min<uint32_t>(successive, 10),
-                         ((capacity / batch_length) + 1) / 2);
-    target = num_batches * batch_length;
-  }
-  ASSERT(target != 0);
-  return target;
+  return TargetOverflowRefillCount(capacity, batch_length, successive);
 }
 
 template <class Forwarder>

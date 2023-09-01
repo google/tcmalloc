@@ -1467,6 +1467,37 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
   EXPECT_EQ(env.num_cpus() * last_cache_size, capacity);
 }
 
+TEST(CpuCacheTest, TargetOverflowRefillCount) {
+  auto F = cpu_cache_internal::TargetOverflowRefillCount;
+  // Args are: capacity, batch_length, successive.
+  EXPECT_EQ(F(0, 8, 0), 1);
+  EXPECT_EQ(F(0, 8, 10), 1);
+  EXPECT_EQ(F(1, 8, 0), 1);
+  EXPECT_EQ(F(1, 8, 1), 1);
+  EXPECT_EQ(F(1, 8, 2), 1);
+  EXPECT_EQ(F(1, 8, 3), 1);
+  EXPECT_EQ(F(1, 8, 4), 1);
+  EXPECT_EQ(F(2, 8, 0), 1);
+  EXPECT_EQ(F(3, 8, 0), 2);
+  EXPECT_EQ(F(4, 8, 0), 2);
+  EXPECT_EQ(F(5, 8, 0), 3);
+  EXPECT_EQ(F(6, 8, 0), 3);
+  EXPECT_EQ(F(7, 8, 0), 8);
+  EXPECT_EQ(F(8, 8, 0), 8);
+  EXPECT_EQ(F(9, 8, 0), 8);
+  EXPECT_EQ(F(100, 8, 0), 8);
+  EXPECT_EQ(F(23, 8, 1), 8);
+  EXPECT_EQ(F(24, 8, 1), 16);
+  EXPECT_EQ(F(100, 8, 1), 16);
+  EXPECT_EQ(F(24, 8, 2), 16);
+  EXPECT_EQ(F(32, 8, 2), 16);
+  EXPECT_EQ(F(40, 8, 2), 24);
+  EXPECT_EQ(F(100, 8, 2), 32);
+  EXPECT_EQ(F(48, 8, 3), 24);
+  EXPECT_EQ(F(56, 8, 3), 32);
+  EXPECT_EQ(F(100, 8, 3), 48);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
