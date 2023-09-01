@@ -94,17 +94,17 @@ static void BM_new_delete_slow_path(benchmark::State& state) {
   // The benchmark is intended to cover CpuCache overflow/underflow paths,
   // transfer cache and a bit of the central freelist.
   std::vector<void*> allocs((4 << 10) + 128);
-  constexpr size_t kSize = 8;
+  const size_t size = state.range(0);
   for (auto s : state) {
     for (void*& p : allocs) {
-      p = ::operator new(kSize);
+      p = ::operator new(size);
     }
     for (void* p : allocs) {
-      ::operator delete(p, kSize);
+      ::operator delete(p, size);
     }
   }
 }
-BENCHMARK(BM_new_delete_slow_path);
+BENCHMARK(BM_new_delete_slow_path)->Arg(8)->Arg(8192);
 
 static void* malloc_pages(size_t pages) {
 #if defined(TCMALLOC_256K_PAGES)

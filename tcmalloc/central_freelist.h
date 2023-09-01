@@ -134,6 +134,9 @@ class CentralFreeList {
   // freelist. Returns the number of elements removed.
   int Populate(void** batch, int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
+  // Allocate a span from the forwarder.
+  Span* AllocateSpan();
+
   // Parses nonempty_ lists and returns span from the list with the lowest
   // possible index.
   // Returns the span if one exists in the nonempty_ lists. Else, returns
@@ -388,6 +391,13 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // (to reduce critical section size and cache misses).
   forwarder_.MapObjectsToSpans(batch, spans);
 
+  if (objects_per_span_ == 1) {
+    // If there is only 1 object per span, skip CentralFreeList entirely.
+    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
+                               {spans, batch.size()});
+    return;
+  }
+
   // Safe to store free spans into freed up space in span array.
   Span** free_spans = spans;
   int free_count = 0;
@@ -420,6 +430,17 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 template <class Forwarder>
 inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
   ASSUME(N > 0);
+
+  if (objects_per_span_ == 1) {
+    // If there is only 1 object per span, skip CentralFreeList entirely.
+    Span* span = AllocateSpan();
+    if (ABSL_PREDICT_FALSE(span == nullptr)) {
+      return 0;
+    }
+    batch[0] = span->start_address();
+    return 1;
+  }
+
   // Use local copy of variable to ensure that it is not reloaded.
   size_t object_size = object_size_;
   int result = 0;
@@ -481,23 +502,8 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
   // a new span and the pushing those partially full spans onto nonempty.
   lock_.Unlock();
 
-  // Use number of objects per span as a proxy for estimating access density of
-  // the span. If number of objects per span is higher than
-  // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
-  // long-lived.
-  const AccessDensityPrediction density =
-      objects_per_span_ > kFewObjectsAllocMaxLimit
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
-
-  SpanAllocInfo info = {.objects_per_span = objects_per_span_,
-                        .density = density};
-  Span* span = forwarder_.AllocateSpan(size_class_, info, pages_per_span_);
+  Span* span = AllocateSpan();
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
-        pages_per_span_.in_bytes());
-
-    lock_.Lock();
     return 0;
   }
 
@@ -526,6 +532,27 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 #endif
   RecordSpanAllocated();
   return result;
+}
+
+template <class Forwarder>
+Span* CentralFreeList<Forwarder>::AllocateSpan() {
+  // Use number of objects per span as a proxy for estimating access density of
+  // the span. If number of objects per span is higher than
+  // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
+  // long-lived.
+  const AccessDensityPrediction density =
+      objects_per_span_ > kFewObjectsAllocMaxLimit
+          ? AccessDensityPrediction::kDense
+          : AccessDensityPrediction::kSparse;
+
+  SpanAllocInfo info = {.objects_per_span = objects_per_span_,
+                        .density = density};
+  Span* span = forwarder_.AllocateSpan(size_class_, info, pages_per_span_);
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
+        pages_per_span_.in_bytes());
+  }
+  return span;
 }
 
 template <class Forwarder>
