@@ -54,7 +54,10 @@ static constexpr int kInitialCapacityInBatches = 16;
 // Records counters for different types of misses.
 class MissCounts {
  public:
-  void Inc(size_t value) { total_.fetch_add(value, std::memory_order_relaxed); }
+  void Inc(size_t value) {
+    total_.store(total_.load(std::memory_order_relaxed) + value,
+                 std::memory_order_relaxed);
+  }
 
   size_t Total() const { return total_.load(std::memory_order_relaxed); }
 
@@ -168,7 +171,7 @@ class TransferCache {
       }
     }
 
-    insert_misses_.Inc(1);
+    insert_misses_.LossyAdd(1);
     insert_object_misses_.Inc(N);
 
     freelist().InsertRange(batch);
@@ -195,7 +198,7 @@ class TransferCache {
       }
     }
 
-      remove_misses_.Inc(1);
+    remove_misses_.LossyAdd(1);
     remove_object_misses_.Inc(N);
     return freelist().RemoveRange(batch, N);
   }
@@ -250,9 +253,9 @@ class TransferCache {
 
     stats.insert_hits = insert_hits_.value();
     stats.remove_hits = remove_hits_.value();
-    stats.insert_misses = insert_misses_.Total();
+    stats.insert_misses = insert_misses_.value();
     stats.insert_object_misses = insert_object_misses_.Total();
-    stats.remove_misses = remove_misses_.Total();
+    stats.remove_misses = remove_misses_.value();
     stats.remove_object_misses = remove_object_misses_.Total();
 
     auto info = slot_info_.load(std::memory_order_relaxed);
@@ -368,10 +371,10 @@ class TransferCache {
   // need a lock for reads.
   StatsCounter insert_hits_;
   StatsCounter remove_hits_;
-  // Miss counters do not hold lock_, so they use Add.
-  MissCounts insert_misses_;
+  // For these we are deliberately fast-and-loose. Some increments may be lost.
+  StatsCounter insert_misses_;
+  StatsCounter remove_misses_;
   MissCounts insert_object_misses_;
-  MissCounts remove_misses_;
   MissCounts remove_object_misses_;
 
   // Number of currently used and available cached entries in slots_. This

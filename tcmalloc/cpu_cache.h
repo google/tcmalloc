@@ -1915,7 +1915,8 @@ inline void CpuCache<Forwarder>::RecordCacheMissStat(const int cpu,
                                                      const bool is_alloc) {
   MissCounts& misses =
       is_alloc ? resize_[cpu].underflows : resize_[cpu].overflows;
-  misses[MissCount::kTotal].fetch_add(1, std::memory_order_relaxed);
+  auto& c = misses[MissCount::kTotal];
+  c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 }
 
 template <class Forwarder>
@@ -2249,7 +2250,8 @@ inline uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::PerClassResizeInfo::RecordMiss() {
-  misses_[PerClassMissType::kTotal].fetch_add(1, std::memory_order_relaxed);
+  auto& c = misses_[PerClassMissType::kTotal];
+  c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 }
 
 template <class Forwarder>
