@@ -540,8 +540,8 @@ class CpuCache {
   // cache capacity between size classes. Returns number of objects to
   // return/request from transfer cache. <to_return> will contain objects that
   // need to be freed.
-  size_t UpdateCapacity(int cpu, size_t size_class, size_t batch_length,
-                        bool overflow, ObjectsToReturn* to_return);
+  size_t UpdateCapacity(int cpu, size_t size_class, bool overflow,
+                        ObjectsToReturn* to_return);
 
   // Tries to obtain up to <desired_increase> bytes of freelist space on <cpu>
   // for <size_class> from other <cls>. <to_return> will contain objects that
@@ -905,16 +905,13 @@ inline void CpuCache<Forwarder>::ReleaseToBackingCache(
 // return memory to the correct CPU.)
 template <class Forwarder>
 inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
-  const size_t batch_length = forwarder_.num_objects_to_move(size_class);
-
   // UpdateCapacity can evict objects from other size classes as it tries to
   // increase capacity of this size class. The objects are returned in
   // to_return, we insert them into transfer cache at the end of function
   // (to increase possibility that we stay on the current CPU as we are
   // refilling the list).
   ObjectsToReturn to_return;
-  const size_t target =
-      UpdateCapacity(cpu, size_class, batch_length, false, &to_return);
+  const size_t target = UpdateCapacity(cpu, size_class, false, &to_return);
 
   // Refill target objects in batch_length batches.
   size_t total = 0;
@@ -938,17 +935,14 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
     if (i) {
       i -= freelist_.PushBatch(size_class, batch, i);
       if (i != 0) {
-        static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
-                      "not enough space in batch");
-        ReleaseToBackingCache(size_class, absl::Span<void*>(batch, i));
+        ReleaseToBackingCache(size_class, {batch, i});
       }
     }
   } while (got == kMaxObjectsToMove && i == 0 && total < target &&
            cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
-    ReleaseToBackingCache(to_return.size_class[i],
-                          absl::Span<void*>(&(to_return.obj[i]), 1));
+    ReleaseToBackingCache(to_return.size_class[i], {&(to_return.obj[i]), 1});
   }
 
   return result;
@@ -1011,7 +1005,6 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
 
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
-                                                  size_t batch_length,
                                                   bool overflow,
                                                   ObjectsToReturn* to_return) {
   // Freelist size balancing strategy:
@@ -1048,6 +1041,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
         cache->resize_[cpu].populated.store(true, std::memory_order_relaxed);
       },
       this, cpu);
+  size_t batch_length = forwarder_.num_objects_to_move(size_class);
   const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
   size_t capacity = freelist_.Capacity(cpu, size_class);
   const bool grow_by_one = capacity < 2 * batch_length;
@@ -1626,10 +1620,7 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
 template <class Forwarder>
 inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
                                          int cpu) {
-  const size_t batch_length = forwarder_.num_objects_to_move(size_class);
-  const size_t target =
-      UpdateCapacity(cpu, size_class, batch_length, true, nullptr);
-  // Return target objects in batch_length batches.
+  const size_t target = UpdateCapacity(cpu, size_class, true, nullptr);
   size_t total = 0;
   size_t count = 1;
   void* batch[kMaxObjectsToMove];
@@ -1642,8 +1633,6 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     if (!count) break;
 
     total += count;
-    static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
-                  "not enough space in batch");
     ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
     if (count != kMaxObjectsToMove) break;
     count = 0;
