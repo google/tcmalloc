@@ -220,19 +220,17 @@ class SizeMap {
     } else {
       *size_class = class_array_[idx] + policy.scaled_numa_partition();
     }
-    if (align == 0) return true;
+    if (align <= static_cast<size_t>(kAlignment)) return true;
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
-    const size_t mask = align - 1;
-    do {
-      if (ABSL_PREDICT_TRUE((class_to_size(*size_class) & mask) == 0)) {
-        return true;
-      }
-    } while ((++*size_class % kNumBaseClasses) != 0);
-
-    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
-    return false;
+    // Since alignment is <= kPageSize, we must find a suitable class
+    // (at least kMaxSize is aligned on kPageSize).
+    static_assert((kMaxSize % kPageSize) == 0, "the loop below won't work");
+    while (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1))) {
+      ++*size_class;
+    }
+    return true;
   }
 
   // Returns size class for given size, or 0 if this instance has not been
