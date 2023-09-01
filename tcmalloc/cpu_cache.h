@@ -977,31 +977,32 @@ inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
 // Calculate number of objects to return/request from transfer cache.
 inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
                                         size_t successive) {
-  // Calculate number of objects to return/request from transfer cache.
-  // Generally we prefer to transfer a single batch, because transfer cache
-  // handles it efficiently. Except for 2 special cases:
-  size_t target = batch_length;
-  // "capacity + 1" because on overflow we already have one object from caller,
-  // so we can return a whole batch even if capacity is one less. Similarly,
-  // on underflow we need to return one object to caller, so we can request
-  // a whole batch even if capacity is one less.
-  if ((capacity + 1) < batch_length) {
-    // If we don't have a full batch, return/request just half. We are missing
-    // transfer cache anyway, and cost of insertion into central freelist is
-    // ~O(number of objects).
-    target = std::max<size_t>(1, (capacity + 1) / 2);
-    ASSERT(target <= batch_length);
-  } else if (successive > 0 && capacity >= 3 * batch_length) {
-    // If the freelist is large and we are hitting series of overflows or
-    // underflows, return/request several batches at once. On the first overflow
-    // we return 1 batch, on the second -- 2, on the third -- 4 and so on up to
-    // half of the batches we have. We do this to save on the cost of hitting
-    // malloc/free slow path, reduce instruction cache pollution, avoid cache
-    // misses when accessing transfer/central caches, etc.
-    size_t num_batches =
-        std::min<size_t>(1 << std::min<uint32_t>(successive, 10),
-                         ((capacity / batch_length) + 1) / 2);
-    target = num_batches * batch_length;
+  // If the freelist is large and we are hitting a series of overflows or
+  // underflows, return/request several batches at once. On the first overflow
+  // we return 1 batch, on the second -- 2, on the third -- 4 and so on up to
+  // half of the batches we have. We do this to save on the cost of hitting
+  // malloc/free slow path, reduce instruction cache pollution, avoid cache
+  // misses when accessing transfer/central caches, etc.
+  const size_t max = (1 << std::min<uint32_t>(successive, 10)) * batch_length;
+  // Aim at returning/refilling roughly half of objects.
+  // Round up odd sizes, e.g. if the capacity is 3, we want to refill 2 objects.
+  // Also always add 1 to the result to account for the additional object
+  // we need to return to the caller on refill, or return on overflow.
+  size_t target = std::min((capacity + 1) / 2 + 1, max);
+  if (capacity == 1 && successive < 3) {
+    // If the capacity is 1, it's generally impossible to avoid bad behavior.
+    // Consider refills (but the same stands for overflows): if we fetch an
+    // additional object and put it into the cache, and the caller is doing
+    // malloc/free in a loop, then we both fetched an unnecessary object and
+    // we will immediately hit an overflow on the free. On the other hand
+    // if we don't fetch an additional object, and the caller is allocating
+    // in a loop, then we also hit underflow again on the next malloc.
+    // Currently we fetch/return an additional objects only if we are hitting
+    // successive underflows/overflows.
+    // But note that this behavior is also easy to compromise: if the caller is
+    // allocating 3 objects and then freeing 3 objects in a loop, then we always
+    // do the wrong thing.
+    target = 1;
   }
   ASSERT(target <= capacity + 1);
   ASSERT(target != 0);

@@ -243,7 +243,8 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
   EXPECT_FALSE(sharded_transfer_cache.shard_initialized(0));
   EXPECT_EQ(sharded_transfer_cache.NumActiveShards(), 0);
   // We should deallocate directly to the LIFO transfer cache.
-  EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass), num_to_move);
+  EXPECT_EQ(forwarder.transfer_cache().tc_length(kSizeClass),
+            num_to_move / 2 + 1);
 }
 
 TEST(CpuCacheTest, UsesShardedAsBackingCache) {
@@ -1475,27 +1476,27 @@ TEST(CpuCacheTest, TargetOverflowRefillCount) {
   EXPECT_EQ(F(1, 8, 0), 1);
   EXPECT_EQ(F(1, 8, 1), 1);
   EXPECT_EQ(F(1, 8, 2), 1);
-  EXPECT_EQ(F(1, 8, 3), 1);
-  EXPECT_EQ(F(1, 8, 4), 1);
-  EXPECT_EQ(F(2, 8, 0), 1);
-  EXPECT_EQ(F(3, 8, 0), 2);
-  EXPECT_EQ(F(4, 8, 0), 2);
-  EXPECT_EQ(F(5, 8, 0), 3);
-  EXPECT_EQ(F(6, 8, 0), 3);
-  EXPECT_EQ(F(7, 8, 0), 8);
-  EXPECT_EQ(F(8, 8, 0), 8);
-  EXPECT_EQ(F(9, 8, 0), 8);
+  EXPECT_EQ(F(1, 8, 3), 2);
+  EXPECT_EQ(F(1, 8, 4), 2);
+  EXPECT_EQ(F(2, 8, 0), 2);
+  EXPECT_EQ(F(3, 8, 0), 3);
+  EXPECT_EQ(F(4, 8, 0), 3);
+  EXPECT_EQ(F(5, 8, 0), 4);
+  EXPECT_EQ(F(6, 8, 0), 4);
+  EXPECT_EQ(F(7, 8, 0), 5);
+  EXPECT_EQ(F(8, 8, 0), 5);
+  EXPECT_EQ(F(9, 8, 0), 6);
   EXPECT_EQ(F(100, 8, 0), 8);
-  EXPECT_EQ(F(23, 8, 1), 8);
-  EXPECT_EQ(F(24, 8, 1), 16);
+  EXPECT_EQ(F(23, 8, 1), 13);
+  EXPECT_EQ(F(24, 8, 1), 13);
   EXPECT_EQ(F(100, 8, 1), 16);
-  EXPECT_EQ(F(24, 8, 2), 16);
-  EXPECT_EQ(F(32, 8, 2), 16);
-  EXPECT_EQ(F(40, 8, 2), 24);
+  EXPECT_EQ(F(24, 8, 2), 13);
+  EXPECT_EQ(F(32, 8, 2), 17);
+  EXPECT_EQ(F(40, 8, 2), 21);
   EXPECT_EQ(F(100, 8, 2), 32);
-  EXPECT_EQ(F(48, 8, 3), 24);
-  EXPECT_EQ(F(56, 8, 3), 32);
-  EXPECT_EQ(F(100, 8, 3), 48);
+  EXPECT_EQ(F(48, 8, 3), 25);
+  EXPECT_EQ(F(56, 8, 3), 29);
+  EXPECT_EQ(F(100, 8, 3), 51);
 }
 
 }  // namespace
