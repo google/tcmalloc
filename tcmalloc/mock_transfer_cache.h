@@ -159,10 +159,10 @@ class FakeTransferCacheEnvironment {
   bool Shrink() { return cache_.ShrinkCache(kSizeClass); }
   bool Grow() { return cache_.IncreaseCacheCapacity(kSizeClass); }
 
-  void Insert(int n) {
+  void Insert(int n, int batch = kBatchSize) {
     std::vector<void*> bufs;
     while (n > 0) {
-      int b = std::min(n, kBatchSize);
+      int b = std::min(n, batch);
       bufs.resize(b);
       central_freelist().AllocateBatch(&bufs[0], b);
       cache_.InsertRange(kSizeClass, absl::MakeSpan(bufs));
@@ -170,10 +170,10 @@ class FakeTransferCacheEnvironment {
     }
   }
 
-  void Remove(int n) {
+  void Remove(int n, int batch = kBatchSize) {
     std::vector<void*> bufs;
     while (n > 0) {
-      int b = std::min(n, kBatchSize);
+      int b = std::min(n, batch);
       bufs.resize(b);
       int removed = cache_.RemoveRange(kSizeClass, &bufs[0], b);
       // Ensure we make progress.

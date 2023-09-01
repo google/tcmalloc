@@ -114,6 +114,18 @@ TYPED_TEST_P(TransferCacheTest, IsolatedSmoke) {
   EXPECT_EQ(stats.used, used_expected);
   EXPECT_EQ(stats.capacity, capacity);
   EXPECT_EQ(stats.max_capacity, e.transfer_cache().max_capacity());
+
+  e.Insert(kMaxObjectsToMove, kMaxObjectsToMove);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.insert_hits, 4);
+  used_expected += kMaxObjectsToMove;
+  EXPECT_EQ(stats.used, used_expected);
+
+  e.Remove(kMaxObjectsToMove, kMaxObjectsToMove);
+  stats = e.transfer_cache().GetStats();
+  EXPECT_EQ(stats.remove_hits, 4);
+  used_expected -= kMaxObjectsToMove;
+  EXPECT_EQ(stats.used, used_expected);
 }
 
 TYPED_TEST_P(TransferCacheTest, ReadStats) {

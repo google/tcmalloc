@@ -924,7 +924,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
   void* batch[kMaxObjectsToMove];
 
   do {
-    const size_t want = std::min(batch_length, target - total);
+    const size_t want = std::min(kMaxObjectsToMove, target - total);
     got = FetchFromBackingCache(size_class, batch, want);
     if (got == 0) {
       break;
@@ -943,7 +943,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
         ReleaseToBackingCache(size_class, absl::Span<void*>(batch, i));
       }
     }
-  } while (got == batch_length && i == 0 && total < target &&
+  } while (got == kMaxObjectsToMove && i == 0 && total < target &&
            cpu == freelist_.GetCurrentVirtualCpuUnsafe());
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
@@ -1635,7 +1635,7 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
   void* batch[kMaxObjectsToMove];
   batch[0] = ptr;
   do {
-    size_t want = std::min(batch_length, target - total);
+    size_t want = std::min(kMaxObjectsToMove, target - total);
     if (count < want) {
       count += freelist_.PopBatch(size_class, batch + count, want - count);
     }
@@ -1645,7 +1645,7 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     static_assert(ABSL_ARRAYSIZE(batch) >= kMaxObjectsToMove,
                   "not enough space in batch");
     ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
-    if (count != batch_length) break;
+    if (count != kMaxObjectsToMove) break;
     count = 0;
   } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
   return 1;
