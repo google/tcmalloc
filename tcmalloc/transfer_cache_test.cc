@@ -354,6 +354,8 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
   // encounter a wraparound, the last operation actually spans both ends of the
   // buffer.
   const size_t batch_size = PickCoprimeBatchSize(TypeParam::kBatchSize);
+  env.transfer_cache().debug_ = true;
+  fprintf(stderr, "batch_size=%zu\n", batch_size);
   ASSERT_GT(batch_size, 0);
   ASSERT_NE((size_t{1} << 32) % batch_size, 0) << batch_size;
   // For ease of comparison, allocate a buffer of char's.  We will use these to
@@ -388,7 +390,9 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
   // From now on, calls to InsertRange() should result in a corresponding call
   // to the freelist whenever the cache is full. Once the transfer cache is
   // full, we should return batch_size number of items to the free list.
-  EXPECT_CALL(env.central_freelist(), InsertRange(testing::SizeIs(batch_size)))
+  EXPECT_CALL(env.central_freelist(),
+              InsertRange(testing::SizeIs(
+                  testing::AllOf(testing::Gt(0), testing::Le(batch_size)))))
       .Times(testing::AnyNumber());
   for (size_t i = 0; i < kObjects; i += batch_size) {
     env.transfer_cache().InsertRange(kSizeClass, absl::MakeSpan(pointers));

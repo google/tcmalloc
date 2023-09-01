@@ -86,6 +86,8 @@ class TransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
+  bool debug_ = false;
+
   TransferCache(Manager *owner, int size_class)
       : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
 
@@ -155,24 +157,30 @@ class TransferCache {
     const int N = batch.size();
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (info.capacity - info.used >= N) {
+    if (debug_)
+      fprintf(stderr, "InsertRange: N=%u used=%u capacity=%d\n", N, info.used,
+              info.capacity);
+    if (info.capacity > info.used) {
       absl::base_internal::SpinLockHolder h(&lock_);
       // As caches are resized in the background, we do not attempt to grow
       // them here. Instead, we just check if they have spare free capacity.
       info = slot_info_.load(std::memory_order_relaxed);
-      if (info.capacity - info.used >= N) {
-        info.used += N;
+      int got = std::min(N, info.capacity - info.used);
+      if (got > 0) {
+        info.used += got;
         SetSlotInfo(info);
-
-        void **entry = GetSlot(info.used - N);
-        memcpy(entry, batch.data(), sizeof(void *) * N);
+        void **entry = GetSlot(info.used - got);
+        memcpy(entry, batch.data(), sizeof(void *) * got);
         insert_hits_.LossyAdd(1);
-        return;
+        if (got == N) {
+          return;
+        }
+        batch = {batch.data() + got, batch.size() - got};
       }
     }
 
     insert_misses_.LossyAdd(1);
-    insert_object_misses_.Inc(N);
+    insert_object_misses_.Inc(batch.size());
 
     freelist().InsertRange(batch);
   }
@@ -183,18 +191,22 @@ class TransferCache {
       ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (info.used >= N) {
+    if (debug_)
+      fprintf(stderr, "RemoveRange: N=%u used=%u capacity=%d\n", N, info.used,
+              info.capacity);
+    if (info.used) {
       absl::base_internal::SpinLockHolder h(&lock_);
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
-      if (info.used >= N) {
-        info.used -= N;
+      int got = std::min(N, info.used);
+      if (got) {
+        info.used -= got;
         SetSlotInfo(info);
         void **entry = GetSlot(info.used);
-        memcpy(batch, entry, sizeof(void *) * N);
+        memcpy(batch, entry, sizeof(void *) * got);
         remove_hits_.LossyAdd(1);
         low_water_mark_ = std::min(low_water_mark_, info.used);
-        return N;
+        return got;
       }
     }
 
