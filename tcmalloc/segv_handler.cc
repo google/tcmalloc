@@ -161,7 +161,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   WriteFlag write_flag = ExtractWriteFlagFromContext(context);
   tc_globals.guardedpage_allocator().SetWriteFlag(fault, write_flag);
 
-  GuardedPageAllocator::GpaStackTrace *alloc_trace, *dealloc_trace;
+  GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
   GuardedPageAllocator::ErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
                                                         &dealloc_trace);

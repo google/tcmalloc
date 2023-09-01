@@ -15,11 +15,20 @@
 #ifndef TCMALLOC_GUARDED_ALLOCATIONS_H_
 #define TCMALLOC_GUARDED_ALLOCATIONS_H_
 
+#include <cstddef>
+
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+struct GuardedAllocationsStackTrace {
+  void* stack[kMaxStackDepth];
+  size_t depth = 0;
+  pid_t tid = 0;
+};
 
 enum class WriteFlag : int { Unknown, Read, Write };
 

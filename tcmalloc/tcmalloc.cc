@@ -95,6 +95,7 @@
 #include "tcmalloc/deallocation_profiler.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/global_stats.h"
+#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"

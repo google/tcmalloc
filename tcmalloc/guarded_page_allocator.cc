@@ -124,7 +124,7 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
 
   // Record stack trace.
   absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
-  GpaStackTrace& trace = data_[slot].dealloc_trace;
+  GuardedAllocationsStackTrace& trace = data_[slot].dealloc_trace;
   trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth,
                                     /*skip_count=*/2);
   trace.tid = absl::base_internal::GetTID();
@@ -147,8 +147,8 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
 }
 
 GuardedPageAllocator::ErrorType GuardedPageAllocator::GetStackTraces(
-    const void* ptr, GpaStackTrace** alloc_trace,
-    GpaStackTrace** dealloc_trace) const {
+    const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
+    GuardedAllocationsStackTrace** dealloc_trace) const {
   ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   size_t slot = GetNearestSlot(addr);

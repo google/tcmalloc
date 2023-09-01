@@ -55,12 +55,6 @@ namespace tcmalloc_internal {
 //   }
 class GuardedPageAllocator {
  public:
-  struct GpaStackTrace {
-    void* stack[kMaxStackDepth];
-    size_t depth = 0;
-    pid_t tid = 0;
-  };
-
   // Maximum number of pages this class can allocate.
   static constexpr size_t kGpaMaxPages = 512;
 
@@ -166,8 +160,9 @@ class GuardedPageAllocator {
   // Returns the likely error type for an access at ptr.
   //
   // Requires that ptr points to memory mapped by this class.
-  ErrorType GetStackTraces(const void* ptr, GpaStackTrace** alloc_trace,
-                           GpaStackTrace** dealloc_trace) const;
+  ErrorType GetStackTraces(const void* ptr,
+                           GuardedAllocationsStackTrace** alloc_trace,
+                           GuardedAllocationsStackTrace** dealloc_trace) const;
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
@@ -203,8 +198,8 @@ class GuardedPageAllocator {
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
-    GpaStackTrace alloc_trace;
-    GpaStackTrace dealloc_trace;
+    GuardedAllocationsStackTrace alloc_trace;
+    GuardedAllocationsStackTrace dealloc_trace;
     size_t requested_size = 0;
     uintptr_t allocation_start = 0;
     WriteFlag write_flag = WriteFlag::Unknown;
