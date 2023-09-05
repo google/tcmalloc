@@ -168,13 +168,13 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // Compute sampling weight (i.e. the number of bytes represented by this
   // sample in expectation).
   //
-  // Let k be the size of the allocation, p be the sample period
+  // Let k be the size of the allocation, T be the sample period
   // (sample_period_), and f the number of bytes after which we decided to
   // sample (either bytes_until_sample_ or true_bytes_until_sample_). On
-  // average, if we were to continue taking samples every p bytes, we would take
-  // (k - f) / p additional samples in this allocation, plus the one we are
-  // taking now, for 1 + (k - f) / p total samples. Multiplying by p, the mean
-  // number of bytes between samples, gives us a weight of p + k - f.
+  // average, if we were to continue taking samples every T bytes, we would take
+  // (k - f) / T additional samples in this allocation, plus the one we are
+  // taking now, for 1 + (k - f) / T total samples. Multiplying by T, the mean
+  // number of bytes between samples, gives us a weight of T + k - f.
   //
   size_t weight =
       sample_period_ + k -
