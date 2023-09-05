@@ -70,7 +70,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
            ProfileType::kFragmentation,
            ProfileType::kPeakHeap,
        }) {
-    manager.Start(2, [&](int) {
+    manager.Start(2, [&, t](int) {
       MallocExtension::SnapshotCurrent(t).Iterate(
           [&](const Profile::Sample& s) {
             // Inspect a few fields in the sample.
