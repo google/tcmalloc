@@ -86,8 +86,6 @@ class TransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  bool debug_ = false;
-
   TransferCache(Manager *owner, int size_class)
       : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
 
@@ -157,9 +155,6 @@ class TransferCache {
     const int N = batch.size();
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (debug_)
-      fprintf(stderr, "InsertRange: N=%u used=%u capacity=%d\n", N, info.used,
-              info.capacity);
     if (info.capacity > info.used) {
       absl::base_internal::SpinLockHolder h(&lock_);
       // As caches are resized in the background, we do not attempt to grow
@@ -191,9 +186,6 @@ class TransferCache {
       ABSL_LOCKS_EXCLUDED(lock_) {
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
-    if (debug_)
-      fprintf(stderr, "RemoveRange: N=%u used=%u capacity=%d\n", N, info.used,
-              info.capacity);
     if (info.used) {
       absl::base_internal::SpinLockHolder h(&lock_);
       // Refetch with the lock

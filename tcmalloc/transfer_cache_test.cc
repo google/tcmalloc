@@ -354,8 +354,6 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
   // encounter a wraparound, the last operation actually spans both ends of the
   // buffer.
   const size_t batch_size = PickCoprimeBatchSize(TypeParam::kBatchSize);
-  env.transfer_cache().debug_ = true;
-  fprintf(stderr, "batch_size=%zu\n", batch_size);
   ASSERT_GT(batch_size, 0);
   ASSERT_NE((size_t{1} << 32) % batch_size, 0) << batch_size;
   // For ease of comparison, allocate a buffer of char's.  We will use these to
