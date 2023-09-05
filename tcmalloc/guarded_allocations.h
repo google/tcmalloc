@@ -19,6 +19,7 @@
 
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -45,6 +46,12 @@ enum class GuardedAllocationsErrorType {
   kDoubleFree,
   kBufferOverflowOnDealloc,
   kUnknown,
+};
+
+struct GuardedAllocWithStatus {
+  void* alloc = nullptr;
+  Profile::Sample::GuardedStatus status =
+      Profile::Sample::GuardedStatus::Unknown;
 };
 
 }  // namespace tcmalloc_internal

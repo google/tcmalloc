@@ -23,7 +23,7 @@
 
 #include "absl/debugging/stacktrace.h"
 #include "tcmalloc/cpu_cache.h"
-#include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
@@ -120,7 +120,7 @@ inline bool ShouldGuardingBeAttempted(
 // If this allocation can be guarded, and if it's time to do a guarded sample,
 // returns a guarded allocation Span.  Otherwise returns nullptr.
 template <typename State>
-static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
+static GuardedAllocWithStatus TrySampleGuardedAllocation(
     State& state, size_t size, size_t alignment, Length num_pages,
     const StackTrace& stack_trace) {
   if (num_pages != Length(1)) {
@@ -237,7 +237,7 @@ static GuardedPageAllocator::AllocWithStatus TrySampleGuardedAllocation(
   //
   // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
   // are met.
-  GuardedPageAllocator::AllocWithStatus alloc_with_status =
+  GuardedAllocWithStatus alloc_with_status =
       state.guardedpage_allocator().Allocate(size, alignment);
   if (Parameters::improved_guarded_sampling() &&
       alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
@@ -320,7 +320,7 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
   stack_trace.access_hint = static_cast<uint8_t>(policy.access());
   stack_trace.weight = weight;
 
-  GuardedPageAllocator::AllocWithStatus alloc_with_status{
+  GuardedAllocWithStatus alloc_with_status{
       nullptr, Profile::Sample::GuardedStatus::NotAttempted};
 
   size_t capacity = 0;

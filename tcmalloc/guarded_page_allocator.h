@@ -103,25 +103,19 @@ class GuardedPageAllocator {
   // and avoiding use-after-destruction issues for static/global instances.
   void Destroy();
 
-  struct AllocWithStatus {
-    void* alloc = nullptr;
-    Profile::Sample::GuardedStatus status =
-        Profile::Sample::GuardedStatus::Unknown;
-  };
-
-  // On success, returns an instance of AllocWithStatus which includes a pointer
-  // to size bytes of page-guarded memory, aligned to alignment.  The member
-  // 'alloc' is a pointer that is guaranteed to be tagged.
-  // The 'status' member is set to GuardedStatus::Guarded.
-  // On failure, returns an instance of AllocWithStatus (the 'alloc' member is
-  // set to 'nullptr').  Failure can occur if memory could not be mapped or
-  // protected, if all guarded pages are already allocated, or if size is 0.
-  // These conditions are reflected in the 'status' member of the
-  // AllocWithStatus return value.
+  // On success, returns an instance of GuardedAllocWithStatus which includes a
+  // pointer to size bytes of page-guarded memory, aligned to alignment.  The
+  // member 'alloc' is a pointer that is guaranteed to be tagged.  The 'status'
+  // member is set to GuardedStatus::Guarded.  On failure, returns an instance
+  // of GuardedAllocWithStatus (the 'alloc' member is set to 'nullptr').
+  // Failure can occur if memory could not be mapped or protected, if all
+  // guarded pages are already allocated, or if size is 0.  These conditions are
+  // reflected in the 'status' member of the GuardedAllocWithStatus return
+  // value.
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  AllocWithStatus Allocate(size_t size, size_t alignment)
+  GuardedAllocWithStatus Allocate(size_t size, size_t alignment)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously

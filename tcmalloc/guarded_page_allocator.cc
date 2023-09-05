@@ -62,8 +62,8 @@ void GuardedPageAllocator::Destroy() {
   }
 }
 
-GuardedPageAllocator::AllocWithStatus GuardedPageAllocator::Allocate(
-    size_t size, size_t alignment) {
+GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
+                                                      size_t alignment) {
   if (size == 0) {
     return {nullptr, Profile::Sample::GuardedStatus::TooSmall};
   }
