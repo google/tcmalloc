@@ -19,8 +19,8 @@
 
 #include "absl/debugging/stacktrace.h"
 #include "tcmalloc/guarded_allocations.h"
-#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -162,10 +162,10 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   tc_globals.guardedpage_allocator().SetWriteFlag(fault, write_flag);
 
   GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
-  GuardedPageAllocator::ErrorType error =
+  GuardedAllocationsErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
                                                         &dealloc_trace);
-  if (error == GuardedPageAllocator::ErrorType::kUnknown) return;
+  if (error == GuardedAllocationsErrorType::kUnknown) return;
   pid_t current_thread = absl::base_internal::GetTID();
   off_t offset;
   size_t size;
@@ -184,9 +184,9 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
   switch (error) {
-    case GuardedPageAllocator::ErrorType::kUseAfterFree:
-    case GuardedPageAllocator::ErrorType::kUseAfterFreeRead:
-    case GuardedPageAllocator::ErrorType::kUseAfterFreeWrite:
+    case GuardedAllocationsErrorType::kUseAfterFree:
+    case GuardedAllocationsErrorType::kUseAfterFreeRead:
+    case GuardedAllocationsErrorType::kUseAfterFreeWrite:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace->tid, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
@@ -195,23 +195,23 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
           "at:");
       RecordCrash("use-after-free");
       break;
-    case GuardedPageAllocator::ErrorType::kBufferUnderflow:
-    case GuardedPageAllocator::ErrorType::kBufferUnderflowRead:
-    case GuardedPageAllocator::ErrorType::kBufferUnderflowWrite:
+    case GuardedAllocationsErrorType::kBufferUnderflow:
+    case GuardedAllocationsErrorType::kBufferUnderflowRead:
+    case GuardedAllocationsErrorType::kBufferUnderflowWrite:
       Log(kLog, __FILE__, __LINE__, "Buffer underflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
       RecordCrash("buffer-underflow");
       break;
-    case GuardedPageAllocator::ErrorType::kBufferOverflow:
-    case GuardedPageAllocator::ErrorType::kBufferOverflowRead:
-    case GuardedPageAllocator::ErrorType::kBufferOverflowWrite:
+    case GuardedAllocationsErrorType::kBufferOverflow:
+    case GuardedAllocationsErrorType::kBufferOverflowRead:
+    case GuardedAllocationsErrorType::kBufferOverflowWrite:
       Log(kLog, __FILE__, __LINE__, "Buffer overflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
       RecordCrash("buffer-overflow");
       break;
-    case GuardedPageAllocator::ErrorType::kDoubleFree:
+    case GuardedAllocationsErrorType::kDoubleFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
           dealloc_trace->tid, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
@@ -219,17 +219,18 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
           current_thread, "at:");
       RecordCrash("double-free");
       break;
-    case GuardedPageAllocator::ErrorType::kBufferOverflowOnDealloc:
+    case GuardedAllocationsErrorType::kBufferOverflowOnDealloc:
       Log(kLog, __FILE__, __LINE__,
           "Buffer overflow (write) detected in thread", current_thread,
           "at free:");
       RecordCrash("buffer-overflow-detected-at-free");
       break;
-    case GuardedPageAllocator::ErrorType::kUnknown:
-      Crash(kCrash, __FILE__, __LINE__, "Unexpected ErrorType::kUnknown");
+    case GuardedAllocationsErrorType::kUnknown:
+      Crash(kCrash, __FILE__, __LINE__,
+            "Unexpected GuardedAllocationsErrorType::kUnknown");
   }
   PrintStackTraceFromSignalHandler(context);
-  if (error == GuardedPageAllocator::ErrorType::kBufferOverflowOnDealloc) {
+  if (error == GuardedAllocationsErrorType::kBufferOverflowOnDealloc) {
     Log(kLog, __FILE__, __LINE__,
         "*** Try rerunning with --config=asan to get stack trace of overflow "
         "***");

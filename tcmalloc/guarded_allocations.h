@@ -32,6 +32,21 @@ struct GuardedAllocationsStackTrace {
 
 enum class WriteFlag : int { Unknown, Read, Write };
 
+enum class GuardedAllocationsErrorType {
+  kUseAfterFree,
+  kUseAfterFreeRead,
+  kUseAfterFreeWrite,
+  kBufferUnderflow,
+  kBufferUnderflowRead,
+  kBufferUnderflowWrite,
+  kBufferOverflow,
+  kBufferOverflowRead,
+  kBufferOverflowWrite,
+  kDoubleFree,
+  kBufferOverflowOnDealloc,
+  kUnknown,
+};
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

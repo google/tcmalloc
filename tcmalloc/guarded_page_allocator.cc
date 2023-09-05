@@ -18,6 +18,8 @@
 
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
@@ -146,7 +148,7 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
   return {addr - data_[slot].allocation_start, data_[slot].requested_size};
 }
 
-GuardedPageAllocator::ErrorType GuardedPageAllocator::GetStackTraces(
+GuardedAllocationsErrorType GuardedPageAllocator::GetStackTraces(
     const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
     GuardedAllocationsStackTrace** dealloc_trace) const {
   ASSERT(PointerIsMine(ptr));
@@ -339,42 +341,43 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
   return false;
 }
 
-GuardedPageAllocator::ErrorType GuardedPageAllocator::GetErrorType(
+GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata& d) const {
-  if (!d.allocation_start) return ErrorType::kUnknown;
-  if (double_free_detected_) return ErrorType::kDoubleFree;
-  if (write_overflow_detected_) return ErrorType::kBufferOverflowOnDealloc;
+  if (!d.allocation_start) return GuardedAllocationsErrorType::kUnknown;
+  if (double_free_detected_) return GuardedAllocationsErrorType::kDoubleFree;
+  if (write_overflow_detected_)
+    return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
   if (d.dealloc_trace.depth > 0) {
     switch (d.write_flag) {
       case WriteFlag::Write:
-        return ErrorType::kUseAfterFreeWrite;
+        return GuardedAllocationsErrorType::kUseAfterFreeWrite;
       case WriteFlag::Read:
-        return ErrorType::kUseAfterFreeRead;
+        return GuardedAllocationsErrorType::kUseAfterFreeRead;
       default:
-        return ErrorType::kUseAfterFree;
+        return GuardedAllocationsErrorType::kUseAfterFree;
     }
   }
   if (addr < d.allocation_start) {
     switch (d.write_flag) {
       case WriteFlag::Write:
-        return ErrorType::kBufferUnderflowWrite;
+        return GuardedAllocationsErrorType::kBufferUnderflowWrite;
       case WriteFlag::Read:
-        return ErrorType::kBufferUnderflowRead;
+        return GuardedAllocationsErrorType::kBufferUnderflowRead;
       default:
-        return ErrorType::kBufferUnderflow;
+        return GuardedAllocationsErrorType::kBufferUnderflow;
     }
   }
   if (addr >= d.allocation_start + d.requested_size) {
     switch (d.write_flag) {
       case WriteFlag::Write:
-        return ErrorType::kBufferOverflowWrite;
+        return GuardedAllocationsErrorType::kBufferOverflowWrite;
       case WriteFlag::Read:
-        return ErrorType::kBufferOverflowRead;
+        return GuardedAllocationsErrorType::kBufferOverflowRead;
       default:
-        return ErrorType::kBufferOverflow;
+        return GuardedAllocationsErrorType::kBufferOverflow;
     }
   }
-  return ErrorType::kUnknown;
+  return GuardedAllocationsErrorType::kUnknown;
 }
 
 uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {

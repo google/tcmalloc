@@ -58,21 +58,6 @@ class GuardedPageAllocator {
   // Maximum number of pages this class can allocate.
   static constexpr size_t kGpaMaxPages = 512;
 
-  enum class ErrorType {
-    kUseAfterFree,
-    kUseAfterFreeRead,
-    kUseAfterFreeWrite,
-    kBufferUnderflow,
-    kBufferUnderflowRead,
-    kBufferUnderflowWrite,
-    kBufferOverflow,
-    kBufferOverflowRead,
-    kBufferOverflowWrite,
-    kDoubleFree,
-    kBufferOverflowOnDealloc,
-    kUnknown,
-  };
-
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::kConstInit,
                            absl::base_internal::SCHEDULE_KERNEL_ONLY),
@@ -160,9 +145,9 @@ class GuardedPageAllocator {
   // Returns the likely error type for an access at ptr.
   //
   // Requires that ptr points to memory mapped by this class.
-  ErrorType GetStackTraces(const void* ptr,
-                           GuardedAllocationsStackTrace** alloc_trace,
-                           GuardedAllocationsStackTrace** dealloc_trace) const;
+  GuardedAllocationsErrorType GetStackTraces(
+      const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
+      GuardedAllocationsStackTrace** dealloc_trace) const;
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
@@ -243,7 +228,8 @@ class GuardedPageAllocator {
 
   // Returns the likely error type for the given access address and metadata
   // associated with the nearest slot.
-  ErrorType GetErrorType(uintptr_t addr, const SlotMetadata& d) const;
+  GuardedAllocationsErrorType GetErrorType(uintptr_t addr,
+                                           const SlotMetadata& d) const;
 
   // Magic constant used for detecting write-overflows at deallocation time.
   static uint8_t GetWriteOverflowMagic(size_t slot) {
