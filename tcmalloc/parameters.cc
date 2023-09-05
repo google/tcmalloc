@@ -128,7 +128,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
-    false);
+    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
