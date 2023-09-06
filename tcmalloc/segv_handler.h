@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_SEG_HANDLER_H_
-#define TCMALLOC_SEG_HANDLER_H_
+#ifndef TCMALLOC_SEGV_HANDLER_H_
+#define TCMALLOC_SEGV_HANDLER_H_
 
 #include <signal.h>
 #include "tcmalloc/common.h"
@@ -28,4 +28,4 @@ void SegvHandler(int signo, siginfo_t* info, void* context);
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_SEG_HANDLER_H_
+#endif  // TCMALLOC_SEGV_HANDLER_H_
