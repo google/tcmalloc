@@ -14,6 +14,7 @@
 
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/kernel-page-flags.h>
 #include <stddef.h>
