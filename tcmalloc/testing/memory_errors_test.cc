@@ -354,8 +354,8 @@ TEST(AlwaysSamplingTest, DoubleFree) {
   };
   EXPECT_DEATH(DoubleFree(),
                "span != "
-               "nullptr|Span::Unsample\\(\\)|Span::IN_USE|invoke_delete_hooks_"
-               "and_free<>\\(\\)");
+               "nullptr|Span::Unsample\\(\\)|Span::IN_USE|"
+               "InvokeHooksAndFreePages\\(\\)");
 }
 
 TEST(AlwaysSamplingTest, ReallocLarger) {

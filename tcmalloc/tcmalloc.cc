@@ -543,20 +543,10 @@ inline size_t GetSize(const void* ptr) {
 // function that both performs delete hooks calls and does free. This is done so
 // that free fast-path only does tail calls, which allow compiler to avoid
 // generating costly prologue/epilogue for fast-path.
-template <void F(void*, size_t)>
-static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
-    void* ptr, size_t t) {
+static void InvokeHooksAndFreeSmall(void* ptr, size_t size_class) {
   // Refresh the fast path state.
   GetThreadSampler()->UpdateFastPathState();
-  return F(ptr, t);
-}
-
-template <void F(void*, PageId)>
-static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
-    void* ptr, PageId p) {
-  // Refresh the fast path state.
-  GetThreadSampler()->UpdateFastPathState();
-  return F(ptr, p);
+  FreeSmallSlow(ptr, size_class);
 }
 
 // Helper for do_free_with_size_class
@@ -569,7 +559,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   }
   if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
     // Take the slow path.
-    invoke_delete_hooks_and_free<FreeSmallSlow>(ptr, size_class);
+    InvokeHooksAndFreeSmall(ptr, size_class);
     return;
   }
 
@@ -679,7 +669,11 @@ inline sized_ptr_t ABSL_ATTRIBUTE_ALWAYS_INLINE AllocSmall(Policy policy,
 // keep it out of fast-path. This helps avoid expensive
 // prologue/epilogue for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
-static void do_free_pages(void* ptr, const PageId p) {
+static void InvokeHooksAndFreePages(void* ptr) {
+  // Refresh the fast path state.
+  GetThreadSampler()->UpdateFastPathState();
+  const PageId p = PageIdContaining(ptr);
+
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   CHECK_CONDITION(span != nullptr && "Possible double free detected");
   // Prefetch now to avoid a stall accessing *span while under the lock.
@@ -742,8 +736,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
   // !have_size_class -> size_class == 0
   ASSERT(have_size_class || size_class == 0);
 
-  const PageId p = PageIdContaining(ptr);
-
   // if we have_size_class, then we've excluded ptr == nullptr case. See
   // comment in do_free_with_size. Thus we only bother testing nullptr
   // in non-sized case.
@@ -758,6 +750,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
   // therefore static initialization must have already occurred.
   ASSERT(tc_globals.IsInited());
 
+  const PageId p = PageIdContaining(ptr);
   if (!have_size_class) {
     size_class = tc_globals.pagemap().sizeclass(p);
   }
@@ -767,7 +760,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
     ASSERT(!tc_globals.pagemap().GetExistingDescriptor(p)->sampled());
     FreeSmall(ptr, size_class);
   } else {
-    invoke_delete_hooks_and_free<do_free_pages>(ptr, p);
+    InvokeHooksAndFreePages(ptr);
   }
 }
 
@@ -779,11 +772,6 @@ template <typename AlignPolicy>
 bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
 
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
-
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreePages(void* ptr) {
-  const PageId p = PageIdContaining(ptr);
-  invoke_delete_hooks_and_free<do_free_pages>(ptr, p);
-}
 
 template <typename AlignPolicy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
@@ -804,7 +792,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     if (!IsColdMemory(ptr)) {
       // we don't know true class size of the ptr
       if (ptr == nullptr) return;
-      return FreePages(ptr);
+      return InvokeHooksAndFreePages(ptr);
     } else {
       // This code is redundant with the outer !IsSampledMemory path below, but
       // this avoids putting the IsSampledMemory&&IsColdMemory check on the
@@ -822,7 +810,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
         ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
         static_assert(kMaxSize >= kPageSize,
                       "kMaxSize must be at least kPageSize");
-        return FreePages(ptr);
+        return InvokeHooksAndFreePages(ptr);
       }
 
       return do_free_with_size_class<true>(ptr, size_class);
@@ -843,7 +831,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     // We couldn't calculate the size class, which means size > kMaxSize.
     ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
-    return FreePages(ptr);
+    return InvokeHooksAndFreePages(ptr);
   }
 
   return do_free_with_size_class<true>(ptr, size_class);
