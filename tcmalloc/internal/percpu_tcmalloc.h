@@ -555,7 +555,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
         // We use "c" for shift because shl requires the c register.
         [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
         [size_class] "r"(size_class), [item] "r"(item)
-      : "cc", "memory", "r11"
+      : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
 #endif
