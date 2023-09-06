@@ -1077,19 +1077,21 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   size_t acquired_bytes = 0;
 
   // First, there might be unreserved slack.  Take what we can.
-  size_t before, after;
-  do {
-    before = resize_[cpu].available.load(std::memory_order_relaxed);
+  for (;;) {
+    size_t before = resize_[cpu].available.load(std::memory_order_relaxed);
     // Skip atomic RMW if we have less than 6% of one object spare capacity.
     // This number is somewhat arbitrary, the idea is to avoid the RMW cost
     // if the remaining spare capacity is unlikely to help to avoid stealing.
-    if (before < (size / 16)) {
+    if (before <= (size / 16)) {
       break;
     }
-    acquired_bytes = std::min(before, desired_bytes);
-    after = before - acquired_bytes;
-  } while (!resize_[cpu].available.compare_exchange_strong(
-      before, after, std::memory_order_relaxed, std::memory_order_relaxed));
+    size_t can_acquire = std::min(before, desired_bytes);
+    if (resize_[cpu].available.compare_exchange_strong(
+            before, before - can_acquire, std::memory_order_relaxed)) {
+      acquired_bytes = can_acquire;
+      break;
+    }
+  }
 
   if (acquired_bytes < desired_bytes) {
     resize_[cpu].per_class[size_class].RecordMiss();
