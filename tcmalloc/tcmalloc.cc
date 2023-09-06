@@ -514,8 +514,6 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 // Helpers for the exported routines below
 //-------------------------------------------------------------------
 
-enum class Hooks { RUN, NO };
-
 static void FreeSmallSlow(void* ptr, size_t size_class);
 
 inline size_t GetLargeSize(const void* ptr, const PageId p) {
@@ -545,7 +543,7 @@ inline size_t GetSize(const void* ptr) {
 // function that both performs delete hooks calls and does free. This is done so
 // that free fast-path only does tail calls, which allow compiler to avoid
 // generating costly prologue/epilogue for fast-path.
-template <void F(void*, size_t), Hooks hooks_state>
+template <void F(void*, size_t)>
 static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
     void* ptr, size_t t) {
   // Refresh the fast path state.
@@ -553,7 +551,7 @@ static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
   return F(ptr, t);
 }
 
-template <void F(void*, PageId), Hooks hooks_state>
+template <void F(void*, PageId)>
 static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
     void* ptr, PageId p) {
   // Refresh the fast path state.
@@ -562,7 +560,6 @@ static ABSL_ATTRIBUTE_SECTION(google_malloc) void invoke_delete_hooks_and_free(
 }
 
 // Helper for do_free_with_size_class
-template <Hooks hooks_state>
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
                                                           size_t size_class) {
   if (!IsExpandedSizeClass(size_class)) {
@@ -572,7 +569,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   }
   if (ABSL_PREDICT_FALSE(!GetThreadSampler()->IsOnFastPath())) {
     // Take the slow path.
-    invoke_delete_hooks_and_free<FreeSmallSlow, hooks_state>(ptr, size_class);
+    invoke_delete_hooks_and_free<FreeSmallSlow>(ptr, size_class);
     return;
   }
 
@@ -739,7 +736,7 @@ static size_t GetSizeClass(void* ptr) {
 // would know that places that call this function with explicit 0 is
 // "have_size_class-case" and others are "!have_size_class-case". But we
 // certainly don't have such compiler. See also do_free_with_size below.
-template <bool have_size_class, Hooks hooks_state>
+template <bool have_size_class>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
     void* ptr, size_t size_class) {
   // !have_size_class -> size_class == 0
@@ -768,18 +765,14 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
     ASSERT(size_class == GetSizeClass(ptr));
     ASSERT(ptr != nullptr);
     ASSERT(!tc_globals.pagemap().GetExistingDescriptor(p)->sampled());
-    FreeSmall<hooks_state>(ptr, size_class);
+    FreeSmall(ptr, size_class);
   } else {
-    invoke_delete_hooks_and_free<do_free_pages, hooks_state>(ptr, p);
+    invoke_delete_hooks_and_free<do_free_pages>(ptr, p);
   }
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
-  return do_free_with_size_class<false, Hooks::RUN>(ptr, 0);
-}
-
-void do_free_no_hooks(void* ptr) {
-  return do_free_with_size_class<false, Hooks::NO>(ptr, 0);
+  return do_free_with_size_class<false>(ptr, 0);
 }
 
 template <typename AlignPolicy>
@@ -789,7 +782,7 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreePages(void* ptr) {
   const PageId p = PageIdContaining(ptr);
-  invoke_delete_hooks_and_free<do_free_pages, Hooks::RUN>(ptr, p);
+  invoke_delete_hooks_and_free<do_free_pages>(ptr, p);
 }
 
 template <typename AlignPolicy>
@@ -832,7 +825,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
         return FreePages(ptr);
       }
 
-      return do_free_with_size_class<true, Hooks::RUN>(ptr, size_class);
+      return do_free_with_size_class<true>(ptr, size_class);
     }
   }
 
@@ -853,7 +846,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     return FreePages(ptr);
   }
 
-  return do_free_with_size_class<true, Hooks::RUN>(ptr, size_class);
+  return do_free_with_size_class<true>(ptr, size_class);
 }
 
 // Checks that an asserted object size for <ptr> is valid.
@@ -964,7 +957,6 @@ GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::AllocSmall;
 using tcmalloc::tcmalloc_internal::CppPolicy;
-using tcmalloc::tcmalloc_internal::do_free_no_hooks;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 using tcmalloc::tcmalloc_internal::do_mallinfo;
 #endif
@@ -1089,15 +1081,14 @@ extern "C" size_t MallocExtension_Internal_GetAllocatedSize(const void* ptr) {
 }
 
 extern "C" void MallocExtension_Internal_MarkThreadBusy() {
-  // Allocate to force the creation of a thread cache, but avoid
-  // invoking any hooks.
   tc_globals.InitIfNecessary();
 
   if (UsePerCpuCache(tc_globals)) {
     return;
   }
 
-  do_free_no_hooks(slow_alloc(CppPolicy().Nothrow().WithoutHooks(), 0));
+  // Force creation of the cache.
+  tcmalloc::tcmalloc_internal::ThreadCache::GetCache();
 }
 
 absl::StatusOr<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges>
