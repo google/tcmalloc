@@ -100,7 +100,7 @@ static void PrintStackTraceFromSignalHandler(void* context) {
 constexpr const char* WriteFlagToString(WriteFlag write_flag) {
   switch (write_flag) {
     case WriteFlag::Unknown:
-      return "(unknown)";
+      return "(read or write: indeterminate)";
     case WriteFlag::Read:
       return "(read)";
     case WriteFlag::Write:

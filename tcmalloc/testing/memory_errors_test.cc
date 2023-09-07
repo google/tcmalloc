@@ -174,7 +174,7 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 #if !defined(__riscv)
                    write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(unknown\\)",
+                   "\\(read or write: indeterminate\\)";
 #endif
                    " occurs in thread [0-9]+ at");
   EXPECT_DEATH(RepeatUnderflow(), expected_output);
@@ -205,7 +205,7 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
 #if !defined(__riscv)
                    write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(unknown\\)",
+                   "\\(read or write: indeterminate\\)";
 #endif
                    " occurs in thread [0-9]+ at");
   EXPECT_DEATH(RepeatOverflow(), expected_output);
@@ -231,7 +231,7 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
 #if !defined(__riscv)
                    write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(unknown\\)",
+                   "\\(read or write: indeterminate\\)";
 #endif
                    " occurs in thread [0-9]+ at");
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
