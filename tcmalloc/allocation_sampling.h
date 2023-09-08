@@ -118,7 +118,9 @@ inline bool ShouldGuardingBeAttempted(
 }
 
 // If this allocation can be guarded, and if it's time to do a guarded sample,
-// returns a guarded allocation Span.  Otherwise returns nullptr.
+// returns an instance of GuardedAllocWithStatus, that includes guarded
+// allocation Span and guarded status. Otherwise, returns nullptr and the status
+// indicating why the allocation may not be guarded.
 template <typename State>
 static GuardedAllocWithStatus TrySampleGuardedAllocation(
     State& state, size_t size, size_t alignment, Length num_pages,
