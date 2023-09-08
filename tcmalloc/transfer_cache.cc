@@ -26,7 +26,6 @@
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
-#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/linked_list.h"
