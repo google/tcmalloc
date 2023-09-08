@@ -24,6 +24,27 @@
 #else
 #error "RSEQ support expected, but not found."
 #endif
+
+// See struct Rseq comment.
+.type tcmalloc_rseq, @object
+.type __rseq_abi, @object
+.section .tdata, "awT", @progbits, unique, 1
+.globl tcmalloc_rseq
+.globl __rseq_abi
+.p2align 6
+tcmalloc_rseq:
+.zero 32
+__rseq_abi:
+.long 0           // cpu_id_start
+.long 0xffffffff  // cpu_id (kCpuIdUninitialized)
+.quad 0           // rseq_cs
+.long 0           // flags
+.quad 0           // padding
+.short 0xffff     // numa_node_id (kCpuIdUninitialized)
+.short 0xffff     // vcpu_id (kCpuIdUninitialized)
+.size __rseq_abi, 32
+.size tcmalloc_rseq, 64
+
 #endif // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 
 // We do not need an executable stack. Put this outside the
