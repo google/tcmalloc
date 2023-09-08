@@ -525,7 +525,6 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        ":logging",
         ":mincore",
         ":percpu",
         ":sysinfo",

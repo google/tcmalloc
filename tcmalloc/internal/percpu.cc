@@ -15,7 +15,6 @@
 
 #include <fcntl.h>
 #include <sched.h>
-#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -45,6 +44,23 @@ namespace percpu {
 
 // Restartable Sequence (RSEQ)
 
+extern "C" {
+// We provide a per-thread value (defined in percpu_.c) which both tracks
+// thread-local initialization state and (with RSEQ) provides an atomic
+// in-memory reference for this thread's execution CPU.  This value is only
+// valid when the thread is currently executing
+// Possible values:
+//   Unavailable/uninitialized:
+//     { kCpuIdUnsupported, kCpuIdUninitialized }
+//   Initialized, available:
+//     [0, NumCpus())    (Always updated at context-switch)
+ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi = {
+    0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
+    {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
+};
+
+}  // extern "C"
+
 enum PerCpuInitStatus {
   kFastMode,
   kSlowMode,
@@ -65,7 +81,7 @@ static bool InitThreadPerCpu() {
     return true;
   }
 
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__NR_rseq)
+#ifdef __NR_rseq
   return 0 == syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
                       TCMALLOC_PERCPU_RSEQ_SIGNATURE);
 #endif  // __NR_rseq
@@ -85,20 +101,6 @@ static void InitPerCpu() {
     init_status = kFastMode;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    // See struct Rseq comment for details.
-    // Ensure __rseq_abi alignment required by ABI.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&__rseq_abi) % 32 == 0);
-    // Ensure that all our TLS data is in a single cache line.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq) % 64 == 0);
-    // Ensure that tcmalloc_rseq and __rseq_abi overlap as we expect.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq.abi) ==
-                    reinterpret_cast<uintptr_t>(&__rseq_abi));
-    // And in particular that tcmalloc_rseq.slabs partially overlap with
-    // __rseq_abi.cpu_id_start as we expect.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq.slabs) ==
-                    reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                        kRseqSlabsOffset);
-
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.
     using_upstream_fence.store(
@@ -122,14 +124,12 @@ bool InitFastPerCpu() {
     CHECK_CONDITION(InitThreadPerCpu());
   }
 
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   // If we've decided to use slow mode, set the thread-local CPU ID to
   // __rseq_abi.cpu_id so that IsFast doesn't call this function again for
   // this thread.
   if (init_status == kSlowMode) {
     __rseq_abi.cpu_id = kCpuIdUnsupported;
   }
-#endif
 
   return init_status == kFastMode;
 }
