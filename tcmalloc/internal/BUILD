@@ -53,6 +53,21 @@ cc_test(
 )
 
 cc_library(
+    name = "allocation_guard",
+    srcs = ["allocation_guard.cc"],
+    hdrs = ["allocation_guard.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+)
+
+cc_library(
     name = "atomic_danger",
     hdrs = ["atomic_danger.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
@@ -225,6 +240,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":allocation_guard",
         ":config",
         ":parameter_accessors",
         "//tcmalloc:malloc_extension",

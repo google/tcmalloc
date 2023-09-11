@@ -29,6 +29,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 
 //-------------------------------------------------------------------
@@ -161,11 +162,6 @@ extern void (*log_message_writer)(const char* msg, int length);
 #else
 #define ASSERT(cond) ((void)0)
 #endif
-
-// TODO(b/143069684): actually ensure no allocations in debug mode here.
-struct AllocationGuard {
-  AllocationGuard() {}
-};
 
 // Print into buffer
 class Printer {

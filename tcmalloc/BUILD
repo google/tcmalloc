@@ -252,6 +252,7 @@ create_tcmalloc_libraries(
         ":metadata_allocator",
         ":new_extension",
         ":size_class_info",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:atomic_stats_counter",
         "//tcmalloc/internal:cache_topology",
         "//tcmalloc/internal:clock",

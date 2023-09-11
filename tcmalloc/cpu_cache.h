@@ -35,6 +35,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
@@ -52,19 +53,6 @@ class CpuCachePeer;
 namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
-
-// A SpinLockHolder that also enforces no allocations while the lock is held in
-// debug mode. We can't allocate while holding the per-cpu spin locks.
-class AllocationGuardSpinLockHolder {
- public:
-  explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
-      : lock_holder_(l) {}
-
- private:
-  absl::base_internal::SpinLockHolder lock_holder_;
-  // In debug mode, enforces no allocations.
-  AllocationGuard enforce_no_alloc_;
-};
 
 // StaticForwarder provides access to the SizeMap and transfer caches.
 //
