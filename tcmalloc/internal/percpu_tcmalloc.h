@@ -33,7 +33,9 @@
 #include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
@@ -84,6 +86,10 @@ constexpr inline uint8_t kMaxPerCpuShift = 18;
 
 constexpr inline uint8_t kNumPossiblePerCpuShifts =
     kMaxPerCpuShift - kInitialPerCpuShift + 1;
+
+// The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
+constexpr inline uintptr_t kCachedSlabsBit = 63;
+constexpr inline uintptr_t kCachedSlabsMask = 1ul << kCachedSlabsBit;
 
 struct ResizeSlabsInfo {
   void* old_slabs;
@@ -387,6 +393,27 @@ class TcmallocSlab {
                           size_t virtual_cpu_id_offset,
                           absl::FunctionRef<size_t(size_t)> capacity);
 
+  // Pop slow path when we don't have any elements, don't have slab offset
+  // cached, or resizing.
+  template <typename Policy = NoopPolicy>
+  ABSL_MUST_USE_RESULT auto PopSlow(
+      size_t class_size,
+      UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+      void* arg);
+
+  // Push slow path when we don't have any elements, don't have slab offset
+  // cached, or resizing.
+  bool PushSlow(size_t size_class, void* item, OverflowHandler overflow_handler,
+                void* arg);
+
+  // Caches the current cpu slab offset in tcmalloc_rseq.slabs if it wasn't
+  // cached and the slab is not resizing. Returns -1 if the offset was cached
+  // and Push/Pop needs to be retried. Returns the current CPU ID (>=0) when
+  // the slabs offset was already cached and we need to call underflow/overflow
+  // callback.
+  int CacheCpuSlab();
+  int CacheCpuSlabSlow();
+
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
@@ -395,6 +422,9 @@ class TcmallocSlab {
   // In ResizeSlabs, we need to allocate space to store begin offsets on the
   // arena. We reuse this space here.
   uint16_t (*resize_begins_)[NumClasses] = nullptr;
+  // ResizeSlabs is running so any Push/Pop should go to fallback
+  // overflow/underflow handler.
+  std::atomic<bool> resizing_{false};
 };
 
 template <size_t NumClasses>
@@ -470,11 +500,13 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
-template <size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
-    const size_t virtual_cpu_id_offset) {
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
+    void* slabs, Shift shift, size_t size_class, void* item,
+    size_t virtual_cpu_id_offset) {
+  // These are using only in aarch64 version of the function.
+  static_cast<void>(slabs);
+  static_cast<void>(shift);
+
   uintptr_t scratch, current;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
@@ -519,14 +551,27 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       // Prepare
       "3:\n"
       "lea __rseq_cs_TcmallocSlab_Internal_Push_%=(%%rip), %[scratch]\n"
+#if defined(__PIC__) && !defined(__PIE__)
       "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
+#else
+      "mov %[scratch], %%fs:__rseq_abi@TPOFF + %c[rseq_cs_offset]\n"
+#endif
       // Start
       "4:\n"
-      // scratch = __rseq_abi.cpu_id;
-      "movzwl (%[rseq_abi], %[rseq_cpu_offset]), %k[scratch]\n"
-      // scratch = slabs + scratch
-      "shlq %b[shift], %[scratch]\n"
-      "add %[slabs], %[scratch]\n"
+  // scratch = tcmalloc_rseq.slabs;
+#if defined(__PIC__) && !defined(__PIE__)
+      "movq %c[rseq_slabs_offset](%[rseq_abi]), %[scratch]\n"
+#else
+      "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
+#endif
+      // if (scratch & kCachedSlabsBit) goto overflow_label;
+      // scratch &= ~kCachedSlabsBit;
+      "btrq $%c[cached_slabs_bit], %[scratch]\n"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+      "jnc %l[overflow_label]\n"
+#else
+      "jae 5f\n"  // ae==c
+#endif
       // current = slabs->current;
       "movzwq (%[scratch], %[size_class], 8), %[current]\n"
       // if (ABSL_PREDICT_FALSE(current >= slabs->end)) { goto overflow_label; }
@@ -548,13 +593,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
       [overflow] "=@ccae"(overflow),
 #endif
       [scratch] "=&r"(scratch), [current] "=&r"(current)
-      : [rseq_abi] "r"(&__rseq_abi),
-        [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
-        [rseq_cpu_offset] "r"(virtual_cpu_id_offset),
+      : [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-        // We use "c" for shift because shl requires the c register.
-        [shift] "c"(ToUint8(shift)), [slabs] "r"(slabs),
-        [size_class] "r"(size_class), [item] "r"(item)
+#if defined(__PIC__) && !defined(__PIE__)
+        [rseq_abi] "r"(&__rseq_abi),
+#endif
+        [rseq_slabs_offset] "n"(kRseqSlabsOffset),
+        [cached_slabs_bit] "n"(kCachedSlabsBit), [size_class] "r"(size_class),
+        [item] "r"(item)
       : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
@@ -562,25 +608,21 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
   );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(overflow)) {
-    goto overflow_label;
+    return false;
   }
-#endif
-  return 0;
+  return true;
+#else
+  return true;
 overflow_label:
-  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path. The values on the taken branches are
-  // undefined. As this is the slow path, reloading the cpuid is negligible.
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
-  return overflow_handler(cpu, size_class, item, arg);
+  return false;
+#endif
 }
 #endif  // defined(__x86_64__)
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
-template <size_t NumClasses>
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
-    typename TcmallocSlab<NumClasses>::Slabs* slabs, size_t size_class,
-    void* item, Shift shift, OverflowHandler overflow_handler, void* arg,
-    const size_t virtual_cpu_id_offset) {
+static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
+    void* slabs, Shift shift, size_t size_class, void* item,
+    size_t virtual_cpu_id_offset) {
   void* region_start;
   uint64_t cpu_id;
   void* end_ptr;
@@ -692,19 +734,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE int TcmallocSlab_Internal_Push(
     goto overflow_label;
   }
 #endif
-  return 0;
+  return true;
 overflow_label:
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path.  The values on the taken branches are
-  // undefined.
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
-#else
-  // With asm goto --without output constraints--, we can avoid looking up
-  // cpu_id again.
-  int cpu = cpu_id;
-#endif
-  return overflow_handler(cpu, size_class, item, arg);
+  return false;
 }
 #endif  // defined (__aarch64__)
 
@@ -720,14 +752,32 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // annotation.
   TSANRelease(item);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+#if defined(__aarch64__)
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  return TcmallocSlab_Internal_Push<NumClasses>(slabs, size_class, item, shift,
-                                                overflow_handler, arg,
-                                                virtual_cpu_id_offset_) >= 0;
+#else
+  void* slabs = nullptr;
+  Shift shift{0};
+#endif
+  if (ABSL_PREDICT_TRUE(TcmallocSlab_Internal_Push(
+          slabs, shift, size_class, item, virtual_cpu_id_offset_))) {
+    return true;
+  }
+  return PushSlow(size_class, item, overflow_handler, arg);
 #else
   Crash(kCrash, __FILE__, __LINE__,
         "RSEQ Push called on unsupported platform.");
 #endif
+}
+
+template <size_t NumClasses>
+ABSL_ATTRIBUTE_NOINLINE bool TcmallocSlab<NumClasses>::PushSlow(
+    size_t size_class, void* item, OverflowHandler overflow_handler,
+    void* arg) {
+  int cpu = CacheCpuSlab();
+  if (cpu < 0) {
+    return Push(size_class, item, overflow_handler, arg);
+  }
+  return overflow_handler(cpu, size_class, item, arg) >= 0;
 }
 
 // PrefetchNextObject provides a common code path across architectures for
@@ -760,15 +810,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
     void* arg) {
   ASSERT(IsFastNoInit());
 
-  void* rcx;
+  void* next;
   void* result;
   void* scratch;
   uintptr_t current;
-
-  // We rely on slabs_and_shift to be encode such that `shift` is held in the
-  // lower 8 bits, allowing us to pass `slabs_and_shift` in `RCX`, and directly
-  // use the value as `shr %%cl, ...`.
-  static_assert(SlabsAndShift::kShiftMask == size_t{0xFF}, "");
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
@@ -814,20 +859,29 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           // Prepare
           "3:\n"
           "lea __rseq_cs_TcmallocSlab_Internal_Pop_%=(%%rip), %[scratch];\n"
+#if defined(__PIC__) && !defined(__PIE__)
           "mov %[scratch], %c[rseq_cs_offset](%[rseq_abi])\n"
+#else
+          "mov %[scratch], %%fs:__rseq_abi@TPOFF + %c[rseq_cs_offset]\n"
+#endif
           // Start
           "4:\n"
-          // scratch = virtual_cpu_id_offset_
-          // scratch = __rseq_abi[scratch];
-          "mov %c[virtual_cpu_id_offset_](%[self]), %[scratch]\n"
-          "movzwl (%[rseq_abi], %[scratch]), %k[scratch]\n"
-          // slabs_and_shift = slabs_and_shift_.load()
-          // scratch = scratch << (slabs_and_shift & 0xFF)
-          // scratch += (slabs_and_shift & ~0xFF)
-          "mov %c[slabs_and_shift_](%[self]), %[rcx]\n"
-          "shlq %b[rcx], %[scratch]\n"
-          "and %[kSlabMask], %[rcx]\n"
-          "addq %[rcx], %[scratch]\n"
+  // scratch = tcmalloc_rseq.slabs;
+#if defined(__PIC__) && !defined(__PIE__)
+          "movq %c[rseq_slabs_offset](%[rseq_abi]), %[scratch]\n"
+#else
+          "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
+#endif
+  // if (scratch & kCachedSlabsBit) goto overflow_label;
+  // scratch &= ~kCachedSlabsBit;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          "btrq $%c[cached_slabs_bit], %[scratch]\n"
+          "jnc %l[underflow_path]\n"
+#else
+          "cmpq %[cached_slabs_mask], %[scratch]\n"
+          "jbe 5f\n"
+          "subq %[cached_slabs_mask], %[scratch]\n"
+#endif
           // current = scratch->header[size_class].current;
           "movzwq (%[scratch], %[size_class], 8), %[current]\n"
           // if (ABSL_PREDICT_FALSE(current <=
@@ -841,9 +895,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   // Important! code below this must not affect any flags (i.e.: ccbe)
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
-          "mov -16(%[scratch], %[current], 8), %[rcx]\n"
-          "movq -8(%[scratch], %[current], 8), %[result]\n"
           "lea -1(%[current]), %[current]\n"
+          "movq -8(%[scratch], %[current], 8), %[next]\n"
+          "movq (%[scratch], %[current], 8), %[result]\n"
           "mov %w[current], (%[scratch], %[size_class], 8)\n"
           // Commit
           "5:\n"
@@ -852,16 +906,16 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
             [underflow] "=@ccbe"(underflow),
 #endif
             [scratch] "=&r"(scratch), [current] "=&r"(current),
-            // Bind an explicitly named `rcx` scratch var to RCX as
-            // `shl <register>, <register>` requires the RCX register.
-            [rcx] "=&c"(rcx)
-          : [self] "r"(this), [rseq_abi] "r"(&__rseq_abi),
+            [next] "=&r"(next)
+          : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-            [kSlabMask] "n"(SlabsAndShift::kSlabsMask),
-            [slabs_and_shift_] "n"(offsetof(TcmallocSlab, slabs_and_shift_)),
-            [virtual_cpu_id_offset_] "n"(
-                offsetof(TcmallocSlab, virtual_cpu_id_offset_)),
+            [rseq_slabs_offset] "n"(kRseqSlabsOffset),
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+            [cached_slabs_bit] "n"(kCachedSlabsBit),
+#else
+            [cached_slabs_mask] "r"(kCachedSlabsMask),
+#endif
             [size_class] "r"(size_class)
           : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -873,16 +927,14 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
     goto underflow_path;
   }
 #endif
+  ASSERT(next);
+  ASSERT(result);
   TSANAcquire(result);
 
-  PrefetchNextObject(rcx);
+  PrefetchNextObject(next);
   return Policy::to_pointer(result, size_class);
 underflow_path:
-  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path. The values on the taken branches are
-  // undefined. As this is the slow path, reloading the cpuid is negligible.
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
-  return underflow_handler(cpu, size_class, arg);
+  return PopSlow<Policy>(size_class, underflow_handler, arg);
 }
 #endif  // defined(__x86_64__)
 
@@ -1051,11 +1103,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   PrefetchNextObject(prefetch);
   return Policy::to_pointer(result, size_class);
 underflow_path:
-  // As of 3/2020, LLVM's asm goto (even with output constraints) only provides
-  // values for the fallthrough path. The values on the taken branches are
-  // undefined. As this is the slow path, reloading the cpuid is negligible.
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
-  return underflow_handler(cpu, size_class, arg);
+  return PopSlow<Policy>(size_class, underflow_handler, arg);
 }
 #endif  // defined(__aarch64__)
 
@@ -1068,6 +1116,75 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
     void* arg) {
   Crash(kCrash, __FILE__, __LINE__, "RSEQ Pop called on unsupported platform.");
   return Policy::to_pointer(nullptr, 0);
+}
+#endif
+
+template <size_t NumClasses>
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE auto TcmallocSlab<NumClasses>::PopSlow(
+    size_t size_class,
+    UnderflowHandler<typename Policy::pointer_type> underflow_handler,
+    void* arg) {
+  int cpu = CacheCpuSlab();
+  if (cpu < 0) {
+    return Pop<Policy>(size_class, underflow_handler, arg);
+  }
+  return underflow_handler(cpu, size_class, arg);
+}
+
+template <size_t NumClasses>
+int TcmallocSlab<NumClasses>::CacheCpuSlab() {
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
+  ASSERT(cpu >= 0);
+  // Currently only x86 uses cached slab.
+#if defined(__x86_64__)
+  if (ABSL_PREDICT_TRUE(tcmalloc_rseq.slabs & kCachedSlabsMask)) {
+    // We already have slab offset cached, so the slab is indeed full/empty
+    // and we need to call overflow/underflow handler.
+    return cpu;
+  }
+  return CacheCpuSlabSlow();
+#else
+  ABSL_ASSUME(cpu >= 0);
+  return cpu;
+#endif
+}
+
+#if defined(__x86_64__)
+template <size_t NumClasses>
+ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
+  for (;;) {
+    intptr_t val = tcmalloc_rseq.slabs;
+    ASSERT(!(val & kCachedSlabsMask));
+    const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+    Slabs* start = CpuMemoryStart(slabs, shift, cpu);
+    intptr_t new_val = reinterpret_cast<uintptr_t>(start) | kCachedSlabsMask;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+    auto* ptr = reinterpret_cast<std::atomic<intptr_t>*>(
+        const_cast<uintptr_t*>(&tcmalloc_rseq.slabs));
+#pragma GCC diagnostic pop
+    int new_cpu =
+        CompareAndSwapUnsafe(cpu, ptr, val, new_val, virtual_cpu_id_offset_);
+    if (cpu == new_cpu) {
+      break;
+    }
+    if (new_cpu >= 0) {
+      cpu = new_cpu;
+    }
+  }
+  // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
+  // cache the offset with the shift that won't match slabs pointer used
+  // by Push/Pop operations later. To avoid this, we check resizing_ after
+  // the calculation. Coupled with setting of resizing_ and a Fence
+  // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
+  CompilerBarrier();
+  if (resizing_.load(std::memory_order_relaxed)) {
+    tcmalloc_rseq.slabs = 0;
+    return cpu;
+  }
+  return -1;
 }
 #endif
 
@@ -1214,6 +1331,11 @@ void TcmallocSlab<NumClasses>::Init(Slabs* slabs,
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
   }
 
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  // This is needed only for tests that create/destroy slabs,
+  // w/o this cpu_id_start may contain wrong offset for a new slab.
+  __rseq_abi.cpu_id_start = 0;
+#endif
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
@@ -1343,6 +1465,13 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     resize_begins_ = reinterpret_cast<uint16_t(*)[NumClasses]>(
         alloc(begins_size, std::align_val_t{alignof(uint16_t)}));
   }
+  // Setting resizing_ in combination with a fence on every CPU before setting
+  // new slabs_and_shift_ prevents Push/Pop fast path from using the old
+  // slab offset/shift with the new slabs pointer. After the fence all CPUs
+  // will uncache the offset and observe resizing_ on the next attempt
+  // to cache the offset.
+  CHECK_CONDITION(!resizing_.load(std::memory_order_relaxed));
+  resizing_.store(true, std::memory_order_relaxed);
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
     for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
@@ -1381,6 +1510,7 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
     }
   }
   FenceAllCpus();
+  resizing_.store(false, std::memory_order_relaxed);
 
   return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
 }

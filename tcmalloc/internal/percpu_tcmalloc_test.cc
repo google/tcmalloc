@@ -17,6 +17,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/kernel-page-flags.h>
+#include <sched.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -35,7 +36,9 @@
 #include <functional>
 #include <new>
 #include <optional>
+#include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -816,9 +819,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
   }
 }
 
-class StressThreadTest : public testing::TestWithParam<bool> {
- protected:
-  bool Resize() const { return GetParam(); }
+class StressThreadTest : public testing::TestWithParam<std::tuple<bool, bool>> {
 };
 
 TEST_P(StressThreadTest, Stress) {
@@ -832,13 +833,16 @@ TEST_P(StressThreadTest, Stress) {
     return;
   }
 
+  const bool resize = std::get<0>(GetParam());
+  const bool pin_cpu = std::get<1>(GetParam());
+
   TcmallocSlab slab;
-  size_t shift = Resize() ? kResizeInitialShift : kShift;
+  size_t shift = resize ? kResizeInitialShift : kShift;
   InitSlab(slab, allocator, get_capacity, shift);
   std::vector<std::thread> threads;
   const size_t num_cpus = NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
-  const size_t n_threads = n_stress_threads + Resize();
+  const size_t n_threads = n_stress_threads + resize;
 
   // once_flag's protect InitCpu on a CPU.
   std::vector<absl::once_flag> init(num_cpus);
@@ -885,12 +889,22 @@ TEST_P(StressThreadTest, Stress) {
   // have a sleeping StressThread access any of the old slabs, but it's very
   // inefficient to keep all the old slabs around so we just keep 100.
   std::array<std::pair<void*, size_t>, 100> old_slabs_arr{};
-  if (Resize()) {
+  if (resize) {
     threads.push_back(std::thread(ResizeSlabsThread, std::ref(ctx),
                                   std::ref(drain_handler),
                                   absl::MakeSpan(old_slabs_arr)));
   }
-  absl::SleepFor(absl::Seconds(5));
+  if (pin_cpu) {
+    // Regression test for a livelock when a thread keeps running on cpu 0.
+    absl::SleepFor(absl::Seconds(1));
+    cpu_set_t cpus;
+    CPU_ZERO(&cpus);
+    CPU_SET(0, &cpus);
+    sched_setaffinity(0, sizeof(cpus), &cpus);
+    absl::SleepFor(absl::Seconds(1));
+  } else {
+    absl::SleepFor(absl::Seconds(5));
+  }
   stop = true;
   for (auto& t : threads) {
     t.join();
@@ -916,7 +930,13 @@ TEST_P(StressThreadTest, Stress) {
                          std::align_val_t{EXEC_PAGESIZE});
   }
 }
-INSTANTIATE_TEST_SUITE_P(GrowOrNot, StressThreadTest, ::testing::Bool());
+
+INSTANTIATE_TEST_SUITE_P(
+    Group, StressThreadTest, testing::Combine(testing::Bool(), testing::Bool()),
+    [](const testing::TestParamInfo<StressThreadTest::ParamType> info) {
+      return std::string(std::get<0>(info.param) ? "" : "No") + "Resize_" +
+             (std::get<1>(info.param) ? "" : "No") + "Pin";
+    });
 
 TEST(TcmallocSlab, SMP) {
   // For the other tests here to be meaningful, we need multiple cores.

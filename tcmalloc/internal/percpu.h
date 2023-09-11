@@ -81,6 +81,85 @@ inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+// We provide a per-thread value (defined in percpu_rseq_asm.S) which both
+// tracks thread-local initialization state and (with RSEQ) provides an atomic
+// in-memory reference for this thread's execution CPU. This value is only
+// valid when the thread is currently executing.
+// Possible values:
+//   Unavailable/uninitialized:
+//     { kCpuIdUnsupported, kCpuIdUninitialized }
+//   Initialized, available:
+//     [0, NumCpus())    (Always updated at context-switch)
+//
+// CPU slabs region address caching.
+// Calculation of the address of the current CPU slabs region is needed for
+// allocation/deallocation fast paths, but is quite expensive. Due to variable
+// shift and experimental support for "virtual CPUs", the calculation involves
+// several additional loads and dependent calculations. Pseudo-code for the
+// address calculation is as follows:
+//
+//   cpu_offset = TcmallocSlab.virtual_cpu_id_offset_;
+//   cpu = *(&__rseq_abi + virtual_cpu_id_offset_);
+//   slabs_and_shift = TcmallocSlab.slabs_and_shift_;
+//   shift = slabs_and_shift & ~TCMALLOC_PERCPU_SLABS_MASK;
+//   shifted_cpu = cpu << shift;
+//   slabs = slabs_and_shift & TCMALLOC_PERCPU_SLABS_MASK;
+//   slabs += shifted_cpu;
+//
+// To remove this calculation from fast paths, we cache the slabs address
+// for the current CPU in thread local storage. However, when a thread is
+// rescheduled to another CPU, we somehow need to understand that the cached
+// address is not valid anymore. To achieve this, we overlap the top 4 bytes
+// of the cached address with __rseq_abi.cpu_id_start. When a thread is
+// rescheduled the kernel overwrites cpu_id_start with the current CPU number,
+// which gives us the signal that the cached address is not valid anymore.
+// To distinguish the high part of the cached address from the CPU number,
+// we set the top bit in the cached address, real CPU numbers (<2^31) do not
+// have this bit set.
+//
+// With these arrangements, slabs address calculation on allocation/deallocation
+// fast paths reduces to load and check of the cached address:
+//
+//   slabs = __rseq_abi[-4];
+//   if ((slabs & (1 << 63)) == 0) goto slowpath;
+//   slabs &= ~(1 << 63);
+//
+// Note: here we assume little-endian byte order (which is the case for our
+// supported architectures). On a little-endian arch, reading 8 bytes starting
+// at __rseq_abi-4 gives __rseq_abi[-4...3]. So the tag bit (1<<63) is
+// therefore from __rseq_abi[3]. That's also the most significant byte of
+// __rseq_abi.cpu_id_start, hence real CPU numbers can't have this bit set
+// (assuming <2^31 CPUs).
+//
+// The slow path does full slabs address calculation and caches it.
+//
+// Note: this makes __rseq_abi.cpu_id_start unusable for its original purpose.
+//
+// Since we need to export the __rseq_abi variable (as part of rseq ABI),
+// we arrange overlapping of __rseq_abi and the preceding cached slabs
+// address in percpu_rseq_asm.S (C++ is not capable of expressing that).
+// __rseq_abi must be aligned to 32 bytes as per ABI. We want the cached slabs
+// address to be contained within a single cache line (64 bytes), rather than
+// split 2 cache lines. To achieve that we locate __rseq_abi in the second
+// part of a cache line.
+// InitPerCpu contains checks that the resulting data layout is as expected.
+struct alignas(64) Rseq {
+  union {
+    struct alignas(64) {
+      char unused[28];
+      // Top 4 bytes of this variable overlap with __rseq_abi.cpu_id_start.
+      uintptr_t slabs;
+    } ABSL_ATTRIBUTE_PACKED;
+    struct alignas(64) {
+      char pad[32];
+      kernel_rseq abi;
+    } ABSL_ATTRIBUTE_PACKED;
+  };
+} ABSL_ATTRIBUTE_PACKED;
+// Offset from __rseq_abi to the cached slabs address.
+inline constexpr int kRseqSlabsOffset = -4;
+extern "C" ABSL_CONST_INIT thread_local volatile Rseq tcmalloc_rseq
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
