@@ -285,7 +285,6 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
 
 TEST(Sampler, TestShouldSampleGuardedAllocation) {
   ScopedGuardedSamplingRate s(kGuardedSamplingInterval);
-  ScopedImprovedGuardedSampling sigs(false);
 
   Sampler sampler;
   SamplerTest::Init(&sampler, 1);

@@ -176,7 +176,6 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Disabled) {
 TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   ScopedGuardedSamplingRate guarded_sampling_rate(1);
   ScopedProfileSamplingRate profile_sampling_rate(1);
-  ScopedImprovedGuardedSampling improved_guarded_sampling(false);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // Keep allocating until something is sampled
@@ -251,7 +250,6 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, TooSmall) {
 
 TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ScopedAlwaysSample always_sample;
-  ScopedImprovedGuardedSampling improved_guarded_sampling(false);
   AllocateUntilGuarded();
 
   std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
