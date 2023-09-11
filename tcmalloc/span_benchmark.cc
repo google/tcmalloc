@@ -21,6 +21,7 @@
 #include "absl/random/random.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -148,7 +149,7 @@ BENCHMARK(BM_single_span_fulldrain)
     ->Arg(kNumClasses - 1);
 
 void BM_NewDelete(benchmark::State& state) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   for (auto s : state) {
     Span* sp = Span::New(PageId{0}, Length(1));
     benchmark::DoNotOptimize(sp);

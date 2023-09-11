@@ -88,7 +88,7 @@ class PageAllocator {
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   int64_t limit(LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(limit_kind < kNumLimits);
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     return limits_[limit_kind];
   }
 
@@ -289,7 +289,7 @@ inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
 }
 
 inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   limits_[limit_kind] = limit;
   if (limits_[kHard] < limits_[kSoft]) {
     // Soft limit can not be higher than hard limit.
@@ -301,14 +301,14 @@ inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
 
 inline int64_t PageAllocator::limit_hits(LimitKind limit_kind) const {
   ASSERT(limit_kind < kNumLimits);
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   return limit_hits_[limit_kind];
 }
 
 inline int64_t PageAllocator::successful_shrinks_after_limit_hit(
     LimitKind limit_kind) const {
   ASSERT(limit_kind < kNumLimits);
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   return successful_shrinks_after_limit_hit_[limit_kind];
 }
 

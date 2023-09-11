@@ -16,6 +16,8 @@
 
 #include <stdint.h>
 
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
@@ -78,7 +80,7 @@ Span* StaticForwarder::AllocateSpan(int size_class,
 static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
                                   size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   for (Span* const free_span : free_spans) {
     ASSERT(tag == GetMemoryTag(free_span->start_address()));
     tc_globals.page_allocator().Delete(free_span, objects_per_span, tag);

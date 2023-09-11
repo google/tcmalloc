@@ -22,6 +22,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
@@ -30,6 +31,7 @@
 namespace {
 
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
+using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::Clock;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
@@ -190,7 +192,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         HugePageFiller<PageTracker>::TryGetResult result;
         {
-          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          AllocationGuardSpinLockHolder l(&pageheap_lock);
           result = filler.TryGet(n, alloc_info);
         }
 
@@ -208,7 +210,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                                       mock_clock(), donated);
           next_hugepage++;
           {
-            absl::base_internal::SpinLockHolder l(&pageheap_lock);
+            AllocationGuardSpinLockHolder l(&pageheap_lock);
 
             result.page = result.pt->Get(n).page;
             filler.Contribute(result.pt, donated, alloc_info);
@@ -258,7 +260,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         PageTracker* ret;
         {
-          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          AllocationGuardSpinLockHolder l(&pageheap_lock);
           ret = filler.Put(pt, alloc.page, alloc.length);
         }
         CHECK_EQ(ret != nullptr, last_alloc);
@@ -319,7 +321,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         Length released;
         {
-          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          AllocationGuardSpinLockHolder l(&pageheap_lock);
           free_pages_in_partial_allocs = filler.FreePagesInPartialAllocs();
           released = filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
@@ -355,7 +357,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         std::string s;
         s.resize(1 << 20);
         Printer p(&s[0], s.size());
-        absl::base_internal::SpinLockHolder l(&pageheap_lock);
+        AllocationGuardSpinLockHolder l(&pageheap_lock);
         filler.Print(&p, true);
         break;
       }
@@ -374,7 +376,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         next_hugepage++;
         PageId start;
         {
-          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          AllocationGuardSpinLockHolder l(&pageheap_lock);
 
           start = pt->Get(n).page;
           filler.Contribute(pt, /*donated=*/true,
@@ -404,7 +406,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         Length released;
         const Length free = filler.free_pages();
         {
-          absl::base_internal::SpinLockHolder l(&pageheap_lock);
+          AllocationGuardSpinLockHolder l(&pageheap_lock);
           released = filler.ReleasePages(desired, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
@@ -422,7 +424,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         s.resize(1 << 20);
         Printer p(&s[0], s.size());
         PbtxtRegion region(&p, kTop);
-        absl::base_internal::SpinLockHolder l(&pageheap_lock);
+        AllocationGuardSpinLockHolder l(&pageheap_lock);
         filler.PrintInPbtxt(&region);
         break;
       }
@@ -446,7 +448,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       auto alloc = v[i];
       PageTracker* ret;
       {
-        absl::base_internal::SpinLockHolder l(&pageheap_lock);
+        AllocationGuardSpinLockHolder l(&pageheap_lock);
         ret = filler.Put(pt, alloc.page, alloc.length);
       }
       CHECK_EQ(ret != nullptr, i + 1 == n);

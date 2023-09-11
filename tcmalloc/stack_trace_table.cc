@@ -21,6 +21,7 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/malloc_extension.h"
@@ -41,7 +42,7 @@ StackTraceTable::~StackTraceTable() {
     LinkedSample* next = cur->next;
     cur->~LinkedSample();
     {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      AllocationGuardSpinLockHolder h(&pageheap_lock);
       tc_globals.linked_sample_allocator().Delete(cur);
     }
     cur = next;
@@ -64,7 +65,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // under google3/tcmalloc/heap_profiling_test.cc.
   LinkedSample* s;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     s = tc_globals.linked_sample_allocator().New();
   }
   s = new (s) LinkedSample;

@@ -21,6 +21,7 @@
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -83,7 +84,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   // Add stats from per-thread heaps
   r->thread_bytes = 0;
   {  // scope
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
     r->tc_stats = ThreadCache::HeapStats();
     r->span_stats = tc_globals.span_allocator().stats();
@@ -680,7 +681,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "generic.heap_size") {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     BackingStats stats = tc_globals.page_allocator().stats();
     *value = HeapSizeBytes(stats);
     return true;
@@ -710,7 +711,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.slack_bytes") {
     // Kept for backwards compatibility.  Now defined externally as:
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     BackingStats stats = tc_globals.page_allocator().stats();
     *value = SlackBytes(stats);
     return true;
@@ -718,14 +719,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.pageheap_free_bytes" ||
       name == "tcmalloc.page_heap_free") {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     *value = tc_globals.page_allocator().stats().free_bytes;
     return true;
   }
 
   if (name == "tcmalloc.pageheap_unmapped_bytes" ||
       name == "tcmalloc.page_heap_unmapped") {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     // Arena non-resident bytes aren't on the page heap, but they are unmapped.
     *value = tc_globals.page_allocator().stats().unmapped_bytes +
              tc_globals.arena().stats().bytes_nonresident;
@@ -738,13 +739,13 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.page_algorithm") {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     *value = tc_globals.page_allocator().algorithm();
     return true;
   }
 
   if (name == "tcmalloc.max_total_thread_cache_bytes") {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     *value = ThreadCache::overall_thread_cache_size();
     return true;
   }

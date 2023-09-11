@@ -18,6 +18,8 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -207,7 +209,7 @@ void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
 }
 
 void ThreadCache::IncreaseCacheLimit() {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   IncreaseCacheLimitLocked();
 }
 
@@ -260,7 +262,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   }
 
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     const pthread_t me = pthread_self();
 
     // This may be a recursive malloc call from pthread_setspecific()
@@ -348,7 +350,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
   heap->Cleanup();
 
   // Remove from linked list
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
   if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
   if (thread_heaps_ == heap) thread_heaps_ = heap->next_;

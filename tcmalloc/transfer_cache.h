@@ -366,7 +366,7 @@ class ShardedTransferCacheManagerBase {
 
   // Initializes all transfer caches in the given shard.
   void InitShard(Shard &shard) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     TransferCache *new_caches = reinterpret_cast<TransferCache *>(
         owner_->Alloc(sizeof(TransferCache) * kNumClasses,
                       std::align_val_t{ABSL_CACHELINE_SIZE}));

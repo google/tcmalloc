@@ -18,7 +18,9 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "benchmark/benchmark.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 
@@ -39,7 +41,7 @@ static size_t PageSize() {
 void BM_AllocDealloc(benchmark::State& state) {
   static GuardedPageAllocator* gpa = []() {
     auto gpa = new GuardedPageAllocator;
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     gpa->Init(kMaxGpaPages, kMaxGpaPages);
     gpa->AllowAllocations();
     return gpa;

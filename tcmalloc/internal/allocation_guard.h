@@ -28,10 +28,13 @@ struct AllocationGuard {
 
 // A SpinLockHolder that also enforces no allocations while the lock is held in
 // debug mode.
-class AllocationGuardSpinLockHolder {
+class ABSL_SCOPED_LOCKABLE AllocationGuardSpinLockHolder {
  public:
   explicit AllocationGuardSpinLockHolder(absl::base_internal::SpinLock* l)
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(l)
       : lock_holder_(l) {}
+
+  inline ~AllocationGuardSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
 
  private:
   absl::base_internal::SpinLockHolder lock_holder_;

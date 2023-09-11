@@ -25,6 +25,7 @@
 #include "absl/base/macros.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
@@ -121,7 +122,7 @@ size_t Static::pagemap_residence() {
 int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
 
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
 
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {

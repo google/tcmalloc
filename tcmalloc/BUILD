@@ -100,6 +100,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -119,6 +120,7 @@ cc_library(
     visibility = [":tcmalloc_tests"],
     deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -385,6 +387,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_large_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -405,6 +408,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [
         ":common_256k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -429,6 +433,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
         ":common_small_but_slow",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -451,6 +456,7 @@ cc_library(
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
         ":common_numa_aware",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:overflow",
         "//tcmalloc/internal:page_size",
     ],
@@ -555,6 +561,7 @@ cc_fuzz_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "@com_google_absl//absl/log:check",
     ],
 )
@@ -566,6 +573,7 @@ cc_fuzz_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -784,6 +792,7 @@ create_tcmalloc_benchmark(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:page_size",
         "@com_github_google_benchmark//:benchmark",
@@ -1010,6 +1019,7 @@ create_tcmalloc_benchmark(
     malloc = ":tcmalloc",
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",

@@ -23,6 +23,7 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
@@ -99,7 +100,7 @@ Span* PageHeap::New(Length n,
   bool from_returned;
   Span* result;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     result = AllocateSpan(n, &from_returned);
     if (result) tc_globals.page_allocator().ShrinkToUsageLimit(n);
     if (result) info_.RecordAlloc(result->first_page(), result->num_pages());
@@ -145,7 +146,7 @@ Span* PageHeap::NewAligned(Length n, Length align,
   bool from_returned;
   Span* span;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     Length extra = align - Length(1);
     span = AllocateSpan(n + extra, &from_returned);
     if (span == nullptr) return nullptr;
@@ -479,7 +480,7 @@ bool PageHeap::Check() {
 }
 
 void PageHeap::PrintInPbtxt(PbtxtRegion* region) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   SmallSpanStats small;
   GetSmallSpanStats(&small);
   LargeSpanStats large;
@@ -507,7 +508,7 @@ void PageHeap::PrintInPbtxt(PbtxtRegion* region) {
 }
 
 void PageHeap::Print(Printer* out) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   SmallSpanStats small;
   GetSmallSpanStats(&small);
   LargeSpanStats large;

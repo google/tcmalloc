@@ -22,8 +22,10 @@
 #include <utility>
 
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
@@ -339,7 +341,7 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      AllocationGuardSpinLockHolder h(&pageheap_lock);
       span = Span::New(p, num_pages);
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not

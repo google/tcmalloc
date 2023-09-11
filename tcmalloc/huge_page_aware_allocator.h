@@ -542,7 +542,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
   if (n <= kPagesPerHugePage / 2) {
@@ -574,7 +574,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
   bool from_released;
   Span* s;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     s = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
   if (s && from_released) BackSpan(s);
@@ -831,7 +831,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   LargeSpanStats large;
   BackingStats bstats;
   PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   bstats = stats();
   GetSpanStats(&small, &large, &ages);
   PrintStats("HugePageAware", out, bstats, small, large, everything);
@@ -895,7 +895,7 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
   SmallSpanStats small;
   LargeSpanStats large;
   PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   GetSpanStats(&small, &large, &ages);
   PrintStatsInPbtxt(region, small, large, ages);
   {

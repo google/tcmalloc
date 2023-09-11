@@ -97,6 +97,7 @@
 #include "tcmalloc/global_stats.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
@@ -166,7 +167,7 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
   size_t required = printer.SpaceRequired();
 
   if (buffer_length > required) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     required += GetRegionFactory()->GetStatsInPbtxt(
         absl::Span<char>(buffer + required, buffer_length - required));
   }
@@ -289,13 +290,13 @@ extern "C" void MallocExtension_Internal_MarkThreadIdle() {
 }
 
 extern "C" AddressRegionFactory* MallocExtension_Internal_GetRegionFactory() {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   return GetRegionFactory();
 }
 
 extern "C" void MallocExtension_Internal_SetRegionFactory(
     AddressRegionFactory* factory) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   SetRegionFactory(factory);
 }
 
@@ -316,7 +317,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 
   absl::base_internal::SpinLockHolder rh(&release_lock);
 
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  AllocationGuardSpinLockHolder h(&pageheap_lock);
   if (num_bytes <= extra_bytes_released) {
     // We released too much on a prior call, so don't release any
     // more this time.
@@ -442,7 +443,7 @@ extern "C" void MallocExtension_Internal_GetProperties(
 
   size_t overall_thread_cache_size;
   {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    AllocationGuardSpinLockHolder l(&pageheap_lock);
     overall_thread_cache_size = ThreadCache::overall_thread_cache_size();
   }
   (*result)["tcmalloc.max_total_thread_cache_bytes"].value =
@@ -682,7 +683,7 @@ static void InvokeHooksAndFreePages(void* ptr) {
   MaybeUnsampleAllocation(tc_globals, ptr, span);
 
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    AllocationGuardSpinLockHolder h(&pageheap_lock);
     ASSERT(span->first_page() == p);
     if (IsSampledMemory(ptr)) {
       if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
