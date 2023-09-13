@@ -132,6 +132,8 @@ class StackTraceFilterTest : public testing::Test {
     return filter_.HashOfStackTrace(stacktrace) % StackTraceFilter::kSize;
   }
 
+  void Reset() { filter_.Reset(); }
+
   size_t count(const StackTrace& stacktrace) const {
     return filter_.stack_hashes_with_count_[HashBaseOfStackTrace(stacktrace)]
                .load(std::memory_order_relaxed) &
@@ -194,6 +196,15 @@ TEST_F(StackTraceFilterTest, AddReplace) {
   filter_.Add(collider_stacktrace_);
   EXPECT_EQ(0, filter_.Count(stacktrace1_));
   EXPECT_EQ(1, filter_.Count(collider_stacktrace_));
+}
+
+TEST_F(StackTraceFilterTest, Reset) {
+  filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.Count(stacktrace1_));
+  filter_.Add(stacktrace1_);
+  EXPECT_EQ(2, filter_.Count(stacktrace1_));
+  Reset();
+  EXPECT_EQ(0, filter_.Count(stacktrace1_));
 }
 
 // A collection of threaded tests which are useful for demonstrating

@@ -53,6 +53,11 @@ class StackTraceFilter {
         absl::Span<void* const>(stacktrace.stack, stacktrace.depth));
   }
 
+  // For Testing Only: expunge all counts, allowing for resetting the count,
+  // which allows the Improved Coverage algorithm to guard a specific stack
+  // trace more than kMaxGuardsPerStackTraceSignature times.
+  void Reset();
+
   friend class StackTraceFilterTest;
   friend class StackTraceFilterThreadedTest;
 };
@@ -93,6 +98,12 @@ inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
     // New stack_hash being placed in (unoccupied entry || existing entry)
     stack_hashes_with_count_[stack_hash % kSize].store(
         (stack_hash & ~kMask) | 1, std::memory_order_relaxed);
+  }
+}
+
+inline void StackTraceFilter::Reset() {
+  for (size_t index = 0; index < kSize; ++index) {
+    stack_hashes_with_count_[index].store(0, std::memory_order_relaxed);
   }
 }
 
