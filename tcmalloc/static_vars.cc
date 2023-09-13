@@ -79,6 +79,7 @@ ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT StackTraceFilter Static::stacktrace_filter_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
+ABSL_CONST_INIT CacheTopology Static::cache_topology_;
 // LINT.ThenChange(:static_vars_size)
 
 ABSL_CONST_INIT Static tc_globals;
@@ -104,7 +105,7 @@ size_t Static::metadata_bytes() {
       sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(stacktrace_filter_) +
-      sizeof(numa_topology_) + sizeof(CacheTopology::Instance());
+      sizeof(numa_topology_) + sizeof(cache_topology_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +
@@ -139,7 +140,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
 
     CHECK_CONDITION(sizemap_.Init(size_classes));
     numa_topology_.Init();
-    CacheTopology::Instance().Init();
+    cache_topology_.Init();
     sampledallocation_allocator_.Init(&arena_);
     sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
     sampled_allocation_recorder().Init();

@@ -286,14 +286,17 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
 
 class FakeCpuLayout {
  public:
-  static constexpr int kNumCpus = 6;
+  static constexpr int kNumCpus = 4;
   static constexpr int kCpusPerShard = 2;
 
+  FakeCpuLayout() : current_cpu_(0) {}
   void Init(int shards) {
     ASSERT(shards > 0);
-    ASSERT(shards * kCpusPerShard <= kNumCpus);
+    ASSERT(shards * kCpusPerShard <= CPU_SETSIZE);
     num_shards_ = shards;
   }
+
+  int CurrentCpu() { return current_cpu_; }
 
   void SetCurrentCpu(int cpu) {
     ASSERT(cpu >= 0);
@@ -301,13 +304,19 @@ class FakeCpuLayout {
     current_cpu_ = cpu;
   }
 
-  unsigned NumShards() { return num_shards_; }
-  int CurrentCpu() { return current_cpu_; }
-  unsigned CpuShard(int cpu) { return cpu / kCpusPerShard; }
+  static int BuildCacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
+    ASSERT(num_shards_ > 0);
+    ASSERT(num_shards_ * kCpusPerShard <= CPU_SETSIZE);
+    for (int cpu = 0; cpu < num_shards_ * kCpusPerShard; ++cpu) {
+      int shard = cpu / kCpusPerShard;
+      l3_cache_index[cpu] = shard;
+    }
+    return num_shards_;
+  }
 
  private:
-  int current_cpu_ = 0;
-  int num_shards_ = 0;
+  int current_cpu_;
+  static int num_shards_;
 };
 
 // Defines transfer cache manager for testing legacy transfer cache.

@@ -151,7 +151,7 @@ int ComputeIndex(CpuThreadMatchingStatus status, RpcMatchingStatus rpc_status) {
 
 int GetL3Id(int cpu_id) {
   return cpu_id >= 0
-             ? tcmalloc_internal::CacheTopology::Instance().GetL3FromCpuId(
+             ? tcmalloc_internal::Static::cache_topology().GetL3FromCpuId(
                    cpu_id)
              : -1;
 }

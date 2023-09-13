@@ -17,7 +17,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/environment.h"

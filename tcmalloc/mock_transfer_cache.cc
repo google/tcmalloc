@@ -24,5 +24,6 @@ ABSL_CONST_INIT bool FakeShardedTransferCacheManager::enable_generic_cache_(
 ABSL_CONST_INIT bool
     FakeShardedTransferCacheManager::enable_cache_for_large_classes_only_(
         false);
+ABSL_CONST_INIT int FakeCpuLayout::num_shards_(0);
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
