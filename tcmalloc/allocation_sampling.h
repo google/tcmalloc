@@ -204,9 +204,12 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
     }
 
     size_t guard_count = state.stacktrace_filter().Count(stack_trace);
+    if (guard_count >= kMaxGuardsPerStackTraceSignature) {
+      return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+    }
     static uint64_t rnd_ =
         static_cast<uint64_t>(absl::ToUnixNanos(absl::Now()));
-    if (guard_count > 0 && guard_count < 4) {
+    if (guard_count > 0) {
       rnd_ = Sampler::NextRandom(rnd_);
     }
     switch (guard_count) {
