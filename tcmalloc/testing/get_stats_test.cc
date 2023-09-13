@@ -127,6 +127,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  Parameters::set_improved_guarded_sampling(false);
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
