@@ -181,8 +181,6 @@ class Static final {
 #endif
   }
 
-  static CacheTopology& cache_topology() { return cache_topology_; }
-
   static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // The root of the pagemap is potentially a large poorly utilized
@@ -203,7 +201,6 @@ class Static final {
 
   ABSL_CONST_INIT static Arena arena_;
   static SizeMap sizemap_;
-  ABSL_CONST_INIT static CacheTopology cache_topology_;
   TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT static TransferCacheManager
       transfer_cache_;
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;

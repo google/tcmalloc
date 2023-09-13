@@ -108,9 +108,10 @@ class ShardedStaticForwarder : public StaticForwarder {
 
 class ProdCpuLayout {
  public:
+  static unsigned NumShards() { return CacheTopology::Instance().l3_count(); }
   static int CurrentCpu() { return subtle::percpu::RseqCpuId(); }
-  static int BuildCacheMap(uint8_t l3_cache_index[CPU_SETSIZE]) {
-    return BuildCpuToL3CacheMap(l3_cache_index);
+  static unsigned CpuShard(int cpu) {
+    return CacheTopology::Instance().GetL3FromCpuId(cpu);
   }
 };
 
@@ -145,9 +146,7 @@ class ShardedTransferCacheManagerBase {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     owner_->Init();
-    // TODO(b/190711505):  Shift to using state available in Static, rather than
-    // maintaining our own copy.
-    num_shards_ = CpuLayout::BuildCacheMap(l3_cache_index_);
+    num_shards_ = cpu_layout_->NumShards();
     shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
         sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));
     ASSERT(shards_ != nullptr);
@@ -307,7 +306,7 @@ class ShardedTransferCacheManagerBase {
 
   int tc_length(int cpu, int size_class) const {
     if (shards_ == nullptr) return 0;
-    const uint8_t shard = l3_cache_index_[cpu];
+    const uint8_t shard = cpu_layout_->CpuShard(cpu);
     if (!shard_initialized(shard)) return 0;
     return shards_[shard].transfer_caches[size_class].tc_length();
   }
@@ -387,18 +386,13 @@ class ShardedTransferCacheManagerBase {
   // Returns the cache shard corresponding to the given size class and the
   // current cpu's L3 node. The cache will be initialized if required.
   TransferCache &get_cache(int size_class) {
-    const int cpu = cpu_layout_->CurrentCpu();
-    ASSERT(cpu < ABSL_ARRAYSIZE(l3_cache_index_));
-    ASSERT(cpu >= 0);
-    const uint8_t shard_index = l3_cache_index_[cpu];
+    const uint8_t shard_index =
+        cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
     ASSERT(shard_index < num_shards_);
     Shard &shard = shards_[shard_index];
     absl::call_once(shard.once_flag, [this, &shard]() { InitShard(shard); });
     return shard.transfer_caches[size_class];
   }
-
-  // Mapping from cpu to the L3 cache used.
-  uint8_t l3_cache_index_[CPU_SETSIZE] = {0};
 
   Shard *shards_ = nullptr;
   int num_shards_ = 0;
