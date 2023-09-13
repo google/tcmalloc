@@ -565,6 +565,7 @@ cc_test(
     deps = [
         ":affinity",
         ":config",
+        ":linux_syscall_support",
         ":logging",
         ":page_size",
         ":percpu_tcmalloc",

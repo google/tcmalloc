@@ -16,7 +16,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/kernel-page-flags.h>
 #include <sched.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -60,6 +59,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
