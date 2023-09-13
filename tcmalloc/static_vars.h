@@ -167,7 +167,6 @@ class Static final {
         // this can be a common source of bugs.  Suppress this by casting to
         // int first.
 
-#ifndef TCMALLOC_DEPRECATED_PERTHREAD
         // When the per-cpu cache is enabled, and the thread's current cpu
         // variable is initialized we will try to allocate from the per-cpu
         // cache. If something fails, we bail out to the full malloc.
@@ -176,9 +175,6 @@ class Static final {
         // variable is initialized.
         static_cast<int>(CpuCacheActive()) &
         static_cast<int>(subtle::percpu::IsFastNoInit());
-#else
-        !CpuCacheActive();
-#endif
   }
 
   static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);

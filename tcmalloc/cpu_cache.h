@@ -2301,8 +2301,8 @@ inline bool UsePerCpuCache(State& state) {
   // into tcmalloc.
   //
   // If the per-CPU cache for a thread is not initialized, we push ourselves
-  // onto the slow path (if !defined(TCMALLOC_DEPRECATED_PERTHREAD)) until this
-  // occurs.  See fast_alloc's use of TryRecordAllocationFast.
+  // onto the slow path until this occurs.  See fast_alloc's use of
+  // TryRecordAllocationFast.
   if (ABSL_PREDICT_TRUE(subtle::percpu::IsFast())) {
     ThreadCache::BecomeIdle();
     return true;

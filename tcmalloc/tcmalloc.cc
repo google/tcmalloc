@@ -564,24 +564,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
     return;
   }
 
-#ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU Cache is enabled, so we're able to take the fastpath.
   ASSERT(tc_globals.CpuCacheActive());
   ASSERT(subtle::percpu::IsFastNoInit());
 
   tc_globals.cpu_cache().Deallocate(ptr, size_class);
-#else   // TCMALLOC_DEPRECATED_PERTHREAD
-  ThreadCache* cache = ThreadCache::GetCacheIfPresent();
-
-  // IsOnFastPath does not track whether or not we have an active ThreadCache on
-  // this thread, so we need to check cache for nullptr.
-  if (ABSL_PREDICT_FALSE(cache == nullptr)) {
-    FreeSmallSlow(ptr, size_class);
-    return;
-  }
-
-  cache->Deallocate(ptr, size_class);
-#endif  // TCMALLOC_DEPRECATED_PERTHREAD
 }
 
 // this helper function is used when FreeSmall (defined above) hits
@@ -961,10 +948,7 @@ using tcmalloc::tcmalloc_internal::MallocPolicy;
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
-
-#ifdef TCMALLOC_DEPRECATED_PERTHREAD
 using tcmalloc::tcmalloc_internal::ThreadCache;
-#endif  // TCMALLOC_DEPRECATED_PERTHREAD
 
 // Slow path implementation.
 // This function is used by `fast_alloc` if the allocation requires page sized
@@ -1020,15 +1004,6 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
     return slow_alloc(policy, size);
   }
 
-  // When using per-thread caches, we have to check for the presence of the
-  // cache for this thread before we try to sample, as slow_alloc will
-  // also try to sample the allocation.
-#ifdef TCMALLOC_DEPRECATED_PERTHREAD
-  ThreadCache* const cache = ThreadCache::GetCacheIfPresent();
-  if (ABSL_PREDICT_FALSE(cache == nullptr)) {
-    return slow_alloc(policy, size);
-  }
-#endif
   // TryRecordAllocationFast() returns true if no extra logic is required, e.g.:
   // - this allocation does not need to be sampled
   // - no new/delete hooks need to be invoked
@@ -1046,14 +1021,8 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   // - no new/delete hook is installed and required to be called.
   ASSERT(size_class != 0);
   Pointer ret;
-#ifndef TCMALLOC_DEPRECATED_PERTHREAD
   // The CPU cache should be ready.
   ret = tc_globals.cpu_cache().Allocate<Policy>(size_class);
-#else   // !defined(TCMALLOC_DEPRECATED_PERTHREAD)
-  // The ThreadCache should be ready.
-  ASSERT(cache != nullptr);
-  ret = cache->Allocate<Policy>(size_class);
-#endif  // TCMALLOC_DEPRECATED_PERTHREAD
   if (!Policy::can_return_nullptr()) {
     ret = AssumeNotNull(ret);
   }
