@@ -363,7 +363,7 @@ void PageAllocInfo::Print(Printer* out) const {
     }
     out->printf(
         "%10zu / %10zu a/f, %8zu (%6.1f MiB) live, "
-        "%8.3g allocs/s (%6.1f MiB/s)\n",
+        "%8.3f allocs/s (%6.1f MiB/s)\n",
         a, f, live, live_mib, rate_hz, mib_hz);
   };
 
