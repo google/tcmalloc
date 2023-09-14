@@ -501,12 +501,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
-    void* slabs, Shift shift, size_t size_class, void* item,
-    size_t virtual_cpu_id_offset) {
-  // These are using only in aarch64 version of the function.
-  static_cast<void>(slabs);
-  static_cast<void>(shift);
-
+    size_t size_class, void* item) {
   uintptr_t scratch, current;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
@@ -564,8 +559,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #else
       "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
 #endif
-      // if (scratch & kCachedSlabsBit) goto overflow_label;
-      // scratch &= ~kCachedSlabsBit;
+      // if (scratch & kCachedSlabsMask) goto overflow_label;
+      // scratch &= ~kCachedSlabsMask;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jnc %l[overflow_label]\n"
@@ -621,13 +616,8 @@ overflow_label:
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
-    void* slabs, Shift shift, size_t size_class, void* item,
-    size_t virtual_cpu_id_offset) {
-  void* region_start;
-  uint64_t cpu_id;
-  void* end_ptr;
-  uintptr_t current;
-  uintptr_t end;
+    size_t size_class, void* item) {
+  uintptr_t region_start, current, end_ptr, end;
   // Multiply size_class by the bytesize of each header
   size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -677,11 +667,17 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
       // Start
       "4:\n"
-      // cpu_id = __rseq_abi.vcpu_id;
-      "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
-      // region_start = Start of cpu region
-      "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
-      "add %[region_start], %[region_start], %[slabs]\n"
+      // region_start = tcmalloc_rseq.slabs;
+      "ldr %[region_start], [%[rseq_abi], %c[rseq_slabs_offset]]\n"
+  // if (region_start & kCachedSlabsMask) goto overflow_label;
+  // region_start &= ~kCachedSlabsMask;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+      "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
+      "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
+#else
+      "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
+      "b.ls 5f\n"
+#endif
       // end_ptr = &(slab_headers[0]->end)
       "add %[end_ptr], %[region_start], #6\n"
       // current = slab_headers[size_class]->current (current index)
@@ -691,29 +687,31 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       // if (ABSL_PREDICT_FALSE(end <= current)) { goto overflow_label; }
       "cmp %[end], %[current]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      "b.le %l[overflow_label]\n"
+      "b.ls %l[overflow_label]\n"
 #else
-      "b.le 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccle)
-  // If so, the above code needs to explicitly set a ccle return value.
+      "b.ls 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccls)
+  // If so, the above code needs to explicitly set a ccls return value.
 #endif
       "str %[item], [%[region_start], %[current], LSL #3]\n"
       "add %w[current], %w[current], #1\n"
       "strh %w[current], [%[region_start], %[size_class_lsl3]]\n"
       // Commit
       "5:\n"
-      : [end_ptr] "=&r"(end_ptr), [cpu_id] "=&r"(cpu_id),
-        [current] "=&r"(current), [end] "=&r"(end),
-        [region_start] "=&r"(region_start)
-
+      : [end_ptr] "=&r"(end_ptr), [current] "=&r"(current), [end] "=&r"(end),
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            ,
-        [overflow] "=@ccle"(overflow)
+        [overflow] "=@ccls"(overflow),
 #endif
-      : [rseq_cpu_offset] "r"(virtual_cpu_id_offset), [slabs] "r"(slabs),
-        [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
-        [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
-        // Constants
+        [region_start] "=&r"(region_start)
+      : [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
+        [rseq_abi] "r"(&__rseq_abi),
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+        [cached_slabs_mask_neg] "n"(~kCachedSlabsMask),
+        [cached_slabs_bit] "n"(kCachedSlabsBit),
+#else
+        [cached_slabs_mask] "r"(kCachedSlabsMask),
+#endif
+        [rseq_slabs_offset] "n"(kRseqSlabsOffset),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
       // Add x16 and x17 as an explicit clobber registers:
@@ -722,11 +720,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       // and BL branches in ARM is limited to 128MB. If the linker detects
       // the distance being too large, it injects a thunk which may clobber
       // the x16 or x17 register according to the ARMv8 ABI standard.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO
       : "x16", "x17", "cc", "memory"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
-#else
-      : "x16", "x17", "memory"
 #endif
   );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -752,14 +748,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
   // annotation.
   TSANRelease(item);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-#if defined(__aarch64__)
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-#else
-  void* slabs = nullptr;
-  Shift shift{0};
-#endif
-  if (ABSL_PREDICT_TRUE(TcmallocSlab_Internal_Push(
-          slabs, shift, size_class, item, virtual_cpu_id_offset_))) {
+  if (ABSL_PREDICT_TRUE(TcmallocSlab_Internal_Push(size_class, item))) {
     return true;
   }
   return PushSlow(size_class, item, overflow_handler, arg);
@@ -872,8 +861,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
 #else
           "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
 #endif
-  // if (scratch & kCachedSlabsBit) goto overflow_label;
-  // scratch &= ~kCachedSlabsBit;
+  // if (scratch & kCachedSlabsMask) goto overflow_label;
+  // scratch &= ~kCachedSlabsMask;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "btrq $%c[cached_slabs_bit], %[scratch]\n"
           "jnc %l[underflow_path]\n"
@@ -946,39 +935,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
     UnderflowHandler<typename Policy::pointer_type> underflow_handler,
     void* arg) {
   ASSERT(IsFastNoInit());
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   void* result;
   void* region_start;
-  uint64_t cpu_id;
   void* prefetch;
   uintptr_t current;
-  uintptr_t new_current;
+  uintptr_t previous;
   uintptr_t begin;
-  // The addresses we load/store for %[current] and %[end] in the slab headers
-  // can be computed with loads of the form:
-  //   BASE:   (CPU_num << %[shift]) + %[slabs]
-  //   OFFSET: (%[size_class]<<3)
-  // We can speed up these loads by transforming them into
-  //   BASE:   (CPU_num << %[shift])
-  //   OFFSET: %[slabs] + (%[size_class]<<3)
-  // This removes the addition of %[slabs] from the critical path since we can
-  // compute the OFFSET value while the load of CPU_num is still in flight.
-  // OFFSET for the current index.
-  uint64_t slabs_size_class_lsl3;
-  // OFFSET for the end index, which is 4 bytes after the current index.
-  uint64_t slabs_size_class_lsl3_plus_4;
-  // The allocated item we are going to return is located one item before
-  // %current.  I.e.
-  //   BASE:   (CPU_num << %[shift]) + %[slabs]
-  //   OFFSET: ((%[current] - 1)<<3)
-  // If we transform this as follows
-  //   BASE:   (CPU_num << %[shift]) + %[slabs] - 8
-  //   OFFSET: (%[current]<<3)
-  // we speed this load up as it removes the decrement of %[current] from the
-  // critical path
-  uint64_t slabs_minus_8;
-  uint64_t region_start_slabs_minus_8;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto
 #else
@@ -1019,66 +982,66 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           ".popsection\n"
           // Prepare
           "3:\n"
-          // Precompute OFFSET for %[current]
-          "add %[slabs_size_class_lsl3], %[slabs], %[size_class], LSL #3\n"
-          // Precompute OFFSET for %[end] (four bytes past %[current] OFFSET)
-          "add %[slabs_size_class_lsl3_plus_4], %[slabs_size_class_lsl3], #4\n"
           // Use current as scratch here to hold address of this function's
           // critical section
           "adrp %[current], __rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
-          // First half of precomputing the allocated item BASE (%[slabs] - 8)
-          "sub %[slabs_minus_8], %[slabs], #8\n"
           "add  %[current], %[current], "
           ":lo12:__rseq_cs_TcmallocSlab_Internal_Pop_%=\n"
           "str %[current], [%[rseq_abi], %c[rseq_cs_offset]]\n"
           // Start
           "4:\n"
-          // cpu_id = __rseq_abi.vcpu_id;
-          "ldrh %w[cpu_id], [%[rseq_abi], %[rseq_cpu_offset]]\n"
-          // region_start = Start of cpu region
-          "lsl %w[region_start], %w[cpu_id], %w[shift]\n"
-          // Second half of precomputing the allocated item BASE
-          "add %[region_start_slabs_minus_8], %[slabs_minus_8], "
-          "%[region_start]\n"
-          // current = slab_headers[size_class]->current (current index)
-          "ldrh %w[current], [%[region_start], %[slabs_size_class_lsl3]]\n"
-          // current--
-          "sub %w[new_current], %w[current], #1\n"
-          // begin = slab_headers[size_class]->begin (begin index)
-          "ldrh %w[begin], [%[region_start], %[slabs_size_class_lsl3_plus_4]]\n"
-          // if (ABSL_PREDICT_FALSE(begin >= current)) { goto underflow_path; }
-          "cmp %w[begin], %w[current]\n"
+          // region_start = tcmalloc_rseq.slabs;
+          "ldr %[region_start], [%[rseq_abi], %c[rseq_slabs_offset]]\n"
+  // if (region_start & kCachedSlabsMask) goto overflow_label;
+  // region_start &= ~kCachedSlabsMask;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          "b.ge %l[underflow_path]\n"
+          "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
+          "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
 #else
-          "b.ge 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccge)
-  // If so, the above code needs to explicitly set a ccge return value.
+          "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
+          "b.ls 5f\n"
 #endif
-          "ldr %[result], [%[region_start_slabs_minus_8], %[current], LSL #3]\n"
-          "ldr %[prefetch], [%[region_start_slabs_minus_8], %[new_current],"
-          "LSL #3]\n"
-          "strh %w[new_current], [%[region_start], %[slabs_size_class_lsl3]]\n"
+          // current = slab_headers[size_class]->current (current index)
+          "ldrh %w[current], [%[region_start], %[size_class_lsl3]]\n"
+          // begin = slab_headers[size_class]->begin (begin index)
+          // Temporarily use begin as scratch.
+          "add %[begin], %[size_class_lsl3], #4\n"
+          "ldrh %w[begin], [%[region_start], %[begin]]\n"
+          // if (ABSL_PREDICT_FALSE(begin >= current)) { goto underflow_path; }
+          "cmp %w[current], %w[begin]\n"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+          "b.ls %l[underflow_path]\n"
+#else
+          "b.ls 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccls)
+  // If so, the above code needs to explicitly set a ccls return value.
+#endif
+          // current--
+          "sub %w[current], %w[current], #1\n"
+          "ldr %[result], [%[region_start], %[current], LSL #3]\n"
+          "sub %w[previous], %w[current], #1\n"
+          "ldr %[prefetch], [%[region_start], %[previous], LSL #3]\n"
+          "strh %w[current], [%[region_start], %[size_class_lsl3]]\n"
           // Commit
           "5:\n"
           :
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          [underflow] "=@ccge"(underflow),
+          [underflow] "=@ccls"(underflow),
 #endif
           [result] "=&r"(result), [prefetch] "=&r"(prefetch),
           // Temps
-          [cpu_id] "=&r"(cpu_id), [region_start] "=&r"(region_start),
-          [region_start_slabs_minus_8] "=&r"(region_start_slabs_minus_8),
-          [slabs_minus_8] "=&r"(slabs_minus_8),
-          [slabs_size_class_lsl3_plus_4] "=&r"(slabs_size_class_lsl3_plus_4),
-          [slabs_size_class_lsl3] "=&r"(slabs_size_class_lsl3),
-          [begin] "=&r"(begin), [current] "=&r"(current),
-          [new_current] "=&r"(new_current)
+          [region_start] "=&r"(region_start), [previous] "=&r"(previous),
+          [begin] "=&r"(begin), [current] "=&r"(current)
           // Real inputs
-          : [rseq_cpu_offset] "r"(virtual_cpu_id_offset_), [slabs] "r"(slabs),
-            [rseq_abi] "r"(&__rseq_abi), [shift] "r"(ToUint8(shift)),
-            [size_class] "r"(size_class),
-            // constants
+          : [rseq_abi] "r"(&__rseq_abi), [size_class] "r"(size_class),
+            [size_class_lsl3] "r"(size_class << 3),
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+            [cached_slabs_mask_neg] "n"(~kCachedSlabsMask),
+            [cached_slabs_bit] "n"(kCachedSlabsBit),
+#else
+            [cached_slabs_mask] "r"(kCachedSlabsMask),
+#endif
+            [rseq_slabs_offset] "n"(kRseqSlabsOffset),
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
           // Add x16 and x17 as an explicit clobber registers:
@@ -1087,11 +1050,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           // and BL branches in ARM is limited to 128MB. If the linker detects
           // the distance being too large, it injects a thunk which may clobber
           // the x16 or x17 register according to the ARMv8 ABI standard.
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : "x16", "x17", "cc", "memory"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           : underflow_path
-#else
-          : "x16", "x17", "memory"
 #endif
       );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -1136,21 +1097,17 @@ template <size_t NumClasses>
 int TcmallocSlab<NumClasses>::CacheCpuSlab() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
-  // Currently only x86 uses cached slab.
-#if defined(__x86_64__)
-  if (ABSL_PREDICT_TRUE(tcmalloc_rseq.slabs & kCachedSlabsMask)) {
-    // We already have slab offset cached, so the slab is indeed full/empty
-    // and we need to call overflow/underflow handler.
-    return cpu;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  if (ABSL_PREDICT_FALSE((tcmalloc_rseq.slabs & kCachedSlabsMask) == 0)) {
+    return CacheCpuSlabSlow();
   }
-  return CacheCpuSlabSlow();
-#else
-  ABSL_ASSUME(cpu >= 0);
-  return cpu;
+  // We already have slab offset cached, so the slab is indeed full/empty
+  // and we need to call overflow/underflow handler.
 #endif
+  return cpu;
 }
 
-#if defined(__x86_64__)
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
 ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
