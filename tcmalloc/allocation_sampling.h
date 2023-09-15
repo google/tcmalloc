@@ -18,10 +18,14 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <utility>
 
+#include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/guarded_allocations.h"
@@ -207,10 +211,11 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
     if (guard_count >= kMaxGuardsPerStackTraceSignature) {
       return {nullptr, Profile::Sample::GuardedStatus::Filtered};
     }
-    static uint64_t rnd_ =
-        static_cast<uint64_t>(absl::ToUnixNanos(absl::Now()));
+    ABSL_CONST_INIT static std::atomic<uint64_t> rnd_(0);
+    uint64_t new_rnd = 0;
     if (guard_count > 0) {
-      rnd_ = Sampler::NextRandom(rnd_);
+      new_rnd = Sampler::NextRandom(rnd_.load(std::memory_order_relaxed));
+      rnd_.store(new_rnd, std::memory_order_relaxed);
     }
     switch (guard_count) {
       case 0:
@@ -218,19 +223,19 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
         break;
       case 1:
         /* 25% */
-        if (rnd_ % 4 != 0) {
+        if (new_rnd % 4 != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
       case 2:
         /* 12.5% */
-        if (rnd_ % 8 != 0) {
+        if (new_rnd % 8 != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
       case 3:
         /* ~1% */
-        if (rnd_ % 128 != 0) {
+        if (new_rnd % 128 != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
