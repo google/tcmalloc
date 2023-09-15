@@ -544,6 +544,7 @@ inline size_t GetSize(const void* ptr) {
 // function that both performs delete hooks calls and does free. This is done so
 // that free fast-path only does tail calls, which allow compiler to avoid
 // generating costly prologue/epilogue for fast-path.
+ABSL_ATTRIBUTE_NOINLINE
 static void InvokeHooksAndFreeSmall(void* ptr, size_t size_class) {
   // Refresh the fast path state.
   GetThreadSampler()->UpdateFastPathState();
