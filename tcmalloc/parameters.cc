@@ -16,6 +16,8 @@
 #include <atomic>
 #include <limits>
 
+#include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
@@ -32,9 +34,15 @@ namespace tcmalloc_internal {
 
 // As decide_subrelease() is determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
-static std::atomic<bool>* hpaa_subrelease_ptr() {
-  static std::atomic<bool> v(huge_page_allocator_internal::decide_subrelease());
-  return &v;
+static std::atomic<bool>& hpaa_subrelease_ptr() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(huge_page_allocator_internal::decide_subrelease(),
+            std::memory_order_relaxed);
+  });
+
+  return v;
 }
 
 // As skip_subrelease_interval_ns(), skip_subrelease_short_interval_ns(), and
@@ -42,49 +50,58 @@ static std::atomic<bool>* hpaa_subrelease_ptr() {
 // require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
-  static std::atomic<int64_t> v([]() {
-    return absl::ToInt64Nanoseconds(
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(absl::ToInt64Nanoseconds(
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
-        absl::ZeroDuration()
+                absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
             ? absl::ZeroDuration()
             : absl::Seconds(60)
 #endif
-    );
-  }());
+                    ),
+            std::memory_order_relaxed);
+  });
   return v;
 }
 
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
-  static std::atomic<int64_t> v([]() {
-    return absl::ToInt64Nanoseconds(
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(absl::ToInt64Nanoseconds(
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
-        absl::ZeroDuration()
+                absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
             ? absl::Seconds(10)
             : absl::ZeroDuration()
 #endif
-    );
-  }());
+                    ),
+            std::memory_order_relaxed);
+  });
   return v;
 }
 
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
-  static std::atomic<int64_t> v([]() {
-    return absl::ToInt64Nanoseconds(
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(absl::ToInt64Nanoseconds(
 #if defined(TCMALLOC_SMALL_BUT_SLOW)
-        absl::ZeroDuration()
+                absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
             ? absl::Seconds(300)
             : absl::ZeroDuration()
 #endif
-    );
-  }());
+                    ),
+            std::memory_order_relaxed);
+  });
   return v;
 }
 
@@ -97,7 +114,7 @@ void Parameters::set_heap_size_hard_limit(uint64_t value) {
 }
 
 bool Parameters::hpaa_subrelease() {
-  return hpaa_subrelease_ptr()->load(std::memory_order_relaxed);
+  return hpaa_subrelease_ptr().load(std::memory_order_relaxed);
 }
 
 void Parameters::set_hpaa_subrelease(bool value) {
@@ -108,10 +125,12 @@ void Parameters::set_hpaa_subrelease(bool value) {
 // constant initialization for the atomic.  This avoids an initialization order
 // fiasco.
 static std::atomic<MallocExtension::BytesPerSecond>& malloc_release_rate() {
-  static std::atomic<MallocExtension::BytesPerSecond> v([]() {
-    return MallocExtension::BytesPerSecond(0);
-  }());
-
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond> v{
+      MallocExtension::BytesPerSecond(0)
+  };
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+  });
   return v;
 }
 
@@ -196,21 +215,25 @@ static bool want_disable_separate_allocs_for_few_and_many_objects_spans() {
 }
 
 bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
-  static bool v([]() {
-    return !want_disable_separate_allocs_for_few_and_many_objects_spans();
-  }());
-  return v;
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{true};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(!want_disable_separate_allocs_for_few_and_many_objects_spans(),
+            std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
 }
 
 size_t Parameters::chunks_per_alloc() {
-  static size_t v([]() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<size_t> v{8};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     if (IsExperimentActive(
             Experiment::TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC)) {
-      return 16;
+      v.store(16, std::memory_order_relaxed);
     }
-    return 8;
-  }());
-  return v;
+  });
+  return v.load(std::memory_order_relaxed);
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {
@@ -377,7 +400,7 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
 }
 
 void TCMalloc_Internal_SetHPAASubrelease(bool v) {
-  tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr()->store(
+  tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr().store(
       v, std::memory_order_relaxed);
 }
 
