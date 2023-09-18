@@ -836,6 +836,7 @@ cc_library(
         ":logging",
         ":util",
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
     ],

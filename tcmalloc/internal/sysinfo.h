@@ -20,6 +20,8 @@
 
 #include <optional>
 
+#include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
@@ -55,7 +57,10 @@ int NumPossibleCPUsNoCache();
 #endif  // __linux__
 
 inline int NumCPUs() {
-  static const int result = sysinfo_internal::NumPossibleCPUsNoCache();
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static int result;
+  absl::base_internal::LowLevelCallOnce(
+      &flag, [&]() { result = sysinfo_internal::NumPossibleCPUsNoCache(); });
   return result;
 }
 
