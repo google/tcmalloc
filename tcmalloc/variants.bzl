@@ -121,6 +121,12 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
     },
     {
+        "name": "512k_slab",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_512K_SLAB"},
+    },
+    {
         "name": "no_hpaa",
         "malloc": "//tcmalloc",
         "deps": [

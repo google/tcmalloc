@@ -149,6 +149,8 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
+  bool UseWiderSlabs() const { return wider_slabs_enabled_; }
+
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
                                       FakeCpuLayout,
@@ -179,6 +181,7 @@ class TestStaticForwarder {
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
   bool dynamic_slab_enabled_ = false;
+  bool wider_slabs_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   bool resize_size_classes_enabled_ = false;
 
@@ -321,10 +324,13 @@ TEST(CpuCacheTest, Metadata) {
   CpuCache cache;
   cache.Activate();
 
+  cpu_cache_internal::SlabShiftBounds shift_bounds =
+      cache.GetPerCpuSlabShiftBounds();
+
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
   EXPECT_EQ(r.virtual_size,
             subtle::percpu::GetSlabsAllocSize(
-                subtle::percpu::ToShiftType(kMaxPerCpuShift), num_cpus));
+                subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
   EXPECT_EQ(r.resident_size, 0);
 
   auto count_cores = [&]() {
@@ -372,7 +378,7 @@ TEST(CpuCacheTest, Metadata) {
   r = cache.MetadataMemoryUsage();
   EXPECT_EQ(r.virtual_size,
             subtle::percpu::GetSlabsAllocSize(
-                subtle::percpu::ToShiftType(kMaxPerCpuShift), num_cpus));
+                subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
 
   // We expect to fault in a single core, but we may end up faulting an
   // entire hugepage worth of memory when we touch that core and another when
@@ -392,7 +398,7 @@ TEST(CpuCacheTest, Metadata) {
   // cache.  It may need to be updated from time to time.  These numbers were
   // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
   // measuring the resident size.
-  switch (kMaxPerCpuShift) {
+  switch (shift_bounds.max_shift) {
     case 12:
       EXPECT_GE(r.resident_size, 4096);
       break;
@@ -683,9 +689,9 @@ TEST(CpuCacheTest, DynamicSlab) {
         std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
   }
 
-  int shift = kInitialPerCpuShift;
-  const int numa_shift =
-      cpu_cache_internal::NumaShift(forwarder.numa_topology());
+  cpu_cache_internal::SlabShiftBounds shift_bounds =
+      cache.GetPerCpuSlabShiftBounds();
+  int shift = shift_bounds.initial_shift;
 
   const auto repeat_dynamic_slab_ops = [&](DynamicSlab op, int shift_update,
                                            int end_shift) {
@@ -694,7 +700,7 @@ TEST(CpuCacheTest, DynamicSlab) {
     iters += 2;  // Test that we don't resize past end_shift.
     for (int i = 0; i < iters; ++i) {
       for (DynamicSlab dynamic_slab : ops) {
-        EXPECT_EQ(shift + numa_shift, CpuCachePeer::GetSlabShift(cache));
+        EXPECT_EQ(shift, CpuCachePeer::GetSlabShift(cache));
         absl::SleepFor(absl::Milliseconds(100));
         forwarder.dynamic_slab_ = dynamic_slab;
         // If there were no misses in the current resize interval, then we may
@@ -723,9 +729,9 @@ TEST(CpuCacheTest, DynamicSlab) {
 
   // First grow the slab to max size, then shrink it to min size.
   repeat_dynamic_slab_ops(DynamicSlab::kGrow, /*shift_update=*/1,
-                          kMaxPerCpuShift);
+                          shift_bounds.max_shift);
   repeat_dynamic_slab_ops(DynamicSlab::kShrink, /*shift_update=*/-1,
-                          kInitialPerCpuShift);
+                          shift_bounds.initial_shift);
 
   stop = true;
   for (auto& t : threads) {
@@ -853,36 +859,39 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-      CpuCache cache;
-      TestStaticForwarder& forwarder = cache.forwarder();
-      forwarder.dynamic_slab_enabled_ = initially_enabled;
-      forwarder.dynamic_slab_ = initial_dynamic_slab;
+      for (bool wider_slabs : {false, true}) {
+        CpuCache cache;
+        TestStaticForwarder& forwarder = cache.forwarder();
+        forwarder.dynamic_slab_enabled_ = initially_enabled;
+        forwarder.dynamic_slab_ = initial_dynamic_slab;
+        forwarder.wider_slabs_enabled_ = wider_slabs;
 
-      cache.Activate();
+        cache.Activate();
 
-      std::vector<std::thread> threads;
-      std::atomic<bool> stop(false);
+        std::vector<std::thread> threads;
+        std::atomic<bool> stop(false);
 
-      for (size_t t = 0; t < n_threads; ++t) {
-        threads.push_back(
-            std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
-      }
-
-      for (bool enabled : {false, true}) {
-        for (DynamicSlab dynamic_slab :
-             {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-          absl::SleepFor(absl::Milliseconds(100));
-          forwarder.dynamic_slab_enabled_ = enabled;
-          forwarder.dynamic_slab_ = dynamic_slab;
-          cache.ResizeSlabIfNeeded();
+        for (size_t t = 0; t < n_threads; ++t) {
+          threads.push_back(
+              std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
         }
-      }
-      stop = true;
-      for (auto& t : threads) {
-        t.join();
-      }
 
-      cache.Deactivate();
+        for (bool enabled : {false, true}) {
+          for (DynamicSlab dynamic_slab :
+               {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
+            absl::SleepFor(absl::Milliseconds(100));
+            forwarder.dynamic_slab_enabled_ = enabled;
+            forwarder.dynamic_slab_ = dynamic_slab;
+            cache.ResizeSlabIfNeeded();
+          }
+        }
+        stop = true;
+        for (auto& t : threads) {
+          t.join();
+        }
+
+        cache.Deactivate();
+      }
     }
   }
 }

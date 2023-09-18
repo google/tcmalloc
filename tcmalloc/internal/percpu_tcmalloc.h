@@ -71,22 +71,6 @@ struct PerCPUMetadataState {
   size_t resident_size;
 };
 
-// Determine number of bits we should use for allocating per-cpu cache.
-// The amount of per-cpu cache is 2 ^ per-cpu-shift.
-// When dynamic slab size is enabled, we start with kInitialPerCpuShift and
-// grow as needed up to kMaxPerCpuShift. When dynamic slab size is disabled,
-// we always use kMaxPerCpuShift.
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
-constexpr inline uint8_t kInitialPerCpuShift = 12;
-constexpr inline uint8_t kMaxPerCpuShift = 12;
-#else
-constexpr inline uint8_t kInitialPerCpuShift = 14;
-constexpr inline uint8_t kMaxPerCpuShift = 18;
-#endif
-
-constexpr inline uint8_t kNumPossiblePerCpuShifts =
-    kMaxPerCpuShift - kInitialPerCpuShift + 1;
-
 // The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
 constexpr inline uintptr_t kCachedSlabsBit = 63;
 constexpr inline uintptr_t kCachedSlabsMask = 1ul << kCachedSlabsBit;
@@ -1309,7 +1293,6 @@ void TcmallocSlab<NumClasses>::Init(Slabs* slabs,
 
       // One extra element for prefetch
       const size_t num_pointers = cap + 1;
-
       elems += num_pointers;
       const size_t bytes_used_on_curr_slab =
           reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
@@ -1340,7 +1323,12 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
   // boundaries of each size class' cache.
   Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
   void** elems = curr_slab->mem;
+
   uint16_t begin[NumClasses];
+
+  // Number of free pointers is limited by uint16_t sized offsets in slab
+  // header, with an additional offset value 0xffff reserved for locking.
+  constexpr size_t kMaxAllowedOffset = std::numeric_limits<uint16_t>::max() - 1;
   for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
     size_t cap = capacity(size_class);
     CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
@@ -1364,6 +1352,13 @@ void TcmallocSlab<NumClasses>::InitCpuImpl(
     if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
       Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
             1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
+    }
+
+    size_t max_end_offset = offset + cap;
+    CHECK_CONDITION(static_cast<uint16_t>(max_end_offset) == max_end_offset);
+    if (max_end_offset >= kMaxAllowedOffset) {
+      Crash(kCrash, __FILE__, __LINE__, "per-CPU slab pointers exceeded, have ",
+            kMaxAllowedOffset, " need at least", max_end_offset);
     }
   }
 
