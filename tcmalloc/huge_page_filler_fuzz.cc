@@ -13,11 +13,13 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
@@ -68,22 +70,25 @@ absl::flat_hash_set<PageId>& ReleasedPages() {
   return *set;
 }
 
-bool MockUnback(void* start, size_t len) {
-  if (!unback_success) {
-    return false;
+class MockUnback final : public MemoryModifyFunction {
+ public:
+  ABSL_MUST_USE_RESULT bool operator()(void* start, size_t len) override {
+    if (!unback_success) {
+      return false;
+    }
+
+    absl::flat_hash_set<PageId>& released_set = ReleasedPages();
+
+    PageId p = PageIdContaining(start);
+    Length l = LengthFromBytes(len);
+    PageId end = p + l;
+    for (; p != end; ++p) {
+      released_set.insert(p);
+    }
+
+    return true;
   }
-
-  absl::flat_hash_set<PageId>& released_set = ReleasedPages();
-
-  PageId p = PageIdContaining(start);
-  Length l = LengthFromBytes(len);
-  PageId end = p + l;
-  for (; p != end; ++p) {
-    released_set.insert(p);
-  }
-
-  return true;
-}
+};
 
 }  // namespace
 
@@ -99,6 +104,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // Reset global state.
+  MockUnback unback;
   fake_clock = 0;
   unback_success = true;
   absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -138,8 +144,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      allocs_for_few_and_many_objects_spans,
-                                     chunks_per_alloc,
-                                     MemoryModifyFunction(MockUnback));
+                                     chunks_per_alloc, unback);
 
   struct Alloc {
     PageId page;

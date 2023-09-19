@@ -46,6 +46,7 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
@@ -180,9 +181,9 @@ class PageTrackerTest : public testing::Test {
     }
   }
 
-  class MockUnbackInterface {
+  class MockUnbackInterface final : public MemoryModifyFunction {
    public:
-    ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
+    ABSL_MUST_USE_RESULT bool operator()(void* p, size_t len) override {
       CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(actual_));
       actual_[actual_index_] = {p, len};
       CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(expected_));
@@ -223,10 +224,8 @@ class PageTrackerTest : public testing::Test {
     size_t actual_index_{0};
   };
 
-  static ABSL_MUST_USE_RESULT bool MockUnback(void* p, size_t len);
-
   // strict because release calls should only happen when we ask
-  static MockUnbackInterface mock_;
+  MockUnbackInterface mock_;
 
   void Check(PAlloc a, size_t mark) {
     EXPECT_LE(huge_.first_page(), a.p);
@@ -260,15 +259,9 @@ class PageTrackerTest : public testing::Test {
 
   Length ReleaseFree() {
     absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    return tracker_.ReleaseFree(MemoryModifyFunction(MockUnback));
+    return tracker_.ReleaseFree(mock_);
   }
 };
-
-bool PageTrackerTest::MockUnback(void* p, size_t len) {
-  return mock_.Unback(p, len);
-}
-
-PageTrackerTest::MockUnbackInterface PageTrackerTest::mock_;
 
 TEST_F(PageTrackerTest, AllocSane) {
   Length free = kPagesPerHugePage;
@@ -653,9 +646,11 @@ TEST_F(PageTrackerTest, b151915873) {
                                   &small.normal_length[kMaxPages.raw_num()]));
 }
 
-class BlockingUnback {
+class BlockingUnback final : public MemoryModifyFunction {
  public:
-  static ABSL_MUST_USE_RESULT bool Unback(void* p, size_t len) {
+  constexpr BlockingUnback() = default;
+
+  ABSL_MUST_USE_RESULT bool operator()(void* p, size_t len) override {
     if (!mu_) {
       return success_;
     }
@@ -669,18 +664,16 @@ class BlockingUnback {
     return success_;
   }
 
-  static void set_lock(absl::Mutex* mu) { mu_ = mu; }
+  void set_lock(absl::Mutex* mu) { mu_ = mu; }
 
-  static absl::BlockingCounter* counter_;
-  static bool success_;
+  absl::BlockingCounter* counter_ = nullptr;
+  bool success_ = true;
 
  private:
   static thread_local absl::Mutex* mu_;
 };
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
-absl::BlockingCounter* BlockingUnback::counter_ = nullptr;
-bool BlockingUnback::success_ = true;
 
 class FillerTest : public testing::TestWithParam<
                        std::tuple<HugePageFillerAllocsOption, size_t>> {
@@ -721,16 +714,17 @@ class FillerTest : public testing::TestWithParam<
   }
 
   HugePageFiller<PageTracker> filler_;
+  BlockingUnback blocking_unback_;
 
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_sparse_and_dense_spans=*/
                 std::get<0>(GetParam()),
                 /*chunks_per_alloc=*/std::get<1>(GetParam()),
-                MemoryModifyFunction(BlockingUnback::Unback)) {
+                blocking_unback_) {
     ResetClock();
     // Reset success state
-    BlockingUnback::success_ = true;
+    blocking_unback_.success_ = true;
   }
 
   ~FillerTest() override { EXPECT_EQ(filler_.size(), NHugePages(0)); }
@@ -2745,11 +2739,11 @@ TEST_P(FillerTest, b258965495) {
   auto a1 = Allocate(Length(2));
   EXPECT_EQ(filler_.size(), NHugePages(1));
 
-  ASSERT_TRUE(BlockingUnback::success_);
+  ASSERT_TRUE(blocking_unback_.success_);
   // 1 huge page:  2 pages allocated, 0 free, kPagesPerHugePage-2 released
   EXPECT_EQ(HardReleasePages(kPagesPerHugePage), kPagesPerHugePage - Length(2));
 
-  BlockingUnback::success_ = false;
+  blocking_unback_.success_ = false;
   // 1 huge page:  3 pages allocated, 0 free, kPagesPerHugePage-3 released
   auto a2 = AllocateWithSpanAllocInfo(Length(1), a1.span_alloc_info);
   EXPECT_EQ(filler_.size(), NHugePages(1));
@@ -2759,7 +2753,7 @@ TEST_P(FillerTest, b258965495) {
   // 1 huge page:  2 pages allocated, 1 free, kPagesPerHugePage-3 released
   Delete(a2);
 
-  BlockingUnback::success_ = true;
+  blocking_unback_.success_ = true;
   // During the deallocation of a1 under PartialRerelease::Return, but before we
   // mark the pages as free (PageTracker::MaybeRelease), we have:
   //

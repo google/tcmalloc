@@ -199,6 +199,43 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   };
 
  private:
+  class Unback final : public MemoryModifyFunction {
+   public:
+    explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
+        : hpaa_(hpaa) {}
+
+    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override {
+      return hpaa_.forwarder_.ReleasePages(start, length);
+    }
+
+   public:
+    HugePageAwareAllocator& hpaa_;
+  };
+
+  class UnbackWithoutLock final : public MemoryModifyFunction {
+   public:
+    explicit UnbackWithoutLock(
+        HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
+        : hpaa_(hpaa) {}
+
+    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override
+        ABSL_NO_THREAD_SAFETY_ANALYSIS {
+#ifndef NDEBUG
+      pageheap_lock.AssertHeld();
+#endif  // NDEBUG
+      pageheap_lock.Unlock();
+      bool ret = hpaa_.forwarder_.ReleasePages(start, length);
+      pageheap_lock.Lock();
+      return ret;
+    }
+
+   public:
+    HugePageAwareAllocator& hpaa_;
+  };
+
+  Unback unback_ ABSL_GUARDED_BY(pageheap_lock);
+  UnbackWithoutLock unback_without_lock_ ABSL_GUARDED_BY(pageheap_lock);
+
   typedef HugePageFiller<PageTracker> FillerType;
   FillerType filler_ ABSL_GUARDED_BY(pageheap_lock);
 
@@ -232,10 +269,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
    public:
     HugePageAwareAllocator& hpaa_;
   };
-
-  // Calls SystemRelease, but with dropping of pageheap_lock around the call.
-  static ABSL_MUST_USE_RESULT bool UnbackWithoutLock(void* start, size_t length)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   HugeRegionSet<HugeRegion> regions_ ABSL_GUARDED_BY(pageheap_lock);
 
@@ -317,15 +350,15 @@ template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     const HugePageAwareAllocatorOptions& options)
     : PageAllocatorInterface("HugePageAware", options.tag),
+      unback_(*this),
+      unback_without_lock_(*this),
       filler_(options.allocs_for_sparse_and_dense_spans,
-              options.chunks_per_alloc,
-              MemoryModifyFunction(&forwarder_.ReleasePages)),
+              options.chunks_per_alloc, unback_),
       regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
-      cache_(HugeCache{&alloc_, metadata_allocator_,
-                       MemoryModifyFunction(UnbackWithoutLock)}) {
+      cache_(HugeCache{&alloc_, metadata_allocator_, unback_without_lock_}) {
   tracker_allocator_.Init(&forwarder_.arena());
   region_allocator_.Init(&forwarder_.arena());
 }
@@ -612,7 +645,7 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
   HugeRegion* region = region_allocator_.New();
-  new (region) HugeRegion(r, MemoryModifyFunction(SystemRelease));
+  new (region) HugeRegion(r, unback_);
   regions_.Contribute(region);
   return true;
 }
@@ -958,15 +991,6 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   return filler_.ReleasePages(n, SkipSubreleaseIntervals{},
                               /*release_partial_alloc_pages=*/false,
                               /*hit_limit=*/true);
-}
-
-template <class Forwarder>
-inline bool HugePageAwareAllocator<Forwarder>::UnbackWithoutLock(
-    void* start, size_t length) {
-  pageheap_lock.Unlock();
-  const bool ret = SystemRelease(start, length);
-  pageheap_lock.Lock();
-  return ret;
 }
 
 }  // namespace huge_page_allocator_internal

@@ -576,6 +576,7 @@ cc_fuzz_test(
         "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
@@ -778,6 +779,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",

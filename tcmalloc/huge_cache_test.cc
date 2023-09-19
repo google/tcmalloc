@@ -61,33 +61,23 @@ class HugeCacheTest : public testing::Test {
                absl::ToDoubleNanoseconds(absl::Seconds(1));
   }
 
-  // This is wordy, but necessary for mocking:
-  class BackingInterface {
+  class MockBackingInterface : public MemoryModifyFunction {
    public:
-    virtual bool Unback(void* p, size_t len) = 0;
-    virtual ~BackingInterface() {}
-  };
+    MOCK_METHOD(bool, Unback, (void* p, size_t len), ());
 
-  class MockBackingInterface : public BackingInterface {
-   public:
-    MOCK_METHOD(bool, Unback, (void* p, size_t len), (override));
+    bool operator()(void* p, size_t len) override { return Unback(p, len); }
   };
-
-  static bool MockUnback(void* p, size_t len) { return mock_->Unback(p, len); }
 
  protected:
-  static std::unique_ptr<testing::NiceMock<MockBackingInterface>> mock_;
+  testing::NiceMock<MockBackingInterface> mock_unback_;
 
   HugeCacheTest() {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
     vm_allocator_.backing_.resize(1024);
-    mock_ = absl::make_unique<testing::NiceMock<MockBackingInterface>>();
   }
 
   ~HugeCacheTest() override {
-    mock_.reset(nullptr);
-
     clock_offset_ = 0;
   }
 
@@ -98,13 +88,9 @@ class HugeCacheTest : public testing::Test {
   FakeVirtualAllocator vm_allocator_;
   FakeMetadataAllocator metadata_allocator_;
   HugeAllocator alloc_{vm_allocator_, metadata_allocator_};
-  HugeCache cache_{&alloc_, metadata_allocator_,
-                   MemoryModifyFunction(MockUnback),
+  HugeCache cache_{&alloc_, metadata_allocator_, mock_unback_,
                    Clock{.now = GetClock, .freq = GetClockFrequency}};
 };
-
-std::unique_ptr<testing::NiceMock<HugeCacheTest::MockBackingInterface>>
-    HugeCacheTest::mock_;
 
 int64_t HugeCacheTest::clock_offset_ = 0;
 
@@ -164,13 +150,13 @@ TEST_F(HugeCacheTest, Release) {
   cache_.Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
-  EXPECT_CALL(*mock_, Unback(r5.start_addr(), kHugePageSize * 1))
+  EXPECT_CALL(mock_unback_, Unback(r5.start_addr(), kHugePageSize * 1))
       .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(1), cache_.ReleaseCachedPages(NHugePages(1)));
   cache_.Release(r3);
   cache_.Release(r4);
 
-  EXPECT_CALL(*mock_, Unback(r1.start_addr(), 4 * kHugePageSize))
+  EXPECT_CALL(mock_unback_, Unback(r1.start_addr(), 4 * kHugePageSize))
       .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(4), cache_.ReleaseCachedPages(NHugePages(200)));
 }
@@ -206,13 +192,13 @@ TEST_F(HugeCacheTest, ReleaseFailure) {
   cache_.Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
-  EXPECT_CALL(*mock_, Unback(r5.start_addr(), 1 * kHugePageSize))
+  EXPECT_CALL(mock_unback_, Unback(r5.start_addr(), 1 * kHugePageSize))
       .WillOnce(Return(false));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(1)));
   cache_.Release(r3);
   cache_.Release(r4);
 
-  EXPECT_CALL(*mock_, Unback(r1.start_addr(), 5 * kHugePageSize))
+  EXPECT_CALL(mock_unback_, Unback(r1.start_addr(), 5 * kHugePageSize))
       .WillOnce(Return(false));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(200)));
 }
@@ -305,7 +291,7 @@ static double Frac(HugeLength num, HugeLength denom) {
 }
 
 TEST_F(HugeCacheTest, Growth) {
-  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
 
   bool released;
@@ -385,7 +371,7 @@ TEST_F(HugeCacheTest, Growth) {
 // If we repeatedly grow and shrink, but do so very slowly, we should *not*
 // cache the large variation.
 TEST_F(HugeCacheTest, SlowGrowthUncached) {
-  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
 
   absl::BitGen rng;
@@ -409,7 +395,7 @@ TEST_F(HugeCacheTest, SlowGrowthUncached) {
 
 // If very rarely we have a huge increase in usage, it shouldn't be cached.
 TEST_F(HugeCacheTest, SpikesUncached) {
-  EXPECT_CALL(*mock_, Unback(testing::_, testing::_))
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
 
   absl::BitGen rng;

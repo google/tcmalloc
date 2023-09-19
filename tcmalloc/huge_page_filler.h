@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
 #include "absl/time/time.h"
@@ -34,6 +35,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
@@ -895,7 +897,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   // Return all unused pages to the system, mark future frees to do same.
   // Returns the count of pages unbacked.
-  Length ReleaseFree(MemoryModifyFunction unback)
+  Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
@@ -954,7 +956,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   bool has_dense_spans_ = false;
 
   ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
-                                         MemoryModifyFunction unback) {
+                                         MemoryModifyFunction& unback) {
     void* ptr = p.start_addr();
     size_t byte_len = n.in_bytes();
     bool success = unback(ptr, byte_len);
@@ -997,10 +999,12 @@ enum class HugePageFillerAllocsOption : bool {
 template <class TrackerType>
 class HugePageFiller {
  public:
-  explicit HugePageFiller(HugePageFillerAllocsOption allocs_option,
-                          size_t chunks_per_alloc, MemoryModifyFunction unback);
+  explicit HugePageFiller(
+      HugePageFillerAllocsOption allocs_option, size_t chunks_per_alloc,
+      MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND);
   HugePageFiller(Clock clock, HugePageFillerAllocsOption allocs_options,
-                 size_t chunks_per_alloc, MemoryModifyFunction unback);
+                 size_t chunks_per_alloc,
+                 MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -1236,7 +1240,7 @@ class HugePageFiller {
   void UpdateFillerStatsTracker();
   using StatsTrackerType = FillerStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
-  MemoryModifyFunction unback_;
+  MemoryModifyFunction& unback_;
 };
 
 inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
@@ -1272,7 +1276,7 @@ inline void PageTracker::Put(PageId p, Length n) {
   when_denominator_ += n.raw_num();
 }
 
-inline Length PageTracker::ReleaseFree(MemoryModifyFunction unback) {
+inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   size_t count = 0;
   size_t index = 0;
   size_t n;
@@ -1378,7 +1382,7 @@ inline Length PageTracker::free_pages() const {
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     HugePageFillerAllocsOption allocs_option, size_t chunks_per_alloc,
-    MemoryModifyFunction unback)
+    MemoryModifyFunction& unback)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
                      allocs_option, chunks_per_alloc, unback) {}
@@ -1387,7 +1391,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerAllocsOption allocs_option,
-    size_t chunks_per_alloc, MemoryModifyFunction unback)
+    size_t chunks_per_alloc, MemoryModifyFunction& unback)
     : chunks_per_alloc_(chunks_per_alloc),
       allocs_for_sparse_and_dense_spans_(allocs_option),
       size_(NHugePages(0)),

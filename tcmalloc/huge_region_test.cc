@@ -31,8 +31,10 @@
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
@@ -46,31 +48,24 @@ using testing::StrictMock;
 class HugeRegionTest : public ::testing::Test {
  protected:
   HugeRegionTest()
-      :  // an unlikely magic page
+      : mock_(std::make_unique<NiceMock<MockBackingInterface>>()),
+        // an unlikely magic page
         p_(HugePageContaining(reinterpret_cast<void*>(0x1faced200000))),
-        region_({p_, region_.size()}, MemoryModifyFunction(MockUnback)) {
+        region_({p_, region_.size()}, *mock_) {
     // we usually don't care about backing calls, unless testing that
     // specifically.
-    mock_ = absl::make_unique<NiceMock<MockBackingInterface>>();
   }
 
   ~HugeRegionTest() override { mock_.reset(nullptr); }
 
-  // This is wordy, but necessary for mocking:
-  class BackingInterface {
+  class MockBackingInterface : public MemoryModifyFunction {
    public:
-    virtual bool Unback(void* p, size_t len) = 0;
-    virtual ~BackingInterface() {}
+    MOCK_METHOD(bool, Unback, (void* p, size_t len), ());
+
+    bool operator()(void* p, size_t len) override { return Unback(p, len); }
   };
 
-  class MockBackingInterface : public BackingInterface {
-   public:
-    MOCK_METHOD(bool, Unback, (void* p, size_t len), (override));
-  };
-
-  static std::unique_ptr<MockBackingInterface> mock_;
-
-  static bool MockUnback(void* p, size_t len) { return mock_->Unback(p, len); }
+  std::unique_ptr<MockBackingInterface> mock_;
 
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
@@ -137,8 +132,6 @@ class HugeRegionTest : public ::testing::Test {
   }
 };
 
-std::unique_ptr<HugeRegionTest::MockBackingInterface> HugeRegionTest::mock_;
-
 TEST_F(HugeRegionTest, Basic) {
   Length total;
   std::vector<Alloc> allocs;
@@ -201,7 +194,6 @@ TEST_F(HugeRegionTest, ReqsBacking) {
 }
 
 TEST_F(HugeRegionTest, Release) {
-  mock_ = absl::make_unique<StrictMock<MockBackingInterface>>();
   const Length n = kPagesPerHugePage;
   bool from_released;
   auto a = Allocate(n * 4 - Length(1), &from_released);
@@ -253,7 +245,6 @@ TEST_F(HugeRegionTest, Release) {
 }
 
 TEST_F(HugeRegionTest, Reback) {
-  mock_ = absl::make_unique<StrictMock<MockBackingInterface>>();
   const Length n = kPagesPerHugePage / 4;
   bool from_released;
   // Even in back/unback cycles we should still call the functions
@@ -488,9 +479,10 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
   Delete(d);
 }
 
-static bool NilUnback(void* p, size_t bytes) {
-  return true;
-}
+class NilUnback final : public MemoryModifyFunction {
+ public:
+  bool operator()(void* p, size_t bytes) override { return true; }
+};
 
 class HugeRegionSetTest
     : public ::testing::TestWithParam<HugeRegionUsageOption> {
@@ -503,14 +495,14 @@ class HugeRegionSetTest
 
   std::unique_ptr<Region> GetRegion() {
     // These regions are backed by "real" memory, but we don't touch it.
-    std::unique_ptr<Region> r(
-        new Region({next_, Region::size()}, MemoryModifyFunction(NilUnback)));
+    std::unique_ptr<Region> r(new Region({next_, Region::size()}, nil_unback_));
     next_ += Region::size();
     return r;
   }
 
   bool UseHugeRegionMoreOften() const { return set_.UseHugeRegionMoreOften(); }
 
+  NilUnback nil_unback_;
   HugeRegionSet<Region> set_;
   HugePage next_;
 

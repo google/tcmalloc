@@ -19,9 +19,12 @@
 
 #include <algorithm>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "tcmalloc/huge_allocator.h"
+#include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
@@ -64,7 +67,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   static constexpr HugeLength size() { return kRegionSize; }
 
   // REQUIRES: r.len() == size(); r unbacked.
-  HugeRegion(HugeRange r, MemoryModifyFunction unback);
+  HugeRegion(HugeRange r,
+             MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND);
   HugeRegion() = delete;
 
   // If available, return a range of n free pages, setting *from_released =
@@ -145,7 +149,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   int64_t last_touched_[kNumHugePages];
   HugeLength total_unbacked_{NHugePages(0)};
 
-  MemoryModifyFunction unback_;
+  MemoryModifyFunction& unback_;
 };
 
 // Manage a set of regions from which we allocate.
@@ -241,7 +245,7 @@ class HugeRegionSet {
 };
 
 // REQUIRES: r.len() == size(); r unbacked.
-inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction unback)
+inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
     : tracker_{},
       location_(r),
       pages_used_{},
