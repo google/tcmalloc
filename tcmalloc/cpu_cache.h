@@ -2203,6 +2203,9 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("------------------------------------------------\n");
   out->printf("Per-CPU cache slab resizing info:\n");
   out->printf("------------------------------------------------\n");
+  uint8_t current_shift = freelist_.GetShift();
+  out->printf("Current shift: %3d (slab size: %4d KiB)\n", current_shift,
+              (1 << current_shift) / 1024);
   for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
     out->printf("shift %3d:", shift + shift_bounds_.initial_shift);
     out->printf(
@@ -2260,6 +2263,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   }
 
   // Record dynamic slab statistics.
+  region->PrintI64("dynamic_per_cpu_slab_size", 1 << freelist_.GetShift());
   for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
     PbtxtRegion entry = region->CreateSubRegion("dynamic_slab");
     entry.PrintI64("shift", shift + shift_bounds_.initial_shift);
