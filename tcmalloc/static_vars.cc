@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
@@ -139,6 +140,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     }
 
     CHECK_CONDITION(sizemap_.Init(size_classes));
+    // Verify we can determine the number of CPUs now, since we will need it
+    // later for per-CPU caches and initializing the cache topology.
+    (void)NumCPUs();
     numa_topology_.Init();
     cache_topology_.Init();
     sampledallocation_allocator_.Init(&arena_);
