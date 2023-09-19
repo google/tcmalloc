@@ -215,13 +215,15 @@ class TcmallocSlab {
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
-  // items not added will be returned at the start of <batch>. Items are only
-  // not added if there is no space on the current cpu.
+  // items not added will be returned at the start of <batch>. Items are not
+  // added if there is no space on the current cpu, or if the thread was
+  // re-scheduled since last Push/Pop.
   // REQUIRES: len > 0.
   size_t PushBatch(size_t size_class, void** batch, size_t len);
 
   // Pop up to <len> items from the current cpu slab and return them in <batch>.
-  // Returns the number of items actually removed.
+  // Returns the number of items actually removed. If the thread was
+  // re-scheduled since last Push/Pop, the function returns 0.
   // REQUIRES: len > 0.
   size_t PopBatch(size_t size_class, void** batch, size_t len);
 
@@ -543,8 +545,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #else
       "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
 #endif
-      // if (scratch & kCachedSlabsMask) goto overflow_label;
-      // scratch &= ~kCachedSlabsMask;
+      // if (scratch & TCMALLOC_CACHED_SLABS_MASK>) goto overflow_label;
+      // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jnc %l[overflow_label]\n"
@@ -577,9 +579,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #if defined(__PIC__) && !defined(__PIE__)
         [rseq_abi] "r"(&__rseq_abi),
 #endif
-        [rseq_slabs_offset] "n"(kRseqSlabsOffset),
-        [cached_slabs_bit] "n"(kCachedSlabsBit), [size_class] "r"(size_class),
-        [item] "r"(item)
+        [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),
+        [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),
+        [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
@@ -653,8 +655,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "4:\n"
       // region_start = tcmalloc_rseq.slabs;
       "ldr %[region_start], [%[rseq_abi], %c[rseq_slabs_offset]]\n"
-  // if (region_start & kCachedSlabsMask) goto overflow_label;
-  // region_start &= ~kCachedSlabsMask;
+  // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[overflow_label]\n"
       "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
@@ -690,12 +692,12 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       : [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item),
         [rseq_abi] "r"(&__rseq_abi),
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [cached_slabs_mask_neg] "n"(~kCachedSlabsMask),
-        [cached_slabs_bit] "n"(kCachedSlabsBit),
+        [cached_slabs_mask_neg] "n"(~TCMALLOC_CACHED_SLABS_MASK),
+        [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),
 #else
-        [cached_slabs_mask] "r"(kCachedSlabsMask),
+        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-        [rseq_slabs_offset] "n"(kRseqSlabsOffset),
+        [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),
         [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
         [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
       // Add x16 and x17 as an explicit clobber registers:
@@ -845,8 +847,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
 #else
           "movq %%fs:__rseq_abi@TPOFF + %c[rseq_slabs_offset], %[scratch]\n"
 #endif
-  // if (scratch & kCachedSlabsMask) goto overflow_label;
-  // scratch &= ~kCachedSlabsMask;
+  // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "btrq $%c[cached_slabs_bit], %[scratch]\n"
           "jnc %l[underflow_path]\n"
@@ -883,11 +885,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           : [rseq_abi] "r"(&__rseq_abi),
             [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "n"(TCMALLOC_PERCPU_RSEQ_SIGNATURE),
-            [rseq_slabs_offset] "n"(kRseqSlabsOffset),
+            [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [cached_slabs_bit] "n"(kCachedSlabsBit),
+            [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),
 #else
-            [cached_slabs_mask] "r"(kCachedSlabsMask),
+            [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
             [size_class] "r"(size_class)
           : "cc", "memory"
@@ -976,8 +978,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           "4:\n"
           // region_start = tcmalloc_rseq.slabs;
           "ldr %[region_start], [%[rseq_abi], %c[rseq_slabs_offset]]\n"
-  // if (region_start & kCachedSlabsMask) goto overflow_label;
-  // region_start &= ~kCachedSlabsMask;
+  // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
           "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
           "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
@@ -1020,12 +1022,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
           : [rseq_abi] "r"(&__rseq_abi), [size_class] "r"(size_class),
             [size_class_lsl3] "r"(size_class << 3),
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [cached_slabs_mask_neg] "n"(~kCachedSlabsMask),
-            [cached_slabs_bit] "n"(kCachedSlabsBit),
+            [cached_slabs_mask_neg] "n"(~TCMALLOC_CACHED_SLABS_MASK),
+            [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),
 #else
-            [cached_slabs_mask] "r"(kCachedSlabsMask),
+            [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-            [rseq_slabs_offset] "n"(kRseqSlabsOffset),
+            [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),
             [rseq_cs_offset] "in"(offsetof(kernel_rseq, rseq_cs)),
             [rseq_sig] "in"(TCMALLOC_PERCPU_RSEQ_SIGNATURE)
           // Add x16 and x17 as an explicit clobber registers:
@@ -1082,7 +1084,8 @@ int TcmallocSlab<NumClasses>::CacheCpuSlab() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  if (ABSL_PREDICT_FALSE((tcmalloc_rseq.slabs & kCachedSlabsMask) == 0)) {
+  if (ABSL_PREDICT_FALSE((tcmalloc_rseq.slabs & TCMALLOC_CACHED_SLABS_MASK) ==
+                         0)) {
     return CacheCpuSlabSlow();
   }
   // We already have slab offset cached, so the slab is indeed full/empty
@@ -1097,10 +1100,11 @@ ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   for (;;) {
     intptr_t val = tcmalloc_rseq.slabs;
-    ASSERT(!(val & kCachedSlabsMask));
+    ASSERT(!(val & TCMALLOC_CACHED_SLABS_MASK));
     const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
     Slabs* start = CpuMemoryStart(slabs, shift, cpu);
-    intptr_t new_val = reinterpret_cast<uintptr_t>(start) | kCachedSlabsMask;
+    intptr_t new_val =
+        reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
     auto* ptr = reinterpret_cast<std::atomic<intptr_t>*>(
@@ -1140,20 +1144,14 @@ inline size_t TcmallocSlab<NumClasses>::PushBatch(size_t size_class,
   //
   // This oversynchronizes slightly, since PushBatch may succeed only partially.
   TSANReleaseBatch(batch, len);
-  return TcmallocSlab_Internal_PushBatch(
-      size_class, batch, len,
-      slabs_and_shift_.load(std::memory_order_relaxed).Raw(),
-      virtual_cpu_id_offset_);
+  return TcmallocSlab_Internal_PushBatch(size_class, batch, len);
 }
 
 template <size_t NumClasses>
 inline size_t TcmallocSlab<NumClasses>::PopBatch(size_t size_class,
                                                  void** batch, size_t len) {
   ASSERT(len != 0);
-  const size_t n = TcmallocSlab_Internal_PopBatch(
-      size_class, batch, len,
-      slabs_and_shift_.load(std::memory_order_relaxed).Raw(),
-      virtual_cpu_id_offset_);
+  const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len);
   ASSERT(n <= len);
 
   // PopBatch is implemented in assembly, msan does not know that the returned

@@ -996,8 +996,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
         ReleaseToBackingCache(size_class, {batch, i});
       }
     }
-  } while (got == kMaxObjectsToMove && i == 0 && total < target &&
-           cpu == freelist_.GetCurrentVirtualCpuUnsafe());
+  } while (got == kMaxObjectsToMove && i == 0 && total < target);
 
   for (int i = to_return.count; i < kMaxToReturn; ++i) {
     ReleaseToBackingCache(to_return.size_class[i], {&(to_return.obj[i]), 1});
@@ -1696,7 +1695,7 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     ReleaseToBackingCache(size_class, absl::Span<void*>(batch, count));
     if (count != kMaxObjectsToMove) break;
     count = 0;
-  } while (total < target && cpu == freelist_.GetCurrentVirtualCpuUnsafe());
+  } while (total < target);
   return 1;
 }
 

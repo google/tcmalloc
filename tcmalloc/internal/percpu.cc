@@ -97,7 +97,7 @@ static void InitPerCpu() {
     // __rseq_abi.cpu_id_start as we expect.
     CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq.slabs) ==
                     reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                        kRseqSlabsOffset);
+                        TCMALLOC_RSEQ_SLABS_OFFSET);
 
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.

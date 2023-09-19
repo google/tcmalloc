@@ -135,9 +135,8 @@ label##_trampoline:                                               \
 #if !defined(__PIC__) || defined(__PIE__)
 #define FETCH_CPU(dest, offset)         \
   movzwl %fs:__rseq_abi@TPOFF(offset), dest;
-/* We can use the redzone to save the register. */
-#define SAVE_REG(reg) movq reg, -0x08(%rsp);
-#define RESTORE_REG(reg) movq -0x08(%rsp), reg;
+#define FETCH_SLABS(dest)         \
+  movq %fs:__rseq_abi@TPOFF + TCMALLOC_RSEQ_SLABS_OFFSET, dest
 #define START_RSEQ(src)                        \
   .L##src##_abort:                             \
   leaq __rseq_cs_##src(%rip), %rax;            \
@@ -154,17 +153,7 @@ label##_trampoline:                                               \
  * range.
  */
 #define FETCH_CPU(dest, offset) movzwl (%rax, offset), dest;
-/* We can't use the redzone to save the register because
- * tcmalloc_internal_tls_fetch_pic uses the stack. We also need to use stack. */
-#define SAVE_REG(reg)                       \
-  push %rbp;                                \
-  mov %rsp, %rbp;                           \
-  sub $0x08, %rsp;                          \
-  movq reg, -0x08(%rbp);
-#define RESTORE_REG(reg)                    \
-  movq -0x08(%rbp), reg;                    \
-  add $0x08, %rsp;                          \
-  leave;
+#define FETCH_SLABS(dest) movq TCMALLOC_RSEQ_SLABS_OFFSET(%rax), dest
 #define START_RSEQ(src)                     \
   .L##src##_abort:                          \
   call tcmalloc_internal_tls_fetch_pic@PLT; \
@@ -259,12 +248,11 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (%rdi),
  *     void** batch (%rsi),
- *     size_t len (%rdx),
- *     uintptr_t slabs_and_shift (%rcx),
- *     size_t virtual_cpu_id_offset (%r8)) {
- *   uint64_t r12 = __rseq_abi.cpu_id;
- *   uint64_t* r12 = CpuMemoryStart(rcx, r12);
- *   Header* hdr = r12 + rdi * 8;
+ *     size_t len (%rdx)) {
+ *   uint64_t* r8 = tcmalloc_rseq.slabs;
+ *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
+ *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
+ *   Header* hdr = r8 + rdi * 8;
  *   uint64_t r9 = hdr->current;
  *   uint64_t r10 = hdr->end;
  *   if (r9 >= r10) return 0;
@@ -273,7 +261,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
  * loop:
  *   r11--;
  *   rax = batch[r11];
- *   *(r12 + r9 * 8) = rax;
+ *   *(r8 + r9 * 8) = rax;
  *   r9++;
  *   if (r9 != r10) goto loop;
  *   hdr->current = r9;
@@ -285,16 +273,12 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
   .type  TcmallocSlab_Internal_PushBatch, @function
 TcmallocSlab_Internal_PushBatch:
   .cfi_startproc
-  SAVE_REG(%r12);
   START_RSEQ(TcmallocSlab_Internal_PushBatch);
-  FETCH_CPU(%r12d, %r8);
-  /* r9 = slabs_ptr */
-  movq %rcx, %r9;
-  and $TCMALLOC_PERCPU_SLABS_MASK, %r9;
-  shl %cl, %r12; /* multiply cpu by 2^shift */
-  lea (%r9, %r12), %r12;
-  movzwq (%r12, %rdi, 8), %r9; /* current */
-  movzwq 6(%r12, %rdi, 8), %r10; /* end */
+  FETCH_SLABS(%r8);
+  btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
+  jnc .LTcmallocSlab_Internal_PushBatch_full;
+  movzwq (%r8, %rdi, 8), %r9; /* current */
+  movzwq 6(%r8, %rdi, 8), %r10; /* end */
   cmpq %r10, %r9;
   jae .LTcmallocSlab_Internal_PushBatch_full;
   movq %rdx, %r11; /* r11 = copy of len */
@@ -305,19 +289,17 @@ TcmallocSlab_Internal_PushBatch:
 .LTcmallocSlab_Internal_PushBatch_loop:
   decq %r11;
   movq (%rsi, %r11, 8), %rax;
-  movq %rax, (%r12, %r9, 8);
+  movq %rax, (%r8, %r9, 8);
   incq %r9;
   cmpq %r9, %r10;
   jne .LTcmallocSlab_Internal_PushBatch_loop
-  movw %r9w, (%r12, %rdi, 8);
+  movw %r9w, (%r8, %rdi, 8);
 .LTcmallocSlab_Internal_PushBatch_commit:
   movq %rdx, %rax;
   subq %r11, %rax;
-  RESTORE_REG(%r12);
   ret;
 .LTcmallocSlab_Internal_PushBatch_full:
   xor %rax, %rax;
-  RESTORE_REG(%r12);
   ret;
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
@@ -326,11 +308,10 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 /* size_t TcmallocSlab_Internal_PopBatch(
  *     size_t size_class (%rdi),
  *     void** batch (%rsi),
- *     size_t len (%rdx),
- *     uintptr_t slabs_and_shift (%rcx),
- *     size_t virtual_cpu_id_offset (%r8)) {
- *   uint64_t r12 = __rseq_abi.cpu_id;
- *   uint64_t* r12 = CpuMemoryStart(rcx, r12);
+ *     size_t len (%rdx)) {
+ *   uint64_t* r8 = tcmalloc_rseq.slabs;
+ *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
+ *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(rdi, rax, size_class);
  *   uint64_t r9 = hdr->current;
  *   uint64_t r10 = hdr->begin;
@@ -352,37 +333,28 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
   .type  TcmallocSlab_Internal_PopBatch, @function
 TcmallocSlab_Internal_PopBatch:
   .cfi_startproc
-  SAVE_REG(%r12);
   START_RSEQ(TcmallocSlab_Internal_PopBatch);
-  FETCH_CPU(%r12d, %r8);
-  /* r9 = slabs_ptr */
-  movq %rcx, %r9;
-  and $TCMALLOC_PERCPU_SLABS_MASK, %r9;
-  shl %cl, %r12; /* multiply cpu by 2^shift */
-  lea (%r9, %r12), %r12;
-  movzwq (%r12, %rdi, 8), %r9; /* current */
-  movzwq 4(%r12, %rdi, 8), %r10; /* begin */
+  FETCH_SLABS(%r8);
+  xorq %rax, %rax;
+  btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
+  jnc .LTcmallocSlab_Internal_PopBatch_commit;
+  movzwq (%r8, %rdi, 8), %r9; /* current */
+  movzwq 4(%r8, %rdi, 8), %r10; /* begin */
   cmp %r10, %r9;
-  jbe .LTcmallocSlab_Internal_PopBatch_empty;
+  jbe .LTcmallocSlab_Internal_PopBatch_commit;
   movq %r9, %r11;
   subq %r10, %r11; /* r11 = available items */
   cmpq %rdx, %r11;
   cmovaq %rdx, %r11; /* r11 = min(len, available items) */
-  xorq %rax, %rax;
 .LTcmallocSlab_Internal_PopBatch_loop:
   decq %r9;
-  movq (%r12, %r9, 8), %r10;
+  movq (%r8, %r9, 8), %r10;
   movq %r10, (%rsi, %rax, 8);
   incq %rax;
   cmpq %rax, %r11;
   jne .LTcmallocSlab_Internal_PopBatch_loop
-  movw %r9w, (%r12, %rdi, 8);
+  movw %r9w, (%r8, %rdi, 8);
 .LTcmallocSlab_Internal_PopBatch_commit:
-  RESTORE_REG(%r12);
-  ret;
-.LTcmallocSlab_Internal_PopBatch_empty:
-  xor %rax, %rax;
-  RESTORE_REG(%r12);
   ret;
   .cfi_endproc
 ENCODE_SIZE(TcmallocSlab_Internal_PopBatch)

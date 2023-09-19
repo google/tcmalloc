@@ -141,6 +141,7 @@ label##_trampoline:                                               \
 
 /* FETCH_CPU assumes &__rseq_abi is in x5.  */
 #define FETCH_CPU(dest, offset) ldrh dest, [x5, offset]
+#define FETCH_SLABS(dest) ldr dest, [x5, TCMALLOC_RSEQ_SLABS_OFFSET]
 
 /* With PIE  have initial-exec TLS, even in the presence of position
    independent code. */
@@ -233,11 +234,10 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (x0),
  *     void** batch (x1),
- *     size_t len (x2),
- *     uintptr_t slabs_and_shift (x3),
- *     size_t virtual_cpu_id_offset (x4)) {
- *   uint64_t r8 = __rseq_abi.cpu_id
- *   uint64_t* r8 = CpuMemoryStart(r3, r8)
+ *     size_t len (x2)) {
+ *   uint64_t* r8 = tcmalloc_rseq.slabs;
+ *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
+ *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = r8 + r0 * 8
  *   uint64_t r9 = hdr->current (zero-extend 16bit)
  *   uint64_t r10 = hdr->end    (zero-extend 16bit)
@@ -262,10 +262,9 @@ TcmallocSlab_Internal_PushBatch:
   .cfi_startproc
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PushBatch)
-  FETCH_CPU(w8, x4)
-  lsl x8, x8, x3 /* multiply cpu by 2^shift */
-  and x9, x3, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
-  add x8, x9, x8
+  FETCH_SLABS(x8)
+  tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PushBatch_no_capacity
+  and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
   add x15, x8, x0, LSL #3    /* r15 = hdr */
   ldrh w9, [x15]             /* r9 = current */
   ldrh w10, [x15, #6]        /* r10 = end */
@@ -306,11 +305,10 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 /* size_t TcmallocSlab_Internal_PopBatch(
  *     size_t size_class (x0),
  *     void** batch (x1),
- *     size_t len (x2),
- *     uintptr_t slabs_and_shift (x3),
- *     size_t virtual_cpu_id_offset (x4)) {
- *   uint64_t r8 = __rseq_abi.cpu_id
- *   uint64_t* r8 = CpuMemoryStart(r3, r8)
+ *     size_t len (x2)) {
+ *   uint64_t* r8 = tcmalloc_rseq.slabs;
+ *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
+ *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(r8, size_class)
  *   uint64_t r9 = hdr->current
  *   uint64_t r10 = hdr->begin
@@ -335,10 +333,9 @@ TcmallocSlab_Internal_PopBatch:
   .cfi_startproc
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PopBatch)
-  FETCH_CPU(w8, x4)
-  lsl x8, x8, x3 /* multiply cpu by 2^shift */
-  and x9, x3, #TCMALLOC_PERCPU_SLABS_MASK /* r9 = slabs_ptr */
-  add x8, x9, x8
+  FETCH_SLABS(x8)
+  tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PopBatch_no_items
+  and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
   add x15, x8, x0, LSL #3
   ldrh w9, [x15]             /* current */
   ldrh w10, [x15, #4]        /* begin */

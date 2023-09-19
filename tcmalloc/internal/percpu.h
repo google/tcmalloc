@@ -17,6 +17,13 @@
 
 #define TCMALLOC_PERCPU_SLABS_MASK 0xFFFFFFFFFFFFFF00
 
+// Offset from __rseq_abi to the cached slabs address.
+#define TCMALLOC_RSEQ_SLABS_OFFSET -4
+
+// The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
+#define TCMALLOC_CACHED_SLABS_BIT 63
+#define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
+
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
 #if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
@@ -156,8 +163,6 @@ struct alignas(64) Rseq {
     } ABSL_ATTRIBUTE_PACKED;
   };
 } ABSL_ATTRIBUTE_PACKED;
-// Offset from __rseq_abi to the cached slabs address.
-inline constexpr int kRseqSlabsOffset = -4;
 extern "C" ABSL_CONST_INIT thread_local volatile Rseq tcmalloc_rseq
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
@@ -191,16 +196,10 @@ int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
                                           intptr_t old_val, intptr_t new_val,
                                           size_t virtual_cpu_id_offset);
 
-// In PushBatch/PopBatch, slabs_and_shift has the shift value in the least
-// significant byte and uses TCMALLOC_PERCPU_SLABS_MASK to get the slab pointer.
-// Note: we pass slabs and shift as the fourth argument because a dynamic shift
-// on x86-64 can only use cl, and the fourth argument is passed in rcx.
 size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
-                                       size_t len, uintptr_t slabs_and_shift,
-                                       size_t virtual_cpu_id_offset);
+                                       size_t len);
 size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
-                                      size_t len, uintptr_t slabs_and_shift,
-                                      size_t virtual_cpu_id_offset);
+                                      size_t len);
 }  // extern "C"
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to
