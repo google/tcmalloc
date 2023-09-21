@@ -23,6 +23,9 @@
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
+
+class TcMallocTest;
+
 namespace tcmalloc_internal {
 
 // This class maintains a small collection of StackTrace hashes which are used
@@ -60,6 +63,7 @@ class StackTraceFilter {
 
   friend class StackTraceFilterTest;
   friend class StackTraceFilterThreadedTest;
+  friend class tcmalloc::TcMallocTest;
 };
 
 inline size_t StackTraceFilter::Count(const StackTrace& stacktrace) const {

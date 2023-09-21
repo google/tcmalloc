@@ -408,6 +408,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:stacktrace_filter",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
