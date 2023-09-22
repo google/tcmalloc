@@ -301,14 +301,6 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NoAvailableSlots) {
   });
 
   auto profile = std::move(token).Stop();
-  absl::flat_hash_set<Profile::Sample::GuardedStatus> allowable_statuses{
-      Profile::Sample::GuardedStatus::Guarded,
-      Profile::Sample::GuardedStatus::RateLimited,
-  };
-  if (improved_guarded_sampling_enabled) {
-    allowable_statuses.insert(Profile::Sample::GuardedStatus::Filtered);
-    // allowable_statuses.insert(Profile::Sample::GuardedStatus::Disabled);
-  }
   ExamineSamples(profile, Profile::Sample::GuardedStatus::NoAvailableSlots);
 }
 
