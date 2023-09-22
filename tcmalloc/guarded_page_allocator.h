@@ -174,6 +174,8 @@ class GuardedPageAllocator {
   void SetWriteFlag(const void* ptr, WriteFlag write_flag)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
+  size_t page_size() const { return page_size_; }
+
  private:
   // Structure for storing data about a slot.
   struct SlotMetadata {
