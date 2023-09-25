@@ -131,7 +131,7 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
-ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(false);
+ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
