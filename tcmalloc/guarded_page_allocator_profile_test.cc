@@ -113,7 +113,30 @@ class ParameterizedGuardedPageAllocatorProfileTest
     }
     tc_globals.stacktrace_filter().Reset();
   }
+
+  void AllocateAndValidate(bool improved_guarded_sampling_enabled);
 };
+
+void ParameterizedGuardedPageAllocatorProfileTest::AllocateAndValidate(
+    bool improved_guarded_sampling_enabled) {
+  tcmalloc::ScopedImprovedGuardedSampling improved_guarded_sampling(
+      improved_guarded_sampling_enabled);
+  AllocateUntilGuarded();
+
+  // Accumulate at least 2 guarded allocations.
+  auto token = MallocExtension::StartAllocationProfiling();
+  int guarded_count = 0;
+  AllocateGuardableUntil(1063, [&](void* alloc) -> NextSteps {
+    if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+      ++guarded_count;
+      MaybeResetStackTraceFilter(improved_guarded_sampling_enabled);
+    }
+    return {guarded_count > 1, true};
+  });
+
+  auto profile = std::move(token).Stop();
+  ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
+}
 
 namespace {
 TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Guarded) {
@@ -384,6 +407,16 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Filtered);
+}
+
+TEST_P(ParameterizedGuardedPageAllocatorProfileTest, DynamicParamChange) {
+  bool improved_guarded_sampling_enabled = GetParam();
+  ScopedGuardedSamplingRate scoped_guarded_sampling_rate(
+      2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate());
+  for (int loop_count = 0; loop_count < 10; ++loop_count) {
+    AllocateAndValidate(improved_guarded_sampling_enabled);
+    AllocateAndValidate(!improved_guarded_sampling_enabled);
+  }
 }
 
 }  // namespace
