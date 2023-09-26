@@ -111,6 +111,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_resize_cpu_cache_size_classes: true"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_improved_guarded_sampling: 1"));
   EXPECT_THAT(buf, ContainsRegex("(tcmalloc_filler_chunks_per_alloc: 8|(16))"));
 
   sized_delete(alloc, kSize);
