@@ -109,7 +109,7 @@ fiddly, but reasonably efficient and not stunningly complicated.
 
 #### `HugeCache`
 
-This is a very simple wrapper on top of HugeAllocator. It's only purpose is to
+This is a very simple wrapper on top of HugeAllocator. Its only purpose is to
 store some number of backed *single* hugepage ranges as a hot cache (in case we
 rapidly allocate and deallocate a 2 MiB chunk).
 
