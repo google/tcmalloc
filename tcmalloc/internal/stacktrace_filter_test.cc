@@ -147,6 +147,8 @@ class StackTraceFilterTest : public testing::Test {
   StackTrace collider_stacktrace_{0};
 };
 
+namespace {
+
 // This test proves that class can be owned by a constexpr constructor class.
 // This is required as the class will be instantiated within
 // tcmalloc::tcmalloc_internal::Static.
@@ -206,6 +208,8 @@ TEST_F(StackTraceFilterTest, Reset) {
   Reset();
   EXPECT_EQ(0, filter_.Count(stacktrace1_));
 }
+
+}  // namespace
 
 // A collection of threaded tests which are useful for demonstrating
 // correct functioning in a threaded environment.
@@ -418,6 +422,8 @@ class StackTraceFilterThreadedTest : public testing::Test {
   ThreadManager thread_manager_;
 };
 
+namespace {
+
 TEST_F(StackTraceFilterThreadedTest, SingleEntry) {
   std::vector<std::unique_ptr<FilterExerciser>> filter_exercisers;
   for (int exerciser_index = 0; exerciser_index < 10; ++exerciser_index) {
@@ -454,5 +460,6 @@ TEST_F(StackTraceFilterThreadedTest, MultipleEntriesWithColliders) {
   Exercise(filter_exercisers);
 }
 
+}  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
