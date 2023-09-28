@@ -330,6 +330,48 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "pageflags",
+    srcs = ["pageflags.cc"],
+    hdrs = ["pageflags.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [
+        "//tcmalloc:__pkg__",
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":page_size",
+        ":util",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
+    ],
+)
+
+cc_test(
+    name = "pageflags_test",
+    srcs = ["pageflags_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    tags = [
+    ],
+    deps = [
+        ":page_size",
+        ":pageflags",
+        ":util",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 create_tcmalloc_benchmark(
     name = "mincore_benchmark",
     srcs = ["mincore_benchmark.cc"],
@@ -631,6 +673,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         ":logging",
+        ":pageflags",
         ":residency",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",

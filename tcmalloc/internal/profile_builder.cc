@@ -15,6 +15,7 @@
 #include "tcmalloc/internal/profile_builder.h"
 
 #include "absl/time/time.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 
 #if defined(__linux__)
@@ -97,6 +98,8 @@ struct SampleMergedData {
   int64_t sum = 0;
   std::optional<size_t> resident_size;
   std::optional<size_t> swapped_size;
+  std::optional<size_t> stale_size;
+  std::optional<size_t> locked_size;
 };
 
 // The equality and hash methods of Profile::Sample only use a subset of its
@@ -131,9 +134,11 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
   SampleMergedMap map;
   // Used to populate residency info in heap profile.
   std::optional<Residency> residency;
+  std::optional<PageFlags> pageflags;
 
   if (profile.Type() == ProfileType::kHeap) {
     residency.emplace();
+    pageflags.emplace();
   }
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
@@ -157,6 +162,27 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
           data.resident_size.value() += resident_size;
           data.swapped_size.value() += swapped_size;
         }
+      }
+    }
+
+    // TODO(b/266739315): This is "tested" by the fact that it is a clone of the
+    // above logic. But that's not sufficient -- we need to refactor this code
+    // to actually allow pageflags to return a non-zero number. Until then, be
+    // very careful while changing the below -- it needs to match entirely the
+    // form above.
+    if (pageflags.has_value()) {
+      auto page_stats =
+          pageflags->Get(entry.span_start_address, entry.allocated_size);
+      if (page_stats.has_value()) {
+        if (!data.stale_size.has_value()) {
+          data.stale_size.emplace();
+        }
+        data.stale_size.value() += entry.count * page_stats->bytes_stale;
+
+        if (!data.locked_size.has_value()) {
+          data.locked_size.emplace();
+        }
+        data.locked_size.value() += entry.count * page_stats->bytes_locked;
       }
     }
   });
@@ -606,6 +632,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int space_id = builder.InternString("space");
   const int resident_space_id = builder.InternString("resident_space");
   const int swapped_space_id = builder.InternString("swapped_space");
+  const int stale_space_id = builder.InternString("stale_space");
+  const int locked_space_id = builder.InternString("locked_space");
   const int access_hint_id = builder.InternString("access_hint");
   const int access_allocated_id = builder.InternString("access_allocated");
   const int cold_id = builder.InternString("cold");
@@ -618,6 +646,7 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int sampled_resident_id =
       builder.InternString("sampled_resident_bytes");
   const int swapped_id = builder.InternString("swapped_bytes");
+  const int stale_id = builder.InternString("stale_bytes");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -650,6 +679,14 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
     sample_type = converted.add_sample_type();
     sample_type->set_type(swapped_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(stale_space_id);
+    sample_type->set_unit(bytes_id);
+
+    sample_type = converted.add_sample_type();
+    sample_type->set_type(locked_space_id);
     sample_type->set_unit(bytes_id);
   }
 
@@ -690,6 +727,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     if (exporting_residency) {
       sample.add_value(data.resident_size.value_or(0));
       sample.add_value(data.swapped_size.value_or(0));
+      sample.add_value(data.stale_size.value_or(0));
+      sample.add_value(data.locked_size.value_or(0));
     }
 
     // add fields that are common to all memory profiles
@@ -714,6 +753,9 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     if (data.resident_size.has_value()) {
       add_label(sampled_resident_id, bytes_id, data.resident_size.value());
       add_label(swapped_id, bytes_id, data.swapped_size.value());
+    }
+    if (data.stale_size.has_value()) {
+      add_label(stale_id, bytes_id, data.stale_size.value());
     }
 
     auto add_access_label = [&](int key,

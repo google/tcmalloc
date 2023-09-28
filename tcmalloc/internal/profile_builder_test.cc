@@ -481,6 +481,7 @@ TEST(ProfileConverterTest, HeapProfile) {
               UnorderedElementsAre(
                   Pair("objects", "count"), Pair("space", "bytes"),
                   Pair("resident_space", "bytes"),
+                  Pair("stale_space", "bytes"), Pair("locked_space", "bytes"),
                   Pair("swapped_space", "bytes")));
 
   SampleLabels extracted;
