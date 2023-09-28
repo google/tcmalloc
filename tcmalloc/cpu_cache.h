@@ -1565,13 +1565,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
   // Increment the capacity of the destination cpu cache by the amount of bytes
   // acquired from source caches.
   if (acquired) {
-    size_t before = resize_[cpu].available.load(std::memory_order_relaxed);
-    size_t bytes_with_stolen;
-    do {
-      bytes_with_stolen = before + acquired;
-    } while (!resize_[cpu].available.compare_exchange_weak(
-        before, bytes_with_stolen, std::memory_order_relaxed,
-        std::memory_order_relaxed));
+    resize_[cpu].available.fetch_add(acquired, std::memory_order_relaxed);
     resize_[cpu].capacity.fetch_add(acquired, std::memory_order_relaxed);
   }
 }
