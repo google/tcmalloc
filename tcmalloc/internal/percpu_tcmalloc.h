@@ -71,7 +71,7 @@ struct PerCPUMetadataState {
   size_t resident_size;
 };
 
-// The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
+// The bit denotes that tcmalloc_slabs contains valid slabs offset.
 constexpr inline uintptr_t kCachedSlabsBit = 63;
 constexpr inline uintptr_t kCachedSlabsMask = 1ul << kCachedSlabsBit;
 
@@ -392,7 +392,7 @@ class TcmallocSlab {
   bool PushSlow(size_t size_class, void* item, OverflowHandler overflow_handler,
                 void* arg);
 
-  // Caches the current cpu slab offset in tcmalloc_rseq.slabs if it wasn't
+  // Caches the current cpu slab offset in tcmalloc_slabs if it wasn't
   // cached and the slab is not resizing. Returns -1 if the offset was cached
   // and Push/Pop needs to be retried. Returns the current CPU ID (>=0) when
   // the slabs offset was already cached and we need to call underflow/overflow
@@ -593,7 +593,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
   asm volatile(
 #endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
-  // scratch = tcmalloc_rseq.slabs;
+  // scratch = tcmalloc_slabs;
       "movq " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) ", %[scratch]\n"
       // if (scratch & TCMALLOC_CACHED_SLABS_MASK>) goto overflow_label;
       // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
@@ -657,7 +657,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
   asm volatile(
 #endif
        TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
-      // region_start = tcmalloc_rseq.slabs;
+      // region_start = tcmalloc_slabs;
       "ldr %[region_start], " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) "\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
@@ -795,7 +795,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   asm(
 #endif
          TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
-        // scratch = tcmalloc_rseq.slabs;
+        // scratch = tcmalloc_slabs;
         "movq " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) ", %[scratch]\n"
   // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
@@ -880,7 +880,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   asm(
 #endif
          TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
-          // region_start = tcmalloc_rseq.slabs;
+          // region_start = tcmalloc_slabs;
           "ldr %[region_start], " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) "\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
@@ -983,8 +983,7 @@ int TcmallocSlab<NumClasses>::CacheCpuSlab() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-  if (ABSL_PREDICT_FALSE((tcmalloc_rseq.slabs & TCMALLOC_CACHED_SLABS_MASK) ==
-                         0)) {
+  if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
     return CacheCpuSlabSlow();
   }
   // We already have slab offset cached, so the slab is indeed full/empty
@@ -998,7 +997,7 @@ template <size_t NumClasses>
 ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   for (;;) {
-    intptr_t val = tcmalloc_rseq.slabs;
+    intptr_t val = tcmalloc_slabs;
     ASSERT(!(val & TCMALLOC_CACHED_SLABS_MASK));
     const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
     Slabs* start = CpuMemoryStart(slabs, shift, cpu);
@@ -1007,7 +1006,7 @@ ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waddress-of-packed-member"
     auto* ptr = reinterpret_cast<std::atomic<intptr_t>*>(
-        const_cast<uintptr_t*>(&tcmalloc_rseq.slabs));
+        const_cast<uintptr_t*>(&tcmalloc_slabs));
 #pragma GCC diagnostic pop
     int new_cpu =
         CompareAndSwapUnsafe(cpu, ptr, val, new_val, virtual_cpu_id_offset_);
@@ -1025,7 +1024,7 @@ ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
   // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
   CompilerBarrier();
   if (resizing_.load(std::memory_order_relaxed)) {
-    tcmalloc_rseq.slabs = 0;
+    tcmalloc_slabs = 0;
     return cpu;
   }
   return -1;

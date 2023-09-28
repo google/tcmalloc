@@ -15,6 +15,11 @@
 #ifndef TCMALLOC_INTERNAL_PERCPU_H_
 #define TCMALLOC_INTERNAL_PERCPU_H_
 
+// sizeof(Sampler)
+#define TCMALLOC_SAMPLER_SIZE 48
+// Sampler::HotDataOffset()
+#define TCMALLOC_SAMPLER_HOT_OFFSET 33
+
 #define TCMALLOC_PERCPU_SLABS_MASK 0xFFFFFFFFFFFFFF00
 
 // Offset from __rseq_abi to the cached slabs address.
@@ -149,21 +154,12 @@ inline constexpr int kCpuIdInitialized = 0;
 // address to be contained within a single cache line (64 bytes), rather than
 // split 2 cache lines. To achieve that we locate __rseq_abi in the second
 // part of a cache line.
+// For performance reasons we also collocate tcmalloc_sampler with __rseq_abi
+// in the same cache line.
 // InitPerCpu contains checks that the resulting data layout is as expected.
-struct alignas(64) Rseq {
-  union {
-    struct alignas(64) {
-      char unused[28];
-      // Top 4 bytes of this variable overlap with __rseq_abi.cpu_id_start.
-      uintptr_t slabs;
-    } ABSL_ATTRIBUTE_PACKED;
-    struct alignas(64) {
-      char pad[32];
-      kernel_rseq abi;
-    } ABSL_ATTRIBUTE_PACKED;
-  };
-} ABSL_ATTRIBUTE_PACKED;
-extern "C" ABSL_CONST_INIT thread_local volatile Rseq tcmalloc_rseq
+
+// Top 4 bytes of this variable overlap with __rseq_abi.cpu_id_start.
+extern "C" ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_INITIAL_EXEC;

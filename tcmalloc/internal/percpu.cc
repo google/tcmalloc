@@ -56,6 +56,8 @@ ABSL_CONST_INIT static absl::once_flag init_per_cpu_once;
 ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
+extern "C" thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
+
 // Is this thread's __rseq_abi struct currently registered with the kernel?
 static bool ThreadRegistered() { return RseqCpuId() >= kCpuIdInitialized; }
 
@@ -85,19 +87,23 @@ static void InitPerCpu() {
     init_status = kFastMode;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-    // See struct Rseq comment for details.
-    // Ensure __rseq_abi alignment required by ABI.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&__rseq_abi) % 32 == 0);
+    // See the comment about data layout in percpu.h for details.
+    auto sampler_addr = reinterpret_cast<uintptr_t>(&tcmalloc_sampler);
+    // Have to use volatile because C++ compiler rejects to believe that
+    // objects can overlap.
+    volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
+    auto rseq_abi_addr = reinterpret_cast<uintptr_t>(&__rseq_abi);
+    //  Ensure __rseq_abi alignment required by ABI.
+    CHECK_CONDITION(rseq_abi_addr % 32 == 0);
     // Ensure that all our TLS data is in a single cache line.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq) % 64 == 0);
-    // Ensure that tcmalloc_rseq and __rseq_abi overlap as we expect.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq.abi) ==
-                    reinterpret_cast<uintptr_t>(&__rseq_abi));
-    // And in particular that tcmalloc_rseq.slabs partially overlap with
+    CHECK_CONDITION((rseq_abi_addr / 64) == (slabs_addr / 64));
+    CHECK_CONDITION((rseq_abi_addr / 64) ==
+                    ((sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64));
+    // Ensure that tcmalloc_slabs partially overlap with
     // __rseq_abi.cpu_id_start as we expect.
-    CHECK_CONDITION(reinterpret_cast<uintptr_t>(&tcmalloc_rseq.slabs) ==
-                    reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                        TCMALLOC_RSEQ_SLABS_OFFSET);
+    CHECK_CONDITION(slabs_addr == rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
+    // Ensure that tcmalloc_sampler is located right before tcmalloc_slabs.
+    CHECK_CONDITION(sampler_addr + TCMALLOC_SAMPLER_SIZE == slabs_addr);
 
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.

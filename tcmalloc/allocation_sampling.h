@@ -22,6 +22,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/time/clock.h"
@@ -31,6 +32,7 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
@@ -97,10 +99,26 @@ static std::unique_ptr<const ProfileBase> DumpHeapProfile(State& state) {
   return profile;
 }
 
-ABSL_CONST_INIT static thread_local Sampler thread_sampler_
+extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
-inline Sampler* GetThreadSampler() { return &thread_sampler_; }
+// Compiler needs to see definition of this variable to generate more
+// efficient code for -fPIE/PIC. If the compiler does not see the definition
+// it considers it may come from another dynamic library. So even for
+// initial-exec model, it need to emit an access via GOT (GOTTPOFF).
+// When it sees the definition, it can emit direct %fs:TPOFF access.
+// So we provide a weak definition here, but the actual definition is in
+// percpu_rseq_asm.S.
+ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
+
+inline Sampler* GetThreadSampler() {
+  static_assert(sizeof(tcmalloc_sampler) == TCMALLOC_SAMPLER_SIZE,
+                "update TCMALLOC_SAMPLER_SIZE");
+  static_assert(Sampler::HotDataOffset() == TCMALLOC_SAMPLER_HOT_OFFSET,
+                "update TCMALLOC_SAMPLER_HOT_OFFSET");
+  return &tcmalloc_sampler;
+}
 
 inline bool ShouldGuardingBeAttempted(
     Profile::Sample::GuardedStatus guarded_status) {

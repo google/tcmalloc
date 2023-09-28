@@ -133,26 +133,22 @@ class Sampler {
   // The following are public for the purposes of testing
   static uint64_t NextRandom(uint64_t rnd_);  // Returns the next prng value
 
+  // Used to ensure that the hot fields are collocated in the same cache line
+  // as __rseq_abi.
+  static constexpr size_t HotDataOffset() {
+    return offsetof(Sampler, was_on_fast_path_);
+  }
+
   constexpr Sampler()
-      : bytes_until_sample_(0),
-        sample_period_(0),
+      : sample_period_(0),
         true_bytes_until_sample_(0),
         allocs_until_guarded_sample_(0),
         rnd_(0),
         initialized_(false),
-        was_on_fast_path_(false) {}
+        was_on_fast_path_(false),
+        bytes_until_sample_(0) {}
 
  private:
-  // Bytes until we sample next.
-  //
-  // More specifically when bytes_until_sample_ is X, we can allocate
-  // X bytes without triggering sampling; on the (X+1)th allocated
-  // byte, the containing allocation will be sampled.
-  //
-  // Always non-negative with only very brief exceptions (see
-  // DecrementFast{,Finish}, so casting to size_t is ok.
-  ssize_t bytes_until_sample_;
-
   // Saved copy of the sampling period from when we actually set
   // (true_)bytes_until_sample_. This allows us to properly calculate the sample
   // weight of the first sample after the sampling period is changed.
@@ -168,7 +164,20 @@ class Sampler {
 
   uint64_t rnd_;  // Cheap random number generator
   bool initialized_;
+
+  // was_on_fast_path_/bytes_until_sample_ are accessed on every malloc/free,
+  // so we place them last and collocate with __rseq_abi.
   bool was_on_fast_path_;
+
+  // Bytes until we sample next.
+  //
+  // More specifically when bytes_until_sample_ is X, we can allocate
+  // X bytes without triggering sampling; on the (X+1)th allocated
+  // byte, the containing allocation will be sampled.
+  //
+  // Always non-negative with only very brief exceptions (see
+  // DecrementFast{,Finish}, so casting to size_t is ok.
+  ssize_t bytes_until_sample_;
 
  private:
   friend class SamplerTest;

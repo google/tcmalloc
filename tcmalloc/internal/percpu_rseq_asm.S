@@ -25,15 +25,20 @@
 #error "RSEQ support expected, but not found."
 #endif
 
-// See struct Rseq comment.
-.type tcmalloc_rseq, @object
+// See the comment about data layout in percpu.h for details.
+.type tcmalloc_sampler, @object
+.type tcmalloc_slabs, @object
 .type __rseq_abi, @object
 .section .tdata, "awT", @progbits, unique, 1
-.globl tcmalloc_rseq
+.globl tcmalloc_sampler
+.globl tcmalloc_slabs
 .globl __rseq_abi
 .p2align 6
-tcmalloc_rseq:
-.zero 32
+.zero 64 + 32 - TCMALLOC_SAMPLER_SIZE - 4
+tcmalloc_sampler:
+.zero TCMALLOC_SAMPLER_SIZE
+tcmalloc_slabs:
+.long 0
 __rseq_abi:
 .long 0           // cpu_id_start
 .long 0xffffffff  // cpu_id (kCpuIdUninitialized)
@@ -43,7 +48,8 @@ __rseq_abi:
 .short 0xffff     // numa_node_id (kCpuIdUninitialized)
 .short 0xffff     // vcpu_id (kCpuIdUninitialized)
 .size __rseq_abi, 32
-.size tcmalloc_rseq, 64
+.size tcmalloc_sampler, TCMALLOC_SAMPLER_SIZE
+.size tcmalloc_slabs, 8
 
 #endif // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 
