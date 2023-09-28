@@ -1396,7 +1396,7 @@ size_t TcmallocSlab<NumClasses>::GrowOtherCache(
   do {
     LockHeader(slabs, shift, cpu, size_class);
     FenceCpu(cpu, virtual_cpu_id_offset);
-    hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
+    hdr = LoadHeader(hdrp);
     // If the header was overwritten in Grow/Shrink, then we need to try again.
   } while (!hdr.IsLocked());
 
@@ -1430,7 +1430,7 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   do {
     LockHeader(slabs, shift, cpu, size_class);
     FenceCpu(cpu, virtual_cpu_id_offset);
-    hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
+    hdr = LoadHeader(hdrp);
     // If the header was overwritten in Grow/Shrink, then we need to try again.
   } while (!hdr.IsLocked());
 
@@ -1454,8 +1454,8 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
     const uint16_t expected_pop = len - unused;
     const uint16_t actual_pop =
         std::min<uint16_t>(expected_pop, hdr.current - begin);
-    void** batch = reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) +
-                                            hdr.current - actual_pop);
+    void** batch = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) +
+                   hdr.current - actual_pop;
     TSANAcquireBatch(batch, actual_pop);
     shrink_handler(size_class, batch, actual_pop);
     hdr.current -= actual_pop;
