@@ -605,6 +605,10 @@ class CpuCache {
   // identify the size_class to steal from.
   void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
 
+  // Resizes capacities of up to kMaxSizeClassesToResize size classes for a
+  // single <cpu>.
+  void ResizeCpuSizeClasses(int cpu);
+
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   // can't calculate this from `shift` directly due to numa shift.
   // Returns the allocated slabs and the number of reused bytes.
@@ -1222,7 +1226,6 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
   if (!forwarder_.resize_size_classes_enabled()) return;
 
-  const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
   // capacities for up to kNumCpuCachesToResize per-cpu caches.
@@ -1243,85 +1246,7 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
       continue;
     }
 
-    absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
-    for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
-      miss_stats[size_class - 1] = SizeClassMissStat{
-          .size_class = size_class,
-          .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
-              PerClassMissType::kResize)};
-    }
-
-    // Resize up to kMaxSizeClassesToResize size classes. Sort the collected
-    // stats to record size classes with largest number of misses in the last
-    // interval.
-    constexpr int kMaxSizeClassesToResize = 5;
-    std::partial_sort(
-        miss_stats.begin(), miss_stats.begin() + kMaxSizeClassesToResize,
-        miss_stats.end(), [](SizeClassMissStat a, SizeClassMissStat b) {
-          // In case of a conflict, prefer growing smaller size classes.
-          if (a.misses == b.misses) {
-            return a.size_class < b.size_class;
-          }
-          return a.misses > b.misses;
-        });
-
-    for (int i = 0; i < kMaxSizeClassesToResize; ++i) {
-      // If a size class with largest misses is zero, break. Other size classes
-      // should also have suffered zero misses as well.
-      if (miss_stats[i].misses == 0) break;
-      const size_t size_class_to_grow = miss_stats[i].size_class;
-
-      AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
-      // If we are already at a maximum capacity, nothing to grow.
-      const ssize_t can_grow = max_capacity(size_class_to_grow) -
-                               freelist_.Capacity(cpu, size_class_to_grow);
-      // can_grow can be negative only if slabs were resized,
-      // but since we hold resize_[cpu].lock it must not happen.
-      ASSERT(can_grow >= 0);
-      if (can_grow <= 0) {
-        continue;
-      }
-
-      resize_[cpu].num_size_class_resizes.fetch_add(1,
-                                                    std::memory_order_relaxed);
-
-      ObjectsToReturn to_return;
-      size_t size = forwarder_.class_to_size(size_class_to_grow);
-      // Get total bytes to steal from other size classes. We would like to grow
-      // the capacity of the size class by a batch size.
-      const size_t to_steal_bytes =
-          std::min<size_t>(can_grow, Static::sizemap().num_objects_to_move(
-                                         size_class_to_grow)) *
-          size;
-
-      size_t acquired_bytes =
-          Steal(cpu, size_class_to_grow, to_steal_bytes, &to_return);
-      size_t capacity_acquired = acquired_bytes / size;
-      size_t actual_increase = 0;
-      if (capacity_acquired != 0) {
-        actual_increase = freelist_.GrowOtherCache(
-            cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
-              return GetMaxCapacity(size_class_to_grow, shift);
-            });
-      }
-
-      // Release any objects recovered when we shrunk capacity above to the
-      // backing cache.
-      for (int i = to_return.count; i < kMaxToReturn; ++i) {
-        ReleaseToBackingCache(to_return.size_class[i],
-                              absl::Span<void*>(&(to_return.obj[i]), 1));
-      }
-
-      // We might not have been able to grow the size class's capacity by the
-      // amount we stole. Record the leftover in the available capacity of this
-      // per-cpu cache. We do not want to lose the total capacity.
-      size_t actual_increased_bytes = actual_increase * size;
-      if (actual_increased_bytes < acquired_bytes) {
-        // return whatever we didn't use to the slack.
-        size_t unused = acquired_bytes - actual_increased_bytes;
-        resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
-      }
-    }
+    ResizeCpuSizeClasses(cpu);
 
     // Record full stats in previous full stat counters so that we can collect
     // stats per interval.
@@ -1335,6 +1260,90 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
   // Record the cpu hint for which the size classes were resized so that we
   // can start from the subsequent cpu in the next interval.
   last_cpu_size_class_resize_.store(cpu, std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
+  absl::FixedArray<SizeClassMissStat> miss_stats(kNumClasses - 1);
+  for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
+    miss_stats[size_class - 1] = SizeClassMissStat{
+        .size_class = size_class,
+        .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
+            PerClassMissType::kResize)};
+  }
+
+  // Resize up to kMaxSizeClassesToResize size classes. Sort the collected
+  // stats to record size classes with largest number of misses in the last
+  // interval.
+  constexpr int kMaxSizeClassesToResize = 5;
+  std::partial_sort(
+      miss_stats.begin(), miss_stats.begin() + kMaxSizeClassesToResize,
+      miss_stats.end(), [](SizeClassMissStat a, SizeClassMissStat b) {
+        // In case of a conflict, prefer growing smaller size classes.
+        if (a.misses == b.misses) {
+          return a.size_class < b.size_class;
+        }
+        return a.misses > b.misses;
+      });
+
+  const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
+
+  for (int i = 0; i < kMaxSizeClassesToResize; ++i) {
+    // If a size class with largest misses is zero, break. Other size classes
+    // should also have suffered zero misses as well.
+    if (miss_stats[i].misses == 0) break;
+    const size_t size_class_to_grow = miss_stats[i].size_class;
+
+    AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+    // If we are already at a maximum capacity, nothing to grow.
+    const ssize_t can_grow = max_capacity(size_class_to_grow) -
+                             freelist_.Capacity(cpu, size_class_to_grow);
+    // can_grow can be negative only if slabs were resized,
+    // but since we hold resize_[cpu].lock it must not happen.
+    ASSERT(can_grow >= 0);
+    if (can_grow <= 0) {
+      continue;
+    }
+
+    resize_[cpu].num_size_class_resizes.fetch_add(1, std::memory_order_relaxed);
+
+    ObjectsToReturn to_return;
+    size_t size = forwarder_.class_to_size(size_class_to_grow);
+    // Get total bytes to steal from other size classes. We would like to grow
+    // the capacity of the size class by a batch size.
+    const size_t to_steal_bytes =
+        std::min<size_t>(can_grow, Static::sizemap().num_objects_to_move(
+                                       size_class_to_grow)) *
+        size;
+
+    size_t acquired_bytes =
+        Steal(cpu, size_class_to_grow, to_steal_bytes, &to_return);
+    size_t capacity_acquired = acquired_bytes / size;
+    size_t actual_increase = 0;
+    if (capacity_acquired != 0) {
+      actual_increase = freelist_.GrowOtherCache(
+          cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
+            return GetMaxCapacity(size_class_to_grow, shift);
+          });
+    }
+
+    // Release any objects recovered when we shrunk capacity above to the
+    // backing cache.
+    for (int i = to_return.count; i < kMaxToReturn; ++i) {
+      ReleaseToBackingCache(to_return.size_class[i],
+                            absl::Span<void*>(&(to_return.obj[i]), 1));
+    }
+
+    // We might not have been able to grow the size class's capacity by the
+    // amount we stole. Record the leftover in the available capacity of this
+    // per-cpu cache. We do not want to lose the total capacity.
+    size_t actual_increased_bytes = actual_increase * size;
+    if (actual_increased_bytes < acquired_bytes) {
+      // return whatever we didn't use to the slack.
+      size_t unused = acquired_bytes - actual_increased_bytes;
+      resize_[cpu].available.fetch_add(unused, std::memory_order_relaxed);
+    }
+  }
 }
 
 template <class Forwarder>
