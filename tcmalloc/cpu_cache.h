@@ -1222,6 +1222,7 @@ template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
   if (!forwarder_.resize_size_classes_enabled()) return;
 
+  const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
   // capacities for up to kNumCpuCachesToResize per-cpu caches.
@@ -1272,9 +1273,12 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
 
       AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
       // If we are already at a maximum capacity, nothing to grow.
-      const size_t can_grow = MaxCapacity(size_class_to_grow) -
-                              freelist_.Capacity(cpu, size_class_to_grow);
-      if (can_grow == 0) {
+      const ssize_t can_grow = max_capacity(size_class_to_grow) -
+                               freelist_.Capacity(cpu, size_class_to_grow);
+      // can_grow can be negative only if slabs were resized,
+      // but since we hold resize_[cpu].lock it must not happen.
+      ASSERT(can_grow >= 0);
+      if (can_grow <= 0) {
         continue;
       }
 
@@ -1293,11 +1297,13 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
       size_t acquired_bytes =
           Steal(cpu, size_class_to_grow, to_steal_bytes, &to_return);
       size_t capacity_acquired = acquired_bytes / size;
-
-      size_t actual_increase = freelist_.GrowOtherCache(
-          cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
-            return GetMaxCapacity(size_class_to_grow, shift);
-          });
+      size_t actual_increase = 0;
+      if (capacity_acquired != 0) {
+        actual_increase = freelist_.GrowOtherCache(
+            cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
+              return GetMaxCapacity(size_class_to_grow, shift);
+            });
+      }
 
       // Release any objects recovered when we shrunk capacity above to the
       // backing cache.
