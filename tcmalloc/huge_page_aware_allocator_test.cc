@@ -491,7 +491,6 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   // Check stats to confirm that pages have been allocated from huge regions.
   RefreshStats();
   size_t unmapped_bytes = region_stats.unmapped_bytes;
-  size_t backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
   if (UseHugeRegionMoreOften()) {
     EXPECT_GT(unmapped_bytes, 0);
   }
@@ -505,12 +504,32 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     EXPECT_EQ(region_stats.unmapped_bytes, unmapped_bytes);
   }
 
-  // Release pages and make sure we release all the free-but-backed pages from
-  // huge region, more than what we ask allocator to release.
+  size_t backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+
+  // Release pages and make sure we release a few free-but-backed pages from
+  // huge region. As we release pages from HugeRegion gradually, first make sure
+  // that we do not release all the free pages.
   if (UseHugeRegionMoreOften()) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
-    Length released = allocator_->ReleaseAtLeastNPages(Length(1));
-    EXPECT_GT(released.in_bytes(), backed_bytes);
+    Length released;
+    {
+      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      released = allocator_->ReleaseAtLeastNPages(Length(1));
+    }
+    EXPECT_LT(released.in_bytes(), backed_bytes);
+    RefreshStats();
+    backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+  }
+
+  while (true) {
+    if (!UseHugeRegionMoreOften() || backed_bytes == 0) break;
+    Length released;
+    {
+      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      released = allocator_->ReleaseAtLeastNPages(Length(1));
+    }
+    EXPECT_GT(released.in_bytes(), 0);
+    RefreshStats();
+    backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
   }
 
   for (auto s : small_spans) {

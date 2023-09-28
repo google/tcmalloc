@@ -823,7 +823,8 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    released += regions_.ReleasePages();
+    constexpr double kFractionPagesToRelease = 0.1;
+    released += regions_.ReleasePages(kFractionPagesToRelease);
   }
 
   info_.RecordRelease(num_pages, released);

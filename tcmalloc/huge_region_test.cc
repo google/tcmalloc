@@ -193,6 +193,30 @@ TEST_F(HugeRegionTest, ReqsBacking) {
   }
 }
 
+TEST_F(HugeRegionTest, ReleaseFrac) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  auto a = Allocate(n * 20, &from_released);
+  EXPECT_TRUE(from_released);
+
+  Delete(a);
+  ExpectUnback({p_ + NHugePages(0), NHugePages(2)});
+  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/0.1));
+  CheckMock();
+
+  ExpectUnback({p_ + NHugePages(2), NHugePages(1)});
+  EXPECT_EQ(NHugePages(1), region_.Release(/*release_fraction=*/0.1));
+  CheckMock();
+
+  ExpectUnback({p_ + NHugePages(3), NHugePages(8)});
+  EXPECT_EQ(NHugePages(8), region_.Release(/*release_fraction=*/0.5));
+  CheckMock();
+
+  ExpectUnback({p_ + NHugePages(11), NHugePages(9)});
+  EXPECT_EQ(NHugePages(9), region_.Release(/*release_fraction=*/1.0));
+  CheckMock();
+}
+
 TEST_F(HugeRegionTest, Release) {
   const Length n = kPagesPerHugePage;
   bool from_released;
@@ -217,18 +241,18 @@ TEST_F(HugeRegionTest, Release) {
   // overlap with others.
   Delete(b);
   ExpectUnback({p_ + NHugePages(4), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release());
+  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/1.0));
   CheckMock();
 
   // Now we're on exact boundaries so we should unback the whole range.
   Delete(d);
   ExpectUnback({p_ + NHugePages(12), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release());
+  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/1.0));
   CheckMock();
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(4)});
-  EXPECT_EQ(NHugePages(4), region_.Release());
+  EXPECT_EQ(NHugePages(4), region_.Release(/*release_fraction=*/1.0));
   CheckMock();
 
   // Should work just as well with aggressive Put():
@@ -540,7 +564,7 @@ TEST_P(HugeRegionSetTest, Release) {
   // huge-region-more-often feature is enabled.
   EXPECT_EQ(r1->free_backed().raw_num(),
             UseHugeRegionMoreOften() ? Region::size().raw_num() : 0);
-  Length released = set_.ReleasePages();
+  Length released = set_.ReleasePages(/*release_fraction=*/1.0);
   stats = set_.stats();
   EXPECT_EQ(released.in_bytes(),
             UseHugeRegionMoreOften() ? stats.system_bytes : 0);

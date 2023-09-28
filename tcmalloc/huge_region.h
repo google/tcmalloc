@@ -81,8 +81,10 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // REQUIRES: [p, p + n) was the result of a previous MaybeGet.
   void Put(PageId p, Length n, bool release);
 
-  // Release any hugepages that are unused but backed.
-  HugeLength Release();
+  // Release <release_fraction> times free-and-backed number of hugepages from
+  // region. Note that this clamps release_fraction between 0 and 1 if a
+  // fraction outside those bounds is specified.
+  HugeLength Release(double release_fraction);
 
   // Is p located in this region?
   bool contains(PageId p) { return location_.contains(p); }
@@ -171,8 +173,11 @@ class HugeRegionSet {
   // Add region to the set.
   void Contribute(Region* region);
 
-  // Release any hugepages that are unused but backed.
-  Length ReleasePages();
+  // Release hugepages that are unused but backed.
+  // Releases up to <release_fraction> times number of free-but-backed hugepages
+  // from each huge region. Note that this clamps release_fraction between 0 and
+  // 1 if a fraction outside those bounds is specified.
+  Length ReleasePages(double release_fraction);
 
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
@@ -281,21 +286,28 @@ inline void HugeRegion::Put(PageId p, Length n, bool release) {
   Dec(p, n, release);
 }
 
-// Release any hugepages that are unused but backed.
-// TODO(b/199203282): We release all unused but backed pages from the region. We
-// can explore a more sophisticated mechanism similar to Filler, that accounts
-// for a recent peak while releasing pages.
-inline HugeLength HugeRegion::Release() {
-  HugeLength r = NHugePages(0);
+// Release hugepages that are unused but backed.
+// TODO(b/199203282): We release up to <release_fraction> times the number of
+// free but backed hugepages from the region. We can explore a more
+// sophisticated mechanism similar to Filler/Cache, that accounts for a recent
+// peak while releasing pages.
+inline HugeLength HugeRegion::Release(double release_fraction) {
+  const size_t free_yet_backed = free_backed().raw_num();
+  size_t to_release = std::max<size_t>(
+      free_yet_backed * std::clamp<double>(release_fraction, 0, 1), 1);
+
+  HugeLength released = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
   for (size_t i = 0; i < kNumHugePages; ++i) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
-      ++r;
+      ++released;
     }
+
+    if (released.raw_num() >= to_release) break;
   }
   UnbackHugepages(should_unback);
-  return r;
+  return released;
 }
 
 inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
@@ -530,10 +542,10 @@ inline void HugeRegionSet<Region>::Contribute(Region* region) {
 }
 
 template <typename Region>
-inline Length HugeRegionSet<Region>::ReleasePages() {
+inline Length HugeRegionSet<Region>::ReleasePages(double release_fraction) {
   Length released;
   for (Region* region : list_) {
-    released += region->Release().in_pages();
+    released += region->Release(release_fraction).in_pages();
   }
   return released;
 }
