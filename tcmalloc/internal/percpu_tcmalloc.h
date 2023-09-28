@@ -439,9 +439,7 @@ inline size_t TcmallocSlab<NumClasses>::Grow(
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
-    // We need to check for `old.begin == 0` because `slabs` may have been
-    // MADV_DONTNEEDed after a call to ResizeSlabs().
-    if (old.IsLocked() || old.end - old.begin == max_cap || old.begin == 0) {
+    if (old.IsLocked() || old.end - old.begin == max_cap) {
       return 0;
     }
     uint16_t n = std::min<uint16_t>(len, max_cap - (old.end - old.begin));
@@ -466,9 +464,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   for (;;) {
     Header old = LoadHeader(hdrp);
-    // We need to check for `old.begin == 0` because `slabs` may have been
-    // MADV_DONTNEEDed after a call to ResizeSlabs().
-    if (old.IsLocked() || old.current == old.end || old.begin == 0) {
+    if (old.IsLocked() || old.current == old.end) {
       return 0;
     }
     uint16_t n = std::min<uint16_t>(len, old.end - old.current);
@@ -1147,8 +1143,10 @@ inline void TcmallocSlab<NumClasses>::StopConcurrentMutations(
 
 template <size_t NumClasses>
 inline bool TcmallocSlab<NumClasses>::Header::IsLocked() const {
-  if (begin == 0xffffu) ASSERT(end == 0 && "begin == 0xffffu -> end == 0");
-  return begin == 0xffffu;
+  ASSERT(end != 0 || begin == 0 || begin == 0xffffu);
+  // Checking end == 0 also covers the case of MADV_DONTNEEDed slabs after
+  // a call to ResizeSlabs(). Such slabs are locked for any practical purposes.
+  return end == 0;
 }
 
 template <size_t NumClasses>
