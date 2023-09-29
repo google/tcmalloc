@@ -554,6 +554,21 @@ cc_library(
     ],
 )
 
+cc_library(
+    name = "mock_huge_page_static_forwarder",
+    testonly = 1,
+    srcs = ["mock_huge_page_static_forwarder.cc"],
+    hdrs = ["mock_huge_page_static_forwarder.h"],
+    deps = [
+        ":common_8k_pages",
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:malloc_internal",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/time",
+    ],
+)
+
 cc_fuzz_test(
     name = "huge_page_aware_allocator_fuzz",
     testonly = 1,
@@ -561,8 +576,10 @@ cc_fuzz_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        ":mock_huge_page_static_forwarder",
         "//tcmalloc/internal:allocation_guard",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/time",
     ],
 )
 

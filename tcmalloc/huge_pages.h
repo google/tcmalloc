@@ -55,6 +55,11 @@ struct HugePage {
     return pn;
   }
 
+  template <typename H>
+  friend H AbslHashValue(H h, const HugePage& p) {
+    return H::combine(std::move(h), p.pn);
+  }
+
   static constexpr uintptr_t kMaxPageNumber =
       std::numeric_limits<uintptr_t>::max() >> kHugePageShift;
 

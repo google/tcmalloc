@@ -14,24 +14,27 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/log/check.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 
 namespace {
+using absl::base_internal::LowLevelAlloc;
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::BackingStats;
-using tcmalloc::tcmalloc_internal::HugePageAwareAllocator;
 using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
 using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
 using tcmalloc::tcmalloc_internal::kMaxSize;
@@ -47,6 +50,10 @@ using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::SizeMap;
 using tcmalloc::tcmalloc_internal::Span;
 using tcmalloc::tcmalloc_internal::SpanAllocInfo;
+using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+    FakeStaticForwarder;
+using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+    HugePageAwareAllocator;
 using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
 }  // namespace
@@ -105,13 +112,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
   // to one and construct in place.
-  void* p = malloc(sizeof(HugePageAwareAllocator));
+  void* p = malloc(sizeof(HugePageAwareAllocator<FakeStaticForwarder>));
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.allocs_for_sparse_and_dense_spans = allocs_option;
-  HugePageAwareAllocator* allocator;
-  allocator = new (p) HugePageAwareAllocator(options);
+  HugePageAwareAllocator<FakeStaticForwarder>* allocator;
+  allocator = new (p) HugePageAwareAllocator<FakeStaticForwarder>(options);
+  auto& forwarder = allocator->forwarder();
 
   struct SpanInfo {
     Span* span;
@@ -120,10 +128,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   std::vector<SpanInfo> allocs;
   Length allocated;
 
-  // TODO(b/271282540): Add an additional op that simulates a failure for
-  // Unback when releasing spans.
-  //
-  // TODO(b/242550501): Use mocks to change runtime parameters while running.
   for (size_t i = 0; i + 9 <= size; i += 9) {
     const uint16_t op = data[i];
     uint64_t value;
@@ -263,6 +267,45 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         uint64_t used_bytes =
             stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
         CHECK_EQ(used_bytes, allocated.in_bytes());
+        break;
+      }
+      case 7: {
+        // Change a runtime parameter.
+        //
+        // value[0:2] - Select parameter
+        // value[3:7] - Reserved
+        // value[8:63] - The value
+        const uint64_t actual_value = value >> 8;
+        switch (value & 0x7) {
+          case 0:
+            forwarder.set_filler_skip_subrelease_interval(
+                absl::Nanoseconds(actual_value));
+            forwarder.set_filler_skip_subrelease_short_interval(
+                absl::ZeroDuration());
+            forwarder.set_filler_skip_subrelease_long_interval(
+                absl::ZeroDuration());
+            break;
+          case 1:
+            forwarder.set_filler_skip_subrelease_interval(absl::ZeroDuration());
+            forwarder.set_filler_skip_subrelease_short_interval(
+                absl::Nanoseconds(actual_value));
+            break;
+          case 2:
+            forwarder.set_filler_skip_subrelease_interval(absl::ZeroDuration());
+            forwarder.set_filler_skip_subrelease_long_interval(
+                absl::Nanoseconds(actual_value));
+            break;
+          case 3:
+            forwarder.set_release_partial_alloc_pages(actual_value & 0x1);
+            break;
+          case 4:
+            forwarder.set_hpaa_subrelease(actual_value & 0x1);
+            break;
+          case 5:
+            forwarder.set_release_succeeds(actual_value & 0x1);
+            break;
+        }
+
         break;
       }
     }

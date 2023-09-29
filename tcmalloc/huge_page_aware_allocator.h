@@ -198,6 +198,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return regions_;
   };
 
+  Forwarder& forwarder() { return forwarder_; }
+
  private:
   class Unback final : public MemoryModifyFunction {
    public:

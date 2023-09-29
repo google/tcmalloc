@@ -340,10 +340,13 @@ class FillerStatsTracker {
   // realized fragemenation interval, we report that we made the correct
   // decision.
   Length GetRecentPeak(absl::Duration peak_interval) {
-    last_skip_subrelease_intervals_.peak_interval = peak_interval;
+    last_skip_subrelease_intervals_.peak_interval =
+        std::min(peak_interval, epoch_length_ * kEpochs);
     Length max_demand_pages;
 
-    int64_t num_epochs = peak_interval / epoch_length_;
+    int64_t num_epochs =
+        std::min<int64_t>(peak_interval / epoch_length_, kEpochs);
+
     tracker_.IterBackwards(
         [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
           if (!e.empty()) {
