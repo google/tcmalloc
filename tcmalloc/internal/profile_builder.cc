@@ -130,21 +130,15 @@ using SampleMergedMap =
                         SampleHashWithSubFields, SampleEqWithSubFields>;
 
 SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
-    const tcmalloc::Profile& profile) {
+    const tcmalloc::Profile& profile, PageFlags* pageflags,
+    Residency* residency) {
   SampleMergedMap map;
-  // Used to populate residency info in heap profile.
-  std::optional<Residency> residency;
-  std::optional<PageFlags> pageflags;
 
-  if (profile.Type() == ProfileType::kHeap) {
-    residency.emplace();
-    pageflags.emplace();
-  }
   profile.Iterate([&](const tcmalloc::Profile::Sample& entry) {
     SampleMergedData& data = map[entry];
     data.count += entry.count;
     data.sum += entry.sum;
-    if (residency.has_value()) {
+    if (residency) {
       auto residency_info =
           residency->Get(entry.span_start_address, entry.allocated_size);
       // As long as `residency_info` provides data in some samples, the merged
@@ -170,7 +164,7 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
     // to actually allow pageflags to return a non-zero number. Until then, be
     // very careful while changing the below -- it needs to match entirely the
     // form above.
-    if (pageflags.has_value()) {
+    if (pageflags) {
       auto page_stats =
           pageflags->Get(entry.span_start_address, entry.allocated_size);
       if (page_stats.has_value()) {
@@ -614,7 +608,8 @@ std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
 }
 
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
-    const ::tcmalloc::Profile& profile) {
+    const ::tcmalloc::Profile& profile, PageFlags* pageflags,
+    Residency* residency) {
   ProfileBuilder builder;
   builder.AddCurrentMappings();
 
@@ -713,8 +708,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
 
   converted.set_default_sample_type(default_sample_type_id);
 
-  SampleMergedMap samples =
-      MergeProfileSamplesAndMaybeGetResidencyInfo(profile);
+  SampleMergedMap samples = MergeProfileSamplesAndMaybeGetResidencyInfo(
+      profile, pageflags, residency);
   for (const auto& [entry, data] : samples) {
     perftools::profiles::Profile& profile = builder.profile();
     perftools::profiles::Sample& sample = *profile.add_sample();
@@ -840,6 +835,23 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   }
 
   return std::move(builder).Finalize();
+}
+
+absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
+    const ::tcmalloc::Profile& profile) {
+  // Used to populate residency info in heap profile.
+  std::optional<PageFlags> pageflags;
+  std::optional<Residency> residency;
+
+  PageFlags* p = nullptr;
+  Residency* r = nullptr;
+
+  if (profile.Type() == ProfileType::kHeap) {
+    p = &pageflags.emplace();
+    r = &residency.emplace();
+  }
+
+  return MakeProfileProto(profile, p, r);
 }
 
 }  // namespace tcmalloc_internal
