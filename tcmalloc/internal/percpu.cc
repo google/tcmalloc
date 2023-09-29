@@ -102,8 +102,10 @@ static void InitPerCpu() {
     // Ensure that tcmalloc_slabs partially overlap with
     // __rseq_abi.cpu_id_start as we expect.
     CHECK_CONDITION(slabs_addr == rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
-    // Ensure that tcmalloc_sampler is located right before tcmalloc_slabs.
-    CHECK_CONDITION(sampler_addr + TCMALLOC_SAMPLER_SIZE == slabs_addr);
+    // Ensure Sampler is properly aligned.
+    CHECK_CONDITION((sampler_addr % TCMALLOC_SAMPLER_ALIGN) == 0);
+    // Ensure that tcmalloc_sampler is located before tcmalloc_slabs.
+    CHECK_CONDITION(sampler_addr + TCMALLOC_SAMPLER_SIZE <= slabs_addr);
 
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.

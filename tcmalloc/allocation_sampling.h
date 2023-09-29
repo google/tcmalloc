@@ -113,8 +113,10 @@ ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 inline Sampler* GetThreadSampler() {
-  static_assert(sizeof(tcmalloc_sampler) == TCMALLOC_SAMPLER_SIZE,
+  static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
                 "update TCMALLOC_SAMPLER_SIZE");
+  static_assert(alignof(Sampler) == TCMALLOC_SAMPLER_ALIGN,
+                "update TCMALLOC_SAMPLER_ALIGN");
   static_assert(Sampler::HotDataOffset() == TCMALLOC_SAMPLER_HOT_OFFSET,
                 "update TCMALLOC_SAMPLER_HOT_OFFSET");
   return &tcmalloc_sampler;

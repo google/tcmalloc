@@ -17,6 +17,8 @@
 
 // sizeof(Sampler)
 #define TCMALLOC_SAMPLER_SIZE 48
+// alignof(Sampler)
+#define TCMALLOC_SAMPLER_ALIGN 8
 // Sampler::HotDataOffset()
 #define TCMALLOC_SAMPLER_HOT_OFFSET 33
 
