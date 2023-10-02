@@ -221,6 +221,12 @@ class CpuCache {
     }
   };
 
+  enum class DynamicSlabResize {
+    kNoop = 0,
+    kShrink,
+    kGrow,
+  };
+
   enum class PerClassMissType {
     // Tracks total number of misses.
     kTotal = 0,
@@ -578,6 +584,10 @@ class CpuCache {
   size_t Steal(int cpu, size_t size_class, size_t bytes,
                ObjectsToReturn* to_return);
 
+  // Depending on the number of misses that cpu caches encountered in the
+  // previous resize interval, returns if slabs should be grown, shrunk or
+  // remain the same.
+  DynamicSlabResize ShouldResizeSlab();
   // Records a cache underflow or overflow on <cpu>, increments underflow or
   // overflow by 1.
   // <is_alloc> determines whether the associated count corresponds to an
@@ -1894,15 +1904,31 @@ inline auto CpuCache<Forwarder>::AllocOrReuseSlabs(
 }
 
 template <class Forwarder>
-void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
-  uint8_t per_cpu_shift = freelist_.GetShift();
-
+inline typename CpuCache<Forwarder>::DynamicSlabResize
+CpuCache<Forwarder>::ShouldResizeSlab() {
   const int num_cpus = NumCPUs();
   CpuCacheMissStats total_misses{};
+  DynamicSlabResize resize = DynamicSlabResize::kNoop;
+  const bool wider_slabs_enabled = UseWiderSlabs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    total_misses +=
+    CpuCacheMissStats misses =
         GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabResize);
+    total_misses += misses;
+
+    if (misses.overflows >
+        misses.underflows *
+            forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
+      resize = DynamicSlabResize::kGrow;
+    }
   }
+
+  // When wider slabs featuee is enabled, we try to grow slabs when the
+  // condition for at least one cpu cache is met. Else, we use total misses to
+  // figure out whether to grow the slab, shrink it, or do nothing.
+  if (wider_slabs_enabled && resize == DynamicSlabResize::kGrow) {
+    return resize;
+  }
+
   // As a simple heuristic, we decide to grow if the total number of overflows
   // is large compared to total number of underflows during the growth period.
   // If the slab size was infinite, we would expect 0 overflows. If the slab
@@ -1911,14 +1937,30 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   if (total_misses.overflows >
       total_misses.underflows *
           forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
+    return DynamicSlabResize::kGrow;
+  } else if (total_misses.overflows <
+             total_misses.underflows *
+                 forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
+    return DynamicSlabResize::kShrink;
+  }
+
+  return DynamicSlabResize::kNoop;
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  uint8_t per_cpu_shift = freelist_.GetShift();
+
+  const int num_cpus = NumCPUs();
+  const DynamicSlabResize resize = ShouldResizeSlab();
+
+  if (resize == DynamicSlabResize::kGrow) {
     if (per_cpu_shift == shift_bounds_.max_shift) return;
     ++per_cpu_shift;
     dynamic_slab_info_
         .grow_count[ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift)]
         .fetch_add(1, std::memory_order_relaxed);
-  } else if (total_misses.overflows <
-             total_misses.underflows *
-                 forwarder_.per_cpu_caches_dynamic_slab_shrink_threshold()) {
+  } else if (resize == DynamicSlabResize::kShrink) {
     if (per_cpu_shift == shift_bounds_.initial_shift) return;
     --per_cpu_shift;
     dynamic_slab_info_

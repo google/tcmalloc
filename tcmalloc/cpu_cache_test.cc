@@ -124,12 +124,15 @@ class TestStaticForwarder {
   bool resize_size_classes_enabled() { return resize_size_classes_enabled_; }
 
   double per_cpu_caches_dynamic_slab_grow_threshold() {
+    if (dynamic_slab_grow_threshold_ >= 0) return dynamic_slab_grow_threshold_;
     return dynamic_slab_ == DynamicSlab::kGrow
                ? -1.0
                : std::numeric_limits<double>::max();
   }
 
   double per_cpu_caches_dynamic_slab_shrink_threshold() {
+    if (dynamic_slab_shrink_threshold_ >= 0)
+      return dynamic_slab_shrink_threshold_;
     return dynamic_slab_ == DynamicSlab::kShrink
                ? std::numeric_limits<double>::max()
                : -1.0;
@@ -181,6 +184,8 @@ class TestStaticForwarder {
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
   bool dynamic_slab_enabled_ = false;
+  double dynamic_slab_grow_threshold_ = -1;
+  double dynamic_slab_shrink_threshold_ = -1;
   bool wider_slabs_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   bool resize_size_classes_enabled_ = false;
@@ -845,6 +850,112 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   cache.Deactivate();
 }
 
+// Runs a single allocate and deallocate operation to warm up the cache. Once a
+// few objects are allocated in the cold cache, we can shuffle cpu caches to
+// steal that capacity from the cold cache to the hot cache.
+static void ColdCacheOperations(CpuCache& cache, int cpu_id,
+                                size_t size_class) {
+  // Temporarily fake being on the given CPU.
+  ScopedFakeCpuId fake_cpu_id(cpu_id);
+  void* ptr = cache.Allocate<NothrowPolicy>(size_class);
+  cache.Deallocate(ptr, size_class);
+}
+
+// Runs multiple allocate and deallocate operation on the cpu cache to collect
+// misses. Once we collect enough misses on this cache, we can shuffle cpu
+// caches to steal capacity from colder caches to the hot cache.
+static void HotCacheOperations(CpuCache& cache, int cpu_id) {
+  constexpr size_t kPtrs = 4096;
+  std::vector<void*> ptrs;
+  ptrs.resize(kPtrs);
+
+  // Temporarily fake being on the given CPU.
+  ScopedFakeCpuId fake_cpu_id(cpu_id);
+
+  // Allocate and deallocate objects to make sure we have enough misses on the
+  // cache. This will make sure we have sufficient disparity in misses between
+  // the hotter and colder cache, and that we may be able to steal bytes from
+  // the colder cache.
+  for (size_t size_class = 1; size_class <= 2; ++size_class) {
+    for (auto& ptr : ptrs) {
+      ptr = cache.Allocate<NothrowPolicy>(size_class);
+    }
+    for (void* ptr : ptrs) {
+      cache.Deallocate(ptr, size_class);
+    }
+  }
+
+  // We reclaim the cache to reset it so that we record underflows/overflows the
+  // next time we allocate and deallocate objects. Without reclaim, the cache
+  // would stay warmed up and it would take more time to drain the colder cache.
+  cache.Reclaim(cpu_id);
+}
+
+// Test that we are complying with the threshold when we grow the slab.
+// When wider slab is enabled, we check if overflow/underflow ratio is above the
+// threshold for individual cpu caches.
+TEST(CpuCacheTest, DynamicSlabThreshold) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+
+  constexpr double kDynamicSlabGrowThreshold = 0.9;
+  for (bool wider_slabs : {false, true}) {
+    CpuCache cache;
+    TestStaticForwarder& forwarder = cache.forwarder();
+    forwarder.dynamic_slab_enabled_ = true;
+    forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
+    forwarder.wider_slabs_enabled_ = wider_slabs;
+
+    cache.Activate();
+
+    constexpr int kCpuId0 = 0;
+    constexpr int kCpuId1 = 1;
+
+    // Accumulate overflows and underflows for kCpuId0.
+    HotCacheOperations(cache, kCpuId0);
+    CpuCache::CpuCacheMissStats interval_misses =
+        cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+    // Make sure that overflows/underflows ratio is greater than the threshold
+    // for kCpuId0 cache.
+    ASSERT_GT(interval_misses.overflows,
+              interval_misses.underflows * kDynamicSlabGrowThreshold);
+
+    // Perform allocations on kCpuId1 so that we accumulate only underflows.
+    // Reclaim after each allocation such that we have no objects in the cache
+    // for the next allocation.
+    for (int i = 0; i < 1024; ++i) {
+      ColdCacheOperations(cache, kCpuId1, /*size_class=*/1);
+      cache.Reclaim(kCpuId1);
+    }
+
+    // Total overflows/underflows ratio must be less than grow threshold now.
+    CpuCache::CpuCacheMissStats total_misses =
+        cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+    total_misses +=
+        cache.GetIntervalCacheMissStats(kCpuId1, MissCount::kSlabResize);
+    ASSERT_LT(total_misses.overflows,
+              total_misses.underflows * kDynamicSlabGrowThreshold);
+
+    cpu_cache_internal::SlabShiftBounds shift_bounds =
+        cache.GetPerCpuSlabShiftBounds();
+    const int shift = shift_bounds.initial_shift;
+    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
+    cache.ResizeSlabIfNeeded();
+
+    // If wider slabs is enabled, we must use overflows and underflows of
+    // individual cpu caches to decide whether to grow the slab. Hence, the
+    // slab should have grown. If wider slabs is disabled, slab shift should
+    // stay the same as total miss ratio is lower than
+    // kDynamicSlabGrowThreshold.
+    if (wider_slabs) {
+      EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
+    } else {
+      EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
+    }
+  }
+}
+
 // Test that when dynamic slab parameters change, things still work.
 TEST(CpuCacheTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
@@ -900,47 +1011,6 @@ TEST(CpuCacheTest, SlabUsage) {
   // Note: we can't do ValidateSlabBytes on the test-cpu-cache because in that
   // case, the slab only uses size classes 1 and 2.
   CpuCachePeer::ValidateSlabBytes(tc_globals.cpu_cache());
-}
-
-// Runs a single allocate and deallocate operation to warm up the cache. Once a
-// few objects are allocated in the cold cache, we can shuffle cpu caches to
-// steal that capacity from the cold cache to the hot cache.
-static void ColdCacheOperations(CpuCache& cache, int cpu_id,
-                                size_t size_class) {
-  // Temporarily fake being on the given CPU.
-  ScopedFakeCpuId fake_cpu_id(cpu_id);
-  void* ptr = cache.Allocate<NothrowPolicy>(size_class);
-  cache.Deallocate(ptr, size_class);
-}
-
-// Runs multiple allocate and deallocate operation on the cpu cache to collect
-// misses. Once we collect enough misses on this cache, we can shuffle cpu
-// caches to steal capacity from colder caches to the hot cache.
-static void HotCacheOperations(CpuCache& cache, int cpu_id) {
-  constexpr size_t kPtrs = 4096;
-  std::vector<void*> ptrs;
-  ptrs.resize(kPtrs);
-
-  // Temporarily fake being on the given CPU.
-  ScopedFakeCpuId fake_cpu_id(cpu_id);
-
-  // Allocate and deallocate objects to make sure we have enough misses on the
-  // cache. This will make sure we have sufficient disparity in misses between
-  // the hotter and colder cache, and that we may be able to steal bytes from
-  // the colder cache.
-  for (size_t size_class = 1; size_class <= 2; ++size_class) {
-    for (auto& ptr : ptrs) {
-      ptr = cache.Allocate<NothrowPolicy>(size_class);
-    }
-    for (void* ptr : ptrs) {
-      cache.Deallocate(ptr, size_class);
-    }
-  }
-
-  // We reclaim the cache to reset it so that we record underflows/overflows the
-  // next time we allocate and deallocate objects. Without reclaim, the cache
-  // would stay warmed up and it would take more time to drain the colder cache.
-  cache.Reclaim(cpu_id);
 }
 
 TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
