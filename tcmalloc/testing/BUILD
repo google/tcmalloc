@@ -401,7 +401,6 @@ create_tcmalloc_testsuite(
     name = "memory_errors_test",
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    flaky = True,  # TODO(b/299117494): Remove when deflaked.
     tags = ["nosan"],
     deps = [
         ":testutil",
