@@ -749,6 +749,7 @@ TEST(CpuCacheTest, DynamicSlab) {
 void AllocateThenDeallocate(CpuCache& cache, int cpu, size_t size_class,
                             int ops) {
   std::vector<void*> objects;
+  ScopedFakeCpuId fake_cpu_id(cpu);
   for (int i = 0; i < ops; ++i) {
     void* ptr = cache.Allocate<NothrowPolicy>(size_class);
     objects.push_back(ptr);
@@ -781,7 +782,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
 
   // Temporarily fake being on the given CPU.
   constexpr int kCpuId = 0;
-  ScopedFakeCpuId fake_cpu_id(kCpuId);
+  constexpr int kCpuId1 = 1;
   constexpr int kMaxCapacity = 1024;
 
   const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
@@ -827,8 +828,11 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   EXPECT_EQ(cache.TotalObjectsOfClass(kSmallClass), 0);
 
   const int num_resizes = NumCPUs() / CpuCache::kNumCpuCachesToResize;
-  for (int i = 0; i < num_resizes; ++i) {
-    cache.ResizeSizeClasses();
+  {
+    ScopedFakeCpuId fake_cpu_id_1(kCpuId1);
+    for (int i = 0; i < num_resizes; ++i) {
+      cache.ResizeSizeClasses();
+    }
   }
 
   // Since we just resized size classes, we started a new interval. So, miss
