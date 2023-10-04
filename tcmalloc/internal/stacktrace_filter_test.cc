@@ -170,13 +170,19 @@ TEST_F(StackTraceFilterTest, CountNew) {
 TEST_F(StackTraceFilterTest, CountDifferent) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(0, filter_.Count(collider_stacktrace_));
 }
 
 TEST_F(StackTraceFilterTest, Add) {
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(1, filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(2, filter_.Count(stacktrace1_));
 }
 
@@ -184,18 +190,28 @@ TEST_F(StackTraceFilterTest, AddCountLimitReached) {
   while (count(stacktrace1_) < filter_hash_count_limit()) {
     filter_.Add(stacktrace1_);
   }
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(filter_hash_count_limit(), filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(filter_hash_count_limit(), filter_.Count(stacktrace1_));
 }
 
 TEST_F(StackTraceFilterTest, AddReplace) {
   InitializeColliderStackTrace();
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(1, filter_.Count(stacktrace1_));
   filter_.Add(stacktrace1_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(0, filter_.replacement_inserts());
   EXPECT_EQ(2, filter_.Count(stacktrace1_));
   filter_.Add(collider_stacktrace_);
+  EXPECT_EQ(1, filter_.max_slots_used());
+  EXPECT_EQ(1, filter_.replacement_inserts());
   EXPECT_EQ(0, filter_.Count(stacktrace1_));
   EXPECT_EQ(1, filter_.Count(collider_stacktrace_));
 }

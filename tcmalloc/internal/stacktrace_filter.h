@@ -44,12 +44,20 @@ class StackTraceFilter {
 
   size_t Count(const StackTrace& stacktrace) const;
   void Add(const StackTrace& stacktrace);
+  size_t max_slots_used() const {
+    return max_slots_used_.load(std::memory_order_relaxed);
+  }
+  size_t replacement_inserts() const {
+    return replacement_inserts_.load(std::memory_order_relaxed);
+  }
 
  private:
   constexpr static size_t kMask = 0xFF;
   constexpr static size_t kHashCountLimit = kMask;
   constexpr static int kSize = kMask + 1;
   std::atomic<size_t> stack_hashes_with_count_[kSize]{0};
+  std::atomic<size_t> max_slots_used_{0};
+  std::atomic<size_t> replacement_inserts_{0};
 
   inline size_t HashOfStackTrace(const StackTrace& stacktrace) const {
     return absl::HashOf(
@@ -100,6 +108,11 @@ inline void StackTraceFilter::Add(const StackTrace& stacktrace) {
     stack_hashes_with_count_[stack_hash % kSize].store(
         (stack_hash & ~kMask) | count, std::memory_order_relaxed);
   } else {
+    if (existing_stack_hash_with_count == 0) {
+      max_slots_used_.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      replacement_inserts_.fetch_add(1, std::memory_order_relaxed);
+    }
     // New stack_hash being placed in (unoccupied entry || existing entry)
     stack_hashes_with_count_[stack_hash % kSize].store(
         (stack_hash & ~kMask) | 1, std::memory_order_relaxed);
