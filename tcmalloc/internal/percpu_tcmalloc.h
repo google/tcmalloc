@@ -574,7 +574,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 #define TCMALLOC_RSEQ_INPUTS                                                 \
   TCMALLOC_RSEQ_ABI_INPUT                                                    \
   [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),                      \
-      [rseq_sig] "in"(                                                       \
+      [rseq_sig] "n"(                                                        \
           TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
                                               is no cost to passing unused   \
                                               consts. */                     \
