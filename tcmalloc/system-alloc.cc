@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
@@ -522,7 +523,10 @@ void SetRegionFactory(AddressRegionFactory* factory) {
 static uintptr_t RandomMmapHint(size_t size, size_t alignment,
                                 const MemoryTag tag) {
   // Rely on kernel's mmap randomization to seed our RNG.
-  static uintptr_t rnd = []() {
+  ABSL_CONST_INIT static uintptr_t rnd;
+  ABSL_CONST_INIT static absl::once_flag flag;
+
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     void* seed =
         mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (seed == MAP_FAILED) {
@@ -531,8 +535,8 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
             kPageSize);
     }
     munmap(seed, kPageSize);
-    return reinterpret_cast<uintptr_t>(seed);
-  }();
+    rnd = reinterpret_cast<uintptr_t>(seed);
+  });
 
 #if !defined(MEMORY_SANITIZER) && !defined(THREAD_SANITIZER)
   // We don't use the following bits:

@@ -28,6 +28,7 @@
 #include <string>
 
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/memory/memory.h"
 #include "absl/time/time.h"
@@ -183,8 +184,12 @@ size_t AddressRegionFactory::InternalBytesAllocated() {
 
 void* AddressRegionFactory::MallocInternal(size_t size) {
   // Use arena without malloc hooks to avoid HeapChecker reporting a leak.
-  static auto* arena =
-      absl::base_internal::LowLevelAlloc::NewArena(/*flags=*/0);
+  ABSL_CONST_INIT static absl::base_internal::LowLevelAlloc::Arena* arena;
+  ABSL_CONST_INIT static absl::once_flag flag;
+
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    arena = absl::base_internal::LowLevelAlloc::NewArena(/*flags=*/0);
+  });
   void* result =
       absl::base_internal::LowLevelAlloc::AllocWithArena(size, arena);
   if (result) {

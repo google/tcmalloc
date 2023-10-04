@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <string>
 
+#include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/macros.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
@@ -49,16 +51,16 @@ bool LookupExperimentID(absl::string_view label, Experiment* exp) {
 }
 
 const bool* GetSelectedExperiments() {
-  static bool by_id[kNumExperiments];
+  ABSL_CONST_INIT static bool by_id[kNumExperiments];
+  ABSL_CONST_INIT static absl::once_flag flag;
 
-  static const bool* status = [&]() {
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     const char* active_experiments = thread_safe_getenv(kExperiments);
     const char* disabled_experiments = thread_safe_getenv(kDisableExperiments);
-    return SelectExperiments(by_id,
-                             active_experiments ? active_experiments : "",
-                             disabled_experiments ? disabled_experiments : "");
-  }();
-  return status;
+    SelectExperiments(by_id, active_experiments ? active_experiments : "",
+                      disabled_experiments ? disabled_experiments : "");
+  });
+  return by_id;
 }
 
 template <typename F>

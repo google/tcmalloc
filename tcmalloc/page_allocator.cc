@@ -17,6 +17,8 @@
 #include <limits>
 #include <new>
 
+#include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -87,7 +89,11 @@ bool decide_want_hpaa() {
 }
 
 bool want_hpaa() {
-  static bool use = decide_want_hpaa();
+  ABSL_CONST_INIT static bool use;
+  ABSL_CONST_INIT static absl::once_flag flag;
+
+  absl::base_internal::LowLevelCallOnce(&flag,
+                                        []() { use = decide_want_hpaa(); });
 
   return use;
 }
