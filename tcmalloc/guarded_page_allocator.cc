@@ -16,11 +16,17 @@
 
 #include <sys/mman.h>
 
+#include <algorithm>
+#include <cstdint>
+
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -90,6 +96,15 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
 
   // Record stack trace.
   SlotMetadata& d = data_[free_slot];
+  // Count the number of pages that have been used at least once.
+  if (d.allocation_start == 0) {
+    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+    ++total_pages_used_;
+    if (total_pages_used_ == total_pages_) {
+      alloced_page_count_when_all_used_once_ =
+          num_allocation_requests_ - num_failed_allocations_;
+    }
+  }
   d.dealloc_trace.depth = 0;
   d.alloc_trace.depth = absl::GetStackTrace(d.alloc_trace.stack, kMaxStackDepth,
                                             /*skip_count=*/3);
@@ -186,6 +201,8 @@ void GuardedPageAllocator::Print(Printer* out) {
       "Maximum Slots Allocated: %zu / %zu\n"
       "StackTraceFilter Max Slots Used: %zu\n"
       "StackTraceFilter Replacement Inserts: %zu\n"
+      "Total Slots Used Once: %zu / %zu\n"
+      "Allocation Count When All Slots Used Once: %zu\n"
       "PARAMETER tcmalloc_guarded_sample_parameter %d\n"
       // TODO(b/263387812): remove when experiment is finished
       "PARAMETER tcmalloc_improved_guarded_sampling %d\n",
@@ -193,7 +210,8 @@ void GuardedPageAllocator::Print(Printer* out) {
       num_failed_allocations_, num_alloced_pages_,
       total_pages_ - num_alloced_pages_, num_alloced_pages_max_,
       max_alloced_pages_, tc_globals.stacktrace_filter().max_slots_used(),
-      tc_globals.stacktrace_filter().replacement_inserts(), GetChainedRate(),
+      tc_globals.stacktrace_filter().replacement_inserts(), total_pages_used_,
+      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate(),
       Parameters::improved_guarded_sampling());
 }
 
@@ -211,6 +229,10 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
                      tc_globals.stacktrace_filter().max_slots_used());
   gwp_asan->PrintI64("stack_trace_filter_replacement_inserts",
                      tc_globals.stacktrace_filter().replacement_inserts());
+  gwp_asan->PrintI64("total_pages_used", total_pages_used_);
+  gwp_asan->PrintI64("total_pages", total_pages_);
+  gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
+                     alloced_page_count_when_all_used_once_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
   // TODO(b/263387812): remove when experiment is finished
   gwp_asan->PrintI64("tcmalloc_improved_guarded_sampling",

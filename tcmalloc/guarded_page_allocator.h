@@ -72,6 +72,8 @@ class GuardedPageAllocator {
         first_page_addr_(0),
         max_alloced_pages_(0),
         total_pages_(0),
+        total_pages_used_(0),
+        alloced_page_count_when_all_used_once_(0),
         page_size_(0),
         rand_(0),
         initialized_(false),
@@ -272,6 +274,12 @@ class GuardedPageAllocator {
   uintptr_t first_page_addr_;  // Points to first page returnable by Allocate.
   size_t max_alloced_pages_;   // Max number of pages to allocate at once.
   size_t total_pages_;         // Size of the page pool to allocate from.
+  // Number of pages allocated at least once from page pool.
+  size_t total_pages_used_ ABSL_GUARDED_BY(guarded_page_lock_);
+  // The count of allocs when all the pages had been used at least once (i.e.
+  // when total_pages_used_ == total_pages_).
+  size_t alloced_page_count_when_all_used_once_
+      ABSL_GUARDED_BY(guarded_page_lock_);
   size_t page_size_;           // Size of pages we allocate.
   uint64_t rand_;              // RNG seed.
 
