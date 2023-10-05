@@ -68,6 +68,12 @@ constexpr bool PageLocked(uint64_t flags) {
   constexpr uint64_t kPageUnevictable = (1UL << KPF_UNEVICTABLE);
   return (flags & (kPageMlocked | kPageUnevictable)) != 0;
 }
+void MaybeAddToStats(PageFlags::PageStats& stats, const uint64_t flags,
+                     const size_t delta) {
+  if (PageStale(flags)) stats.bytes_stale += delta;
+  if (PageLocked(flags)) stats.bytes_locked += delta;
+}
+
 }  // namespace
 
 PageFlags::PageFlags()
@@ -165,11 +171,9 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
           return absl::StatusCode::kFailedPrecondition;
         }
         auto last_read = last_head_read_;
-        if (PageStale(last_read)) output.bytes_stale += kPageSize;
-        if (PageLocked(last_read)) output.bytes_locked += kPageSize;
+        MaybeAddToStats(output, last_read, kPageSize);
       } else {
-        if (PageStale(buf_[i])) output.bytes_stale += kPageSize;
-        if (PageLocked(buf_[i])) output.bytes_locked += kPageSize;
+        MaybeAddToStats(output, buf_[i], kPageSize);
       }
     }
     num_pages -= batch_size;
@@ -207,8 +211,7 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
         res != absl::StatusCode::kOk) {
       return std::nullopt;
     }
-    if (PageStale(result_flags)) ret.bytes_stale += size;
-    if (PageLocked(result_flags)) ret.bytes_locked += size;
+    MaybeAddToStats(ret, result_flags, size);
     return ret;
   }
 
@@ -242,22 +245,14 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
     if (remainingPages <= 0) {
       // This hugepage represents every single page that this object is on;
       // we're done.
-      if (PageStale(result_flags)) ret.bytes_stale += size;
-      if (PageLocked(result_flags)) ret.bytes_locked += size;
+      MaybeAddToStats(ret, result_flags, size);
       return ret;
     }
 
-    if (PageStale(result_flags)) {
-      // pages_represented - 1 is the number of full pages represented (see
-      // diagram)
-      ret.bytes_stale += firstPageSize + (pages_represented - 1) * kPageSize;
-    }
-
-    if (PageLocked(result_flags)) {
-      // pages_represented - 1 is the number of full pages represented (see
-      // diagram)
-      ret.bytes_locked += firstPageSize + (pages_represented - 1) * kPageSize;
-    }
+    // pages_represented - 1 is the number of full pages represented (see
+    // diagram)
+    MaybeAddToStats(ret, result_flags,
+                    firstPageSize + (pages_represented - 1) * kPageSize);
 
     // We've read one uint64_t about a single page, but it represents 512 small
     // pages. So the next page that is of interest is one hugepage away -- seek
@@ -269,12 +264,7 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
     }
   } else {
     remainingPages--;
-    if (PageStale(result_flags)) {
-      ret.bytes_stale += firstPageSize;
-    }
-    if (PageLocked(result_flags)) {
-      ret.bytes_locked += firstPageSize;
-    }
+    MaybeAddToStats(ret, result_flags, firstPageSize);
   }
 
   // Handle all pages but the last page.
@@ -290,12 +280,7 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
       res != absl::StatusCode::kOk) {
     return std::nullopt;
   }
-  if (PageStale(result_flags)) {
-    ret.bytes_stale += lastPageSize;
-  }
-  if (PageLocked(result_flags)) {
-    ret.bytes_locked += lastPageSize;
-  }
+  MaybeAddToStats(ret, result_flags, lastPageSize);
   return ret;
 }
 
