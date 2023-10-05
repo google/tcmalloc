@@ -63,11 +63,11 @@ class PageFlags {
     size_t bytes_stale;
     size_t bytes_locked;
 
-    bool operator==(const PageStats& lhs) const {
-      return bytes_stale == lhs.bytes_stale && bytes_locked == lhs.bytes_locked;
+    bool operator==(const PageStats& rhs) const {
+      return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked;
     }
 
-    bool operator!=(const PageStats& lhs) const { return !(*this == lhs); }
+    bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
   };
 
   std::optional<PageStats> Get(const void* addr, size_t size);
