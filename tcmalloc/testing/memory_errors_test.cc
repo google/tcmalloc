@@ -338,8 +338,10 @@ TEST_P(ParameterizedTcMallocTest, ReallocNoFalsePositive) {
 }
 
 TEST_P(ParameterizedTcMallocTest, OffsetAndLength) {
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
-  auto RepeatUseAfterFree = [](size_t buffer_len, off_t access_offset) {
+  bool improved_coverage_enabled = GetParam();
+  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
+      improved_coverage_enabled);
+  auto RepeatUseAfterFree = [&](size_t buffer_len, off_t access_offset) {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(buffer_len);
       ::operator delete(buf);
@@ -348,6 +350,7 @@ TEST_P(ParameterizedTcMallocTest, OffsetAndLength) {
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf)) {
         volatile char sink = static_cast<char*>(buf)[access_offset];
         benchmark::DoNotOptimize(sink);
+        MaybeResetStackTraceFilter(improved_coverage_enabled);
       }
     }
   };
