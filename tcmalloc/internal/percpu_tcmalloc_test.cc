@@ -472,6 +472,32 @@ TEST_F(TcmallocSlabTest, Unit) {
   }
 }
 
+TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    // This test unregisters rseq temporarily, as to decrease flakiness.
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+  constexpr int kCpu = 1;
+  constexpr int kSizeClass = 1;
+  slab_.InitCpu(kCpu, [](size_t size_class) { return kCapacity; });
+  EXPECT_EQ(
+      slab_.ShrinkOtherCache(kCpu, kSizeClass, /*len=*/1,
+                             [](size_t size_class, void** batch, size_t n) {
+                               EXPECT_LT(size_class, kStressSlabs);
+                               EXPECT_LE(n, kStressCapacity);
+                               EXPECT_GT(n, 0);
+                               for (size_t i = 0; i < n; ++i) {
+                                 EXPECT_NE(batch[i], nullptr);
+                               }
+                             }),
+      0);
+}
+
 TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   if (!IsFast()) {
     GTEST_SKIP() << "Need fast percpu. Skipping.";
@@ -652,6 +678,7 @@ void StressThread(size_t thread_id, Context& ctx) {
           [&block](size_t size_class, void** batch, size_t n) {
             EXPECT_LT(size_class, kStressSlabs);
             EXPECT_LE(n, kStressCapacity);
+            EXPECT_GT(n, 0);
             for (size_t i = 0; i < n; ++i) {
               EXPECT_NE(batch[i], nullptr);
               block.push_back(batch[i]);

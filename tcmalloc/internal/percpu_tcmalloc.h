@@ -1449,10 +1449,13 @@ size_t TcmallocSlab<NumClasses>::ShrinkOtherCache(
   // slab.
 
   const uint16_t unused = hdr.end_copy - hdr.current;
+  uint16_t actual_pop = 0;
   if (unused < len) {
     const uint16_t expected_pop = len - unused;
-    const uint16_t actual_pop =
-        std::min<uint16_t>(expected_pop, hdr.current - begin);
+    actual_pop = std::min<uint16_t>(expected_pop, hdr.current - begin);
+  }
+
+  if (actual_pop > 0) {
     void** batch = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) +
                    hdr.current - actual_pop;
     TSANAcquireBatch(batch, actual_pop);
