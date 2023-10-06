@@ -187,6 +187,13 @@ class Sampler {
   ssize_t GetGeometricVariable(ssize_t mean);
 };
 
+extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler_alias
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
+#ifdef __x86_64__
+ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler_alias
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
+#endif
+
 inline size_t Sampler::RecordAllocation(size_t k) {
   // The first time we enter this function we expect bytes_until_sample_
   // to be zero, and we must call SampleAllocationSlow() to ensure
@@ -234,7 +241,7 @@ Sampler::TryRecordAllocationFast(size_t k) {
   // are permitted. And thus it makes sense to assert on that.
   ASSERT(static_cast<ssize_t>(k) > 0);
 
-#ifdef __aarch64__
+#ifndef __x86_64__
   // TODO(b/271483758): This produces a more efficient compare on ARM.
   if (ABSL_PREDICT_FALSE(bytes_until_sample_ <= k)) {
 #else
@@ -247,18 +254,18 @@ Sampler::TryRecordAllocationFast(size_t k) {
     // to avoid non-tail calls in malloc fast-path. See also comments
     // on declaration inside Sampler class.
     //
-    // volatile is used here to improve compiler's choice of
-    // instructions. We know that this path is very rare and that there
-    // is no need to keep previous value of bytes_until_sample_ in
-    // register. This helps compiler generate slightly more efficient
+    // TODO(b/302050723): tcmalloc_sampler_alias is used here to improve
+    // compiler's choice of instructions. We know that this path is very rare
+    // and that there is no need to keep previous value of bytes_until_sample_
+    // in register. This helps compiler generate slightly more efficient
     // sub <reg>, <mem> instruction for subtraction above.
-#ifndef __aarch64__
-    volatile ssize_t* ptr = const_cast<volatile ssize_t*>(&bytes_until_sample_);
-    *ptr = *ptr + k;
+#ifdef __x86_64__
+    ASSERT(this == &tcmalloc_sampler_alias);
+    tcmalloc_sampler_alias.bytes_until_sample_ += k;
 #endif
     return false;
   }
-#ifdef __aarch64__
+#ifndef __x86_64__
   bytes_until_sample_ -= static_cast<ssize_t>(k);
 #endif
   return true;
