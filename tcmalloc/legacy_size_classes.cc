@@ -38,7 +38,7 @@ namespace tcmalloc_internal {
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 86;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -132,7 +132,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 78;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -218,7 +218,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 89;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -315,7 +315,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 46;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -373,7 +373,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 86;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -467,7 +467,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 78;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -553,7 +553,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 89;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -650,7 +650,7 @@ constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesL
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 46;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%

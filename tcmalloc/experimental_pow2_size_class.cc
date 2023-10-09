@@ -38,7 +38,7 @@ namespace tcmalloc_internal {
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -63,7 +63,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -88,7 +88,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -113,7 +113,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 12;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -137,7 +137,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -162,7 +162,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -187,7 +187,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static const int kCount = 17;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
@@ -212,7 +212,7 @@ constexpr absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses(kExperime
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static const int kCount = 12;
-static_assert(kCount <= kNumClasses);
+static_assert(kCount <= kNumBaseClasses);
 static constexpr SizeClassInfo kExperimentalPow2SizeClassesList[kCount] = {
     // <bytes>, <pages>, <batch size>    <fixed>
     {        0,       0,           0},  // +Inf%
