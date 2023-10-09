@@ -49,6 +49,19 @@ class PageFlags {
   PageFlags();
   ~PageFlags();
 
+  struct PageStats {
+    size_t bytes_stale = 0;
+    size_t bytes_locked = 0;
+
+    // This is currently used only by tests. It'll be good to convert this to
+    // C++20 "= default" when we increase the baseline compiler requirement.
+    bool operator==(const PageStats& rhs) const {
+      return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked;
+    }
+
+    bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
+  };
+
   // Query a span of memory starting from `addr` for `size` bytes. The memory
   // span must consist of only native-size pages and THP hugepages; the behavior
   // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
@@ -59,17 +72,6 @@ class PageFlags {
   // dynamic memory allocation would happen.  In contrast, absl::StatusOr may
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
-  struct PageStats {
-    size_t bytes_stale;
-    size_t bytes_locked;
-
-    bool operator==(const PageStats& rhs) const {
-      return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked;
-    }
-
-    bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
-  };
-
   std::optional<PageStats> Get(const void* addr, size_t size);
 
  private:

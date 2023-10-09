@@ -189,8 +189,6 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
   last_head_read_ = -1;
 
   PageStats ret;
-  ret.bytes_stale = 0;
-  ret.bytes_locked = 0;
   if (size == 0) return ret;
   uint64_t result_flags = 0;
   bool is_huge = false;

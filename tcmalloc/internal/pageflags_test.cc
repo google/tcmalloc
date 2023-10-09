@@ -72,6 +72,7 @@ std::ostream& operator<<(std::ostream& os, const PageFlags::PageStats& s) {
 
 namespace {
 
+using ::testing::FieldsAre;
 using ::testing::Optional;
 using PageStats = PageFlags::PageStats;
 
@@ -84,6 +85,12 @@ constexpr size_t kPagemapEntrySize = 8;
 constexpr size_t kHugePageSize = 2 << 20;
 constexpr size_t kHugePageMask = ~(kHugePageSize - 1);
 
+TEST(PageFlagsTest, Smoke) {
+  GTEST_SKIP() << "pageflags not commonly available";
+  auto res = PageFlags{}.Get(nullptr, 0);
+  EXPECT_THAT(res, Optional(PageStats{}));
+}
+
 TEST(PageFlagsTest, Stack) {
   GTEST_SKIP() << "pageflags not commonly available";
 
@@ -93,7 +100,7 @@ TEST(PageFlagsTest, Stack) {
 
   PageFlags s;
   EXPECT_THAT(s.Get(reinterpret_cast<void*>(buf), sizeof(buf)),
-              Optional(PageStats{0, 0}));
+              Optional(PageStats{}));
 }
 
 TEST(PageFlagsTest, Alignment) {
@@ -112,8 +119,7 @@ TEST(PageFlagsTest, Alignment) {
     ASSERT_EQ(madvise(p, kPageSize * kNumPages, MADV_HUGEPAGE), 0) << errno;
 
     PageFlags s;
-    EXPECT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{0, 0}))
-        << p;
+    EXPECT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{})) << p;
     munmap(p, kNumPages * kPageSize);
   }
 }
@@ -176,7 +182,7 @@ TEST(PageFlagsTest, Stale) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
   PageFlags s;
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{0, 0}));
+  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
 
   // This doesn't work within a short test timeout. But if you have your own
   // machine with appropriate patches, you can try it out!
@@ -209,26 +215,26 @@ TEST(PageFlagsTest, Stale) {
         // only passing when the machine you get scheduled on is out of
         // hugepages.
         EXPECT_THAT(mocks.Get(nullptr, num_pages * kPageSize + offset),
-                    Optional(PageStats{num_pages * kPageSize + offset, 0}))
+                    Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(
             mocks.Get((char*)fake_p - offset, num_pages * kPageSize + offset),
-            Optional(PageStats{num_pages * kPageSize + offset, 0}))
+            Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(mocks.Get(fake_p, num_pages * kPageSize + offset),
-                    Optional(PageStats{num_pages * kPageSize + offset, 0}))
+                    Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(
             mocks.Get((char*)fake_p + offset, num_pages * kPageSize + offset),
-            Optional(PageStats{num_pages * kPageSize + offset, 0}))
+            Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(
             mocks.Get((char*)kHugePageSize + offset, num_pages * kPageSize),
-            Optional(PageStats{num_pages * kPageSize, 0}))
+            Optional(FieldsAre(num_pages * kPageSize, 0)))
             << num_pages << "," << offset;
       }
     }
@@ -236,7 +242,7 @@ TEST(PageFlagsTest, Stale) {
     EXPECT_THAT(mocks.Get(reinterpret_cast<char*>(2 * kHugePageSize +
                                                   16 * kPageSize + 2),
                           kHugePageSize * 3),
-                Optional(PageStats{kHugePageSize * 3, 0}));
+                Optional(FieldsAre(kHugePageSize * 3, 0)));
   }
 
   ASSERT_EQ(munmap(p, kNumPages * kPageSize), 0) << errno;
@@ -264,7 +270,7 @@ TEST(PageFlagsTest, Locked) {
   }
 
   PageFlags s;
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{0, 0}));
+  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
 
   ASSERT_EQ(madvise(p, kHugePageSize, MADV_NOHUGEPAGE), 0) << errno;
   ASSERT_EQ(madvise(p + kHugePageSize, 3 * kHugePageSize, MADV_HUGEPAGE), 0)
@@ -274,7 +280,7 @@ TEST(PageFlagsTest, Locked) {
   ASSERT_EQ(madvise(p + 5 * kHugePageSize, kHugePageSize, MADV_HUGEPAGE), 0)
       << errno;
 
-  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{0, 0}));
+  ASSERT_THAT(s.Get(p, kPageSize * kNumPages), Optional(PageStats{}));
 
   ASSERT_EQ(mlock(p, kPageSize * kNumPages), 0) << errno;
 
@@ -348,12 +354,12 @@ TEST(PageFlagsTest, TooManyTails) {
 
   PageFlagsFriend s(file_path.c_str());
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
-              Optional(PageStats{0, 0}));
+              Optional(PageStats{}));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), 3 * kHugePageSize),
-              Optional(PageStats{0, 0}));
+              Optional(PageStats{}));
 
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(3 * kHugePageSize), kHugePageSize),
-              Optional(PageStats{0, 0}));
+              Optional(PageStats{}));
   EXPECT_THAT(
       s.Get(reinterpret_cast<char*>(3 * kHugePageSize), 2 * kHugePageSize),
       std::nullopt);
