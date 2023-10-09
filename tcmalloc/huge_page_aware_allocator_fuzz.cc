@@ -228,8 +228,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           stats = allocator->FillerStats();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
         }
-        CHECK_GE(released.in_bytes(),
-                 std::min(desired.in_bytes(), stats.free_bytes));
+
+        if (forwarder.release_succeeds()) {
+          CHECK_GE(released.in_bytes(),
+                   std::min(desired.in_bytes(), stats.free_bytes));
+        } else {
+          // TODO(b/271282540):  This is not strict equality due to
+          // HugePageFiller's unmapping_unaccounted_ state.  Narrow this bound.
+          CHECK_GE(released.in_bytes(), 0);
+        }
         break;
       }
       case 4: {

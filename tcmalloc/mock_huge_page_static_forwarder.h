@@ -60,6 +60,7 @@ class FakeStaticForwarder {
     release_partial_alloc_pages_ = v;
   }
   void set_hpaa_subrelease(bool v) { hpaa_subrelease_ = v; }
+  bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool v) { release_succeeds_ = v; }
 
   // Arena state.
