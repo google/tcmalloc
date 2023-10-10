@@ -378,11 +378,13 @@ class FillerStatsTracker {
         long_interval != absl::ZeroDuration()) {
       ASSERT(short_interval <= long_interval);
     }
-    last_skip_subrelease_intervals_.short_interval = short_interval;
-    last_skip_subrelease_intervals_.long_interval = long_interval;
+    last_skip_subrelease_intervals_.short_interval =
+        std::min(short_interval, epoch_length_ * kEpochs);
+    last_skip_subrelease_intervals_.long_interval =
+        std::min(long_interval, epoch_length_ * kEpochs);
     Length short_term_fluctuation_pages, long_term_trend_pages;
-    int64_t short_epochs = short_interval / epoch_length_;
-    int64_t long_epochs = long_interval / epoch_length_;
+    int short_epochs = std::min<int>(short_interval / epoch_length_, kEpochs);
+    int long_epochs = std::min<int>(long_interval / epoch_length_, kEpochs);
 
     tracker_.IterBackwards(
         [&](size_t offset, int64_t ts, const FillerStatsEntry& e) {
