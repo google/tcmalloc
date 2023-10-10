@@ -322,12 +322,12 @@ INSTANTIATE_TEST_SUITE_P(
 namespace {
 
 using central_freelist_internal::kNumLists;
-template <typename Env>
-using CentralFreeListTest = ::testing::Test;
-TYPED_TEST_SUITE_P(CentralFreeListTest);
+using TypeParam = FakeCentralFreeListEnvironment<
+    central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
+using CentralFreeListTest = ::testing::TestWithParam<size_t>;
 
-TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
-  TypeParam e;
+TEST_P(CentralFreeListTest, IsolatedSmoke) {
+  TypeParam e(GetParam());
 
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
@@ -340,7 +340,7 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
   // We should observe span's utilization captured in the histogram. The number
   // of spans in rest of the buckets should be zero.
   const int bitwidth = absl::bit_width(static_cast<unsigned>(allocated));
-  for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+  for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
     if (i == bitwidth) {
       EXPECT_EQ(e.central_freelist().NumSpansWith(i), 1);
     } else {
@@ -365,19 +365,19 @@ TYPED_TEST_P(CentralFreeListTest, IsolatedSmoke) {
 
   // Span captured in the histogram with the earlier utilization should have
   // been removed.
-  for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+  for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 }
 
-TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
-  TypeParam e;
+TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
+  TypeParam e(GetParam());
 
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
+  const int num_objects_to_fetch = kNumSpans * e.objects_per_span();
   int total_fetched = 0;
   // Tracks object and corresponding span idx from which it was allocated.
   std::vector<std::pair<void*, int>> objects_to_span_idx;
@@ -393,7 +393,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 
     // Increment span_idx if current objects have been fetched from the new
     // span.
-    if (total_fetched > (span_idx + 1) * TypeParam::kObjectsPerSpan) {
+    if (total_fetched > (span_idx + 1) * e.objects_per_span()) {
       ++span_idx;
     }
     // Record fetched object and associated span index.
@@ -408,9 +408,9 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   EXPECT_EQ(span_idx + 1, kNumSpans);
 
   // We should have kNumSpans spans in the histogram with number of allocated
-  // objects equal to TypeParam::kObjectsPerSpan (i.e. in the last bucket).
+  // objects equal to e.objects_per_span() (i.e. in the last bucket).
   // Rest of the buckets should be empty.
-  const int expected_bitwidth = absl::bit_width(TypeParam::kObjectsPerSpan);
+  const int expected_bitwidth = absl::bit_width(e.objects_per_span());
   EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
   for (int i = 1; i < expected_bitwidth; ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
@@ -423,7 +423,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   // Return objects, a fraction at a time, each time checking that histogram is
   // correct.
   int total_returned = 0;
-  const int last_bucket = absl::bit_width(TypeParam::kObjectsPerSpan) - 1;
+  const int last_bucket = absl::bit_width(e.objects_per_span()) - 1;
   while (total_returned < num_objects_to_fetch) {
     uint64_t size_to_pop = std::min(objects_to_span_idx.size() - total_returned,
                                     TypeParam::kBatchSize);
@@ -438,7 +438,7 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
     e.central_freelist().InsertRange({batch, size_to_pop});
 
     // Calculate expected histogram.
-    size_t expected[absl::bit_width(TypeParam::kObjectsPerSpan)] = {0};
+    std::vector<size_t> expected(absl::bit_width(e.objects_per_span()), 0);
     for (int i = 0; i < kNumSpans; ++i) {
       // If span has non-zero allocated objects, include it in the histogram.
       if (allocated_per_span[i]) {
@@ -467,32 +467,32 @@ TYPED_TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 // makes sure that we populate, and subsequently allocate from a single span.
 // This avoids memory regression due to multiple Populate calls observed in
 // b/225880278.
-TYPED_TEST_P(CentralFreeListTest, SinglePopulate) {
+TEST_P(CentralFreeListTest, SinglePopulate) {
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-    TypeParam e;
-    // Try to fetch sufficiently large number of objects at startup.
-    const int num_objects_to_fetch = 10 * TypeParam::kObjectsPerSpan;
-    void* objects[num_objects_to_fetch];
-    const size_t got =
-        e.central_freelist().RemoveRange(objects, num_objects_to_fetch);
-    // Confirm we allocated at most kObjectsPerSpan number of objects.
-    EXPECT_GT(got, 0);
-    EXPECT_LE(got, TypeParam::kObjectsPerSpan);
-    size_t returned = 0;
-    while (returned < got) {
-      const size_t to_return = std::min(got - returned, TypeParam::kBatchSize);
-      e.central_freelist().InsertRange({&objects[returned], to_return});
-      returned += to_return;
-    }
+  TypeParam e(GetParam());
+  // Try to fetch sufficiently large number of objects at startup.
+  const int num_objects_to_fetch = 10 * e.objects_per_span();
+  std::vector<void*> objects(num_objects_to_fetch, nullptr);
+  const size_t got =
+      e.central_freelist().RemoveRange(objects.data(), num_objects_to_fetch);
+  // Confirm we allocated at most kObjectsPerSpan number of objects.
+  EXPECT_GT(got, 0);
+  EXPECT_LE(got, e.objects_per_span());
+  size_t returned = 0;
+  while (returned < got) {
+    const size_t to_return = std::min(got - returned, TypeParam::kBatchSize);
+    e.central_freelist().InsertRange({&objects[returned], to_return});
+    returned += to_return;
+  }
 }
 
 // Checks if we are indexing a span in the nonempty_ lists as expected.
-TYPED_TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
-  TypeParam e;
+TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
+  TypeParam e(GetParam());
 
   ASSERT(kNumLists > 0);
-  const int num_objects_to_fetch = TypeParam::kObjectsPerSpan;
+  const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
   int expected_idx = kNumLists - 1;
@@ -562,13 +562,13 @@ TYPED_TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
 // objects than the other span. On subsequent allocations, we confirm that the
 // objects are allocated from the span with a higher number of allocated objects
 // as enforced by our prioritization scheme.
-TYPED_TEST_P(CentralFreeListTest, SpanPriority) {
-  TypeParam e;
+TEST_P(CentralFreeListTest, SpanPriority) {
+  TypeParam e(GetParam());
 
   // If the number of objects per span is less than 3, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
   // objects were allocated from them.
-  const int objects_per_span = TypeParam::kObjectsPerSpan;
+  const int objects_per_span = e.objects_per_span();
   if (objects_per_span < 3 || kNumLists < 2) return;
 
   constexpr int kNumSpans = 2;
@@ -654,15 +654,15 @@ TYPED_TEST_P(CentralFreeListTest, SpanPriority) {
   }
 }
 
-TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
-  TypeParam e;
+TEST_P(CentralFreeListTest, MultipleSpans) {
+  TypeParam e(GetParam());
   std::vector<void*> all_objects;
 
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
-  const int num_objects_to_fetch = kNumSpans * TypeParam::kObjectsPerSpan;
+  const int num_objects_to_fetch = kNumSpans * e.objects_per_span();
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
@@ -675,9 +675,9 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   }
 
   // We should have kNumSpans spans in the histogram with number of
-  // allocated objects equal to TypeParam::kObjectsPerSpan (i.e. in the last
+  // allocated objects equal to e.objects_per_span() (i.e. in the last
   // bucket). Rest of the buckets should be empty.
-  const int expected_bitwidth = absl::bit_width(TypeParam::kObjectsPerSpan);
+  const int expected_bitwidth = absl::bit_width(e.objects_per_span());
   EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
   for (int i = 1; i < expected_bitwidth; ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
@@ -712,7 +712,7 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
       // Total spans recorded in the histogram must be equal to the number of
       // live spans.
       size_t spans_in_histogram = 0;
-      for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+      for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
         spans_in_histogram += e.central_freelist().NumSpansWith(i);
       }
       EXPECT_EQ(spans_in_histogram, stats.num_live_spans());
@@ -723,22 +723,22 @@ TYPED_TEST_P(CentralFreeListTest, MultipleSpans) {
   stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
   // Since no span is live, histogram must be empty.
-  for (int i = 1; i <= absl::bit_width(TypeParam::kObjectsPerSpan); ++i) {
+  for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
   EXPECT_EQ(stats.obj_capacity, 0);
 }
 
-TYPED_TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
-  ASSERT_GT(TypeParam::kObjectsPerSpan, 1);
+TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
+  TypeParam e(GetParam());
+  ASSERT_GT(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
-    TypeParam e;
-    std::vector<void*> objects(TypeParam::kObjectsPerSpan);
+    std::vector<void*> objects(e.objects_per_span());
     EXPECT_CALL(e.forwarder(), AllocateSpan(testing::_, testing::_, testing::_))
         .Times(1);
     const size_t to_fetch =
-        std::min(TypeParam::kObjectsPerSpan, TypeParam::kBatchSize);
+        std::min(e.objects_per_span(), TypeParam::kBatchSize);
     const size_t fetched =
         e.central_freelist().RemoveRange(&objects[0], to_fetch);
     size_t returned = 0;
@@ -753,14 +753,14 @@ TYPED_TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
     }
   };
   test_function(1, AccessDensityPrediction::kDense);
-  test_function(TypeParam::kObjectsPerSpan, AccessDensityPrediction::kDense);
+  test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
 
-TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
+TEST_P(CentralFreeListTest, SpanFragmentation) {
   // This test is primarily exercising Span itself to model how tcmalloc.cc uses
   // it, but this gives us a self-contained (and sanitizable) implementation of
   // the CentralFreeList.
-  TypeParam e;
+  TypeParam e(GetParam());
 
   // Allocate one object from the CFL to allocate a span.
   void* initial;
@@ -791,21 +791,8 @@ TYPED_TEST_P(CentralFreeListTest, SpanFragmentation) {
   e.central_freelist().InsertRange(absl::MakeSpan(&initial, 1));
 }
 
-REGISTER_TYPED_TEST_SUITE_P(CentralFreeListTest, IsolatedSmoke,
-                            MultiNonEmptyLists, SpanPriority,
-                            SpanUtilizationHistogram, MultipleSpans,
-                            SinglePopulate, PassSpanDensityToPageheap,
-                            SpanFragmentation);
-
-namespace unit_tests {
-
-using Env = FakeCentralFreeListEnvironment<
-    central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
-
-INSTANTIATE_TYPED_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
-                               ::testing::Types<Env>);
-
-}  // namespace unit_tests
+INSTANTIATE_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
+                         testing::Values(/*class_size=*/8));
 
 }  // namespace
 }  // namespace tcmalloc_internal

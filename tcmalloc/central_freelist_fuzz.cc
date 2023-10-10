@@ -42,7 +42,7 @@ int RunFuzzer(const uint8_t* data, size_t size) {
     return 0;
   }
 
-  Env env;
+  Env env(/*class_size=*/8);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {

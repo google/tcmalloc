@@ -259,8 +259,8 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::Init(size_t size_class)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
-  object_size_ = Forwarder::class_to_size(size_class);
-  pages_per_span_ = Forwarder::class_to_pages(size_class);
+  object_size_ = forwarder_.class_to_size(size_class);
+  pages_per_span_ = forwarder_.class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
 
