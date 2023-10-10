@@ -146,6 +146,9 @@ class Parameters {
     TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(value);
   }
 
+  static bool background_process_actions_enabled();
+  static absl::Duration background_process_sleep_interval();
+
   static absl::Duration filler_skip_subrelease_interval();
 
   static void set_filler_skip_subrelease_short_interval(absl::Duration value) {

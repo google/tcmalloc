@@ -498,6 +498,15 @@ class MallocExtension final {
   // Sets the maximum thread cache size.  This is a whole-process limit.
   static void SetMaxTotalThreadCacheBytes(int64_t value);
 
+  // Enables or disables background processes.
+  static bool GetBackgroundProcessActionsEnabled();
+  static void SetBackgroundProcessActionsEnabled(bool value);
+
+  // Gets and sets background process sleep time. This controls the interval
+  // granularity at which the actions are invoked.
+  static absl::Duration GetBackgroundProcessSleepInterval();
+  static void SetBackgroundProcessSleepInterval(absl::Duration value);
+
   // Gets and sets intervals used for finding recent demand peak, short-term
   // demand fluctuation, and long-term demand trend. Zero duration means not
   // considering corresponding demand history for delayed subrelease. Delayed

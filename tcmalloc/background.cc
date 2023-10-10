@@ -35,7 +35,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   tcmalloc::MallocExtension::MarkThreadIdle();
 
   absl::Time prev_time = absl::Now();
-  constexpr absl::Duration kSleepTime = absl::Seconds(1);
+  const absl::Duration kSleepTime =
+      tcmalloc::MallocExtension::GetBackgroundProcessSleepInterval();
 
   // Reclaim inactive per-cpu caches once per kCpuCacheReclaimPeriod.
   //
@@ -44,33 +45,33 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   // that only shrinks a cache by a few objects at a time. So, we might have
   // larger performance degradation if we use a shorter reclaim interval and
   // drain caches that weren't supposed to.
-  constexpr absl::Duration kCpuCacheReclaimPeriod = absl::Seconds(30);
+  const absl::Duration kCpuCacheReclaimPeriod = 30 * kSleepTime;
   absl::Time last_reclaim = absl::Now();
 
   // Shuffle per-cpu caches once per kCpuCacheShufflePeriod.
-  constexpr absl::Duration kCpuCacheShufflePeriod = absl::Seconds(5);
+  const absl::Duration kCpuCacheShufflePeriod = 5 * kSleepTime;
   absl::Time last_shuffle = absl::Now();
 
-  constexpr absl::Duration kSizeClassResizePeriod = absl::Seconds(2);
+  const absl::Duration kSizeClassResizePeriod = 2 * kSleepTime;
   absl::Time last_size_class_resize = absl::Now();
 
   // See if we should resize the slab once per kCpuCacheSlabResizePeriod. This
   // period is coprime to kCpuCacheShufflePeriod and kCpuCacheReclaimPeriod.
-  constexpr absl::Duration kCpuCacheSlabResizePeriod = absl::Seconds(29);
+  const absl::Duration kCpuCacheSlabResizePeriod = 29 * kSleepTime;
   absl::Time last_slab_resize_check = absl::Now();
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
   // We reclaim unused objects from the transfer caches once per
   // kTransferCacheResizePeriod.
-  constexpr absl::Duration kTransferCachePlunderPeriod = absl::Seconds(5);
+  const absl::Duration kTransferCachePlunderPeriod = 5 * kSleepTime;
   absl::Time last_transfer_cache_plunder_check = absl::Now();
 
   // Resize transfer caches once per kTransferCacheResizePeriod.
-  constexpr absl::Duration kTransferCacheResizePeriod = absl::Seconds(2);
+  const absl::Duration kTransferCacheResizePeriod = 2 * kSleepTime;
   absl::Time last_transfer_cache_resize_check = absl::Now();
 #endif
 
-  while (true) {
+  while (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled()) {
     absl::Time now = absl::Now();
 
     // We follow the cache hierarchy in TCMalloc from outermost (per-CPU) to

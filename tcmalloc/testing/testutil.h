@@ -103,6 +103,38 @@ class ScopedProfileSamplingRate {
   int64_t previous_;
 };
 
+// Sets custom background thread actions enable/disable when in scope.
+class ScopedBackgroundProcessActionsEnabled {
+ public:
+  explicit ScopedBackgroundProcessActionsEnabled(bool value)
+      : previous_(MallocExtension::GetBackgroundProcessActionsEnabled()) {
+    MallocExtension::SetBackgroundProcessActionsEnabled(value);
+  }
+
+  ~ScopedBackgroundProcessActionsEnabled() {
+    MallocExtension::SetBackgroundProcessActionsEnabled(previous_);
+  }
+
+ private:
+  bool previous_;
+};
+
+// Sets a custom background thread process sleep interval when in scope.
+class ScopedBackgroundProcessSleepInterval {
+ public:
+  explicit ScopedBackgroundProcessSleepInterval(absl::Duration limit)
+      : previous_(MallocExtension::GetBackgroundProcessSleepInterval()) {
+    MallocExtension::SetBackgroundProcessSleepInterval(limit);
+  }
+
+  ~ScopedBackgroundProcessSleepInterval() {
+    MallocExtension::SetBackgroundProcessSleepInterval(previous_);
+  }
+
+ private:
+  absl::Duration previous_;
+};
+
 // Sets a custom resource limit when in scope.
 class ScopedResourceLimit {
  public:

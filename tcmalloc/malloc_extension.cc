@@ -514,6 +514,56 @@ void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
 #endif
 }
 
+bool MallocExtension::GetBackgroundProcessActionsEnabled() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetBackgroundProcessActionsEnabled == nullptr) {
+    return false;
+  }
+
+  return MallocExtension_Internal_GetBackgroundProcessActionsEnabled();
+#else
+  return false;
+#endif
+}
+
+void MallocExtension::SetBackgroundProcessActionsEnabled(bool value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetBackgroundProcessActionsEnabled == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetBackgroundProcessActionsEnabled(value);
+#else
+  (void)value;
+#endif
+}
+
+absl::Duration MallocExtension::GetBackgroundProcessSleepInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetBackgroundProcessSleepInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetBackgroundProcessSleepInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetBackgroundProcessSleepInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetBackgroundProcessSleepInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetBackgroundProcessSleepInterval(value);
+#else
+  (void)value;
+#endif
+}
+
 absl::Duration MallocExtension::GetSkipSubreleaseShortInterval() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetSkipSubreleaseShortInterval == nullptr) {

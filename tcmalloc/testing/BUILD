@@ -666,6 +666,25 @@ create_tcmalloc_testsuite(
 )
 
 create_tcmalloc_testsuite(
+    name = "background_test",
+    srcs = ["background_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+        "nosan",
+    ],
+    deps = [
+        ":test_allocator_harness",
+        ":testutil",
+        ":thread_manager",
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:parameter_accessors",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest",
+    ],
+)
+
+create_tcmalloc_testsuite(
     name = "reclaim_test",
     srcs = ["reclaim_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,

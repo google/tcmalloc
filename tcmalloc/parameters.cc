@@ -14,6 +14,7 @@
 #include "tcmalloc/parameters.h"
 
 #include <atomic>
+#include <cstdint>
 #include <limits>
 
 #include "absl/base/attributes.h"
@@ -42,6 +43,29 @@ static std::atomic<bool>& hpaa_subrelease_ptr() {
             std::memory_order_relaxed);
   });
 
+  return v;
+}
+// As background_process_actions_enabled_ptr() are determined at runtime, we
+// cannot require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
+static std::atomic<bool>& background_process_actions_enabled_ptr() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(
+      &flag, [&]() { v.store(true, std::memory_order_relaxed); });
+  return v;
+}
+
+// As background_process_sleep_interval_ns() are determined at runtime, we
+// cannot require constant initialization for the atomic.  This avoids an
+// initialization order fiasco.
+static std::atomic<int64_t>& background_process_sleep_interval_ns() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(absl::ToInt64Nanoseconds(absl::Seconds(1)),
+            std::memory_order_relaxed);
+  });
   return v;
 }
 
@@ -159,6 +183,16 @@ ABSL_CONST_INIT std::atomic<double>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
     kDefaultProfileSamplingRate);
+
+bool Parameters::background_process_actions_enabled() {
+  return background_process_actions_enabled_ptr().load(
+      std::memory_order_relaxed);
+}
+
+absl::Duration Parameters::background_process_sleep_interval() {
+  return absl::Nanoseconds(
+      background_process_sleep_interval_ns().load(std::memory_order_relaxed));
+}
 
 absl::Duration Parameters::filler_skip_subrelease_interval() {
   return absl::Nanoseconds(
@@ -280,6 +314,24 @@ int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
 
 void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(int64_t value) {
   Parameters::set_max_total_thread_cache_bytes(value);
+}
+
+bool MallocExtension_Internal_GetBackgroundProcessActionsEnabled() {
+  return Parameters::background_process_actions_enabled();
+}
+
+void MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value) {
+  TCMalloc_Internal_SetBackgroundProcessActionsEnabled(value);
+}
+
+void MallocExtension_Internal_GetBackgroundProcessSleepInterval(
+    absl::Duration* ret) {
+  *ret = Parameters::background_process_sleep_interval();
+}
+
+void MallocExtension_Internal_SetBackgroundProcessSleepInterval(
+    absl::Duration value) {
+  TCMalloc_Internal_SetBackgroundProcessSleepInterval(value);
 }
 
 void MallocExtension_Internal_GetSkipSubreleaseInterval(absl::Duration* ret) {
@@ -433,6 +485,16 @@ void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(
     absl::Duration* v) {
   *v = Parameters::filler_skip_subrelease_interval();
+}
+
+void TCMalloc_Internal_SetBackgroundProcessActionsEnabled(bool v) {
+  tcmalloc::tcmalloc_internal::background_process_actions_enabled_ptr().store(
+      v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetBackgroundProcessSleepInterval(absl::Duration v) {
+  tcmalloc::tcmalloc_internal::background_process_sleep_interval_ns().store(
+      absl::ToInt64Nanoseconds(v), std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(

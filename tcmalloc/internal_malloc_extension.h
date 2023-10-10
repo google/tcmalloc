@@ -24,6 +24,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/functional/function_ref.h"
+#include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
@@ -78,6 +79,10 @@ ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetNumericProperty(
     const char* name_data, size_t name_size, size_t* value);
 ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetPerCpuCachesActive();
 ABSL_ATTRIBUTE_WEAK int32_t MallocExtension_Internal_GetMaxPerCpuCacheSize();
+ABSL_ATTRIBUTE_WEAK bool
+MallocExtension_Internal_GetBackgroundProcessActionsEnabled();
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_GetBackgroundProcessSleepInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseInterval(
     absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void
@@ -89,6 +94,11 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetProperties(
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetStats(std::string* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxPerCpuCacheSize(
     int32_t value);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_SetBackgroundProcessActionsEnabled(bool value);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_SetBackgroundProcessSleepInterval(
+    absl::Duration value);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseInterval(
     absl::Duration value);
 ABSL_ATTRIBUTE_WEAK void
