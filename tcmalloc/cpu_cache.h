@@ -588,6 +588,18 @@ class CpuCache {
   // previous resize interval, returns if slabs should be grown, shrunk or
   // remain the same.
   DynamicSlabResize ShouldResizeSlab();
+
+  // Determine if the <size_class> is a good candidate to be shrunk. We use
+  // clock-like algorithm to prioritize size classes for shrinking.
+  bool IsGoodCandidateForShrinking(int cpu, size_t size_class);
+
+  // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
+  // that CPU. Returns acquired bytes. <to_return> will contain objects that
+  // need to be freed. Unlike Steal, this method may be called from a different
+  // cpu.
+  size_t StealCapacityForSizeClassWithinCpu(int cpu, size_t size_class,
+                                            size_t bytes);
+
   // Records a cache underflow or overflow on <cpu>, increments underflow or
   // overflow by 1.
   // <is_alloc> determines whether the associated count corresponds to an
@@ -1304,7 +1316,6 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     if (miss_stats[i].misses == 0) break;
     const size_t size_class_to_grow = miss_stats[i].size_class;
 
-    AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
     // If we are already at a maximum capacity, nothing to grow.
     const ssize_t can_grow = max_capacity(size_class_to_grow) -
                              freelist_.Capacity(cpu, size_class_to_grow);
@@ -1317,7 +1328,6 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
 
     resize_[cpu].num_size_class_resizes.fetch_add(1, std::memory_order_relaxed);
 
-    ObjectsToReturn to_return;
     size_t size = forwarder_.class_to_size(size_class_to_grow);
     // Get total bytes to steal from other size classes. We would like to grow
     // the capacity of the size class by a batch size.
@@ -1326,22 +1336,16 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
                                        size_class_to_grow)) *
         size;
 
-    size_t acquired_bytes =
-        Steal(cpu, size_class_to_grow, to_steal_bytes, &to_return);
+    size_t acquired_bytes = StealCapacityForSizeClassWithinCpu(
+        cpu, size_class_to_grow, to_steal_bytes);
     size_t capacity_acquired = acquired_bytes / size;
     size_t actual_increase = 0;
     if (capacity_acquired != 0) {
+      AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
       actual_increase = freelist_.GrowOtherCache(
           cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
             return GetMaxCapacity(size_class_to_grow, shift);
           });
-    }
-
-    // Release any objects recovered when we shrunk capacity above to the
-    // backing cache.
-    for (int i = to_return.count; i < kMaxToReturn; ++i) {
-      ReleaseToBackingCache(to_return.size_class[i],
-                            absl::Span<void*>(&(to_return.obj[i]), 1));
     }
 
     // We might not have been able to grow the size class's capacity by the
@@ -1589,6 +1593,109 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
   }
 }
 
+template <class Forwarder>
+inline bool CpuCache<Forwarder>::IsGoodCandidateForShrinking(
+    int cpu, size_t size_class) {
+  const size_t capacity = freelist_.Capacity(cpu, size_class);
+  if (capacity == 0) {
+    // Nothing to steal.
+    return false;
+  }
+  const size_t length = freelist_.Length(cpu, size_class);
+  const size_t batch_length = forwarder_.num_objects_to_move(size_class);
+  size_t size = forwarder_.class_to_size(size_class);
+
+  // Clock-like algorithm to prioritize size classes for shrinking.
+  //
+  // Each size class has quiescent ticks counter which is incremented as we
+  // pass it, the counter is reset to 0 in UpdateCapacity on grow.
+  // If the counter value is 0, then we've just tried to grow the size class,
+  // so it makes little sense to shrink it back. The higher counter value
+  // the longer ago we grew the list and the more probable it is that
+  // the full capacity is unused.
+  //
+  // Then, we calculate "shrinking score", the higher the score the less we
+  // we want to shrink this size class. The score is considerably skewed
+  // towards larger size classes: smaller classes are usually used more
+  // actively and we also benefit less from shrinking smaller classes (steal
+  // less capacity). Then, we also avoid shrinking full freelists as we will
+  // need to evict an object and then go to the central freelist to return it.
+  // Then, we also avoid shrinking freelists that are just above batch size,
+  // because shrinking them will disable transfer cache.
+  //
+  // Finally, we shrink if the ticks counter is >= the score.
+  uint32_t qticks = resize_[cpu].per_class[size_class].Tick();
+  uint32_t score = 0;
+  // Note: the following numbers are based solely on intuition, common sense
+  // and benchmarking results.
+  if (size <= 144) {
+    score = 2 + (length >= capacity) +
+            (length >= batch_length && length < 2 * batch_length);
+  } else if (size <= 1024) {
+    score = 1 + (length >= capacity) +
+            (length >= batch_length && length < 2 * batch_length);
+  } else if (size <= (64 << 10)) {
+    score = (length >= capacity);
+  }
+  return (score <= qticks);
+}
+
+// TODO(vgogte): There is a lot of repetition between
+// StealCapacityForSizeClassWithinCpu, Steal and other resize methods. Combine
+// the logic and reduce that redundancy. Also, deprecate Steal once we make lazy
+// resize a default.
+template <class Forwarder>
+inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
+    int cpu, size_t dest_size_class, size_t bytes) {
+  // Steal from other sizeclasses.  Try to go in a nice circle.
+  // Complicated by sizeclasses actually being 1-indexed.
+  size_t acquired = 0;
+  size_t start = resize_[cpu].last_steal.load(std::memory_order_relaxed);
+  ASSERT(start < kNumClasses);
+  ASSERT(0 < start);
+  size_t source_size_class = start;
+  for (size_t offset = 1; offset < kNumClasses; ++offset) {
+    source_size_class = start + offset;
+    if (source_size_class >= kNumClasses) {
+      source_size_class -= kNumClasses - 1;
+    }
+    ASSERT(0 < source_size_class);
+    ASSERT(source_size_class < kNumClasses);
+    // Decide if we want to steal source_size_class.
+    if (source_size_class == dest_size_class) {
+      // First, no sense in picking your own pocket.
+      continue;
+    }
+
+    if (!IsGoodCandidateForShrinking(cpu, source_size_class)) continue;
+    size_t size = forwarder_.class_to_size(source_size_class);
+    // Finally, try to shrink.
+    // We always shrink by 1 object. The idea is that inactive lists will be
+    // shrunk to zero eventually anyway (or they just would not grow in the
+    // first place), but for active lists it does not make sense to aggressively
+    // shuffle capacity all the time.
+    {
+      AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+      if (freelist_.ShrinkOtherCache(
+              cpu, source_size_class, 1,
+              [this](size_t size_class, void** batch, size_t count) {
+                ASSERT(count > 0);
+                ReleaseToBackingCache(size_class,
+                                      absl::Span<void*>(batch, count));
+              }) == 1) {
+        acquired += size;
+      }
+    }
+
+    if (acquired >= bytes) {
+      // can't steal any more or don't need to
+      break;
+    }
+  }
+  // update the hint
+  resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
+  return acquired;
+}
 // There are rather a lot of policy knobs we could tweak here.
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
@@ -1613,51 +1720,10 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
       // First, no sense in picking your own pocket.
       continue;
     }
-    const size_t capacity = freelist_.Capacity(cpu, source_size_class);
-    if (capacity == 0) {
-      // Nothing to steal.
-      continue;
-    }
-    const size_t length = freelist_.Length(cpu, source_size_class);
-    const size_t batch_length =
-        forwarder_.num_objects_to_move(source_size_class);
+    if (!IsGoodCandidateForShrinking(cpu, source_size_class)) continue;
     size_t size = forwarder_.class_to_size(source_size_class);
-
-    // Clock-like algorithm to prioritize size classes for shrinking.
-    //
-    // Each size class has quiescent ticks counter which is incremented as we
-    // pass it, the counter is reset to 0 in UpdateCapacity on grow.
-    // If the counter value is 0, then we've just tried to grow the size class,
-    // so it makes little sense to shrink it back. The higher counter value
-    // the longer ago we grew the list and the more probable it is that
-    // the full capacity is unused.
-    //
-    // Then, we calculate "shrinking score", the higher the score the less we
-    // we want to shrink this size class. The score is considerably skewed
-    // towards larger size classes: smaller classes are usually used more
-    // actively and we also benefit less from shrinking smaller classes (steal
-    // less capacity). Then, we also avoid shrinking full freelists as we will
-    // need to evict an object and then go to the central freelist to return it.
-    // Then, we also avoid shrinking freelists that are just above batch size,
-    // because shrinking them will disable transfer cache.
-    //
-    // Finally, we shrink if the ticks counter is >= the score.
-    uint32_t qticks = resize_[cpu].per_class[source_size_class].Tick();
-    uint32_t score = 0;
-    // Note: the following numbers are based solely on intuition, common sense
-    // and benchmarking results.
-    if (size <= 144) {
-      score = 2 + (length >= capacity) +
-              (length >= batch_length && length < 2 * batch_length);
-    } else if (size <= 1024) {
-      score = 1 + (length >= capacity) +
-              (length >= batch_length && length < 2 * batch_length);
-    } else if (size <= (64 << 10)) {
-      score = (length >= capacity);
-    }
-    if (score > qticks) {
-      continue;
-    }
+    const size_t capacity = freelist_.Capacity(cpu, source_size_class);
+    const size_t length = freelist_.Length(cpu, source_size_class);
 
     if (length >= capacity) {
       // The list is full, need to evict an object to shrink it.
