@@ -71,6 +71,7 @@ for std in ${STD}; do
           --define="absl=1" \
           --distdir="/bazel-distdir" \
           --keep_going \
+          --remote_download_minimal \
           --show_timestamps \
           --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1" \
           --test_output=errors \
