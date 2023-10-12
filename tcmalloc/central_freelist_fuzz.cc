@@ -20,8 +20,10 @@
 
 #include "absl/log/check.h"
 #include "tcmalloc/central_freelist.h"
-#include "tcmalloc/mock_central_freelist.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/mock_static_forwarder.h"
+#include "tcmalloc/sizemap.h"
+#include "tcmalloc/span_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -36,13 +38,21 @@ using tcmalloc_internal::kMaxObjectsToMove;
 
 template <typename Env>
 int RunFuzzer(const uint8_t* data, size_t size) {
-  if (size < 5 || size > 100000) {
-    // size < 5 for bare minimum buzz test for a single operation.
+  if (size < 10 || size > 100000) {
+    // size < 10 for bare minimum fuzz test for a single operation.
     // Avoid overly large inputs as we perform some shuffling and checking.
     return 0;
   }
-
-  Env env(/*class_size=*/8);
+  const size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
+  const size_t num_pages = data[3];
+  const size_t num_objects_to_move = data[4];
+  data += 5;
+  size -= 5;
+  if (!tcmalloc_internal::SizeMap::IsValidSizeClass(object_size, num_pages,
+                                                    num_objects_to_move)) {
+    return 0;
+  }
+  Env env(object_size, num_pages, num_objects_to_move);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {
@@ -77,8 +87,8 @@ int RunFuzzer(const uint8_t* data, size_t size) {
         break;
       }
       case 2: {
-        // Shuffle allocated objects such that we don't return them in the same
-        // order we allocated them.
+        // Shuffle allocated objects such that we don't return them in the
+        // same order we allocated them.
         const int seed = value & 0x00FF;
         std::mt19937 rng(seed);
         // Limit number of elements to shuffle so that we don't spend a lot of
@@ -95,12 +105,17 @@ int RunFuzzer(const uint8_t* data, size_t size) {
         // Check stats.
         tcmalloc_internal::SpanStats stats =
             env.central_freelist().GetSpanStats();
-        CHECK_EQ(env.central_freelist().length() + objects.size(),
-                 stats.obj_capacity);
-        if (objects.empty()) {
-          CHECK_EQ(stats.num_live_spans(), 0);
-        } else {
-          CHECK_GT(stats.num_live_spans(), 0);
+        // Spans with objects_per_span = 1 skip most of the logic in the
+        // central freelist including stats updates.  So skip the check for
+        // objects_per_span = 1.
+        if (env.objects_per_span() != 1) {
+          CHECK_EQ(env.central_freelist().length() + objects.size(),
+                   stats.obj_capacity);
+          if (objects.empty()) {
+            CHECK_EQ(stats.num_live_spans(), 0);
+          } else {
+            CHECK_GT(stats.num_live_spans(), 0);
+          }
         }
         break;
       }

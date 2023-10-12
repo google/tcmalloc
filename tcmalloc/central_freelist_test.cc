@@ -42,7 +42,10 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/size_class_info.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/span_stats.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/thread_manager.h"
 
@@ -325,24 +328,24 @@ namespace {
 using central_freelist_internal::kNumLists;
 using TypeParam = FakeCentralFreeListEnvironment<
     central_freelist_internal::CentralFreeList<MockStaticForwarder>>;
-using CentralFreeListTest = ::testing::TestWithParam<size_t>;
+using CentralFreeListTest = ::testing::TestWithParam<SizeClassInfo>;
 
 TEST_P(CentralFreeListTest, IsolatedSmoke) {
-  TypeParam e(GetParam());
-
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
-  absl::FixedArray<void*> batch(TypeParam::kBatchSize);
-  int allocated =
-      e.central_freelist().RemoveRange(&batch[0], TypeParam::kBatchSize);
+  absl::FixedArray<void*> batch(e.batch_size());
+  int allocated = e.central_freelist().RemoveRange(&batch[0], e.batch_size());
   ASSERT_GT(allocated, 0);
-  EXPECT_LE(allocated, TypeParam::kBatchSize);
+  EXPECT_LE(allocated, e.batch_size());
 
   // We should observe span's utilization captured in the histogram. The number
   // of spans in rest of the buckets should be zero.
   const int bitwidth = absl::bit_width(static_cast<unsigned>(allocated));
   for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
-    if (i == bitwidth) {
+    // Skip the check for objects_per_span = 1 since such spans skip most of the
+    // central freelist's logic.
+    if (i == bitwidth && e.objects_per_span() != 1) {
       EXPECT_EQ(e.central_freelist().NumSpansWith(i), 1);
     } else {
       EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
@@ -352,17 +355,23 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
   EXPECT_CALL(e.forwarder(), MapObjectsToSpans).Times(1);
   EXPECT_CALL(e.forwarder(), DeallocateSpans).Times(1);
 
-  SpanStats stats = e.central_freelist().GetSpanStats();
-  EXPECT_EQ(stats.num_spans_requested, 1);
-  EXPECT_EQ(stats.num_spans_returned, 0);
-  EXPECT_EQ(stats.obj_capacity, 1024);
+  // Skip the check for objects_per_span = 1 since such spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    SpanStats stats = e.central_freelist().GetSpanStats();
+    EXPECT_EQ(stats.num_spans_requested, 1);
+    EXPECT_EQ(stats.num_spans_returned, 0);
+  }
 
   e.central_freelist().InsertRange(absl::MakeSpan(&batch[0], allocated));
-
-  stats = e.central_freelist().GetSpanStats();
-  EXPECT_EQ(stats.num_spans_requested, 1);
-  EXPECT_EQ(stats.num_spans_returned, 1);
-  EXPECT_EQ(stats.obj_capacity, 0);
+  // Skip the check for objects_per_span = 1 since such spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    SpanStats stats = e.central_freelist().GetSpanStats();
+    EXPECT_EQ(stats.num_spans_requested, 1);
+    EXPECT_EQ(stats.num_spans_returned, 1);
+    EXPECT_EQ(stats.obj_capacity, 0);
+  }
 
   // Span captured in the histogram with the earlier utilization should have
   // been removed.
@@ -372,8 +381,7 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
 }
 
 TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
-  TypeParam e(GetParam());
-
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -388,8 +396,8 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got = e.central_freelist().RemoveRange(
-        batch, std::min(n, TypeParam::kBatchSize));
+    int got =
+        e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
     total_fetched += got;
 
     // Increment span_idx if current objects have been fetched from the new
@@ -413,7 +421,11 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   // objects equal to e.objects_per_span() (i.e. in the last bucket).
   // Rest of the buckets should be empty.
   const int expected_bitwidth = absl::bit_width(e.objects_per_span());
-  EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
+  // Skip the check when objects_per_span = 1 as those spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
+  }
   for (int i = 1; i < expected_bitwidth; ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
@@ -428,7 +440,7 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   const int last_bucket = absl::bit_width(e.objects_per_span()) - 1;
   while (total_returned < num_objects_to_fetch) {
     uint64_t size_to_pop =
-        std::min(object_to_span.size() - total_returned, TypeParam::kBatchSize);
+        std::min(object_to_span.size() - total_returned, e.batch_size());
 
     for (int i = 0; i < size_to_pop; ++i) {
       const auto [ptr, span] = object_to_span[i + total_returned];
@@ -471,7 +483,7 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 TEST_P(CentralFreeListTest, SinglePopulate) {
   // Make sure that we allocate up to kObjectsPerSpan objects in both the span
   // prioritization states.
-  TypeParam e(GetParam());
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = 10 * e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
@@ -482,7 +494,7 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   EXPECT_LE(got, e.objects_per_span());
   size_t returned = 0;
   while (returned < got) {
-    const size_t to_return = std::min(got - returned, TypeParam::kBatchSize);
+    const size_t to_return = std::min(got - returned, e.batch_size());
     e.central_freelist().InsertRange({&objects[returned], to_return});
     returned += to_return;
   }
@@ -490,7 +502,7 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 
 // Checks if we are indexing a span in the nonempty_ lists as expected.
 TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
-  TypeParam e(GetParam());
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   ASSERT(kNumLists > 0);
   const int num_objects_to_fetch = e.objects_per_span();
@@ -564,7 +576,7 @@ TEST_P(CentralFreeListTest, MultiNonEmptyLists) {
 // objects are allocated from the span with a higher number of allocated objects
 // as enforced by our prioritization scheme.
 TEST_P(CentralFreeListTest, SpanPriority) {
-  TypeParam e(GetParam());
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   // If the number of objects per span is less than 3, we do not use more than
   // one nonempty_ lists. So, we can not prioritize the spans based on how many
@@ -573,7 +585,6 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   if (objects_per_span < 3 || kNumLists < 2) return;
 
   constexpr int kNumSpans = 2;
-
   // Track objects allocated per span.
   absl::FixedArray<std::vector<void*>> objects(kNumSpans);
   void* batch[kMaxObjectsToMove];
@@ -584,8 +595,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
     size_t fetched = 0;
     while (fetched < to_fetch) {
       const size_t n = to_fetch - fetched;
-      int got = e.central_freelist().RemoveRange(
-          batch, std::min(n, TypeParam::kBatchSize));
+      int got =
+          e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
       for (int i = 0; i < got; ++i) {
         objects[span].push_back(batch[i]);
       }
@@ -598,7 +609,7 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   for (int span = 0; span < kNumSpans; ++span) {
     size_t released = 0;
     while (released < to_release) {
-      uint64_t n = std::min(to_release - released, TypeParam::kBatchSize);
+      uint64_t n = std::min(to_release - released, e.batch_size());
       for (int i = 0; i < n; ++i) {
         batch[i] = objects[span][i + released];
       }
@@ -618,7 +629,7 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   for (int span = 1; span < kNumSpans; ++span) {
     size_t released = 0;
     while (released < to_release) {
-      uint64_t n = std::min(to_release - released, TypeParam::kBatchSize);
+      uint64_t n = std::min(to_release - released, e.batch_size());
       for (int i = 0; i < n; ++i) {
         batch[i] = objects[span][i + released];
       }
@@ -643,7 +654,12 @@ TEST_P(CentralFreeListTest, SpanPriority) {
   EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 1), kNumSpans - 1);
   // We should have only one span in the second-last nonempty_ list; this is the
   // span from which we should have allocated the last object.
-  EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+  //
+  // If there are exactly three objects in each span, then the allocation would
+  // have filled up the span and it would not be any longer in the span list.
+  if (objects_per_span != 3) {
+    EXPECT_EQ(e.central_freelist().NumSpansInList(kNumLists - 2), 1);
+  }
   // Return previously allocated object.
   e.central_freelist().InsertRange({batch, 1});
 
@@ -656,9 +672,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {
-  TypeParam e(GetParam());
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
   std::vector<void*> all_objects;
-
   constexpr size_t kNumSpans = 10;
 
   // Request kNumSpans spans.
@@ -667,8 +682,8 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got = e.central_freelist().RemoveRange(
-        batch, std::min(n, TypeParam::kBatchSize));
+    int got =
+        e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
     for (int i = 0; i < got; ++i) {
       all_objects.push_back(batch[i]);
     }
@@ -679,14 +694,22 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
   // allocated objects equal to e.objects_per_span() (i.e. in the last
   // bucket). Rest of the buckets should be empty.
   const int expected_bitwidth = absl::bit_width(e.objects_per_span());
-  EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
+  // Skip the check for objects_per_span = 1 since such spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    EXPECT_EQ(e.central_freelist().NumSpansWith(expected_bitwidth), kNumSpans);
+  }
   for (int i = 1; i < expected_bitwidth; ++i) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
 
-  SpanStats stats = e.central_freelist().GetSpanStats();
-  EXPECT_EQ(stats.num_spans_requested, kNumSpans);
-  EXPECT_EQ(stats.num_spans_returned, 0);
+  // Skip the check for objects_per_span = 1 since such spans skip most of the
+  // central freelist's logic.
+  if (e.objects_per_span() != 1) {
+    SpanStats stats = e.central_freelist().GetSpanStats();
+    EXPECT_EQ(stats.num_spans_requested, kNumSpans);
+    EXPECT_EQ(stats.num_spans_returned, 0);
+  }
 
   EXPECT_EQ(all_objects.size(), num_objects_to_fetch);
 
@@ -696,18 +719,17 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
 
   // Return all
   int total_returned = 0;
-  bool checked_half = false;
   while (total_returned < num_objects_to_fetch) {
     uint64_t size_to_pop =
-        std::min(all_objects.size() - total_returned, TypeParam::kBatchSize);
+        std::min(all_objects.size() - total_returned, e.batch_size());
     for (int i = 0; i < size_to_pop; ++i) {
       batch[i] = all_objects[i + total_returned];
     }
     total_returned += size_to_pop;
     e.central_freelist().InsertRange({batch, size_to_pop});
     // sanity check
-    if (!checked_half && total_returned >= (num_objects_to_fetch / 2)) {
-      stats = e.central_freelist().GetSpanStats();
+    if (e.objects_per_span() != 1 && total_returned < num_objects_to_fetch) {
+      SpanStats stats = e.central_freelist().GetSpanStats();
       EXPECT_GT(stats.num_spans_requested, stats.num_spans_returned);
       EXPECT_NE(stats.obj_capacity, 0);
       // Total spans recorded in the histogram must be equal to the number of
@@ -717,11 +739,10 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
         spans_in_histogram += e.central_freelist().NumSpansWith(i);
       }
       EXPECT_EQ(spans_in_histogram, stats.num_live_spans());
-      checked_half = true;
     }
   }
 
-  stats = e.central_freelist().GetSpanStats();
+  SpanStats stats = e.central_freelist().GetSpanStats();
   EXPECT_EQ(stats.num_spans_requested, stats.num_spans_returned);
   // Since no span is live, histogram must be empty.
   for (int i = 1; i <= absl::bit_width(e.objects_per_span()); ++i) {
@@ -731,15 +752,14 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
 }
 
 TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
-  TypeParam e(GetParam());
-  ASSERT_GT(e.objects_per_span(), 1);
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
+  ASSERT_GE(e.objects_per_span(), 1);
   auto test_function = [&](size_t num_objects,
                            AccessDensityPrediction density) {
     std::vector<void*> objects(e.objects_per_span());
     EXPECT_CALL(e.forwarder(), AllocateSpan(testing::_, testing::_, testing::_))
         .Times(1);
-    const size_t to_fetch =
-        std::min(e.objects_per_span(), TypeParam::kBatchSize);
+    const size_t to_fetch = std::min(e.objects_per_span(), e.batch_size());
     const size_t fetched =
         e.central_freelist().RemoveRange(&objects[0], to_fetch);
     size_t returned = 0;
@@ -747,8 +767,7 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
       EXPECT_CALL(e.forwarder(),
                   DeallocateSpans(testing::_, testing::_, testing::_))
           .Times(1);
-      const size_t to_return =
-          std::min(fetched - returned, TypeParam::kBatchSize);
+      const size_t to_return = std::min(fetched - returned, e.batch_size());
       e.central_freelist().InsertRange({&objects[returned], to_return});
       returned += to_return;
     }
@@ -761,7 +780,7 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   // This test is primarily exercising Span itself to model how tcmalloc.cc uses
   // it, but this gives us a self-contained (and sanitizable) implementation of
   // the CentralFreeList.
-  TypeParam e(GetParam());
+  TypeParam e(GetParam().size, GetParam().pages, GetParam().num_to_move);
 
   // Allocate one object from the CFL to allocate a span.
   void* initial;
@@ -774,7 +793,9 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
 
   ThreadManager fragmentation;
   fragmentation.Start(1, [&](int) {
-    benchmark::DoNotOptimize(span->Fragmentation(object_size));
+    if (e.objects_per_span() != 1) {
+      benchmark::DoNotOptimize(span->Fragmentation(object_size));
+    }
   });
 
   ThreadManager cfl;
@@ -793,7 +814,9 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
 }
 
 INSTANTIATE_TEST_SUITE_P(CentralFreeList, CentralFreeListTest,
-                         testing::Values(/*class_size=*/8));
+                         // We skip the first size class since it is set to 0.
+                         testing::ValuesIn(kSizeClasses.begin() + 1,
+                                           kSizeClasses.end()));
 
 }  // namespace
 }  // namespace tcmalloc_internal

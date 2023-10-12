@@ -30,10 +30,15 @@ namespace tcmalloc_internal {
 
 class FakeStaticForwarder {
  public:
-  FakeStaticForwarder() : class_size_(0) {}
-  void Init(size_t class_size) { class_size_ = class_size; }
+  FakeStaticForwarder() : class_size_(0), pages_() {}
+  void Init(size_t class_size, size_t pages, size_t num_objects_to_move) {
+    class_size_ = class_size;
+    pages_ = Length(pages);
+    num_objects_to_move_ = num_objects_to_move;
+  }
   size_t class_to_size(int size_class) const { return class_size_; }
-  constexpr Length class_to_pages(int size_class) const { return Length(1); }
+  Length class_to_pages(int size_class) const { return pages_; }
+  size_t num_objects_to_move() const { return num_objects_to_move_; }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
     for (size_t i = 0; i < batch.size(); ++i) {
@@ -99,6 +104,8 @@ class FakeStaticForwarder {
   absl::Mutex mu_;
   std::map<PageId, SpanInfo> map_ ABSL_GUARDED_BY(mu_);
   size_t class_size_;
+  Length pages_;
+  size_t num_objects_to_move_;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
@@ -110,9 +117,14 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     ON_CALL(*this, class_to_pages).WillByDefault([this](int size_class) {
       return FakeStaticForwarder::class_to_pages(size_class);
     });
-    ON_CALL(*this, Init).WillByDefault([this](size_t size_class) {
-      FakeStaticForwarder::Init(size_class);
+    ON_CALL(*this, num_objects_to_move).WillByDefault([this]() {
+      return FakeStaticForwarder::num_objects_to_move();
     });
+    ON_CALL(*this, Init)
+        .WillByDefault([this](size_t size_class, size_t pages,
+                              size_t num_objects_to_move) {
+          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move);
+        });
     ON_CALL(*this, MapObjectsToSpans)
         .WillByDefault([this](absl::Span<void*> batch, Span** spans) {
           return FakeStaticForwarder::MapObjectsToSpans(batch, spans);
@@ -133,7 +145,9 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
 
   MOCK_METHOD(size_t, class_to_size, (int size_class));
   MOCK_METHOD(Length, class_to_pages, (int size_class));
-  MOCK_METHOD(void, Init, (size_t class_size));
+  MOCK_METHOD(size_t, num_objects_to_move, ());
+  MOCK_METHOD(void, Init,
+              (size_t class_size, size_t pages, size_t num_objects_to_move));
   MOCK_METHOD(void, MapObjectsToSpans, (absl::Span<void*> batch, Span** spans));
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, SpanAllocInfo span_alloc_info,
@@ -159,14 +173,15 @@ class FakeCentralFreeListEnvironment {
   using Forwarder = typename CentralFreeListT::Forwarder;
 
   static constexpr int kSizeClass = 1;
-  static constexpr size_t kBatchSize = kMaxObjectsToMove;
   size_t objects_per_span() {
     return forwarder().class_to_pages(kSizeClass).in_bytes() /
            forwarder().class_to_size(kSizeClass);
   }
+  size_t batch_size() { return forwarder().num_objects_to_move(); }
 
-  explicit FakeCentralFreeListEnvironment(size_t class_size) {
-    forwarder().Init(class_size);
+  explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
+                                          size_t num_objects_to_move) {
+    forwarder().Init(class_size, pages, num_objects_to_move);
     cache_.Init(kSizeClass);
   }
 

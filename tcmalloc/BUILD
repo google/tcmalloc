@@ -653,6 +653,7 @@ cc_fuzz_test(
         ":common_8k_pages",
         ":mock_central_freelist",
         ":mock_static_forwarder",
+        ":size_class_info",
         "@com_google_absl//absl/log:check",
     ],
 )
@@ -1245,6 +1246,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":mock_static_forwarder",
+        ":size_class_info",
         "//tcmalloc/internal:logging",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
