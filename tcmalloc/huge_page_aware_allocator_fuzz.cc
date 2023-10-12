@@ -68,6 +68,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  // Since asan introduces runtime overhead, limit size of fuzz targets further.
+  if (size > 10000) {
+    return 0;
+  }
+#endif
+
   // We interpret data as a small DSL for exploring the state space of
   // HugePageAwareAllocator.
   //
