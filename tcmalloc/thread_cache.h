@@ -41,7 +41,8 @@ namespace tcmalloc_internal {
 
 class ThreadCache {
  public:
-  void Init(pthread_t tid) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  explicit ThreadCache(pthread_t tid)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   void Cleanup();
 
   // Accessors (mostly just for printing stats)

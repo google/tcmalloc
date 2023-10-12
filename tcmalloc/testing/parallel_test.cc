@@ -67,10 +67,6 @@ struct Allocator {
 };
 
 TEST(ParallelTest, Stable) {
-#ifdef ABSL_HAVE_MEMORY_SANITIZER
-  // TODO(b/148986845):  Enable this.
-  GTEST_SKIP() << "Skipping under msan.";
-#endif
 #ifdef ABSL_HAVE_THREAD_SANITIZER
   // TODO(b/274996721):  Enable this when Span::nonempty_index_ does not
   // conflict with other bitfields.

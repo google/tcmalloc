@@ -37,7 +37,7 @@ ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
 pthread_key_t ThreadCache::heap_key_;
 
-void ThreadCache::Init(pthread_t tid) {
+ThreadCache::ThreadCache(pthread_t tid) {
   size_ = 0;
 
   max_size_ = 0;
@@ -299,7 +299,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
 ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   // Create the heap and add it to the linked list
   ThreadCache* heap = tc_globals.threadcache_allocator().New();
-  heap->Init(tid);
+  new (heap) ThreadCache(tid);
   heap->next_ = thread_heaps_;
   heap->prev_ = nullptr;
   if (thread_heaps_ != nullptr) {
