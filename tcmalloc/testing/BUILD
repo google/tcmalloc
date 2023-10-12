@@ -903,3 +903,18 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+cc_test(
+    name = "parallel_test",
+    srcs = ["parallel_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = "//tcmalloc/internal:system_malloc",
+    tags = ["nomsan"],
+    deps = [
+        "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

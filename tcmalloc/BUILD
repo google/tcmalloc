@@ -108,6 +108,26 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_internal_methods_only",
+    srcs = [
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = TCMALLOC_DEFAULT_COPTS + [
+        "-DTCMALLOC_INTERNAL_METHODS_ONLY",
+    ],
+    linkstatic = 1,
+    visibility = ["//tcmalloc:__subpackages__"],
+    deps = tcmalloc_deps + [
+        ":common_8k_pages",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+    ],
+    alwayslink = 1,
+)
+
 # Provides tcmalloc always; use per-thread mode.
 cc_library(
     name = "tcmalloc_deprecated_perthread",

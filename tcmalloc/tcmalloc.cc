@@ -1094,7 +1094,12 @@ using tcmalloc::tcmalloc_internal::MallocAlignPolicy;
 using tcmalloc::tcmalloc_internal::MultiplyOverflow;
 
 // depends on TCMALLOC_HAVE_STRUCT_MALLINFO, so needs to come after that.
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 #include "tcmalloc/libc_override.h"
+#else
+#define TCMALLOC_ALIAS(tc_fn) \
+  __attribute__((alias(#tc_fn), visibility("default")))
+#endif  //  !TCMALLOC_INTERNAL_METHODS_ONLY
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMalloc(
     size_t size) noexcept {
@@ -1110,6 +1115,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
   return fast_alloc(CppPolicy().Nothrow(), size);
 }
 
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
     tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new(size_t size) {
   return fast_alloc(CppPolicy().SizeReturning(), size);
@@ -1146,6 +1152,7 @@ extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
                               .SizeReturning(),
                           size);
 }
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
 
 extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalMemalign(
     size_t align, size_t size) noexcept {
@@ -1540,6 +1547,7 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
+#ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
   if (hot_cold >= Parameters::min_hot_access_hint()) {
@@ -1623,3 +1631,4 @@ ABSL_CACHELINE_ALIGNED void* operator new[](
                       size);
   }
 }
+#endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
