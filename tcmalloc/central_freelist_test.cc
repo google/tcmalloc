@@ -30,6 +30,7 @@
 #include "absl/algorithm/container.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/random/random.h"
@@ -379,10 +380,10 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
   void* batch[kMaxObjectsToMove];
   const int num_objects_to_fetch = kNumSpans * e.objects_per_span();
   int total_fetched = 0;
-  // Tracks object and corresponding span idx from which it was allocated.
-  std::vector<std::pair<void*, int>> objects_to_span_idx;
+  // Tracks object and corresponding span from which it was allocated.
+  std::vector<std::pair<void*, Span*>> object_to_span;
   // Tracks number of objects allocated per span.
-  std::vector<size_t> allocated_per_span(kNumSpans, 0);
+  absl::flat_hash_map<Span*, size_t> allocated_per_span;
   int span_idx = 0;
 
   while (total_fetched < num_objects_to_fetch) {
@@ -396,12 +397,13 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
     if (total_fetched > (span_idx + 1) * e.objects_per_span()) {
       ++span_idx;
     }
-    // Record fetched object and associated span index.
+    // Record fetched object and the associated span.
     for (int i = 0; i < got; ++i) {
-      objects_to_span_idx.push_back(std::make_pair(batch[i], span_idx));
+      Span* s = e.forwarder().MapObjectToSpan(batch[i]);
+      object_to_span.emplace_back(batch[i], s);
+      allocated_per_span[s] += 1;
     }
     ASSERT(span_idx < kNumSpans);
-    allocated_per_span[span_idx] += got;
   }
 
   // Make sure that we have fetched exactly from kNumSpans spans.
@@ -418,31 +420,30 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 
   // Shuffle.
   absl::BitGen rng;
-  std::shuffle(objects_to_span_idx.begin(), objects_to_span_idx.end(), rng);
+  std::shuffle(object_to_span.begin(), object_to_span.end(), rng);
 
   // Return objects, a fraction at a time, each time checking that histogram is
   // correct.
   int total_returned = 0;
   const int last_bucket = absl::bit_width(e.objects_per_span()) - 1;
   while (total_returned < num_objects_to_fetch) {
-    uint64_t size_to_pop = std::min(objects_to_span_idx.size() - total_returned,
-                                    TypeParam::kBatchSize);
+    uint64_t size_to_pop =
+        std::min(object_to_span.size() - total_returned, TypeParam::kBatchSize);
 
     for (int i = 0; i < size_to_pop; ++i) {
-      const auto [ptr, span_idx] = objects_to_span_idx[i + total_returned];
+      const auto [ptr, span] = object_to_span[i + total_returned];
       batch[i] = ptr;
-      ASSERT(span_idx < kNumSpans);
-      --allocated_per_span[span_idx];
+      --allocated_per_span[span];
     }
     total_returned += size_to_pop;
     e.central_freelist().InsertRange({batch, size_to_pop});
 
     // Calculate expected histogram.
     std::vector<size_t> expected(absl::bit_width(e.objects_per_span()), 0);
-    for (int i = 0; i < kNumSpans; ++i) {
+    for (const auto& span_and_count : allocated_per_span) {
       // If span has non-zero allocated objects, include it in the histogram.
-      if (allocated_per_span[i]) {
-        const size_t bucket = absl::bit_width(allocated_per_span[i]) - 1;
+      if (span_and_count.second > 0) {
+        const size_t bucket = absl::bit_width(span_and_count.second) - 1;
         ASSERT(bucket <= last_bucket);
         ++expected[bucket];
       }
