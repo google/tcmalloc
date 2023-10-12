@@ -175,6 +175,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           break;
         }
 
+        // Allocation is too big for filler if we try to allocate >
+        // kPagesPerHugePage / 2 run of pages. The allocations may go to
+        // HugeRegion and that might lead to donations with kSparse density.
+        if (length > kPagesPerHugePage / 2) {
+          density = AccessDensityPrediction::kSparse;
+        }
+
         Span* s;
         SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
                                     .density = density};
