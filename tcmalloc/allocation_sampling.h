@@ -455,6 +455,7 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
     ASSERT(size_class != 0);
     FreeProxyObject(state, obj, size_class);
   }
+  ASSERT(state.pagemap().sizeclass(span->first_page()) == 0);
   return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
                                                : span->start_address(),
           capacity};
@@ -466,6 +467,8 @@ inline void MaybeUnsampleAllocation(State& state, void* ptr, Span* span) {
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
   if (SampledAllocation* sampled_allocation = span->Unsample()) {
+    ASSERT(state.pagemap().sizeclass(PageIdContaining(ptr)) == 0);
+
     void* const proxy = sampled_allocation->sampled_stack.proxy;
     const size_t weight = sampled_allocation->sampled_stack.weight;
     const size_t requested_size =

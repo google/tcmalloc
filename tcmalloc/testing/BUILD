@@ -902,7 +902,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc/internal:system_malloc",
     deps = [
+        "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",

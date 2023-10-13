@@ -722,8 +722,8 @@ static size_t GetSizeClass(void* ptr) {
 template <bool have_size_class>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
     void* ptr, size_t size_class) {
-  // !have_size_class -> size_class == 0
-  ASSERT(have_size_class || size_class == 0);
+  // !have_size_class <-> size_class == 0
+  ASSERT(have_size_class != (size_class == 0));
 
   // if we have_size_class, then we've excluded ptr == nullptr case. See
   // comment in do_free_with_size. Thus we only bother testing nullptr
@@ -746,7 +746,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size_class(
   if (have_size_class || ABSL_PREDICT_TRUE(size_class != 0)) {
     ASSERT(size_class == GetSizeClass(ptr));
     ASSERT(ptr != nullptr);
-    ASSERT(!tc_globals.pagemap().GetExistingDescriptor(p)->sampled());
     FreeSmall(ptr, size_class);
   } else {
     InvokeHooksAndFreePages(ptr);

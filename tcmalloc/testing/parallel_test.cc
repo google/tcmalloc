@@ -18,9 +18,11 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "absl/log/absl_check.h"
 #include "absl/random/random.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/malloc_extension.h"
 
 extern "C" {
 
@@ -51,6 +53,10 @@ struct Allocator {
       }
 
       for (void* ptr : v) {
+        ABSL_CHECK_GE(*MallocExtension::GetAllocatedSize(ptr), size);
+      }
+
+      for (void* ptr : v) {
         if (do_sized_delete) {
           TCMallocInternalDeleteSized(ptr, size);
         } else {
@@ -66,11 +72,6 @@ struct Allocator {
 };
 
 TEST(ParallelTest, Stable) {
-#ifdef ABSL_HAVE_THREAD_SANITIZER
-  // TODO(b/274996721):  Enable this when Span::nonempty_index_ does not
-  // conflict with other bitfields.
-  GTEST_SKIP() << "Skipping under tsan.";
-#endif
   std::atomic<bool> stop{false};
   Allocator a1(stop, /*do_sized_delete=*/true),
       a2(stop, /*do_sized_delete=*/true), a3(stop, /*do_sized_delete=*/false);
