@@ -24,9 +24,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <initializer_list>
 #include <iterator>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,7 +45,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/util.h"
 
 ABSL_FLAG(bool, check_staleness, false,

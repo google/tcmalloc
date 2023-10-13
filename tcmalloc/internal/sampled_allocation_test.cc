@@ -15,6 +15,7 @@
 #include "tcmalloc/internal/sampled_allocation.h"
 
 #include "gtest/gtest.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/debugging/stacktrace.h"
 #include "tcmalloc/internal/logging.h"
 

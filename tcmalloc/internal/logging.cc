@@ -14,7 +14,6 @@
 
 #include "tcmalloc/internal/logging.h"
 
-#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,14 +21,17 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/strings/string_view.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/parameter_accessors.h"
-#include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

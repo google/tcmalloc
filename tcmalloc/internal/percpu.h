@@ -62,8 +62,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "absl/base/dynamic_annotations.h"
-#include "absl/base/macros.h"
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/atomic_danger.h"
 #include "tcmalloc/internal/config.h"

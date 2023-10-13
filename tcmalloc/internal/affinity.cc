@@ -13,14 +13,14 @@
 // limitations under the License.
 #include "tcmalloc/internal/affinity.h"
 
-#include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
-#include <string.h>
 #include <unistd.h>
 
-#include <utility>
+#include <vector>
 
+#include "absl/types/span.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

@@ -17,6 +17,9 @@
 #include <fcntl.h>
 #include <string.h>
 
+#include <cerrno>
+#include <cstdio>
+
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"

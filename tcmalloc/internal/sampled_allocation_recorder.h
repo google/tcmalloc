@@ -23,8 +23,6 @@
 #define TCMALLOC_INTERNAL_SAMPLED_ALLOCATION_RECORDER_H_
 
 #include <atomic>
-#include <cstddef>
-#include <functional>
 
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"

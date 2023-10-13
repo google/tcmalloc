@@ -15,7 +15,9 @@
 #ifndef TCMALLOC_INTERNAL_ALLOCATION_GUARD_H_
 #define TCMALLOC_INTERNAL_ALLOCATION_GUARD_H_
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/thread_annotations.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

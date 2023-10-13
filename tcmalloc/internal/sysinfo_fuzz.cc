@@ -13,6 +13,9 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "tcmalloc/internal/sysinfo.h"

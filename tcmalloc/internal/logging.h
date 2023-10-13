@@ -20,10 +20,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <cstring>
 #include <initializer_list>
 #include <string>
 #include <type_traits>
 
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"

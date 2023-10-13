@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdint>
+#include <cstdio>
 #include <optional>
 
 #include "absl/base/optimization.h"

@@ -23,10 +23,14 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cerrno>
+#include <cstddef>
+#include <limits>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"  // IWYU pragma: keep
-#include "absl/base/internal/sysinfo.h"
+#include "absl/base/optimization.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"

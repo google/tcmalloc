@@ -16,24 +16,21 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
 
-#include <array>
 #include <cstring>
 #include <optional>
 
 #include "absl/base/attributes.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/functional/function_ref.h"
-#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
 

@@ -20,12 +20,10 @@
 #include <sched.h>
 #include <signal.h>
 #include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
 
-#include "absl/base/internal/sysinfo.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/config.h"
 

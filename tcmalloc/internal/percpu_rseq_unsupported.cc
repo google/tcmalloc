@@ -15,7 +15,6 @@
 // Provides skeleton RSEQ functions which raise a hard error in the case of
 // being erroneously called on an unsupported platform.
 
-#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 
 #if !TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM

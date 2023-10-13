@@ -16,8 +16,11 @@
 
 #include <unistd.h>
 
+#include <cstddef>
+
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

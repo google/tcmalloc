@@ -18,11 +18,11 @@
 #include <sched.h>
 #include <sys/types.h>
 
+#include <cstddef>
 #include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 

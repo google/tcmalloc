@@ -14,7 +14,16 @@
 
 #include "tcmalloc/internal/profile_builder.h"
 
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
+
+#include "absl/base/casts.h"
+#include "absl/container/flat_hash_map.h"
+#include "absl/hash/hash.h"
+#include "absl/status/statusor.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -34,12 +43,9 @@
 
 #include "tcmalloc/internal/profile.pb.h"
 #include "absl/base/attributes.h"
-#include "absl/base/config.h"
 #include "absl/base/macros.h"
-#include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/strings/escaping.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/residency.h"

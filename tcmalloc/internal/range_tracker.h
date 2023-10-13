@@ -20,11 +20,11 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <climits>
 #include <limits>
 #include <type_traits>
 
 #include "absl/numeric/bits.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 

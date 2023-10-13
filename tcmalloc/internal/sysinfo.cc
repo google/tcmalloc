@@ -19,9 +19,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstring>
 #include <optional>
 
+#include "absl/base/optimization.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
+#include "absl/strings/string_view.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 

@@ -82,10 +82,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [
-        ":config",
-        "@com_google_absl//absl/base:core_headers",
-    ],
+    deps = [":config"],
 )
 
 cc_library(
@@ -95,12 +92,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [
-        ":config",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/functional:function_ref",
-        "@com_google_absl//absl/time",
-    ],
+    deps = [":config"],
 )
 
 cc_library(
@@ -190,6 +182,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":logging",
         "@com_google_absl//absl/base:core_headers",
     ],
@@ -201,6 +194,7 @@ create_tcmalloc_benchmark(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
+        ":config",
         ":linked_list",
         ":logging",
         ":mock_span",
@@ -243,7 +237,6 @@ cc_library(
         ":allocation_guard",
         ":config",
         ":parameter_accessors",
-        "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",
@@ -326,7 +319,6 @@ cc_library(
         ":page_size",
         ":util",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -357,7 +349,6 @@ cc_test(
     tags = [
     ],
     deps = [
-        ":page_size",
         ":pageflags",
         ":util",
         "@com_github_google_benchmark//:benchmark",
@@ -377,11 +368,10 @@ create_tcmalloc_benchmark(
     srcs = ["mincore_benchmark.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":config",
         ":logging",
-        ":mincore",
         ":page_size",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/memory",
     ],
 )
 
@@ -435,9 +425,7 @@ cc_library(
         ":logging",
         ":sysinfo",
         ":util",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -469,11 +457,8 @@ cc_library(
         ":percpu",
         ":sysinfo",
         ":util",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -575,7 +560,6 @@ cc_library(
         ":util",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:dynamic_annotations",
     ],
 )
 
@@ -608,23 +592,22 @@ cc_test(
     deps = [
         ":affinity",
         ":config",
-        ":linux_syscall_support",
         ":logging",
         ":page_size",
+        ":percpu",
         ":percpu_tcmalloc",
         ":sysinfo",
         ":util",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
-        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:seed_sequences",
-        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
@@ -639,10 +622,7 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [
-        ":config",
-        "@com_google_absl//absl/base",
-    ],
+    deps = [":config"],
 )
 
 cc_test(
@@ -678,11 +658,11 @@ cc_library(
         ":residency",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_cc_proto",
-        "@com_google_absl//absl/base:config",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/hash",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -740,7 +720,6 @@ cc_library(
         ":config",
         ":logging",
         ":util",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/strings:str_format",
     ],
 )
@@ -753,6 +732,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         ":logging",
         ":optimization",
         "@com_google_absl//absl/numeric:bits",
@@ -765,10 +745,10 @@ create_tcmalloc_benchmark(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     deps = [
+        ":config",
         ":range_tracker",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:distributions",
     ],
@@ -793,9 +773,8 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
+        ":logging",
         ":sampled_allocation_recorder",
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/debugging:stacktrace",
     ],
 )
 
@@ -804,8 +783,9 @@ cc_test(
     srcs = ["sampled_allocation_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":logging",
         ":sampled_allocation",
-        "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_googletest//:gtest_main",
     ],
@@ -817,7 +797,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
-        "//tcmalloc/internal:config",
+        ":config",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:function_ref",
@@ -902,11 +882,12 @@ cc_test(
     srcs = ["sysinfo_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":logging",
+        ":allocation_guard",
         ":sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -944,7 +925,9 @@ cc_test(
     srcs = ["timeseries_tracker_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":clock",
         ":timeseries_tracker",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -959,8 +942,6 @@ cc_library(
     ],
     deps = [
         ":config",
-        ":logging",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
     ],
 )

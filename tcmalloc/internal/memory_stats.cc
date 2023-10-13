@@ -19,7 +19,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <cstddef>
+#include <cstdint>
+
 #include "absl/strings/numbers.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"

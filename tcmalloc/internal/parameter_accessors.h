@@ -15,6 +15,9 @@
 #ifndef TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_
 #define TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_
 
+#include <cstddef>
+#include <cstdint>
+
 #include "absl/base/attributes.h"
 #include "absl/time/time.h"
 

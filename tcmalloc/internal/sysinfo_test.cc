@@ -17,6 +17,9 @@
 #include <sched.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -24,9 +27,11 @@
 #include "gtest/gtest.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/random/random.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "tcmalloc/internal/logging.h"
+#include "absl/types/optional.h"
+#include "tcmalloc/internal/allocation_guard.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

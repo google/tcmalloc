@@ -19,6 +19,7 @@
 
 #include "absl/random/random.h"
 #include "benchmark/benchmark.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mock_span.h"

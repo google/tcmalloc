@@ -15,7 +15,10 @@
 #ifndef TCMALLOC_INTERNAL_CACHE_TOPOLOGY_H_
 #define TCMALLOC_INTERNAL_CACHE_TOPOLOGY_H_
 
+#include <cstdint>
+
 #include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 

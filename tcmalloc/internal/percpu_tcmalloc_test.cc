@@ -22,6 +22,11 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <cstring>
+
+#include "absl/functional/function_ref.h"
+#include "tcmalloc/internal/percpu.h"
+
 #if defined(__linux__)
 #include <linux/param.h>
 #else
@@ -44,22 +49,18 @@
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/algorithm/container.h"
 #include "absl/base/call_once.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
 #include "absl/random/seed_sequences.h"
-#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"

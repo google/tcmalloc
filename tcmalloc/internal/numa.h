@@ -20,10 +20,9 @@
 #include <sys/types.h>
 
 #include <array>
-#include <optional>
+#include <cstdint>
 
 #include "absl/functional/function_ref.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/percpu.h"
 
