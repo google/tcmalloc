@@ -81,7 +81,10 @@ class PageAllocatorInterface {
   virtual void PrintInPbtxt(PbtxtRegion* region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
-  const PageAllocInfo& info() const { return info_; }
+  const PageAllocInfo& info() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return info_;
+  }
 
  protected:
   PageAllocInfo info_ ABSL_GUARDED_BY(pageheap_lock);
