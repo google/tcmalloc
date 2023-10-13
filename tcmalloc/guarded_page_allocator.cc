@@ -111,7 +111,6 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
   d.alloc_trace.tid = absl::base_internal::GetTID();
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
-  d.write_flag = WriteFlag::Unknown;
 
   ASSERT(!alignment || d.allocation_start % alignment == 0);
   return {result, Profile::Sample::GuardedStatus::Guarded};
@@ -245,13 +244,6 @@ size_t GuardedPageAllocator::SuccessfulAllocations() {
   return num_allocation_requests_ - num_failed_allocations_;
 }
 
-void GuardedPageAllocator::SetWriteFlag(const void* ptr, WriteFlag write_flag) {
-  const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
-  size_t slot = GetNearestSlot(addr);
-  absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
-  data_[slot].write_flag = write_flag;
-}
-
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {
@@ -377,34 +369,13 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
   if (write_overflow_detected_)
     return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
   if (d.dealloc_trace.depth > 0) {
-    switch (d.write_flag) {
-      case WriteFlag::Write:
-        return GuardedAllocationsErrorType::kUseAfterFreeWrite;
-      case WriteFlag::Read:
-        return GuardedAllocationsErrorType::kUseAfterFreeRead;
-      default:
-        return GuardedAllocationsErrorType::kUseAfterFree;
-    }
+    return GuardedAllocationsErrorType::kUseAfterFree;
   }
   if (addr < d.allocation_start) {
-    switch (d.write_flag) {
-      case WriteFlag::Write:
-        return GuardedAllocationsErrorType::kBufferUnderflowWrite;
-      case WriteFlag::Read:
-        return GuardedAllocationsErrorType::kBufferUnderflowRead;
-      default:
-        return GuardedAllocationsErrorType::kBufferUnderflow;
-    }
+    return GuardedAllocationsErrorType::kBufferUnderflow;
   }
   if (addr >= d.allocation_start + d.requested_size) {
-    switch (d.write_flag) {
-      case WriteFlag::Write:
-        return GuardedAllocationsErrorType::kBufferOverflowWrite;
-      case WriteFlag::Read:
-        return GuardedAllocationsErrorType::kBufferOverflowRead;
-      default:
-        return GuardedAllocationsErrorType::kBufferOverflow;
-    }
+    return GuardedAllocationsErrorType::kBufferOverflow;
   }
   return GuardedAllocationsErrorType::kUnknown;
 }

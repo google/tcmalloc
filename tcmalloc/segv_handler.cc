@@ -151,6 +151,45 @@ static WriteFlag ExtractWriteFlagFromContext(void* context) {
 #endif
 }
 
+GuardedAllocationsErrorType RefineErrorTypeBasedOnWriteFlag(
+    GuardedAllocationsErrorType error, WriteFlag write_flag) {
+  switch (error) {
+    case GuardedAllocationsErrorType::kUseAfterFree:
+      switch (write_flag) {
+        case WriteFlag::Write:
+          return GuardedAllocationsErrorType::kUseAfterFreeWrite;
+        case WriteFlag::Read:
+          return GuardedAllocationsErrorType::kUseAfterFreeRead;
+        default:
+          break;
+      }
+      break;
+    case GuardedAllocationsErrorType::kBufferUnderflow:
+      switch (write_flag) {
+        case WriteFlag::Write:
+          return GuardedAllocationsErrorType::kBufferUnderflowWrite;
+        case WriteFlag::Read:
+          return GuardedAllocationsErrorType::kBufferUnderflowRead;
+        default:
+          break;
+      }
+      break;
+    case GuardedAllocationsErrorType::kBufferOverflow:
+      switch (write_flag) {
+        case WriteFlag::Write:
+          return GuardedAllocationsErrorType::kBufferOverflowWrite;
+        case WriteFlag::Read:
+          return GuardedAllocationsErrorType::kBufferOverflowRead;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+  return error;
+}
+
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 void SegvHandler(int signo, siginfo_t* info, void* context) {
@@ -160,13 +199,13 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
 
   // Store load/store from context.
   WriteFlag write_flag = ExtractWriteFlagFromContext(context);
-  tc_globals.guardedpage_allocator().SetWriteFlag(fault, write_flag);
 
   GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
   GuardedAllocationsErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
                                                         &dealloc_trace);
   if (error == GuardedAllocationsErrorType::kUnknown) return;
+  error = RefineErrorTypeBasedOnWriteFlag(error, write_flag);
   pid_t current_thread = absl::base_internal::GetTID();
   off_t offset;
   size_t size;

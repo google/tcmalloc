@@ -173,9 +173,6 @@ class GuardedPageAllocator {
 
   size_t SuccessfulAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
-  void SetWriteFlag(const void* ptr, WriteFlag write_flag)
-      ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
-
   size_t page_size() const { return page_size_; }
 
  private:
@@ -185,7 +182,6 @@ class GuardedPageAllocator {
     GuardedAllocationsStackTrace dealloc_trace;
     size_t requested_size = 0;
     uintptr_t allocation_start = 0;
-    WriteFlag write_flag = WriteFlag::Unknown;
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
