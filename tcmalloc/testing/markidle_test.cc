@@ -17,7 +17,6 @@
 #include <stdlib.h>
 
 #include <optional>
-#include <string>
 #include <thread>  // NOLINT(build/c++11)
 
 #include "gtest/gtest.h"

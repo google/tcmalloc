@@ -18,6 +18,7 @@
 #include <syscall.h>
 #include <unistd.h>
 
+#include <new>
 #include <vector>
 
 #include "gtest/gtest.h"

@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "gtest/gtest.h"
-#include "absl/base/config.h"
 #include "absl/random/random.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"

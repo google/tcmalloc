@@ -19,7 +19,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 #include <new>
 #include <optional>
 #include <thread>  // NOLINT(build/c++11)

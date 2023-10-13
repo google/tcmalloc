@@ -14,6 +14,11 @@
 
 #include <malloc.h>
 
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <string>
@@ -23,6 +28,7 @@
 #include "absl/base/attributes.h"
 #include "absl/random/random.h"
 #include "absl/synchronization/notification.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"

@@ -17,11 +17,9 @@
 #include "tcmalloc/malloc_extension.h"
 
 #include <stddef.h>
-#include <stdint.h>
 
 #include <map>
 #include <optional>
-#include <string>
 #include <utility>
 
 #include "gmock/gmock.h"
@@ -29,7 +27,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
-#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <memory>
 #include <new>
 #include <string>
@@ -27,13 +28,11 @@
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/base/casts.h"
-#include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/str_cat.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/malloc_extension.h"

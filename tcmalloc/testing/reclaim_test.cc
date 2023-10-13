@@ -17,11 +17,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <string>
 #include <thread>
 
 #include "gtest/gtest.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"

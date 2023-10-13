@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <new>
 
 #include "tcmalloc/internal_malloc_extension.h"
 

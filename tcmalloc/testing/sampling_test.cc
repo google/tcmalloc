@@ -21,28 +21,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <new>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
-#include "absl/base/thread_annotations.h"
 #include "absl/debugging/symbolize.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/random/random.h"
-#include "absl/synchronization/mutex.h"
-#include "absl/time/clock.h"
-#include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/testing/testutil.h"
-#include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace {

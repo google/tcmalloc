@@ -21,7 +21,6 @@
 #include <sys/prctl.h>
 
 #include <limits>
-#include <new>
 #include <string>
 #include <utility>
 

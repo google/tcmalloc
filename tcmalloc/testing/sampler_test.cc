@@ -21,7 +21,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <new>
 #include <vector>
 
 #include "gtest/gtest.h"

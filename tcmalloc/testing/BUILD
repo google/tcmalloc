@@ -58,6 +58,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:logging",
         "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
     ],
@@ -224,7 +225,6 @@ cc_test(
     ],
     deps = [
         ":testutil",
-        ":thread_manager",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
@@ -233,8 +233,6 @@ cc_test(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/synchronization",
-        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
         "@com_google_googletest//:gtest_main",
     ],
@@ -286,7 +284,6 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:sysinfo",
-        "@com_google_absl//absl/base",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -317,7 +314,9 @@ create_tcmalloc_testsuite(
     name = "thread_ctor_test",
     srcs = ["thread_ctor_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [":thread_ctor_test_lib"],
+    deps = [
+        ":thread_ctor_test_lib",  # buildcleaner: keep
+    ],
 )
 
 create_tcmalloc_testsuite(
@@ -332,7 +331,6 @@ create_tcmalloc_testsuite(
         ":testutil",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:linked_list",
-        "//tcmalloc/internal:logging",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -405,13 +403,11 @@ create_tcmalloc_testsuite(
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
-        "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:stacktrace_filter",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
@@ -677,8 +673,6 @@ create_tcmalloc_testsuite(
         ":testutil",
         ":thread_manager",
         "//tcmalloc:malloc_extension",
-        "//tcmalloc/internal:parameter_accessors",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest",
     ],
@@ -697,7 +691,6 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:percpu",
         "//tcmalloc/internal:sysinfo",
-        "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
@@ -808,7 +801,6 @@ create_tcmalloc_testsuite(
     ],
     deps = [
         "//tcmalloc:malloc_extension",
-        "//tcmalloc/internal:percpu",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
@@ -911,7 +903,6 @@ cc_test(
     malloc = "//tcmalloc/internal:system_malloc",
     deps = [
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep
-        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",

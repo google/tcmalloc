@@ -31,7 +31,6 @@
 #include <utility>
 
 #include "gtest/gtest.h"
-#include "absl/base/internal/sysinfo.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"

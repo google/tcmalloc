@@ -22,14 +22,12 @@
 #include <stdlib.h>
 
 #include <limits>
-#include <new>
 #include <utility>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/types/span.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"

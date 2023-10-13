@@ -20,8 +20,12 @@
 #include <stdlib.h>
 #include <sys/resource.h>
 
+#include <cstdint>
 #include <cstring>
 #include <limits>
+#include <string>
+
+#include "tcmalloc/internal/logging.h"
 
 // When compiled 64-bit and run on systems with swap several unittests will end
 // up trying to consume all of RAM+swap, and that can take quite some time.  By
