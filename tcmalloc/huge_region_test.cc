@@ -43,7 +43,6 @@ namespace {
 
 using testing::NiceMock;
 using testing::Return;
-using testing::StrictMock;
 
 class HugeRegionTest : public ::testing::Test {
  protected:

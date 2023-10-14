@@ -31,7 +31,6 @@
 #include "tcmalloc/span.h"
 
 namespace {
-using absl::base_internal::LowLevelAlloc;
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
 using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::BackingStats;
