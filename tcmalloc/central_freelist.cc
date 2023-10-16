@@ -97,10 +97,6 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
     // on.
-    //
-    // Small-but-slow does not use the HugePageAwareAllocator (by default), so
-    // do not prefetch on this config.
-#ifndef TCMALLOC_SMALL_BUT_SLOW
     const PageId p = free_span->first_page();
 
     // In huge_page_filler.h, we static_assert that PageTracker's key elements
@@ -111,7 +107,6 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
     PrefetchW(pt);
     PrefetchW(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(pt) +
                                       ABSL_CACHELINE_SIZE));
-#endif  // TCMALLOC_SMALL_BUT_SLOW
   }
 
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
