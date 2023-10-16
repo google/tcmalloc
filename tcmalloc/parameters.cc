@@ -153,6 +153,7 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
+// TODO(b/274658726, b/305723428): Remove this opt-out flag.
 ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
