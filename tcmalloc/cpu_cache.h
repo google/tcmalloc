@@ -1187,7 +1187,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 
   if (acquired_bytes < desired_bytes) {
     resize_[cpu].per_class[size_class].RecordMiss();
-    if (!forwarder_.resize_size_classes_enabled()) {
+    if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) {
       acquired_bytes +=
           Steal(cpu, size_class, desired_bytes - acquired_bytes, to_return);
     }
@@ -1255,7 +1255,7 @@ struct SizeClassMissStat {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
-  if (!forwarder_.resize_size_classes_enabled()) return;
+  if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) return;
 
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
