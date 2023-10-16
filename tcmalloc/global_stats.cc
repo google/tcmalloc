@@ -14,31 +14,37 @@
 
 #include "tcmalloc/global_stats.h"
 
+#include <cstddef>
+#include <cstdint>
+
 #include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
-#include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/span_stats.h"
+#include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
-#include "tcmalloc/transfer_cache_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

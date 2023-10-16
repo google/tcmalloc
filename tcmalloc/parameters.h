@@ -17,11 +17,11 @@
 
 #include <atomic>
 #include <cmath>
-#include <string>
+#include <cstddef>
+#include <cstdint>
 
-#include "absl/base/internal/spinlock.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "absl/types/optional.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"

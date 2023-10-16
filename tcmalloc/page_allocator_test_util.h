@@ -15,9 +15,13 @@
 #ifndef TCMALLOC_PAGE_ALLOCATOR_TEST_UTIL_H_
 #define TCMALLOC_PAGE_ALLOCATOR_TEST_UTIL_H_
 
+#include <cstddef>
 #include <tuple>
 #include <utility>
 
+#include "absl/types/span.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 
 // TODO(b/116000878): Remove dependency on common.h if it causes ODR issues.

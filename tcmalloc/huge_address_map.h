@@ -19,6 +19,7 @@
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/metadata_allocator.h"
 

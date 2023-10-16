@@ -15,11 +15,14 @@
 #ifndef TCMALLOC_PAGE_HEAP_H_
 #define TCMALLOC_PAGE_HEAP_H_
 
-#include <stdint.h>
+#include <cstddef>
 
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_allocator_interface.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 

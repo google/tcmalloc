@@ -16,7 +16,14 @@
 
 #include <sys/mman.h>
 
+#include <cstddef>
+#include <cstdint>
+
+#include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 

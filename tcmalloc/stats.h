@@ -18,12 +18,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <algorithm>
-
-#include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 

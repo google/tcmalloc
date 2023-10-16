@@ -21,22 +21,21 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
-#include <limits>
 #include <new>
-#include <optional>
-#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/cache_topology.h"
-#include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/transfer_cache_stats.h"

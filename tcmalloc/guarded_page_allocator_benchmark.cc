@@ -15,12 +15,13 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstddef>
 
-#include "absl/base/internal/spinlock.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 

@@ -21,10 +21,13 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <atomic>
+
 #include "absl/base/attributes.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"

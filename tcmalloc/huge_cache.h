@@ -22,15 +22,17 @@
 #include <algorithm>
 #include <limits>
 
+#include "absl/base/attributes.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
+#include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
+#include "tcmalloc/metadata_allocator.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

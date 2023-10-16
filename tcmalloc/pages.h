@@ -16,12 +16,16 @@
 #define TCMALLOC_PAGES_H_
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <string>
 
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 

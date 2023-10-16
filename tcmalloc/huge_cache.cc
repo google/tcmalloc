@@ -15,13 +15,18 @@
 #include "tcmalloc/huge_cache.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <tuple>
 
+#include "absl/base/optimization.h"
 #include "absl/time/time.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/huge_address_map.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

@@ -19,18 +19,22 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/numeric/bits.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/hinted_tracker_lists.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 

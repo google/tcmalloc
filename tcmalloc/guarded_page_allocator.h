@@ -15,8 +15,18 @@
 #ifndef TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 #define TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+
+#include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
+#include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

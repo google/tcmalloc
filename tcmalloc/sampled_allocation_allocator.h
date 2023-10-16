@@ -17,8 +17,12 @@
 
 #include <utility>
 
+#include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/page_heap_allocator.h"
 

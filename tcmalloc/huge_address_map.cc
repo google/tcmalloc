@@ -17,9 +17,11 @@
 #include <stdlib.h>
 
 #include <algorithm>
-#include <new>
+#include <cstdint>
 
 #include "absl/base/internal/cycleclock.h"
+#include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

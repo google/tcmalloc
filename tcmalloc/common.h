@@ -21,24 +21,19 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <limits>
 #include <new>
 #include <type_traits>
 
-#include "absl/base/attributes.h"
-#include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/span.h"
-#include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/size_class_info.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

@@ -14,20 +14,22 @@
 
 #include "tcmalloc/page_allocator.h"
 
+#include <cstddef>
 #include <limits>
-#include <new>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/page_heap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

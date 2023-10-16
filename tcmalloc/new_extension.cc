@@ -14,9 +14,11 @@
 
 #include "tcmalloc/new_extension.h"
 
+#include <cstddef>
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/malloc_extension.h"
 
 ABSL_ATTRIBUTE_WEAK void* operator new(
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {

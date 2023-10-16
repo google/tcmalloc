@@ -20,7 +20,9 @@
 
 #include <stddef.h>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

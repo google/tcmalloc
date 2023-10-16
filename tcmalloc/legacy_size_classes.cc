@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

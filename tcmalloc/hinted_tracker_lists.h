@@ -15,7 +15,11 @@
 #ifndef TCMALLOC_HINTED_TRACKER_LISTS_H_
 #define TCMALLOC_HINTED_TRACKER_LISTS_H_
 
+#include <cstddef>
+
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/range_tracker.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

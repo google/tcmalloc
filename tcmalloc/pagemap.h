@@ -35,6 +35,8 @@
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/pages.h"

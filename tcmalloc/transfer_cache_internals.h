@@ -20,20 +20,16 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
-#include <cmath>
 #include <cstddef>
-#include <limits>
-#include <utility>
+#include <cstring>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
-#include "absl/numeric/bits.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"

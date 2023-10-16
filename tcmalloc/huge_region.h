@@ -21,12 +21,13 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
-#include "tcmalloc/huge_allocator.h"
+#include "absl/base/optimization.h"
 #include "tcmalloc/huge_cache.h"
-#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 

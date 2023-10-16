@@ -23,27 +23,36 @@
 #include <atomic>
 #include <new>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/internal/sysinfo.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
+#include "absl/functional/function_ref.h"
+#include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
+#include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

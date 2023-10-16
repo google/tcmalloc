@@ -12,4 +12,3 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/mock_huge_page_static_forwarder.h"

@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 
+#include <cstddef>
 #include <map>
 #include <string>
 

@@ -20,10 +20,14 @@
 #ifndef TCMALLOC_INTERNAL_MALLOC_EXTENSION_H_
 #define TCMALLOC_INTERNAL_MALLOC_EXTENSION_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 
 #include "absl/base/attributes.h"
-#include "absl/functional/function_ref.h"
 #include "absl/time/time.h"
 #include "tcmalloc/malloc_extension.h"
 

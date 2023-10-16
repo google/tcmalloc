@@ -15,10 +15,15 @@
 #ifndef TCMALLOC_ALLOCATION_SAMPLE_H_
 #define TCMALLOC_ALLOCATION_SAMPLE_H_
 
-#include "absl/base/dynamic_annotations.h"
+#include <memory>
+
+#include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/stack_trace_table.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

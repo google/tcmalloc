@@ -16,11 +16,18 @@
 #define TCMALLOC_PEAK_HEAP_TRACKER_H_
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/explicitly_constructed.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sampled_allocation_allocator.h"

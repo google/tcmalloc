@@ -14,17 +14,19 @@
 
 #include "tcmalloc/central_freelist.h"
 
-#include <stdint.h>
+#include <cstddef>
 
+#include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
-#include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/prefetch.h"
-#include "tcmalloc/page_heap.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

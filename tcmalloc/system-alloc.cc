@@ -24,9 +24,10 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
-#include <new>
-#include <tuple>
+#include <cstring>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -34,18 +35,22 @@
 #include "absl/base/call_once.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/numeric/bits.h"
 #include "absl/strings/str_format.h"
 #include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
-#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
+#include "tcmalloc/static_vars.h"
 
 // On systems (like freebsd) that don't define MAP_ANONYMOUS, use the old
 // form of the name instead.

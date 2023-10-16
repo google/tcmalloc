@@ -23,6 +23,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"

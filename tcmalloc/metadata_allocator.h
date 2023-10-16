@@ -15,6 +15,8 @@
 #ifndef TCMALLOC_METADATA_ALLOCATOR_H_
 #define TCMALLOC_METADATA_ALLOCATOR_H_
 
+#include <cstddef>
+
 #include "absl/base/attributes.h"
 
 namespace tcmalloc::tcmalloc_internal {

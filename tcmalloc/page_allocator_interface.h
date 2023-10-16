@@ -17,12 +17,11 @@
 
 #include <stddef.h>
 
-#include <limits>
-#include <utility>
-
-#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 

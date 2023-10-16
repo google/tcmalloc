@@ -15,14 +15,24 @@
 #ifndef TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 #define TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <utility>
+
+#include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/hash/hash.h"
+#include "absl/numeric/bits.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/system-alloc.h"

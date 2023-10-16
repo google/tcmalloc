@@ -16,7 +16,8 @@
 #define TCMALLOC_SEGV_HANDLER_H_
 
 #include <signal.h>
-#include "tcmalloc/common.h"
+
+#include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

@@ -23,7 +23,7 @@
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/config.h"
 
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
 #include <sanitizer/asan_interface.h>

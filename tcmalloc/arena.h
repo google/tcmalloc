@@ -23,6 +23,8 @@
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

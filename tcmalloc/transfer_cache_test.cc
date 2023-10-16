@@ -19,24 +19,23 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
-#include <string>
 #include <thread>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/internal/spinlock.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
-#include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/thread_manager.h"
 #include "tcmalloc/transfer_cache_internals.h"
+#include "tcmalloc/transfer_cache_stats.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

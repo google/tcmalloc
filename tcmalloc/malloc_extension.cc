@@ -17,8 +17,8 @@
 #include <assert.h>
 #include <string.h>
 
-#include <array>
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <map>
@@ -26,13 +26,16 @@
 #include <new>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/internal/low_level_alloc.h"
-#include "absl/memory/memory.h"
+#include "absl/functional/function_ref.h"
+#include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "tcmalloc/internal/parameter_accessors.h"
+#include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal_malloc_extension.h"
 
 #if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \

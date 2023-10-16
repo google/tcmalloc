@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,11 +25,15 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_pages.h"
+#include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/stats.h"
 
 namespace {
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
