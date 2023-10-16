@@ -372,6 +372,7 @@ cc_library(
 )
 
 cc_library(
+    # TODO(b/199203282, b/296281171):  Remove this opt-out.
     name = "want_disable_huge_region_more_often",
     srcs = ["want_disable_huge_region_more_often.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
@@ -1316,6 +1317,8 @@ cc_test(
 
 # TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to use old size classes.
+#
+# TODO(b/242710633):  Remove this.
 cc_library(
     name = "want_legacy_size_classes",
     srcs = ["want_legacy_size_classes.cc"],

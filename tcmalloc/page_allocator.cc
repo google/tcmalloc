@@ -49,6 +49,9 @@ bool decide_want_hpaa() {
   return false;
 #endif
 
+  // TODO(b/137017688):  Make this unconditional.
+  // TODO(b/150121255):  Include 8K pages.
+  // TODO(b/228848071):  Include small-but-slow.
   if (kPageSize > 32768) {
     return true;
   }

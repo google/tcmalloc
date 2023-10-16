@@ -100,6 +100,8 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
 
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
+//
+// TODO(b/197880883):  Complete experiments with this flag.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
@@ -118,6 +120,7 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   return v;
 }
 
+// TODO(b/197880883):  Complete experiments with this flag.
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
@@ -164,8 +167,10 @@ ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
+// TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
+// TODO(b/199203282):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
     true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
@@ -254,6 +259,7 @@ bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
   return v.load(std::memory_order_relaxed);
 }
 
+// TODO(b/282993806):  Remove this parameter.
 size_t Parameters::chunks_per_alloc() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<size_t> v{8};
