@@ -101,6 +101,7 @@ bool use_huge_region_more_often() {
     return false;
   }
 
+  // TODO(b/296281171): Remove this opt-out.
   const char* e =
       thread_safe_getenv("TCMALLOC_USE_HUGE_REGION_MORE_OFTEN_DISABLE");
   if (e) {
