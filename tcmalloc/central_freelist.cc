@@ -15,6 +15,7 @@
 #include "tcmalloc/central_freelist.h"
 
 #include <cstddef>
+#include <cstdint>
 
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"

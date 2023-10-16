@@ -17,7 +17,6 @@
 
 #include <stddef.h>
 
-#include <string>
 
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"

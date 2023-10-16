@@ -15,12 +15,15 @@
 #ifndef TCMALLOC_MOCK_VIRTUAL_ALLOCATOR_H_
 #define TCMALLOC_MOCK_VIRTUAL_ALLOCATOR_H_
 
+#include <cstddef>
 #include <vector>
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/system-alloc.h"
 
 namespace tcmalloc::tcmalloc_internal {
 

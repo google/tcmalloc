@@ -16,17 +16,18 @@
 
 #include <stdint.h>
 
-#include <algorithm>
+#include <atomic>
+#include <cstddef>
 
 #include "absl/base/optimization.h"
-#include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/page_heap_allocator.h"
-#include "tcmalloc/pagemap.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sampler.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

@@ -17,13 +17,13 @@
 #include <stddef.h>
 #include <string.h>
 
-#include <limits>
+#include <cstdint>
 
-#include "absl/base/internal/spinlock.h"
+#include "absl/functional/function_ref.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/sampler.h"

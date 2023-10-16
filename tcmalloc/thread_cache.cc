@@ -15,11 +15,18 @@
 #include "tcmalloc/thread_cache.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
-#include "absl/base/internal/spinlock.h"
+#include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/optimization.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

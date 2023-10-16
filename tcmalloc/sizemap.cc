@@ -15,13 +15,17 @@
 #include "tcmalloc/sizemap.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstring>
 #include <new>
 
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/optimization.h"
+#include "absl/base/macros.h"
+#include "absl/types/span.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/sampler.h"
+#include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

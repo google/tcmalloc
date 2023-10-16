@@ -26,6 +26,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

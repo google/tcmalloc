@@ -15,16 +15,19 @@
 #ifndef TCMALLOC_PAGE_ALLOCATOR_H_
 #define TCMALLOC_PAGE_ALLOCATOR_H_
 
-#include <inttypes.h>
 #include <stddef.h>
 
 #include <array>
+#include <cstdint>
 #include <limits>
-#include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_allocator_interface.h"

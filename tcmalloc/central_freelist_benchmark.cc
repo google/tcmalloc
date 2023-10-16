@@ -21,7 +21,6 @@
 #include "absl/random/random.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 

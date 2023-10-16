@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <algorithm>
-#include <vector>
+#include <cstddef>
+#include <cstdint>
 
 #include "absl/log/check.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"

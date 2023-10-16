@@ -22,6 +22,7 @@
 #include <stdlib.h>
 
 #include <limits>
+#include <new>
 #include <utility>
 
 #include "gmock/gmock.h"

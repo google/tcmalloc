@@ -266,8 +266,8 @@ static void SlowFence(int target) {
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static void UpstreamRseqFenceCpu(int cpu) {
-  ABSL_RAW_CHECK(using_upstream_fence.load(std::memory_order_relaxed),
-                 "upstream fence unavailable.");
+  CHECK_CONDITION(using_upstream_fence.load(std::memory_order_relaxed) &&
+                  "upstream fence unavailable.");
 
   constexpr int kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ = (1 << 7);
   constexpr int kMEMBARRIER_CMD_FLAG_CPU = (1 << 0);
@@ -275,8 +275,8 @@ static void UpstreamRseqFenceCpu(int cpu) {
   int64_t res = syscall(__NR_membarrier, kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
                         kMEMBARRIER_CMD_FLAG_CPU, cpu);
 
-  ABSL_RAW_CHECK(res == 0 || res == -ENXIO /* missing CPU */,
-                 "Upstream fence failed.");
+  CHECK_CONDITION((res == 0 || res == -ENXIO /* missing CPU */) &&
+                  "Upstream fence failed.");
 }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 

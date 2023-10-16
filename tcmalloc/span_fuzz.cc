@@ -13,10 +13,15 @@
 // limitations under the License.
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
 using tcmalloc::tcmalloc_internal::kMaxObjectsToMove;

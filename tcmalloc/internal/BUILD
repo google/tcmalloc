@@ -334,6 +334,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":logging",
         ":page_size",
         ":util",
         "@com_google_absl//absl/base:core_headers",
@@ -927,6 +928,7 @@ cc_test(
     deps = [
         ":clock",
         ":timeseries_tracker",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],

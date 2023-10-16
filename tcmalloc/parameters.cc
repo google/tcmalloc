@@ -14,19 +14,25 @@
 #include "tcmalloc/parameters.h"
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/const_init.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/page_allocator.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/thread_cache.h"
 

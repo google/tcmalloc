@@ -17,11 +17,23 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <array>
+#include <csignal>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <tuple>
+
+#include "absl/base/call_once.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

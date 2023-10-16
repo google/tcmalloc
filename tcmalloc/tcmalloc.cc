@@ -49,7 +49,6 @@
 #include "tcmalloc/tcmalloc.h"
 
 #include <errno.h>
-#include <inttypes.h>
 #include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -59,37 +58,27 @@
 #include <unistd.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstddef>
 #include <limits>
 #include <map>
 #include <memory>
 #include <new>
 #include <string>
-#include <tuple>
-#include <utility>
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include "absl/base/config.h"
 #include "absl/base/const_init.h"
-#include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/internal/sysinfo.h"
-#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/debugging/stacktrace.h"
-#include "absl/memory/memory.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
-#include "absl/strings/strip.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
+#include "absl/types/span.h"
 #include "tcmalloc/allocation_sample.h"
 #include "tcmalloc/allocation_sampling.h"
-#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
@@ -98,7 +87,7 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
-#include "tcmalloc/internal/linked_list.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/overflow.h"
@@ -110,21 +99,18 @@
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/new_extension.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
-#include "tcmalloc/transfer_cache_stats.h"
 
 #if defined(TCMALLOC_HAVE_STRUCT_MALLINFO) || \
     defined(TCMALLOC_HAVE_STRUCT_MALLINFO2)

@@ -19,6 +19,8 @@
 #include <new>
 
 #include "gtest/gtest.h"
+#include "absl/base/internal/spinlock.h"
+#include "tcmalloc/common.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {

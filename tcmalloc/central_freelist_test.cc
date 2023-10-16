@@ -28,6 +28,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/algorithm/container.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/fixed_array.h"
 #include "absl/container/flat_hash_map.h"
@@ -42,11 +43,13 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_static_forwarder.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/stats.h"
 #include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {

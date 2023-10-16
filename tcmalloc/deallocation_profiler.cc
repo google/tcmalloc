@@ -16,24 +16,29 @@
 
 #include <algorithm>
 #include <cmath>    // for std::lround
+#include <cstddef>
 #include <cstdint>  // for uintptr_t
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <memory>
-#include <string>  // for memset
 #include <type_traits>
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/internal/low_level_alloc.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/base/macros.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/debugging/stacktrace.h"  // for GetStackTrace
+#include "absl/functional/function_ref.h"
 #include "absl/hash/hash.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "tcmalloc/cpu_cache.h"
+#include "tcmalloc/internal/cache_topology.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"

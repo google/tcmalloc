@@ -17,14 +17,15 @@
 #include <string.h>
 
 #include <algorithm>
-#include <string>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
-#include "absl/base/macros.h"
+#include "absl/functional/function_ref.h"
 #include "absl/strings/match.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
+#include "tcmalloc/experiment_config.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 

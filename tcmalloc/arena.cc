@@ -14,8 +14,13 @@
 
 #include "tcmalloc/arena.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <new>
 
+#include "absl/base/optimization.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"

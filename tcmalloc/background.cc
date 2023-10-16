@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <errno.h>
 
 #include <algorithm>
+#include <cstddef>
 
-#include "absl/base/internal/sysinfo.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"

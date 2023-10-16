@@ -14,31 +14,17 @@
 
 #include "tcmalloc/huge_page_aware_allocator.h"
 
-#include <stdint.h>
-#include <string.h>
-
-#include <new>
-
-#include "absl/base/internal/cycleclock.h"
-#include "absl/base/internal/spinlock.h"
-#include "absl/base/thread_annotations.h"
-#include "absl/time/time.h"
-#include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
-#include "tcmalloc/huge_allocator.h"
-#include "tcmalloc/huge_page_filler.h"
+#include "absl/base/attributes.h"
+#include "tcmalloc/arena.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/huge_region.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/pagemap.h"
-#include "tcmalloc/parameters.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
-#include "tcmalloc/stats.h"
-#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

@@ -21,10 +21,11 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/memory/memory.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/sampler.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/static_vars.h"
 

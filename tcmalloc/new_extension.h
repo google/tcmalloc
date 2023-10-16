@@ -16,7 +16,6 @@
 #define TCMALLOC_NEW_EXTENSION_H_
 
 #include <cstddef>
-#include <cstdint>
 #include <new>
 
 #include "tcmalloc/malloc_extension.h"

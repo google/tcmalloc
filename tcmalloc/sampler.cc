@@ -14,12 +14,16 @@
 
 #include "tcmalloc/sampler.h"
 
-#include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 
-#include "tcmalloc/common.h"
+#include "absl/base/attributes.h"
+#include "absl/base/optimization.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
 

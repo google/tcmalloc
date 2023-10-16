@@ -23,10 +23,8 @@
 #ifndef TCMALLOC_MALLOC_EXTENSION_H_
 #define TCMALLOC_MALLOC_EXTENSION_H_
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <limits>
 #include <map>
 #include <memory>
@@ -34,12 +32,8 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "absl/base/attributes.h"
-#include "absl/base/macros.h"
-#include "absl/base/policy_checks.h"
-#include "absl/base/port.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"

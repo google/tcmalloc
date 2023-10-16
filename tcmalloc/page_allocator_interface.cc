@@ -14,17 +14,14 @@
 
 #include "tcmalloc/page_allocator_interface.h"
 
-#include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "tcmalloc/internal/environment.h"
+#include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

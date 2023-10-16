@@ -17,24 +17,42 @@
 #include <stddef.h>
 
 #include <atomic>
-#include <new>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/macros.h"
+#include "absl/base/optimization.h"
+#include "absl/types/span.h"
+#include "tcmalloc/allocation_sample.h"
+#include "tcmalloc/arena.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/deallocation_profiler.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
+#include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
+#include "tcmalloc/internal/cache_topology.h"
+#include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/page_allocator.h"
+#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
-#include "tcmalloc/sampler.h"
+#include "tcmalloc/peak_heap_tracker.h"
+#include "tcmalloc/sampled_allocation_allocator.h"
+#include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/span.h"
+#include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/thread_cache.h"
+#include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

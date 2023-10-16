@@ -16,7 +16,6 @@
 #include <sys/types.h>
 
 #include <cstdint>
-#include <new>
 #include <optional>
 #include <vector>
 

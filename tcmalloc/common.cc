@@ -14,14 +14,9 @@
 
 #include "tcmalloc/common.h"
 
-#include <algorithm>
-
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/internal/environment.h"
+#include "absl/strings/string_view.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/pages.h"
-#include "tcmalloc/sampler.h"
-#include "tcmalloc/span.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {

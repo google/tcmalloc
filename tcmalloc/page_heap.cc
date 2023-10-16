@@ -16,21 +16,21 @@
 
 #include <stddef.h>
 
-#include <limits>
-
 #include "absl/base/attributes.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/page_heap_allocator.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

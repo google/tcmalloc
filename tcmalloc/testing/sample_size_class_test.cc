@@ -15,7 +15,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#include <new>
 
 #include "gtest/gtest.h"
 #include "tcmalloc/internal/linked_list.h"

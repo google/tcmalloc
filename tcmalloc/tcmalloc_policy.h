@@ -82,15 +82,16 @@
 
 #include <errno.h>
 #include <stddef.h>
-#include <stdint.h>
 
 #include <cstddef>
+#include <new>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
-#include "tcmalloc/internal/percpu.h"
-#include "tcmalloc/new_extension.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 

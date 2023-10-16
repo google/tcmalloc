@@ -17,21 +17,13 @@
 #include <fcntl.h>
 #include <string.h>
 
-#include <atomic>
-#include <cstdint>
 #include <new>
-#include <optional>
 
 #include "absl/base/attributes.h"
-#include "absl/base/optimization.h"
-#include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/internal/cache_topology.h"
-#include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/linked_list.h"
-#include "tcmalloc/internal/logging.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/util.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

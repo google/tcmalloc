@@ -14,13 +14,16 @@
 
 #include <stdlib.h>
 
+#include <cstdint>
 #include <vector>
 
 #include "absl/random/random.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 
