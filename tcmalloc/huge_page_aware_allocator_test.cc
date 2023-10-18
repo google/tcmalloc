@@ -201,6 +201,11 @@ class HugePageAwareAllocatorTest
     return allocator_->ReleaseAtLeastNPages(k);
   }
 
+  Length ReleaseAtLeastNPagesBreakingHugepages(Length n) {
+    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    return allocator_->ReleaseAtLeastNPagesBreakingHugepages(n);
+  }
+
   bool UseHugeRegionMoreOften() {
     absl::base_internal::SpinLockHolder h(&pageheap_lock);
     return allocator_->region().UseHugeRegionMoreOften();
@@ -384,6 +389,30 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
       old_skip_subrelease_long_interval);
 }
 
+TEST_P(HugePageAwareAllocatorTest, HardReleaseSmall) {
+  std::vector<Span*> live, dead;
+  static const size_t N = kPagesPerHugePage.raw_num() * 128;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  for (int i = 0; i < N; ++i) {
+    Span* span = New(Length(1), kSpanInfo);
+    ((i % 2 == 0) ? live : dead).push_back(span);
+  }
+
+  for (auto d : dead) {
+    Delete(d, kSpanInfo.objects_per_span);
+  }
+
+  // Subrelease shouldn't release any pages by itself, but hard release using
+  // ReleaseAtLeastNPagesBreakingHugepages should release all the free pages.
+  EXPECT_EQ(ReleasePages(Length(1)), Length(0));
+  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(Length(1)),
+            kPagesPerHugePage / 2);
+
+  for (auto l : live) {
+    Delete(l, kSpanInfo.objects_per_span);
+  }
+}
+
 TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   // This test verifies that we use HugeRegion for large allocations as soon as
   // the abandoned pages exceed 64MB, when we use abandoned count in addition to
@@ -515,6 +544,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
       released = allocator_->ReleaseAtLeastNPages(Length(1));
     }
+    EXPECT_GT(released.in_bytes(), 0);
     EXPECT_LT(released.in_bytes(), backed_bytes);
     RefreshStats();
     backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;

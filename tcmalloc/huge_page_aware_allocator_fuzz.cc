@@ -236,13 +236,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // Release pages by breaking hugepages.  We divide up our random value
         // by:
         //
-        // value[7:0] - Choose number of pages to release.
-        // value[63:8] - Reserved.
-        Length desired(value & 0x00FF);
+        // value[15:0] - Choose number of pages to release.
+        // value[63:16] - Reserved.
+        Length desired(value & 0xFFFF);
         Length released;
         BackingStats stats;
         {
           AllocationGuardSpinLockHolder h(&pageheap_lock);
+          // TODO(vgogte): Check for region stats along with filler stats.
           stats = allocator->FillerStats();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
         }
