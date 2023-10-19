@@ -152,7 +152,11 @@ class FakeTransferCacheEnvironment {
       ::tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
   static constexpr int kBatchSize = Manager::num_objects_to_move(1);
 
-  FakeTransferCacheEnvironment() : manager_(), cache_(&manager_, 1) { Init(); }
+  FakeTransferCacheEnvironment()
+      : manager_(),
+        cache_(&manager_, 1, /*use_all_buckets_for_few_object_spans=*/false) {
+    Init();
+  }
 
   ~FakeTransferCacheEnvironment() { Drain(); }
 
@@ -242,9 +246,12 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove2 = 2;
 
   TwoSizeClassManager() {
-    caches_.push_back(absl::make_unique<TransferCache>(this, 0));
-    caches_.push_back(absl::make_unique<TransferCache>(this, 1));
-    caches_.push_back(absl::make_unique<TransferCache>(this, 2));
+    caches_.push_back(absl::make_unique<TransferCache>(
+        this, 0, /*use_all_buckets_for_few_object_spans=*/false));
+    caches_.push_back(absl::make_unique<TransferCache>(
+        this, 1, /*use_all_buckets_for_few_object_spans=*/false));
+    caches_.push_back(absl::make_unique<TransferCache>(
+        this, 2, /*use_all_buckets_for_few_object_spans=*/false));
   }
 
   constexpr static size_t class_to_size(int size_class) {

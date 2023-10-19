@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 #ifndef TCMALLOC_SMALL_BUT_SLOW
@@ -117,7 +118,9 @@ class ProdCpuLayout {
 // Forwards calls to the unsharded TransferCache.
 class BackingTransferCache {
  public:
-  void Init(int size_class) { size_class_ = size_class; }
+  void Init(int size_class, bool use_all_buckets_for_few_object_spans_in_cfl) {
+    size_class_ = size_class;
+  }
   void InsertRange(absl::Span<void *> batch) const;
   ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) const;
   int size_class() const { return size_class_; }
@@ -372,10 +375,13 @@ class ShardedTransferCacheManagerBase {
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
                                             : LargeCacheCapacity(size_class);
-      new (&new_caches[size_class])
-          TransferCache(owner_, capacity.capacity > 0 ? size_class : 0,
-                        {capacity.capacity, capacity.max_capacity});
-      new_caches[size_class].freelist().Init(size_class);
+      new (&new_caches[size_class]) TransferCache(
+          owner_, capacity.capacity > 0 ? size_class : 0,
+          {capacity.capacity, capacity.max_capacity},
+          Parameters::use_all_buckets_for_few_object_spans_in_cfl());
+      new_caches[size_class].freelist().Init(
+          size_class,
+          Parameters::use_all_buckets_for_few_object_spans_in_cfl());
     }
     shard.transfer_caches = new_caches;
     active_shards_.fetch_add(1, std::memory_order_relaxed);
@@ -481,7 +487,8 @@ class TransferCacheManager : public StaticForwarder {
 
   void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
-      new (&cache_[i].tc) TransferCache(this, i);
+      new (&cache_[i].tc) TransferCache(
+          this, i, Parameters::use_all_buckets_for_few_object_spans_in_cfl());
     }
   }
 
@@ -566,7 +573,7 @@ class TransferCacheManager {
 
   void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     for (int i = 0; i < kNumClasses; ++i) {
-      freelist_[i].Init(i);
+      freelist_[i].Init(i, /*use_all_buckets_for_few_object_spans=*/false);
     }
   }
 
@@ -624,7 +631,7 @@ struct ShardedTransferCacheManager {
   void PrintInPbtxt(PbtxtRegion* region) const {}
 };
 
-#endif
+#endif  // !TCMALLOC_SMALL_BUT_SLOW
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

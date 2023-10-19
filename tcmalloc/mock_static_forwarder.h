@@ -173,16 +173,22 @@ class FakeCentralFreeListEnvironment {
   using Forwarder = typename CentralFreeListT::Forwarder;
 
   static constexpr int kSizeClass = 1;
+  bool use_all_buckets_for_few_object_spans() const {
+    return use_all_buckets_for_few_object_spans_;
+  }
   size_t objects_per_span() {
     return forwarder().class_to_pages(kSizeClass).in_bytes() /
            forwarder().class_to_size(kSizeClass);
   }
   size_t batch_size() { return forwarder().num_objects_to_move(); }
 
-  explicit FakeCentralFreeListEnvironment(size_t class_size, size_t pages,
-                                          size_t num_objects_to_move) {
+  explicit FakeCentralFreeListEnvironment(
+      size_t class_size, size_t pages, size_t num_objects_to_move,
+      bool use_all_buckets_for_few_object_spans)
+      : use_all_buckets_for_few_object_spans_(
+            use_all_buckets_for_few_object_spans) {
     forwarder().Init(class_size, pages, num_objects_to_move);
-    cache_.Init(kSizeClass);
+    cache_.Init(kSizeClass, use_all_buckets_for_few_object_spans);
   }
 
   ~FakeCentralFreeListEnvironment() { EXPECT_EQ(cache_.length(), 0); }
@@ -192,6 +198,7 @@ class FakeCentralFreeListEnvironment {
   Forwarder& forwarder() { return cache_.forwarder(); }
 
  private:
+  const bool use_all_buckets_for_few_object_spans_;
   CentralFreeList cache_;
 };
 

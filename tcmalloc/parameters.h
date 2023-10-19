@@ -48,6 +48,8 @@ class Parameters {
   static bool hpaa_subrelease();
   static void set_hpaa_subrelease(bool value);
 
+  static bool use_all_buckets_for_few_object_spans_in_cfl();
+
   static int64_t guarded_sampling_rate() {
     return guarded_sampling_rate_.load(std::memory_order_relaxed);
   }

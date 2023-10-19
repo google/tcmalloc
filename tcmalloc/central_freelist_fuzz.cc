@@ -38,21 +38,25 @@ using tcmalloc_internal::kMaxObjectsToMove;
 
 template <typename Env>
 int RunFuzzer(const uint8_t* data, size_t size) {
-  if (size < 10 || size > 100000) {
-    // size < 10 for bare minimum fuzz test for a single operation.
+  if (size < 11 || size > 100000) {
+    // size < 11 for bare minimum fuzz test for a single operation.
     // Avoid overly large inputs as we perform some shuffling and checking.
     return 0;
   }
+  // object_size can be at most kMaxSize.  The current maximum value of kMaxSize
+  // is 2^18.  So we use the first 24 bits to set object_size.
   const size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
-  data += 5;
-  size -= 5;
+  const bool use_all_buckets_for_few_object_spans = (data[5] & 0x1);
+  data += 6;
+  size -= 6;
   if (!tcmalloc_internal::SizeMap::IsValidSizeClass(object_size, num_pages,
                                                     num_objects_to_move)) {
     return 0;
   }
-  Env env(object_size, num_pages, num_objects_to_move);
+  Env env(object_size, num_pages, num_objects_to_move,
+          use_all_buckets_for_few_object_spans);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {

@@ -459,6 +459,9 @@ void DumpStats(Printer* out, int level) {
                 Parameters::chunks_per_alloc());
     out->printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                 tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
+    out->printf(
+        "PARAMETER tcmalloc_use_all_buckets_for_few_object_spans %d\n",
+        Parameters::use_all_buckets_for_few_object_spans_in_cfl() ? 1 : 0);
   }
 }
 
@@ -635,6 +638,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                   Parameters::chunks_per_alloc());
   region.PrintI64("tcmalloc_use_wider_slabs",
                   tc_globals.cpu_cache().UseWiderSlabs());
+  region.PrintI64("tcmalloc_use_all_buckets_for_few_object_spans",
+                  Parameters::use_all_buckets_for_few_object_spans_in_cfl());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
