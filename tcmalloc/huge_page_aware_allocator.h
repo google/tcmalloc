@@ -187,6 +187,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return filler_.stats();
   }
 
+  BackingStats RegionsStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return regions_.stats();
+  }
+
   HugeLength DonatedHugePages() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return donated_huge_pages_;
@@ -997,10 +1002,22 @@ inline Length
 HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
     Length n) {
   // We desperately need to release memory, and are willing to
-  // compromise on hugepage usage. That means releasing from the filler.
-  return filler_.ReleasePages(n, SkipSubreleaseIntervals{},
-                              /*release_partial_alloc_pages=*/false,
-                              /*hit_limit=*/true);
+  // compromise on hugepage usage. That means releasing from the region and
+  // filler.
+
+  Length released;
+  if (regions_.UseHugeRegionMoreOften()) {
+    // We try to release as many free hugepages from HugeRegion as possible.
+    released += regions_.ReleasePages(/*release_fraction=*/1.0);
+    if (released >= n) {
+      return released;
+    }
+  }
+
+  released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
+                                   /*release_partial_alloc_pages=*/false,
+                                   /*hit_limit=*/true);
+  return released;
 }
 
 }  // namespace huge_page_allocator_internal

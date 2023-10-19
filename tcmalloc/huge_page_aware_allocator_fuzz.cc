@@ -243,8 +243,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         BackingStats stats;
         {
           AllocationGuardSpinLockHolder h(&pageheap_lock);
-          // TODO(vgogte): Check for region stats along with filler stats.
-          stats = allocator->FillerStats();
+          stats = allocator->FillerStats() + allocator->RegionsStats();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
         }
 

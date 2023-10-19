@@ -56,6 +56,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_test_util.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -548,11 +549,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     EXPECT_LT(released.in_bytes(), backed_bytes);
     RefreshStats();
     backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
-  }
 
-  while (true) {
-    if (!UseHugeRegionMoreOften() || backed_bytes == 0) break;
-    Length released;
     {
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
       released = allocator_->ReleaseAtLeastNPages(Length(1));
@@ -560,6 +557,17 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     EXPECT_GT(released.in_bytes(), 0);
     RefreshStats();
     backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+
+    Length backed_in_pages = LengthFromBytes(backed_bytes);
+    {
+      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      released =
+          allocator_->ReleaseAtLeastNPagesBreakingHugepages(backed_in_pages);
+    }
+    EXPECT_EQ(released, backed_in_pages);
+    RefreshStats();
+    backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
+    EXPECT_EQ(backed_bytes, 0);
   }
 
   for (auto s : small_spans) {
