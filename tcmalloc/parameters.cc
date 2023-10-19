@@ -276,6 +276,15 @@ int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
 
+int ABSL_ATTRIBUTE_WEAK default_want_disable_laze_size_class_resize();
+
+// TODO(b/305723428): remove the default_want_disable_laze_size_class_resize
+// opt-out.
+static bool want_disable_lazy_size_class_resize() {
+  if (default_want_disable_laze_size_class_resize == nullptr) return false;
+  return default_want_disable_laze_size_class_resize() > 0;
+}
+
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 
 // TODO(b/271475288): remove the default_want_disable_dynamic_slabs opt-out
@@ -458,6 +467,11 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 }
 
 void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
+  // We only allow disabling size class resize using both the flag and
+  // want_disable_lazy_size_class_resize.
+  if (!v && !tcmalloc::tcmalloc_internal::want_disable_lazy_size_class_resize())
+    return;
+
   Parameters::resize_cpu_cache_size_classes_enabled_.store(
       v, std::memory_order_relaxed);
 }
