@@ -21,6 +21,7 @@
 
 #include "absl/base/internal/spinlock.h"
 #include "absl/memory/memory.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -44,7 +45,7 @@ void PeakHeapTracker::MaybeSaveSample() {
     return;
   }
 
-  absl::base_internal::SpinLockHolder h(&recorder_lock_);
+  AllocationGuardSpinLockHolder h(&recorder_lock_);
 
   // double-check in case another allocation was sampled (or a sampled
   // allocation freed) while we were waiting for the lock
@@ -67,7 +68,7 @@ void PeakHeapTracker::MaybeSaveSample() {
 std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() {
   auto profile = absl::make_unique<StackTraceTable>(ProfileType::kPeakHeap);
 
-  absl::base_internal::SpinLockHolder h(&recorder_lock_);
+  AllocationGuardSpinLockHolder h(&recorder_lock_);
   peak_heap_recorder_.get_mutable().Iterate(
       [&profile](const SampledAllocation& peak_heap_record) {
         profile->AddTrace(1.0, peak_heap_record.sampled_stack);

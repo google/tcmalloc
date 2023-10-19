@@ -301,7 +301,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
   // memory at a constant rate.
   ABSL_CONST_INIT static size_t extra_bytes_released;
 
-  absl::base_internal::SpinLockHolder rh(&release_lock);
+  AllocationGuardSpinLockHolder rh(&release_lock);
 
   AllocationGuardSpinLockHolder h(&pageheap_lock);
   if (num_bytes <= extra_bytes_released) {
@@ -917,6 +917,7 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
+using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::AllocSmall;
 using tcmalloc::tcmalloc_internal::CppPolicy;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
@@ -1044,7 +1045,7 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
   for (int i = 0; i < kMaxAttempts; i++) {
     int estimated_span_count;
     {
-      absl::base_internal::SpinLockHolder l(
+      AllocationGuardSpinLockHolder l(
           &tcmalloc::tcmalloc_internal::pageheap_lock);
       estimated_span_count = tc_globals.span_allocator().stats().total;
     }

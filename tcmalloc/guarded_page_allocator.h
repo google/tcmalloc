@@ -170,14 +170,14 @@ class GuardedPageAllocator {
 
   // Allows Allocate() to start returning allocations.
   void AllowAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
-    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
     allow_allocations_ = true;
   }
 
   // Returns the number of pages available for allocation, based on how many are
   // currently in use.  (Should only be used in testing.)
   size_t GetNumAvailablePages() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
-    absl::base_internal::SpinLockHolder h(&guarded_page_lock_);
+    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
     return max_alloced_pages_ - num_alloced_pages_;
   }
 

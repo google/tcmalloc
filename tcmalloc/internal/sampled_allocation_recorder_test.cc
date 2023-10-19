@@ -74,6 +74,8 @@ class SampleRecorderTest : public ::testing::Test {
 
   std::vector<size_t> GetSizes() {
     std::vector<size_t> res;
+    // Reserve to avoid reentrant allocations while iterating.
+    res.reserve(5);
     sample_recorder_.Iterate([&](const Info& info) {
       res.push_back(info.size.load(std::memory_order_acquire));
     });

@@ -32,6 +32,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -155,7 +156,7 @@ class TransferCache {
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity > info.used) {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      AllocationGuardSpinLockHolder h(&lock_);
       // As caches are resized in the background, we do not attempt to grow
       // them here. Instead, we just check if they have spare free capacity.
       info = slot_info_.load(std::memory_order_relaxed);
@@ -186,7 +187,7 @@ class TransferCache {
     ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.used) {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      AllocationGuardSpinLockHolder h(&lock_);
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
       int got = std::min(N, info.used);
@@ -278,7 +279,7 @@ class TransferCache {
   bool IncreaseCacheCapacity(int size_class) ABSL_LOCKS_EXCLUDED(lock_) {
     int n = Manager::num_objects_to_move(size_class);
 
-    absl::base_internal::SpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(&lock_);
     auto info = slot_info_.load(std::memory_order_relaxed);
     // Check if we can expand this cache?
     if (info.capacity + n > max_capacity_) return false;
@@ -312,7 +313,7 @@ class TransferCache {
     void *to_free[kMaxObjectsToMove];
     int num_to_free;
     {
-      absl::base_internal::SpinLockHolder h(&lock_);
+      AllocationGuardSpinLockHolder h(&lock_);
       auto info = slot_info_.load(std::memory_order_relaxed);
       if (info.capacity == 0) return false;
       if (info.capacity <= N) return false;

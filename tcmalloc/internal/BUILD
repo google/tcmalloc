@@ -798,6 +798,7 @@ cc_library(
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
+        ":allocation_guard",
         ":config",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

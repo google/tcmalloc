@@ -30,6 +30,7 @@
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/strings/string_view.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 
@@ -134,7 +135,7 @@ void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
 
   bool first_crash = false;
   {
-    absl::base_internal::SpinLockHolder l(&crash_lock);
+    AllocationGuardSpinLockHolder l(&crash_lock);
     if (!crashed) {
       crashed = true;
       first_crash = true;

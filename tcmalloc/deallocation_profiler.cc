@@ -37,6 +37,7 @@
 #include "absl/hash/hash.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
@@ -51,7 +52,7 @@ namespace tcmalloc {
 namespace deallocationz {
 namespace {
 using ::absl::base_internal::SpinLock;
-using ::absl::base_internal::SpinLockHolder;
+using tcmalloc_internal::AllocationGuardSpinLockHolder;
 
 // STL adaptor for an arena based allocator which provides the following:
 //   static void* Alloc::Allocate(size_t size);
@@ -278,7 +279,7 @@ class DeallocationProfiler {
     // determined by how long at least one emitted Profile remains alive.
     struct LowLevelArenaReference {
       LowLevelArenaReference() {
-        SpinLockHolder h(&arena_lock_);
+        AllocationGuardSpinLockHolder h(&arena_lock_);
         if ((refcount_++) == 0) {
           CHECK_CONDITION(arena_ == nullptr);
           arena_ = absl::base_internal::LowLevelAlloc::NewArena(0);
@@ -286,7 +287,7 @@ class DeallocationProfiler {
       }
 
       ~LowLevelArenaReference() {
-        SpinLockHolder h(&arena_lock_);
+        AllocationGuardSpinLockHolder h(&arena_lock_);
         if ((--refcount_) == 0) {
           CHECK_CONDITION(
               absl::base_internal::LowLevelAlloc::DeleteArena(arena_));
@@ -482,7 +483,7 @@ class DeallocationProfiler {
 };
 
 void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
-  SpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(&profilers_lock_);
   profiler->next_ = first_;
   first_ = profiler;
 
@@ -496,7 +497,7 @@ void DeallocationProfilerList::Add(DeallocationProfiler* profiler) {
 
 // This list is very short and we're nowhere near a hot path, just walk
 void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
-  SpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(&profilers_lock_);
   DeallocationProfiler** link = &first_;
   DeallocationProfiler* cur = first_;
   while (cur != profiler) {
@@ -509,7 +510,7 @@ void DeallocationProfilerList::Remove(DeallocationProfiler* profiler) {
 
 void DeallocationProfilerList::ReportMalloc(
     const tcmalloc_internal::StackTrace& stack_trace) {
-  SpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(&profilers_lock_);
   DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
     cur->ReportMalloc(stack_trace);
@@ -519,7 +520,7 @@ void DeallocationProfilerList::ReportMalloc(
 
 void DeallocationProfilerList::ReportFree(
     tcmalloc_internal::AllocHandle handle) {
-  SpinLockHolder h(&profilers_lock_);
+  AllocationGuardSpinLockHolder h(&profilers_lock_);
   DeallocationProfiler* cur = first_;
   while (cur != nullptr) {
     cur->ReportFree(handle);

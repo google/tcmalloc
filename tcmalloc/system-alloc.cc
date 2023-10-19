@@ -42,6 +42,7 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
@@ -404,7 +405,7 @@ AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
   // Discard requests that overflow
   if (bytes + alignment < bytes) return {nullptr, 0};
 
-  absl::base_internal::SpinLockHolder lock_holder(&spinlock);
+  AllocationGuardSpinLockHolder lock_holder(&spinlock);
 
   InitSystemAllocatorIfNecessary();
 
@@ -513,13 +514,13 @@ bool SystemRelease(void* start, size_t length) {
 }
 
 AddressRegionFactory* GetRegionFactory() {
-  absl::base_internal::SpinLockHolder lock_holder(&spinlock);
+  AllocationGuardSpinLockHolder lock_holder(&spinlock);
   InitSystemAllocatorIfNecessary();
   return region_factory;
 }
 
 void SetRegionFactory(AddressRegionFactory* factory) {
-  absl::base_internal::SpinLockHolder lock_holder(&spinlock);
+  AllocationGuardSpinLockHolder lock_holder(&spinlock);
   InitSystemAllocatorIfNecessary();
   region_manager->DiscardMappedRegions();
   region_factory = factory;

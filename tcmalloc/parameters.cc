@@ -28,6 +28,7 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
@@ -462,7 +463,7 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
   // Ensure that page allocator is set up.
   tc_globals.InitIfNecessary();
 
-  absl::base_internal::SpinLockHolder l(&update_lock);
+  tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder l(&update_lock);
 
   using tcmalloc::tcmalloc_internal::PageAllocator;
   const size_t old_limit =
@@ -505,7 +506,7 @@ void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {
   Parameters::max_total_thread_cache_bytes_.store(v, std::memory_order_relaxed);
 
-  absl::base_internal::SpinLockHolder l(
+  tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder l(
       &tcmalloc::tcmalloc_internal::pageheap_lock);
   tcmalloc::tcmalloc_internal::ThreadCache::set_overall_thread_cache_size(v);
 }
