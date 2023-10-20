@@ -67,6 +67,18 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "allocation_guard_test",
+    srcs = ["allocation_guard_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":allocation_guard",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "atomic_danger",
     hdrs = ["atomic_danger.h"],
