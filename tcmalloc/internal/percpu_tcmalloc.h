@@ -487,17 +487,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 #define TCMALLOC_RSEQ_SET_CS(name) \
   "lea __rseq_cs_" #name           \
   "_%=(%%rip), %[scratch]\n"       \
-  "mov %[scratch], " TCMALLOC_RSEQ_TLS_ADDR(rseq_cs_offset) "\n"
-#if defined(__PIC__) && !defined(__PIE__)
-// With -fPIC we assume the asm block has [rseq_abi] input.
-// This input is passed by TCMALLOC_RSEQ_INPUTS macro.
-#define TCMALLOC_RSEQ_TLS_ADDR(off) "%c[" #off "](%[rseq_abi])"
-#define TCMALLOC_RSEQ_ABI_INPUT [rseq_abi] "r"(&__rseq_abi),
-#else
-// Without -fPIC access __rseq_abi directly since it's faster.
-#define TCMALLOC_RSEQ_TLS_ADDR(off) "%%fs:__rseq_abi@TPOFF + %c[" #off "]"
-#define TCMALLOC_RSEQ_ABI_INPUT
-#endif
+  "movq %[scratch], %[rseq_cs_addr]\n"
 
 #elif defined(__aarch64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_AARCH64_NONE"
@@ -507,9 +497,7 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
   "_%=\n"                                              \
   "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
   "_%=\n"                                              \
-  "str %[scratch], [%[rseq_abi], %c[rseq_cs_offset]]\n"
-#define TCMALLOC_RSEQ_TLS_ADDR(off) "[%[rseq_abi], %c[" #off "]]"
-#define TCMALLOC_RSEQ_ABI_INPUT [rseq_abi] "r"(&__rseq_abi),
+  "str %[scratch], %[rseq_cs_addr]\n"
 #endif
 
 #if !defined(__clang_major__) || __clang_major__ >= 9
@@ -572,13 +560,14 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
       "4:\n"
 
 #define TCMALLOC_RSEQ_INPUTS                                                 \
-  TCMALLOC_RSEQ_ABI_INPUT                                                    \
-  [rseq_cs_offset] "n"(offsetof(kernel_rseq, rseq_cs)),                      \
+  [rseq_cs_addr] "m"(__rseq_abi.rseq_cs),                                    \
+      [rseq_slabs_addr] "m"(*reinterpret_cast<volatile char*>(               \
+          reinterpret_cast<uintptr_t>(&__rseq_abi) +                         \
+          TCMALLOC_RSEQ_SLABS_OFFSET)),                                      \
       [rseq_sig] "n"(                                                        \
           TCMALLOC_PERCPU_RSEQ_SIGNATURE), /* Also pass common consts, there \
                                               is no cost to passing unused   \
                                               consts. */                     \
-      [rseq_slabs_offset] "n"(TCMALLOC_RSEQ_SLABS_OFFSET),                   \
       [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
       [cached_slabs_mask_neg] "n"(~TCMALLOC_CACHED_SLABS_MASK)
 
@@ -593,8 +582,8 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
   asm volatile(
 #endif
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
-  // scratch = tcmalloc_slabs;
-      "movq " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) ", %[scratch]\n"
+      // scratch = tcmalloc_slabs;
+      "movq %[rseq_slabs_addr], %[scratch]\n"
       // if (scratch & TCMALLOC_CACHED_SLABS_MASK>) goto overflow_label;
       // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
       "btrq $%c[cached_slabs_bit], %[scratch]\n"
@@ -624,8 +613,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       [overflow] "=@ccae"(overflow),
 #endif
       [scratch] "=&r"(scratch), [current] "=&r"(current)
-      : TCMALLOC_RSEQ_INPUTS,
-        [size_class] "r"(size_class), [item] "r"(item)
+      : TCMALLOC_RSEQ_INPUTS, [size_class] "r"(size_class), [item] "r"(item)
       : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
@@ -656,9 +644,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
   bool overflow;
   asm volatile(
 #endif
-       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
+      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Push)
       // region_start = tcmalloc_slabs;
-      "ldr %[region_start], " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) "\n"
+      "ldr %[region_start], %[rseq_slabs_addr]\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -794,54 +782,53 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   bool underflow;
   asm(
 #endif
-         TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
-        // scratch = tcmalloc_slabs;
-        "movq " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) ", %[scratch]\n"
+      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
+      // scratch = tcmalloc_slabs;
+      "movq %[rseq_slabs_addr], %[scratch]\n"
   // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          "btrq $%c[cached_slabs_bit], %[scratch]\n"
-          "jnc %l[underflow_path]\n"
+      "btrq $%c[cached_slabs_bit], %[scratch]\n"
+      "jnc %l[underflow_path]\n"
 #else
-          "cmpq %[cached_slabs_mask], %[scratch]\n"
-          "jbe 5f\n"
-          "subq %[cached_slabs_mask], %[scratch]\n"
+      "cmpq %[cached_slabs_mask], %[scratch]\n"
+      "jbe 5f\n"
+      "subq %[cached_slabs_mask], %[scratch]\n"
 #endif
-          // current = scratch->header[size_class].current;
-          "movzwq (%[scratch], %[size_class], 8), %[current]\n"
-          // if (ABSL_PREDICT_FALSE(current <=
-          //                        scratch->header[size_class].begin))
-          //   goto underflow_path;
-          "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
+      // current = scratch->header[size_class].current;
+      "movzwq (%[scratch], %[size_class], 8), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(current <=
+      //                        scratch->header[size_class].begin))
+      //   goto underflow_path;
+      "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          "jbe %l[underflow_path]\n"
+      "jbe %l[underflow_path]\n"
 #else
-          "jbe 5f\n"
+      "jbe 5f\n"
   // Important! code below this must not affect any flags (i.e.: ccbe)
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
-          "lea -1(%[current]), %[current]\n"
-          "movq -8(%[scratch], %[current], 8), %[next]\n"
-          "movq (%[scratch], %[current], 8), %[result]\n"
-          "mov %w[current], (%[scratch], %[size_class], 8)\n"
-          // Commit
-          "5:\n"
-          : [result] "=&r"(result),
+      "lea -1(%[current]), %[current]\n"
+      "movq -8(%[scratch], %[current], 8), %[next]\n"
+      "movq (%[scratch], %[current], 8), %[result]\n"
+      "mov %w[current], (%[scratch], %[size_class], 8)\n"
+      // Commit
+      "5:\n"
+      : [result] "=&r"(result),
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [underflow] "=@ccbe"(underflow),
+        [underflow] "=@ccbe"(underflow),
 #endif
-            [scratch] "=&r"(scratch), [current] "=&r"(current),
-            [next] "=&r"(next)
-          : TCMALLOC_RSEQ_INPUTS,
+        [scratch] "=&r"(scratch), [current] "=&r"(current), [next] "=&r"(next)
+      : TCMALLOC_RSEQ_INPUTS,
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
+        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-            [size_class] "r"(size_class)
-          : "cc", "memory"
+        [size_class] "r"(size_class)
+      : "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          : underflow_path
+      : underflow_path
 #endif
-      );
+  );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
@@ -879,67 +866,66 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto TcmallocSlab<NumClasses>::Pop(
   bool underflow;
   asm(
 #endif
-         TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
-          // region_start = tcmalloc_slabs;
-          "ldr %[region_start], " TCMALLOC_RSEQ_TLS_ADDR(rseq_slabs_offset) "\n"
+      TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
+      // region_start = tcmalloc_slabs;
+      "ldr %[region_start], %[rseq_slabs_addr]\n"
   // if (region_start & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
   // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
-          "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
+      "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
+      "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
 #else
-          "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
-          "b.ls 5f\n"
+      "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
+      "b.ls 5f\n"
 #endif
-          // scratch = slab_headers[size_class]->current (current index)
-          "ldrh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
-          // begin = slab_headers[size_class]->begin (begin index)
-          // Temporarily use begin as scratch.
-          "add %[begin], %[size_class_lsl3], #4\n"
-          "ldrh %w[begin], [%[region_start], %[begin]]\n"
-          // if (ABSL_PREDICT_FALSE(begin >= scratch)) { goto underflow_path; }
-          "cmp %w[scratch], %w[begin]\n"
+      // scratch = slab_headers[size_class]->current (current index)
+      "ldrh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
+      // begin = slab_headers[size_class]->begin (begin index)
+      // Temporarily use begin as scratch.
+      "add %[begin], %[size_class_lsl3], #4\n"
+      "ldrh %w[begin], [%[region_start], %[begin]]\n"
+      // if (ABSL_PREDICT_FALSE(begin >= scratch)) { goto underflow_path; }
+      "cmp %w[scratch], %w[begin]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          "b.ls %l[underflow_path]\n"
+      "b.ls %l[underflow_path]\n"
 #else
-          "b.ls 5f\n"
+      "b.ls 5f\n"
   // Important! code below this must not affect any flags (i.e.: ccls)
   // If so, the above code needs to explicitly set a ccls return value.
 #endif
-          // scratch--
-          "sub %w[scratch], %w[scratch], #1\n"
-          "ldr %[result], [%[region_start], %[scratch], LSL #3]\n"
-          "sub %w[previous], %w[scratch], #1\n"
-          "ldr %[prefetch], [%[region_start], %[previous], LSL #3]\n"
-          "strh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
-          // Commit
-          "5:\n"
-          :
+      // scratch--
+      "sub %w[scratch], %w[scratch], #1\n"
+      "ldr %[result], [%[region_start], %[scratch], LSL #3]\n"
+      "sub %w[previous], %w[scratch], #1\n"
+      "ldr %[prefetch], [%[region_start], %[previous], LSL #3]\n"
+      "strh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
+      // Commit
+      "5:\n"
+      :
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          [underflow] "=@ccls"(underflow),
+      [underflow] "=@ccls"(underflow),
 #endif
-          [result] "=&r"(result), [prefetch] "=&r"(prefetch),
-          // Temps
-          [region_start] "=&r"(region_start), [previous] "=&r"(previous),
-          [begin] "=&r"(begin), [scratch] "=&r"(scratch)
-          // Real inputs
-          : TCMALLOC_RSEQ_INPUTS,
+      [result] "=&r"(result), [prefetch] "=&r"(prefetch),
+      // Temps
+      [region_start] "=&r"(region_start), [previous] "=&r"(previous),
+      [begin] "=&r"(begin), [scratch] "=&r"(scratch)
+      // Real inputs
+      : TCMALLOC_RSEQ_INPUTS,
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-            [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
+        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-            [size_class] "r"(size_class),
-            [size_class_lsl3] "r"(size_class << 3)
-          // Add x16 and x17 as an explicit clobber registers:
-          // The RSEQ code above uses non-local branches in the restart sequence
-          // which is located inside .text.unlikely. The maximum distance of B
-          // and BL branches in ARM is limited to 128MB. If the linker detects
-          // the distance being too large, it injects a thunk which may clobber
-          // the x16 or x17 register according to the ARMv8 ABI standard.
-          : "x16", "x17", "cc", "memory"
+        [size_class] "r"(size_class), [size_class_lsl3] "r"(size_class << 3)
+      // Add x16 and x17 as an explicit clobber registers:
+      // The RSEQ code above uses non-local branches in the restart sequence
+      // which is located inside .text.unlikely. The maximum distance of B
+      // and BL branches in ARM is limited to 128MB. If the linker detects
+      // the distance being too large, it injects a thunk which may clobber
+      // the x16 or x17 register according to the ARMv8 ABI standard.
+      : "x16", "x17", "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-          : underflow_path
+      : underflow_path
 #endif
-      );
+  );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(underflow)) {
     goto underflow_path;
