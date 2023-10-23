@@ -201,18 +201,12 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
     }
   }
 
-  if (!kHasExpandedClasses) {
+  if (!ColdFeatureActive()) {
     return true;
   }
 
   memset(cold_sizes_, 0, sizeof(cold_sizes_));
   cold_sizes_count_ = 0;
-
-  if (!ColdFeatureActive()) {
-    std::copy(&class_array_[0], &class_array_[kClassArraySize],
-              &class_array_[kClassArraySize]);
-    return true;
-  }
 
   // TODO(b/123523202): Systematically identify candidates for cold allocation
   // and include them explicitly in size_classes.cc.
