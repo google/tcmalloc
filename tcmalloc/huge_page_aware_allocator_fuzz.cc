@@ -240,16 +240,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[63:16] - Reserved.
         Length desired(value & 0xFFFF);
         Length released;
-        BackingStats stats;
+        size_t releasable_bytes;
         {
           AllocationGuardSpinLockHolder h(&pageheap_lock);
-          stats = allocator->FillerStats() + allocator->RegionsStats();
+          releasable_bytes = allocator->FillerStats().free_bytes +
+                             allocator->RegionsFreeBacked().in_bytes();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
         }
 
         if (forwarder.release_succeeds()) {
           CHECK_GE(released.in_bytes(),
-                   std::min(desired.in_bytes(), stats.free_bytes));
+                   std::min(desired.in_bytes(), releasable_bytes));
         } else {
           // TODO(b/271282540):  This is not strict equality due to
           // HugePageFiller's unmapping_unaccounted_ state.  Narrow this bound.

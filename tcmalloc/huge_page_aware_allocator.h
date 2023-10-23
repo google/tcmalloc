@@ -197,6 +197,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return donated_huge_pages_;
   }
 
+  HugeLength RegionsFreeBacked() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return regions_.free_backed();
+  }
+
   // Number of pages that have been retained on huge pages by donations that did
   // not reassemble by the time the larger allocation was deallocated.
   Length AbandonedPages() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {

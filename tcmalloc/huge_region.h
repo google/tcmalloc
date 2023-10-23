@@ -185,6 +185,7 @@ class HugeRegionSet {
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
                     PageAgeHistograms* ages) const;
   BackingStats stats() const;
+  HugeLength free_backed() const;
   size_t ActiveRegions() const;
   bool UseHugeRegionMoreOften() const {
     return use_huge_region_more_often_ ==
@@ -613,6 +614,16 @@ inline BackingStats HugeRegionSet<Region>::stats() const {
   }
 
   return stats;
+}
+
+template <typename Region>
+inline HugeLength HugeRegionSet<Region>::free_backed() const {
+  HugeLength pages;
+  for (Region* region : list_) {
+    pages += region->free_backed();
+  }
+
+  return pages;
 }
 
 }  // namespace tcmalloc_internal
