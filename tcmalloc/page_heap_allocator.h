@@ -64,7 +64,9 @@ class PageHeapAllocator {
     stats_.in_use++;
     if (ABSL_PREDICT_FALSE(result == nullptr)) {
       stats_.total++;
-      return reinterpret_cast<T*>(arena_->Alloc(sizeof(T)));
+      result = reinterpret_cast<T*>(arena_->Alloc(sizeof(T)));
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, sizeof(*result));
+      return result;
     } else {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
       // Unpoison the object on the freelist.
