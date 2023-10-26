@@ -659,9 +659,10 @@ extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
 namespace tcmalloc {
 
-// Pointer / capacity information as returned by
-// tcmalloc_size_returning_operator_new(). See
-// tcmalloc_size_returning_operator_new() for more information.
+// sized_ptr_t constains pointer / capacity information as returned
+// by `tcmalloc_size_returning_operator_new()`.
+// See `tcmalloc_size_returning_operator_new()` for more information.
+
 struct sized_ptr_t {
   void* p;
   size_t n;
