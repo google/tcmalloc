@@ -70,7 +70,6 @@ for std in ${STD}; do
           --distdir="/bazel-distdir" \
           --keep_going \
           --experimental_ui_max_stdouterr_bytes=-1 \
-          --remote_download_minimal \
           --show_timestamps \
           --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1" \
           --test_output=errors \
