@@ -40,6 +40,14 @@ const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
 
+bool IsCompilerExperiment(Experiment exp) {
+#ifdef NPX_COMPILER_ENABLED_EXPERIMENT
+  return exp == Experiment::NPX_COMPILER_EXPERIMENT;
+#else
+  return false;
+#endif
+}
+
 bool LookupExperimentID(absl::string_view label, Experiment* exp) {
   for (auto config : experiments) {
     if (config.name == label) {
@@ -99,13 +107,29 @@ const bool* SelectExperiments(bool* buffer, absl::string_view active,
     }
   });
 
+  // The compiler experiments should be env variable independent.
+#ifdef NPX_COMPILER_ENABLED_EXPERIMENT
+  if (!absl::StrContains(active, NPX_COMPILER_ENABLED_EXPERIMENT)) {
+    Experiment id;
+    if (LookupExperimentID(NPX_COMPILER_ENABLED_EXPERIMENT, &id)) {
+      buffer[static_cast<int>(id)] = true;
+    }
+  }
+#endif
+
   if (disabled == kDisableAll) {
-    memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
+    for (auto config : experiments) {
+      // Exclude compile-time experiments
+      if (!IsCompilerExperiment(config.id)) {
+        buffer[static_cast<int>(config.id)] = false;
+      }
+    }
   }
 
+  // disable non-compiler experiments
   ParseExperiments(disabled, [buffer](absl::string_view token) {
     Experiment id;
-    if (LookupExperimentID(token, &id)) {
+    if (LookupExperimentID(token, &id) && !IsCompilerExperiment(id)) {
       buffer[static_cast<int>(id)] = false;
     }
   });

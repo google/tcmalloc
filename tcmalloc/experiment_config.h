@@ -45,7 +45,6 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL, "TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL"},
 };
 // clang-format on
-
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_EXPERIMENT_CONFIG_H_
