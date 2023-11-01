@@ -129,8 +129,11 @@ class PageAllocator {
   bool ShrinkHardBy(Length page, LimitKind limit_kind)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  ABSL_ATTRIBUTE_RETURNS_NONNULL PageAllocatorInterface* impl(
-      MemoryTag tag) const;
+  using Interface =
+      std::conditional<huge_page_allocator_internal::kUnconditionalHPAA,
+                       HugePageAwareAllocator, PageAllocatorInterface>::type;
+
+  ABSL_ATTRIBUTE_RETURNS_NONNULL Interface* impl(MemoryTag tag) const;
 
   size_t active_numa_partitions() const;
 
@@ -143,9 +146,9 @@ class PageAllocator {
     PageHeap ph;
     HugePageAwareAllocator hpaa;
   } choices_[kNumHeaps];
-  std::array<PageAllocatorInterface*, kNumaPartitions> normal_impl_;
-  PageAllocatorInterface* sampled_impl_;
-  PageAllocatorInterface* cold_impl_;
+  std::array<Interface*, kNumaPartitions> normal_impl_;
+  Interface* sampled_impl_;
+  Interface* cold_impl_;
   Algorithm alg_;
   bool has_cold_impl_;
 
@@ -173,7 +176,11 @@ class PageAllocator {
   size_t peak_sampled_application_bytes_{0};
 };
 
-inline PageAllocatorInterface* PageAllocator::impl(MemoryTag tag) const {
+inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
+  if constexpr (huge_page_allocator_internal::kUnconditionalHPAA) {
+    ASSERT(alg_ == HPAA);
+  }
+
   switch (tag) {
     case MemoryTag::kNormalP0:
       return normal_impl_[0];

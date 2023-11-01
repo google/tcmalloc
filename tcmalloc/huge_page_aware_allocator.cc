@@ -43,15 +43,13 @@ bool decide_subrelease() {
     return false;
   }
 
-  // If we're forcing HPAA on, we want to converge towards our default of
-  // subrelease on, rather than off (where it is moot without HPAA).
-  constexpr bool kAlwaysHPAA = kPageSize >= 8192;
-
   const char* e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
     switch (e[0]) {
       case '0':
-        if (kAlwaysHPAA) {
+        if (kUnconditionalHPAA) {
+          // If we're forcing HPAA on, we want to converge towards our default
+          // of subrelease on, rather than off (where it is moot without HPAA).
           break;
         }
 

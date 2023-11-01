@@ -43,9 +43,7 @@ bool decide_want_hpaa() {
   static_assert(kHugePageSize <= kMinSystemAlloc,
                 "HPAA requires kMinSystemAlloc is at least a hugepage.");
 
-  // TODO(b/137017688):  Make this unconditional.
-  // TODO(b/228848071):  Include small-but-slow.
-  if (kPageSize >= 8192) {
+  if (huge_page_allocator_internal::kUnconditionalHPAA) {
     return true;
   }
 
@@ -118,6 +116,7 @@ PageAllocator::PageAllocator() {
     }
     alg_ = HPAA;
   } else {
+#ifdef TCMALLOC_SMALL_BUT_SLOW
     normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
     if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] = new (&choices_[1].ph) PageHeap(MemoryTag::kNormalP1);
@@ -131,6 +130,10 @@ PageAllocator::PageAllocator() {
       cold_impl_ = normal_impl_[0];
     }
     alg_ = PAGE_HEAP;
+#else
+    static_assert(huge_page_allocator_internal::kUnconditionalHPAA);
+    CHECK_CONDITION(false && "unreachable");
+#endif
   }
 }
 
