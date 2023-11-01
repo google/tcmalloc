@@ -30,6 +30,7 @@
 #include "absl/base/casts.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
@@ -211,7 +212,8 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 #else
                    "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at");
+                   " occurs in thread [0-9]+ at"
+      );
   EXPECT_DEATH(RepeatUnderflow(), expected_output);
 }
 
@@ -245,7 +247,8 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
 #else
                    "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at");
+                   " occurs in thread [0-9]+ at"
+      );
   EXPECT_DEATH(RepeatOverflow(), expected_output);
 }
 
@@ -274,7 +277,8 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
 #else
                    "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at");
+                   " occurs in thread [0-9]+ at"
+      );
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
 
@@ -302,7 +306,10 @@ TEST_P(ParameterizedTcMallocTest, DoubleFreeDetected) {
       }
     }
   };
-  EXPECT_DEATH(RepeatDoubleFree(), "Double free occurs in thread [0-9]+ at");
+  std::string expected_output = absl::StrCat(
+      "Double free occurs in thread [0-9]+ at"
+  );
+  EXPECT_DEATH(RepeatDoubleFree(), expected_output);
 }
 #endif
 
@@ -320,8 +327,10 @@ TEST_P(ParameterizedTcMallocTest, OverflowWriteDetectedAtFree) {
       MaybeResetStackTraceFilter(GetParam());
     }
   };
-  EXPECT_DEATH(RepeatOverflowWrite(),
-               "Buffer overflow \\(write\\) detected in thread [0-9]+ at free");
+  std::string expected_output = absl::StrCat(
+      "Buffer overflow \\(write\\) detected in thread [0-9]+ at free"
+  );
+  EXPECT_DEATH(RepeatOverflowWrite(), expected_output);
 }
 
 TEST_P(ParameterizedTcMallocTest, ReallocNoFalsePositive) {

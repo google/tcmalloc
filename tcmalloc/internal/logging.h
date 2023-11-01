@@ -118,10 +118,13 @@ class LogItem {
   LogItem(unsigned long v) : tag_(kUnsigned) { u_.unum = v; }
   LogItem(unsigned long long v) : tag_(kUnsigned) { u_.unum = v; }
   LogItem(const void* v) : tag_(kPtr) { u_.ptr = v; }
+  // Parameter is reference (against clang-tidy) to prevent pointing at a
+  // temporary (the by-value parameter), which causes a UaF error.
+  LogItem(const absl::string_view& v) : tag_(kStrView) { u_.ptr = &v; }
 
  private:
   friend class Logger;
-  enum Tag { kStr, kSigned, kUnsigned, kPtr, kEnd };
+  enum Tag { kStr, kStrView, kSigned, kUnsigned, kPtr, kEnd };
   Tag tag_;
   union {
     const char* str;

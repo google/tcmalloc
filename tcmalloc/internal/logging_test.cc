@@ -21,6 +21,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/flags/flag.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -68,6 +70,15 @@ TEST(InternalLogging, MessageFormatting) {
               testing::StartsWith(
                   "foo.cc:10] hello the quick brown fox jumped over the lazy "
                   "dogthe quick brown fox jumped over the lazy dog"));
+
+  // Check string_view, including case where not null terminated.
+  const char* some_text = "a b c d e";
+  absl::string_view strv1(some_text);
+  absl::string_view strv2(some_text, 3);
+  Log(kLog, "foo.cc", 11, strv1, strv2, some_text);
+  EXPECT_NE(strv2.data()[3], 0);
+  EXPECT_EQ(*log_buffer,
+            absl::StrCat("foo.cc:11] ", strv1, " ", strv2, " ", some_text));
 
   Log(kLogWithStack, "foo.cc", 10, "stk");
   EXPECT_TRUE(strstr(log_buffer->c_str(), "stk @ 0x") != nullptr)

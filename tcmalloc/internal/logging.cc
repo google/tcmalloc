@@ -165,6 +165,11 @@ bool Logger::Add(const LogItem& item) {
   switch (item.tag_) {
     case LogItem::kStr:
       return AddStr(item.u_.str, strlen(item.u_.str));
+    case LogItem::kStrView: {
+      const absl::string_view* const sv_ptr =
+          static_cast<const absl::string_view* const>(item.u_.ptr);
+      return AddStr(sv_ptr->data(), sv_ptr->length());
+    }
     case LogItem::kUnsigned:
       return AddNum(item.u_.unum, 10);
     case LogItem::kSigned:
