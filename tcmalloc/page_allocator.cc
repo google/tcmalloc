@@ -44,9 +44,8 @@ bool decide_want_hpaa() {
                 "HPAA requires kMinSystemAlloc is at least a hugepage.");
 
   // TODO(b/137017688):  Make this unconditional.
-  // TODO(b/150121255):  Include 32K pages.
   // TODO(b/228848071):  Include small-but-slow.
-  if (kPageSize == 8192 || kPageSize > 32768) {
+  if (kPageSize >= 8192) {
     return true;
   }
 
