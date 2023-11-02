@@ -205,15 +205,15 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
       }
     }
   };
-  std::string expected_output =
-      absl::StrCat("Buffer underflow ",
+  std::string expected_output = absl::StrCat(
+      "Buffer underflow ",
 #if !defined(__riscv)
-                   write_test ? "\\(write\\)" : "\\(read\\)",
+      write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(read or write: indeterminate\\)",
+      "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at"
-      );
+      " occurs in thread [0-9]+ at"
+  );
   EXPECT_DEATH(RepeatUnderflow(), expected_output);
 }
 
@@ -240,15 +240,15 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
       }
     }
   };
-  std::string expected_output =
-      absl::StrCat("Buffer overflow ",
+  std::string expected_output = absl::StrCat(
+      "Buffer overflow ",
 #if !defined(__riscv)
-                   write_test ? "\\(write\\)" : "\\(read\\)",
+      write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(read or write: indeterminate\\)",
+      "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at"
-      );
+      " occurs in thread [0-9]+ at"
+  );
   EXPECT_DEATH(RepeatOverflow(), expected_output);
 }
 
@@ -270,15 +270,15 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
       }
     }
   };
-  std::string expected_output =
-      absl::StrCat("Use-after-free ",
+  std::string expected_output = absl::StrCat(
+      "Use-after-free ",
 #if !defined(__riscv)
-                   write_test ? "\\(write\\)" : "\\(read\\)",
+      write_test ? "\\(write\\)" : "\\(read\\)",
 #else
-                   "\\(read or write: indeterminate\\)",
+      "\\(read or write: indeterminate\\)",
 #endif
-                   " occurs in thread [0-9]+ at"
-      );
+      " occurs in thread [0-9]+ at"
+  );
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
 

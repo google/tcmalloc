@@ -128,14 +128,15 @@ struct __esr_context {
   uint64_t esr;
 };
 
-static bool Aarch64GetESR(ucontext_t* ucontext, uint64_t* esr) {
+static bool Aarch64GetESR(const ucontext_t* ucontext, uint64_t* esr) {
   static const uint32_t kEsrMagic = 0x45535201;
-  uint8_t* aux = reinterpret_cast<uint8_t*>(ucontext->uc_mcontext.__reserved);
+  const uint8_t* aux =
+      reinterpret_cast<const uint8_t*>(ucontext->uc_mcontext.__reserved);
   while (true) {
-    _aarch64_ctx* ctx = (_aarch64_ctx*)aux;
+    const _aarch64_ctx* ctx = (const _aarch64_ctx*)aux;
     if (ctx->size == 0) break;
     if (ctx->magic == kEsrMagic) {
-      *esr = ((__esr_context*)ctx)->esr;
+      *esr = ((const __esr_context*)ctx)->esr;
       return true;
     }
     aux += ctx->size;
@@ -144,26 +145,28 @@ static bool Aarch64GetESR(ucontext_t* ucontext, uint64_t* esr) {
 }
 #endif
 
-static WriteFlag ExtractWriteFlagFromContext(void* context) {
+static WriteFlag ExtractWriteFlagFromContext(const void* context) {
+  if (context == nullptr) {
+    return WriteFlag::Unknown;
+  }
 #if defined(__x86_64__)
-  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  const ucontext_t* uc = reinterpret_cast<const ucontext_t*>(context);
   uintptr_t value = uc->uc_mcontext.gregs[REG_ERR];
   static const uint64_t PF_WRITE = 1U << 1;
   return value & PF_WRITE ? WriteFlag::Write : WriteFlag::Read;
 #elif defined(__aarch64__)
-  ucontext_t* uc = reinterpret_cast<ucontext_t*>(context);
+  const ucontext_t* uc = reinterpret_cast<const ucontext_t*>(context);
   uint64_t esr;
   if (!Aarch64GetESR(uc, &esr)) return WriteFlag::Unknown;
   static const uint64_t ESR_ELx_WNR = 1U << 6;
   return esr & ESR_ELx_WNR ? WriteFlag::Write : WriteFlag::Read;
 #else
   // __riscv is NOT (yet) supported
-  (void)context;
   return WriteFlag::Unknown;
 #endif
 }
 
-GuardedAllocationsErrorType RefineErrorTypeBasedOnWriteFlag(
+static GuardedAllocationsErrorType RefineErrorTypeBasedOnWriteFlag(
     GuardedAllocationsErrorType error, WriteFlag write_flag) {
   switch (error) {
     case GuardedAllocationsErrorType::kUseAfterFree:
@@ -202,6 +205,12 @@ GuardedAllocationsErrorType RefineErrorTypeBasedOnWriteFlag(
   return error;
 }
 
+GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
+    const void* context, GuardedAllocationsErrorType error) {
+  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
+  return RefineErrorTypeBasedOnWriteFlag(error, write_flag);
+}
+
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 void SegvHandler(int signo, siginfo_t* info, void* context) {
@@ -209,14 +218,13 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
 
-  // Store load/store from context.
-  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
 
   GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
   GuardedAllocationsErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
                                                         &dealloc_trace);
   if (error == GuardedAllocationsErrorType::kUnknown) return;
+  WriteFlag write_flag = ExtractWriteFlagFromContext(context);
   error = RefineErrorTypeBasedOnWriteFlag(error, write_flag);
   pid_t current_thread = absl::base_internal::GetTID();
   off_t offset;

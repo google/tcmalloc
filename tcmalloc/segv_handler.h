@@ -17,11 +17,15 @@
 
 #include <signal.h>
 
+#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
+    const void* context, GuardedAllocationsErrorType error);
 
 void SegvHandler(int signo, siginfo_t* info, void* context);
 

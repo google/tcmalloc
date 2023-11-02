@@ -104,6 +104,7 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
+#include "tcmalloc/segv_handler.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
