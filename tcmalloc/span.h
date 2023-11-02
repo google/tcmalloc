@@ -245,6 +245,16 @@ class Span : public SpanList::Elem {
   // Prefetch cacheline containing most important span information.
   void Prefetch();
 
+  // Returns whether we use an intrusive linked list to represent the Span.
+  // Above the minimum object size for using a bit map, all objects fit in the
+  // bit map.
+  //
+  // TODO(b/271000082): Add a test that verifies Span does not touch its memory
+  // when IsIntrusive is true.
+  static bool IsIntrusive(size_t size, size_t count) {
+    return !(size >= kBitmapMinObjectSize || count <= kCacheSize);
+  }
+
   static constexpr size_t kCacheSize = 4;
 
  private:

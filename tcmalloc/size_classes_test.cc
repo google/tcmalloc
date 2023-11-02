@@ -66,7 +66,9 @@ size_t Alignment(size_t size) {
 class SizeClassesTest
     : public ::testing::TestWithParam<absl::Span<const SizeClassInfo>> {
  protected:
-  SizeClassesTest() { m_.Init(GetParam()); }
+  SizeClassesTest() {
+    m_.Init(GetParam(), /*use_extended_size_class_for_cold=*/true);
+  }
 
   SizeMap m_;
 };
@@ -376,7 +378,7 @@ TEST(SizeMapTest, GetSizeClass) {
   }
 
   // After m.Init(), GetSizeClass should return a size class.
-  m.Init(kSizeClasses);
+  m.Init(kSizeClasses, /*use_extended_size_class_for_cold=*/true);
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
@@ -416,7 +418,7 @@ TEST(SizeMapTest, GetSizeClassWithAlignment) {
   }
 
   // After m.Init(), GetSizeClass should return a size class.
-  m.Init(kSizeClasses);
+  m.Init(kSizeClasses, /*use_extended_size_class_for_cold=*/true);
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform(rng, 0, 4 << 20);
@@ -452,7 +454,7 @@ TEST(SizeMapTest, SizeClass) {
   }
 
   // After m.Init(), SizeClass should return a size class.
-  m.Init(kSizeClasses);
+  m.Init(kSizeClasses, /*use_extended_size_class_for_cold=*/true);
 
   for (int i = 0; i < kTrials; ++i) {
     const size_t size = absl::LogUniform<size_t>(rng, 0u, kMaxSize);
@@ -467,7 +469,7 @@ TEST(SizeMapTest, SizeClass) {
 TEST(SizeMapTest, ValidateConditionsForSeparateAllocsInHugePageFiller) {
   SizeMap m;
   // After m.Init(), SizeClass should return a size class.
-  m.Init(kSizeClasses);
+  m.Init(kSizeClasses, /*use_extended_size_class_for_cold=*/true);
 
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     size_t object_size = m.class_to_size(size_class);

@@ -156,7 +156,10 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
       size_classes = kSizeClasses;
     }
 
-    CHECK_CONDITION(sizemap_.Init(size_classes));
+    CHECK_CONDITION(sizemap_.Init(
+        size_classes,
+        IsExperimentActive(
+            Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD)));
     // Verify we can determine the number of CPUs now, since we will need it
     // later for per-CPU caches and initializing the cache topology.
     (void)NumCPUs();

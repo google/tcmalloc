@@ -174,6 +174,11 @@ class StaticForwarder {
     return IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_512K_SLAB) &&
            !numa_topology().numa_aware();
   }
+
+  static bool use_extended_cold_size_classes() {
+    return IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD);
+  }
 };
 
 template <typename NumaTopology>
@@ -792,7 +797,9 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   static const uint16_t kSmallObjectDepth = 2048 * kWiderSlabMultiplier;
   static const uint16_t kLargeObjectDepth = 152 * kWiderSlabMultiplier;
 #endif
-  if (size_class == 0 || size_class >= kNumClasses) return 0;
+  if (size_class == 0 || size_class >= kNumClasses) {
+    return 0;
+  }
 
   if (BypassCpuCache(size_class)) {
     return 0;
@@ -815,8 +822,9 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     // slab.
     static const uint16_t kLargeUninterestingObjectDepth =
         133 * kWiderSlabMultiplier;
-    static const uint16_t kLargeInterestingObjectDepth =
-        152 * kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth =
+        (forwarder_.use_extended_cold_size_classes() ? 82 : 152) *
+        kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {

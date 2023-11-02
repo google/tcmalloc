@@ -170,7 +170,8 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 }
 
 // Initialize the mapping arrays
-bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
+bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
+                   bool use_extended_size_class_for_cold) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   if (ClassIndex(0) != 0) {
     Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
@@ -207,16 +208,6 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
   memset(cold_sizes_, 0, sizeof(cold_sizes_));
   cold_sizes_count_ = 0;
-
-  // TODO(b/123523202): Systematically identify candidates for cold allocation
-  // and include them explicitly in size_classes.cc.
-  static constexpr size_t kColdCandidates[] = {
-      2048,  4096,  6144,  7168,  8192,   16384,
-      20480, 32768, 40960, 65536, 131072, 262144,
-  };
-  static_assert(ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
-                "kColdCandidates is too large.");
-
   // Point all lookups in the upper register of class_array_ (allocations
   // seeking cold memory) to the lower size classes.  This gives us an easy
   // fallback for sizes that are too small for moving to cold memory (due to
@@ -224,41 +215,81 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   std::copy(&class_array_[0], &class_array_[kClassArraySize],
             &class_array_[kClassArraySize]);
 
-  for (size_t max_size_in_class : kColdCandidates) {
-    ASSERT(max_size_in_class != 0);
+  if (use_extended_size_class_for_cold) {
+    int next_size = 0;
+    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+      size_t max_size_in_class = class_to_size_[c];
+      if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
+        continue;
+      }
 
-    // Find the size class.  Some of our kColdCandidates may not map to actual
-    // size classes in our current configuration.
-    bool found = false;
-    int c;
-    for (c = kExpandedClassesStart; c < kNumClasses; c++) {
-      if (class_to_size_[c] == max_size_in_class) {
-        found = true;
+      // Verify the candidate can fit into a single span's cache, otherwise,
+      // we use an intrusive freelist which triggers memory accesses.
+      if (Span::IsIntrusive(
+              max_size_in_class,
+              Length(class_to_pages_[c]).in_bytes() / max_size_in_class)) {
+        continue;
+      }
+
+      cold_sizes_[cold_sizes_count_] = c;
+      ++cold_sizes_count_;
+
+      for (int s = next_size; s <= max_size_in_class;
+           s += static_cast<size_t>(kAlignment)) {
+        class_array_[ClassIndex(s) + kClassArraySize] = c;
+      }
+      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+      if (next_size > kMaxSize) {
         break;
       }
     }
+  } else {
+    // TODO(b/123523202): Systematically identify candidates for cold allocation
+    // and include them explicitly in size_classes.cc.
+    static constexpr size_t kColdCandidates[] = {
+        2048,  4096,  6144,  7168,  8192,   16384,
+        20480, 32768, 40960, 65536, 131072, 262144,
+    };
+    static_assert(
+        ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
+        "kColdCandidates is too large.");
 
-    if (!found) {
-      continue;
-    }
+    for (size_t max_size_in_class : kColdCandidates) {
+      ASSERT(max_size_in_class != 0);
 
-    // Verify the candidate can fit into a single span's kCacheSize, otherwise,
-    // we use an intrusive freelist which triggers memory accesses.
-    if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
-        Span::kCacheSize) {
-      continue;
-    }
+      // Find the size class.  Some of our kColdCandidates may not map to actual
+      // size classes in our current configuration.
+      bool found = false;
+      int c;
+      for (c = kExpandedClassesStart; c < kNumClasses; c++) {
+        if (class_to_size_[c] == max_size_in_class) {
+          found = true;
+          break;
+        }
+      }
 
-    cold_sizes_[cold_sizes_count_] = c;
-    cold_sizes_count_++;
+      if (!found) {
+        continue;
+      }
 
-    for (int s = next_size; s <= max_size_in_class;
-         s += static_cast<size_t>(kAlignment)) {
-      class_array_[ClassIndex(s) + kClassArraySize] = c;
-    }
-    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-    if (next_size > kMaxSize) {
-      break;
+      // Verify the candidate can fit into a single span's kCacheSize,
+      // otherwise, we use an intrusive freelist which triggers memory accesses.
+      if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
+          Span::kCacheSize) {
+        continue;
+      }
+
+      cold_sizes_[cold_sizes_count_] = c;
+      cold_sizes_count_++;
+
+      for (int s = next_size; s <= max_size_in_class;
+           s += static_cast<size_t>(kAlignment)) {
+        class_array_[ClassIndex(s) + kClassArraySize] = c;
+      }
+      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+      if (next_size > kMaxSize) {
+        break;
+      }
     }
   }
 

@@ -1219,6 +1219,7 @@ cc_test(
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/random:bit_gen_ref",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1364,6 +1365,16 @@ create_tcmalloc_testsuite(
     srcs = ["pages_test.cc"],
     deps = [
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "sizemap_test",
+    srcs = ["sizemap_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":size_class_info",
         "@com_google_googletest//:gtest_main",
     ],
 )

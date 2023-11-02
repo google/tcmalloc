@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
+#include <tuple>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -31,12 +32,14 @@
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -139,13 +142,27 @@ class TestStaticForwarder {
   }
 
   size_t class_to_size(int size_class) const {
-    return transfer_cache_.class_to_size(size_class);
+    if (size_map_.has_value()) {
+      return size_map_->class_to_size(size_class);
+    } else {
+      return transfer_cache_.class_to_size(size_class);
+    }
   }
 
-  static absl::Span<const size_t> cold_size_classes() { return {}; }
+  absl::Span<const size_t> cold_size_classes() const {
+    if (size_map_.has_value()) {
+      return size_map_->ColdSizeClasses();
+    } else {
+      return {};
+    }
+  }
 
   size_t num_objects_to_move(int size_class) const {
-    return transfer_cache_.num_objects_to_move(size_class);
+    if (size_map_.has_value()) {
+      return size_map_->num_objects_to_move(size_class);
+    } else {
+      return transfer_cache_.num_objects_to_move(size_class);
+    }
   }
 
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
@@ -153,6 +170,10 @@ class TestStaticForwarder {
   }
 
   bool UseWiderSlabs() const { return wider_slabs_enabled_; }
+
+  bool use_extended_cold_size_classes() const {
+    return use_extended_size_class_for_cold_;
+  }
 
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
@@ -189,6 +210,8 @@ class TestStaticForwarder {
   bool wider_slabs_enabled_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   bool resize_size_classes_enabled_ = false;
+  bool use_extended_size_class_for_cold_ = false;
+  std::optional<SizeMap> size_map_;
 
  private:
   NumaTopology<kNumaPartitions, kNumBaseClasses> numa_topology_;
@@ -895,73 +918,88 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
   cache.Reclaim(cpu_id);
 }
 
+class DynamicWideSlabTest
+    : public testing::TestWithParam<
+          std::tuple<bool /* use_extended_size_class_for_cold */,
+                     bool /* use_wider_slab */>> {
+ public:
+  bool use_extended_size_class_for_cold() { return std::get<0>(GetParam()); }
+  bool use_wider_slab() { return std::get<1>(GetParam()); }
+};
+
+INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
+
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the
 // threshold for individual cpu caches.
-TEST(CpuCacheTest, DynamicSlabThreshold) {
+TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
 
   constexpr double kDynamicSlabGrowThreshold = 0.9;
-  for (bool wider_slabs : {false, true}) {
-    CpuCache cache;
-    TestStaticForwarder& forwarder = cache.forwarder();
-    forwarder.dynamic_slab_enabled_ = true;
-    forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
-    forwarder.wider_slabs_enabled_ = wider_slabs;
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+  forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
+  forwarder.wider_slabs_enabled_ = use_wider_slab();
+  forwarder.use_extended_size_class_for_cold_ =
+      use_extended_size_class_for_cold();
+  SizeMap size_map;
+  size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
+  forwarder.size_map_ = size_map;
 
-    cache.Activate();
+  cache.Activate();
 
-    constexpr int kCpuId0 = 0;
-    constexpr int kCpuId1 = 1;
+  constexpr int kCpuId0 = 0;
+  constexpr int kCpuId1 = 1;
 
-    // Accumulate overflows and underflows for kCpuId0.
-    HotCacheOperations(cache, kCpuId0);
-    CpuCache::CpuCacheMissStats interval_misses =
-        cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
-    // Make sure that overflows/underflows ratio is greater than the threshold
-    // for kCpuId0 cache.
-    ASSERT_GT(interval_misses.overflows,
-              interval_misses.underflows * kDynamicSlabGrowThreshold);
+  // Accumulate overflows and underflows for kCpuId0.
+  HotCacheOperations(cache, kCpuId0);
+  CpuCache::CpuCacheMissStats interval_misses =
+      cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+  // Make sure that overflows/underflows ratio is greater than the threshold
+  // for kCpuId0 cache.
+  ASSERT_GT(interval_misses.overflows,
+            interval_misses.underflows * kDynamicSlabGrowThreshold);
 
-    // Perform allocations on kCpuId1 so that we accumulate only underflows.
-    // Reclaim after each allocation such that we have no objects in the cache
-    // for the next allocation.
-    for (int i = 0; i < 1024; ++i) {
-      ColdCacheOperations(cache, kCpuId1, /*size_class=*/1);
-      cache.Reclaim(kCpuId1);
-    }
+  // Perform allocations on kCpuId1 so that we accumulate only underflows.
+  // Reclaim after each allocation such that we have no objects in the cache
+  // for the next allocation.
+  for (int i = 0; i < 1024; ++i) {
+    ColdCacheOperations(cache, kCpuId1, /*size_class=*/1);
+    cache.Reclaim(kCpuId1);
+  }
 
-    // Total overflows/underflows ratio must be less than grow threshold now.
-    CpuCache::CpuCacheMissStats total_misses =
-        cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
-    total_misses +=
-        cache.GetIntervalCacheMissStats(kCpuId1, MissCount::kSlabResize);
-    ASSERT_LT(total_misses.overflows,
-              total_misses.underflows * kDynamicSlabGrowThreshold);
+  // Total overflows/underflows ratio must be less than grow threshold now.
+  CpuCache::CpuCacheMissStats total_misses =
+      cache.GetIntervalCacheMissStats(kCpuId0, MissCount::kSlabResize);
+  total_misses +=
+      cache.GetIntervalCacheMissStats(kCpuId1, MissCount::kSlabResize);
+  ASSERT_LT(total_misses.overflows,
+            total_misses.underflows * kDynamicSlabGrowThreshold);
 
-    cpu_cache_internal::SlabShiftBounds shift_bounds =
-        cache.GetPerCpuSlabShiftBounds();
-    const int shift = shift_bounds.initial_shift;
+  cpu_cache_internal::SlabShiftBounds shift_bounds =
+      cache.GetPerCpuSlabShiftBounds();
+  const int shift = shift_bounds.initial_shift;
+  EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
+  cache.ResizeSlabIfNeeded();
+
+  // If wider slabs is enabled, we must use overflows and underflows of
+  // individual cpu caches to decide whether to grow the slab. Hence, the
+  // slab should have grown. If wider slabs is disabled, slab shift should
+  // stay the same as total miss ratio is lower than
+  // kDynamicSlabGrowThreshold.
+  if (use_wider_slab()) {
+    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
+  } else {
     EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
-    cache.ResizeSlabIfNeeded();
-
-    // If wider slabs is enabled, we must use overflows and underflows of
-    // individual cpu caches to decide whether to grow the slab. Hence, the
-    // slab should have grown. If wider slabs is disabled, slab shift should
-    // stay the same as total miss ratio is lower than
-    // kDynamicSlabGrowThreshold.
-    if (wider_slabs) {
-      EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
-    } else {
-      EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
-    }
   }
 }
 
 // Test that when dynamic slab parameters change, things still work.
-TEST(CpuCacheTest, DynamicSlabParamsChange) {
+TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -971,42 +1009,45 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
   n_threads = std::min(n_threads, 2);
 #endif
 
+  SizeMap size_map;
+  size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-      for (bool wider_slabs : {false, true}) {
-        CpuCache cache;
-        TestStaticForwarder& forwarder = cache.forwarder();
-        forwarder.dynamic_slab_enabled_ = initially_enabled;
-        forwarder.dynamic_slab_ = initial_dynamic_slab;
-        forwarder.wider_slabs_enabled_ = wider_slabs;
+      CpuCache cache;
+      TestStaticForwarder& forwarder = cache.forwarder();
+      forwarder.dynamic_slab_enabled_ = initially_enabled;
+      forwarder.dynamic_slab_ = initial_dynamic_slab;
+      forwarder.wider_slabs_enabled_ = use_wider_slab();
+      forwarder.use_extended_size_class_for_cold_ =
+          use_extended_size_class_for_cold();
+      forwarder.size_map_ = size_map;
 
-        cache.Activate();
+      cache.Activate();
 
-        std::vector<std::thread> threads;
-        std::atomic<bool> stop(false);
+      std::vector<std::thread> threads;
+      std::atomic<bool> stop(false);
 
-        for (size_t t = 0; t < n_threads; ++t) {
-          threads.push_back(
-              std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
-        }
-
-        for (bool enabled : {false, true}) {
-          for (DynamicSlab dynamic_slab :
-               {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
-            absl::SleepFor(absl::Milliseconds(100));
-            forwarder.dynamic_slab_enabled_ = enabled;
-            forwarder.dynamic_slab_ = dynamic_slab;
-            cache.ResizeSlabIfNeeded();
-          }
-        }
-        stop = true;
-        for (auto& t : threads) {
-          t.join();
-        }
-
-        cache.Deactivate();
+      for (size_t t = 0; t < n_threads; ++t) {
+        threads.push_back(
+            std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
       }
+
+      for (bool enabled : {false, true}) {
+        for (DynamicSlab dynamic_slab :
+             {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
+          absl::SleepFor(absl::Milliseconds(100));
+          forwarder.dynamic_slab_enabled_ = enabled;
+          forwarder.dynamic_slab_ = dynamic_slab;
+          cache.ResizeSlabIfNeeded();
+        }
+      }
+      stop = true;
+      for (auto& t : threads) {
+        t.join();
+      }
+
+      cache.Deactivate();
     }
   }
 }

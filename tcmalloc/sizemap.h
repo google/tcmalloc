@@ -50,6 +50,10 @@ class SizeMap {
   // log2 (kMultiPageAlignment)
   static constexpr size_t kMultiPageAlignmentShift =
       absl::bit_width(kMultiPageAlignment - 1u);
+  // Min allocation size for cold. Once more applications can provide cold hints
+  // with PGHO, we can consider adding more size classes for cold to increase
+  // cold coverage fleet-wide.
+  static constexpr size_t kMinAllocSizeForCold = 4096;
 
  private:
   // Shifts the provided value right by `n` bits.
@@ -167,7 +171,7 @@ class SizeMap {
   // Check that the size classes meet all requirements.
   bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
-  size_t cold_sizes_[12] = {0};
+  size_t cold_sizes_[kNumBaseClasses] = {0};
   size_t cold_sizes_count_ = 0;
 
  public:
@@ -176,7 +180,8 @@ class SizeMap {
   constexpr SizeMap() = default;
 
   // Initialize the mapping arrays.  Returns true on success.
-  bool Init(absl::Span<const SizeClassInfo> size_classes);
+  bool Init(absl::Span<const SizeClassInfo> size_classes,
+            bool use_extended_size_class_for_cold);
 
   // Returns the size class for size `size` respecting the alignment
   // & access requirements of `policy`.
