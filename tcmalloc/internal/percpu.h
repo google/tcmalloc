@@ -171,8 +171,8 @@ extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 // that the definition may come from a dynamic library and has to use
 // GOT access. When compiler sees even a weak definition, it knows the
 // declaration will be in the current module and can generate direct accesses.
-thread_local volatile uintptr_t tcmalloc_slabs ABSL_ATTRIBUTE_WEAK = {};
-thread_local volatile kernel_rseq __rseq_abi ABSL_ATTRIBUTE_WEAK = {
+ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs ABSL_ATTRIBUTE_WEAK = {};
+ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi ABSL_ATTRIBUTE_WEAK = {
     0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
     {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
