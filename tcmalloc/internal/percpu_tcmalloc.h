@@ -473,10 +473,15 @@ inline size_t TcmallocSlab<NumClasses>::Shrink(int cpu, size_t size_class,
 #if defined(__x86_64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_X86_64_NONE"
 #define TCMALLOC_RSEQ_JUMP "jmp"
+#if !defined(__PIC__) || defined(__PIE__)
+#define TCMALLOC_RSEQ_SET_CS(name) \
+  "movq $__rseq_cs_" #name "_%=, %[rseq_cs_addr]\n"
+#else
 #define TCMALLOC_RSEQ_SET_CS(name) \
   "lea __rseq_cs_" #name           \
   "_%=(%%rip), %[scratch]\n"       \
   "movq %[scratch], %[rseq_cs_addr]\n"
+#endif
 
 #elif defined(__aarch64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_AARCH64_NONE"
