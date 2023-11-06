@@ -201,6 +201,8 @@ class TestStaticForwarder {
     owner_.SetCacheForLargeClassesOnly(value);
   }
 
+  static bool Overflow(void* ptr, size_t size_class) { return false; }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;

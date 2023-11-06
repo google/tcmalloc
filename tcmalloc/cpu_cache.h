@@ -179,6 +179,19 @@ class StaticForwarder {
     return IsExperimentActive(
         Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD);
   }
+
+  // Intricate dance passing execution via forwarder, splitting it into
+  // multiple functions with different inlining attributes allows to remove
+  // unnecessary intructions from the fast path (it can just jump to the slow
+  // path function with all arguments already being in the necessary registers).
+  // Note: order of arguments, and inline/noinline/flatten are all important.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+  static bool Overflow(void* ptr, size_t size_class) {
+    OverflowImpl(ptr, size_class);
+    return true;
+  }
+
+  static void OverflowImpl(void* ptr, size_t size_class);
 };
 
 template <typename NumaTopology>
@@ -314,6 +327,10 @@ class CpuCache {
 
   // Give the allocated number of bytes in <cpu>'s cache
   uint64_t Allocated(int cpu) const;
+
+  // This is called after finding a full freelist when attempting to push <ptr>
+  // on the freelist for sizeclass <size_class>.
+  void Overflow(void* ptr, size_t size_class);
 
   // Whether <cpu>'s cache has ever been populated with objects
   bool HasPopulated(int cpu) const;
@@ -565,12 +582,9 @@ class CpuCache {
   // Releases free batch of objects to the backing transfer cache.
   void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
 
+  template <class Policy>
+  typename Policy::pointer_type Underflow(size_t size_class);
   void* Refill(int cpu, size_t size_class);
-
-  // This is called after finding a full freelist when attempting to push <ptr>
-  // on the freelist for sizeclass <size_class>.  The last arg should indicate
-  // which CPU's list was full.  Returns 1.
-  int Overflow(void* ptr, size_t size_class, int cpu);
 
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
   // per-cpu cache when we enable certain configurations of sharded transfer
@@ -622,13 +636,6 @@ class CpuCache {
   // <is_alloc> determines whether the associated count corresponds to an
   // underflow or overflow.
   void RecordCacheMissStat(int cpu, bool is_alloc);
-
-  static void* NoopUnderflow(int cpu, size_t size_class, void* arg) {
-    return nullptr;
-  }
-  static int NoopOverflow(int cpu, size_t size_class, void* item, void* arg) {
-    return -1;
-  }
 
   // Tries to steal <bytes> for the destination <cpu>. It iterates through the
   // the set of populated cpu caches and steals the bytes from them. A cpu is
@@ -693,46 +700,24 @@ template <class Policy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto CpuCache<Forwarder>::Allocate(
     size_t size_class) {
   ASSERT(size_class > 0);
-
-  struct Helper {
-    static auto ABSL_ATTRIBUTE_NOINLINE Underflow(int cpu, size_t size_class,
-                                                  void* arg) {
-      CpuCache& cache = *static_cast<CpuCache*>(arg);
-      void* ret;
-      if (cache.BypassCpuCache(size_class)) {
-        ret = cache.forwarder().sharded_transfer_cache().Pop(size_class);
-      } else {
-        cache.RecordCacheMissStat(cpu, true);
-        ret = cache.Refill(cpu, size_class);
-      }
-      if (ABSL_PREDICT_FALSE(ret == nullptr)) {
-        size_t size = cache.forwarder().class_to_size(size_class);
-        return Policy::handle_oom(size);
-      }
-      return Policy::to_pointer(ret, size_class);
-    }
-  };
-  return freelist_.Pop<Policy>(size_class, &Helper::Underflow, this);
+  typename Policy::pointer_type ret;
+  if (ABSL_PREDICT_TRUE(freelist_.Pop<Policy>(size_class, &ret))) {
+    return ret;
+  }
+  return Underflow<Policy>(size_class);
 }
 
 template <class Forwarder>
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
 CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
   ASSERT(size_class > 0);
-
-  struct Helper {
-    static int ABSL_ATTRIBUTE_NOINLINE Overflow(int cpu, size_t size_class,
-                                                void* ptr, void* arg) {
-      CpuCache& cache = *static_cast<CpuCache*>(arg);
-      if (cache.BypassCpuCache(size_class)) {
-        cache.forwarder().sharded_transfer_cache().Push(size_class, ptr);
-        return 1;
-      }
-      cache.RecordCacheMissStat(cpu, false);
-      return cache.Overflow(ptr, size_class, cpu);
-    }
-  };
-  freelist_.Push(size_class, ptr, Helper::Overflow, this);
+  if (ABSL_PREDICT_TRUE(freelist_.Push(size_class, ptr))) {
+    return;
+  }
+  if (Forwarder::Overflow(ptr, size_class)) {
+    return;
+  }
+  Overflow(ptr, size_class);
 }
 
 static cpu_set_t FillActiveCpuMask() {
@@ -995,6 +980,29 @@ inline void CpuCache<Forwarder>::ReleaseToBackingCache(
   }
 
   forwarder_.transfer_cache().InsertRange(size_class, batch);
+}
+
+template <class Forwarder>
+template <class Policy>
+ABSL_ATTRIBUTE_NOINLINE typename Policy::pointer_type
+CpuCache<Forwarder>::Underflow(size_t size_class) {
+  void* ret;
+  if (BypassCpuCache(size_class)) {
+    ret = forwarder_.sharded_transfer_cache().Pop(size_class);
+  } else {
+    int cpu = freelist_.CacheCpuSlab();
+    if (ABSL_PREDICT_FALSE(cpu < 0)) {
+      return Allocate<Policy>(size_class);
+    } else {
+      RecordCacheMissStat(cpu, true);
+      ret = Refill(cpu, size_class);
+    }
+  }
+  if (ABSL_PREDICT_FALSE(ret == nullptr)) {
+    size_t size = forwarder_.class_to_size(size_class);
+    return Policy::handle_oom(size);
+  }
+  return Policy::to_pointer(ret, size_class);
 }
 
 // Fetch more items from the central cache, refill our local cache,
@@ -1754,8 +1762,8 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
         // Can't steal any more because the to_return set is full.
         break;
       }
-      void* obj = freelist_.Pop(source_size_class, NoopUnderflow, nullptr);
-      if (obj) {
+      void* obj;
+      if (freelist_.Pop(source_size_class, &obj)) {
         --to_return->count;
         to_return->size_class[to_return->count] = source_size_class;
         to_return->obj[to_return->count] = obj;
@@ -1782,8 +1790,16 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
 }
 
 template <class Forwarder>
-inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
-                                         int cpu) {
+inline void CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class) {
+  if (BypassCpuCache(size_class)) {
+    forwarder_.sharded_transfer_cache().Push(size_class, ptr);
+    return;
+  }
+  int cpu = freelist_.CacheCpuSlab();
+  if (ABSL_PREDICT_FALSE(cpu < 0)) {
+    return Deallocate(ptr, size_class);
+  }
+  RecordCacheMissStat(cpu, false);
   const size_t target = UpdateCapacity(cpu, size_class, true, nullptr);
   size_t total = 0;
   size_t count = 1;
@@ -1801,7 +1817,6 @@ inline int CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class,
     if (count != kMaxObjectsToMove) break;
     count = 0;
   } while (total < target);
-  return 1;
 }
 
 template <class Forwarder>
@@ -2491,6 +2506,15 @@ void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
 class CpuCache final
     : public cpu_cache_internal::CpuCache<cpu_cache_internal::StaticForwarder> {
 };
+
+#if defined(__clang__)
+__attribute__((flatten))
+#endif
+ABSL_ATTRIBUTE_NOINLINE inline void
+cpu_cache_internal::StaticForwarder::OverflowImpl(void* ptr,
+                                                  size_t size_class) {
+  tc_globals.cpu_cache().Overflow(ptr, size_class);
+}
 
 template <typename State>
 inline bool UsePerCpuCache(State& state) {
