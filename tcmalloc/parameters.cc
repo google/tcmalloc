@@ -184,9 +184,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
-// TODO(b/199203282):  Remove this opt-out.
-ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
-    true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::max_total_thread_cache_bytes_(
     kDefaultOverallThreadCacheSize);
 ABSL_CONST_INIT std::atomic<double>
@@ -432,10 +429,6 @@ bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
 
-bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
-  return Parameters::release_pages_from_huge_region();
-}
-
 double TCMalloc_Internal_GetPeakSamplingHeapGrowthFraction() {
   return Parameters::peak_sampling_heap_growth_fraction();
 }
@@ -492,11 +485,6 @@ void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
   Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {
-  Parameters::release_pages_from_huge_region_.store(v,
-                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
