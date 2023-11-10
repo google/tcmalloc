@@ -171,7 +171,8 @@ class StaticForwarder {
     // increases shift by 1 by itself, so we can not increase it further.
     //
     // TODO(b/271598304):  Complete this experiment.
-    return IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_512K_SLAB) &&
+    return (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_512K_SLAB) ||
+            IsExperimentActive(Experiment::TCMALLOC_WIDER_SLABS)) &&
            !numa_topology().numa_aware();
   }
 
