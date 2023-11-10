@@ -353,7 +353,7 @@ TEST_F(RunTimeSizeClassesTest, ValidatePageSize) {
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));
 
-  parsed[1].pages = 256;
+  parsed[1].pages = 255;
   EXPECT_FALSE(m_.ValidSizeClasses(parsed));
 }
 

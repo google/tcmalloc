@@ -137,6 +137,8 @@ class SizeMap {
   // per-thread free list until the scavenger cleans up the list.
   BatchSize num_objects_to_move_[kNumClasses] = {0};
 
+  uint32_t max_capacity_[kNumClasses] = {0};
+
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
@@ -268,6 +270,14 @@ class SizeMap {
       size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return num_objects_to_move_[size_class];
+  }
+
+  // Max per-CPU slab capacity for the default 256KB slab size.
+  //
+  // TODO(b/271598304): Revise this when 512KB slabs are available.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t max_capacity(size_t size_class) const {
+    ASSERT(size_class < kNumClasses);
+    return max_capacity_[size_class];
   }
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE absl::Span<const size_t> ColdSizeClasses()

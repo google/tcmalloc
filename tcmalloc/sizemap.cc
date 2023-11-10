@@ -62,8 +62,8 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     Log(kLog, __FILE__, __LINE__, "pages should not be 0", pages);
     return false;
   }
-  if (pages >= 256) {
-    Log(kLog, __FILE__, __LINE__, "pages limited to 255", pages);
+  if (pages >= 255) {
+    Log(kLog, __FILE__, __LINE__, "pages limited to 254", pages);
     return false;
   }
   const size_t objects_per_span = Length(pages).in_bytes() / size;
@@ -104,6 +104,7 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     class_to_size_[curr] = size_classes[c].size;
     class_to_pages_[curr] = size_classes[c].pages;
     num_objects_to_move_[curr] = size_classes[c].num_to_move;
+    max_capacity_[curr] = size_classes[c].max_capacity;
     ++curr;
   }
 
