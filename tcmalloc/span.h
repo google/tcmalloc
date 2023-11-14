@@ -296,7 +296,7 @@ class Span : public SpanList::Elem {
     // Used for spans with in CentralFreeList with fewer than 64 objects.
     // Each bit is set to one when the object is available, and zero
     // when the object is used.
-    Bitmap<64> bitmap_{};
+    Bitmap<8 * sizeof(ObjIdx) * kCacheSize> bitmap_{};
 
     // Used only for sampled spans (SAMPLED state).
     SampledAllocation* sampled_allocation_;
@@ -610,7 +610,7 @@ inline void Span::Prefetch() {
   // the first 16-bytes or the last 16-bytes in a different cache line.
   // Prefetch the cacheline that contains the most frequestly accessed
   // data by offseting into the middle of the Span.
-  static_assert(sizeof(Span) == 48, "Update span prefetch offset");
+  static_assert(sizeof(Span) <= 64, "Update span prefetch offset");
   PrefetchT0(&this->allocated_);
 }
 
