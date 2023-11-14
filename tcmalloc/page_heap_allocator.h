@@ -17,6 +17,8 @@
 
 #include <stddef.h>
 
+#include <new>
+
 #include "absl/base/attributes.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
@@ -64,7 +66,8 @@ class PageHeapAllocator {
     stats_.in_use++;
     if (ABSL_PREDICT_FALSE(result == nullptr)) {
       stats_.total++;
-      result = reinterpret_cast<T*>(arena_->Alloc(sizeof(T)));
+      result = reinterpret_cast<T*>(
+          arena_->Alloc(sizeof(T), static_cast<std::align_val_t>(alignof(T))));
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, sizeof(*result));
       return result;
     } else {

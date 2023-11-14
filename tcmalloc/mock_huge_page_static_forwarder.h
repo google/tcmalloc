@@ -104,14 +104,19 @@ class FakeStaticForwarder {
       pageheap_lock) ABSL_ATTRIBUTE_RETURNS_NONNULL {
     Span* span;
     void* result = absl::base_internal::LowLevelAlloc::AllocWithArena(
-        sizeof(*span), ll_arena());
-    span = new (result) Span();
+        sizeof(*span) + alignof(Span) + sizeof(void*), ll_arena());
+    span = new (reinterpret_cast<void*>(
+        (reinterpret_cast<uintptr_t>(result) + alignof(Span) - 1u) &
+        ~(alignof(Span) - 1u))) Span();
+    *(reinterpret_cast<uintptr_t*>(span + 1)) =
+        reinterpret_cast<uintptr_t>(result);
     span->Init(page, length);
     return span;
   }
   void DeleteSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
       ABSL_ATTRIBUTE_NONNULL() {
-    absl::base_internal::LowLevelAlloc::Free(span);
+    absl::base_internal::LowLevelAlloc::Free(
+        reinterpret_cast<void*>(*(reinterpret_cast<uintptr_t*>(span + 1))));
   }
 
   // SystemAlloc state.
