@@ -52,16 +52,9 @@ class ThreadCache {
   // Total byte size in cache
   size_t Size() const { return size_; }
 
-  // Allocate an object of the given size class. When allocation fails
-  // (from this cache and after running FetchFromCentralCache),
-  // `Policy::oom_handler(size)` is called and its return value is
-  // returned from Allocate. 'Policy' is used to created the desired raw or
-  // sized pointer value, and to parameterize out-of-memory handling (raising
-  // exception, returning nullptr, calling new_handler or anything else).
-  // Using policies in this way allows Allocate to be used in tail-call
-  // position in fast-path, making allocate tail-call slow path code.
-  template <typename Policy>
-  auto Allocate(size_t size_class);
+  // Allocate an object of the given size class.
+  // Returns nullptr when allocation fails.
+  void* Allocate(size_t size_class);
 
   void Deallocate(void* ptr, size_t size_class);
 
@@ -94,16 +87,6 @@ class ThreadCache {
   static size_t overall_thread_cache_size()
       ABSL_SHARED_LOCKS_REQUIRED(pageheap_lock) {
     return overall_thread_cache_size_;
-  }
-
-  template <typename Policy>
-  ABSL_ATTRIBUTE_NOINLINE auto AllocateSlow(size_t size_class,
-                                            size_t allocated_size) {
-    void* ret = FetchFromCentralCache(size_class, allocated_size);
-    if (ABSL_PREDICT_TRUE(ret != nullptr)) {
-      return Policy::as_pointer(ret, allocated_size);
-    }
-    return Policy::handle_oom(size_class);
   }
 
  private:
@@ -275,8 +258,7 @@ inline AllocatorStats ThreadCache::HeapStats() {
   return tc_globals.threadcache_allocator().stats();
 }
 
-template <typename Policy>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto ThreadCache::Allocate(
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
     size_t size_class) {
   const size_t allocated_size = tc_globals.sizemap().class_to_size(size_class);
 
@@ -284,10 +266,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto ThreadCache::Allocate(
   void* ret;
   if (ABSL_PREDICT_TRUE(list->TryPop(&ret))) {
     size_ -= allocated_size;
-    return Policy::as_pointer(ret, allocated_size);
+    return ret;
   }
 
-  return AllocateSlow<Policy>(size_class, allocated_size);
+  return FetchFromCentralCache(size_class, allocated_size);
 }
 
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
