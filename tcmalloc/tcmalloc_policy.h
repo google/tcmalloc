@@ -105,6 +105,8 @@ struct NullOomPolicy {
   static inline constexpr Pointer handle_oom(size_t size) {
     return Policy::as_pointer(nullptr, 0);
   }
+
+  static constexpr bool can_return_nullptr() { return true; }
 };
 
 // MallocOomPolicy: sets errno to ENOMEM and returns nullptr
@@ -114,6 +116,8 @@ struct MallocOomPolicy {
     errno = ENOMEM;
     return Policy::as_pointer(nullptr, 0);
   }
+
+  static constexpr bool can_return_nullptr() { return true; }
 };
 
 // CppOomPolicy: terminates the program
@@ -125,6 +129,8 @@ struct CppOomPolicy {
           "Unable to allocate (new failed)", size);
     __builtin_unreachable();
   }
+
+  static constexpr bool can_return_nullptr() { return false; }
 };
 
 // DefaultAlignPolicy: use default small size table based allocation
@@ -309,6 +315,15 @@ class TCMallocPolicy {
                                                            numa_);
   }
 
+  // Returns this policy with access hit
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
+  AccessAs(hot_cold_t access) const {
+    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy>(
+        align_, access, numa_);
+  }
+
   // Returns this policy for frequent access
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
                            HooksPolicy, SizeReturningPolicy, NumaPolicy>
@@ -365,6 +380,10 @@ class TCMallocPolicy {
     return InNumaPartition(NumaPartitionFromPointer(ptr));
   }
 
+  static constexpr bool can_return_nullptr() {
+    return OomPolicy::can_return_nullptr();
+  }
+
  private:
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS AlignPolicy align_;
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS AccessPolicy access_;
@@ -373,6 +392,7 @@ class TCMallocPolicy {
 
 using CppPolicy = TCMallocPolicy<CppOomPolicy, DefaultAlignPolicy>;
 using MallocPolicy = TCMallocPolicy<MallocOomPolicy, MallocAlignPolicy>;
+using NothrowPolicy = TCMallocPolicy<NullOomPolicy, DefaultAlignPolicy>;
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

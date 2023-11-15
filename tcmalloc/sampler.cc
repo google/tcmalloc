@@ -14,7 +14,6 @@
 
 #include "tcmalloc/sampler.h"
 
-#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -31,14 +30,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-// We used to select an initial value for the sampling counter and then sample
-// an allocation when the counter becomes less or equal to zero.
-// Now we sample when the counter becomes less than zero, so that we can use
-// __builtin_usubl_overflow, which is the only way to get good machine code
-// for both x86 and arm. To account for that, we subtract 1 from the initial
-// counter value and then add it back when we calculate the sample weight.
-constexpr ssize_t kIntervalOffset = 1;
 
 ssize_t Sampler::GetSamplePeriod() {
   return Parameters::profile_sampling_rate();
@@ -59,7 +50,15 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
     rnd_ = NextRandom(rnd_);
   }
   // Initialize counters
-  bytes_until_sample_ = PickNextSamplingPoint();
+  true_bytes_until_sample_ = PickNextSamplingPoint();
+  if (tc_globals.IsOnFastPath()) {
+    bytes_until_sample_ = true_bytes_until_sample_;
+    was_on_fast_path_ = true;
+  } else {
+    // Force the next allocation to hit the slow path.
+    ASSERT(bytes_until_sample_ == 0);
+    was_on_fast_path_ = false;
+  }
   allocs_until_guarded_sample_ = PickNextGuardedSamplingPoint();
 }
 
@@ -77,10 +76,9 @@ ssize_t Sampler::PickNextSamplingPoint() {
   if (ABSL_PREDICT_FALSE(sample_period_ == 1)) {
     // A sample period of 1, generally used only in tests due to its exorbitant
     // cost, is a request for *every* allocation to be sampled.
-    return 0;
+    return 1;
   }
-  return std::max<ssize_t>(
-      0, GetGeometricVariable(sample_period_) - kIntervalOffset);
+  return GetGeometricVariable(sample_period_);
 }
 
 ssize_t Sampler::PickNextGuardedSamplingPoint() {
@@ -142,11 +140,33 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
     uint64_t global_seed =
         global_randomness.fetch_add(1, std::memory_order_relaxed);
     Init(reinterpret_cast<uintptr_t>(this) ^ global_seed);
-    // Avoid missampling 0.
-    bytes_until_sample_ -= k + 1;
-    if (ABSL_PREDICT_TRUE(bytes_until_sample_ >= 0)) {
+    if (static_cast<size_t>(true_bytes_until_sample_) > k) {
+      true_bytes_until_sample_ -= k;
+      if (tc_globals.IsOnFastPath()) {
+        bytes_until_sample_ -= k;
+        was_on_fast_path_ = true;
+      }
       return 0;
     }
+  }
+
+  if (ABSL_PREDICT_FALSE(true_bytes_until_sample_ > k)) {
+    // The last time we picked a sampling point, we were on the slow path.  We
+    // don't want to sample yet since true_bytes_until_sample_ >= k.
+    true_bytes_until_sample_ -= k;
+
+    if (ABSL_PREDICT_TRUE(tc_globals.IsOnFastPath())) {
+      // We've moved from the slow path to the fast path since the last sampling
+      // point was picked.
+      bytes_until_sample_ = true_bytes_until_sample_;
+      true_bytes_until_sample_ = 0;
+      was_on_fast_path_ = true;
+    } else {
+      bytes_until_sample_ = 0;
+      was_on_fast_path_ = false;
+    }
+
+    return 0;
   }
 
   // Compute sampling weight (i.e. the number of bytes represented by this
@@ -154,14 +174,25 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   //
   // Let k be the size of the allocation, T be the sample period
   // (sample_period_), and f the number of bytes after which we decided to
-  // sample (bytes_until_sample_). On average, if we were to continue taking
-  // samples every T bytes, we would take (k - f) / T additional samples in
-  // this allocation, plus the one we are taking now, for 1 + (k - f) / T
-  // total samples. Multiplying by T, the mean number of bytes between samples,
-  // gives us a weight of T + k - f.
+  // sample (either bytes_until_sample_ or true_bytes_until_sample_). On
+  // average, if we were to continue taking samples every T bytes, we would take
+  // (k - f) / T additional samples in this allocation, plus the one we are
+  // taking now, for 1 + (k - f) / T total samples. Multiplying by T, the mean
+  // number of bytes between samples, gives us a weight of T + k - f.
   //
-  size_t weight = sample_period_ - bytes_until_sample_ - kIntervalOffset;
-  bytes_until_sample_ = PickNextSamplingPoint();
+  size_t weight =
+      sample_period_ + k -
+      (was_on_fast_path_ ? bytes_until_sample_ : true_bytes_until_sample_);
+  const auto point = PickNextSamplingPoint();
+  if (ABSL_PREDICT_TRUE(tc_globals.IsOnFastPath())) {
+    bytes_until_sample_ = point;
+    true_bytes_until_sample_ = 0;
+    was_on_fast_path_ = true;
+  } else {
+    bytes_until_sample_ = 0;
+    true_bytes_until_sample_ = point;
+    was_on_fast_path_ = false;
+  }
   return GetSamplePeriod() <= 0 ? 0 : weight;
 }
 

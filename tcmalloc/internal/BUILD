@@ -503,7 +503,6 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        ":config",
         ":logging",
         "@com_google_absl//absl/base:core_headers",
     ],
@@ -589,7 +588,6 @@ cc_library(
     deps = [
         ":logging",
         ":mincore",
-        ":optimization",
         ":percpu",
         ":sysinfo",
         "@com_google_absl//absl/base",
@@ -605,7 +603,7 @@ cc_test(
     srcs = ["percpu_tcmalloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    malloc = ":system_malloc",
+    malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     deps = [
         ":affinity",
         ":config",

@@ -45,7 +45,6 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
@@ -181,6 +180,19 @@ class StaticForwarder {
     return IsExperimentActive(
         Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD);
   }
+
+  // Intricate dance passing execution via forwarder, splitting it into
+  // multiple functions with different inlining attributes allows to remove
+  // unnecessary intructions from the fast path (it can just jump to the slow
+  // path function with all arguments already being in the necessary registers).
+  // Note: order of arguments, and inline/noinline/flatten are all important.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+  static bool Overflow(void* ptr, size_t size_class) {
+    OverflowImpl(ptr, size_class);
+    return true;
+  }
+
+  static void OverflowImpl(void* ptr, size_t size_class);
 };
 
 template <typename NumaTopology>
@@ -297,38 +309,29 @@ class CpuCache {
   // For testing
   void Deactivate();
 
-  // Allocate an object of the given size class.
-  // Returns nullptr when allocation fails.
-  void* Allocate(size_t size_class);
-  // Separate allocation fast/slow paths.
-  // The fast path succeeds iff the thread has already cached the slab pointer
-  // (done by AllocateSlow) and there is an available object in the slab.
-  void* AllocateFast(size_t size_class);
-  void* AllocateSlow(size_t size_class);
-  // A slightly faster version of AllocateSlow that may be called only
-  // when it's known that no hooks are installed.
-  void* AllocateSlowNoHooks(size_t size_class);
+  // Allocate an object of the given size class. When allocation fails
+  // (from this cache and after running Refill), Policy::oom_handler(size) is
+  // called and its return value is returned from Allocate.
+  // Policy::oom_handler is used to parameterize out-of-memory
+  // handling (raising exception, returning nullptr, calling
+  // new_handler or anything else). "Passing" oom handlers in this way
+  // through policies allows Allocate to be used in tail-call position in
+  // fast-path, making Allocate use jump (tail-call) to slow path code.
+  template <class Policy>
+  auto Allocate(size_t size_class);
 
   // Free an object of the given class.
   void Deallocate(void* ptr, size_t size_class);
-  // Separate deallocation fast/slow paths.
-  // The fast path succeeds iff the thread has already cached the slab pointer
-  // (done by DeallocateSlow) and there is free space in the slab.
-  bool DeallocateFast(void* ptr, size_t size_class);
-  void DeallocateSlow(void* ptr, size_t size_class);
-  // A slightly faster version of DeallocateSlow that may be called only
-  // when it's known that no hooks are installed.
-  void DeallocateSlowNoHooks(void* ptr, size_t size_class);
-
-  // Force all Allocate/DeallocateFast to fail in the current thread
-  // if malloc hooks are installed.
-  void MaybeForceSlowPath();
 
   // Give the number of bytes in <cpu>'s cache
   uint64_t UsedBytes(int cpu) const;
 
   // Give the allocated number of bytes in <cpu>'s cache
   uint64_t Allocated(int cpu) const;
+
+  // This is called after finding a full freelist when attempting to push <ptr>
+  // on the freelist for sizeclass <size_class>.
+  void Overflow(void* ptr, size_t size_class);
 
   // Whether <cpu>'s cache has ever been populated with objects
   bool HasPopulated(int cpu) const;
@@ -580,6 +583,8 @@ class CpuCache {
   // Releases free batch of objects to the backing transfer cache.
   void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
 
+  template <class Policy>
+  typename Policy::pointer_type Underflow(size_t size_class);
   void* Refill(int cpu, size_t size_class);
 
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
@@ -692,45 +697,28 @@ class CpuCache {
 };
 
 template <class Forwarder>
-void* CpuCache<Forwarder>::Allocate(size_t size_class) {
-  void* ret = AllocateFast(size_class);
-  if (ABSL_PREDICT_TRUE(ret != nullptr)) {
-    return ret;
-  }
-  TCMALLOC_MUSTTAIL return AllocateSlow(size_class);
-}
-
-template <class Forwarder>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuCache<Forwarder>::AllocateFast(
+template <class Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE auto CpuCache<Forwarder>::Allocate(
     size_t size_class) {
   ASSERT(size_class > 0);
-  return freelist_.Pop(size_class);
-}
-
-template <class Forwarder>
-void CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
-  if (ABSL_PREDICT_FALSE(!DeallocateFast(ptr, size_class))) {
-    TCMALLOC_MUSTTAIL return DeallocateSlow(ptr, size_class);
+  typename Policy::pointer_type ret;
+  if (ABSL_PREDICT_TRUE(freelist_.Pop<Policy>(size_class, &ret))) {
+    return ret;
   }
+  return Underflow<Policy>(size_class);
 }
 
 template <class Forwarder>
-#if defined(__clang__)
-// gcc complains without explaining why:
-// cpu_cache.h:702:35: error: 'always_inline' function might not be inlinable
-ABSL_ATTRIBUTE_ALWAYS_INLINE
-#endif
-    bool
-    CpuCache<Forwarder>::DeallocateFast(void* ptr, size_t size_class) {
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
+CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
   ASSERT(size_class > 0);
-  return freelist_.Push(size_class, ptr);
-}
-
-template <class Forwarder>
-void CpuCache<Forwarder>::MaybeForceSlowPath() {
-  if (ABSL_PREDICT_FALSE(Static::HaveHooks())) {
-    freelist_.UncacheCpuSlab();
+  if (ABSL_PREDICT_TRUE(freelist_.Push(size_class, ptr))) {
+    return;
   }
+  if (Forwarder::Overflow(ptr, size_class)) {
+    return;
+  }
+  Overflow(ptr, size_class);
 }
 
 static cpu_set_t FillActiveCpuMask() {
@@ -996,25 +984,26 @@ inline void CpuCache<Forwarder>::ReleaseToBackingCache(
 }
 
 template <class Forwarder>
-void* CpuCache<Forwarder>::AllocateSlow(size_t size_class) {
-  void* ret = AllocateSlowNoHooks(size_class);
-  MaybeForceSlowPath();
-  return ret;
-}
-
-template <class Forwarder>
-void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
+template <class Policy>
+ABSL_ATTRIBUTE_NOINLINE typename Policy::pointer_type
+CpuCache<Forwarder>::Underflow(size_t size_class) {
+  void* ret;
   if (BypassCpuCache(size_class)) {
-    return forwarder_.sharded_transfer_cache().Pop(size_class);
-  }
-  auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached)) {
-    if (void* ret = AllocateFast(size_class)) {
-      return ret;
+    ret = forwarder_.sharded_transfer_cache().Pop(size_class);
+  } else {
+    int cpu = freelist_.CacheCpuSlab();
+    if (ABSL_PREDICT_FALSE(cpu < 0)) {
+      return Allocate<Policy>(size_class);
+    } else {
+      RecordCacheMissStat(cpu, true);
+      ret = Refill(cpu, size_class);
     }
   }
-  RecordCacheMissStat(cpu, true);
-  return Refill(cpu, size_class);
+  if (ABSL_PREDICT_FALSE(ret == nullptr)) {
+    size_t size = forwarder_.class_to_size(size_class);
+    return Policy::handle_oom(size);
+  }
+  return Policy::to_pointer(ret, size_class);
 }
 
 // Fetch more items from the central cache, refill our local cache,
@@ -1774,7 +1763,8 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
         // Can't steal any more because the to_return set is full.
         break;
       }
-      if (void* obj = freelist_.Pop(source_size_class)) {
+      void* obj;
+      if (freelist_.Pop(source_size_class, &obj)) {
         --to_return->count;
         to_return->size_class[to_return->count] = source_size_class;
         to_return->obj[to_return->count] = obj;
@@ -1801,21 +1791,14 @@ inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
 }
 
 template <class Forwarder>
-void CpuCache<Forwarder>::DeallocateSlow(void* ptr, size_t size_class) {
-  DeallocateSlowNoHooks(ptr, size_class);
-  MaybeForceSlowPath();
-}
-
-template <class Forwarder>
-void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
+inline void CpuCache<Forwarder>::Overflow(void* ptr, size_t size_class) {
   if (BypassCpuCache(size_class)) {
-    return forwarder_.sharded_transfer_cache().Push(size_class, ptr);
+    forwarder_.sharded_transfer_cache().Push(size_class, ptr);
+    return;
   }
-  auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached)) {
-    if (DeallocateFast(ptr, size_class)) {
-      return;
-    }
+  int cpu = freelist_.CacheCpuSlab();
+  if (ABSL_PREDICT_FALSE(cpu < 0)) {
+    return Deallocate(ptr, size_class);
   }
   RecordCacheMissStat(cpu, false);
   const size_t target = UpdateCapacity(cpu, size_class, true, nullptr);
@@ -2524,6 +2507,15 @@ void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
 class CpuCache final
     : public cpu_cache_internal::CpuCache<cpu_cache_internal::StaticForwarder> {
 };
+
+#if defined(__clang__)
+__attribute__((flatten))
+#endif
+ABSL_ATTRIBUTE_NOINLINE inline void
+cpu_cache_internal::StaticForwarder::OverflowImpl(void* ptr,
+                                                  size_t size_class) {
+  tc_globals.cpu_cache().Overflow(ptr, size_class);
+}
 
 template <typename State>
 inline bool UsePerCpuCache(State& state) {

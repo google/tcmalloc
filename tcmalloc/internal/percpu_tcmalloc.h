@@ -37,7 +37,6 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 
@@ -198,9 +197,18 @@ class TcmallocSlab {
   // false (assuming that <overflow_handler> returns negative value).
   bool Push(size_t size_class, void* item);
 
+  // Minimum policy required for Pop().
+  struct NoopPolicy {
+    using pointer_type = void*;
+    static void* to_pointer(void* p, size_t size_class) { return p; }
+    static constexpr bool size_returning() { return false; }
+  };
+
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  ABSL_MUST_USE_RESULT void* Pop(size_t class_size);
+  template <typename Policy = NoopPolicy>
+  ABSL_MUST_USE_RESULT bool Pop(size_t class_size,
+                                typename Policy::pointer_type* ret);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -217,9 +225,11 @@ class TcmallocSlab {
   size_t PopBatch(size_t size_class, void** batch, size_t len);
 
   // Caches the current cpu slab offset in tcmalloc_slabs if it wasn't
-  // cached and the slab is not resizing. Returns the current cpu and the flag
-  // if the offset was previously uncached and is now cached.
-  std::pair<int, bool> CacheCpuSlab();
+  // cached and the slab is not resizing. Returns -1 if the offset was cached
+  // and Push/Pop needs to be retried. Returns the current CPU ID (>=0) when
+  // the slabs offset was already cached and we need to call underflow/overflow
+  // callback.
+  int CacheCpuSlab();
 
   // Uncaches the slab offset for the current thread, so that the next Push/Pop
   // operation will return false.
@@ -377,7 +387,7 @@ class TcmallocSlab {
                           size_t virtual_cpu_id_offset,
                           absl::FunctionRef<size_t(size_t)> capacity);
 
-  std::pair<int, bool> CacheCpuSlabSlow(int cpu);
+  int CacheCpuSlabSlow();
 
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
@@ -695,6 +705,7 @@ overflow_label:
 template <size_t NumClasses>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
     size_t size_class, void* item) {
+  ASSERT(IsFastNoInit());
   ASSERT(item != nullptr);
   // Speculatively annotate item as released to TSan.  We may not succeed in
   // pushing the item, but if we wait for the restartable sequence to succeed,
@@ -704,7 +715,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Push(
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   return TcmallocSlab_Internal_Push(size_class, item);
 #else
-  return false;
+  Crash(kCrash, __FILE__, __LINE__,
+        "RSEQ Push called on unsupported platform.");
 #endif
 }
 
@@ -731,8 +743,11 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 template <size_t NumClasses>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Pop(
+    size_t size_class, typename Policy::pointer_type* ret) {
+  ASSERT(IsFastNoInit());
+
   void* next;
   void* result;
   void* scratch;
@@ -801,16 +816,20 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
   TSANAcquire(result);
 
   PrefetchNextObject(next);
-  return AssumeNotNull(result);
+  *ret = Policy::to_pointer(result, size_class);
+  return true;
 underflow_path:
-  return nullptr;
+  return false;
 }
 #endif  // defined(__x86_64__)
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 template <size_t NumClasses>
-ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Pop(
+    size_t size_class, typename Policy::pointer_type* ret) {
+  ASSERT(IsFastNoInit());
+
   void* result;
   void* region_start;
   void* prefetch;
@@ -890,31 +909,35 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #endif
   TSANAcquire(result);
   PrefetchNextObject(prefetch);
-  return AssumeNotNull(result);
+  *ret = Policy::to_pointer(result, size_class);
+  return true;
 underflow_path:
-  return nullptr;
+  return false;
 }
 #endif  // defined(__aarch64__)
 
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
-ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
-    size_t size_class) {
-  return nullptr;
+template <typename Policy>
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab<NumClasses>::Pop(
+    size_t size_class, typename Policy::pointer_type* ret) {
+  Crash(kCrash, __FILE__, __LINE__, "RSEQ Pop called on unsupported platform.");
+  return false;
 }
 #endif
 
 template <size_t NumClasses>
-std::pair<int, bool> TcmallocSlab<NumClasses>::CacheCpuSlab() {
+int TcmallocSlab<NumClasses>::CacheCpuSlab() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
-    return CacheCpuSlabSlow(cpu);
+    return CacheCpuSlabSlow();
   }
-  // We already have slab offset cached, so the slab is indeed full/empty.
+  // We already have slab offset cached, so the slab is indeed full/empty
+  // and we need to call overflow/underflow handler.
 #endif
-  return {cpu, false};
+  return cpu;
 }
 
 template <size_t NumClasses>
@@ -926,8 +949,8 @@ void TcmallocSlab<NumClasses>::UncacheCpuSlab() {
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 template <size_t NumClasses>
-ABSL_ATTRIBUTE_NOINLINE std::pair<int, bool>
-TcmallocSlab<NumClasses>::CacheCpuSlabSlow(int cpu) {
+ABSL_ATTRIBUTE_NOINLINE int TcmallocSlab<NumClasses>::CacheCpuSlabSlow() {
+  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   for (;;) {
     intptr_t val = tcmalloc_slabs;
     ASSERT(!(val & TCMALLOC_CACHED_SLABS_MASK));
@@ -957,9 +980,9 @@ TcmallocSlab<NumClasses>::CacheCpuSlabSlow(int cpu) {
   CompilerBarrier();
   if (resizing_.load(std::memory_order_relaxed)) {
     tcmalloc_slabs = 0;
-    return {cpu, false};
+    return cpu;
   }
-  return {cpu, true};
+  return -1;
 }
 #endif
 

@@ -27,15 +27,18 @@
 
 // See the comment about data layout in percpu.h for details.
 .type tcmalloc_sampler, @object
+.type tcmalloc_sampler_alias, @object
 .type tcmalloc_slabs, @object
 .type __rseq_abi, @object
 .section .tdata, "awT", @progbits, unique, 1
 .globl tcmalloc_sampler
+.globl tcmalloc_sampler_alias
 .globl tcmalloc_slabs
 .globl __rseq_abi
 .p2align 6
 .zero 64 + 32 - TCMALLOC_SAMPLER_SIZE - 8
 tcmalloc_sampler:
+tcmalloc_sampler_alias:
 .zero TCMALLOC_SAMPLER_SIZE
 // alignment padding (since tcmalloc_slabs is only 4-bytes aligned)
 .zero 4
@@ -51,6 +54,7 @@ __rseq_abi:
 .short 0xffff     // vcpu_id (kCpuIdUninitialized)
 .size __rseq_abi, 32
 .size tcmalloc_sampler, TCMALLOC_SAMPLER_SIZE
+.size tcmalloc_sampler_alias, TCMALLOC_SAMPLER_SIZE
 .size tcmalloc_slabs, 8
 
 #endif // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM

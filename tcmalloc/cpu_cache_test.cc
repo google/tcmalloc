@@ -201,6 +201,8 @@ class TestStaticForwarder {
     owner_.SetCacheForLargeClassesOnly(value);
   }
 
+  static bool Overflow(void* ptr, size_t size_class) { return false; }
+
   size_t arena_reported_nonresident_bytes_ = 0;
   int64_t arena_reported_impending_bytes_ = 0;
   size_t shrink_to_usage_limit_calls_ = 0;
@@ -255,7 +257,7 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
 
   // Allocate an object. As we are using less than kMinShardsAllowed number of
   // shards, we should bypass sharded transfer cache entirely.
-  void* ptr = cache.Allocate(kSizeClass);
+  void* ptr = cache.Allocate<NothrowPolicy>(kSizeClass);
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     EXPECT_FALSE(sharded_transfer_cache.should_use(size_class));
     EXPECT_EQ(sharded_transfer_cache.GetStats(size_class).capacity, 0);
@@ -309,7 +311,7 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
 
   // Allocate an object and make sure that we allocate from the sharded transfer
   // cache and that the sharded cache has been initialized.
-  void* ptr = cache.Allocate(kSizeClass);
+  void* ptr = cache.Allocate<NothrowPolicy>(kSizeClass);
   sharded_stats = sharded_transfer_cache.GetStats(kSizeClass);
   EXPECT_EQ(sharded_stats.remove_hits, 0);
   EXPECT_EQ(sharded_stats.remove_misses, 1);
@@ -392,7 +394,7 @@ TEST(CpuCacheTest, Metadata) {
     allowed_cpu_id =
         subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
 
-    ptr = cache.Allocate(kSizeClass);
+    ptr = cache.Allocate<NothrowPolicy>(kSizeClass);
 
     if (mask.Tampered() ||
         allowed_cpu_id !=
@@ -520,7 +522,7 @@ TEST(CpuCacheTest, CacheMissStats) {
     allowed_cpu_id =
         subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
 
-    ptr = cache.Allocate(kSizeClass);
+    ptr = cache.Allocate<NothrowPolicy>(kSizeClass);
 
     if (mask.Tampered() ||
         allowed_cpu_id !=
@@ -589,7 +591,7 @@ static void StressThread(CpuCache& cache, size_t thread_id,
     if (what) {
       // Allocate an object for a class
       size_t size_class = absl::Uniform<int32_t>(rnd, 1, 3);
-      void* ptr = cache.Allocate(size_class);
+      void* ptr = cache.Allocate<NothrowPolicy>(size_class);
       blocks.emplace_back(std::make_pair(size_class, ptr));
     } else {
       // Deallocate an object for a class
@@ -774,7 +776,7 @@ void AllocateThenDeallocate(CpuCache& cache, int cpu, size_t size_class,
   std::vector<void*> objects;
   ScopedFakeCpuId fake_cpu_id(cpu);
   for (int i = 0; i < ops; ++i) {
-    void* ptr = cache.Allocate(size_class);
+    void* ptr = cache.Allocate<NothrowPolicy>(size_class);
     objects.push_back(ptr);
   }
   for (auto* ptr : objects) {
@@ -884,7 +886,7 @@ static void ColdCacheOperations(CpuCache& cache, int cpu_id,
                                 size_t size_class) {
   // Temporarily fake being on the given CPU.
   ScopedFakeCpuId fake_cpu_id(cpu_id);
-  void* ptr = cache.Allocate(size_class);
+  void* ptr = cache.Allocate<NothrowPolicy>(size_class);
   cache.Deallocate(ptr, size_class);
 }
 
@@ -905,7 +907,7 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
   // the colder cache.
   for (size_t size_class = 1; size_class <= 2; ++size_class) {
     for (auto& ptr : ptrs) {
-      ptr = cache.Allocate(size_class);
+      ptr = cache.Allocate<NothrowPolicy>(size_class);
     }
     for (void* ptr : ptrs) {
       cache.Deallocate(ptr, size_class);
@@ -1362,7 +1364,7 @@ class CpuCacheEnvironment {
     switch (coin) {
       case 1: {
         // Allocate, Deallocate
-        void* ptr = cache_.Allocate(size_class);
+        void* ptr = cache_.Allocate<NothrowPolicy>(size_class);
         EXPECT_NE(ptr, nullptr);
         // Touch *ptr to allow sanitizers to see an access (and a potential
         // race, if synchronization is insufficient).
