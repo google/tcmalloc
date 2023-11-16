@@ -16,7 +16,12 @@
 #define TCMALLOC_INTERNAL_OPTIMIZATION_H_
 
 #include "absl/base/attributes.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+
+GOOGLE_MALLOC_SECTION_BEGIN
+namespace tcmalloc {
+namespace tcmalloc_internal {
 
 // Our wrapper for __builtin_assume, allowing us to check the assumption on
 // debug builds.
@@ -42,5 +47,22 @@
 #else
 #define TCMALLOC_ATTRIBUTE_CONST
 #endif
+
+// Can be applied to a return statement to tell the compiler to generate
+// a tail call.
+#if ABSL_HAVE_CPP_ATTRIBUTE(clang::musttail)
+#define TCMALLOC_MUSTTAIL [[clang::musttail]]
+#else
+#define TCMALLOC_MUSTTAIL
+#endif
+
+static inline void* AssumeNotNull(void* p) {
+  ASSUME(p != nullptr);
+  return p;
+}
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_OPTIMIZATION_H_

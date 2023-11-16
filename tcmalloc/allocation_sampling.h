@@ -283,16 +283,6 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
   return alloc_with_status;
 }
 
-// ShouldSampleAllocation() is called when an allocation of the given requested
-// size is in progress. It returns the sampling weight of the allocation if it
-// should be "sampled," and 0 otherwise. See SampleifyAllocation().
-//
-// Sampling is done based on requested sizes and later unskewed during profile
-// generation.
-inline size_t ShouldSampleAllocation(size_t size) {
-  return GetThreadSampler()->RecordAllocation(size);
-}
-
 template <typename State>
 ABSL_ATTRIBUTE_NOINLINE static inline void FreeProxyObject(State& state,
                                                            void* ptr,

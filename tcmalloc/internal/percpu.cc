@@ -61,7 +61,6 @@ ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
 extern "C" thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
-extern "C" thread_local char tcmalloc_sampler_alias ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 // Is this thread's __rseq_abi struct currently registered with the kernel?
 static bool ThreadRegistered() { return RseqCpuId() >= kCpuIdInitialized; }
@@ -94,8 +93,6 @@ static void InitPerCpu() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
     // See the comment about data layout in percpu.h for details.
     auto sampler_addr = reinterpret_cast<uintptr_t>(&tcmalloc_sampler);
-    auto sampler_alias_addr =
-        reinterpret_cast<uintptr_t>(&tcmalloc_sampler_alias);
     // Have to use volatile because C++ compiler rejects to believe that
     // objects can overlap.
     volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
@@ -113,8 +110,6 @@ static void InitPerCpu() {
     CHECK_CONDITION((sampler_addr % TCMALLOC_SAMPLER_ALIGN) == 0);
     // Ensure that tcmalloc_sampler is located before tcmalloc_slabs.
     CHECK_CONDITION(sampler_addr + TCMALLOC_SAMPLER_SIZE <= slabs_addr);
-    // Ensure that sampler alias is actually an alias.
-    CHECK_CONDITION(sampler_addr == sampler_alias_addr);
 
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.

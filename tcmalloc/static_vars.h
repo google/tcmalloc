@@ -162,21 +162,8 @@ class Static final {
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 
-  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE IsOnFastPath() {
-    return
-        // These boolean operations do not require short-circuiting from &&.
-        // Bitwise AND of booleans triggers -Wbitwise-instead-of-logical, as
-        // this can be a common source of bugs.  Suppress this by casting to
-        // int first.
-
-        // When the per-cpu cache is enabled, and the thread's current cpu
-        // variable is initialized we will try to allocate from the per-cpu
-        // cache. If something fails, we bail out to the full malloc.
-        // Checking the current cpu variable here allows us to remove it from
-        // the fast-path, since we will fall back to the slow path until this
-        // variable is initialized.
-        static_cast<int>(CpuCacheActive()) &
-        static_cast<int>(subtle::percpu::IsFastNoInit());
+  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
+    return false;
   }
 
   static size_t metadata_bytes() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);

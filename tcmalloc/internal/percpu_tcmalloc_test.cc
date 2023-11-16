@@ -209,14 +209,14 @@ TEST_F(TcmallocSlabTest, Unit) {
       ASSERT_EQ(slab_.Capacity(cpu, size_class), 0);
 
       if (!initialized[cpu]) {
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
         slab_.InitCpu(slab_.GetCurrentVirtualCpuUnsafe(),
                       [](size_t size_class) { return kCapacity; });
         initialized[cpu] = true;
       }
 
       // Test overflow/underflow handlers.
-      ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+      ASSERT_EQ(slab_.Pop(size_class), nullptr);
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
@@ -227,18 +227,24 @@ TEST_F(TcmallocSlabTest, Unit) {
                 kCapacity / 2);
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
-      ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+      ASSERT_EQ(slab_.Pop(size_class), nullptr);
 
       ASSERT_FALSE(slab_.Push(size_class, &objects[0]));
-      ASSERT_EQ(slab_.CacheCpuSlab(), -1);
-      ASSERT_EQ(slab_.CacheCpuSlab(), cpu);
+      {
+        auto [got_cpu, cached] = slab_.CacheCpuSlab();
+        ASSERT_TRUE(cached);
+        ASSERT_EQ(got_cpu, cpu);
+      }
+      {
+        auto [got_cpu, cached] = slab_.CacheCpuSlab();
+        ASSERT_FALSE(cached);
+        ASSERT_EQ(got_cpu, cpu);
+      }
       ASSERT_TRUE(slab_.Push(size_class, &objects[0]));
 
       ASSERT_EQ(slab_.Length(cpu, size_class), 1);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
-      void* ptr;
-      ASSERT_TRUE(slab_.Pop(size_class, &ptr));
-      ASSERT_EQ(ptr, &objects[0]);
+      ASSERT_EQ(slab_.Pop(size_class), &objects[0]);
       ASSERT_EQ(slab_.Length(cpu, size_class), 0);
       for (size_t i = 0; i < kCapacity / 2; ++i) {
         ASSERT_TRUE(slab_.Push(size_class, &objects[i]));
@@ -246,8 +252,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       }
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       for (size_t i = kCapacity / 2; i > 0; --i) {
-        ASSERT_TRUE(slab_.Pop(size_class, &ptr));
-        ASSERT_EQ(ptr, &objects[i - 1]);
+        ASSERT_EQ(slab_.Pop(size_class), &objects[i - 1]);
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
       // Ensure that Shink don't underflow capacity.
@@ -267,8 +272,7 @@ TEST_F(TcmallocSlabTest, Unit) {
       }
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       for (size_t i = kCapacity; i > 0; --i) {
-        ASSERT_TRUE(slab_.Pop(size_class, &ptr));
-        ASSERT_EQ(ptr, &objects[i - 1]);
+        ASSERT_EQ(slab_.Pop(size_class), &objects[i - 1]);
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
 
@@ -315,12 +319,12 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.PushBatch(size_class, batch, i), expect);
         ASSERT_EQ(slab_.Length(cpu, size_class), expect);
         for (size_t j = 0; j < expect; ++j) {
-          ASSERT_TRUE(slab_.Pop(size_class, &slabs_result[j]));
+          slabs_result[j] = slab_.Pop(size_class);
         }
         ASSERT_THAT(
             std::vector<void*>(&slabs_result[0], &slabs_result[expect]),
             UnorderedElementsAreArray(&object_ptrs[i - expect], expect));
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
       }
       // Push a batch of size i into non-empty slab.
       for (size_t i = 1; i < kCapacity / 2; ++i) {
@@ -330,14 +334,14 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, size_class), i + expect);
         // Because slabs are LIFO fill in this array from the end.
         for (int j = i + expect - 1; j >= 0; --j) {
-          ASSERT_TRUE(slab_.Pop(size_class, &slabs_result[j]));
+          slabs_result[j] = slab_.Pop(size_class);
         }
         ASSERT_THAT(std::vector<void*>(&slabs_result[0], &slabs_result[i]),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
         ASSERT_THAT(
             std::vector<void*>(&slabs_result[i], &slabs_result[i + expect]),
             UnorderedElementsAreArray(&object_ptrs[i - expect], expect));
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
       }
       for (size_t i = 0; i < kCapacity + 1; ++i) {
         batch[i] = nullptr;
@@ -349,7 +353,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         }
         ASSERT_EQ(slab_.PopBatch(size_class, batch, i), i);
         ASSERT_EQ(slab_.Length(cpu, size_class), 0);
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
 
         ASSERT_THAT(absl::MakeSpan(&batch[0], i),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
@@ -368,12 +372,10 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, size_class), i - want);
 
         for (size_t j = 0; j < i - want; ++j) {
-          void* ptr;
-          ASSERT_TRUE(slab_.Pop(size_class, &ptr));
-          ASSERT_EQ(ptr, static_cast<void*>(&objects[i - want - j - 1]));
+          ASSERT_EQ(slab_.Pop(size_class), &objects[i - want - j - 1]);
         }
 
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
 
         ASSERT_GE(i, want);
         ASSERT_THAT(absl::MakeSpan(&batch[0], want),
@@ -391,7 +393,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         }
         ASSERT_EQ(slab_.PopBatch(size_class, batch, i * 2), i);
         ASSERT_EQ(slab_.Length(cpu, size_class), 0);
-        ASSERT_FALSE(slab_.Pop(size_class, nullptr));
+        ASSERT_EQ(slab_.Pop(size_class), nullptr);
 
         ASSERT_THAT(absl::MakeSpan(&batch[0], i),
                     UnorderedElementsAreArray(&object_ptrs[0], i));
@@ -476,7 +478,9 @@ struct Context {
 };
 
 void InitCpuOnce(Context& ctx, int cpu) {
-  ctx.slab->CacheCpuSlab();
+  if (cpu < 0) {
+    cpu = ctx.slab->CacheCpuSlab().first;
+  }
   absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
     absl::MutexLock lock(&ctx.mutexes[cpu]);
     ctx.slab->InitCpu(cpu, get_capacity);
@@ -501,18 +505,17 @@ void StressThread(size_t thread_id, Context& ctx) {
         if (ctx.slab->Push(size_class, block.back())) {
           block.pop_back();
         } else {
-          InitCpuOnce(ctx, ctx.slab->GetCurrentVirtualCpuUnsafe());
+          InitCpuOnce(ctx, -1);
         }
       }
     } else if (what < 20) {
-      void* item;
-      if (ctx.slab->Pop(size_class, &item)) {
+      if (void* item = ctx.slab->Pop(size_class)) {
         // Ensure that we never return a null item which could be indicative
         // of a bug in lazy InitCpu initialization (b/148973091, b/147974701).
         EXPECT_NE(item, nullptr);
         block.push_back(item);
       } else {
-        InitCpuOnce(ctx, ctx.slab->GetCurrentVirtualCpuUnsafe());
+        InitCpuOnce(ctx, -1);
       }
     } else if (what < 30) {
       if (!block.empty()) {
@@ -991,7 +994,8 @@ void BM_PushPop(benchmark::State& state) {
   for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
-  slab.CacheCpuSlab();
+  auto [cpu, _] = slab.CacheCpuSlab();
+  CHECK_CONDITION(cpu == kCpu);
 
   CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
     return kBatchSize;
@@ -1005,9 +1009,7 @@ void BM_PushPop(benchmark::State& state) {
       CHECK_CONDITION(slab.Push(kSizeClass, batch[x]));
     }
     for (size_t x = 0; x < kBatchSize; x++) {
-      void* ptr;
-      CHECK_CONDITION(slab.Pop(kSizeClass, &ptr));
-      CHECK_CONDITION(ptr == batch[kBatchSize - x - 1]);
+      CHECK_CONDITION(slab.Pop(kSizeClass) == batch[kBatchSize - x - 1]);
     }
   }
 }
@@ -1031,7 +1033,8 @@ void BM_PushPopBatch(benchmark::State& state) {
   for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     slab.InitCpu(cpu, get_capacity);
   }
-  slab.CacheCpuSlab();
+  auto [cpu, _] = slab.CacheCpuSlab();
+  CHECK_CONDITION(cpu == kCpu);
   CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
     return kBatchSize;
   }) == kBatchSize);

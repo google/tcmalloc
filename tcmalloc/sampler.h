@@ -94,7 +94,6 @@ class Sampler {
   size_t RecordAllocation(size_t k);
 
   // Same as above (but faster), except:
-  // a) REQUIRES(k < std::numeric_limits<ssize_t>::max())
   // b) if this returns false, you must call RecordAllocation
   //    to confirm if sampling truly needed.
   //
@@ -102,6 +101,10 @@ class Sampler {
   // sampling and let caller (which is in malloc fast-path) to
   // "escalate" to fuller and slower logic only if necessary.
   bool TryRecordAllocationFast(size_t k);
+
+  // Counterpart of TryRecordAllocationFast that needs to be called
+  // on the slow path when TryRecordAllocationFast returns false.
+  size_t RecordedAllocationFast(size_t k);
 
   // Check if the next allocation of size "k" will be sampled
   // without changing the internal state.
@@ -112,12 +115,6 @@ class Sampler {
   // enabled returns GuardedStatus::Requested. Otherwise returns status
   // indicating the reason for not guarding.
   Profile::Sample::GuardedStatus ShouldSampleGuardedAllocation();
-
-  // Returns the Sampler's cached tc_globals.IsOnFastPath state.  This may
-  // differ from a fresh computation due to activating per-CPU mode or the
-  // addition/removal of hooks.
-  bool IsOnFastPath() const;
-  void UpdateFastPathState();
 
   // Generate a geometric with mean profile_sampling_rate.
   //
@@ -138,38 +135,27 @@ class Sampler {
   // Used to ensure that the hot fields are collocated in the same cache line
   // as __rseq_abi.
   static constexpr size_t HotDataOffset() {
-    return offsetof(Sampler, was_on_fast_path_);
+    return offsetof(Sampler, bytes_until_sample_);
   }
 
   constexpr Sampler()
       : sample_period_(0),
-        true_bytes_until_sample_(0),
         allocs_until_guarded_sample_(0),
         rnd_(0),
         initialized_(false),
-        was_on_fast_path_(false),
         bytes_until_sample_(0) {}
 
  private:
   // Saved copy of the sampling period from when we actually set
-  // (true_)bytes_until_sample_. This allows us to properly calculate the sample
+  // bytes_until_sample_. This allows us to properly calculate the sample
   // weight of the first sample after the sampling period is changed.
   ssize_t sample_period_;
-
-  // true_bytes_until_sample_ tracks the sampling point when we are on the slow
-  // path when picking sampling points (!tc_globals.IsOnFastPath()) up until we
-  // notice (due to another allocation) that this state has changed.
-  ssize_t true_bytes_until_sample_;
 
   // Number of sampled allocations until we do a guarded allocation.
   ssize_t allocs_until_guarded_sample_;
 
   uint64_t rnd_;  // Cheap random number generator
   bool initialized_;
-
-  // was_on_fast_path_/bytes_until_sample_ are accessed on every malloc/free,
-  // so we place them last and collocate with __rseq_abi.
-  bool was_on_fast_path_;
 
   // Bytes until we sample next.
   //
@@ -189,94 +175,36 @@ class Sampler {
   ssize_t GetGeometricVariable(ssize_t mean);
 };
 
-extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler_alias
-    ABSL_ATTRIBUTE_INITIAL_EXEC;
-#ifdef __x86_64__
-ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler_alias
-    ABSL_ATTRIBUTE_INITIAL_EXEC;
-#endif
-
 inline size_t Sampler::RecordAllocation(size_t k) {
-  // The first time we enter this function we expect bytes_until_sample_
-  // to be zero, and we must call SampleAllocationSlow() to ensure
-  // proper initialization of static vars.
-  ASSERT(tc_globals.IsInited() || bytes_until_sample_ == 0);
-
-  // Avoid missampling 0.
-  k++;
-
-  // Note that we have to deal with arbitrarily large values of k
-  // here. Thus we're upcasting bytes_until_sample_ to unsigned rather
-  // than the other way around. And this is why this code cannot be
-  // merged with DecrementFast code below.
-  if (static_cast<size_t>(bytes_until_sample_) <= k) {
-    size_t result = RecordAllocationSlow(k);
-    ASSERT(tc_globals.IsInited());
-    return result;
-  } else {
-    bytes_until_sample_ -= k;
-    ASSERT(tc_globals.IsInited());
-    return 0;
+  if (!TryRecordAllocationFast(k)) {
+    return RecordAllocationSlow(k);
   }
+  return 0;
 }
 
 inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::TryRecordAllocationFast(size_t k) {
+  ASSERT(bytes_until_sample_ >= 0);
+
   // Avoid missampling 0.  Callers pass in requested size (which based on the
   // assertion below k>=0 at this point).  Since subtracting 0 from
-  // bytes_until_sample_ is a no-op, we increment k by one and resolve the
-  // effect on the distribution in Sampler::Unsample.
+  // bytes_until_sample_ is a no-op, we increment k by one.
   k++;
 
-  // For x86 efficiency, we're testing bytes_until_sample_ after
-  // decrementing it by k. This allows compiler to do sub <reg>, <mem>
-  // followed by conditional jump on sign. But it is correct only if k
-  // is actually smaller than largest ssize_t value. Otherwise
-  // converting k to signed value overflows.
-  //
-  // It would be great for generated code to be sub <reg>, <mem>
-  // followed by conditional jump on 'carry', which would work for
-  // arbitrary values of k, but there seem to be no way to express
-  // that in C++.
-  //
-  // Our API contract explicitly states that only small values of k
-  // are permitted. And thus it makes sense to assert on that.
-  ASSERT(static_cast<ssize_t>(k) > 0);
+  return ABSL_PREDICT_TRUE(!__builtin_usubl_overflow(
+      bytes_until_sample_, k, reinterpret_cast<size_t*>(&bytes_until_sample_)));
+}
 
-#ifndef __x86_64__
-  // TODO(b/271483758): This produces a more efficient compare on ARM.
-  if (ABSL_PREDICT_FALSE(bytes_until_sample_ <= k)) {
-#else
-  bytes_until_sample_ -= static_cast<ssize_t>(k);
-  if (ABSL_PREDICT_FALSE(bytes_until_sample_ <= 0)) {
-#endif
-    // Note, on x86 we undo sampling counter update, since we're not actually
-    // handling slow path in the "needs sampling" case (calling
-    // RecordAllocationSlow to reset counter). And we do that in order
-    // to avoid non-tail calls in malloc fast-path. See also comments
-    // on declaration inside Sampler class.
-    //
-    // TODO(b/302050723): tcmalloc_sampler_alias is used here to improve
-    // compiler's choice of instructions. We know that this path is very rare
-    // and that there is no need to keep previous value of bytes_until_sample_
-    // in register. This helps compiler generate slightly more efficient
-    // sub <reg>, <mem> instruction for subtraction above.
-#ifdef __x86_64__
-    ASSERT(this == &tcmalloc_sampler_alias);
-    tcmalloc_sampler_alias.bytes_until_sample_ += k;
-#endif
-    return false;
+inline size_t Sampler::RecordedAllocationFast(size_t k) {
+  // TryRecordAllocationFast already decremented the counter.
+  if (ABSL_PREDICT_FALSE(bytes_until_sample_ < 0)) {
+    return RecordAllocationSlow(k);
   }
-#ifndef __x86_64__
-  bytes_until_sample_ -= static_cast<ssize_t>(k);
-#endif
-  return true;
+  return 0;
 }
 
 inline bool Sampler::WillRecordAllocation(size_t k) {
-  return ABSL_PREDICT_FALSE(
-      (was_on_fast_path_ ? bytes_until_sample_ : true_bytes_until_sample_) <=
-      (k + 1));
+  return ABSL_PREDICT_FALSE(bytes_until_sample_ < (k + 1));
 }
 
 inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE
@@ -307,25 +235,6 @@ inline uint64_t Sampler::NextRandom(uint64_t rnd) {
   const uint64_t prng_mod_mask =
       ~((~static_cast<uint64_t>(0)) << prng_mod_power);
   return (prng_mult * rnd + prng_add) & prng_mod_mask;
-}
-
-inline bool Sampler::IsOnFastPath() const { return was_on_fast_path_; }
-
-inline void Sampler::UpdateFastPathState() {
-  const bool is_on_fast_path = tc_globals.IsOnFastPath();
-  if (ABSL_PREDICT_TRUE(was_on_fast_path_ == is_on_fast_path)) {
-    return;
-  }
-
-  was_on_fast_path_ = is_on_fast_path;
-
-  if (is_on_fast_path) {
-    bytes_until_sample_ = true_bytes_until_sample_;
-    true_bytes_until_sample_ = 0;
-  } else {
-    true_bytes_until_sample_ = bytes_until_sample_;
-    bytes_until_sample_ = 0;
-  }
 }
 
 // Returns the approximate number of bytes that would have been allocated to
