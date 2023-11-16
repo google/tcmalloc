@@ -70,7 +70,7 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   if (objects_per_span < 1) {
     Log(kLog, __FILE__, __LINE__, "each span must have at least one object");
     return false;
-  } else if (size >= kBitmapMinObjectSize && objects_per_span > 64) {
+  } else if (Span::DoesNotFitInBitmap(size, objects_per_span)) {
     Log(kLog, __FILE__, __LINE__, "too many objects for bitmap representation",
         size, objects_per_span);
     return false;

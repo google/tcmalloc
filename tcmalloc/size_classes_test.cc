@@ -102,16 +102,18 @@ TEST_P(SizeClassesTest, SpanPages) {
 
 TEST_P(SizeClassesTest, ValidateSufficientBitmapCapacity) {
   // Validate that all the objects in a span can fit into a bitmap.
-  // The cut-off for using a bitmap is kBitmapMinObjectSize, so it is
-  // theoretically possible that a span could exceed this threshold
-  // for object size and contain more than 64 objects.
+  // The cut-off for using a bitmap is computed in
+  // IsLessThanBitmapMinObjectSize(), so it is theoretically possible that a
+  // span could exceed this threshold for object size and contain more than 64
+  // objects.
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
-    if (max_size_in_class >= kBitmapMinObjectSize) {
+    if (!Span::IsLessThanBitmapMinObjectSize(max_size_in_class)) {
       const size_t objects_per_span =
           Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
-      // Span can hold at most 64 objects of this size.
-      EXPECT_LE(objects_per_span, 64);
+      EXPECT_LE(objects_per_span, Span::GetBitmapSize());
+      EXPECT_FALSE(
+          Span::DoesNotFitInBitmap(max_size_in_class, objects_per_span));
     }
   }
 }
@@ -125,7 +127,7 @@ TEST_P(SizeClassesTest, ValidateCorrectScalingByReciprocal) {
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
     // Only test for sizes where object availability is recorded in a bitmap.
-    if (max_size_in_class < kBitmapMinObjectSize) {
+    if (Span::IsLessThanBitmapMinObjectSize(max_size_in_class)) {
       continue;
     }
     size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);

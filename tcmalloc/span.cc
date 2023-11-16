@@ -184,7 +184,7 @@ Span::ObjIdx* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
                                     size_t size) {
 #ifndef NDEBUG
-  size_t before = bitmap_.CountBits(0, 64);
+  size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif  // NDEBUG
 
   size_t count = 0;
@@ -192,14 +192,14 @@ size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
   // remaining in the span.
   while (!bitmap_.IsZero() && count < N) {
     size_t offset = bitmap_.FindSet(0);
-    ASSERT(offset < 64);
+    ASSERT(offset < bitmap_.size());
     batch[count] = BitmapIdxToPtr(offset, size);
     bitmap_.ClearLowestBit();
     count++;
   }
 
 #ifndef NDEBUG
-  size_t after = bitmap_.CountBits(0, 64);
+  size_t after = bitmap_.CountBits(0, bitmap_.size());
   ASSERT(after + count == before);
   ASSERT(allocated_.load(std::memory_order_relaxed) + count ==
          embed_count_ - after);
@@ -210,9 +210,9 @@ size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
 }
 
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
-  // Handle spans with 64 or fewer objects using a bitmap. We expect spans
-  // to frequently hold smaller objects.
-  if (ABSL_PREDICT_FALSE(size >= kBitmapMinObjectSize)) {
+  // Handle spans with bitmap_.size() or fewer objects using a bitmap. We expect
+  // spans to frequently hold smaller objects.
+  if (ABSL_PREDICT_FALSE(!IsLessThanBitmapMinObjectSize(size))) {
     return BitmapFreelistPopBatch(batch, N, size);
   }
   if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
@@ -243,8 +243,8 @@ uint16_t Span::CalcReciprocal(size_t size) {
 
 void Span::BitmapBuildFreelist(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
-  // maximum capacity for the bitmap is 64 objects.
-  ASSERT(count <= 64);
+  // maximum capacity for the bitmap is bitmap_.size() objects.
+  ASSERT(count <= bitmap_.size());
 #ifndef NDEBUG
   // For bitmap_ use embed_count_ to record objects per span.
   embed_count_ = count;
@@ -253,14 +253,14 @@ void Span::BitmapBuildFreelist(size_t size, size_t count) {
   allocated_.store(0, std::memory_order_relaxed);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
-  ASSERT(bitmap_.CountBits(0, 64) == count);
+  ASSERT(bitmap_.CountBits(0, bitmap_.size()) == count);
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   ASSERT(count > 0);
   freelist_ = kListEnd;
 
-  if (size >= kBitmapMinObjectSize) {
+  if (!IsLessThanBitmapMinObjectSize(size)) {
     BitmapBuildFreelist(size, count);
     return BitmapFreelistPopBatch(batch, N, size);
   }

@@ -55,7 +55,7 @@ TEST_P(ColdSizeClassTest, ColdSizeClasses) {
   std::vector<size_t> expected_cold_size_classes;
   if (use_extended_size_class_for_cold()) {
     for (int i = 0; i < kSizeClasses.size(); ++i) {
-      if (kSizeClasses[i].size >= kBitmapMinObjectSize &&
+      if (!Span::IsLessThanBitmapMinObjectSize(kSizeClasses[i].size) &&
           kSizeClasses[i].size >= SizeMap::kMinAllocSizeForCold) {
         allowed_alloc_size.push_back(kSizeClasses[i].size);
         expected_cold_size_classes.push_back(i + kExpandedClassesStart);
