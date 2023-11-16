@@ -40,6 +40,7 @@
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/testing/testutil.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -63,11 +64,19 @@ class CpuCachePeer {
   // Validate that we're using >90% of the available slab bytes.
   template <typename CpuCache>
   static void ValidateSlabBytes(const CpuCache& cpu_cache) {
-    const auto [bytes_required, bytes_available] = EstimateSlabBytes(
-        cpu_cache.GetMaxCapacityFunctor(cpu_cache.freelist_.GetShift()));
-    EXPECT_GT(bytes_required * 10, bytes_available * 9)
-        << bytes_required << " " << bytes_available << " " << kNumaPartitions
-        << " " << kNumBaseClasses << " " << kNumClasses;
+    cpu_cache_internal::SlabShiftBounds bounds =
+        cpu_cache.GetPerCpuSlabShiftBounds();
+    for (uint8_t shift = bounds.initial_shift;
+         shift <= bounds.max_shift &&
+         shift > cpu_cache_internal::kInitialBasePerCpuShift;
+         ++shift) {
+      const auto [bytes_required, bytes_available] =
+          EstimateSlabBytes(cpu_cache.GetMaxCapacityFunctor(shift));
+      EXPECT_GT(bytes_required * 10, bytes_available * 9)
+          << bytes_required << " " << bytes_available << " " << kNumaPartitions
+          << " " << kNumBaseClasses << " " << kNumClasses;
+      EXPECT_LE(bytes_required, bytes_available);
+    }
   }
 
   template <typename CpuCache>
@@ -165,11 +174,23 @@ class TestStaticForwarder {
     }
   }
 
+  size_t max_capacity(int size_class) const {
+    if (size_map_.has_value()) {
+      return size_map_->max_capacity(size_class);
+    } else {
+      return 2048;
+    }
+  }
+
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
     return numa_topology_;
   }
 
   bool UseWiderSlabs() const { return wider_slabs_enabled_; }
+
+  bool ConfigureSizeClassMaxCapacity() const {
+    return configure_size_class_max_capacity_;
+  }
 
   bool use_extended_cold_size_classes() const {
     return use_extended_size_class_for_cold_;
@@ -208,6 +229,7 @@ class TestStaticForwarder {
   double dynamic_slab_grow_threshold_ = -1;
   double dynamic_slab_shrink_threshold_ = -1;
   bool wider_slabs_enabled_ = false;
+  bool configure_size_class_max_capacity_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   bool resize_size_classes_enabled_ = false;
   bool use_extended_size_class_for_cold_ = false;
@@ -806,11 +828,11 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   // Temporarily fake being on the given CPU.
   constexpr int kCpuId = 0;
   constexpr int kCpuId1 = 1;
-  constexpr int kMaxCapacity = 1024;
 
   const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
   constexpr int kSmallClass = 1;
   constexpr int kLargeClass = 2;
+  const int kMaxCapacity = cache.forwarder().max_capacity(kLargeClass);
 
   const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
   ASSERT_GT(large_class_size * kMaxCapacity, max_cpu_cache_size);
@@ -921,14 +943,17 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
 class DynamicWideSlabTest
     : public testing::TestWithParam<
           std::tuple<bool /* use_extended_size_class_for_cold */,
-                     bool /* use_wider_slab */>> {
+                     bool /* use_wider_slab */,
+                     bool /* configure_size_class_max_capacity */>> {
  public:
   bool use_extended_size_class_for_cold() { return std::get<0>(GetParam()); }
   bool use_wider_slab() { return std::get<1>(GetParam()); }
+  bool configure_size_class_max_capacity() { return std::get<2>(GetParam()); }
 };
 
 INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
-                         testing::Combine(testing::Bool(), testing::Bool()));
+                         testing::Combine(testing::Bool(), testing::Bool(),
+                                          testing::Bool()));
 
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the

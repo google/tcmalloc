@@ -133,6 +133,12 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_512K_SLAB"},
     },
     {
+        "name": "configure_size_class_max_capacity",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_CONFIGURE_SIZE_CLASS_MAX_CAPACITY"},
+    },
+    {
         "name": "use_all_buckets_for_few_object_spans",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
