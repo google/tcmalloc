@@ -152,7 +152,7 @@ void Crash(CrashMode mode, const char* filename, int line, LogItem a,
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
-// Like assert(), but executed even in NDEBUG mode
+// Like assert, but executed even in NDEBUG mode
 #undef CHECK_CONDITION
 #define CHECK_CONDITION(cond)                                           \
   (ABSL_PREDICT_TRUE(cond) ? (void)0                                    \
@@ -160,8 +160,8 @@ extern void (*log_message_writer)(const char* msg, int length);
                                  ::tcmalloc::tcmalloc_internal::kCrash, \
                                  __FILE__, __LINE__, #cond)))
 
-// Our own version of assert() so we can avoid hanging by trying to do
-// all kinds of goofy printing while holding the malloc lock.
+// Our own version of assert so we can avoid hanging by trying to do all kinds
+// of goofy printing while holding the malloc lock.
 #ifndef NDEBUG
 #define ASSERT(cond) CHECK_CONDITION(cond)
 #else
