@@ -395,7 +395,8 @@ class ShardedTransferCacheManagerBase {
         cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
     ASSERT(shard_index < num_shards_);
     Shard &shard = shards_[shard_index];
-    absl::call_once(shard.once_flag, [this, &shard]() { InitShard(shard); });
+    absl::base_internal::LowLevelCallOnce(
+        &shard.once_flag, [this, &shard]() { InitShard(shard); });
     return shard.transfer_caches[size_class];
   }
 

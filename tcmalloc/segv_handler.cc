@@ -325,7 +325,7 @@ static void HandleSegvAndForward(int signo, siginfo_t* info, void* context) {
 
 extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
   static absl::once_flag flag;
-  absl::call_once(flag, []() {
+  absl::base_internal::LowLevelCallOnce(&flag, []() {
     struct sigaction action = {};
     action.sa_sigaction = HandleSegvAndForward;
     sigemptyset(&action.sa_mask);

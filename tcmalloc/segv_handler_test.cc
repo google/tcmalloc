@@ -78,7 +78,7 @@ TEST(SegvHandlerTest, SignalHandlerStackConsumption) {
 #endif
 #elif defined(__aarch64__)
 #if defined(NDEBUG)
-  constexpr size_t kExpectedUsage = 12500;
+  constexpr size_t kExpectedUsage = 12520;
   constexpr size_t kUsageSlack = 10;
 #else
   constexpr size_t kExpectedUsage = 16000;
