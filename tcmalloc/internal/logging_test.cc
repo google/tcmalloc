@@ -16,7 +16,10 @@
 
 #include <string.h>
 
+#include <limits>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"

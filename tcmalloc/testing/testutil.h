@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include <new>
+#include <string>
 
 #include "benchmark/benchmark.h"
 #include "tcmalloc/internal/percpu.h"

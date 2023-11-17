@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
 #define TCMALLOC_INTERNAL_PERCPU_TCMALLOC_H_
 
+#include <limits>
 #if defined(__linux__)
 #include <linux/param.h>
 #else

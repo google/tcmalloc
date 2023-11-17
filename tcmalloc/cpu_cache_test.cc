@@ -19,12 +19,15 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <new>
 #include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <tuple>
+#include <utility>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"

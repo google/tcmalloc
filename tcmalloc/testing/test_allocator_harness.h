@@ -15,7 +15,10 @@
 #ifndef TCMALLOC_TESTING_TEST_ALLOCATOR_HARNESS_H_
 #define TCMALLOC_TESTING_TEST_ALLOCATOR_HARNESS_H_
 
+#include <algorithm>
 #include <random>
+#include <utility>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "absl/base/optimization.h"
