@@ -179,11 +179,8 @@ class StaticForwarder {
 
   // We use size class maximum capacities as configured in sizemap.
   //
-  // TODO(b/311398687): Complete this experiment.
-  static bool ConfigureSizeClassMaxCapacity() {
-    return IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_CONFIGURE_SIZE_CLASS_MAX_CAPACITY);
-  }
+  // TODO(b/311398687): re-enable this experiment.
+  static bool ConfigureSizeClassMaxCapacity() { return false; }
 
   static bool use_extended_cold_size_classes() {
     return IsExperimentActive(
