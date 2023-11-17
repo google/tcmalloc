@@ -1207,6 +1207,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     # There can be only one CpuCache due to slab offset caching in rseq.
     malloc = "//tcmalloc/internal:system_malloc",
+    shard_count = 3,
     deps = [
         ":common_8k_pages",
         ":mock_transfer_cache",
