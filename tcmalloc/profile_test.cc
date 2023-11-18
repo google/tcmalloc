@@ -17,6 +17,7 @@
 #include <atomic>
 #include <memory>
 #include <new>
+#include <optional>
 #include <set>
 #include <thread>  // NOLINT(build/c++11)
 #include <utility>
@@ -170,19 +171,19 @@ TEST(AllocationSampleTest, SampleAccuracy) {
   struct Requests {
     size_t size;
     size_t alignment;
-    absl::optional<tcmalloc::hot_cold_t> hot_cold;
+    std::optional<tcmalloc::hot_cold_t> hot_cold;
     bool expected_hot;
     bool keep;
     // objects we don't delete as we go
     void* list = nullptr;
   };
   std::vector<Requests> sizes = {
-      {8, 0, absl::nullopt, true, false},
-      {16, 16, absl::nullopt, true, true},
-      {1024, 0, absl::nullopt, true, false},
-      {64 * 1024, 64, absl::nullopt, true, false},
-      {512 * 1024, 0, absl::nullopt, true, true},
-      {1024 * 1024, 128, absl::nullopt, true, true},
+      {8, 0, std::nullopt, true, false},
+      {16, 16, std::nullopt, true, true},
+      {1024, 0, std::nullopt, true, false},
+      {64 * 1024, 64, std::nullopt, true, false},
+      {512 * 1024, 0, std::nullopt, true, true},
+      {1024 * 1024, 128, std::nullopt, true, true},
       // As an implementation detail, 32 is not allocated to a cold size class.
       {32, 0, tcmalloc::hot_cold_t{0}, true, true},
       {64, 0, tcmalloc::hot_cold_t{255}, true, true},

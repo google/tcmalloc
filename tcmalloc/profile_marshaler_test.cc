@@ -40,7 +40,7 @@ namespace {
 TEST(ProfileMarshalTest, Smoke) {
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
 
-  auto fake_profile = absl::make_unique<FakeProfile>();
+  auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(ProfileType::kAllocations);
   fake_profile->SetDuration(kDuration);
 

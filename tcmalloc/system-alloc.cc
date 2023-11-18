@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -585,7 +586,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   static std::array<uintptr_t, kNumaPartitions> next_normal_addr = {0};
   static uintptr_t next_cold_addr = 0;
 
-  absl::optional<int> numa_partition;
+  std::optional<int> numa_partition;
   uintptr_t& next_addr = *[&]() {
     switch (tag) {
       case MemoryTag::kSampled:

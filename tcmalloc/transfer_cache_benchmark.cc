@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <atomic>
+#include <optional>
 
 #include "absl/types/optional.h"
 #include "benchmark/benchmark.h"
@@ -103,7 +104,7 @@ void BM_InsertRange(benchmark::State& state) {
 
   // optional to have more precise control of when the destruction occurs, as
   // we want to avoid polluting the timing with the dtor.
-  absl::optional<Env> e;
+  std::optional<Env> e;
   void* batch[kMaxObjectsToMove];
   for (auto iter : state) {
     state.PauseTiming();
@@ -124,7 +125,7 @@ void BM_RemoveRange(benchmark::State& state) {
 
   // optional to have more precise control of when the destruction occurs, as
   // we want to avoid polluting the timing with the dtor.
-  absl::optional<Env> e;
+  std::optional<Env> e;
   void* batch[kMaxObjectsToMove];
   for (auto iter : state) {
     state.PauseTiming();
