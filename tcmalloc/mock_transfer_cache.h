@@ -246,11 +246,11 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
   static constexpr size_t kNumToMove2 = 2;
 
   TwoSizeClassManager() {
-    caches_.push_back(absl::make_unique<TransferCache>(
+    caches_.push_back(std::make_unique<TransferCache>(
         this, 0, /*use_all_buckets_for_few_object_spans=*/false));
-    caches_.push_back(absl::make_unique<TransferCache>(
+    caches_.push_back(std::make_unique<TransferCache>(
         this, 1, /*use_all_buckets_for_few_object_spans=*/false));
-    caches_.push_back(absl::make_unique<TransferCache>(
+    caches_.push_back(std::make_unique<TransferCache>(
         this, 2, /*use_all_buckets_for_few_object_spans=*/false));
   }
 
