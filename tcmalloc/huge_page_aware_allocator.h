@@ -48,8 +48,9 @@ namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
 // TODO(b/137017688):  Make this unconditional.
+// TODO(b/150121255):  Include 32K pages.
 // TODO(b/228848071):  Include small-but-slow.
-constexpr bool kUnconditionalHPAA = kPageSize >= 8192;
+constexpr bool kUnconditionalHPAA = kPageSize != 32768 && kPageSize >= 8192;
 
 bool decide_subrelease();
 
