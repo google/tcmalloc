@@ -401,7 +401,7 @@ void MallocExtension::SetGuardedSamplingRate(int64_t rate) {
 bool MallocExtension::GetImprovedGuardedSampling() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetImprovedGuardedSampling == nullptr) {
-    return -1;
+    return false;
   }
 
   return MallocExtension_Internal_GetImprovedGuardedSampling();
