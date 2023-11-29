@@ -1118,6 +1118,7 @@ class HugePageFiller {
   // be greater than the desired number of pages.
   // Returns the number of pages actually released. The releasing target can be
   // reduced by skip subrelease which is disabled if all intervals are zero.
+  static constexpr double kPartialAllocPagesRelease = 0.1;
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals,
                       bool release_partial_alloc_pages, bool hit_limit)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -1828,7 +1829,9 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // unaccounted unmapped pages and release from partial allocs). Else, we aim
     // to release up to the total number of free pages in partially-released
     // allocs.
-    desired = std::max(desired, FreePagesInPartialAllocs());
+    size_t from_partial_allocs =
+        kPartialAllocPagesRelease * FreePagesInPartialAllocs().raw_num();
+    desired = std::max(desired, Length(from_partial_allocs));
   }
 
   // We also do eager release, once we've called this at least once:

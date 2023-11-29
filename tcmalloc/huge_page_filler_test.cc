@@ -1022,10 +1022,10 @@ TEST_P(FillerTest, ReleaseFreePagesInPartialAllocs) {
 
   // We have some free pages in partially-released allocs now.
   EXPECT_EQ(filler_.used_pages_in_partial_released(), kL1 + kL3);
-  // We should release all the free pages from partially-released allocs at
-  // once. The second call to ReleasePartialPages should find nothing.
-  EXPECT_EQ(ReleasePartialPages(kL5), kL5 + kL6);
-  EXPECT_EQ(ReleasePartialPages(kL5), Length(0));
+  // Because we gradually release free pages from partially-released allocs, we
+  // shouldn't be able to release all the k5+k6 free pages at once.
+  EXPECT_EQ(ReleasePartialPages(kL5), kL5);
+  EXPECT_EQ(ReleasePartialPages(kL6), kL6);
 
   // Check subrelease stats.
   subrelease = filler_.subrelease_stats();
