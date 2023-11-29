@@ -88,8 +88,8 @@
 #endif
 #endif
 
-#if !defined(__x86_64__) && !defined(__ppc64__) && !defined(__arm__) && \
-    !defined(__aarch64__) && !defined(__riscv)
+#if !defined(__i386__) && !defined(__x86_64__) && !defined(__ppc64__) && \
+    !defined(__arm__) && !defined(__aarch64__) && !defined(__riscv)
 #error "Unsupported architecture."
 #endif
 
