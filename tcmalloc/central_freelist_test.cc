@@ -200,7 +200,7 @@ class StaticForwarderEnvironment {
         StaticForwarder::AllocateSpan(size_class_, alloc_info, pages_per_span_);
     ASSERT_NE(span, nullptr);
 
-    auto d = std::make_unique<SpanData>();
+    auto d = absl::make_unique<SpanData>();
     d->span = span;
 
     size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,

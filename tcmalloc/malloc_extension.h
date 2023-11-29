@@ -354,7 +354,7 @@ class MallocExtension final {
   // -------------------------------------------------------------------
 
   // Gets the named property's value or a nullopt if the property is not valid.
-  static std::optional<size_t> GetNumericProperty(absl::string_view property);
+  static absl::optional<size_t> GetNumericProperty(absl::string_view property);
 
   // Marks the current thread as "idle".  This function may optionally be called
   // by threads as a hint to the malloc implementation that any thread-specific
@@ -533,7 +533,7 @@ class MallocExtension final {
   // -- that is, must be exactly the pointer returned to by malloc() et al., not
   // some offset from that -- and should not have been freed yet.  p may be
   // null.
-  static std::optional<size_t> GetAllocatedSize(const void* p);
+  static absl::optional<size_t> GetAllocatedSize(const void* p);
 
   // Returns
   // * kOwned if TCMalloc allocated the memory pointed to by p, or

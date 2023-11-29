@@ -17,7 +17,6 @@
 
 #include <stddef.h>
 
-#include <optional>
 
 #include "absl/functional/function_ref.h"
 #include "absl/strings/string_view.h"
@@ -57,7 +56,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view active,
 
 bool IsExperimentActive(Experiment exp);
 
-std::optional<Experiment> FindExperimentByName(absl::string_view name);
+absl::optional<Experiment> FindExperimentByName(absl::string_view name);
 
 void WalkExperiments(
     absl::FunctionRef<void(absl::string_view name, bool active)> callback);

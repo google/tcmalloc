@@ -16,7 +16,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
@@ -861,7 +860,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   const absl::string_view kExperimentPrefix = "tcmalloc.experiment.";
   if (absl::StartsWith(name, kExperimentPrefix)) {
-    std::optional<Experiment> exp =
+    absl::optional<Experiment> exp =
         FindExperimentByName(absl::StripPrefix(name, kExperimentPrefix));
     if (exp.has_value()) {
       *value = IsExperimentActive(*exp) ? 1 : 0;

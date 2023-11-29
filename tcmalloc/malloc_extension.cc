@@ -619,7 +619,7 @@ void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
 #endif
 }
 
-std::optional<size_t> MallocExtension::GetNumericProperty(
+absl::optional<size_t> MallocExtension::GetNumericProperty(
     absl::string_view property) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetNumericProperty != nullptr) {
@@ -666,14 +666,14 @@ std::optional<size_t> MallocExtension::GetNumericProperty(
   }
   // LINT.ThenChange(:SanitizerGetProperties)
 #endif  // TCMALLOC_UNDER_SANITIZERS
-  return std::nullopt;
+  return absl::nullopt;
 }
 
 size_t MallocExtension::GetEstimatedAllocatedSize(size_t size) {
   return nallocx(size, 0);
 }
 
-std::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
+absl::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetAllocatedSize != nullptr) {
     return MallocExtension_Internal_GetAllocatedSize(p);
@@ -682,7 +682,7 @@ std::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
 #if TCMALLOC_UNDER_SANITIZERS
   return __sanitizer_get_allocated_size(p);
 #endif
-  return std::nullopt;
+  return absl::nullopt;
 }
 
 MallocExtension::Ownership MallocExtension::GetOwnership(const void* p) {

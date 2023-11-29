@@ -1124,6 +1124,7 @@ cc_library(
     ],
     deps = [
         "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/functional:function_ref",
