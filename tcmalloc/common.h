@@ -107,6 +107,12 @@ static_assert(sizeof(void*) == 8);
 #error "TCMALLOC_PAGE_SHIFT is an internal macro!"
 #endif
 
+#if defined(TCMALLOC_SMALL_BUT_SLOW) + defined(TCMALLOC_256K_PAGES) + \
+        defined(TCMALLOC_LARGE_PAGES) >                               \
+    1
+#error "At most 1 variant configuration must be used."
+#endif
+
 #if TCMALLOC_PAGE_SHIFT == 12
 inline constexpr size_t kPageShift = 12;
 inline constexpr size_t kNumBaseClasses = 46;
