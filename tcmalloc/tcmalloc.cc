@@ -880,11 +880,14 @@ using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 using tcmalloc::tcmalloc_internal::ThreadCache;
 
+GOOGLE_MALLOC_SECTION_BEGIN
+namespace tcmalloc {
+namespace tcmalloc_internal {
+
 template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_SECTION(google_malloc) static
-    typename Policy::pointer_type
-    alloc_small_sampled_hooks_or_perthread(size_t size, uint32_t size_class,
-                                           Policy policy, size_t weight) {
+ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
+alloc_small_sampled_hooks_or_perthread(size_t size, uint32_t size_class,
+                                       Policy policy, size_t weight) {
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
     ASSERT(tc_globals.IsInited());
@@ -923,9 +926,8 @@ template <typename Policy>
 #if defined(__clang__)
 __attribute__((flatten))
 #endif
-ABSL_ATTRIBUTE_NOINLINE
-ABSL_ATTRIBUTE_SECTION(google_malloc) static typename Policy::pointer_type
-    slow_alloc_small(size_t size, uint32_t size_class, Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
+slow_alloc_small(size_t size, uint32_t size_class, Policy policy) {
   size_t weight = GetThreadSampler()->RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
       ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
@@ -940,8 +942,8 @@ ABSL_ATTRIBUTE_SECTION(google_malloc) static typename Policy::pointer_type
 }
 
 template <typename Policy>
-ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_SECTION(google_malloc) static
-    typename Policy::pointer_type slow_alloc_large(size_t size, Policy policy) {
+ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
+    size_t size, Policy policy) {
   size_t weight = GetThreadSampler()->RecordAllocation(size);
   tcmalloc::sized_ptr_t res = do_malloc_pages(size, weight, policy);
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
@@ -989,6 +991,10 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   ASSERT(ret != nullptr);
   return Policy::to_pointer(ret, size_class);
 }
+
+}  // namespace tcmalloc_internal
+}  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
