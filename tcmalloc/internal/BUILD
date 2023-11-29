@@ -173,6 +173,26 @@ cc_library(
 )
 
 cc_library(
+    name = "exponential_biased",
+    hdrs = ["exponential_biased.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+)
+
+cc_test(
+    name = "exponential_biased_test",
+    srcs = ["exponential_biased_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":exponential_biased",
+        "//tcmalloc/testing:testutil",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "fake_profile",
     hdrs = ["fake_profile.h"],
     copts = TCMALLOC_DEFAULT_COPTS,

@@ -31,13 +31,13 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
 
@@ -298,7 +298,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
     return -1;
   }
 
-  rand_ = Sampler::NextRandom(rand_);
+  rand_ = ExponentialBiased::NextRandom(rand_);
   size_t num_free_pages = total_pages_ - num_alloced_pages_;
   size_t slot = GetIthFreeSlot(rand_ % num_free_pages);
   ASSERT(free_pages_[slot]);

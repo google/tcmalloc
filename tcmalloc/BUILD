@@ -287,6 +287,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:explicitly_constructed",
+        "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:memory_stats",

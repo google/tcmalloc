@@ -34,6 +34,7 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
@@ -239,7 +240,8 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
     ABSL_CONST_INIT static std::atomic<uint64_t> rnd_(0);
     uint64_t new_rnd = 0;
     if (guard_count > 0) {
-      new_rnd = Sampler::NextRandom(rnd_.load(std::memory_order_relaxed));
+      new_rnd =
+          ExponentialBiased::NextRandom(rnd_.load(std::memory_order_relaxed));
       rnd_.store(new_rnd, std::memory_order_relaxed);
     }
     switch (guard_count) {

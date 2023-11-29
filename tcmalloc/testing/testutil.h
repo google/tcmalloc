@@ -291,6 +291,13 @@ class ScopedImprovedGuardedSampling {
 #define PRAGMA_NO_UNROLL
 #endif
 
+// Tests if the array of doubles is uniformly distributed.
+// Returns the p-value of the Anderson Darling Statistic
+// for the given set of sorted random doubles
+// See "Evaluating the Anderson-Darling Distribution" by
+// Marsaglia and Marsaglia for details.
+double AndersonDarlingTest(absl::Span<const double> random_sample);
+
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_TESTING_TESTUTIL_H_

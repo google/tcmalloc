@@ -24,6 +24,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
@@ -56,7 +57,7 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
   rnd_ = seed;
   // Step it forward 20 times for good measure
   for (int i = 0; i < 20; i++) {
-    rnd_ = NextRandom(rnd_);
+    rnd_ = ExponentialBiased::NextRandom(rnd_);
   }
   // Initialize counters
   bytes_until_sample_ = PickNextSamplingPoint();
@@ -110,7 +111,7 @@ ssize_t Sampler::PickNextGuardedSamplingPoint() {
 // log_2(q) * (-log_e(2) * 1/m) = x
 // In the code, q is actually in the range 1 to 2**26, hence the -26 below
 ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
-  rnd_ = NextRandom(rnd_);
+  rnd_ = ExponentialBiased::NextRandom(rnd_);
   // Take the top 26 bits as the random number
   // (This plus the 1<<58 sampling bound give a max possible step of
   // 5194297183973780480 bytes.)

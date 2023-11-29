@@ -45,13 +45,13 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
-#include "tcmalloc/sampler.h"
 #include "tcmalloc/static_vars.h"
 
 // On systems (like freebsd) that don't define MAP_ANONYMOUS, use the old
@@ -571,7 +571,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   // tag.
   alignment = absl::bit_ceil(std::max(alignment, size));
 
-  rnd = Sampler::NextRandom(rnd);
+  rnd = ExponentialBiased::NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;
   addr |= static_cast<uintptr_t>(tag) << kTagShift;
   ASSERT(GetMemoryTag(reinterpret_cast<const void*>(addr)) == tag);
