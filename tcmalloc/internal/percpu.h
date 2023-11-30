@@ -32,8 +32,13 @@
 #define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
-// implementation for the target OS and architecture.
-#if defined(__linux__) && (defined(__x86_64__) || defined(__aarch64__))
+// implementation for the target OS and architecture on a supported compiler.
+// Build on aarch64 fails on gcc-9, gcc-10, and clang-10, but succeeds on
+// gcc-11, clang-11, and clang-14, so require at least clang 11 or gcc 11 for
+// aarch64.
+#if defined(__linux__) &&   \
+    (defined(__x86_64__) || \
+     (defined(__aarch64__) && (__clang_major__ >= 11 || __GNUC__ >= 11)))
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 1
 #else
 #define TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM 0
@@ -71,7 +76,7 @@
 
 // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ defines whether TCMalloc support for RSEQ
 // on the target architecture exists. We currently only provide RSEQ for 64-bit
-// x86, Arm binaries.
+// x86, Arm binaries, but only with GCC >= 11 or Clang >= 11 for Arm.
 #if !defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 #if TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM == 1
 #define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ 1
