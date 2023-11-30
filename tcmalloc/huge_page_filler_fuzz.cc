@@ -328,12 +328,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         }
         Length desired(value & 0xFFF);
         const bool release_partial_allocs = (value >> 12) & 0x1;
-        Length free_pages_in_partial_allocs;
+        size_t to_release_from_partial_allocs;
 
         Length released;
         {
           AllocationGuardSpinLockHolder l(&pageheap_lock);
-          free_pages_in_partial_allocs = filler.FreePagesInPartialAllocs();
+          to_release_from_partial_allocs =
+              HugePageFiller<PageTracker>::kPartialAllocPagesRelease *
+              filler.FreePagesInPartialAllocs().raw_num();
           released = filler.ReleasePages(desired, skip_subrelease_intervals,
                                          release_partial_allocs, hit_limit);
         }
@@ -343,7 +345,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         if (release_partial_allocs && !hit_limit &&
             !skip_subrelease_intervals.SkipSubreleaseEnabled() &&
             unback_success) {
-          CHECK_GE(released.raw_num(), free_pages_in_partial_allocs.raw_num());
+          CHECK_GE(released.raw_num(), to_release_from_partial_allocs);
         }
         break;
       }
