@@ -334,7 +334,9 @@ cc_library(
     hdrs = ["mincore.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         ":config",
         ":page_size",
@@ -347,7 +349,9 @@ cc_library(
     hdrs = ["residency.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         ":config",
         ":page_size",
@@ -585,7 +589,9 @@ cc_library(
         "percpu_rseq_aarch64.S",
         "percpu_rseq_x86_64.S",
     ],
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         ":atomic_danger",
         ":config",
@@ -679,7 +685,9 @@ proto_library(
 
 cc_proto_library(
     name = "profile_cc_proto",
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [":profile_proto"],
 )
 
@@ -688,7 +696,9 @@ cc_library(
     srcs = ["profile_builder.cc"],
     hdrs = ["profile_builder.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         ":logging",
         ":pageflags",

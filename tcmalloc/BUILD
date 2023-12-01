@@ -47,7 +47,9 @@ cc_library(
         "experiment_config.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc/testing:__pkg__"],
+    visibility = [
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = [
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
@@ -377,7 +379,9 @@ cc_library(
     name = "want_disable_huge_region_more_often",
     srcs = ["want_disable_huge_region_more_often.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc/testing:__pkg__"],
+    visibility = [
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = ["@com_google_absl//absl/base:core_headers"],
     alwayslink = 1,
 )
@@ -1144,7 +1148,9 @@ cc_library(
         "malloc_tracing_extension.h",
     ],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [":__subpackages__"],
+    visibility = [
+        ":__subpackages__",
+    ],
     deps = [
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
@@ -1367,7 +1373,9 @@ cc_library(
     name = "want_disable_separate_allocs_for_few_and_many_objects_spans",
     srcs = ["want_disable_separate_allocs_for_few_and_many_objects_spans.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc/testing:__pkg__"],
+    visibility = [
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = ["@com_google_absl//absl/base:core_headers"],
     alwayslink = 1,
 )

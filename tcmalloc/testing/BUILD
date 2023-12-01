@@ -55,7 +55,9 @@ cc_library(
     srcs = ["testutil.cc"],
     hdrs = ["testutil.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//tcmalloc:__subpackages__"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
