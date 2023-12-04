@@ -139,12 +139,13 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL"},
     },
     {
-        "name": "no_hpaa",
-        "malloc": "//tcmalloc",
+        "name": "32k_no_hpaa",
+        "malloc": "//tcmalloc:tcmalloc_large_pages",
         "deps": [
-            "//tcmalloc:common_8k_pages",
+            "//tcmalloc:common_large_pages",
             "//tcmalloc:want_no_hpaa",
         ],
+        "copts": ["-DTCMALLOC_LARGE_PAGES"],
     },
     {
         "name": "hpaa",
