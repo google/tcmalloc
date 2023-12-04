@@ -32,6 +32,7 @@ TCMALLOC_GCC_FLAGS = [
     # aren't necessarily -Werror clean.
     "-Werror",
     "-Wno-attribute-alias",
+    "-Wno-deprecated-declarations",
     "-Wno-sign-compare",
     "-Wno-stringop-overflow",
     "-Wno-uninitialized",
