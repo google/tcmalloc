@@ -45,9 +45,6 @@
 #if defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
 #if !defined(__clang__)
 #define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 1
-#if __GNUC__ >= 11
-#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
-#endif
 #elif __clang_major__ >= 9 && !__has_feature(speculative_load_hardening)
 // asm goto requires the use of Clang 9 or newer:
 // https://releases.llvm.org/9.0.0/tools/clang/docs/ReleaseNotes.html#c-language-changes-in-clang
