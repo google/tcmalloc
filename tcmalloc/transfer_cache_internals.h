@@ -95,13 +95,13 @@ class TransferCache {
 
   TransferCache(Manager *owner, int size_class, Capacity capacity,
                 bool use_all_buckets_for_few_object_spans)
-      : owner_(owner),
-        lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        max_capacity_(capacity.max_capacity),
-        slot_info_(SizeInfo({0, capacity.capacity})),
+      : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
+        slot_info_(SizeInfo({0, capacity.capacity})),
         slots_(nullptr),
-        freelist_do_not_access_directly_() {
+        freelist_do_not_access_directly_(),
+        owner_(owner),
+        max_capacity_(capacity.max_capacity) {
     freelist().Init(size_class, use_all_buckets_for_few_object_spans);
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
                                       max_capacity_ * sizeof(void *)))
@@ -363,39 +363,53 @@ class TransferCache {
     slot_info_.store(info, std::memory_order_relaxed);
   }
 
-  Manager *const owner_;
-
+  // Note: lock_ must be appear first (see b/313914119).
+  // The lock and the associated member variables that are accessed when the
+  // spinlock is acquired are placed together on the same cache line for cache
+  // friendliness.
   absl::base_internal::SpinLock lock_;
 
-  // Maximum size of the cache.
-  const int32_t max_capacity_;
-
-  // insert_hits_ and remove_hits_ are logically guarded by lock_ for mutations
-  // and use LossyAdd, but the thread annotations cannot indicate that we do not
-  // need a lock for reads.
-  StatsCounter insert_hits_;
-  StatsCounter remove_hits_;
-  // For these we are deliberately fast-and-loose. Some increments may be lost.
-  StatsCounter insert_misses_;
-  StatsCounter remove_misses_;
-  MissCounts insert_object_misses_;
-  MissCounts remove_object_misses_;
-
-  // Number of currently used and available cached entries in slots_. This
-  // variable is updated under a lock but can be read without one.
-  // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
-  std::atomic<SizeInfo> slot_info_;
+  // All the following fields are accessed when holding lock_, so they should
+  // be collocated with lock_ on the same cacheline. Align insert_hits_ to
+  // ensure the following fields are on a separate cacheline.
 
   // Lowest value of "slot_info_.used" since last call to TryPlunder. All
   // elements not used for a full cycle (2 seconds) are unlikely to get used
   // again.
   int low_water_mark_ ABSL_GUARDED_BY(lock_);
 
+  // insert_hits_ and remove_hits_ are logically guarded by lock_ for mutations
+  // and use LossyAdd, but the thread annotations cannot indicate that we do not
+  // need a lock for reads.
+  StatsCounter insert_hits_;
+  StatsCounter remove_hits_;
+
+  // Number of currently used and available cached entries in slots_. This
+  // variable is updated under a lock but can be read without one.
+  // INVARIANT: [0 <= slot_info_.used <= slot_info.capacity <= max_cache_slots_]
+  std::atomic<SizeInfo> slot_info_;
+
   // Pointer to array of free objects.  Use GetSlot() to get pointers to
   // entries.
   void **slots_ ABSL_GUARDED_BY(lock_);
 
   FreeList freelist_do_not_access_directly_;
+
+  Manager *const owner_;
+
+  // Maximum size of the cache.
+  const int32_t max_capacity_;
+
+  // The following 4 *_misses_ counters
+  // are frequently updated, so they should reside in a separate cacheline from
+  // lock_.
+
+  // For these we are deliberately fast-and-loose. Some increments may be lost.
+  StatsCounter insert_misses_;
+  StatsCounter remove_misses_;
+
+  MissCounts insert_object_misses_;
+  MissCounts remove_object_misses_;
 } ABSL_CACHELINE_ALIGNED;
 
 template <typename Manager>
