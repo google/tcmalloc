@@ -30,7 +30,7 @@ build_variants = [
     },
     {
         "name": "256k_pages",
-        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
     },
     {
         "name": "small_but_slow",
@@ -60,7 +60,7 @@ test_variants = [
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": ["//tcmalloc:common_256k_pages"],
         "copts": [
-            "-DTCMALLOC_256K_PAGES",
+            "-DTCMALLOC_INTERNAL_256K_PAGES",
         ],
     },
     {
@@ -75,7 +75,7 @@ test_variants = [
         "deps": [
             "//tcmalloc:common_256k_pages",
         ],
-        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
     },
     {
@@ -84,7 +84,7 @@ test_variants = [
         "deps": [
             "//tcmalloc:common_256k_pages",
         ],
-        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
     },
     {
@@ -102,7 +102,7 @@ test_variants = [
         "deps": [
             "//tcmalloc:common_256k_pages",
         ],
-        "copts": ["-DTCMALLOC_256K_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
     },
     {

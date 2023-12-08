@@ -39,11 +39,11 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
  protected:
   SamplingMemoryTest() {
     MallocExtension::SetGuardedSamplingRate(-1);
-#ifdef TCMALLOC_256K_PAGES
-    // For 256k pages, the sampling overhead is larger. Reduce
-    // the sampling period to 1<<24
-    MallocExtension::SetProfileSamplingRate(1 << 24);
-#endif
+    if (tcmalloc_internal::kPageSize == 262144) {
+      // For 256k pages, the sampling overhead is larger. Reduce
+      // the sampling period to 1<<24
+      MallocExtension::SetProfileSamplingRate(1 << 24);
+    }
   }
 
   size_t Property(absl::string_view name) {
