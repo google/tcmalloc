@@ -181,6 +181,10 @@ ABSL_CONST_INIT std::atomic<bool>
     Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::uaf_check_parameter_(0);
+// TODO(b/303926761): remove when experimentation is complete
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::uaf_check_quarantine_limit_(
+    2 * 1024 * 1024);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
@@ -342,6 +346,24 @@ void MallocExtension_Internal_SetImprovedGuardedSampling(bool value) {
   Parameters::set_improved_guarded_sampling(value);
 }
 
+int64_t MallocExtension_Internal_GetUafCheckParameter() {
+  return Parameters::uaf_check_parameter();
+}
+
+void MallocExtension_Internal_SetUafCheckParameter(int64_t rate) {
+  Parameters::set_uaf_check_parameter(rate);
+}
+
+// TODO(b/303926761): remove when experimentation is complete
+int64_t MallocExtension_Internal_GetUafCheckQuarantineLimit() {
+  return Parameters::uaf_check_quarantine_limit();
+}
+
+// TODO(b/303926761): remove when experimentation is complete
+void MallocExtension_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes) {
+  Parameters::set_uaf_check_quarantine_limit(max_bytes);
+}
+
 int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
   return Parameters::max_total_thread_cache_bytes();
 }
@@ -444,6 +466,16 @@ void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v) {
 // TODO(b/263387812): remove when experimentation is complete
 void TCMalloc_Internal_SetImprovedGuardedSampling(bool v) {
   Parameters::improved_guarded_sampling_.store(v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetUafCheckParameter(int64_t rate) {
+  Parameters::uaf_check_parameter_.store(rate, std::memory_order_relaxed);
+}
+
+// TODO(b/303926761): remove when experimentation is complete
+void TCMalloc_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes) {
+  Parameters::uaf_check_quarantine_limit_.store(max_bytes,
+                                                std::memory_order_relaxed);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.

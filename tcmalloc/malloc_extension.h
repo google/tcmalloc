@@ -475,6 +475,13 @@ class MallocExtension final {
   static bool GetImprovedGuardedSampling();
   static void SetImprovedGuardedSampling(bool enable);
 
+  static int64_t GetUafCheckParameter();
+  static void SetUafCheckParameter(int64_t rate);
+
+  // TODO(b/303926761): remove when experimentation is complete
+  static int64_t GetUafCheckQuarantineLimit();
+  static void SetUafCheckQuarantineLimit(int64_t max_bytes);
+
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
   // use-after-free according to the guarded sample parameter value.
   static void ActivateGuardedSampling();

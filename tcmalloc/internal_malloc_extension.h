@@ -140,6 +140,15 @@ ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetImprovedGuardedSampling();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetImprovedGuardedSampling(
     bool);
 
+ABSL_ATTRIBUTE_WEAK int64_t MallocExtension_Internal_GetUafCheckParameter();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetUafCheckParameter(int64_t);
+
+// TODO(b/303926761): remove when experimentation is complete
+ABSL_ATTRIBUTE_WEAK int64_t
+MallocExtension_Internal_GetUafCheckQuarantineLimit();
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetUafCheckQuarantineLimit(
+    int64_t);
+
 ABSL_ATTRIBUTE_WEAK int64_t
 MallocExtension_Internal_GetMaxTotalThreadCacheBytes();
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetMaxTotalThreadCacheBytes(

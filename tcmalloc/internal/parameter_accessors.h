@@ -47,6 +47,10 @@ ABSL_ATTRIBUTE_WEAK size_t TCMalloc_Internal_GetStats(char* buffer,
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetImprovedGuardedSampling(bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetUafCheckParameter(int64_t rate);
+// TODO(b/303926761): remove when experimentation is complete
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetUafCheckQuarantineLimit(
+    int64_t max_bytes);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(

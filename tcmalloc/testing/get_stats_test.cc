@@ -111,6 +111,8 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_resize_cpu_cache_size_classes: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_improved_guarded_sampling: 1"));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_uaf_check_parameter: 0 "));
+  EXPECT_THAT(buf, HasSubstr("tcmalloc_uaf_check_quarantine_limit: 2097152"));
   EXPECT_THAT(buf, ContainsRegex("(tcmalloc_filler_chunks_per_alloc: 8|(16))"));
 
   sized_delete(alloc, kSize);
@@ -128,6 +130,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
   Parameters::set_improved_guarded_sampling(false);
+  Parameters::set_uaf_check_parameter(0);
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
@@ -144,6 +147,10 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter -1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 0)"));
+    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_uaf_check_parameter 0)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_uaf_check_quarantine_limit 2097152)"));
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
     EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_per_cpu_caches 0)"));
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -202,6 +209,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
   Parameters::set_improved_guarded_sampling(true);
+  Parameters::set_uaf_check_parameter(1);
+  Parameters::set_uaf_check_quarantine_limit(1024);
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -214,6 +223,10 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 1)"));
+    EXPECT_THAT(buf, HasSubstr(R"(PARAMETER tcmalloc_uaf_check_parameter 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_uaf_check_quarantine_limit 1024)"));
     EXPECT_THAT(
         buf,
         HasSubstr(
