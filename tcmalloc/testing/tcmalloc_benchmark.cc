@@ -117,7 +117,7 @@ static void* malloc_pages(size_t pages) {
   static const size_t kPageSize = 256 * 1024;
 #elif defined(TCMALLOC_LARGE_PAGES)
   static const size_t kPageSize = 32 * 1024;
-#elif defined(TCMALLOC_SMALL_BUT_SLOW)
+#elif defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   static const size_t kPageSize = 4096;
 #else
   static const size_t kPageSize = 8192;

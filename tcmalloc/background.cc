@@ -59,7 +59,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   const absl::Duration kCpuCacheSlabResizePeriod = 29 * kSleepTime;
   absl::Time last_slab_resize_check = absl::Now();
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // We reclaim unused objects from the transfer caches once per
   // kTransferCacheResizePeriod.
   const absl::Duration kTransferCachePlunderPeriod = 5 * kSleepTime;
@@ -113,7 +113,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
 
     tc_globals.sharded_transfer_cache().Plunder();
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // Try to plunder and reclaim unused objects from transfer caches.
     if (now - last_transfer_cache_plunder_check >=
         kTransferCachePlunderPeriod) {

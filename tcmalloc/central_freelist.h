@@ -251,7 +251,7 @@ class CentralFreeList {
   //
   // We do not enable multiple nonempty lists for small-but-slow yet due to
   // performance issues. See b/227362263.
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   SpanList nonempty_ ABSL_GUARDED_BY(lock_);
 #else
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
@@ -294,7 +294,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
                                                         Span* span,
                                                         size_t object_size) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     nonempty_.prepend(span);
 #else
     const uint8_t index = GetFirstNonEmptyIndex();
@@ -303,7 +303,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
 #endif
   }
 
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // We maintain a single nonempty list for small-but-slow. Also, we do not
   // collect histogram stats due to performance issues.
   if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
@@ -350,7 +350,7 @@ inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
   // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
   // return the span from a non-empty list if one exists. If all the lists are
   // empty, return nullptr.
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
     return nullptr;
   }
@@ -408,7 +408,7 @@ inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
   ASSUME(n < kNumLists);
   absl::base_internal::SpinLockHolder h(&lock_);
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   return nonempty_.length();
 #else
   return nonempty_.SizeOfList(n);
@@ -486,7 +486,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
       break;
     }
 
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // We do not collect histogram stats for small-but-slow.
     int here = span->FreelistPopBatch(batch + result, N - result, object_size);
     ASSERT(here > 0);
@@ -550,7 +550,7 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 
   lock_.Lock();
 
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // We do not collect histogram stats for small-but-slow. Moreover, we maintain
   // a single nonempty list to which we prepend the span.
   if (!span_empty) {

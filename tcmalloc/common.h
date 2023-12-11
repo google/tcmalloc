@@ -72,7 +72,7 @@ static_assert(sizeof(void*) == 8);
 //   This configuration uses an even larger page size (256KB) as the unit of
 //   accounting granularity.
 //
-// TCMALLOC_SMALL_BUT_SLOW:
+// TCMALLOC_INTERNAL_SMALL_BUT_SLOW:
 //   Used for situations where minimizing the memory footprint is the most
 //   desirable attribute, even at the cost of performance.
 //
@@ -93,7 +93,7 @@ static_assert(sizeof(void*) == 8);
 // a page-shift parameter that is checked below.
 
 #ifndef TCMALLOC_PAGE_SHIFT
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 #define TCMALLOC_PAGE_SHIFT 12
 #define TCMALLOC_USE_PAGEMAP3
 #elif defined(TCMALLOC_INTERNAL_256K_PAGES)
@@ -107,8 +107,9 @@ static_assert(sizeof(void*) == 8);
 #error "TCMALLOC_PAGE_SHIFT is an internal macro!"
 #endif
 
-#if defined(TCMALLOC_SMALL_BUT_SLOW) + defined(TCMALLOC_INTERNAL_256K_PAGES) + \
-        defined(TCMALLOC_LARGE_PAGES) >                                        \
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW) + \
+        defined(TCMALLOC_INTERNAL_256K_PAGES) + \
+        defined(TCMALLOC_LARGE_PAGES) >         \
     1
 #error "At most 1 variant configuration must be used."
 #endif
@@ -283,7 +284,7 @@ inline constexpr bool IsExpandedSizeClass(unsigned size_class) {
   return kHasExpandedClasses && (size_class >= kExpandedClassesStart);
 }
 
-#if !defined(TCMALLOC_SMALL_BUT_SLOW)
+#if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
 // Always allocate at least a huge page
 inline constexpr size_t kMinSystemAlloc = kHugePageSize;
 inline constexpr size_t kMinMmapAlloc = 1 << 30;  // mmap() in 1GiB ranges.

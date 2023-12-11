@@ -205,7 +205,7 @@ class PageMap2 {
 };
 
 // Three-level radix tree
-// Currently only used for TCMALLOC_SMALL_BUT_SLOW
+// Currently only used for TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 template <int BITS, PagemapAllocator Allocator>
 class PageMap3 {
  private:

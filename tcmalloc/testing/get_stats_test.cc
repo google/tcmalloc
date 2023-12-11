@@ -87,7 +87,7 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("percpu_slab_residence: 0"));
   }
   EXPECT_THAT(buf, ContainsRegex("(cpus_allowed: [1-9][0-9]*)"));
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf,
               HasSubstr("transfer_cache_implementation: NO_TRANSFERCACHE"));
 #else
@@ -99,7 +99,7 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_rate: ",
                                      Parameters::profile_sampling_rate())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 #else
   EXPECT_THAT(buf,

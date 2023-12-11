@@ -34,7 +34,7 @@ build_variants = [
     },
     {
         "name": "small_but_slow",
-        "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
+        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
     },
     {
         "name": "numa_aware",
@@ -67,7 +67,7 @@ test_variants = [
         "name": "small_but_slow",
         "malloc": "//tcmalloc:tcmalloc_small_but_slow",
         "deps": ["//tcmalloc:common_small_but_slow"],
-        "copts": ["-DTCMALLOC_SMALL_BUT_SLOW"],
+        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
     },
     {
         "name": "256k_pages_pow2",

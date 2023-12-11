@@ -42,7 +42,7 @@ absl::string_view TransferCacheImplementationToLabel(
   }
 }
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
 size_t StaticForwarder::class_to_size(int size_class) {
   return tc_globals.sizemap().class_to_size(size_class);

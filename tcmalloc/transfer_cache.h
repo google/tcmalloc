@@ -41,7 +41,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 #include "tcmalloc/transfer_cache_internals.h"
 #endif
 
@@ -57,7 +57,7 @@ enum class TransferCacheImplementation {
 absl::string_view TransferCacheImplementationToLabel(
     TransferCacheImplementation type);
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
 class StaticForwarder {
  public:
@@ -632,7 +632,7 @@ struct ShardedTransferCacheManager {
   void PrintInPbtxt(PbtxtRegion* region) const {}
 };
 
-#endif  // !TCMALLOC_SMALL_BUT_SLOW
+#endif  // !TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

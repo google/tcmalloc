@@ -235,7 +235,7 @@ void DumpStats(Printer* out, int level) {
   const uint64_t unmapped_bytes = UnmappedBytes(stats);
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
 
-#ifdef TCMALLOC_SMALL_BUT_SLOW
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   out->printf("NOTE:  SMALL MEMORY MODEL IS IN USE, PERFORMANCE MAY SUFFER.\n");
 #endif
   // clang-format off
@@ -385,7 +385,7 @@ void DumpStats(Printer* out, int level) {
           span_stats[size_class].prob_returned());
     }
 
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     out->printf("------------------------------------------------\n");
     out->printf("Central cache freelist: Span utilization histogram\n");
     out->printf("Non-cumulative number of spans with allocated objects < N\n");
@@ -543,7 +543,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 
   if (level >= 2) {
     {
-#ifndef TCMALLOC_SMALL_BUT_SLOW
+#ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
       for (int size_class = 1; size_class < kNumClasses; ++size_class) {
         uint64_t class_bytes = class_count[size_class] *
                                tc_globals.sizemap().class_to_size(size_class);

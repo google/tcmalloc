@@ -69,7 +69,7 @@ struct DrainHandler;
 // When dynamic slab size is enabled, we start with kInitialPerCpuShift and
 // grow as needed up to kMaxPerCpuShift. When dynamic slab size is disabled,
 // we always use kMaxPerCpuShift.
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
 constexpr inline uint8_t kInitialBasePerCpuShift = 12;
 constexpr inline uint8_t kMaxBasePerCpuShift = 12;
 #else
@@ -787,7 +787,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   // Each Size class region in the slab is preceded by one padding pointer that
   // points to itself, because prefetch instructions of invalid pointers are
   // slow. That is accounted for by the +1 for object depths.
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
   // With SMALL_BUT_SLOW we have 4KiB of per-cpu slab and 46 class sizes we
   // allocate:
   //   == 8 * 46 + 8 * ((16 + 1) * 10 + (6 + 1) * 35) = 4038 bytes of 4096

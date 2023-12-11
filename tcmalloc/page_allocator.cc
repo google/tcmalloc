@@ -116,7 +116,7 @@ PageAllocator::PageAllocator() {
     }
     alg_ = HPAA;
   } else {
-#if defined(TCMALLOC_SMALL_BUT_SLOW) || defined(TCMALLOC_LARGE_PAGES)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW) || defined(TCMALLOC_LARGE_PAGES)
     normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
     if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] = new (&choices_[1].ph) PageHeap(MemoryTag::kNormalP1);

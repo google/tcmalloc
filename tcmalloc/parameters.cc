@@ -86,7 +86,7 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
@@ -108,7 +108,7 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)
@@ -127,7 +127,7 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_SMALL_BUT_SLOW)
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
         IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE)

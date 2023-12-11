@@ -463,7 +463,7 @@ cc_library(
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
-    copts = ["-DTCMALLOC_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = tcmalloc_deps + [
