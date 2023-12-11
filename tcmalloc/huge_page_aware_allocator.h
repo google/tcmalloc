@@ -823,6 +823,15 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   Length released;
   released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
 
+  // Release all backed-but-free hugepages from HugeRegion.
+  // TODO(b/199203282): We release all the free hugepages from HugeRegions when
+  // the experiment is enabled. We can also explore releasing only a desired
+  // number of pages.
+  if (regions_.UseHugeRegionMoreOften()) {
+    constexpr double kFractionPagesToRelease = 0.1;
+    released += regions_.ReleasePages(kFractionPagesToRelease);
+  }
+
   // This is our long term plan but in current state will lead to insufficient
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
@@ -840,15 +849,6 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
           forwarder_.release_partial_alloc_pages(),
           /*hit_limit*/ false);
     }
-  }
-
-  // Release all backed-but-free hugepages from HugeRegion.
-  // TODO(b/199203282): We release all the free hugepages from HugeRegions when
-  // the experiment is enabled. We can also explore releasing only a desired
-  // number of pages.
-  if (regions_.UseHugeRegionMoreOften()) {
-    constexpr double kFractionPagesToRelease = 0.1;
-    released += regions_.ReleasePages(kFractionPagesToRelease);
   }
 
   info_.RecordRelease(num_pages, released);
