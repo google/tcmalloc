@@ -467,9 +467,10 @@ int SystemReleaseErrors() {
 }
 
 bool SystemRelease(void* start, size_t length) {
-  ErrnoRestorer errno_restorer;
+  bool result = false;
 
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
+  ErrnoRestorer errno_restorer;
   const size_t pagemask = GetPageSize() - 1;
 
   size_t new_start = reinterpret_cast<size_t>(start);
@@ -486,7 +487,6 @@ bool SystemRelease(void* start, size_t length) {
   ASSERT(new_start >= reinterpret_cast<size_t>(start));
   ASSERT(new_end <= end);
 
-  bool result = false;
   if (new_end > new_start) {
     void* new_ptr = reinterpret_cast<void*>(new_start);
     size_t new_length = new_end - new_start;
