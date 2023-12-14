@@ -32,7 +32,7 @@ inline constexpr size_t kMaxGuardsPerStackTraceSignature = 4;
 struct GuardedAllocationsStackTrace {
   void* stack[kMaxStackDepth];
   size_t depth = 0;
-  pid_t tid = 0;
+  pid_t thread_id = 0;
 };
 
 enum class WriteFlag : int { Unknown, Read, Write };

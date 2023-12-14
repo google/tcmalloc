@@ -115,7 +115,7 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
   d.dealloc_trace.depth = 0;
   d.alloc_trace.depth = absl::GetStackTrace(d.alloc_trace.stack, kMaxStackDepth,
                                             /*skip_count=*/3);
-  d.alloc_trace.tid = absl::base_internal::GetTID();
+  d.alloc_trace.thread_id = absl::base_internal::GetTID();
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
 
@@ -150,7 +150,7 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
   GuardedAllocationsStackTrace& trace = data_[slot].dealloc_trace;
   trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth,
                                     /*skip_count=*/2);
-  trace.tid = absl::base_internal::GetTID();
+  trace.thread_id = absl::base_internal::GetTID();
 
   FreeSlot(slot);
 }

@@ -239,8 +239,8 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
       "into buffer of length", size);
   Log(kLog, __FILE__, __LINE__,
-      "Error originates from memory allocated in thread", alloc_trace->tid,
-      "at:");
+      "Error originates from memory allocated in thread",
+      alloc_trace->thread_id, "at:");
   PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
   switch (error) {
@@ -248,7 +248,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
     case GuardedAllocationsErrorType::kUseAfterFreeRead:
     case GuardedAllocationsErrorType::kUseAfterFreeWrite:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace->tid, "at:");
+          dealloc_trace->thread_id, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       Log(kLog, __FILE__, __LINE__, "Use-after-free",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
@@ -273,7 +273,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       break;
     case GuardedAllocationsErrorType::kDoubleFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace->tid, "at:");
+          dealloc_trace->thread_id, "at:");
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       Log(kLog, __FILE__, __LINE__, "Double free occurs in thread",
           current_thread, "at:");
