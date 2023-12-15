@@ -472,8 +472,12 @@ inline void MaybeUnsampleAllocation(State& state, void* ptr, Span* span) {
         sampled_allocation->sampled_stack.requested_size;
     const size_t allocated_size =
         sampled_allocation->sampled_stack.allocated_size;
+    // SampleifyAllocation turns alignment 1 into 0, turn it back for
+    // SizeMap::SizeClass.
     const size_t alignment =
-        sampled_allocation->sampled_stack.requested_alignment;
+        sampled_allocation->sampled_stack.requested_alignment != 0
+            ? sampled_allocation->sampled_stack.requested_alignment
+            : 1;
     // How many allocations does this sample represent, given the sampling
     // frequency (weight) and its size.
     const double allocation_estimate =

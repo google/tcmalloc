@@ -205,7 +205,7 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
       Policy policy, size_t size, uint32_t* size_class) const {
     const size_t align = policy.align();
-    ASSERT(align == 0 || absl::has_single_bit(align));
+    ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align > kPageSize)) {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
@@ -222,15 +222,29 @@ class SizeMap {
     } else {
       *size_class = class_array_[idx] + policy.scaled_numa_partition();
     }
-    if (align <= static_cast<size_t>(kAlignment)) return true;
+
+    // Don't search for suitably aligned class for operator new
+    // (when alignment is statically known to be no greater than kAlignment).
+    // But don't do this check at runtime when the alignment is dynamic.
+    // We assume aligned allocation functions are not used with small alignment
+    // most of the time (does not make much sense). And for alignment larger
+    // than kAlignment, this is just an unnecessary check that always fails.
+    if (__builtin_constant_p(align) &&
+        align <= static_cast<size_t>(kAlignment)) {
+      return true;
+    }
 
     // Predict that size aligned allocs most often directly map to a proper
     // size class, i.e., multiples of 32, 64, etc, matching our class sizes.
     // Since alignment is <= kPageSize, we must find a suitable class
     // (at least kMaxSize is aligned on kPageSize).
     static_assert((kMaxSize % kPageSize) == 0, "the loop below won't work");
-    while (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1))) {
-      ++*size_class;
+    // Profiles say we usually get the right class based on the size,
+    // so avoid the loop overhead on the fast path.
+    if (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1))) {
+      do {
+        ++*size_class;
+      } while (ABSL_PREDICT_FALSE(class_to_size(*size_class) & (align - 1)));
     }
     return true;
   }
