@@ -52,12 +52,12 @@ static_assert(sizeof(void*) == 8);
 //   The default configuration strives for good performance while trying to
 //   minimize fragmentation.  It uses a smaller page size to reduce
 //   fragmentation, but allocates per-thread and per-cpu capacities similar to
-//   TCMALLOC_LARGE_PAGES / TCMALLOC_INTERNAL_256K_PAGES.
+//   TCMALLOC_INTERNAL_32K_PAGES / TCMALLOC_INTERNAL_256K_PAGES.
 //
-// TCMALLOC_LARGE_PAGES:
-//   Larger page sizes increase the bookkeeping granularity used by TCMalloc for
-//   its allocations.  This can reduce PageMap size and traffic to the
-//   innermost cache (the page heap), but can increase memory footprints.  As
+// TCMALLOC_INTERNAL_32K_PAGES:
+//   Larger page sizes (32KB) increase the bookkeeping granularity used by
+//   TCMalloc for its allocations.  This can reduce PageMap size and traffic to
+//   the innermost cache (the page heap), but can increase memory footprints. As
 //   TCMalloc will not reuse a page for a different allocation size until the
 //   entire page is deallocated, this can be a source of increased memory
 //   fragmentation.
@@ -98,7 +98,7 @@ static_assert(sizeof(void*) == 8);
 #define TCMALLOC_USE_PAGEMAP3
 #elif defined(TCMALLOC_INTERNAL_256K_PAGES)
 #define TCMALLOC_PAGE_SHIFT 18
-#elif defined(TCMALLOC_LARGE_PAGES)
+#elif defined(TCMALLOC_INTERNAL_32K_PAGES)
 #define TCMALLOC_PAGE_SHIFT 15
 #else
 #define TCMALLOC_PAGE_SHIFT 13
@@ -109,7 +109,7 @@ static_assert(sizeof(void*) == 8);
 
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW) + \
         defined(TCMALLOC_INTERNAL_256K_PAGES) + \
-        defined(TCMALLOC_LARGE_PAGES) >         \
+        defined(TCMALLOC_INTERNAL_32K_PAGES) >  \
     1
 #error "At most 1 variant configuration must be used."
 #endif

@@ -113,15 +113,7 @@ static void BM_new_delete_slow_path(benchmark::State& state) {
 BENCHMARK(BM_new_delete_slow_path)->Arg(8)->Arg(8192);
 
 static void* malloc_pages(size_t pages) {
-#if defined(TCMALLOC_INTERNAL_256K_PAGES)
-  static const size_t kPageSize = 256 * 1024;
-#elif defined(TCMALLOC_LARGE_PAGES)
-  static const size_t kPageSize = 32 * 1024;
-#elif defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-  static const size_t kPageSize = 4096;
-#else
-  static const size_t kPageSize = 8192;
-#endif
+  using tcmalloc::tcmalloc_internal::kPageSize;
   size_t size = pages * kPageSize;
   void* ptr = memalign(kPageSize, size);
   return ptr;

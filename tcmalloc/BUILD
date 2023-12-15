@@ -413,7 +413,7 @@ cc_library(
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
-    copts = ["-DTCMALLOC_LARGE_PAGES"] + TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_32K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [

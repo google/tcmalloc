@@ -26,7 +26,7 @@ build_variants = [
     },
     {
         "name": "large_pages",
-        "copts": ["-DTCMALLOC_LARGE_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
     },
     {
         "name": "256k_pages",
@@ -53,7 +53,7 @@ test_variants = [
         "name": "32k_pages",
         "malloc": "//tcmalloc:tcmalloc_large_pages",
         "deps": ["//tcmalloc:common_large_pages"],
-        "copts": ["-DTCMALLOC_LARGE_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
     },
     {
         "name": "256k_pages",
@@ -151,7 +151,7 @@ test_variants = [
             "//tcmalloc:common_large_pages",
             "//tcmalloc:want_no_hpaa",
         ],
-        "copts": ["-DTCMALLOC_LARGE_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
     },
     {
         "name": "hpaa",
