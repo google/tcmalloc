@@ -17,11 +17,11 @@
 build_variants = [
     {
         "name": "8k_pages",
-        "copts": [],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES"],
     },
     {
         "name": "deprecated_perthread",
-        "copts": ["-DTCMALLOC_DEPRECATED_PERTHREAD"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_DEPRECATED_PERTHREAD"],
         "visibility": ["//tcmalloc:tcmalloc_tests"],
     },
     {
@@ -38,7 +38,7 @@ build_variants = [
     },
     {
         "name": "numa_aware",
-        "copts": ["-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
     },
 ]
 

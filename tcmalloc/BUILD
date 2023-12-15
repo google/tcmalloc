@@ -98,7 +98,7 @@ cc_library(
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
-    copts = TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_8K_PAGES"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//visibility:public"],
     deps = tcmalloc_deps + [

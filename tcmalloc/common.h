@@ -108,6 +108,7 @@ static_assert(sizeof(void*) == 8);
 #endif
 
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW) + \
+        defined(TCMALLOC_INTERNAL_8K_PAGES) +   \
         defined(TCMALLOC_INTERNAL_256K_PAGES) + \
         defined(TCMALLOC_INTERNAL_32K_PAGES) >  \
     1
