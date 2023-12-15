@@ -69,19 +69,19 @@ ThreadCache::ThreadCache(pthread_t tid) {
 }
 
 void ThreadCache::Cleanup() {
-  // Put unused memory back into central cache
+  // Put unused memory back into transfer cache
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
     if (list_[size_class].length() > 0) {
-      ReleaseToCentralCache(&list_[size_class], size_class,
-                            list_[size_class].length());
+      ReleaseToTransferCache(&list_[size_class], size_class,
+                             list_[size_class].length());
     }
   }
 }
 
-// Remove some objects of class "size_class" from central cache and add to
+// Remove some objects of class "size_class" from transfer cache and add to
 // thread heap. On success, return the first object for immediate use; otherwise
 // return NULL.
-void* ThreadCache::FetchFromCentralCache(size_t size_class, size_t byte_size) {
+void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
   FreeList* list = &list_[size_class];
   ASSERT(list->empty());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
@@ -122,10 +122,10 @@ void* ThreadCache::FetchFromCentralCache(size_t size_class, size_t byte_size) {
 
 void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
-  ReleaseToCentralCache(list, size_class, batch_size);
+  ReleaseToTransferCache(list, size_class, batch_size);
 
   // If the list is too long, we need to transfer some number of
-  // objects to the central cache.  Ideally, we would transfer
+  // objects to the transfer cache.  Ideally, we would transfer
   // num_objects_to_move, so the code below tries to make max_length
   // converge on num_objects_to_move.
 
@@ -144,15 +144,15 @@ void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
   }
 }
 
-// Remove some objects of class "size_class" from thread heap and add to central
-// cache
-void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t size_class,
-                                        int N) {
+// Remove some objects of class "size_class" from thread heap and add to
+// transfer cache.
+void ThreadCache::ReleaseToTransferCache(FreeList* src, size_t size_class,
+                                         int N) {
   ASSERT(src == &list_[size_class]);
   if (N > src->length()) N = src->length();
   size_t delta_bytes = N * tc_globals.sizemap().class_to_size(size_class);
 
-  // We return prepackaged chains of the correct size to the central cache.
+  // We return prepackaged chains of the correct size to the transfer cache.
   void* batch[kMaxObjectsToMove];
   int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   while (N > batch_size) {
@@ -171,10 +171,10 @@ void ThreadCache::ReleaseToCentralCache(FreeList* src, size_t size_class,
   size_ -= delta_bytes;
 }
 
-// Release idle memory to the central cache
+// Release idle memory to the transfer cache
 void ThreadCache::Scavenge() {
   // If the low-water mark for the free list is L, it means we would
-  // not have had to allocate anything from the central cache even if
+  // not have had to allocate anything from the transfer cache even if
   // we had reduced the free list size by L.  We aim to get closer to
   // that situation by dropping L/2 nodes from the free list.  This
   // may not release much memory, but if so we will call scavenge again
@@ -184,7 +184,7 @@ void ThreadCache::Scavenge() {
     const int lowmark = list->lowwatermark();
     if (lowmark > 0) {
       const int drop = (lowmark > 1) ? lowmark / 2 : 1;
-      ReleaseToCentralCache(list, size_class, drop);
+      ReleaseToTransferCache(list, size_class, drop);
 
       // Shrink the max length if it isn't used.  Only shrink down to
       // batch_size -- if the thread was active enough to get the max_length

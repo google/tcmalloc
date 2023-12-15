@@ -152,9 +152,9 @@ class ThreadCache {
   static_assert(sizeof(FreeList) == 32, "Freelist size has changed");
 #endif
 
-  // Gets and returns an object from the central cache, and, if possible,
+  // Gets and returns an object from the transfer cache, and, if possible,
   // also adds some objects of that size class to this thread cache.
-  void* FetchFromCentralCache(size_t size_class, size_t byte_size);
+  void* FetchFromTransferCache(size_t size_class, size_t byte_size);
 
   // Releases some number of items from src.  Adjusts the list's max_length
   // to eventually converge on num_objects_to_move(size_class).
@@ -163,7 +163,7 @@ class ThreadCache {
   void DeallocateSlow(void* ptr, FreeList* list, size_t size_class);
 
   // Releases N items from this thread cache.
-  void ReleaseToCentralCache(FreeList* src, size_t size_class, int N);
+  void ReleaseToTransferCache(FreeList* src, size_t size_class, int N);
 
   // Increase max_size_ by reducing unclaimed_cache_space_ or by
   // reducing the max_size_ of some other thread.  In both cases,
@@ -269,7 +269,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
     return ret;
   }
 
-  return FetchFromCentralCache(size_class, allocated_size);
+  return FetchFromTransferCache(size_class, allocated_size);
 }
 
 inline void ABSL_ATTRIBUTE_ALWAYS_INLINE

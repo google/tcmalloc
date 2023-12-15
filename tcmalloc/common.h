@@ -213,8 +213,8 @@ inline constexpr size_t kAlignmentShift =
 inline constexpr int kMaxOverages = 3;
 
 // Maximum length we allow a per-thread free-list to have before we
-// move objects from it into the corresponding central free-list.  We
-// want this big to avoid locking the central free-list too often.  It
+// move objects from it into the corresponding transfer cache.  We
+// want this big to avoid locking the transfer cache too often.  It
 // should not hurt to make this list somewhat big because the
 // scavenging code will shrink it down when its contents are not in use.
 inline constexpr int kMaxDynamicFreeListLength = 8192;
