@@ -158,18 +158,6 @@ class Span : public SpanList::Elem {
   // Total memory bytes in the span.
   size_t bytes_in_span() const;
 
-  // ---------------------------------------------------------------------------
-  // Age tracking (for free spans in PageHeap).
-  // ---------------------------------------------------------------------------
-
-  uint64_t freelist_added_time() const;
-  void set_freelist_added_time(uint64_t t);
-
-  // Sets this span freelist added time to average of this and other times
-  // weighted by their sizes.
-  // REQUIRES: this is a ON_NORMAL_FREELIST or ON_RETURNED_FREELIST span.
-  void AverageFreelistAddedTime(const Span* other);
-
   // Returns internal fragmentation of the span.
   // REQUIRES: this is a SMALL_OBJECT span.
   double Fragmentation(size_t object_size) const;
@@ -305,13 +293,6 @@ class Span : public SpanList::Elem {
 
     // Used only for sampled spans (SAMPLED state).
     SampledAllocation* sampled_allocation_;
-
-    // Used only for spans in PageHeap
-    // (ON_NORMAL_FREELIST or ON_RETURNED_FREELIST state).
-    // Time when this span was added to a freelist.  Units: cycles.  When a span
-    // is merged into this one, we set this to the average of now and the
-    // current freelist_added_time, weighted by the two spans' sizes.
-    uint64_t freelist_added_time_;
   };
 
   PageId first_page_;  // Starting page number.
@@ -596,14 +577,6 @@ inline Length Span::num_pages() const { return num_pages_; }
 inline void Span::set_num_pages(Length len) { num_pages_ = len; }
 
 inline size_t Span::bytes_in_span() const { return num_pages_.in_bytes(); }
-
-inline void Span::set_freelist_added_time(uint64_t t) {
-  freelist_added_time_ = t;
-}
-
-inline uint64_t Span::freelist_added_time() const {
-  return freelist_added_time_;
-}
 
 inline bool Span::FreelistEmpty(size_t size) const {
   if (Span::IsLessThanBitmapMinObjectSize(size)) {

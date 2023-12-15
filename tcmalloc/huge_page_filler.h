@@ -791,7 +791,7 @@ inline bool IsDenseSpan(AccessDensityPrediction density) {
 // to support unlocking the page heap lock in a dynamic annotation-friendly way.
 class PageTracker : public TList<PageTracker>::Elem {
  public:
-  PageTracker(HugePage p, uint64_t when, bool was_donated)
+  PageTracker(HugePage p, bool was_donated)
       : location_(p),
         released_count_(0),
         abandoned_count_(0),
@@ -801,8 +801,6 @@ class PageTracker : public TList<PageTracker>::Elem {
         abandoned_(false),
         unbroken_(true),
         free_{} {
-    init_when(when);
-
 #ifndef __ppc64__
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -820,16 +818,6 @@ class PageTracker : public TList<PageTracker>::Elem {
                       2 * ABSL_CACHELINE_SIZE,
                   "location_ should fall within the first two cachelines of "
                   "PageTracker.");
-    static_assert(
-        offsetof(PageTracker, when_numerator_) + sizeof(when_numerator_) <=
-            2 * ABSL_CACHELINE_SIZE,
-        "when_numerator_ should fall within the first two cachelines "
-        "of PageTracker.");
-    static_assert(
-        offsetof(PageTracker, when_denominator_) + sizeof(when_denominator_) <=
-            2 * ABSL_CACHELINE_SIZE,
-        "when_denominator_ should fall within the first two "
-        "cachelines of PageTracker.");
     static_assert(
         offsetof(PageTracker, donated_) + sizeof(donated_) <=
             2 * ABSL_CACHELINE_SIZE,
@@ -911,24 +899,12 @@ class PageTracker : public TList<PageTracker>::Elem {
   Length ReleaseFree(MemoryModifyFunction& unback)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
   bool HasDenseSpans() const { return has_dense_spans_; }
   void SetHasDenseSpans() { has_dense_spans_ = true; }
 
  private:
-  void init_when(uint64_t w) {
-    const Length before = Length(free_.total_free());
-    when_numerator_ = w * before.raw_num();
-    when_denominator_ = before.raw_num();
-  }
-
   HugePage location_;
-  // We keep track of an average time weighted by Length::raw_num. In order to
-  // avoid doing division on fast path, store the numerator and denominator and
-  // only do the division when we need the average.
-  uint64_t when_numerator_;
-  uint64_t when_denominator_;
 
   // Cached value of released_by_page_.CountBits(0, kPagesPerHugePages)
   //
@@ -1127,8 +1103,7 @@ class HugePageFiller {
   static constexpr size_t kCandidatesForReleasingMemory =
       kPagesPerHugePage.raw_num();
 
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
   BackingStats stats() const;
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
@@ -1283,9 +1258,6 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
 inline void PageTracker::Put(PageId p, Length n) {
   Length index = p - location_.first_page();
   free_.Unmark(index.raw_num(), n.raw_num());
-
-  when_numerator_ += n.raw_num() * absl::base_internal::CycleClock::Now();
-  when_denominator_ += n.raw_num();
 }
 
 inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
@@ -1334,17 +1306,13 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   ASSERT(Length(released_count_) <= kPagesPerHugePage);
   ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
          released_count_);
-  init_when(absl::base_internal::CycleClock::Now());
   return Length(count);
 }
 
 inline void PageTracker::AddSpanStats(SmallSpanStats* small,
-                                      LargeSpanStats* large,
-                                      PageAgeHistograms* ages) const {
+                                      LargeSpanStats* large) const {
   size_t index = 0, n;
 
-  uint64_t w = when_denominator_ == 0 ? when_numerator_
-                                      : when_numerator_ / when_denominator_;
   while (free_.NextFreeRange(index, &index, &n)) {
     bool is_released = released_by_page_.GetBit(index);
     // Find the last bit in the run with the same state (set or cleared) as
@@ -1378,9 +1346,6 @@ inline void PageTracker::AddSpanStats(SmallSpanStats* small,
       }
     }
 
-    if (ages) {
-      ages->RecordRange(Length(n), is_released, w);
-    }
     index += n;
   }
 }
@@ -1929,11 +1894,8 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddSpanStats(
-    SmallSpanStats* small, LargeSpanStats* large,
-    PageAgeHistograms* ages) const {
-  auto loop = [&](const TrackerType* pt) {
-    pt->AddSpanStats(small, large, ages);
-  };
+    SmallSpanStats* small, LargeSpanStats* large) const {
+  auto loop = [&](const TrackerType* pt) { pt->AddSpanStats(small, large); };
   // We can skip the first chunks_per_tracker_list lists as they are known to be
   // 100% full.
   donated_alloc_.Iter(loop, 0);

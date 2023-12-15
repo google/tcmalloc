@@ -89,14 +89,6 @@ double Span::Fragmentation(size_t object_size) const {
   return static_cast<double>(span_objects - live) / live;
 }
 
-void Span::AverageFreelistAddedTime(const Span* other) {
-  // Do this computation as floating-point to avoid overflowing our uint64_t.
-  freelist_added_time_ = static_cast<uint64_t>(
-      (static_cast<double>(freelist_added_time_) * num_pages_ +
-       static_cast<double>(other->freelist_added_time_) * other->num_pages_) /
-      (num_pages_ + other->num_pages_));
-}
-
 // Freelist organization.
 //
 // Partially full spans in CentralFreeList contain a list of free objects

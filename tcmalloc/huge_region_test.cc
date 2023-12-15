@@ -300,12 +300,10 @@ TEST_F(HugeRegionTest, Stats) {
   struct Helper {
     static void Stat(const Region& region, std::vector<Length>* small_backed,
                      std::vector<Length>* small_unbacked, LargeSpanStats* large,
-                     BackingStats* stats, double* avg_age_backed,
-                     double* avg_age_unbacked) {
+                     BackingStats* stats) {
       SmallSpanStats small;
       *large = LargeSpanStats();
-      PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-      region.AddSpanStats(&small, large, &ages);
+      region.AddSpanStats(&small, large);
       small_backed->clear();
       small_unbacked->clear();
       for (auto i = Length(0); i < kMaxPages; ++i) {
@@ -319,20 +317,14 @@ TEST_F(HugeRegionTest, Stats) {
       }
 
       *stats = region.stats();
-
-      *avg_age_backed = ages.GetTotalHistogram(false)->avg_age();
-      *avg_age_unbacked = ages.GetTotalHistogram(true)->avg_age();
     }
   };
 
   LargeSpanStats large;
   std::vector<Length> small_backed, small_unbacked;
   BackingStats stats;
-  double avg_age_backed, avg_age_unbacked;
 
-  absl::SleepFor(absl::Milliseconds(10));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed, testing::ElementsAre());
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(1, large.spans);
@@ -341,8 +333,6 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ(0, stats.free_bytes);
   EXPECT_EQ(kBytes, stats.unmapped_bytes);
-  EXPECT_LE(0.01, avg_age_unbacked);
-  EXPECT_EQ(0, avg_age_backed);
 
   // We don't, in production, use small allocations from the region, but
   // the API supports it, so test it here.
@@ -354,9 +344,7 @@ TEST_F(HugeRegionTest, Stats) {
   Allocate(Length(1));
   const Length slack = kPagesPerHugePage - Length(9);
 
-  absl::SleepFor(absl::Milliseconds(20));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed, testing::ElementsAre());
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
@@ -365,13 +353,9 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ(slack.in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE(0.02, avg_age_backed);
-  EXPECT_LE(0.03, avg_age_unbacked);
 
   Delete(a);
-  absl::SleepFor(absl::Milliseconds(30));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed, testing::ElementsAre(Length(1)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
@@ -380,14 +364,9 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ((slack + Length(1)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE((slack.raw_num() * 0.05 + 1 * 0.03) / (slack.raw_num() + 1),
-            avg_age_backed);
-  EXPECT_LE(0.06, avg_age_unbacked);
 
   Delete(b);
-  absl::SleepFor(absl::Milliseconds(40));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed, testing::ElementsAre(Length(1), Length(2)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
@@ -396,15 +375,9 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ((slack + Length(3)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE(
-      (slack.raw_num() * 0.09 + 1 * 0.07 + 2 * 0.04) / (slack.raw_num() + 3),
-      avg_age_backed);
-  EXPECT_LE(0.10, avg_age_unbacked);
 
   Delete(c);
-  absl::SleepFor(absl::Milliseconds(50));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed,
               testing::ElementsAre(Length(1), Length(2), Length(3)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
@@ -414,15 +387,9 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ((slack + Length(6)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE((slack.raw_num() * 0.14 + 1 * 0.12 + 2 * 0.09 + 3 * 0.05) /
-                (slack.raw_num() + 6),
-            avg_age_backed);
-  EXPECT_LE(0.15, avg_age_unbacked);
 
   Delete(barrier);
-  absl::SleepFor(absl::Milliseconds(60));
-  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(region_, &small_backed, &small_unbacked, &large, &stats);
   EXPECT_THAT(small_backed, testing::ElementsAre(Length(1), Length(6)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(2, large.spans);
@@ -431,11 +398,6 @@ TEST_F(HugeRegionTest, Stats) {
   EXPECT_EQ(kBytes, stats.system_bytes);
   EXPECT_EQ((slack + Length(7)).in_bytes(), stats.free_bytes);
   EXPECT_EQ((region_.size() - NHugePages(1)).in_bytes(), stats.unmapped_bytes);
-  EXPECT_LE(
-      (slack.raw_num() * 0.20 + 1 * 0.18 + 2 * 0.15 + 3 * 0.11 + 1 * 0.06) /
-          (slack.raw_num() + 7),
-      avg_age_backed);
-  EXPECT_LE(0.21, avg_age_unbacked);
 }
 
 // Test that free regions are broken down properly when they cross
@@ -454,7 +416,7 @@ TEST_F(HugeRegionTest, StatBreakdown) {
   Delete(c);
   SmallSpanStats small;
   LargeSpanStats large;
-  region_.AddSpanStats(&small, &large, nullptr);
+  region_.AddSpanStats(&small, &large);
   // Backed beginning of hugepage 0, unbacked range in middle of b,
   // long backed range from c, unbacked tail of allocation.
   EXPECT_EQ(4, large.spans);
@@ -486,7 +448,7 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
   Delete(c);
   SmallSpanStats small;
   LargeSpanStats large;
-  region_.AddSpanStats(&small, &large, nullptr);
+  region_.AddSpanStats(&small, &large);
   // Backed beginning of hugepage A/B/C/D and the unbacked tail of allocation.
   EXPECT_EQ(2, large.spans);
   // Tail end of A's page, all of B, all of C.

@@ -51,7 +51,6 @@ using tcmalloc::tcmalloc_internal::Length;
 using tcmalloc::tcmalloc_internal::LengthFromBytes;
 using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
 using tcmalloc::tcmalloc_internal::NHugePages;
-using tcmalloc::tcmalloc_internal::PageAgeHistograms;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PageId;
 using tcmalloc::tcmalloc_internal::PageIdContaining;
@@ -217,8 +216,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           // Since small objects are likely to be found, we model those tail
           // donations separately.
           const bool donated = n > kPagesPerHugePage / 2;
-          result.pt = new PageTracker(HugePage{.pn = next_hugepage},
-                                      mock_clock(), donated);
+          result.pt = new PageTracker(HugePage{.pn = next_hugepage}, donated);
           next_hugepage++;
           {
             AllocationGuardSpinLockHolder l(&pageheap_lock);
@@ -384,7 +382,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
                                           kPagesPerHugePage.raw_num() - 1));
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
-        auto* pt = new PageTracker(HugePage{.pn = next_hugepage}, mock_clock(),
+        auto* pt = new PageTracker(HugePage{.pn = next_hugepage},
                                    /*was_donated=*/true);
         next_hugepage++;
         PageId start;
@@ -447,8 +445,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value populates ages' now argument.
         SmallSpanStats small;
         LargeSpanStats large;
-        PageAgeHistograms ages(value);
-        filler.AddSpanStats(&small, &large, &ages);
+        filler.AddSpanStats(&small, &large);
         break;
       }
     }

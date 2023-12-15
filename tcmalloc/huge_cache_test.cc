@@ -242,48 +242,37 @@ TEST_F(HugeCacheTest, Stats) {
 
   struct Helper {
     static void Stat(const HugeCache& cache, size_t* spans,
-                     Length* pages_backed, Length* pages_unbacked,
-                     double* avg_age) {
-      PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
+                     Length* pages_backed, Length* pages_unbacked) {
       LargeSpanStats large;
-      cache.AddSpanStats(nullptr, &large, &ages);
+      cache.AddSpanStats(nullptr, &large);
 
-      const PageAgeHistograms::Histogram* hist = ages.GetTotalHistogram(false);
       *spans = large.spans;
       *pages_backed = large.normal_pages;
       *pages_unbacked = large.returned_pages;
-      *avg_age = hist->avg_age();
     }
   };
 
-  double avg_age;
   size_t spans;
   Length pages_backed;
   Length pages_unbacked;
 
   cache_.Release(r1);
-  absl::SleepFor(absl::Microseconds(5000));
-  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
+  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(1, spans);
   EXPECT_EQ(NHugePages(1).in_pages(), pages_backed);
-  EXPECT_LE(0.005, avg_age);
 
   cache_.Release(r2);
-  absl::SleepFor(absl::Microseconds(2500));
-  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
+  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(2, spans);
   EXPECT_EQ(NHugePages(3).in_pages(), pages_backed);
-  EXPECT_LE((0.0075 * 1 + 0.0025 * 2) / (1 + 2), avg_age);
 
   cache_.Release(r3);
-  absl::SleepFor(absl::Microseconds(1250));
-  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked, &avg_age);
+  Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(3, spans);
   EXPECT_EQ(NHugePages(6).in_pages(), pages_backed);
-  EXPECT_LE((0.00875 * 1 + 0.00375 * 2 + 0.00125 * 3) / (1 + 2 + 3), avg_age);
 }
 
 static double Frac(HugeLength num, HugeLength denom) {

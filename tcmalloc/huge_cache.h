@@ -175,8 +175,7 @@ class HugeCache {
   // Sum total of unreleased requests.
   HugeLength usage() const { return usage_; }
 
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
   BackingStats stats() const {
     BackingStats s;

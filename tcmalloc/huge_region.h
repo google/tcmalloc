@@ -97,8 +97,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   }
   Length unmapped_pages() const { return (size() - nbacked_).in_pages(); }
 
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
   HugeLength backed() const;
 
@@ -182,8 +181,7 @@ class HugeRegionSet {
 
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
   BackingStats stats() const;
   HugeLength free_backed() const;
   size_t ActiveRegions() const;
@@ -313,8 +311,7 @@ inline HugeLength HugeRegion::Release(double release_fraction) {
 }
 
 inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
-                                     LargeSpanStats* large,
-                                     PageAgeHistograms* ages) const {
+                                     LargeSpanStats* large) const {
   size_t index = 0, n;
   Length f, u;
   // This is complicated a bit by the backed/unbacked status of pages.
@@ -365,9 +362,6 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
       }
     }
 
-    if (ages != nullptr) {
-      ages->RecordRange(Length(n), released, when);
-    }
     index += n;
   }
   CHECK_CONDITION(f == free_pages());
@@ -594,10 +588,9 @@ inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion* hpaa) const {
 
 template <typename Region>
 inline void HugeRegionSet<Region>::AddSpanStats(SmallSpanStats* small,
-                                                LargeSpanStats* large,
-                                                PageAgeHistograms* ages) const {
+                                                LargeSpanStats* large) const {
   for (Region* region : list_) {
-    region->AddSpanStats(small, large, ages);
+    region->AddSpanStats(small, large);
   }
 }
 

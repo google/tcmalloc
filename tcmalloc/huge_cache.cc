@@ -316,8 +316,8 @@ HugeLength HugeCache::ReleaseCachedPages(HugeLength n) {
   return released;
 }
 
-void HugeCache::AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                             PageAgeHistograms* ages) const {
+void HugeCache::AddSpanStats(SmallSpanStats* small,
+                             LargeSpanStats* large) const {
   static_assert(kPagesPerHugePage >= kMaxPages);
   for (const HugeAddressMap::Node* node = cache_.first(); node != nullptr;
        node = node->next()) {
@@ -325,10 +325,6 @@ void HugeCache::AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
     if (large != nullptr) {
       large->spans++;
       large->normal_pages += n.in_pages();
-    }
-
-    if (ages != nullptr) {
-      ages->RecordRange(n.in_pages(), false, node->when());
     }
   }
 }

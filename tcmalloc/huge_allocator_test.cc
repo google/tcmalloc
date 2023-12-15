@@ -285,11 +285,10 @@ TEST_P(HugeAllocatorTest, Frugal) {
 TEST_P(HugeAllocatorTest, Stats) {
   struct Helper {
     static void Stats(const HugeAllocator* huge, size_t* num_spans,
-                      Length* pages, absl::Duration* avg_age) {
+                      Length* pages) {
       SmallSpanStats small;
       LargeSpanStats large;
-      PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-      huge->AddSpanStats(&small, &large, &ages);
+      huge->AddSpanStats(&small, &large);
       for (auto i = Length(0); i < kMaxPages; ++i) {
         EXPECT_EQ(0, small.normal_length[i.raw_num()]);
         EXPECT_EQ(0, small.returned_length[i.raw_num()]);
@@ -297,8 +296,6 @@ TEST_P(HugeAllocatorTest, Stats) {
       *num_spans = large.spans;
       EXPECT_EQ(Length(0), large.normal_pages);
       *pages = large.returned_pages;
-      const PageAgeHistograms::Histogram* hist = ages.GetTotalHistogram(true);
-      *avg_age = absl::Seconds(hist->avg_age());
     }
   };
 
@@ -319,58 +316,31 @@ TEST_P(HugeAllocatorTest, Stats) {
 
   size_t num_spans;
   Length pages;
-  absl::Duration avg_age;
 
-  Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
+  Helper::Stats(&allocator_, &num_spans, &pages);
   EXPECT_EQ(0, num_spans);
   EXPECT_EQ(Length(0), pages);
-  EXPECT_EQ(absl::ZeroDuration(), avg_age);
 
   allocator_.Release(r1);
-  constexpr absl::Duration kDelay = absl::Milliseconds(500);
-  absl::SleepFor(kDelay);
-  Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
+  Helper::Stats(&allocator_, &num_spans, &pages);
   EXPECT_EQ(1, num_spans);
   EXPECT_EQ(NHugePages(1).in_pages(), pages);
-  // We can only do >= testing, because we might be arbitrarily delayed.
-  // Since avg_age is computed in floating point, we may have round-off from
-  // TCMalloc's internal use of absl::base_internal::CycleClock down through
-  // computing the average age of the spans.  kEpsilon allows for a tiny amount
-  // of slop.
-  constexpr absl::Duration kEpsilon = absl::Milliseconds(1);
-  EXPECT_LE(kDelay - kEpsilon, avg_age);
 
   allocator_.Release(r2);
-  absl::SleepFor(absl::Milliseconds(250));
-  Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
+  Helper::Stats(&allocator_, &num_spans, &pages);
   EXPECT_EQ(2, num_spans);
   EXPECT_EQ(NHugePages(3).in_pages(), pages);
-  EXPECT_LE(
-      (absl::Seconds(0.75) * 1 + absl::Seconds(0.25) * 2) / (1 + 2) - kEpsilon,
-      avg_age);
 
   allocator_.Release(r3);
-  absl::SleepFor(absl::Milliseconds(125));
-  Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
+  Helper::Stats(&allocator_, &num_spans, &pages);
   EXPECT_EQ(3, num_spans);
   EXPECT_EQ(NHugePages(6).in_pages(), pages);
-  EXPECT_LE((absl::Seconds(0.875) * 1 + absl::Seconds(0.375) * 2 +
-             absl::Seconds(0.125) * 3) /
-                    (1 + 2 + 3) -
-                kEpsilon,
-            avg_age);
 
   allocator_.Release(b1);
   allocator_.Release(b2);
-  absl::SleepFor(absl::Milliseconds(100));
-  Helper::Stats(&allocator_, &num_spans, &pages, &avg_age);
+  Helper::Stats(&allocator_, &num_spans, &pages);
   EXPECT_EQ(1, num_spans);
   EXPECT_EQ(NHugePages(8).in_pages(), pages);
-  EXPECT_LE((absl::Seconds(0.975) * 1 + absl::Seconds(0.475) * 2 +
-             absl::Seconds(0.225) * 3 + absl::Seconds(0.1) * 2) /
-                    (1 + 2 + 3 + 2) -
-                kEpsilon,
-            avg_age);
 }
 
 // Make sure we're well-behaved in the presence of OOM (and that we do

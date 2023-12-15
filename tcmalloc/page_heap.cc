@@ -256,7 +256,6 @@ Span* PageHeap::Carve(Span* span, Length n) {
     leftover->set_location(old_location);
     RecordSpan(leftover);
     PrependToFreeList(leftover);  // Skip coalescing - no candidates possible
-    leftover->set_freelist_added_time(span->freelist_added_time());
     span->set_num_pages(n);
     pagemap_->Set(span->last_page(), span);
   }
@@ -280,7 +279,6 @@ void PageHeap::Delete(Span* span, size_t objects_per_span) {
 
 void PageHeap::MergeIntoFreeList(Span* span) {
   ASSERT(span->location() != Span::IN_USE);
-  span->set_freelist_added_time(absl::base_internal::CycleClock::Now());
 
   // Coalesce -- we guarantee that "p" != 0, so no bounds checking
   // necessary.  We do not bother resetting the stale pagemap
@@ -296,7 +294,6 @@ void PageHeap::MergeIntoFreeList(Span* span) {
     // Merge preceding span into this span
     ASSERT(prev->last_page() + Length(1) == p);
     const Length len = prev->num_pages();
-    span->AverageFreelistAddedTime(prev);
     RemoveFromFreeList(prev);
     Span::Delete(prev);
     span->set_first_page(span->first_page() - len);
@@ -308,7 +305,6 @@ void PageHeap::MergeIntoFreeList(Span* span) {
     // Merge next span into this span
     ASSERT(next->first_page() == p + n);
     const Length len = next->num_pages();
-    span->AverageFreelistAddedTime(next);
     RemoveFromFreeList(next);
     Span::Delete(next);
     span->set_num_pages(span->num_pages() + len);
@@ -486,24 +482,7 @@ void PageHeap::PrintInPbtxt(PbtxtRegion* region) {
   LargeSpanStats large;
   GetLargeSpanStats(&large);
 
-  struct Helper {
-    static void RecordAges(PageAgeHistograms* ages, const SpanListPair& pair) {
-      for (const Span* s : pair.normal) {
-        ages->RecordRange(s->num_pages(), false, s->freelist_added_time());
-      }
-
-      for (const Span* s : pair.returned) {
-        ages->RecordRange(s->num_pages(), true, s->freelist_added_time());
-      }
-    }
-  };
-
-  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  for (int s = 0; s < kMaxPages.raw_num(); ++s) {
-    Helper::RecordAges(&ages, free_[s]);
-  }
-  Helper::RecordAges(&ages, large_);
-  PrintStatsInPbtxt(region, small, large, ages);
+  PrintStatsInPbtxt(region, small, large);
   // We do not collect info_.PrintInPbtxt for now.
 }
 
@@ -514,25 +493,6 @@ void PageHeap::Print(Printer* out) {
   LargeSpanStats large;
   GetLargeSpanStats(&large);
   PrintStats("PageHeap", out, stats_, small, large, true);
-
-  struct Helper {
-    static void RecordAges(PageAgeHistograms* ages, const SpanListPair& pair) {
-      for (const Span* s : pair.normal) {
-        ages->RecordRange(s->num_pages(), false, s->freelist_added_time());
-      }
-
-      for (const Span* s : pair.returned) {
-        ages->RecordRange(s->num_pages(), true, s->freelist_added_time());
-      }
-    }
-  };
-
-  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-  for (int s = 0; s < kMaxPages.raw_num(); ++s) {
-    Helper::RecordAges(&ages, free_[s]);
-  }
-  Helper::RecordAges(&ages, large_);
-  ages.Print("PageHeap", out);
 
   info_.Print(out);
 }

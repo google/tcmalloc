@@ -73,8 +73,7 @@ class HugeAllocator {
   // Unused memory in the allocator.
   HugeLength size() const { return from_system_ - in_use_; }
 
-  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages) const;
+  void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
 
   BackingStats stats() const {
     BackingStats s;

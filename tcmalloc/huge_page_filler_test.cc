@@ -157,7 +157,7 @@ class PageTrackerTest : public testing::Test {
   PageTrackerTest()
       :  // an unlikely magic page
         huge_(HugePageContaining(reinterpret_cast<void*>(0x1abcde200000))),
-        tracker_(huge_, absl::base_internal::CycleClock::Now(),
+        tracker_(huge_,
                  /*was_donated=*/false) {}
 
   ~PageTrackerTest() override { mock_.VerifyAndClear(); }
@@ -485,12 +485,11 @@ TEST_F(PageTrackerTest, Stats) {
   struct Helper {
     static void Stat(const PageTracker& tracker,
                      std::vector<Length>* small_backed,
-                     std::vector<Length>* small_unbacked, LargeSpanStats* large,
-                     double* avg_age_backed, double* avg_age_unbacked) {
+                     std::vector<Length>* small_unbacked,
+                     LargeSpanStats* large) {
       SmallSpanStats small;
       *large = LargeSpanStats();
-      PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
-      tracker.AddSpanStats(&small, large, &ages);
+      tracker.AddSpanStats(&small, large);
       small_backed->clear();
       small_unbacked->clear();
       for (auto i = Length(0); i < kMaxPages; ++i) {
@@ -502,15 +501,11 @@ TEST_F(PageTrackerTest, Stats) {
           small_unbacked->push_back(i);
         }
       }
-
-      *avg_age_backed = ages.GetTotalHistogram(false)->avg_age();
-      *avg_age_unbacked = ages.GetTotalHistogram(true)->avg_age();
     }
   };
 
   LargeSpanStats large;
   std::vector<Length> small_backed, small_unbacked;
-  double avg_age_backed, avg_age_unbacked;
 
   SpanAllocInfo info1 = {kPagesPerHugePage.raw_num(),
                          AccessDensityPrediction::kDense};
@@ -522,68 +517,47 @@ TEST_F(PageTrackerTest, Stats) {
   Put({next, n, info2});
   next += kMaxPages + Length(1);
 
-  absl::SleepFor(absl::Milliseconds(10));
-  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed, testing::ElementsAre());
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(large.spans, 1);
   EXPECT_EQ(large.normal_pages, kMaxPages + Length(1));
   EXPECT_EQ(large.returned_pages, Length(0));
-  EXPECT_GE(avg_age_backed, 0.01);
 
   ++next;
   SpanAllocInfo info3 = {1, AccessDensityPrediction::kSparse};
   Put({next, Length(1), info3});
   next += Length(1);
-  absl::SleepFor(absl::Milliseconds(20));
-  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed, testing::ElementsAre(Length(1)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(large.spans, 1);
   EXPECT_EQ(large.normal_pages, kMaxPages + Length(1));
   EXPECT_EQ(large.returned_pages, Length(0));
-  EXPECT_GE(avg_age_backed,
-            ((kMaxPages + Length(1)).raw_num() * 0.03 + 1 * 0.02) /
-                (kMaxPages + Length(2)).raw_num());
-  EXPECT_EQ(avg_age_unbacked, 0);
 
   ++next;
   SpanAllocInfo info4 = {2, AccessDensityPrediction::kSparse};
   Put({next, Length(2), info4});
   next += Length(2);
-  absl::SleepFor(absl::Milliseconds(30));
-  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed, testing::ElementsAre(Length(1), Length(2)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(large.spans, 1);
   EXPECT_EQ(large.normal_pages, kMaxPages + Length(1));
   EXPECT_EQ(large.returned_pages, Length(0));
-  EXPECT_GE(avg_age_backed,
-            ((kMaxPages + Length(1)).raw_num() * 0.06 + 1 * 0.05 + 2 * 0.03) /
-                (kMaxPages + Length(4)).raw_num());
-  EXPECT_EQ(avg_age_unbacked, 0);
 
   ++next;
   SpanAllocInfo info5 = {3, AccessDensityPrediction::kSparse};
   Put({next, Length(3), info5});
   next += Length(3);
   ASSERT_LE(next, end);
-  absl::SleepFor(absl::Milliseconds(40));
-  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed,
               testing::ElementsAre(Length(1), Length(2), Length(3)));
   EXPECT_THAT(small_unbacked, testing::ElementsAre());
   EXPECT_EQ(large.spans, 1);
   EXPECT_EQ(large.normal_pages, kMaxPages + Length(1));
   EXPECT_EQ(large.returned_pages, Length(0));
-  EXPECT_GE(avg_age_backed, ((kMaxPages + Length(1)).raw_num() * 0.10 +
-                             1 * 0.09 + 2 * 0.07 + 3 * 0.04) /
-                                (kMaxPages + Length(7)).raw_num());
-  EXPECT_EQ(avg_age_unbacked, 0);
 
   n = kMaxPages + Length(1);
   ExpectPages({p, n, info2});
@@ -591,17 +565,13 @@ TEST_F(PageTrackerTest, Stats) {
   ExpectPages({p + kMaxPages + Length(4), Length(2), info4});
   ExpectPages({p + kMaxPages + Length(7), Length(3), info5});
   EXPECT_EQ(kMaxPages + Length(7), ReleaseFree());
-  absl::SleepFor(absl::Milliseconds(100));
-  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large,
-               &avg_age_backed, &avg_age_unbacked);
+  Helper::Stat(tracker_, &small_backed, &small_unbacked, &large);
   EXPECT_THAT(small_backed, testing::ElementsAre());
   EXPECT_THAT(small_unbacked,
               testing::ElementsAre(Length(1), Length(2), Length(3)));
   EXPECT_EQ(large.spans, 1);
   EXPECT_EQ(large.normal_pages, Length(0));
   EXPECT_EQ(large.returned_pages, kMaxPages + Length(1));
-  EXPECT_EQ(avg_age_backed, 0);
-  EXPECT_GT(avg_age_unbacked, 0.099);
 }
 
 TEST_F(PageTrackerTest, b151915873) {
@@ -636,9 +606,8 @@ TEST_F(PageTrackerTest, b151915873) {
 
   SmallSpanStats small;
   LargeSpanStats large;
-  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
 
-  tracker_.AddSpanStats(&small, &large, &ages);
+  tracker_.AddSpanStats(&small, &large);
 
   EXPECT_EQ(small.normal_length[1], 1);
   EXPECT_THAT(0,
@@ -849,8 +818,7 @@ class FillerTest : public testing::TestWithParam<
       ret.p = page;
     }
     if (ret.pt == nullptr) {
-      ret.pt = new PageTracker(GetBacking(),
-                               absl::base_internal::CycleClock::Now(), donated);
+      ret.pt = new PageTracker(GetBacking(), donated);
       {
         absl::base_internal::SpinLockHolder l(&pageheap_lock);
         ret.p = ret.pt->Get(n).page;

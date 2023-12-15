@@ -324,8 +324,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // reassembled.
   Length abandoned_pages_ ABSL_GUARDED_BY(pageheap_lock);
 
-  void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                    PageAgeHistograms* ages)
+  void GetSpanStats(SmallSpanStats* small, LargeSpanStats* large)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   PageId RefillFiller(Length n, SpanAllocInfo span_alloc_info,
@@ -407,8 +406,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
   CHECK_CONDITION(p.start_addr() != nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
-  new (pt)
-      FillerType::Tracker(p, absl::base_internal::CycleClock::Now(), donated);
+  new (pt) FillerType::Tracker(p, donated);
   ASSERT(pt->longest_free_range() >= n);
   ASSERT(pt->was_donated() == donated);
   // if the page was donated, we track its size so that we can potentially
@@ -790,19 +788,19 @@ inline BackingStats HugePageAwareAllocator<Forwarder>::stats() const {
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetSmallSpanStats(
     SmallSpanStats* result) {
-  GetSpanStats(result, nullptr, nullptr);
+  GetSpanStats(result, nullptr);
 }
 
 // public
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetLargeSpanStats(
     LargeSpanStats* result) {
-  GetSpanStats(nullptr, result, nullptr);
+  GetSpanStats(nullptr, result);
 }
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
-    SmallSpanStats* small, LargeSpanStats* large, PageAgeHistograms* ages) {
+    SmallSpanStats* small, LargeSpanStats* large) {
   if (small != nullptr) {
     *small = SmallSpanStats();
   }
@@ -810,10 +808,10 @@ inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
     *large = LargeSpanStats();
   }
 
-  alloc_.AddSpanStats(small, large, ages);
-  filler_.AddSpanStats(small, large, ages);
-  regions_.AddSpanStats(small, large, ages);
-  cache_.AddSpanStats(small, large, ages);
+  alloc_.AddSpanStats(small, large);
+  filler_.AddSpanStats(small, large);
+  regions_.AddSpanStats(small, large);
+  cache_.AddSpanStats(small, large);
 }
 
 // public
@@ -888,10 +886,9 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   SmallSpanStats small;
   LargeSpanStats large;
   BackingStats bstats;
-  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
   AllocationGuardSpinLockHolder h(&pageheap_lock);
   bstats = stats();
-  GetSpanStats(&small, &large, &ages);
+  GetSpanStats(&small, &large);
   PrintStats("HugePageAware", out, bstats, small, large, everything);
   out->printf(
       "\nHuge page aware allocator components:\n"
@@ -936,9 +933,6 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
 
     // Use statistics
     info_.Print(out);
-
-    // and age tracking.
-    ages.Print("HugePageAware", out);
   }
 
   out->printf("PARAMETER use_huge_region_more_often %d\n",
@@ -952,10 +946,9 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     PbtxtRegion* region) {
   SmallSpanStats small;
   LargeSpanStats large;
-  PageAgeHistograms ages(absl::base_internal::CycleClock::Now());
   AllocationGuardSpinLockHolder h(&pageheap_lock);
-  GetSpanStats(&small, &large, &ages);
-  PrintStatsInPbtxt(region, small, large, ages);
+  GetSpanStats(&small, &large);
+  PrintStatsInPbtxt(region, small, large);
   {
     auto hpaa = region->CreateSubRegion("huge_page_allocator");
     hpaa.PrintBool("using_hpaa", true);

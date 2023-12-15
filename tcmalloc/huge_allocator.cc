@@ -95,7 +95,7 @@ void HugeAllocator::CheckFreelist() {
   free_.Check();
   CHECK_CONDITION(n == from_system_ - in_use_);
   LargeSpanStats large;
-  AddSpanStats(nullptr, &large, nullptr);
+  AddSpanStats(nullptr, &large);
   CHECK_CONDITION(num_nodes == large.spans);
   CHECK_CONDITION(n.in_pages() == large.returned_pages);
 }
@@ -156,18 +156,14 @@ void HugeAllocator::Release(HugeRange r) {
   DebugCheckFreelist();
 }
 
-void HugeAllocator::AddSpanStats(SmallSpanStats* small, LargeSpanStats* large,
-                                 PageAgeHistograms* ages) const {
+void HugeAllocator::AddSpanStats(SmallSpanStats* small,
+                                 LargeSpanStats* large) const {
   for (const HugeAddressMap::Node* node = free_.first(); node != nullptr;
        node = node->next()) {
     HugeLength n = node->range().len();
     if (large != nullptr) {
       large->spans++;
       large->returned_pages += n.in_pages();
-    }
-
-    if (ages != nullptr) {
-      ages->RecordRange(n.in_pages(), true, node->when());
     }
   }
 }
