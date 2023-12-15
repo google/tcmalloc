@@ -214,8 +214,7 @@ class ThreadCache {
   static size_t per_thread_cache_size_ ABSL_GUARDED_BY(pageheap_lock);
 
   // Represents overall_thread_cache_size_ minus the sum of max_size_
-  // across all ThreadCaches. We use int64_t even in 32-bit builds because
-  // with enough ThreadCaches, this number can get smaller than -2^31.
+  // across all ThreadCaches.
   static int64_t unclaimed_cache_space_ ABSL_GUARDED_BY(pageheap_lock);
 
   // This class is laid out with the most frequently used fields

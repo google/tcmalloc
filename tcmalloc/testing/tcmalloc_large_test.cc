@@ -14,8 +14,6 @@
 //
 // This is a unit test for large allocations in malloc and friends.
 // "Large" means "so large that they overflow the address space".
-// For 32 bits, this means allocations near 2^32 bytes and 2^31 bytes.
-// For 64 bits, this means allocations near 2^64 bytes and 2^63 bytes.
 
 #include <errno.h>
 #include <stddef.h>

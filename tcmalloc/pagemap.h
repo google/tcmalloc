@@ -16,8 +16,8 @@
 // a pointer that contains info about that page using a two-level array.
 //
 // The BITS parameter should be the number of bits required to hold
-// a page number.  E.g., with 32 bit pointers and 8K pages (i.e.,
-// page offset fits in lower 13 bits), BITS == 19.
+// a page number.  E.g., with 48-bit virtual address space and 8K pages
+// (i.e., page offset fits in lower 13 bits), BITS == 35 (48-13).
 //
 // A PageMap requires external synchronization, except for the get/sizeclass
 // methods (see explanation at top of tcmalloc.cc).

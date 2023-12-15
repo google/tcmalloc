@@ -105,11 +105,9 @@ void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
   if (list->max_length() < batch_size) {
     list->set_max_length(list->max_length() + 1);
   } else {
-    // Don't let the list get too long.  In 32 bit builds, the length
-    // is represented by a 16 bit int, so we need to watch out for
-    // integer overflow.
-    int new_length = std::min<int>(list->max_length() + batch_size,
-                                   kMaxDynamicFreeListLength);
+    // Don't let the list get too long.
+    size_t new_length =
+        std::min(list->max_length() + batch_size, kMaxDynamicFreeListLength);
     // The list's max_length must always be a multiple of batch_size,
     // and kMaxDynamicFreeListLength is not necessarily a multiple
     // of batch_size.
