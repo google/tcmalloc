@@ -30,18 +30,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-absl::string_view TransferCacheImplementationToLabel(
-    TransferCacheImplementation type) {
-  switch (type) {
-    case TransferCacheImplementation::kLifo:
-      return "LIFO";
-    case TransferCacheImplementation::kNone:
-      return "NO_TRANSFERCACHE";
-    default:
-      ASSUME(false);
-  }
-}
-
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
 size_t StaticForwarder::class_to_size(int size_class) {

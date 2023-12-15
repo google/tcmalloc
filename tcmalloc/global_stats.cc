@@ -565,10 +565,6 @@ void DumpStatsInPbtxt(Printer* out, int level) {
     tc_globals.transfer_cache().PrintInPbtxt(&region);
     tc_globals.sharded_transfer_cache().PrintInPbtxt(&region);
 
-    region.PrintRaw("transfer_cache_implementation",
-                    TransferCacheImplementationToLabel(
-                        tc_globals.transfer_cache().implementation()));
-
     if (UsePerCpuCache(tc_globals)) {
       tc_globals.cpu_cache().PrintInPbtxt(&region);
     }

@@ -366,9 +366,8 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
     pointers.push_back(&buffer[i]);
   }
 
-  // To produce wraparound in the RingBufferTransferCache, we fill up the cache
-  // completely and then keep inserting new elements. This makes the cache
-  // return old elements to the freelist and eventually wrap around.
+  // Fill up the cache completely and then keep inserting new elements.
+  // This makes the cache return old elements to the freelist.
   EXPECT_CALL(env.central_freelist(), RemoveRange).Times(0);
   // We do return items to the freelist, don't try to actually free them.
   ON_CALL(env.central_freelist(), InsertRange).WillByDefault(testing::Return());

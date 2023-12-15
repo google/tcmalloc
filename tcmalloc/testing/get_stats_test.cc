@@ -87,12 +87,6 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf, HasSubstr("percpu_slab_residence: 0"));
   }
   EXPECT_THAT(buf, ContainsRegex("(cpus_allowed: [1-9][0-9]*)"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  EXPECT_THAT(buf,
-              HasSubstr("transfer_cache_implementation: NO_TRANSFERCACHE"));
-#else
-  EXPECT_THAT(buf, HasSubstr("transfer_cache_implementation: LIFO"));
-#endif
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf,

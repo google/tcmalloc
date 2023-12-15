@@ -49,14 +49,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-enum class TransferCacheImplementation {
-  kLifo,
-  kNone,
-};
-
-absl::string_view TransferCacheImplementationToLabel(
-    TransferCacheImplementation type);
-
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
 
 class StaticForwarder {
@@ -457,10 +449,6 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.freelist();
   }
 
-  TransferCacheImplementation implementation() const {
-    return TransferCacheImplementation::kLifo;
-  }
-
   bool CanIncreaseCapacity(int size_class) const {
     return cache_[size_class].tc.CanIncreaseCapacity(size_class);
   }
@@ -506,10 +494,6 @@ class TransferCacheManager : public StaticForwarder {
   }
 
   void Print(Printer *out) const {
-    out->printf("------------------------------------------------\n");
-    out->printf("Transfer cache implementation: %s\n",
-                TransferCacheImplementationToLabel(implementation()));
-
     out->printf("------------------------------------------------\n");
     out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
     out->printf("of the transfer cache freelists.\n");
@@ -596,10 +580,6 @@ class TransferCacheManager {
 
   CentralFreeList& central_freelist(int size_class) {
     return freelist_[size_class];
-  }
-
-  TransferCacheImplementation implementation() const {
-    return TransferCacheImplementation::kNone;
   }
 
   void Print(Printer* out) const {}
