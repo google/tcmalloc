@@ -268,6 +268,8 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "pvalloc|"
     "valloc|"
     "realloc|"
+    "aligned_alloc|"
+    "sdallocx|"
 
     // TCMalloc.
     "tcmalloc::.*|"
@@ -291,15 +293,20 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
 
     // libstdc++ memory allocation routines
     "__gnu_cxx::new_allocator::allocate|"
+    "__gnu_cxx::new_allocator::deallocate|"
     "__malloc_alloc_template::allocate|"
     "_M_allocate|"
 
     // libc++ memory allocation routines
-    "std::__u::__libcpp_allocate|"
-    "std::__u::__libcpp_operator_delete|"
-    "std::__u::allocator::allocate|"
-    "std::__u::allocator_traits::allocate|"
-    "std::__u::__builtin_new_allocator::__allocate_bytes|"
+    "std::__(u|1)::__libcpp_allocate|"
+    "std::__(u|1)::__libcpp_deallocate|"
+    "std::__(u|1)::__libcpp_operator_new|"
+    "std::__(u|1)::__libcpp_operator_delete|"
+    "std::__(u|1)::allocator::allocate|"
+    "std::__(u|1)::allocator::deallocate|"
+    "std::__(u|1)::allocator_traits::allocate|"
+    "std::__(u|1)::__builtin_new_allocator::__allocate_bytes|"
+    "std::__(u|1)::__do_deallocate_handle_size|"
 
     // Other misc. memory allocation routines
     "(::)?do_malloc_pages|"
@@ -310,10 +317,11 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "__libc_malloc|"
     "__libc_memalign|"
     "__libc_realloc|"
-    "(::)?slow_alloc|"
+    "slow_alloc|"
     "fast_alloc|"
-    "(::)?AllocSmall|"
-    "operator new(\\[\\])?";
+    "AllocSmall|"
+    "operator new|"
+    "operator delete";
 
 ProfileBuilder::ProfileBuilder()
     : profile_(std::make_unique<perftools::profiles::Profile>()) {
