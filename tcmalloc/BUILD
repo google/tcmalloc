@@ -1232,6 +1232,7 @@ cc_fuzz_test(
 
 cc_test(
     name = "cpu_cache_test",
+    timeout = "long",
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     # There can be only one CpuCache due to slab offset caching in rseq.
