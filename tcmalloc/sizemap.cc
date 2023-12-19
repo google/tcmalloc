@@ -217,10 +217,12 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
             &class_array_[kClassArraySize]);
 
   if (use_extended_size_class_for_cold) {
-    int next_size = 0;
     for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
       size_t max_size_in_class = class_to_size_[c];
       if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
+        // Resetting next_size to the last size class before
+        // kMinAllocSizeForCold + kAlignment.
+        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
         continue;
       }
 

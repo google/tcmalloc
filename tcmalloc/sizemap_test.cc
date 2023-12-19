@@ -14,6 +14,7 @@
 
 #include "tcmalloc/sizemap.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <vector>
 
@@ -92,13 +93,94 @@ TEST_P(ColdSizeClassTest, ColdSizeClasses) {
   size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
   for (const size_t request_size : allowed_alloc_size) {
     EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
-              size_map.SizeClass(CppPolicy(), request_size) +
+              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
                   (tc_globals.numa_topology().GetCurrentPartition() == 0
                        ? kExpandedClassesStart
                        : kNumBaseClasses));
   }
   EXPECT_THAT(size_map.ColdSizeClasses(),
               ElementsAreArray(expected_cold_size_classes));
+}
+
+TEST_P(ColdSizeClassTest, VerifyAllocationFullRange) {
+  if (kPageShift <= 12) {
+    GTEST_SKIP() << "cold size classes are not activated on the small page";
+  }
+
+  SizeMap size_map;
+  size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
+
+  size_t size_before_min_alloc_for_cold = 0;
+  if (use_extended_size_class_for_cold()) {
+    auto it = std::lower_bound(kSizeClasses.begin(), kSizeClasses.end(),
+                               SizeMap::kMinAllocSizeForCold,
+                               [](const SizeClassInfo& lhs, const size_t rhs) {
+                                 return lhs.size < rhs;
+                               });
+    ASSERT_NE(it, kSizeClasses.begin());
+    size_before_min_alloc_for_cold = (--it)->size;
+  } else {
+    static constexpr size_t kColdCandidates[] = {
+        2048,  4096,  6144,  7168,  8192,   16384,
+        20480, 32768, 40960, 65536, 131072, 262144,
+    };
+    for (const size_t cold_candidate : kColdCandidates) {
+      for (int i = 0; i < kSizeClasses.size(); ++i) {
+        if (kSizeClasses[i].size != cold_candidate) continue;
+
+        // Due to a bug in the existing code, the first elligible size is never
+        // used for cold, which makes it the size_before_min_alloc_for_cold.
+        if (kSizeClasses[i].pages * kPageSize / cold_candidate <=
+            Span::kCacheSize) {
+          size_before_min_alloc_for_cold = cold_candidate;
+        }
+        break;
+      }
+      if (size_before_min_alloc_for_cold > 0) break;
+    }
+  }
+
+  // Confirm that small sizes are allocated as "hot".
+  for (int request_size = 0; request_size <= size_before_min_alloc_for_cold;
+       ++request_size) {
+    // Cold allocation is not numa-aware. They always point to the first
+    // partition.
+    EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) -
+                  (tc_globals.numa_topology().GetCurrentPartition() == 0
+                       ? 0
+                       : kNumBaseClasses))
+        << request_size;
+  }
+
+  // Confirm that large sizes are allocated as cold as requested.
+  size_t max_size = kSizeClasses[kSizeClasses.size() - 1].size;
+  for (int request_size = size_before_min_alloc_for_cold + 1;
+       request_size <= max_size; ++request_size) {
+    if (use_extended_size_class_for_cold()) {
+      EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+                size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
+                    (tc_globals.numa_topology().GetCurrentPartition() == 0
+                         ? kExpandedClassesStart
+                         : kNumBaseClasses))
+          << request_size;
+    } else {
+      // When using hardcoded cold size classes, the mapping may not be
+      // continous. For example, in 8k page, size class 5376 will be used for
+      // hot requests in (4736, 5376]. But size class 6144 (the immediate size
+      // class after 5376) will be used for cold requests in the same range. So
+      // the real mappping from hot to cold in this case should be
+      // `hot_size_class_index` + 1 + `numa_offset`. The exact offset into size
+      // class index depends on how many "holes" between the adjacent cold size
+      // classes. For simplicity, we use greater-or-equal for comparison.
+      EXPECT_GE(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+                size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
+                    (tc_globals.numa_topology().GetCurrentPartition() == 0
+                         ? kExpandedClassesStart
+                         : kNumBaseClasses))
+          << request_size;
+    }
+  }
 }
 
 }  // namespace tcmalloc::tcmalloc_internal

@@ -841,7 +841,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
              : 133) *
         kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth =
-        (forwarder_.use_extended_cold_size_classes() ? 82 : 152) *
+        (forwarder_.use_extended_cold_size_classes() ? 53 : 152) *
         kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
