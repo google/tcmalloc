@@ -42,6 +42,13 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     Log(kLog, __FILE__, __LINE__, "size class too big", size, kMaxSize);
     return false;
   }
+  // Verify Span does not use intrusive list which triggers memory accesses
+  // for sizes suitable for cold classes.
+  if (size >= kMinAllocSizeForCold && !Span::IsNonIntrusive(size)) {
+    Log(kLog, __FILE__, __LINE__,
+        "size is suitable for cold classes but is intrusive", size);
+    return false;
+  }
   // Check required alignment
   size_t alignment = 128;
   if (size <= kMultiPageSize) {
@@ -226,14 +233,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
         continue;
       }
 
-      // Verify the candidate can fit into a single span's cache, otherwise,
-      // we use an intrusive freelist which triggers memory accesses.
-      if (Span::IsIntrusive(
-              max_size_in_class,
-              Length(class_to_pages_[c]).in_bytes() / max_size_in_class)) {
-        continue;
-      }
-
+      CHECK_CONDITION(Span::IsNonIntrusive(max_size_in_class));
       cold_sizes_[cold_sizes_count_] = c;
       ++cold_sizes_count_;
 
@@ -271,14 +271,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
         }
       }
 
-      if (!found) {
-        continue;
-      }
-
-      // Verify the candidate can fit into a single span's kCacheSize,
-      // otherwise, we use an intrusive freelist which triggers memory accesses.
-      if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
-          Span::kCacheSize) {
+      if (!found || !Span::IsNonIntrusive(max_size_in_class)) {
         continue;
       }
 

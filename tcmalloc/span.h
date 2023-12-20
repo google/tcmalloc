@@ -200,7 +200,7 @@ class Span : public SpanList::Elem {
     allocated_.store(allocated - 1, std::memory_order_relaxed);
     // Bitmaps are used to record object availability when there are fewer than
     // 64 objects in a span.
-    if (ABSL_PREDICT_FALSE(!IsLessThanBitmapMinObjectSize(size))) {
+    if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
       if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
         return BitmapFreelistPush<Align::SMALL>(ptr, size);
       } else {
@@ -229,26 +229,14 @@ class Span : public SpanList::Elem {
   // Prefetch cacheline containing most important span information.
   void Prefetch();
 
-  // Returns whether we use an intrusive linked list to represent the Span.
-  // Above the minimum object size for using a bit map, all objects fit in the
-  // bit map.
-  //
-  // TODO(b/271000082): Add a test that verifies Span does not touch its memory
-  // when IsIntrusive is true.
-  static bool IsIntrusive(size_t size, size_t count);
-
-  // Returns true if <size> is less than the object size that can fit into a
-  // bitmap. Else, returns false.
-  static bool IsLessThanBitmapMinObjectSize(size_t size);
-
-  static constexpr size_t GetBitmapSize();
-
   // DoesNotFitInBitmap returns true for a <size> class when object size is
   // larger than the minimum bitmap object size, but can accommodate greater
   // than BitmapSize <objects_per_span>.
   static bool DoesNotFitInBitmap(size_t size, size_t objects_per_span);
 
-  static constexpr size_t kCacheSize = 4;
+  // Returns true if Span does not touch objects and the <size> is suitable
+  // for cold size classes.
+  static bool IsNonIntrusive(size_t size);
 
  private:
   // See the comment on freelist organization in cc file.
@@ -281,6 +269,9 @@ class Span : public SpanList::Elem {
   // heap? This is used by page heap to compute abandoned pages.
   uint8_t is_donated_ : 1;
 
+  static constexpr size_t kCacheSize = 4;
+  static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
+
   union {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
     // Embed cache of free objects.
@@ -289,7 +280,7 @@ class Span : public SpanList::Elem {
     // Used for spans with in CentralFreeList with fewer than 64 objects.
     // Each bit is set to one when the object is available, and zero
     // when the object is used.
-    Bitmap<8 * sizeof(ObjIdx) * kCacheSize> bitmap_{};
+    Bitmap<kBitmapSize> bitmap_{};
 
     // Used only for sampled spans (SAMPLED state).
     SampledAllocation* sampled_allocation_;
@@ -297,6 +288,9 @@ class Span : public SpanList::Elem {
 
   PageId first_page_;  // Starting page number.
   Length num_pages_;   // Number of pages in span.
+
+  // Returns true if Span will use bitmap for objects of size <size>.
+  static bool UseBitmapForSize(size_t size);
 
   // Convert object pointer <-> freelist index.
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
@@ -348,10 +342,6 @@ class Span : public SpanList::Elem {
   // For spans with 64 or fewer objects populate batch with up to N objects.
   // Returns number of objects actually popped.
   size_t BitmapFreelistPopBatch(void** batch, size_t N, size_t size);
-
-  static constexpr size_t GetBitmapSizeHelper() {
-    return 8 * sizeof(ObjIdx) * kCacheSize;
-  }
 
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
@@ -523,7 +513,6 @@ Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
 
 template <Span::Align align>
 bool Span::BitmapFreelistPush(void* ptr, size_t size) {
-  ASSERT(bitmap_.size() == GetBitmapSize());
 #ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif
@@ -579,10 +568,10 @@ inline void Span::set_num_pages(Length len) { num_pages_ = len; }
 inline size_t Span::bytes_in_span() const { return num_pages_.in_bytes(); }
 
 inline bool Span::FreelistEmpty(size_t size) const {
-  if (Span::IsLessThanBitmapMinObjectSize(size)) {
-    return (cache_size_ == 0 && freelist_ == kListEnd);
+  if (UseBitmapForSize(size)) {
+    return bitmap_.IsZero();
   } else {
-    return (bitmap_.IsZero());
+    return cache_size_ == 0 && freelist_ == kListEnd;
   }
 }
 
@@ -613,27 +602,24 @@ inline void Span::Init(PageId p, Length n) {
   is_donated_ = 0;
 }
 
-inline constexpr size_t Span::GetBitmapSize() { return GetBitmapSizeHelper(); }
 
 inline bool Span::DoesNotFitInBitmap(size_t size,
                                      const size_t objects_per_span) {
-  return (!Span::IsLessThanBitmapMinObjectSize(size) &&
-          objects_per_span > Span::GetBitmapSize());
+  return Span::UseBitmapForSize(size) && objects_per_span > kBitmapSize;
 }
 
-inline bool Span::IsLessThanBitmapMinObjectSize(size_t size) {
-  // Can fit Span::GetBitmapSize() objects into a bitmap, so determine what the
-  // minimum object size needs to be in order for that to work. This makes the
+inline bool Span::UseBitmapForSize(size_t size) {
+  // Can fit kBitmapSize objects into a bitmap, so determine what the minimum
+  // object size needs to be in order for that to work. This makes the
   // assumption that we don't increase the number of pages at a point where the
-  // object count ends up exceeding Span::GetBitmapSize().
-  static constexpr size_t kBitmapMinObjectSize =
-      kPageSize / Span::GetBitmapSize();
-  return size < kBitmapMinObjectSize;
+  // object count ends up exceeding kBitmapSize.
+  static constexpr size_t kBitmapMinObjectSize = kPageSize / kBitmapSize;
+  return size >= kBitmapMinObjectSize;
 }
 
-inline bool Span::IsIntrusive(size_t size, size_t count) {
-  return Span::IsLessThanBitmapMinObjectSize(size) && count > Span::kCacheSize;
-}
+// This is equivalent to UseBitmapForSize, but instrusive-ness is the property
+// callers care about, while use of bitmap is an implementation detail.
+inline bool Span::IsNonIntrusive(size_t size) { return UseBitmapForSize(size); }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

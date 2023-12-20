@@ -204,7 +204,7 @@ size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
   // Handle spans with bitmap_.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
-  if (ABSL_PREDICT_FALSE(!IsLessThanBitmapMinObjectSize(size))) {
+  if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
     return BitmapFreelistPopBatch(batch, N, size);
   }
   if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
@@ -252,7 +252,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   ASSERT(count > 0);
   freelist_ = kListEnd;
 
-  if (!IsLessThanBitmapMinObjectSize(size)) {
+  if (UseBitmapForSize(size)) {
     BitmapBuildFreelist(size, count);
     return BitmapFreelistPopBatch(batch, N, size);
   }

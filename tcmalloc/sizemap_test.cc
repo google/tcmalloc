@@ -56,8 +56,7 @@ TEST_P(ColdSizeClassTest, ColdSizeClasses) {
   std::vector<size_t> expected_cold_size_classes;
   if (use_extended_size_class_for_cold()) {
     for (int i = 0; i < kSizeClasses.size(); ++i) {
-      if (!Span::IsLessThanBitmapMinObjectSize(kSizeClasses[i].size) &&
-          kSizeClasses[i].size >= SizeMap::kMinAllocSizeForCold) {
+      if (kSizeClasses[i].size >= SizeMap::kMinAllocSizeForCold) {
         allowed_alloc_size.push_back(kSizeClasses[i].size);
         expected_cold_size_classes.push_back(i + kExpandedClassesStart);
       }
@@ -72,8 +71,7 @@ TEST_P(ColdSizeClassTest, ColdSizeClasses) {
       for (int i = 0; i < kSizeClasses.size(); ++i) {
         if (kSizeClasses[i].size != cold_candidate) continue;
 
-        if (kSizeClasses[i].pages * kPageSize / cold_candidate <=
-            Span::kCacheSize) {
+        if (Span::IsNonIntrusive(cold_candidate)) {
           // Due to a bug in the code, the smallest allowed size class is not
           // recorded in the final `class_array_`, but it's recorded in the
           // `cold_sizes_` array.
@@ -125,18 +123,12 @@ TEST_P(ColdSizeClassTest, VerifyAllocationFullRange) {
         20480, 32768, 40960, 65536, 131072, 262144,
     };
     for (const size_t cold_candidate : kColdCandidates) {
-      for (int i = 0; i < kSizeClasses.size(); ++i) {
-        if (kSizeClasses[i].size != cold_candidate) continue;
-
-        // Due to a bug in the existing code, the first elligible size is never
-        // used for cold, which makes it the size_before_min_alloc_for_cold.
-        if (kSizeClasses[i].pages * kPageSize / cold_candidate <=
-            Span::kCacheSize) {
-          size_before_min_alloc_for_cold = cold_candidate;
-        }
+      // Due to a bug in the existing code, the first eligible size is never
+      // used for cold, which makes it the size_before_min_alloc_for_cold.
+      if (Span::IsNonIntrusive(cold_candidate)) {
+        size_before_min_alloc_for_cold = cold_candidate;
         break;
       }
-      if (size_before_min_alloc_for_cold > 0) break;
     }
   }
 

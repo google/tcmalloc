@@ -36,6 +36,9 @@ namespace tcmalloc_internal {
 // an offset within a span.
 class SpanTestPeer {
  public:
+  static bool UseBitmapForSize(size_t size) {
+    return Span::UseBitmapForSize(size);
+  }
   static uint16_t CalcReciprocal(size_t size) {
     return Span::CalcReciprocal(size);
   }
@@ -108,13 +111,13 @@ TEST_P(SizeClassesTest, ValidateSufficientBitmapCapacity) {
   // objects.
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
-    if (!Span::IsLessThanBitmapMinObjectSize(max_size_in_class)) {
-      const size_t objects_per_span =
-          Length(m_.class_to_pages(c)).in_bytes() / m_.class_to_size(c);
-      EXPECT_LE(objects_per_span, Span::GetBitmapSize());
-      EXPECT_FALSE(
-          Span::DoesNotFitInBitmap(max_size_in_class, objects_per_span));
+    if (max_size_in_class == 0) {
+      continue;
     }
+    const size_t objects_per_span =
+        Length(m_.class_to_pages(c)).in_bytes() / max_size_in_class;
+    EXPECT_FALSE(
+        Span::DoesNotFitInBitmap(m_.class_to_size(c), objects_per_span));
   }
 }
 
@@ -127,7 +130,7 @@ TEST_P(SizeClassesTest, ValidateCorrectScalingByReciprocal) {
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
     // Only test for sizes where object availability is recorded in a bitmap.
-    if (Span::IsLessThanBitmapMinObjectSize(max_size_in_class)) {
+    if (!SpanTestPeer::UseBitmapForSize(max_size_in_class)) {
       continue;
     }
     size_t reciprocal = SpanTestPeer::CalcReciprocal(max_size_in_class);
