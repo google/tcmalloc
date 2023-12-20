@@ -139,6 +139,18 @@ size_t Static::pagemap_residence() {
 
 int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
 
+SizeClassConfiguration Static::size_class_configuration() {
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
+    return SizeClassConfiguration::kPow2Only;
+  } else if (default_want_legacy_size_classes != nullptr &&
+             default_want_legacy_size_classes() > 0) {
+    // TODO(b/242710633): remove this opt out.
+    return SizeClassConfiguration::kLegacy;
+  } else {
+    return SizeClassConfiguration::kPow2Below64;
+  }
+}
+
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   AllocationGuardSpinLockHolder h(&pageheap_lock);
 
@@ -146,14 +158,17 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
   if (!inited_.load(std::memory_order_acquire)) {
     absl::Span<const SizeClassInfo> size_classes;
 
-    if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
-      size_classes = kExperimentalPow2SizeClasses;
-    } else if (default_want_legacy_size_classes != nullptr &&
-               default_want_legacy_size_classes() > 0) {
-      // TODO(b/242710633): remove this opt out.
-      size_classes = kLegacySizeClasses;
-    } else {
-      size_classes = kSizeClasses;
+    switch (Static::size_class_configuration()) {
+      case SizeClassConfiguration::kPow2Below64:
+        size_classes = kSizeClasses;
+        break;
+      case SizeClassConfiguration::kPow2Only:
+        size_classes = kExperimentalPow2SizeClasses;
+        break;
+      case SizeClassConfiguration::kLegacy:
+        // TODO(b/242710633): remove this opt out.
+        size_classes = kLegacySizeClasses;
+        break;
     }
 
     CHECK_CONDITION(sizemap_.Init(

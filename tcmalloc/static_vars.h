@@ -63,6 +63,12 @@ using SampledAllocationRecorder =
     ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,
                                                   SampledAllocationAllocator>;
 
+enum class SizeClassConfiguration {
+  kPow2Below64 = 1,
+  kPow2Only = 2,
+  kLegacy = 3,
+};
+
 class Static final {
  public:
   constexpr Static() = default;
@@ -171,6 +177,8 @@ class Static final {
   // The root of the pagemap is potentially a large poorly utilized
   // structure, so figure out how much of it is actually resident.
   static size_t pagemap_residence();
+
+  static SizeClassConfiguration size_class_configuration();
 
  private:
 #if defined(__clang__)

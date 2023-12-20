@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
@@ -212,6 +213,22 @@ static int CountAllowedCpus() {
   }
 
   return CPU_COUNT(&allowed_cpus);
+}
+
+static absl::string_view SizeClassConfigurationString(
+    SizeClassConfiguration config) {
+  switch (config) {
+    case SizeClassConfiguration::kPow2Below64:
+      return "SIZE_CLASS_POW2_BELOW_64";
+    case SizeClassConfiguration::kPow2Only:
+      return "SIZE_CLASS_POW2_ONLY";
+    case SizeClassConfiguration::kLegacy:
+      // TODO(b/242710633): remove this opt out.
+      return "SIZE_CLASS_LEGACY";
+  }
+
+  ASSUME(false);
+  return "SIZE_CLASS_UNKNOWN";
 }
 
 void DumpStats(Printer* out, int level) {
@@ -462,6 +479,10 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "PARAMETER tcmalloc_use_all_buckets_for_few_object_spans %d\n",
         Parameters::use_all_buckets_for_few_object_spans_in_cfl() ? 1 : 0);
+
+    out->printf(
+        "PARAMETER size_class_config %s\n",
+        SizeClassConfigurationString(tc_globals.size_class_configuration()));
   }
 }
 
@@ -636,6 +657,10 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("tcmalloc_use_all_buckets_for_few_object_spans",
                   Parameters::use_all_buckets_for_few_object_spans_in_cfl());
+
+  region.PrintRaw(
+      "size_class_config",
+      SizeClassConfigurationString(tc_globals.size_class_configuration()));
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
