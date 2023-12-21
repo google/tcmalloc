@@ -215,6 +215,9 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 // Return whether we are using flat virtual CPUs.
 bool UsingFlatVirtualCpus();
 
+enum class RseqVcpuMode { kNone };
+inline RseqVcpuMode GetRseqVcpuMode() { return RseqVcpuMode::kNone; }
+
 inline int GetCurrentCpuUnsafe() {
   // Use the rseq mechanism.
   return RseqCpuId();

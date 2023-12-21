@@ -51,6 +51,8 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+using subtle::percpu::RseqVcpuMode;
+
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
 // will be set to the total number of objects of size class k in the
 // central cache, transfer cache, and per-thread and per-CPU caches.
@@ -229,6 +231,16 @@ static absl::string_view SizeClassConfigurationString(
 
   ASSUME(false);
   return "SIZE_CLASS_UNKNOWN";
+}
+
+static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
+  switch (mode) {
+    case RseqVcpuMode::kNone:
+      return "NONE";
+  }
+
+  ASSUME(false);
+  return "NONE";
 }
 
 void DumpStats(Printer* out, int level) {
@@ -483,6 +495,8 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "PARAMETER size_class_config %s\n",
         SizeClassConfigurationString(tc_globals.size_class_configuration()));
+    out->printf("PARAMETER percpu_vcpu_type %s\n",
+                PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   }
 }
 
@@ -644,7 +658,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    Parameters::release_partial_alloc_pages());
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
-                  subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
+                  PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintI64("separate_allocs_for_few_and_many_objects_spans",
                   Parameters::separate_allocs_for_few_and_many_objects_spans());
   region.PrintBool("tcmalloc_resize_cpu_cache_size_classes",
