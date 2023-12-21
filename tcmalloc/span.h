@@ -202,16 +202,12 @@ class Span : public SpanList::Elem {
     // 64 objects in a span.
     if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
       if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
-        return BitmapFreelistPush<Align::SMALL>(ptr, size);
+        return BitmapPush<Align::SMALL>(ptr, size);
       } else {
-        return BitmapFreelistPush<Align::LARGE>(ptr, size);
+        return BitmapPush<Align::LARGE>(ptr, size);
       }
     }
-    if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
-      return FreelistPushSized<Align::SMALL>(ptr, size);
-    } else {
-      return FreelistPushSized<Align::LARGE>(ptr, size);
-    }
+    return ListPush(ptr, size);
   }
 
   // Pops up to N objects from the freelist and returns them in the batch array.
@@ -294,7 +290,7 @@ class Span : public SpanList::Elem {
 
   // Convert object pointer <-> freelist index.
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
-  ObjIdx* IdxToPtr(ObjIdx idx, size_t size) const;
+  ObjIdx* IdxToPtr(ObjIdx idx, size_t size, uintptr_t start) const;
 
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
@@ -318,92 +314,65 @@ class Span : public SpanList::Elem {
     }
   }
 
-  template <Align align>
-  ObjIdx* IdxToPtrSized(ObjIdx idx, size_t size) const;
+  size_t ListPopBatch(void** __restrict batch, size_t N, size_t size);
 
-  template <Align align>
-  ObjIdx PtrToIdxSized(void* ptr, size_t size) const;
-
-  template <Align align>
-  size_t FreelistPopBatchSized(void** __restrict batch, size_t N, size_t size);
-
-  template <Align align>
-  bool FreelistPushSized(void* ptr, size_t size);
+  bool ListPush(void* ptr, size_t size);
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
   template <Align align>
-  bool BitmapFreelistPush(void* ptr, size_t size);
+  bool BitmapPush(void* ptr, size_t size);
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
-  void BitmapBuildFreelist(size_t size, size_t count);
+  void BuildBitmap(size_t size, size_t count);
 
   // For spans with 64 or fewer objects populate batch with up to N objects.
   // Returns number of objects actually popped.
-  size_t BitmapFreelistPopBatch(void** batch, size_t N, size_t size);
+  size_t BitmapPopBatch(void** batch, size_t N, size_t size);
 
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
 };
 
-template <Span::Align align>
-Span::ObjIdx* Span::IdxToPtrSized(ObjIdx idx, size_t size) const {
+inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
+                                    uintptr_t start) const {
+  ASSERT(num_pages_ == Length(1));
+  ASSERT(start == first_page_.start_uintptr());
   ASSERT(idx != kListEnd);
-  static_assert(align == Align::LARGE || align == Align::SMALL);
-  uintptr_t off =
-      first_page_.start_uintptr() +
-      (static_cast<uintptr_t>(idx)
-       << (align == Align::SMALL ? kAlignmentShift
-                                 : SizeMap::kMultiPageAlignmentShift));
+  uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
   ASSERT(PtrToIdx(ptr, size) == idx);
   return ptr;
 }
 
-template <Span::Align align>
-Span::ObjIdx Span::PtrToIdxSized(void* ptr, size_t size) const {
-  // Object index is an offset from span start divided by a power-of-two.
-  // The divisors are chosen so that
-  // (1) objects are aligned on the divisor,
-  // (2) index fits into 16 bits and
-  // (3) the index of the beginning of all objects is strictly less than
-  //     kListEnd (note that we have 256K pages and multi-page spans).
-  // For example with 1M spans we need kMultiPageAlignment >= 16.
-  // An ASSERT in BuildFreelist() verifies a condition which implies (3).
+inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
+  // Object index is an offset from span start divided by kAlignment.
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t off;
-  if (align == Align::SMALL) {
-    // Generally we need to load first_page_ to compute the offset.
-    // But first_page_ can be in a different cache line then the fields that
-    // we use in FreelistPush otherwise (cache_, cache_size_, freelist_).
-    // So we avoid loading first_page_ for smaller sizes that have one page per
-    // span, instead we compute the offset by taking low kPageShift bits of the
-    // pointer.
-    ASSERT(PageIdContaining(ptr) == first_page_);
-    ASSERT(num_pages_ == Length(1));
-    off = (p & (kPageSize - 1)) / static_cast<size_t>(kAlignment);
-  } else {
-    off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
-  }
+  // Classes that use freelist must also use 1 page per span,
+  // so don't load first_page_ (may be on a different cache line).
+  ASSERT(num_pages_ == Length(1));
+  ASSERT(PageIdContaining(ptr) == first_page_);
+  uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
   ASSERT(idx != kListEnd);
   ASSERT(idx == off);
-  ASSERT(IdxToPtr(idx, size) == ptr);
+  ASSERT(p == first_page_.start_uintptr() +
+                  (static_cast<uintptr_t>(idx) << kAlignmentShift));
   return idx;
 }
 
-template <Span::Align align>
-size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
-                                   size_t size) {
+inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
+                                 size_t size) {
   size_t result = 0;
 
   // Pop from cache.
   auto csize = cache_size_;
   ASSUME(csize <= kCacheSize);
   auto cache_reads = csize < N ? csize : N;
+  const uintptr_t span_start = first_page_.start_uintptr();
   for (; result < cache_reads; result++) {
-    batch[result] = IdxToPtrSized<align>(cache_[csize - result - 1], size);
+    batch[result] = IdxToPtr(cache_[csize - result - 1], size, span_start);
   }
 
   // Store this->cache_size_ one time.
@@ -414,7 +383,7 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
       break;
     }
 
-    ObjIdx* const host = IdxToPtrSized<align>(freelist_, size);
+    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
     uint16_t embed_count = embed_count_;
     ObjIdx current = host[embed_count];
 
@@ -424,7 +393,7 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
     }
     for (size_t i = 0; i < iter; i++) {
       // Pop from the first object on freelist.
-      batch[result + i] = IdxToPtrSized<align>(host[embed_count - i], size);
+      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
     }
     embed_count -= iter;
     result += iter;
@@ -451,9 +420,8 @@ size_t Span::FreelistPopBatchSized(void** __restrict batch, size_t N,
   return result;
 }
 
-template <Span::Align align>
-bool Span::FreelistPushSized(void* ptr, size_t size) {
-  ObjIdx idx = PtrToIdxSized<align>(ptr, size);
+inline bool Span::ListPush(void* ptr, size_t size) {
+  ObjIdx idx = PtrToIdx(ptr, size);
   if (cache_size_ != kCacheSize) {
     // Have empty space in the cache, push there.
     cache_[cache_size_] = idx;
@@ -462,18 +430,9 @@ bool Span::FreelistPushSized(void* ptr, size_t size) {
              // -1 because the first slot is used by freelist link.
              ABSL_PREDICT_TRUE(embed_count_ != size / sizeof(ObjIdx) - 1)) {
     // Push onto the first object on freelist.
-    ObjIdx* host;
-    if (align == Align::SMALL) {
-      // Avoid loading first_page_ in this case (see the comment in PtrToIdx).
-      ASSERT(num_pages_ == Length(1));
-      host = reinterpret_cast<ObjIdx*>(
-          (reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1)) +
-          static_cast<uintptr_t>(freelist_) *
-              static_cast<uintptr_t>(kAlignment));
-      ASSERT(PtrToIdx(host, size) == freelist_);
-    } else {
-      host = IdxToPtrSized<align>(freelist_, size);
-    }
+    // Avoid loading first_page_, we we can infer it from the pointer;
+    uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~(kPageSize - 1);
+    ObjIdx* host = IdxToPtr(freelist_, size, start);
     embed_count_++;
     host[embed_count_] = idx;
   } else {
@@ -512,7 +471,7 @@ Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
 }
 
 template <Span::Align align>
-bool Span::BitmapFreelistPush(void* ptr, size_t size) {
+bool Span::BitmapPush(void* ptr, size_t size) {
 #ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif

@@ -125,47 +125,6 @@ double Span::Fragmentation(size_t object_size) const {
 //              [---|idx|idx|idx|idx|idx|idx|idx]  16-byte object
 //
 
-Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
-  // Object index is an offset from span start divided by a power-of-two.
-  // The divisors are chosen so that
-  // (1) objects are aligned on the divisor,
-  // (2) index fits into 16 bits and
-  // (3) the index of the beginning of all objects is strictly less than
-  //     kListEnd (note that we have 256K pages and multi-page spans).
-  // For example with 1M spans we need kMultiPageAlignment >= 16.
-  // An ASSERT in BuildFreelist() verifies a condition which implies (3).
-  uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t off;
-  if (size <= SizeMap::kMultiPageSize) {
-    // Generally we need to load first_page_ to compute the offset.
-    // But first_page_ can be in a different cache line then the fields that
-    // we use in FreelistPush otherwise (cache_, cache_size_, freelist_).
-    // So we avoid loading first_page_ for smaller sizes that have one page per
-    // span, instead we compute the offset by taking low kPageShift bits of the
-    // pointer.
-    ASSERT(PageIdContaining(ptr) == first_page_);
-    off = (p & (kPageSize - 1)) / static_cast<size_t>(kAlignment);
-  } else {
-    off = (p - first_page_.start_uintptr()) / SizeMap::kMultiPageAlignment;
-  }
-  ObjIdx idx = static_cast<ObjIdx>(off);
-  ASSERT(idx != kListEnd);
-  ASSERT(idx == off);
-  return idx;
-}
-
-Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size) const {
-  ASSERT(idx != kListEnd);
-  uintptr_t off = first_page_.start_uintptr() +
-                  (static_cast<uintptr_t>(idx)
-                   << (size <= SizeMap::kMultiPageSize
-                           ? kAlignmentShift
-                           : SizeMap::kMultiPageAlignmentShift));
-  ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
-  ASSERT(PtrToIdx(ptr, size) == idx);
-  return ptr;
-}
-
 Span::ObjIdx* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
   uintptr_t off =
       first_page_.start_uintptr() + (static_cast<uintptr_t>(idx) * size);
@@ -173,8 +132,7 @@ Span::ObjIdx* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
   return ptr;
 }
 
-size_t Span::BitmapFreelistPopBatch(void** __restrict batch, size_t N,
-                                    size_t size) {
+size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
 #ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif  // NDEBUG
@@ -205,13 +163,9 @@ size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
   // Handle spans with bitmap_.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
-    return BitmapFreelistPopBatch(batch, N, size);
+    return BitmapPopBatch(batch, N, size);
   }
-  if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
-    return FreelistPopBatchSized<Align::SMALL>(batch, N, size);
-  } else {
-    return FreelistPopBatchSized<Align::LARGE>(batch, N, size);
-  }
+  return ListPopBatch(batch, N, size);
 }
 
 uint16_t Span::CalcReciprocal(size_t size) {
@@ -233,7 +187,7 @@ uint16_t Span::CalcReciprocal(size_t size) {
   return static_cast<uint16_t>(reciprocal);
 }
 
-void Span::BitmapBuildFreelist(size_t size, size_t count) {
+void Span::BuildBitmap(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap_.size() objects.
   ASSERT(count <= bitmap_.size());
@@ -253,12 +207,13 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   freelist_ = kListEnd;
 
   if (UseBitmapForSize(size)) {
-    BitmapBuildFreelist(size, count);
-    return BitmapFreelistPopBatch(batch, N, size);
+    BuildBitmap(size, count);
+    return BitmapPopBatch(batch, N, size);
   }
 
   // First, push as much as we can into the batch.
-  char* ptr = static_cast<char*>(start_address());
+  const uintptr_t start = first_page_.start_uintptr();
+  char* ptr = reinterpret_cast<char*>(start);
   int result = N <= count ? N : count;
   for (int i = 0; i < result; ++i) {
     batch[i] = ptr;
@@ -266,11 +221,8 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   }
   allocated_.store(result, std::memory_order_relaxed);
 
-  ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
+  const ObjIdx idxStep = size / static_cast<size_t>(kAlignment);
   // Valid objects are {0, idxStep, idxStep * 2, ..., idxStep * (count - 1)}.
-  if (size > SizeMap::kMultiPageSize) {
-    idxStep = size / SizeMap::kMultiPageAlignment;
-  }
   ObjIdx idx = idxStep * result;
 
   // Verify that the end of the useful portion of the span (and the beginning of
@@ -309,7 +261,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
       host[embed_count] = idxEnd;
     } else {
       // The first object is full, push new object onto freelist.
-      host = IdxToPtr(idx, size);
+      host = IdxToPtr(idx, size, start);
       host[0] = freelist_;
       freelist_ = idx;
       embed_count = 0;
