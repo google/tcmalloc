@@ -50,19 +50,10 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     return false;
   }
   // Check required alignment
-  size_t alignment = 128;
-  if (size <= kMultiPageSize) {
-    alignment = static_cast<size_t>(kAlignment);
-  } else if (size <= SizeMap::kMaxSmallSize) {
-    alignment = kMultiPageAlignment;
-  }
+  const size_t alignment =
+      size <= SizeMap::kMaxSmallSize ? static_cast<size_t>(kAlignment) : 128;
   if ((size & (alignment - 1)) != 0) {
     Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
-    return false;
-  }
-  if (size <= kMultiPageSize && pages != 1) {
-    Log(kLog, __FILE__, __LINE__, "Multiple pages not allowed", size, pages,
-        kMultiPageSize);
     return false;
   }
   if (pages == 0) {
@@ -77,9 +68,10 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   if (objects_per_span < 1) {
     Log(kLog, __FILE__, __LINE__, "each span must have at least one object");
     return false;
-  } else if (Span::DoesNotFitInBitmap(size, objects_per_span)) {
-    Log(kLog, __FILE__, __LINE__, "too many objects for bitmap representation",
-        size, objects_per_span);
+  }
+  if (!Span::IsValidSizeClass(size, pages)) {
+    Log(kLog, __FILE__, __LINE__, "span size class assumptions are broken",
+        size, pages, objects_per_span);
     return false;
   }
   if (num_objects_to_move < 2) {

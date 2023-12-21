@@ -43,13 +43,6 @@ extern const absl::Span<const SizeClassInfo> kLegacySizeClasses;
 // Size-class information + mapping
 class SizeMap {
  public:
-  // All size classes <= 512 in all configs always have 1 page spans.
-  static constexpr size_t kMultiPageSize = 512;
-  // Min alignment for all size classes > kMultiPageSize in all configs.
-  static constexpr size_t kMultiPageAlignment = 64;
-  // log2 (kMultiPageAlignment)
-  static constexpr size_t kMultiPageAlignmentShift =
-      absl::bit_width(kMultiPageAlignment - 1u);
   // Min allocation size for cold. Once more applications can provide cold hints
   // with PGHO, we can consider adding more size classes for cold to increase
   // cold coverage fleet-wide.

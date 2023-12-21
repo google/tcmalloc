@@ -46,7 +46,7 @@ namespace tcmalloc_internal {
 // Denominator for bitmap scaling factor. The idea is that instead of dividing
 // by N we multiply by M = kBitmapScalingDenominator / N and round the resulting
 // value.
-inline constexpr size_t kBitmapScalingDenominator = 65536;
+inline constexpr size_t kBitmapScalingDenominator = 1 << 30;
 
 enum AccessDensityPrediction {
   // Predict that the span would be sparsely-accessed.
@@ -178,10 +178,6 @@ class Span : public SpanList::Elem {
   // These methods REQUIRE a SMALL_OBJECT span.
   // ---------------------------------------------------------------------------
 
-  // Indicates whether the object is considered large or small based on
-  // size > SizeMap::kMultiPageSize.
-  enum class Align { SMALL, LARGE };
-
   // Indicate whether the Span is empty. Size is used to determine whether
   // the span is using a compressed linked list of objects, or a bitmap
   // to hold available objects.
@@ -208,10 +204,8 @@ class Span : public SpanList::Elem {
   // Prefetch cacheline containing most important span information.
   void Prefetch();
 
-  // DoesNotFitInBitmap returns true for a <size> class when object size is
-  // larger than the minimum bitmap object size, but can accommodate greater
-  // than BitmapSize <objects_per_span>.
-  static bool DoesNotFitInBitmap(size_t size, size_t objects_per_span);
+  // IsValidSizeClass verifies size class parameters from the Span perspective.
+  static bool IsValidSizeClass(size_t size, size_t pages);
 
   // Returns true if Span does not touch objects and the <size> is suitable
   // for cold size classes.
@@ -229,17 +223,19 @@ class Span : public SpanList::Elem {
   // are used here, but the flag could potentially hurt performance in other
   // cases so it is not enabled by default. For more information, please
   // look at b/35680381 and cl/199502226.
-  std::atomic<uint16_t> allocated_;  // Number of non-free objects
-  uint16_t embed_count_;
   // For available objects stored as a compressed linked list, the index of
   // the first object in recorded in freelist_. When a bitmap is used to
   // represent available objects, the reciprocal of the object size is
   // stored to enable conversion from the offset of an object within a
   // span to the index of the object.
   union {
-    uint16_t freelist_;
-    uint16_t reciprocal_;
+    struct {
+      uint16_t embed_count_;
+      uint16_t freelist_;
+    };
+    uint32_t reciprocal_;
   };
+  std::atomic<uint16_t> allocated_;  // Number of non-free objects
   uint8_t cache_size_;
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
@@ -277,25 +273,14 @@ class Span : public SpanList::Elem {
 
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
-  static uint16_t CalcReciprocal(size_t size);
+  static uint32_t CalcReciprocal(size_t size);
 
   // Convert object pointer <-> freelist index for bitmap managed objects.
-  template <Align align>
   ObjIdx BitmapPtrToIdx(void* ptr, size_t size) const;
-  ObjIdx* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
+  void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
 
   // Helper function for converting a pointer to an index.
-  template <Align align>
-  static ObjIdx OffsetToIdx(uintptr_t offset, size_t size, uint16_t reciprocal);
-  // Helper function for testing round trips between pointers and indexes.
-  static ObjIdx TestOffsetToIdx(uintptr_t ptr, size_t size,
-                                uint16_t reciprocal) {
-    if (size <= SizeMap::kMultiPageSize) {
-      return OffsetToIdx<Align::SMALL>(ptr, size, reciprocal);
-    } else {
-      return OffsetToIdx<Align::LARGE>(ptr, size, reciprocal);
-    }
-  }
+  static ObjIdx OffsetToIdx(uintptr_t offset, uint32_t reciprocal);
 
   size_t ListPopBatch(void** __restrict batch, size_t N, size_t size);
 
@@ -303,7 +288,6 @@ class Span : public SpanList::Elem {
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
-  template <Align align>
   bool BitmapPush(void* ptr, size_t size);
 
   // A bitmap is used to indicate object availability for spans containing
@@ -355,11 +339,7 @@ inline bool Span::FreelistPush(void* ptr, size_t size) {
   // Bitmaps are used to record object availability when there are fewer than
   // 64 objects in a span.
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
-    if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
-      return BitmapPush<Align::SMALL>(ptr, size);
-    } else {
-      return BitmapPush<Align::LARGE>(ptr, size);
-    }
+    return BitmapPush(ptr, size);
   }
   return ListPush(ptr, size);
 }
@@ -388,48 +368,32 @@ inline bool Span::ListPush(void* ptr, size_t size) {
   return true;
 }
 
-template <Span::Align align>
-Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, size_t size,
-                               uint16_t reciprocal) {
-  if (align == Align::SMALL) {
-    return static_cast<ObjIdx>(
-        // Add kBitmapScalingDenominator / 2 to round to nearest integer.
-        ((offset >> kAlignmentShift) * reciprocal +
-         kBitmapScalingDenominator / 2) /
-        kBitmapScalingDenominator);
-  } else {
-    return static_cast<ObjIdx>(
-        ((offset >> SizeMap::kMultiPageAlignmentShift) * reciprocal +
-         kBitmapScalingDenominator / 2) /
-        kBitmapScalingDenominator);
-  }
+inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
+  // Add kBitmapScalingDenominator / 2 to round to nearest integer.
+  return static_cast<ObjIdx>(
+      (offset * reciprocal + kBitmapScalingDenominator / 2) /
+      kBitmapScalingDenominator);
 }
 
-template <Span::Align align>
-Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
+inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   uintptr_t off = static_cast<uint32_t>(p - first_page_.start_uintptr());
-  ObjIdx idx = OffsetToIdx<align>(off, size, reciprocal_);
+  ObjIdx idx = OffsetToIdx(off, reciprocal_);
   ASSERT(BitmapIdxToPtr(idx, size) == ptr);
   return idx;
 }
 
-template <Span::Align align>
-bool Span::BitmapPush(void* ptr, size_t size) {
+inline bool Span::BitmapPush(void* ptr, size_t size) {
 #ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif
   // TODO(djgove) Conversions to offsets can be computed outside of lock.
-  ObjIdx idx = BitmapPtrToIdx<align>(ptr, size);
+  ObjIdx idx = BitmapPtrToIdx(ptr, size);
   // Check that the object is not already returned.
   ASSERT(bitmap_.GetBit(idx) == 0);
   // Set the bit indicating where the object was returned.
   bitmap_.SetBit(idx);
-#ifndef NDEBUG
-  size_t after = bitmap_.CountBits(0, bitmap_.size());
-  ASSERT(before + 1 == after);
-  ASSERT(allocated_.load(std::memory_order_relaxed) == embed_count_ - after);
-#endif
+  ASSERT(before + 1 == bitmap_.CountBits(0, bitmap_.size()));
   return true;
 }
 
@@ -505,10 +469,13 @@ inline void Span::Init(PageId p, Length n) {
   is_donated_ = 0;
 }
 
-
-inline bool Span::DoesNotFitInBitmap(size_t size,
-                                     const size_t objects_per_span) {
-  return Span::UseBitmapForSize(size) && objects_per_span > kBitmapSize;
+inline bool Span::IsValidSizeClass(size_t size, size_t pages) {
+  if (Span::UseBitmapForSize(size)) {
+    size_t objects = Length(pages).in_bytes() / size;
+    return objects <= kBitmapSize;
+  } else {
+    return pages == 1;
+  }
 }
 
 inline bool Span::UseBitmapForSize(size_t size) {

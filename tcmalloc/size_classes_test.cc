@@ -39,12 +39,11 @@ class SpanTestPeer {
   static bool UseBitmapForSize(size_t size) {
     return Span::UseBitmapForSize(size);
   }
-  static uint16_t CalcReciprocal(size_t size) {
+  static uint32_t CalcReciprocal(size_t size) {
     return Span::CalcReciprocal(size);
   }
-  static Span::ObjIdx TestOffsetToIdx(uintptr_t offset, size_t size,
-                                      uint16_t reciprocal) {
-    return Span::TestOffsetToIdx(offset, size, reciprocal);
+  static Span::ObjIdx TestOffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
+    return Span::OffsetToIdx(offset, reciprocal);
   }
 };
 
@@ -76,22 +75,6 @@ class SizeClassesTest
   SizeMap m_;
 };
 
-TEST_P(SizeClassesTest, SmallClassesSinglePage) {
-  // Per //tcmalloc/span.h, the compressed index implementation
-  // added by cl/126729493 requires small size classes to be placed on a single
-  // page span so they can be addressed.
-  for (int c = 1; c < kNumClasses; c++) {
-    const size_t max_size_in_class = m_.class_to_size(c);
-    if (max_size_in_class >= SizeMap::kMultiPageSize) {
-      continue;
-    }
-    if (max_size_in_class == 0) {
-      continue;
-    }
-    EXPECT_EQ(m_.class_to_pages(c), 1) << max_size_in_class;
-  }
-}
-
 TEST_P(SizeClassesTest, SpanPages) {
   for (int c = 1; c < kNumClasses; c++) {
     const size_t max_size_in_class = m_.class_to_size(c);
@@ -104,20 +87,13 @@ TEST_P(SizeClassesTest, SpanPages) {
 }
 
 TEST_P(SizeClassesTest, ValidateSufficientBitmapCapacity) {
-  // Validate that all the objects in a span can fit into a bitmap.
-  // The cut-off for using a bitmap is computed in
-  // IsLessThanBitmapMinObjectSize(), so it is theoretically possible that a
-  // span could exceed this threshold for object size and contain more than 64
-  // objects.
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
     if (max_size_in_class == 0) {
       continue;
     }
-    const size_t objects_per_span =
-        Length(m_.class_to_pages(c)).in_bytes() / max_size_in_class;
-    EXPECT_FALSE(
-        Span::DoesNotFitInBitmap(m_.class_to_size(c), objects_per_span));
+    EXPECT_TRUE(
+        Span::IsValidSizeClass(max_size_in_class, m_.class_to_pages(c)));
   }
 }
 
@@ -140,8 +116,7 @@ TEST_P(SizeClassesTest, ValidateCorrectScalingByReciprocal) {
       // Calculate the address of the object.
       uintptr_t address = index * max_size_in_class;
       // Calculate the index into the page using the reciprocal method.
-      int idx =
-          SpanTestPeer::TestOffsetToIdx(address, max_size_in_class, reciprocal);
+      int idx = SpanTestPeer::TestOffsetToIdx(address, reciprocal);
       // Check that the starting address back is correct.
       ASSERT_EQ(address, idx * max_size_in_class);
     }
@@ -321,14 +296,6 @@ TEST_F(RunTimeSizeClassesTest, ValidateClassSizesAlignment) {
   parsed[1].size = 7;
   EXPECT_FALSE(m_.ValidSizeClasses(parsed));
 
-  // Over 512, expect alignment of 64 bytes.
-  // 512 + 64 = 576
-  parsed[1].size = 576;
-  EXPECT_TRUE(m_.ValidSizeClasses(parsed));
-  // 512 + 8
-  parsed[1].size = 520;
-  EXPECT_FALSE(m_.ValidSizeClasses(parsed));
-
   // Over 1024, expect alignment of 128 bytes.
   // 1024 + 128 = 1152
   parsed[1].size = 1024 + 128;
@@ -353,7 +320,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateBatchSize) {
 TEST_F(RunTimeSizeClassesTest, ValidatePageSize) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
-      {1024, 2, kMaxObjectsToMove},
+      {1024, 1, kMaxObjectsToMove},
       {kMaxSize, 64, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));

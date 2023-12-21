@@ -126,11 +126,9 @@ double Span::Fragmentation(size_t object_size) const {
 //              [---|idx|idx|idx|idx|idx|idx|idx]  16-byte object
 //
 
-Span::ObjIdx* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  uintptr_t off =
-      first_page_.start_uintptr() + (static_cast<uintptr_t>(idx) * size);
-  ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
-  return ptr;
+void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
+  uintptr_t off = first_page_.start_uintptr() + idx * size;
+  return reinterpret_cast<ObjIdx*>(off);
 }
 
 size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
@@ -149,12 +147,7 @@ size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
     count++;
   }
 
-#ifndef NDEBUG
-  size_t after = bitmap_.CountBits(0, bitmap_.size());
-  ASSERT(after + count == before);
-  ASSERT(allocated_.load(std::memory_order_relaxed) + count ==
-         embed_count_ - after);
-#endif  // NDEBUG
+  ASSERT(bitmap_.CountBits(0, bitmap_.size()) + count == before);
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
@@ -226,33 +219,19 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
   return result;
 }
 
-uint16_t Span::CalcReciprocal(size_t size) {
+uint32_t Span::CalcReciprocal(size_t size) {
   // Calculate scaling factor. We want to avoid dividing by the size of the
   // object. Instead we'll multiply by a scaled version of the reciprocal.
   // We divide kBitmapScalingDenominator by the object size, so later we can
   // multiply by this reciprocal, and then divide this scaling factor out.
   // TODO(djgove) These divides can be computed once at start up.
-  size_t reciprocal = 0;
-  // The spans hold objects up to kMaxSize, so it's safe to assume.
-  ABSL_ASSUME(size <= kMaxSize);
-  if (size <= SizeMap::kMultiPageSize) {
-    reciprocal = kBitmapScalingDenominator / (size >> kAlignmentShift);
-  } else {
-    reciprocal =
-        kBitmapScalingDenominator / (size >> SizeMap::kMultiPageAlignmentShift);
-  }
-  ASSERT(reciprocal < 65536);
-  return static_cast<uint16_t>(reciprocal);
+  return kBitmapScalingDenominator / size;
 }
 
 void Span::BuildBitmap(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap_.size() objects.
   ASSERT(count <= bitmap_.size());
-#ifndef NDEBUG
-  // For bitmap_ use embed_count_ to record objects per span.
-  embed_count_ = count;
-#endif  // NDEBUG
   reciprocal_ = CalcReciprocal(size);
   allocated_.store(0, std::memory_order_relaxed);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
