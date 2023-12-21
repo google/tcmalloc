@@ -191,24 +191,7 @@ class Span : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  bool FreelistPush(void* ptr, size_t size) {
-    const auto allocated = allocated_.load(std::memory_order_relaxed);
-    ASSERT(allocated > 0);
-    if (ABSL_PREDICT_FALSE(allocated == 1)) {
-      return false;
-    }
-    allocated_.store(allocated - 1, std::memory_order_relaxed);
-    // Bitmaps are used to record object availability when there are fewer than
-    // 64 objects in a span.
-    if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
-      if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
-        return BitmapPush<Align::SMALL>(ptr, size);
-      } else {
-        return BitmapPush<Align::LARGE>(ptr, size);
-      }
-    }
-    return ListPush(ptr, size);
-  }
+  bool FreelistPush(void* ptr, size_t size);
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
@@ -362,62 +345,23 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   return idx;
 }
 
-inline size_t Span::ListPopBatch(void** __restrict batch, size_t N,
-                                 size_t size) {
-  size_t result = 0;
-
-  // Pop from cache.
-  auto csize = cache_size_;
-  ASSUME(csize <= kCacheSize);
-  auto cache_reads = csize < N ? csize : N;
-  const uintptr_t span_start = first_page_.start_uintptr();
-  for (; result < cache_reads; result++) {
-    batch[result] = IdxToPtr(cache_[csize - result - 1], size, span_start);
+inline bool Span::FreelistPush(void* ptr, size_t size) {
+  const auto allocated = allocated_.load(std::memory_order_relaxed);
+  ASSERT(allocated > 0);
+  if (ABSL_PREDICT_FALSE(allocated == 1)) {
+    return false;
   }
-
-  // Store this->cache_size_ one time.
-  cache_size_ = csize - result;
-
-  while (result < N) {
-    if (freelist_ == kListEnd) {
-      break;
+  allocated_.store(allocated - 1, std::memory_order_relaxed);
+  // Bitmaps are used to record object availability when there are fewer than
+  // 64 objects in a span.
+  if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
+    if (ABSL_PREDICT_TRUE(size <= SizeMap::kMultiPageSize)) {
+      return BitmapPush<Align::SMALL>(ptr, size);
+    } else {
+      return BitmapPush<Align::LARGE>(ptr, size);
     }
-
-    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
-    uint16_t embed_count = embed_count_;
-    ObjIdx current = host[embed_count];
-
-    size_t iter = embed_count;
-    if (result + embed_count > N) {
-      iter = N - result;
-    }
-    for (size_t i = 0; i < iter; i++) {
-      // Pop from the first object on freelist.
-      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
-    }
-    embed_count -= iter;
-    result += iter;
-
-    // Update current for next cycle.
-    current = host[embed_count];
-
-    if (result == N) {
-      embed_count_ = embed_count;
-      break;
-    }
-
-    // The first object on the freelist is empty, pop it.
-    ASSERT(embed_count == 0);
-
-    batch[result] = host;
-    result++;
-
-    freelist_ = current;
-    embed_count_ = size / sizeof(ObjIdx) - 1;
   }
-  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
-                   std::memory_order_relaxed);
-  return result;
+  return ListPush(ptr, size);
 }
 
 inline bool Span::ListPush(void* ptr, size_t size) {

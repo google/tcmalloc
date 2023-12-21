@@ -24,6 +24,7 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/sampler.h"
@@ -166,6 +167,63 @@ size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
     return BitmapPopBatch(batch, N, size);
   }
   return ListPopBatch(batch, N, size);
+}
+
+size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
+  size_t result = 0;
+
+  // Pop from cache.
+  auto csize = cache_size_;
+  ASSUME(csize <= kCacheSize);
+  auto cache_reads = csize < N ? csize : N;
+  const uintptr_t span_start = first_page_.start_uintptr();
+  for (; result < cache_reads; result++) {
+    batch[result] = IdxToPtr(cache_[csize - result - 1], size, span_start);
+  }
+
+  // Store this->cache_size_ one time.
+  cache_size_ = csize - result;
+
+  while (result < N) {
+    if (freelist_ == kListEnd) {
+      break;
+    }
+
+    ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
+    uint16_t embed_count = embed_count_;
+    ObjIdx current = host[embed_count];
+
+    size_t iter = embed_count;
+    if (result + embed_count > N) {
+      iter = N - result;
+    }
+    for (size_t i = 0; i < iter; i++) {
+      // Pop from the first object on freelist.
+      batch[result + i] = IdxToPtr(host[embed_count - i], size, span_start);
+    }
+    embed_count -= iter;
+    result += iter;
+
+    // Update current for next cycle.
+    current = host[embed_count];
+
+    if (result == N) {
+      embed_count_ = embed_count;
+      break;
+    }
+
+    // The first object on the freelist is empty, pop it.
+    ASSERT(embed_count == 0);
+
+    batch[result] = host;
+    result++;
+
+    freelist_ = current;
+    embed_count_ = size / sizeof(ObjIdx) - 1;
+  }
+  allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
+                   std::memory_order_relaxed);
+  return result;
 }
 
 uint16_t Span::CalcReciprocal(size_t size) {
