@@ -71,7 +71,7 @@ ThreadCache::ThreadCache(pthread_t tid) {
 void ThreadCache::Cleanup() {
   // Put unused memory back into transfer cache
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    if (list_[size_class].length() > 0) {
+    if (!list_[size_class].empty()) {
       ReleaseToTransferCache(&list_[size_class], size_class,
                              list_[size_class].length());
     }

@@ -869,7 +869,6 @@ using tcmalloc::tcmalloc_internal::do_mallinfo;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO2
 using tcmalloc::tcmalloc_internal::do_mallinfo2;
 #endif
-using tcmalloc::tcmalloc_internal::do_malloc_pages;
 using tcmalloc::tcmalloc_internal::do_malloc_stats;
 using tcmalloc::tcmalloc_internal::do_malloc_trim;
 using tcmalloc::tcmalloc_internal::do_mallopt;
@@ -878,7 +877,6 @@ using tcmalloc::tcmalloc_internal::MallocPolicy;
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
-using tcmalloc::tcmalloc_internal::ThreadCache;
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
