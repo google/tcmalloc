@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
@@ -146,14 +147,14 @@ bool IsExperimentActive(Experiment exp) {
   return tcmalloc_internal::GetSelectedExperiments()[static_cast<int>(exp)];
 }
 
-absl::optional<Experiment> FindExperimentByName(absl::string_view name) {
+std::optional<Experiment> FindExperimentByName(absl::string_view name) {
   for (const auto& config : experiments) {
     if (name == config.name) {
       return config.id;
     }
   }
 
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 void WalkExperiments(
