@@ -261,7 +261,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateClassSizeIncreases) {
       {0, 0, 0},
       {16, 1, 14},
       {32, 1, 15},
-      {kMaxSize, 64, 15},
+      {kMaxSize, kMaxSize / kPageSize, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));
 
@@ -272,7 +272,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateClassSizeIncreases) {
 TEST_F(RunTimeSizeClassesTest, ValidateClassSizeMax) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
-      {kMaxSize - 128, 64, 15},
+      {kMaxSize - 128, kMaxSize / kPageSize, 15},
   };
   // Last class must cover kMaxSize
   EXPECT_FALSE(m_.ValidSizeClasses(parsed));
@@ -289,7 +289,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateClassSizesAlignment) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
       {8, 1, 14},
-      {kMaxSize, 64, 15},
+      {kMaxSize, kMaxSize / kPageSize, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));
   // Doesn't meet alignment requirements
@@ -309,7 +309,7 @@ TEST_F(RunTimeSizeClassesTest, ValidateBatchSize) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
       {8, 1, kMaxObjectsToMove},
-      {kMaxSize, 64, 15},
+      {kMaxSize, kMaxSize / kPageSize, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));
 
@@ -321,7 +321,7 @@ TEST_F(RunTimeSizeClassesTest, ValidatePageSize) {
   SizeClassInfo parsed[] = {
       {0, 0, 0},
       {1024, 1, kMaxObjectsToMove},
-      {kMaxSize, 64, 15},
+      {kMaxSize, kMaxSize / kPageSize, 15},
   };
   EXPECT_TRUE(m_.ValidSizeClasses(parsed));
 

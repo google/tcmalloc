@@ -23,6 +23,7 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/time/time.h"
 #include "tcmalloc/arena.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
@@ -220,9 +221,14 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return regions_;
   };
 
+  // IsValidSizeClass verifies size class parameters from the HPAA perspective.
+  static bool IsValidSizeClass(size_t size, size_t pages);
+
   Forwarder& forwarder() { return forwarder_; }
 
  private:
+  static constexpr Length kSmallAllocPages = kPagesPerHugePage / 2;
+
   class Unback final : public MemoryModifyFunction {
    public:
     explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
@@ -600,7 +606,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
   AllocationGuardSpinLockHolder h(&pageheap_lock);
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
-  if (n <= kPagesPerHugePage / 2) {
+  if (n <= kSmallAllocPages) {
     return AllocSmall(n, span_alloc_info, from_released);
   }
 
@@ -1021,6 +1027,18 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
   return released;
+}
+
+template <class Forwarder>
+bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
+                                                         size_t pages) {
+  // We assume that dense spans won't be donated.
+  size_t objects = Length(pages).in_bytes() / size;
+  if (objects > central_freelist_internal::kFewObjectsAllocMaxLimit &&
+      Length(pages) > kSmallAllocPages) {
+    return false;
+  }
+  return true;
 }
 
 }  // namespace huge_page_allocator_internal

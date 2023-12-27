@@ -22,6 +22,7 @@
 #include "absl/base/macros.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
@@ -71,6 +72,11 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   }
   if (!Span::IsValidSizeClass(size, pages)) {
     Log(kLog, __FILE__, __LINE__, "span size class assumptions are broken",
+        size, pages, objects_per_span);
+    return false;
+  }
+  if (!HugePageAwareAllocator::IsValidSizeClass(size, pages)) {
+    Log(kLog, __FILE__, __LINE__, "hpaa size class assumptions are broken",
         size, pages, objects_per_span);
     return false;
   }
