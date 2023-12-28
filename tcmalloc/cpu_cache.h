@@ -1953,22 +1953,21 @@ template <class CpuCache>
 struct DrainHandler {
   void operator()(int cpu, size_t size_class, void** batch, size_t count,
                   size_t cap) const {
-    const size_t size = cache->forwarder_.class_to_size(size_class);
+    const size_t size = cache.forwarder_.class_to_size(size_class);
     const size_t batch_length =
-        cache->forwarder_.num_objects_to_move(size_class);
+        cache.forwarder_.num_objects_to_move(size_class);
     if (bytes != nullptr) *bytes += count * size;
     // Drain resets capacity to 0, so return the allocated capacity to that
     // CPU's slack.
-    cache->resize_[cpu].available.fetch_add(cap * size,
-                                            std::memory_order_relaxed);
+    cache.resize_[cpu].available.fetch_add(cap * size,
+                                           std::memory_order_relaxed);
     for (size_t i = 0; i < count; i += batch_length) {
       size_t n = std::min(batch_length, count - i);
-      cache->ReleaseToBackingCache(size_class, absl::Span<void*>(batch + i, n));
+      cache.ReleaseToBackingCache(size_class, absl::Span<void*>(batch + i, n));
     }
   }
 
-  // `cache` must be non-null.
-  CpuCache* cache;
+  CpuCache& cache;
   uint64_t* bytes;
 };
 
@@ -1984,7 +1983,7 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   }
 
   uint64_t bytes = 0;
-  freelist_.Drain(cpu, DrainHandler<CpuCache>{this, &bytes});
+  freelist_.Drain(cpu, DrainHandler<CpuCache>{*this, &bytes});
 
   // Record that the reclaim occurred for this CPU.
   resize_[cpu].num_reclaims.store(
@@ -2140,7 +2139,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         new_shift, new_slabs, &forwarder_.Alloc,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
         [this](int cpu) { return HasPopulated(cpu); },
-        DrainHandler<CpuCache>{this, nullptr});
+        DrainHandler<CpuCache>{*this, nullptr});
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
