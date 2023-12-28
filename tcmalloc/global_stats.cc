@@ -95,8 +95,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->thread_bytes = 0;
   {  // scope
     AllocationGuardSpinLockHolder h(&pageheap_lock);
-    ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
-    r->tc_stats = ThreadCache::HeapStats();
+    r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
     r->span_stats = tc_globals.span_allocator().stats();
     r->stack_stats = tc_globals.sampledallocation_allocator().stats();
     r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
