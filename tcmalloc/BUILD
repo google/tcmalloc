@@ -144,7 +144,9 @@ cc_library(
     ],
     copts = ["-DTCMALLOC_DEPRECATED_PERTHREAD"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = [":tcmalloc_tests"],
+    visibility = [
+        ":tcmalloc_tests",
+    ],
     deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
         "//tcmalloc/internal:allocation_guard",
