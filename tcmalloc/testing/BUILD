@@ -198,8 +198,10 @@ cc_test(
     tags = ["nosan"],
     deps = [
         ":testutil",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:linked_list",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
