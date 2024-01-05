@@ -39,11 +39,6 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
  protected:
   SamplingMemoryTest() {
     MallocExtension::SetGuardedSamplingRate(-1);
-    if (tcmalloc_internal::kPageSize == 262144) {
-      // For 256k pages, the sampling overhead is larger. Reduce
-      // the sampling period to 1<<24
-      MallocExtension::SetProfileSamplingRate(1 << 24);
-    }
   }
 
   size_t Property(absl::string_view name) {
@@ -148,9 +143,17 @@ TEST_P(SamplingMemoryTest, Overhead) {
       (static_cast<double>(with_sampling) - static_cast<double>(baseline)) *
       100.0 / static_cast<double>(baseline);
 
+  double expectedOverhead = 10.0;
+  // Larger page sizes have larger sampling overhead.
+  if (tcmalloc_internal::kPageShift == 15) {
+    expectedOverhead *= 1.5;
+  } else if (tcmalloc_internal::kPageShift == 18) {
+    expectedOverhead *= 3;
+  }
+
   // some noise is unavoidable
-  EXPECT_GE(percent, -10.0) << baseline << " " << with_sampling;
-  EXPECT_LE(percent, 10.0) << baseline << " " << with_sampling;
+  EXPECT_GE(percent, -expectedOverhead) << baseline << " " << with_sampling;
+  EXPECT_LE(percent, expectedOverhead) << baseline << " " << with_sampling;
 }
 
 std::vector<size_t> InterestingSizes() {
