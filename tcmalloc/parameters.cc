@@ -519,6 +519,15 @@ void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v) {
 }
 
 void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
+#if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
+  if (!v) {
+    Log(kLog, __FILE__, __LINE__,
+        "Using per-thread caches requires linking against "
+        ":tcmalloc_deprecated_perthread.");
+    return;
+  }
+#endif  // !TCMALLOC_DEPRECATED_PERTHREAD
+
   Parameters::per_cpu_caches_enabled_.store(v, std::memory_order_relaxed);
 }
 
