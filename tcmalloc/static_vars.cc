@@ -142,6 +142,9 @@ int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
 SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
+  } else if (IsExperimentActive(
+                 Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES)) {
+    return SizeClassConfiguration::kLowFrag;
   } else if (default_want_legacy_size_classes != nullptr &&
              default_want_legacy_size_classes() > 0) {
     // TODO(b/242710633): remove this opt out.
@@ -164,6 +167,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
         break;
       case SizeClassConfiguration::kPow2Only:
         size_classes = kExperimentalPow2SizeClasses;
+        break;
+      case SizeClassConfiguration::kLowFrag:
+        size_classes = kLowFragSizeClasses;
         break;
       case SizeClassConfiguration::kLegacy:
         // TODO(b/242710633): remove this opt out.

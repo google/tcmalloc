@@ -39,6 +39,7 @@ extern const absl::Span<const SizeClassInfo> kSizeClasses;
 // Experimental size classes:
 extern const absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses;
 extern const absl::Span<const SizeClassInfo> kLegacySizeClasses;
+extern const absl::Span<const SizeClassInfo> kLowFragSizeClasses;
 
 // Size-class information + mapping
 class SizeMap {
