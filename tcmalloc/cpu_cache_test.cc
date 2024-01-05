@@ -136,8 +136,6 @@ class TestStaticForwarder {
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
 
-  bool resize_size_classes_enabled() { return resize_size_classes_enabled_; }
-
   double per_cpu_caches_dynamic_slab_grow_threshold() {
     if (dynamic_slab_grow_threshold_ >= 0) return dynamic_slab_grow_threshold_;
     return dynamic_slab_ == DynamicSlab::kGrow
@@ -234,7 +232,6 @@ class TestStaticForwarder {
   bool wider_slabs_enabled_ = false;
   bool configure_size_class_max_capacity_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
-  bool resize_size_classes_enabled_ = false;
   bool use_extended_size_class_for_cold_ = false;
   std::optional<SizeMap> size_map_;
 
@@ -637,8 +634,6 @@ TEST(CpuCacheTest, StressSizeClassResize) {
   }
 
   CpuCache cache;
-  TestStaticForwarder& forwarder = cache.forwarder();
-  forwarder.resize_size_classes_enabled_ = true;
   cache.Activate();
 
   std::vector<std::thread> threads;
@@ -825,8 +820,6 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
 
   CpuCache cache;
   cache.Activate();
-  TestStaticForwarder& forwarder = cache.forwarder();
-  forwarder.resize_size_classes_enabled_ = true;
 
   // Temporarily fake being on the given CPU.
   constexpr int kCpuId = 0;

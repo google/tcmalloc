@@ -96,8 +96,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         last_shuffle = now;
       }
 
-      if (Parameters::resize_cpu_cache_size_classes() &&
-          now - last_size_class_resize >= kSizeClassResizePeriod) {
+      if (now - last_size_class_resize >= kSizeClassResizePeriod) {
         tc_globals.cpu_cache().ResizeSizeClasses();
         last_size_class_resize = now;
       }

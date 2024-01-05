@@ -184,9 +184,6 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
-// TODO(b/274658726, b/305723428): Remove this opt-out flag.
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::uaf_check_parameter_(0);
@@ -297,15 +294,6 @@ size_t Parameters::chunks_per_alloc() {
 
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
-}
-
-int ABSL_ATTRIBUTE_WEAK default_want_disable_laze_size_class_resize();
-
-// TODO(b/305723428): remove the default_want_disable_laze_size_class_resize
-// opt-out.
-static bool want_disable_lazy_size_class_resize() {
-  if (default_want_disable_laze_size_class_resize == nullptr) return false;
-  return default_want_disable_laze_size_class_resize() > 0;
 }
 
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
@@ -451,10 +439,6 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
   return Parameters::hpaa_subrelease();
 }
 
-bool TCMalloc_Internal_GetResizeCpuCacheSizeClassesEnabled() {
-  return Parameters::resize_cpu_cache_size_classes();
-}
-
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
@@ -510,16 +494,6 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
 
 void TCMalloc_Internal_SetHPAASubrelease(bool v) {
   tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr().store(
-      v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
-  // We only allow disabling size class resize using both the flag and
-  // want_disable_lazy_size_class_resize.
-  if (!v && !tcmalloc::tcmalloc_internal::want_disable_lazy_size_class_resize())
-    return;
-
-  Parameters::resize_cpu_cache_size_classes_enabled_.store(
       v, std::memory_order_relaxed);
 }
 

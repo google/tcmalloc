@@ -123,10 +123,6 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_enabled();
   }
 
-  static bool resize_size_classes_enabled() {
-    return Parameters::resize_cpu_cache_size_classes();
-  }
-
   static double per_cpu_caches_dynamic_slab_grow_threshold() {
     return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
   }
@@ -1243,10 +1239,6 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 
   if (acquired_bytes < desired_bytes) {
     resize_[cpu].per_class[size_class].RecordMiss();
-    if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) {
-      acquired_bytes +=
-          Steal(cpu, size_class, desired_bytes - acquired_bytes, to_return);
-    }
   }
 
   // We have all the memory we could reserve.  Time to actually do the growth.
@@ -1311,8 +1303,6 @@ struct SizeClassMissStat {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
-  if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) return;
-
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
   // capacities for up to kNumCpuCachesToResize per-cpu caches.

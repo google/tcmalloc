@@ -103,7 +103,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_resize_cpu_cache_size_classes: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_improved_guarded_sampling: 1"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_uaf_check_parameter: 0 "));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_uaf_check_quarantine_limit: 2097152"));
@@ -164,9 +163,6 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
-    EXPECT_THAT(
-        buf,
-        HasSubstr(R"(PARAMETER tcmalloc_resize_cpu_cache_size_classes 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_improved_guarded_sampling 0)"));
     if (using_hpaa(buf)) {

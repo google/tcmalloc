@@ -124,11 +124,6 @@ class Parameters {
     TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
   }
 
-  static bool resize_cpu_cache_size_classes() {
-    return resize_cpu_cache_size_classes_enabled_.load(
-        std::memory_order_relaxed);
-  }
-
   static bool release_partial_alloc_pages() {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
@@ -214,7 +209,6 @@ class Parameters {
   // TODO(b/303926761): remove when experimentation is complete
   friend void ::TCMalloc_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
-  friend void ::TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
@@ -246,7 +240,6 @@ class Parameters {
   static std::atomic<int64_t> uaf_check_parameter_;
   // TODO(b/303926761): remove when experimentation is complete
   static std::atomic<int64_t> uaf_check_quarantine_limit_;
-  static std::atomic<bool> resize_cpu_cache_size_classes_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
