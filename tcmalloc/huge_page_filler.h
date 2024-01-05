@@ -998,6 +998,7 @@ class HugePageFiller {
   struct TryGetResult {
     TrackerType* pt;
     PageId page;
+    bool from_released;
   };
 
   // Our API is simple, but note that it does not include an unconditional
@@ -1503,14 +1504,13 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     ++n_was_released_[type];
   }
   ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
-  (void)was_released;
   ASSERT(unmapped_ >= page_allocation.previously_unbacked);
   unmapped_ -= page_allocation.previously_unbacked;
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
   ASSERT(!pt->donated());
   UpdateFillerStatsTracker();
-  return {pt, page_allocation.page};
+  return {pt, page_allocation.page, was_released};
 }
 
 // Marks [p, p + n) as usable by new allocations into *pt; returns pt

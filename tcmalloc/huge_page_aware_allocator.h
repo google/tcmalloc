@@ -463,9 +463,9 @@ inline Span* HugePageAwareAllocator<Forwarder>::Finalize(
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
-  auto [pt, page] = filler_.TryGet(n, span_alloc_info);
+  auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+  *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    *from_released = false;
     return Finalize(n, span_alloc_info, page);
   }
 
@@ -488,9 +488,9 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   PageId page;
   // If we fit in a single hugepage, try the Filler first.
   if (n < kPagesPerHugePage) {
-    auto [pt, page] = filler_.TryGet(n, span_alloc_info);
+    auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
+    *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-      *from_released = false;
       return Finalize(n, span_alloc_info, page);
     }
   }
@@ -592,8 +592,6 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
   if (s) {
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(s->start_address());
-    // TODO(b/256233439):  Improve accuracy of from_released value.  The filler
-    // may have subreleased pages and is returning them now.
     if (from_released) BackSpan(s);
   }
   ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
