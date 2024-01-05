@@ -165,7 +165,7 @@ class SizeMap {
   bool SetSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   // Check that the size classes meet all requirements.
-  bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
+  static bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   size_t cold_sizes_[kNumBaseClasses] = {0};
   size_t cold_sizes_count_ = 0;
