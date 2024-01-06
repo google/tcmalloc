@@ -31,10 +31,10 @@ int main(int argc, char** argv) {
       tcmalloc::MallocExtension::GetNumericProperty(
           "generic.current_allocated_bytes");
   if (heap_size.has_value()) {
-    std::cout << "Current heap size = " << *heap_size << " bytes" << std::endl;
+    std::cout << "Current heap size = " << *heap_size << " bytes" << '\n';
   }
 
-  std::cout << msg << std::endl;
+  std::cout << msg << '\n';
 
   // Allocate memory, printing the pointer to deter an optimizing compiler from
   // eliding the allocation.
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
   heap_size = tcmalloc::MallocExtension::GetNumericProperty(
       "generic.current_allocated_bytes");
   if (heap_size.has_value()) {
-    std::cout << "Current heap size = " << *heap_size << " bytes" << std::endl;
+    std::cout << "Current heap size = " << *heap_size << " bytes" << '\n';
   }
 
   void* ptr2 = malloc(kSize);
@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
   heap_size = tcmalloc::MallocExtension::GetNumericProperty(
       "generic.current_allocated_bytes");
   if (heap_size.has_value()) {
-    std::cout << "Current heap size = " << *heap_size << " bytes" << std::endl;
+    std::cout << "Current heap size = " << *heap_size << " bytes" << '\n';
   }
 
   free(ptr2);
