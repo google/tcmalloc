@@ -121,18 +121,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
     },
     {
-        "name": "wider_slabs",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_WIDER_SLABS"},
-    },
-    {
-        "name": "512k_slab",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_512K_SLAB"},
-    },
-    {
         "name": "use_all_buckets_for_few_object_spans",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],

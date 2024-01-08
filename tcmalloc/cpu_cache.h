@@ -167,10 +167,8 @@ class StaticForwarder {
     // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
     // increases shift by 1 by itself, so we can not increase it further.
     //
-    // TODO(b/271598304):  Complete this experiment.
-    return (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_512K_SLAB) ||
-            IsExperimentActive(Experiment::TCMALLOC_WIDER_SLABS)) &&
-           !numa_topology().numa_aware();
+    // TODO(b/271598304):  Enable this feature.
+    return false;
   }
 
   // We use size class maximum capacities as configured in sizemap.
