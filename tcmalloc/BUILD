@@ -1008,27 +1008,6 @@ cc_test(
     ],
 )
 
-create_tcmalloc_testsuite(
-    name = "profile_drop_frames_test",
-    srcs = ["profile_drop_frames_test.cc"],
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-        "noubsan",
-    ],
-    deps = [
-        ":malloc_extension",
-        ":new_extension",
-        "//tcmalloc/internal:profile_builder",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/debugging:symbolize",
-        "@com_google_absl//absl/strings",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
 cc_test(
     name = "segv_handler_test",
     srcs = ["segv_handler_test.cc"],
