@@ -19,7 +19,10 @@
 #include <cstdint>
 #include <new>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -28,6 +31,34 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+namespace cpu_cache_internal {
+ABSL_ATTRIBUTE_WEAK bool default_want_disable_wider_slabs();
+bool use_wider_slabs() {
+  // Disable wider slabs if built against an opt-out.
+  if (default_want_disable_wider_slabs != nullptr) {
+    return false;
+  }
+
+  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_WIDER_SLABS");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // TODO(b/271598304): Enable this.
+        return false;
+      case '1':
+        return false;
+      default:
+        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
+        return false;
+    }
+  }
+
+  // TODO(b/271598304): Enable this by default.
+  return false;
+}
+
+}  // namespace cpu_cache_internal
 
 static void ActivatePerCpuCaches() {
   if (tcmalloc::tcmalloc_internal::tc_globals.CpuCacheActive()) {

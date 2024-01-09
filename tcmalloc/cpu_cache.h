@@ -43,6 +43,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
@@ -63,6 +64,8 @@ class CpuCachePeer;
 namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
+
+bool use_wider_slabs();
 
 // Determine number of bits we should use for allocating per-cpu cache.
 // The amount of per-cpu cache is 2 ^ per-cpu-shift.
@@ -166,9 +169,7 @@ class StaticForwarder {
   static bool UseWiderSlabs() {
     // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
     // increases shift by 1 by itself, so we can not increase it further.
-    //
-    // TODO(b/271598304):  Enable this feature.
-    return false;
+    return use_wider_slabs() && !numa_topology().numa_aware();
   }
 
   // We use size class maximum capacities as configured in sizemap.
