@@ -44,8 +44,7 @@ bool use_wider_slabs() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/271598304): Enable this.
-        return false;
+        return true;
       case '1':
         return false;
       default:
@@ -54,8 +53,7 @@ bool use_wider_slabs() {
     }
   }
 
-  // TODO(b/271598304): Enable this by default.
-  return false;
+  return true;
 }
 
 }  // namespace cpu_cache_internal
