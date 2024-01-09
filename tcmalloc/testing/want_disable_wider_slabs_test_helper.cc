@@ -23,7 +23,7 @@
 int main(int argc, char** argv) {
   std::string input = tcmalloc::MallocExtension::GetStats();
 
-  if (absl::StrContains(input, "PARAMETER use_wider_slabs 1")) {
+  if (absl::StrContains(input, "PARAMETER tcmalloc_use_wider_slabs 1")) {
     printf("Active");
   } else {
     printf("Inactive");
