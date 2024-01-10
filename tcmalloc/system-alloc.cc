@@ -266,10 +266,10 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
       break;
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;
-    default:
-      ASSUME(false);
-      __builtin_unreachable();
   }
+
+  ASSUME(false);
+  __builtin_unreachable();
 }
 
 std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
@@ -323,10 +323,10 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
         return &sampled_region_;
       case MemoryTag::kCold:
         return &cold_region_;
-      default:
-        ASSUME(false);
-        __builtin_unreachable();
     }
+
+    ASSUME(false);
+    __builtin_unreachable();
   }();
   // For sizes that fit in our reserved range first of all check if we can
   // satisfy the request from what we have available.
@@ -599,10 +599,10 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
         return &next_normal_addr[1];
       case MemoryTag::kCold:
         return &next_cold_addr;
-      default:
-        ASSUME(false);
-        __builtin_unreachable();
     }
+
+    ASSUME(false);
+    __builtin_unreachable();
   }();
 
   if (!next_addr || next_addr & (alignment - 1) ||
