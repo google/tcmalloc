@@ -202,6 +202,22 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_std_allocator_allocate(
   return std::allocator<char>().allocate(size);
 }
 
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 150000
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void*
+wrap_std_allocator_allocate_at_least_internal(size_t size) {
+  std::allocator<char> a;
+  return std::__allocate_at_least(a, size).ptr;
+}
+#endif
+
+#if defined(__cpp_lib_allocate_at_least) && \
+    __cpp_lib_allocate_at_least >= 202302L
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_std_allocator_allocate_at_least(
+    size_t size) {
+  return std::allocate_at_least(std::allocator<char>(), size).ptr;
+}
+#endif
+
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_std_allocator_deallocate(
     void* ptr, size_t size) {
   std::allocator<char>().deallocate(static_cast<char*>(ptr), size);
@@ -245,6 +261,14 @@ void profile_test_top_func() {
   test<wrap_size_returning_operator_new_aligned_hot_cold_nothrow,
        wrap_delete_aligned>();
   test<wrap_std_allocator_allocate, wrap_std_allocator_deallocate>();
+#if defined(__cpp_lib_allocate_at_least) && \
+    __cpp_lib_allocate_at_least >= 202302L
+  test<wrap_std_allocator_allocate_at_least, wrap_std_allocator_deallocate>();
+#endif
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 150000
+  test<wrap_std_allocator_allocate_at_least_internal,
+       wrap_std_allocator_deallocate>();
+#endif
   test<malloc, wrap_free>();
   test<malloc, free_sized>();
   test<valloc, wrap_free>();
