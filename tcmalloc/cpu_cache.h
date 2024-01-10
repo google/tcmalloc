@@ -1386,8 +1386,8 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     // Get total bytes to steal from other size classes. We would like to grow
     // the capacity of the size class by a batch size.
     const size_t to_steal_bytes =
-        std::min<size_t>(can_grow, Static::sizemap().num_objects_to_move(
-                                       size_class_to_grow)) *
+        std::min<size_t>(can_grow,
+                         forwarder_.num_objects_to_move(size_class_to_grow)) *
         size;
 
     size_t acquired_bytes = StealCapacityForSizeClassWithinCpu(
