@@ -462,6 +462,30 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_256k_pages_numa_aware",
+    srcs = [
+        "libc_override.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_INTERNAL_256K_PAGES",
+        "-DTCMALLOC_NUMA_AWARE",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [":tcmalloc_tests"],
+    deps = tcmalloc_deps + [
+        ":common_256k_pages_numa_aware",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
 # TCMalloc small-but-slow is a a version of TCMalloc that chooses to minimize
 # fragmentation at a *severe* cost to performance.  It should be used by
 # applications that have significant memory constraints, but don't need to
