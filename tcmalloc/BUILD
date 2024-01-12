@@ -352,7 +352,7 @@ cc_library(
     name = "want_hpaa_subrelease",
     srcs = ["want_hpaa_subrelease.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:public"],
+    visibility = [":tcmalloc_tests"],
     deps = [
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
