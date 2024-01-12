@@ -492,18 +492,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "want_hpaa_test_helper_subrelease",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_hpaa_subrelease",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
     name = "want_hpaa_test_helper_no_hpaa",
     testonly = 1,
     srcs = ["want_hpaa_test_helper.cc"],

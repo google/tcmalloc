@@ -346,21 +346,6 @@ cc_library(
 )
 
 # TEMPORARY. WILL BE REMOVED.
-# Add a dep to this if you want your binary to use hugepage-aware
-# allocator with hpaa_subrelease=true.
-cc_library(
-    name = "want_hpaa_subrelease",
-    srcs = ["want_hpaa_subrelease.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = [":tcmalloc_tests"],
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
-)
-
-# TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to not use hugepage-aware
 # allocator.
 cc_library(
