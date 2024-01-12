@@ -456,7 +456,7 @@ cc_library(
     ],
     copts = [
         "-DTCMALLOC_INTERNAL_256K_PAGES",
-        "-DTCMALLOC_NUMA_AWARE",
+        "-DTCMALLOC_INTERNAL_NUMA_AWARE",
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = [":tcmalloc_tests"],
@@ -509,7 +509,7 @@ cc_library(
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
-    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [

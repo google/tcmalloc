@@ -38,11 +38,11 @@ build_variants = [
     },
     {
         "name": "numa_aware",
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
         "name": "256k_pages_numa_aware",
-        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
 ]
 
@@ -98,7 +98,7 @@ test_variants = [
             "//tcmalloc:common_numa_aware",
             "//tcmalloc:want_numa_aware",
         ],
-        "copts": ["-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
         "name": "256k_pages_numa_aware",
@@ -107,7 +107,7 @@ test_variants = [
             "//tcmalloc:common_256k_pages_numa_aware",
             "//tcmalloc:want_numa_aware",
         ],
-        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
         "name": "256k_pages_pow2_sharded_transfer_cache",
