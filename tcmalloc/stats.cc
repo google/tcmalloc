@@ -106,22 +106,7 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
       cum_returned_pages.in_mib());
 }
 
-struct HistBucket {
-  uint64_t min_sec;
-  const char* label;
-};
-
-static const HistBucket kSpanAgeHistBuckets[] = {
-    // clang-format off
-    {0, "<1s"},
-    {1, "<30s"},
-    {30, "<1m"},
-    {1 * 60, "<30m"},
-    {30 * 60, "<1h"},
-    {1 * 60 * 60, "<8h"},
-    {8 * 60 * 60, ">=8h"},
-    // clang-format on
-};
+struct HistBucket {};
 
 struct PageHeapEntry {
   int64_t span_size;  // bytes
@@ -172,16 +157,6 @@ void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
   }
 
   region->PrintI64("min_large_span_size", kMaxPages.raw_num());
-}
-
-static int HistBucketIndex(double age_exact) {
-  uint64_t age_secs = age_exact;  // truncate to seconds
-  for (int i = 0; i < ABSL_ARRAYSIZE(kSpanAgeHistBuckets) - 1; i++) {
-    if (age_secs < kSpanAgeHistBuckets[i + 1].min_sec) {
-      return i;
-    }
-  }
-  return ABSL_ARRAYSIZE(kSpanAgeHistBuckets) - 1;
 }
 
 void PageAllocInfo::Print(Printer* out) const {

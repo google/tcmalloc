@@ -437,10 +437,6 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.tc_length();
   }
 
-  bool HasSpareCapacity(int size_class) const {
-    return cache_[size_class].tc.HasSpareCapacity(size_class);
-  }
-
   TransferCacheStats GetStats(int size_class) const {
     return cache_[size_class].tc.GetStats();
   }
