@@ -213,12 +213,6 @@ test_variants = [
         ],
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
-    {
-        "name": "use_extended_size_class_for_cold",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD"},
-    },
 ]
 
 def create_tcmalloc_library(

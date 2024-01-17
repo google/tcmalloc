@@ -176,8 +176,7 @@ class SizeMap {
   constexpr SizeMap() = default;
 
   // Initialize the mapping arrays.  Returns true on success.
-  bool Init(absl::Span<const SizeClassInfo> size_classes,
-            bool use_extended_size_class_for_cold);
+  bool Init(absl::Span<const SizeClassInfo> size_classes);
 
   // Returns the size class for size `size` respecting the alignment
   // & access requirements of `policy`.

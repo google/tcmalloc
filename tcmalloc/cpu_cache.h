@@ -176,11 +176,6 @@ class StaticForwarder {
   //
   // TODO(b/311398687): re-enable this experiment.
   static bool ConfigureSizeClassMaxCapacity() { return false; }
-
-  static bool use_extended_cold_size_classes() {
-    return IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD);
-  }
 };
 
 template <typename NumaTopology>
@@ -835,9 +830,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
              ? tc_globals.sizemap().max_capacity(size_class)
              : 133) *
         kWiderSlabMultiplier;
-    const uint16_t kLargeInterestingObjectDepth =
-        (forwarder_.use_extended_cold_size_classes() ? 53 : 152) *
-        kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth = 53 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {

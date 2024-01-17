@@ -176,8 +176,7 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 }
 
 // Initialize the mapping arrays
-bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
-                   bool use_extended_size_class_for_cold) {
+bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   if (ClassIndex(0) != 0) {
     Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
@@ -221,72 +220,28 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
   std::copy(&class_array_[0], &class_array_[kClassArraySize],
             &class_array_[kClassArraySize]);
 
-  if (use_extended_size_class_for_cold) {
-    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
-      size_t max_size_in_class = class_to_size_[c];
-      if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
-        // Resetting next_size to the last size class before
-        // kMinAllocSizeForCold + kAlignment.
-        next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-        continue;
-      }
-
-      CHECK_CONDITION(Span::IsNonIntrusive(max_size_in_class));
-      cold_sizes_[cold_sizes_count_] = c;
-      ++cold_sizes_count_;
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize] = c;
-      }
+  for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+    size_t max_size_in_class = class_to_size_[c];
+    if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
+      // Resetting next_size to the last size class before
+      // kMinAllocSizeForCold + kAlignment.
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+      continue;
     }
-  } else {
-    // TODO(b/123523202): Systematically identify candidates for cold allocation
-    // and include them explicitly in size_classes.cc.
-    static constexpr size_t kColdCandidates[] = {
-        2048,  4096,  6144,  7168,  8192,   16384,
-        20480, 32768, 40960, 65536, 131072, 262144,
-    };
-    static_assert(
-        ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
-        "kColdCandidates is too large.");
 
-    for (size_t max_size_in_class : kColdCandidates) {
-      ASSERT(max_size_in_class != 0);
+    CHECK_CONDITION(Span::IsNonIntrusive(max_size_in_class));
+    cold_sizes_[cold_sizes_count_] = c;
+    ++cold_sizes_count_;
 
-      // Find the size class.  Some of our kColdCandidates may not map to actual
-      // size classes in our current configuration.
-      bool found = false;
-      int c;
-      for (c = kExpandedClassesStart; c < kNumClasses; c++) {
-        if (class_to_size_[c] == max_size_in_class) {
-          found = true;
-          break;
-        }
-      }
-
-      if (!found || !Span::IsNonIntrusive(max_size_in_class)) {
-        continue;
-      }
-
-      cold_sizes_[cold_sizes_count_] = c;
-      cold_sizes_count_++;
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize] = c;
-      }
-      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
+      class_array_[ClassIndex(s) + kClassArraySize] = c;
+    }
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+    if (next_size > kMaxSize) {
+      break;
     }
   }
-
   return true;
 }
 

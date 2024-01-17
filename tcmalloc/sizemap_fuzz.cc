@@ -34,10 +34,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   SizeMap m;
-  bool use_extended_size_class_for_cold = data[--size] % 2;
   const SizeClassInfo* info = reinterpret_cast<const SizeClassInfo*>(data);
-  if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)),
-              use_extended_size_class_for_cold)) {
+  if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)))) {
     return 0;
   }
 

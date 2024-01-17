@@ -193,10 +193,6 @@ class TestStaticForwarder {
     return configure_size_class_max_capacity_;
   }
 
-  bool use_extended_cold_size_classes() const {
-    return use_extended_size_class_for_cold_;
-  }
-
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
                                       FakeCpuLayout,
@@ -232,7 +228,6 @@ class TestStaticForwarder {
   bool wider_slabs_enabled_ = false;
   bool configure_size_class_max_capacity_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
-  bool use_extended_size_class_for_cold_ = false;
   std::optional<SizeMap> size_map_;
 
  private:
@@ -938,18 +933,15 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
 
 class DynamicWideSlabTest
     : public testing::TestWithParam<
-          std::tuple<bool /* use_extended_size_class_for_cold */,
-                     bool /* use_wider_slab */,
+          std::tuple<bool /* use_wider_slab */,
                      bool /* configure_size_class_max_capacity */>> {
  public:
-  bool use_extended_size_class_for_cold() { return std::get<0>(GetParam()); }
-  bool use_wider_slab() { return std::get<1>(GetParam()); }
-  bool configure_size_class_max_capacity() { return std::get<2>(GetParam()); }
+  bool use_wider_slab() { return std::get<0>(GetParam()); }
+  bool configure_size_class_max_capacity() { return std::get<1>(GetParam()); }
 };
 
 INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
-                         testing::Combine(testing::Bool(), testing::Bool(),
-                                          testing::Bool()));
+                         testing::Combine(testing::Bool(), testing::Bool()));
 
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the
@@ -965,10 +957,8 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
   forwarder.wider_slabs_enabled_ = use_wider_slab();
-  forwarder.use_extended_size_class_for_cold_ =
-      use_extended_size_class_for_cold();
   SizeMap size_map;
-  size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
+  size_map.Init(kSizeClasses);
   forwarder.size_map_ = size_map;
 
   cache.Activate();
@@ -1031,7 +1021,7 @@ TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
 #endif
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses, use_extended_size_class_for_cold());
+  size_map.Init(kSizeClasses);
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
@@ -1040,8 +1030,6 @@ TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
       forwarder.dynamic_slab_enabled_ = initially_enabled;
       forwarder.dynamic_slab_ = initial_dynamic_slab;
       forwarder.wider_slabs_enabled_ = use_wider_slab();
-      forwarder.use_extended_size_class_for_cold_ =
-          use_extended_size_class_for_cold();
       forwarder.size_map_ = size_map;
 
       cache.Activate();
