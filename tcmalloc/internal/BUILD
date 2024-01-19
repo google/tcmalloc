@@ -605,6 +605,21 @@ cc_library(
     ],
 )
 
+cc_test(
+    name = "percpu_test",
+    srcs = ["percpu_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    deps = [
+        ":logging",
+        ":percpu",
+        "//tcmalloc/testing:testutil",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "percpu_tcmalloc",
     hdrs = ["percpu_tcmalloc.h"],
@@ -991,6 +1006,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":logging",
         "@com_google_absl//absl/time",
     ],
 )
