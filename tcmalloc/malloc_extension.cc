@@ -423,56 +423,6 @@ void MallocExtension::SetImprovedGuardedSampling(bool enable) {
 #endif
 }
 
-int64_t MallocExtension::GetUafCheckParameter() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetUafCheckParameter == nullptr) {
-    return -1;
-  }
-
-  return MallocExtension_Internal_GetUafCheckParameter();
-#else
-  return -1;
-#endif
-}
-
-void MallocExtension::SetUafCheckParameter(int64_t rate) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetUafCheckParameter == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetUafCheckParameter(rate);
-#else
-  (void)rate;
-#endif
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-int64_t MallocExtension::GetUafCheckQuarantineLimit() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetUafCheckQuarantineLimit == nullptr) {
-    return 0;
-  }
-
-  return MallocExtension_Internal_GetUafCheckQuarantineLimit();
-#else
-  return 0;
-#endif
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-void MallocExtension::SetUafCheckQuarantineLimit(int64_t max_bytes) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetUafCheckQuarantineLimit == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetUafCheckQuarantineLimit(max_bytes);
-#else
-  (void)max_bytes;
-#endif
-}
-
 void MallocExtension::ActivateGuardedSampling() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_ActivateGuardedSampling != nullptr) {
