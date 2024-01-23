@@ -297,7 +297,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
     size_t num_bytes) {
   // ReleaseMemoryToSystem() might release more than the requested bytes because
   // the page heap releases at the span granularity, and spans are of wildly
-  // different sizes.  This keeps track of the extra bytes bytes released so
+  // different sizes.  This keeps track of the extra bytes released so
   // that the app can periodically call ReleaseMemoryToSystem() to release
   // memory at a constant rate.
   ABSL_CONST_INIT static size_t extra_bytes_released;
