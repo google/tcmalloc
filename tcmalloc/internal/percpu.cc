@@ -71,6 +71,15 @@ static bool InitThreadPerCpu() {
     return true;
   }
 
+  // Mask signals and double check thread registration afterwards.  If we
+  // encounter a signal between ThreadRegistered() above and rseq() and that
+  // signal initializes per-CPU, rseq() here will fail with EBUSY.
+  ScopedSigmask mask;
+
+  if (ThreadRegistered()) {
+    return true;
+  }
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__NR_rseq)
   return 0 == syscall(__NR_rseq, &__rseq_abi, sizeof(__rseq_abi), 0,
                       TCMALLOC_PERCPU_RSEQ_SIGNATURE);
@@ -126,7 +135,30 @@ static void InitPerCpu() {
 // completed then only the thread-level will be completed.  A return of false
 // indicates that initialization failed and RSEQ is unavailable.
 bool InitFastPerCpu() {
-  absl::base_internal::LowLevelCallOnce(&init_per_cpu_once, InitPerCpu);
+  // On the first trip through this function do the necessary process-wide
+  // initialization work.
+  //
+  // We do this with all signals disabled so that we don't deadlock due to
+  // re-entering from a signal handler.
+  //
+  // We use a global atomic to record an 'initialized' state as a fast path
+  // check, which allows us to avoid the signal mask syscall that we must
+  // use to prevent nested initialization during a signal deadlocking on
+  // LowLevelOnceInit, before we can enter the 'init once' logic.
+  ABSL_CONST_INIT static std::atomic<bool> initialized(false);
+  if (!initialized.load(std::memory_order_acquire)) {
+    ScopedSigmask mask;
+
+    absl::base_internal::LowLevelCallOnce(&init_per_cpu_once, [&] {
+      InitPerCpu();
+
+      // Set `initialized` to true after all initialization has completed.
+      // The below store orders with the load acquire further up, i.e., all
+      // initialization and side effects thereof are visible to any thread
+      // observing a true value in the fast path check.
+      initialized.store(true, std::memory_order_release);
+    });
+  }
 
   // Once we've decided fast-cpu support is available, initialization for all
   // subsequent threads must succeed for consistency.

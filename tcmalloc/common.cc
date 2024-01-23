@@ -32,9 +32,9 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
       return "SAMPLED";
     case MemoryTag::kCold:
       return "COLD";
-    default:
-      ASSUME(false);
   }
+
+  ASSUME(false);
 }
 
 // This only provides correct answer for TCMalloc-allocated memory,

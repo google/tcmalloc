@@ -198,8 +198,10 @@ cc_test(
     tags = ["nosan"],
     deps = [
         ":testutil",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:linked_list",
+        "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -490,18 +492,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "want_hpaa_test_helper_subrelease",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_hpaa_subrelease",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
     name = "want_hpaa_test_helper_no_hpaa",
     testonly = 1,
     srcs = ["want_hpaa_test_helper.cc"],
@@ -611,9 +601,8 @@ cc_library(
 cc_test(
     name = "numa_locality_test",
     srcs = ["numa_locality_test.cc"],
-    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
-    tags = ["requires-net:external"],
     deps = [
         ":testutil",
         "//tcmalloc:common_numa_aware",
@@ -909,6 +898,27 @@ cc_test(
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/time",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+create_tcmalloc_testsuite(
+    name = "profile_drop_frames_test",
+    srcs = ["profile_drop_frames_test.cc"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
+    ],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "//tcmalloc:new_extension",
+        "//tcmalloc/internal:profile_builder",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/debugging:symbolize",
+        "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],
 )

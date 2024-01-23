@@ -113,10 +113,10 @@
   .globl label##_trampoline;                                      \
   .type  label##_trampoline, @function;                           \
 label##_trampoline:                                               \
-  .cfi_startproc;                                                 \
+  CFI(.cfi_startproc);                                            \
   BTI_C;                                                          \
   b .L##label##_abort;                                            \
-  .cfi_endproc;                                                   \
+  CFI(.cfi_endproc);                                              \
   .size label##_trampoline, . - label##_trampoline;               \
   .popsection;
 
@@ -211,7 +211,7 @@ label##_trampoline:                                               \
   .globl TcmallocSlab_Internal_PerCpuCmpxchg64
   .type  TcmallocSlab_Internal_PerCpuCmpxchg64, @function
 TcmallocSlab_Internal_PerCpuCmpxchg64:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64)
   FETCH_CPU(w7, x4)
@@ -227,7 +227,7 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
 .LTcmallocSlab_Internal_PerCpuCmpxchg64_mismatch:
   mov x0, #-1 /* mismatch versus "old" or "check", return -1 */
   ret
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 
@@ -259,7 +259,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
   .globl TcmallocSlab_Internal_PushBatch
   .type  TcmallocSlab_Internal_PushBatch, @function
 TcmallocSlab_Internal_PushBatch:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PushBatch)
   FETCH_SLABS(x8)
@@ -298,7 +298,7 @@ TcmallocSlab_Internal_PushBatch:
 .LTcmallocSlab_Internal_PushBatch_no_capacity:
   mov x0, #0
   ret
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 
@@ -330,7 +330,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
   .globl TcmallocSlab_Internal_PopBatch
   .type  TcmallocSlab_Internal_PopBatch, @function
 TcmallocSlab_Internal_PopBatch:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   BTI_C
   START_RSEQ(TcmallocSlab_Internal_PopBatch)
   FETCH_SLABS(x8)
@@ -369,7 +369,7 @@ TcmallocSlab_Internal_PopBatch:
 .LTcmallocSlab_Internal_PopBatch_no_items:
   mov x0, #0
   ret
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PopBatch)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch)
 

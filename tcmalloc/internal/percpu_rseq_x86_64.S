@@ -97,9 +97,9 @@
   .globl label##_trampoline;                                      \
   .type  label##_trampoline, @function;                           \
 label##_trampoline:                                               \
-  .cfi_startproc;                                                 \
+  CFI(.cfi_startproc);                                            \
   jmp .L##label##_abort;                                          \
-  .cfi_endproc;                                                   \
+  CFI(.cfi_endproc);                                              \
   .size label##_trampoline, . - label##_trampoline;
 
 // This is part of the upstream rseq ABI.  The 4 bytes prior to the abort IP
@@ -169,12 +169,12 @@ label##_trampoline:                                               \
   .local tcmalloc_internal_tls_fetch_pic
   .type tcmalloc_internal_tls_fetch_pic, @function
 tcmalloc_internal_tls_fetch_pic:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   push %rbp
-  .cfi_def_cfa_offset 16
-  .cfi_offset 6, -16
+  CFI(.cfi_def_cfa_offset 16)
+  CFI(.cfi_offset 6, -16)
   mov %rsp, %rbp
-  .cfi_def_cfa_register 6
+  CFI(.cfi_def_cfa_register 6)
   sub $0x30, %rsp
   mov %rsi, -0x08(%rbp)  /* atypical abi: tcmalloc_tls_fetch_pic preserves regs */
   mov %rdi, -0x10(%rbp)
@@ -200,10 +200,10 @@ tcmalloc_internal_tls_fetch_pic:
   mov -0x30(%rbp), %r9
   add $0x30, %rsp
   leave
-  .cfi_def_cfa_register 7
-  .cfi_def_cfa_offset 8
+  CFI(.cfi_def_cfa_register 7)
+  CFI(.cfi_def_cfa_offset 8)
   ret; /* &__rseq_abi in %rax */
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
 #endif  /* !defined(__PIC__) || defined(__PIE__) */
 
@@ -228,7 +228,7 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
   .globl TcmallocSlab_Internal_PerCpuCmpxchg64
   .type  TcmallocSlab_Internal_PerCpuCmpxchg64, @function
 TcmallocSlab_Internal_PerCpuCmpxchg64:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64);
   FETCH_CPU(%eax, %r8)
   cmp %eax, %edi; /* check cpu vs current_cpu */
@@ -241,7 +241,7 @@ TcmallocSlab_Internal_PerCpuCmpxchg64:
 .LTcmallocSlab_Internal_PerCpuCmpxchg64_value_mismatch:
   mov $-1, %eax;  /* mismatch versus "old" or "check", return -1 */
   ret;
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
 
@@ -272,7 +272,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
   .globl TcmallocSlab_Internal_PushBatch
   .type  TcmallocSlab_Internal_PushBatch, @function
 TcmallocSlab_Internal_PushBatch:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   START_RSEQ(TcmallocSlab_Internal_PushBatch);
   FETCH_SLABS(%r8);
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
@@ -301,7 +301,7 @@ TcmallocSlab_Internal_PushBatch:
 .LTcmallocSlab_Internal_PushBatch_full:
   xor %rax, %rax;
   ret;
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PushBatch)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 
@@ -332,7 +332,7 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
   .globl TcmallocSlab_Internal_PopBatch
   .type  TcmallocSlab_Internal_PopBatch, @function
 TcmallocSlab_Internal_PopBatch:
-  .cfi_startproc
+  CFI(.cfi_startproc)
   START_RSEQ(TcmallocSlab_Internal_PopBatch);
   FETCH_SLABS(%r8);
   xorq %rax, %rax;
@@ -356,7 +356,7 @@ TcmallocSlab_Internal_PopBatch:
   movw %r9w, (%r8, %rdi, 8);
 .LTcmallocSlab_Internal_PopBatch_commit:
   ret;
-  .cfi_endproc
+  CFI(.cfi_endproc)
 ENCODE_SIZE(TcmallocSlab_Internal_PopBatch)
 DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PopBatch)
 

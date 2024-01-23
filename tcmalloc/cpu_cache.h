@@ -43,6 +43,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
@@ -63,6 +64,8 @@ class CpuCachePeer;
 namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
+
+bool use_wider_slabs();
 
 // Determine number of bits we should use for allocating per-cpu cache.
 // The amount of per-cpu cache is 2 ^ per-cpu-shift.
@@ -123,10 +126,6 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_enabled();
   }
 
-  static bool resize_size_classes_enabled() {
-    return Parameters::resize_cpu_cache_size_classes();
-  }
-
   static double per_cpu_caches_dynamic_slab_grow_threshold() {
     return Parameters::per_cpu_caches_dynamic_slab_grow_threshold();
   }
@@ -170,22 +169,13 @@ class StaticForwarder {
   static bool UseWiderSlabs() {
     // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
     // increases shift by 1 by itself, so we can not increase it further.
-    //
-    // TODO(b/271598304):  Complete this experiment.
-    return (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_512K_SLAB) ||
-            IsExperimentActive(Experiment::TCMALLOC_WIDER_SLABS)) &&
-           !numa_topology().numa_aware();
+    return use_wider_slabs() && !numa_topology().numa_aware();
   }
 
   // We use size class maximum capacities as configured in sizemap.
   //
   // TODO(b/311398687): re-enable this experiment.
   static bool ConfigureSizeClassMaxCapacity() { return false; }
-
-  static bool use_extended_cold_size_classes() {
-    return IsExperimentActive(
-        Experiment::TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD);
-  }
 };
 
 template <typename NumaTopology>
@@ -840,9 +830,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
              ? tc_globals.sizemap().max_capacity(size_class)
              : 133) *
         kWiderSlabMultiplier;
-    const uint16_t kLargeInterestingObjectDepth =
-        (forwarder_.use_extended_cold_size_classes() ? 82 : 152) *
-        kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth = 53 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {
@@ -1243,10 +1231,6 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
 
   if (acquired_bytes < desired_bytes) {
     resize_[cpu].per_class[size_class].RecordMiss();
-    if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) {
-      acquired_bytes +=
-          Steal(cpu, size_class, desired_bytes - acquired_bytes, to_return);
-    }
   }
 
   // We have all the memory we could reserve.  Time to actually do the growth.
@@ -1311,8 +1295,6 @@ struct SizeClassMissStat {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
-  if (ABSL_PREDICT_FALSE(!forwarder_.resize_size_classes_enabled())) return;
-
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
   // capacities for up to kNumCpuCachesToResize per-cpu caches.
@@ -1397,8 +1379,8 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     // Get total bytes to steal from other size classes. We would like to grow
     // the capacity of the size class by a batch size.
     const size_t to_steal_bytes =
-        std::min<size_t>(can_grow, Static::sizemap().num_objects_to_move(
-                                       size_class_to_grow)) *
+        std::min<size_t>(can_grow,
+                         forwarder_.num_objects_to_move(size_class_to_grow)) *
         size;
 
     size_t acquired_bytes = StealCapacityForSizeClassWithinCpu(
@@ -1953,22 +1935,21 @@ template <class CpuCache>
 struct DrainHandler {
   void operator()(int cpu, size_t size_class, void** batch, size_t count,
                   size_t cap) const {
-    const size_t size = cache->forwarder_.class_to_size(size_class);
+    const size_t size = cache.forwarder_.class_to_size(size_class);
     const size_t batch_length =
-        cache->forwarder_.num_objects_to_move(size_class);
+        cache.forwarder_.num_objects_to_move(size_class);
     if (bytes != nullptr) *bytes += count * size;
     // Drain resets capacity to 0, so return the allocated capacity to that
     // CPU's slack.
-    cache->resize_[cpu].available.fetch_add(cap * size,
-                                            std::memory_order_relaxed);
+    cache.resize_[cpu].available.fetch_add(cap * size,
+                                           std::memory_order_relaxed);
     for (size_t i = 0; i < count; i += batch_length) {
       size_t n = std::min(batch_length, count - i);
-      cache->ReleaseToBackingCache(size_class, absl::Span<void*>(batch + i, n));
+      cache.ReleaseToBackingCache(size_class, absl::Span<void*>(batch + i, n));
     }
   }
 
-  // `cache` must be non-null.
-  CpuCache* cache;
+  CpuCache& cache;
   uint64_t* bytes;
 };
 
@@ -1984,7 +1965,7 @@ inline uint64_t CpuCache<Forwarder>::Reclaim(int cpu) {
   }
 
   uint64_t bytes = 0;
-  freelist_.Drain(cpu, DrainHandler<CpuCache>{this, &bytes});
+  freelist_.Drain(cpu, DrainHandler<CpuCache>{*this, &bytes});
 
   // Record that the reclaim occurred for this CPU.
   resize_[cpu].num_reclaims.store(
@@ -2140,7 +2121,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         new_shift, new_slabs, &forwarder_.Alloc,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
         [this](int cpu) { return HasPopulated(cpu); },
-        DrainHandler<CpuCache>{this, nullptr});
+        DrainHandler<CpuCache>{*this, nullptr});
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 

@@ -22,6 +22,7 @@
 #include "absl/base/macros.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
@@ -42,20 +43,18 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     Log(kLog, __FILE__, __LINE__, "size class too big", size, kMaxSize);
     return false;
   }
-  // Check required alignment
-  size_t alignment = 128;
-  if (size <= kMultiPageSize) {
-    alignment = static_cast<size_t>(kAlignment);
-  } else if (size <= SizeMap::kMaxSmallSize) {
-    alignment = kMultiPageAlignment;
-  }
-  if ((size & (alignment - 1)) != 0) {
-    Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
+  // Verify Span does not use intrusive list which triggers memory accesses
+  // for sizes suitable for cold classes.
+  if (size >= kMinAllocSizeForCold && !Span::IsNonIntrusive(size)) {
+    Log(kLog, __FILE__, __LINE__,
+        "size is suitable for cold classes but is intrusive", size);
     return false;
   }
-  if (size <= kMultiPageSize && pages != 1) {
-    Log(kLog, __FILE__, __LINE__, "Multiple pages not allowed", size, pages,
-        kMultiPageSize);
+  // Check required alignment
+  const size_t alignment =
+      size <= SizeMap::kMaxSmallSize ? static_cast<size_t>(kAlignment) : 128;
+  if ((size & (alignment - 1)) != 0) {
+    Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
     return false;
   }
   if (pages == 0) {
@@ -70,9 +69,15 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
   if (objects_per_span < 1) {
     Log(kLog, __FILE__, __LINE__, "each span must have at least one object");
     return false;
-  } else if (Span::DoesNotFitInBitmap(size, objects_per_span)) {
-    Log(kLog, __FILE__, __LINE__, "too many objects for bitmap representation",
-        size, objects_per_span);
+  }
+  if (!Span::IsValidSizeClass(size, pages)) {
+    Log(kLog, __FILE__, __LINE__, "span size class assumptions are broken",
+        size, pages, objects_per_span);
+    return false;
+  }
+  if (!HugePageAwareAllocator::IsValidSizeClass(size, pages)) {
+    Log(kLog, __FILE__, __LINE__, "hpaa size class assumptions are broken",
+        size, pages, objects_per_span);
     return false;
   }
   if (num_objects_to_move < 2) {
@@ -171,8 +176,7 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 }
 
 // Initialize the mapping arrays
-bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
-                   bool use_extended_size_class_for_cold) {
+bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
   if (ClassIndex(0) != 0) {
     Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
@@ -216,84 +220,28 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes,
   std::copy(&class_array_[0], &class_array_[kClassArraySize],
             &class_array_[kClassArraySize]);
 
-  if (use_extended_size_class_for_cold) {
-    int next_size = 0;
-    for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
-      size_t max_size_in_class = class_to_size_[c];
-      if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
-        continue;
-      }
-
-      // Verify the candidate can fit into a single span's cache, otherwise,
-      // we use an intrusive freelist which triggers memory accesses.
-      if (Span::IsIntrusive(
-              max_size_in_class,
-              Length(class_to_pages_[c]).in_bytes() / max_size_in_class)) {
-        continue;
-      }
-
-      cold_sizes_[cold_sizes_count_] = c;
-      ++cold_sizes_count_;
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize] = c;
-      }
+  for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
+    size_t max_size_in_class = class_to_size_[c];
+    if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
+      // Resetting next_size to the last size class before
+      // kMinAllocSizeForCold + kAlignment.
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+      continue;
     }
-  } else {
-    // TODO(b/123523202): Systematically identify candidates for cold allocation
-    // and include them explicitly in size_classes.cc.
-    static constexpr size_t kColdCandidates[] = {
-        2048,  4096,  6144,  7168,  8192,   16384,
-        20480, 32768, 40960, 65536, 131072, 262144,
-    };
-    static_assert(
-        ABSL_ARRAYSIZE(kColdCandidates) <= ABSL_ARRAYSIZE(cold_sizes_),
-        "kColdCandidates is too large.");
 
-    for (size_t max_size_in_class : kColdCandidates) {
-      ASSERT(max_size_in_class != 0);
+    CHECK_CONDITION(Span::IsNonIntrusive(max_size_in_class));
+    cold_sizes_[cold_sizes_count_] = c;
+    ++cold_sizes_count_;
 
-      // Find the size class.  Some of our kColdCandidates may not map to actual
-      // size classes in our current configuration.
-      bool found = false;
-      int c;
-      for (c = kExpandedClassesStart; c < kNumClasses; c++) {
-        if (class_to_size_[c] == max_size_in_class) {
-          found = true;
-          break;
-        }
-      }
-
-      if (!found) {
-        continue;
-      }
-
-      // Verify the candidate can fit into a single span's kCacheSize,
-      // otherwise, we use an intrusive freelist which triggers memory accesses.
-      if (Length(class_to_pages_[c]).in_bytes() / max_size_in_class >
-          Span::kCacheSize) {
-        continue;
-      }
-
-      cold_sizes_[cold_sizes_count_] = c;
-      cold_sizes_count_++;
-
-      for (int s = next_size; s <= max_size_in_class;
-           s += static_cast<size_t>(kAlignment)) {
-        class_array_[ClassIndex(s) + kClassArraySize] = c;
-      }
-      next_size = max_size_in_class + static_cast<size_t>(kAlignment);
-      if (next_size > kMaxSize) {
-        break;
-      }
+    for (int s = next_size; s <= max_size_in_class;
+         s += static_cast<size_t>(kAlignment)) {
+      class_array_[ClassIndex(s) + kClassArraySize] = c;
+    }
+    next_size = max_size_in_class + static_cast<size_t>(kAlignment);
+    if (next_size > kMaxSize) {
+      break;
     }
   }
-
   return true;
 }
 

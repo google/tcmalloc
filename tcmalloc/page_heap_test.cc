@@ -73,7 +73,7 @@ class PageHeapTest : public ::testing::Test {
 
 // TODO(b/36484267): replace this test wholesale.
 TEST_F(PageHeapTest, Stats) {
-  auto pagemap = absl::make_unique<PageMap>();
+  auto pagemap = std::make_unique<PageMap>();
   void* memory = calloc(1, sizeof(PageHeap));
   PageHeap* ph = new (memory) PageHeap(pagemap.get(), MemoryTag::kNormal);
 

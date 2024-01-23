@@ -29,15 +29,13 @@ using tcmalloc::tcmalloc_internal::SizeClassInfo;
 using tcmalloc::tcmalloc_internal::SizeMap;
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  const SizeClassInfo* info;
-  if (size % sizeof(*info) != 0 || size < 2) {
+  if (size == 0) {
     return 0;
   }
-  info = reinterpret_cast<const SizeClassInfo*>(data);
 
   SizeMap m;
-  if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)),
-              /*use_extended_size_class_for_cold=*/data[0] % 2 == 0)) {
+  const SizeClassInfo* info = reinterpret_cast<const SizeClassInfo*>(data);
+  if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)))) {
     return 0;
   }
 

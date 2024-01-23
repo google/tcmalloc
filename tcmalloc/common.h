@@ -169,8 +169,9 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 // Sanitizers constrain the memory layout which causes problems with the
 // enlarged tags required to represent NUMA partitions. Disable NUMA awareness
 // to avoid failing to mmap memory.
-#if defined(TCMALLOC_NUMA_AWARE) && !defined(MEMORY_SANITIZER) && \
-    !defined(THREAD_SANITIZER)
+#if defined(TCMALLOC_INTERNAL_NUMA_AWARE) && \
+    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&  \
+    !defined(ABSL_HAVE_THREAD_SANITIZER)
 inline constexpr size_t kNumaPartitions = 2;
 #else
 inline constexpr size_t kNumaPartitions = 1;

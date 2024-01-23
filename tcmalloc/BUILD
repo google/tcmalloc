@@ -144,7 +144,9 @@ cc_library(
     ],
     copts = ["-DTCMALLOC_DEPRECATED_PERTHREAD"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = [":tcmalloc_tests"],
+    visibility = [
+        ":tcmalloc_tests",
+    ],
     deps = tcmalloc_deps + [
         ":common_deprecated_perthread",
         "//tcmalloc/internal:allocation_guard",
@@ -196,6 +198,7 @@ create_tcmalloc_libraries(
         "huge_pages.h",
         "huge_region.h",
         "legacy_size_classes.cc",
+        "lowfrag_size_classes.cc",
         "page_allocator.cc",
         "page_allocator.h",
         "page_allocator_interface.cc",
@@ -343,21 +346,6 @@ cc_library(
 )
 
 # TEMPORARY. WILL BE REMOVED.
-# Add a dep to this if you want your binary to use hugepage-aware
-# allocator with hpaa_subrelease=true.
-cc_library(
-    name = "want_hpaa_subrelease",
-    srcs = ["want_hpaa_subrelease.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:public"],
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
-)
-
-# TEMPORARY. WILL BE REMOVED.
 # Add a dep to this if you want your binary to not use hugepage-aware
 # allocator.
 cc_library(
@@ -371,6 +359,15 @@ cc_library(
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",
     ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "want_disable_wider_slabs",
+    srcs = ["want_disable_wider_slabs.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/base:core_headers"],
     alwayslink = 1,
 )
 
@@ -450,6 +447,30 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_256k_pages_numa_aware",
+    srcs = [
+        "libc_override.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_INTERNAL_256K_PAGES",
+        "-DTCMALLOC_INTERNAL_NUMA_AWARE",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [":tcmalloc_tests"],
+    deps = tcmalloc_deps + [
+        ":common_256k_pages_numa_aware",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
 # TCMalloc small-but-slow is a a version of TCMalloc that chooses to minimize
 # fragmentation at a *severe* cost to performance.  It should be used by
 # applications that have significant memory constraints, but don't need to
@@ -488,7 +509,7 @@ cc_library(
         "tcmalloc.cc",
         "tcmalloc.h",
     ],
-    copts = ["-DTCMALLOC_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    copts = ["-DTCMALLOC_INTERNAL_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     visibility = ["//tcmalloc/testing:__pkg__"],
     deps = tcmalloc_deps + [
@@ -1129,7 +1150,6 @@ cc_library(
     ],
     deps = [
         "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:config",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:malloc_internal",
         "@com_google_absl//absl/functional:function_ref",
@@ -1210,6 +1230,7 @@ cc_fuzz_test(
 
 cc_test(
     name = "cpu_cache_test",
+    timeout = "long",
     srcs = ["cpu_cache_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     # There can be only one CpuCache due to slab offset caching in rseq.

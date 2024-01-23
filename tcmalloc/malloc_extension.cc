@@ -423,56 +423,6 @@ void MallocExtension::SetImprovedGuardedSampling(bool enable) {
 #endif
 }
 
-int64_t MallocExtension::GetUafCheckParameter() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetUafCheckParameter == nullptr) {
-    return -1;
-  }
-
-  return MallocExtension_Internal_GetUafCheckParameter();
-#else
-  return -1;
-#endif
-}
-
-void MallocExtension::SetUafCheckParameter(int64_t rate) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetUafCheckParameter == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetUafCheckParameter(rate);
-#else
-  (void)rate;
-#endif
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-int64_t MallocExtension::GetUafCheckQuarantineLimit() {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetUafCheckQuarantineLimit == nullptr) {
-    return 0;
-  }
-
-  return MallocExtension_Internal_GetUafCheckQuarantineLimit();
-#else
-  return 0;
-#endif
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-void MallocExtension::SetUafCheckQuarantineLimit(int64_t max_bytes) {
-#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetUafCheckQuarantineLimit == nullptr) {
-    return;
-  }
-
-  MallocExtension_Internal_SetUafCheckQuarantineLimit(max_bytes);
-#else
-  (void)max_bytes;
-#endif
-}
-
 void MallocExtension::ActivateGuardedSampling() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_ActivateGuardedSampling != nullptr) {
@@ -669,7 +619,7 @@ void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
 #endif
 }
 
-absl::optional<size_t> MallocExtension::GetNumericProperty(
+std::optional<size_t> MallocExtension::GetNumericProperty(
     absl::string_view property) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_GetNumericProperty != nullptr) {
@@ -716,14 +666,14 @@ absl::optional<size_t> MallocExtension::GetNumericProperty(
   }
   // LINT.ThenChange(:SanitizerGetProperties)
 #endif  // TCMALLOC_UNDER_SANITIZERS
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 size_t MallocExtension::GetEstimatedAllocatedSize(size_t size) {
   return nallocx(size, 0);
 }
 
-absl::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
+std::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_GetAllocatedSize != nullptr) {
     return MallocExtension_Internal_GetAllocatedSize(p);
@@ -732,7 +682,7 @@ absl::optional<size_t> MallocExtension::GetAllocatedSize(const void* p) {
 #if TCMALLOC_UNDER_SANITIZERS
   return __sanitizer_get_allocated_size(p);
 #endif
-  return absl::nullopt;
+  return std::nullopt;
 }
 
 MallocExtension::Ownership MallocExtension::GetOwnership(const void* p) {

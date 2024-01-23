@@ -704,6 +704,7 @@ class FillerTest : public testing::TestWithParam<
     Length n;
     size_t mark;
     SpanAllocInfo span_alloc_info;
+    bool from_released;
   };
 
   void Mark(const PAlloc& alloc) { MarkRange(alloc.p, alloc.n, alloc.mark); }
@@ -813,9 +814,10 @@ class FillerTest : public testing::TestWithParam<
     ret.span_alloc_info = span_alloc_info;
     if (!donated) {  // Donated means always create a new hugepage
       absl::base_internal::SpinLockHolder l(&pageheap_lock);
-      auto [pt, page] = filler_.TryGet(n, span_alloc_info);
+      auto [pt, page, from_released] = filler_.TryGet(n, span_alloc_info);
       ret.pt = pt;
       ret.p = page;
+      ret.from_released = from_released;
     }
     if (ret.pt == nullptr) {
       ret.pt = new PageTracker(GetBacking(), donated);
@@ -925,6 +927,7 @@ TEST_P(FillerTest, ReleaseFromFullAllocs) {
   EXPECT_EQ(filler_.unmapped_pages(), kAlloc - Length(1));
   ASSERT_TRUE(p1.pt->released());
   ASSERT_FALSE(p3.pt->released());
+  ASSERT_FALSE(p3.from_released);
 
   // Check subrelease stats.
   SubreleaseStats subrelease = filler_.subrelease_stats();
@@ -934,6 +937,7 @@ TEST_P(FillerTest, ReleaseFromFullAllocs) {
   // We expect to reuse p1.pt.
   PAlloc p5 = AllocateWithSpanAllocInfo(kAlloc - Length(1), p1.span_alloc_info);
   ASSERT_TRUE(p1.pt == p5.pt);
+  ASSERT_TRUE(p5.from_released);
 
   Delete(p2);
   Delete(p4);
@@ -1048,7 +1052,9 @@ TEST_P(FillerTest, Release) {
   EXPECT_EQ(filler_.unmapped_pages(), kAlloc - Length(1));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
   ASSERT_TRUE(p1.pt->released());
+  ASSERT_FALSE(p1.from_released);
   ASSERT_FALSE(p3.pt->released());
+  ASSERT_FALSE(p3.from_released);
 
   // We expect to reuse p1.pt.
   PAlloc p5 = AllocateWithSpanAllocInfo(kAlloc - Length(1), p1.span_alloc_info);

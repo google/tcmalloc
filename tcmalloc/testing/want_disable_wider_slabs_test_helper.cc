@@ -1,4 +1,4 @@
-// Copyright 2022 The TCMalloc Authors
+// Copyright 2019 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,16 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "absl/base/attributes.h"
 
-namespace tcmalloc {
-namespace tcmalloc_internal {
+#include <cstdio>
+#include <string>
 
-// This - if linked into a binary - allows lazy size class resize to be
-// disabled.
-ABSL_ATTRIBUTE_UNUSED int default_want_disable_laze_size_class_resize() {
-  return 1;
+#include "absl/strings/match.h"
+#include "absl/strings/string_view.h"
+#include "tcmalloc/malloc_extension.h"
+
+int main(int argc, char** argv) {
+  std::string input = tcmalloc::MallocExtension::GetStats();
+
+  if (absl::StrContains(input, "PARAMETER tcmalloc_use_wider_slabs 1")) {
+    printf("Active");
+  } else {
+    printf("Inactive");
+  }
+
+  return 0;
 }
-
-}  // namespace tcmalloc_internal
-}  // namespace tcmalloc

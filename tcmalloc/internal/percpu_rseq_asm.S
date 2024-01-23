@@ -16,6 +16,12 @@
 
 #include "tcmalloc/internal/percpu.h"
 
+#ifdef __GCC_HAVE_DWARF2_CFI_ASM
+#define CFI(...) __VA_ARGS__
+#else
+#define CFI(...)
+#endif
+
 #if TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM
 #if defined(__x86_64__)
 #include "tcmalloc/internal/percpu_rseq_x86_64.S"

@@ -26,6 +26,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -66,12 +67,14 @@ ThreadCache::ThreadCache(pthread_t tid) {
   for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
     list_[size_class].Init();
   }
+
+  (void)padding_;  // to suppress "private field is not used" warning
 }
 
 void ThreadCache::Cleanup() {
   // Put unused memory back into transfer cache
   for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-    if (list_[size_class].length() > 0) {
+    if (!list_[size_class].empty()) {
       ReleaseToTransferCache(&list_[size_class], size_class,
                              list_[size_class].length());
     }
@@ -391,15 +394,17 @@ void ThreadCache::RecomputePerThreadCacheSize() {
   per_thread_cache_size_ = space;
 }
 
-void ThreadCache::GetThreadStats(uint64_t* total_bytes, uint64_t* class_count) {
+AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
+                                     uint64_t* class_count) {
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
-    *total_bytes += h->Size();
+    *total_bytes += h->size_;
     if (class_count) {
       for (int size_class = 0; size_class < kNumClasses; ++size_class) {
-        class_count[size_class] += h->freelist_length(size_class);
+        class_count[size_class] += h->list_[size_class].length();
       }
     }
   }
+  return tc_globals.threadcache_allocator().stats();
 }
 
 void ThreadCache::set_overall_thread_cache_size(size_t new_size) {

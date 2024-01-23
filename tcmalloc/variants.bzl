@@ -38,7 +38,11 @@ build_variants = [
     },
     {
         "name": "numa_aware",
-        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+    },
+    {
+        "name": "256k_pages_numa_aware",
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
 ]
 
@@ -94,7 +98,16 @@ test_variants = [
             "//tcmalloc:common_numa_aware",
             "//tcmalloc:want_numa_aware",
         ],
-        "copts": ["-DTCMALLOC_NUMA_AWARE"],
+        "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+    },
+    {
+        "name": "256k_pages_numa_aware",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages_numa_aware",
+        "deps": [
+            "//tcmalloc:common_256k_pages_numa_aware",
+            "//tcmalloc:want_numa_aware",
+        ],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
         "name": "256k_pages_pow2_sharded_transfer_cache",
@@ -119,18 +132,6 @@ test_variants = [
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
-    },
-    {
-        "name": "wider_slabs",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_WIDER_SLABS"},
-    },
-    {
-        "name": "512k_slab",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_512K_SLAB"},
     },
     {
         "name": "use_all_buckets_for_few_object_spans",
@@ -170,6 +171,33 @@ test_variants = [
         ],
     },
     {
+        "name": "8k_lowfrag_sizeclasses",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+    },
+    {
+        "name": "32k_lowfrag_sizeclasses",
+        "malloc": "//tcmalloc:tcmalloc_large_pages",
+        "deps": ["//tcmalloc:common_large_pages"],
+        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+    },
+    {
+        "name": "256k_lowfrag_sizeclasses",
+        "malloc": "//tcmalloc:tcmalloc_256k_pages",
+        "deps": ["//tcmalloc:common_256k_pages"],
+        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+    },
+    {
+        "name": "small_but_slow_lowfrag_sizeclasses",
+        "malloc": "//tcmalloc:tcmalloc_small_but_slow",
+        "deps": ["//tcmalloc:common_small_but_slow"],
+        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+    },
+    {
         "name": "flat_cpu_caches",
         "malloc": "//tcmalloc",
         "deps": [
@@ -184,12 +212,6 @@ test_variants = [
             "//tcmalloc:common_8k_pages",
         ],
         "env": {"PERCPU_VCPU_MODE": "none"},
-    },
-    {
-        "name": "use_extended_size_class_for_cold",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_EXTENDED_SIZE_CLASS_FOR_COLD"},
     },
 ]
 

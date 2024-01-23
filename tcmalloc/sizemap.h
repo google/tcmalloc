@@ -39,17 +39,11 @@ extern const absl::Span<const SizeClassInfo> kSizeClasses;
 // Experimental size classes:
 extern const absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses;
 extern const absl::Span<const SizeClassInfo> kLegacySizeClasses;
+extern const absl::Span<const SizeClassInfo> kLowFragSizeClasses;
 
 // Size-class information + mapping
 class SizeMap {
  public:
-  // All size classes <= 512 in all configs always have 1 page spans.
-  static constexpr size_t kMultiPageSize = 512;
-  // Min alignment for all size classes > kMultiPageSize in all configs.
-  static constexpr size_t kMultiPageAlignment = 64;
-  // log2 (kMultiPageAlignment)
-  static constexpr size_t kMultiPageAlignmentShift =
-      absl::bit_width(kMultiPageAlignment - 1u);
   // Min allocation size for cold. Once more applications can provide cold hints
   // with PGHO, we can consider adding more size classes for cold to increase
   // cold coverage fleet-wide.
@@ -171,7 +165,7 @@ class SizeMap {
   bool SetSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   // Check that the size classes meet all requirements.
-  bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
+  static bool ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes);
 
   size_t cold_sizes_[kNumBaseClasses] = {0};
   size_t cold_sizes_count_ = 0;
@@ -182,8 +176,7 @@ class SizeMap {
   constexpr SizeMap() = default;
 
   // Initialize the mapping arrays.  Returns true on success.
-  bool Init(absl::Span<const SizeClassInfo> size_classes,
-            bool use_extended_size_class_for_cold);
+  bool Init(absl::Span<const SizeClassInfo> size_classes);
 
   // Returns the size class for size `size` respecting the alignment
   // & access requirements of `policy`.

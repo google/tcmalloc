@@ -1,4 +1,4 @@
-// Copyright 2019 The TCMalloc Authors
+// Copyright 2022 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,18 +13,13 @@
 // limitations under the License.
 
 #include "absl/base/attributes.h"
-#include "tcmalloc/internal/config.h"
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace cpu_cache_internal {
+// This - if linked into a binary - allows wider slabs feature to be disabled.
+ABSL_ATTRIBUTE_UNUSED bool default_want_disable_wider_slabs() { return true; }
 
-// This -if linked into a binary - overrides page_allocator.cc and forces HPAA
-// on/subrelease on.
-ABSL_ATTRIBUTE_UNUSED int default_want_hpaa() { return 1; }
-
-ABSL_ATTRIBUTE_UNUSED int default_subrelease() { return 1; }
-
+}  // namespace cpu_cache_internal
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END

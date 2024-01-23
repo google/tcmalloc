@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
@@ -32,6 +33,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
@@ -49,6 +51,8 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+using subtle::percpu::RseqVcpuMode;
 
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
 // will be set to the total number of objects of size class k in the
@@ -91,8 +95,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->thread_bytes = 0;
   {  // scope
     AllocationGuardSpinLockHolder h(&pageheap_lock);
-    ThreadCache::GetThreadStats(&r->thread_bytes, class_count);
-    r->tc_stats = ThreadCache::HeapStats();
+    r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
     r->span_stats = tc_globals.span_allocator().stats();
     r->stack_stats = tc_globals.sampledallocation_allocator().stats();
     r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
@@ -212,6 +215,34 @@ static int CountAllowedCpus() {
   }
 
   return CPU_COUNT(&allowed_cpus);
+}
+
+static absl::string_view SizeClassConfigurationString(
+    SizeClassConfiguration config) {
+  switch (config) {
+    case SizeClassConfiguration::kPow2Below64:
+      return "SIZE_CLASS_POW2_BELOW_64";
+    case SizeClassConfiguration::kPow2Only:
+      return "SIZE_CLASS_POW2_ONLY";
+    case SizeClassConfiguration::kLowFrag:
+      return "SIZE_CLASS_LOW_FRAG";
+    case SizeClassConfiguration::kLegacy:
+      // TODO(b/242710633): remove this opt out.
+      return "SIZE_CLASS_LEGACY";
+  }
+
+  ASSUME(false);
+  return "SIZE_CLASS_UNKNOWN";
+}
+
+static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
+  switch (mode) {
+    case RseqVcpuMode::kNone:
+      return "NONE";
+  }
+
+  ASSUME(false);
+  return "NONE";
 }
 
 void DumpStats(Printer* out, int level) {
@@ -451,8 +482,6 @@ void DumpStats(Printer* out, int level) {
         "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
         "%d\n",
         Parameters::separate_allocs_for_few_and_many_objects_spans());
-    out->printf("PARAMETER tcmalloc_resize_cpu_cache_size_classes %d\n",
-                Parameters::resize_cpu_cache_size_classes() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_filler_chunks_per_alloc %d\n",
                 Parameters::chunks_per_alloc());
     out->printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
@@ -462,6 +491,12 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "PARAMETER tcmalloc_use_all_buckets_for_few_object_spans %d\n",
         Parameters::use_all_buckets_for_few_object_spans_in_cfl() ? 1 : 0);
+
+    out->printf(
+        "PARAMETER size_class_config %s\n",
+        SizeClassConfigurationString(tc_globals.size_class_configuration()));
+    out->printf("PARAMETER percpu_vcpu_type %s\n",
+                PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   }
 }
 
@@ -623,11 +658,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    Parameters::release_partial_alloc_pages());
   region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
   region.PrintRaw("percpu_vcpu_type",
-                  subtle::percpu::UsingFlatVirtualCpus() ? "FLAT" : "NONE");
+                  PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintI64("separate_allocs_for_few_and_many_objects_spans",
                   Parameters::separate_allocs_for_few_and_many_objects_spans());
-  region.PrintBool("tcmalloc_resize_cpu_cache_size_classes",
-                   Parameters::resize_cpu_cache_size_classes());
   region.PrintI64("tcmalloc_filler_chunks_per_alloc",
                   Parameters::chunks_per_alloc());
   region.PrintI64("tcmalloc_use_wider_slabs",
@@ -636,6 +669,10 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("tcmalloc_use_all_buckets_for_few_object_spans",
                   Parameters::use_all_buckets_for_few_object_spans_in_cfl());
+
+  region.PrintRaw(
+      "size_class_config",
+      SizeClassConfigurationString(tc_globals.size_class_configuration()));
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,
@@ -856,7 +893,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   const absl::string_view kExperimentPrefix = "tcmalloc.experiment.";
   if (absl::StartsWith(name, kExperimentPrefix)) {
-    absl::optional<Experiment> exp =
+    std::optional<Experiment> exp =
         FindExperimentByName(absl::StripPrefix(name, kExperimentPrefix));
     if (exp.has_value()) {
       *value = IsExperimentActive(*exp) ? 1 : 0;

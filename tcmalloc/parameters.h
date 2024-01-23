@@ -68,24 +68,6 @@ class Parameters {
     TCMalloc_Internal_SetImprovedGuardedSampling(enable);
   }
 
-  static int64_t uaf_check_parameter() {
-    return uaf_check_parameter_.load(std::memory_order_relaxed);
-  }
-
-  static void set_uaf_check_parameter(int64_t rate) {
-    TCMalloc_Internal_SetUafCheckParameter(rate);
-  }
-
-  // TODO(b/303926761): remove when experimentation is complete
-  static int64_t uaf_check_quarantine_limit() {
-    return uaf_check_quarantine_limit_.load(std::memory_order_relaxed);
-  }
-
-  // TODO(b/303926761): remove when experimentation is complete
-  static void set_uaf_check_quarantine_limit(int64_t max_bytes) {
-    TCMalloc_Internal_SetUafCheckQuarantineLimit(max_bytes);
-  }
-
   static int32_t max_per_cpu_cache_size();
 
   static void set_max_per_cpu_cache_size(int32_t value) {
@@ -122,11 +104,6 @@ class Parameters {
 
   static void set_peak_sampling_heap_growth_fraction(double value) {
     TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(value);
-  }
-
-  static bool resize_cpu_cache_size_classes() {
-    return resize_cpu_cache_size_classes_enabled_.load(
-        std::memory_order_relaxed);
   }
 
   static bool release_partial_alloc_pages() {
@@ -210,11 +187,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
   // TODO(b/263387812): remove when experimentation is complete
   friend void ::TCMalloc_Internal_SetImprovedGuardedSampling(bool v);
-  friend void ::TCMalloc_Internal_SetUafCheckParameter(int64_t rate);
-  // TODO(b/303926761): remove when experimentation is complete
-  friend void ::TCMalloc_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
-  friend void ::TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
@@ -243,10 +216,6 @@ class Parameters {
   static std::atomic<int64_t> guarded_sampling_rate_;
   // TODO(b/263387812): remove when experimentation is complete
   static std::atomic<bool> improved_guarded_sampling_;
-  static std::atomic<int64_t> uaf_check_parameter_;
-  // TODO(b/303926761): remove when experimentation is complete
-  static std::atomic<int64_t> uaf_check_quarantine_limit_;
-  static std::atomic<bool> resize_cpu_cache_size_classes_enabled_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;

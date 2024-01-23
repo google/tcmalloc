@@ -184,15 +184,8 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
-// TODO(b/274658726, b/305723428): Remove this opt-out flag.
-ABSL_CONST_INIT std::atomic<bool>
-    Parameters::resize_cpu_cache_size_classes_enabled_(true);
 // TODO(b/263387812): remove when experimentation is complete
 ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
-ABSL_CONST_INIT std::atomic<int64_t> Parameters::uaf_check_parameter_(0);
-// TODO(b/303926761): remove when experimentation is complete
-ABSL_CONST_INIT std::atomic<int64_t> Parameters::uaf_check_quarantine_limit_(
-    2 * 1024 * 1024);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
@@ -299,15 +292,6 @@ int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
 
-int ABSL_ATTRIBUTE_WEAK default_want_disable_laze_size_class_resize();
-
-// TODO(b/305723428): remove the default_want_disable_laze_size_class_resize
-// opt-out.
-static bool want_disable_lazy_size_class_resize() {
-  if (default_want_disable_laze_size_class_resize == nullptr) return false;
-  return default_want_disable_laze_size_class_resize() > 0;
-}
-
 int ABSL_ATTRIBUTE_WEAK default_want_disable_dynamic_slabs();
 
 // TODO(b/271475288): remove the default_want_disable_dynamic_slabs opt-out
@@ -352,24 +336,6 @@ bool MallocExtension_Internal_GetImprovedGuardedSampling() {
 // TODO(b/263387812): remove when experimentation is complete
 void MallocExtension_Internal_SetImprovedGuardedSampling(bool value) {
   Parameters::set_improved_guarded_sampling(value);
-}
-
-int64_t MallocExtension_Internal_GetUafCheckParameter() {
-  return Parameters::uaf_check_parameter();
-}
-
-void MallocExtension_Internal_SetUafCheckParameter(int64_t rate) {
-  Parameters::set_uaf_check_parameter(rate);
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-int64_t MallocExtension_Internal_GetUafCheckQuarantineLimit() {
-  return Parameters::uaf_check_quarantine_limit();
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-void MallocExtension_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes) {
-  Parameters::set_uaf_check_quarantine_limit(max_bytes);
 }
 
 int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
@@ -451,10 +417,6 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
   return Parameters::hpaa_subrelease();
 }
 
-bool TCMalloc_Internal_GetResizeCpuCacheSizeClassesEnabled() {
-  return Parameters::resize_cpu_cache_size_classes();
-}
-
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
@@ -474,16 +436,6 @@ void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v) {
 // TODO(b/263387812): remove when experimentation is complete
 void TCMalloc_Internal_SetImprovedGuardedSampling(bool v) {
   Parameters::improved_guarded_sampling_.store(v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetUafCheckParameter(int64_t rate) {
-  Parameters::uaf_check_parameter_.store(rate, std::memory_order_relaxed);
-}
-
-// TODO(b/303926761): remove when experimentation is complete
-void TCMalloc_Internal_SetUafCheckQuarantineLimit(int64_t max_bytes) {
-  Parameters::uaf_check_quarantine_limit_.store(max_bytes,
-                                                std::memory_order_relaxed);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.
@@ -513,16 +465,6 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
       v, std::memory_order_relaxed);
 }
 
-void TCMalloc_Internal_SetResizeCpuCacheSizeClassesEnabled(bool v) {
-  // We only allow disabling size class resize using both the flag and
-  // want_disable_lazy_size_class_resize.
-  if (!v && !tcmalloc::tcmalloc_internal::want_disable_lazy_size_class_resize())
-    return;
-
-  Parameters::resize_cpu_cache_size_classes_enabled_.store(
-      v, std::memory_order_relaxed);
-}
-
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
   Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
 }
@@ -545,6 +487,15 @@ void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v) {
 }
 
 void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
+#if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
+  if (!v) {
+    Log(kLog, __FILE__, __LINE__,
+        "Using per-thread caches requires linking against "
+        ":tcmalloc_deprecated_perthread.");
+    return;
+  }
+#endif  // !TCMALLOC_DEPRECATED_PERTHREAD
+
   Parameters::per_cpu_caches_enabled_.store(v, std::memory_order_relaxed);
 }
 
