@@ -132,10 +132,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
         absl::ToDoubleSeconds(now - prev_time);
     bytes_to_release = std::max<ssize_t>(bytes_to_release, 0);
 
-    // Release memory from page heap. Even if the background release rate is set
-    // to zero, we still want to release free and backed hugepages from
-    // HugeRegion and HugeCache.
-    tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
+    // If release rate is set to 0, do not release memory to system. However, if
+    // we want to release free and backed hugepages from HugeRegion,
+    // ReleaseMemoryToSystem should be able to release those pages to the
+    // system even with bytes_to_release = 0.
+    if (bytes_to_release > 0 || Parameters::release_pages_from_huge_region()) {
+      tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
+    }
 
     prev_time = now;
     absl::SleepFor(kSleepTime);
