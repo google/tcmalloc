@@ -1109,28 +1109,21 @@ void TcmallocSlab<NumClasses>::Init(Slabs* slabs,
   __rseq_abi.cpu_id_start = 0;
 #endif
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
-  const int num_cpus = NumCPUs();
-  for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    Slabs* curr_slab = CpuMemoryStart(slabs, shift, cpu);
-    void** elems = curr_slab->mem;
+  size_t consumed_bytes = NumClasses * sizeof(Header);
+  for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
+    size_t cap = capacity(size_class);
+    CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
-    for (size_t size_class = 0; size_class < NumClasses; ++size_class) {
-      size_t cap = capacity(size_class);
-      CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
+    if (cap == 0) {
+      continue;
+    }
 
-      if (cap == 0) {
-        continue;
-      }
-
-      // One extra element for prefetch
-      const size_t num_pointers = cap + 1;
-      elems += num_pointers;
-      const size_t bytes_used_on_curr_slab =
-          reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
-      if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-        Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-              1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
-      }
+    // One extra element for prefetch
+    const size_t num_pointers = cap + 1;
+    consumed_bytes += num_pointers * sizeof(void*);
+    if (consumed_bytes > (1 << ToUint8(shift))) {
+      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+            1 << ToUint8(shift), " need ", consumed_bytes);
     }
   }
 }
