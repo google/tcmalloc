@@ -258,7 +258,15 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
   using UsageHint = AddressRegionFactory::UsageHint;
   switch (tag) {
     case MemoryTag::kNormal:
+      if (tc_globals.numa_topology().numa_aware()) {
+        return UsageHint::kNormalNumaAwareS0;
+      }
+      return UsageHint::kNormal;
+      break;
     case MemoryTag::kNormalP1:
+      if (tc_globals.numa_topology().numa_aware()) {
+        return UsageHint::kNormalNumaAwareS1;
+      }
       return UsageHint::kNormal;
       break;
     case MemoryTag::kSampled:
