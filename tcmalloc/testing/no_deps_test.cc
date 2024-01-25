@@ -32,11 +32,8 @@ const size_t kMin = 8;
 void* blocks[kMem / kMin];
 
 int main() {
-  const char* env = getenv("FORCE_CPU_CACHES");
-  if (env != nullptr && strcmp(env, "1") == 0) {
-    if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
-      TCMalloc_Internal_ForceCpuCacheActivation();
-    }
+  if (&TCMalloc_Internal_ForceCpuCacheActivation != nullptr) {
+    TCMalloc_Internal_ForceCpuCacheActivation();
   }
 
   size_t step = 16;

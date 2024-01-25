@@ -351,7 +351,6 @@ create_tcmalloc_testsuite(
     name = "no_deps_per_cpu_test",
     srcs = ["no_deps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    env = {"FORCE_CPU_CACHES": "1"},
     linkstatic = 1,
     deps = ["//tcmalloc:malloc_extension"],
 )

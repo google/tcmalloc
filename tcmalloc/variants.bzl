@@ -288,12 +288,13 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
     linkopts = kwargs.pop("linkopts", [])
+    env0 = kwargs.pop("env", {})
 
     variant_targets = []
     for variant in test_variants:
         inner_target_name = name + "_" + variant["name"]
         variant_targets.append(inner_target_name)
-        env = kwargs.pop("env", {})
+        env = dict(env0)
         env.update(variant.get("env", {}))
         create_one(
             inner_target_name,
