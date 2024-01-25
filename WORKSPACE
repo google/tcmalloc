@@ -19,26 +19,26 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 # Load a recent version of skylib in case our dependencies have obsolete
 # versions. This is needed for bazel 6 compatibility.
 http_archive(
-    name = "bazel_skylib", # 2022-09-01
-    urls = ["https://github.com/bazelbuild/bazel-skylib/archive/refs/tags/1.3.0.zip"],
-    strip_prefix = "bazel-skylib-1.3.0",
+    name = "bazel_skylib",  # 2022-09-01
     sha256 = "4756ab3ec46d94d99e5ed685d2d24aece484015e45af303eb3a11cab3cdc2e71",
+    strip_prefix = "bazel-skylib-1.3.0",
+    urls = ["https://github.com/bazelbuild/bazel-skylib/archive/refs/tags/1.3.0.zip"],
 )
 
 # Abseil
 http_archive(
     name = "com_google_absl",
-    urls = ["https://github.com/abseil/abseil-cpp/archive/133360ca449bb2a44899e71f253856dca8443bdb.zip"],
-    strip_prefix = "abseil-cpp-133360ca449bb2a44899e71f253856dca8443bdb",
-    sha256 = "4ff3befaeb1518ffa02353fdbcafff9a083bf0656d5d0ffc8ca24a667dc72556",
+    sha256 = "f49929d22751bf70dd61922fb1fd05eb7aec5e7a7f870beece79a6e28f0a06c1",
+    strip_prefix = "abseil-cpp-4a2c63365eff8823a5221db86ef490e828306f9d",
+    urls = ["https://github.com/abseil/abseil-cpp/archive/4a2c63365eff8823a5221db86ef490e828306f9d.zip"],
 )
 
 # GoogleTest/GoogleMock framework. Used by most unit-tests.
 http_archive(
     name = "com_google_googletest",  # 2023-06-15T14:52:03Z
-    urls = ["https://github.com/google/googletest/archive/18fa6a4db32a30675c0b19bf72f8b5f693d21a23.zip"],
-    strip_prefix = "googletest-18fa6a4db32a30675c0b19bf72f8b5f693d21a23",
     sha256 = "35908733d9ea615be95517f6e15aea46191b2670d791b17ac841944272093ed2",
+    strip_prefix = "googletest-18fa6a4db32a30675c0b19bf72f8b5f693d21a23",
+    urls = ["https://github.com/google/googletest/archive/18fa6a4db32a30675c0b19bf72f8b5f693d21a23.zip"],
 )
 
 # RE2
@@ -52,17 +52,17 @@ http_archive(
 # Google benchmark.
 http_archive(
     name = "com_github_google_benchmark",
-    urls = ["https://github.com/google/benchmark/archive/0baacde3618ca617da95375e0af13ce1baadea47.zip"],
-    strip_prefix = "benchmark-0baacde3618ca617da95375e0af13ce1baadea47",
     sha256 = "62e2f2e6d8a744d67e4bbc212fcfd06647080de4253c97ad5c6749e09faf2cb0",
+    strip_prefix = "benchmark-0baacde3618ca617da95375e0af13ce1baadea47",
+    urls = ["https://github.com/google/benchmark/archive/0baacde3618ca617da95375e0af13ce1baadea47.zip"],
 )
 
 # C++ rules for Bazel.
 http_archive(
     name = "rules_cc",  # 2021-05-14T14:51:14Z
-    urls = ["https://github.com/bazelbuild/rules_cc/archive/68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9.zip"],
-    strip_prefix = "rules_cc-68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9",
     sha256 = "1e19e9a3bc3d4ee91d7fcad00653485ee6c798efbbf9588d40b34cbfbded143d",
+    strip_prefix = "rules_cc-68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9",
+    urls = ["https://github.com/bazelbuild/rules_cc/archive/68cb652a71e7e7e2858c50593e5a9e3b94e5b9a9.zip"],
 )
 
 # Python rules
@@ -72,19 +72,21 @@ http_archive(
 # and https://github.com/google/tcmalloc/issues/127
 http_archive(
     name = "rules_python",
-    urls = ["https://github.com/bazelbuild/rules_python/archive/refs/tags/0.11.0.tar.gz"],
     sha256 = "c03246c11efd49266e8e41e12931090b613e12a59e6f55ba2efd29a7cb8b4258",
     strip_prefix = "rules_python-0.11.0",
+    urls = ["https://github.com/bazelbuild/rules_python/archive/refs/tags/0.11.0.tar.gz"],
 )
 
 # Proto rules for Bazel and Protobuf
 http_archive(
     name = "com_google_protobuf",
-    urls = ["https://github.com/protocolbuffers/protobuf/archive/13d559beb6967033a467a7517c35d8ad970f8afb.zip"],
-    strip_prefix = "protobuf-13d559beb6967033a467a7517c35d8ad970f8afb",
     sha256 = "9ca59193fcfe52c54e4c2b4584770acd1a6528fc35efad363f8513c224490c50",
+    strip_prefix = "protobuf-13d559beb6967033a467a7517c35d8ad970f8afb",
+    urls = ["https://github.com/protocolbuffers/protobuf/archive/13d559beb6967033a467a7517c35d8ad970f8afb.zip"],
 )
+
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+
 protobuf_deps()
 
 http_archive(
@@ -98,7 +100,9 @@ http_archive(
 )
 
 load("@rules_proto//proto:repositories.bzl", "rules_proto_dependencies", "rules_proto_toolchains")
+
 rules_proto_dependencies()
+
 rules_proto_toolchains()
 
 # Fuzzing
