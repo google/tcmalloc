@@ -1013,12 +1013,10 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   // filler.
 
   Length released;
-  if (regions_.UseHugeRegionMoreOften()) {
-    // We try to release as many free hugepages from HugeRegion as possible.
-    released += regions_.ReleasePages(/*release_fraction=*/1.0);
-    if (released >= n) {
-      return released;
-    }
+  // We try to release as many free hugepages from HugeRegion as possible.
+  released += regions_.ReleasePages(/*release_fraction=*/1.0);
+  if (released >= n) {
+    return released;
   }
 
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
