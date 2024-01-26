@@ -77,7 +77,7 @@ namespace {
 using testing::Each;
 using testing::UnorderedElementsAreArray;
 
-constexpr size_t kStressSlabs = 4;
+constexpr size_t kStressSlabs = 5;
 constexpr size_t kStressCapacity = 4;
 
 constexpr size_t kShift = 18;
@@ -160,7 +160,7 @@ TEST_F(TcmallocSlabTest, Metadata) {
   // Read stats from the slab.  This will fault additional memory.
   for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
     // To inhibit optimization, verify the values are sensible.
-    for (int size_class = 0; size_class < kStressSlabs; ++size_class) {
+    for (int size_class = 1; size_class < kStressSlabs; ++size_class) {
       EXPECT_EQ(0, slab_.Length(cpu, size_class));
       EXPECT_EQ(0, slab_.Capacity(cpu, size_class));
     }
@@ -198,7 +198,7 @@ TEST_F(TcmallocSlabTest, Unit) {
     // Temporarily fake being on the given CPU.
     ScopedFakeCpuId fake_cpu_id(cpu);
 
-    for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
+    for (size_t size_class = 1; size_class < kStressSlabs; ++size_class) {
       SCOPED_TRACE(size_class);
 
       // Check new slab state.
@@ -495,7 +495,7 @@ void StressThread(size_t thread_id, Context& ctx) {
   const int num_cpus = NumCPUs();
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*ctx.stop) {
-    size_t size_class = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
+    size_t size_class = absl::Uniform<int32_t>(rnd, 1, kStressSlabs);
     const int what = absl::Uniform<int32_t>(rnd, 0, 101);
     if (what < 10) {
       if (!block.empty()) {
@@ -852,7 +852,7 @@ TEST_P(StressThreadTest, Stress) {
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     slab.Drain(cpu, drain_handler);
-    for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
+    for (size_t size_class = 1; size_class < kStressSlabs; ++size_class) {
       EXPECT_EQ(slab.Length(cpu, size_class), 0);
       EXPECT_EQ(slab.Capacity(cpu, size_class), 0);
     }

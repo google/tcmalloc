@@ -2326,7 +2326,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
   out->printf("Size class capacity statistics in per-cpu caches\n");
   out->printf("------------------------------------------------\n");
 
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     out->printf(
         "class %3d [ %8zu bytes ] : "
@@ -2410,7 +2410,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   }
 
   // Record size class capacity statistics.
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     PbtxtRegion entry = region->CreateSubRegion("size_class_capacity");
     entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));

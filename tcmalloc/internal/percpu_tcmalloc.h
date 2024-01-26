@@ -685,6 +685,7 @@ overflow_label:
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab::Push(size_t size_class,
                                                             void* item) {
+  ASSERT(size_class != 0);
   ASSERT(item != nullptr);
   // Speculatively annotate item as released to TSan.  We may not succeed in
   // pushing the item, but if we wait for the restartable sequence to succeed,
@@ -721,6 +722,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
+  ASSERT(size_class != 0);
   void* next;
   void* result;
   void* scratch;
@@ -797,6 +799,7 @@ underflow_path:
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
+  ASSERT(size_class != 0);
   void* result;
   void* region_start;
   void* prefetch;
@@ -908,6 +911,7 @@ inline void TcmallocSlab::UncacheCpuSlab() {
 
 inline size_t TcmallocSlab::PushBatch(size_t size_class, void** batch,
                                       size_t len) {
+  ASSERT(size_class != 0);
   ASSERT(len != 0);
   // We need to annotate batch[...] as released before running the restartable
   // sequence, since those objects become visible to other threads the moment
@@ -921,6 +925,7 @@ inline size_t TcmallocSlab::PushBatch(size_t size_class, void** batch,
 
 inline size_t TcmallocSlab::PopBatch(size_t size_class, void** batch,
                                      size_t len) {
+  ASSERT(size_class != 0);
   ASSERT(len != 0);
   const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len);
   ASSERT(n <= len);
@@ -939,6 +944,7 @@ inline void* TcmallocSlab::CpuMemoryStart(void* slabs, Shift shift, int cpu) {
 inline std::atomic<int64_t>* TcmallocSlab::GetHeader(void* slabs, Shift shift,
                                                      int cpu,
                                                      size_t size_class) {
+  ASSERT(size_class != 0);
   return &static_cast<std::atomic<int64_t>*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
 }

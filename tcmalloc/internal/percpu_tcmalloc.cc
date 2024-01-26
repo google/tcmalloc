@@ -56,7 +56,7 @@ void TcmallocSlab::Init(
 #endif
   slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
   size_t consumed_bytes = num_classes_ * sizeof(Header);
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     size_t cap = capacity(size_class);
     CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
@@ -98,7 +98,7 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
   // Number of free pointers is limited by uint16_t sized offsets in slab
   // header, with an additional offset value 0xffff reserved for locking.
   constexpr size_t kMaxAllowedOffset = std::numeric_limits<uint16_t>::max() - 1;
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     size_t cap = capacity(size_class);
     CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
 
@@ -136,7 +136,7 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
   //
   // We must write current and complete a fence before storing begin and end
   // (b/147974701).
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
     hdr.current = begin[size_class];
@@ -145,7 +145,7 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
   FenceCpu(cpu, virtual_cpu_id_offset);
 
   // Phase 4: Allow access to this cache.
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     Header hdr;
     hdr.current = begin[size_class];
     hdr.begin = begin[size_class];
@@ -191,13 +191,13 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow(int cpu) {
 
 void TcmallocSlab::DrainCpu(void* slabs, Shift shift, int cpu,
                             DrainHandler drain_handler) {
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     Header header = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
     uint16_t begin = resize_begins_[cpu * num_classes_ + size_class];
     const size_t size = header.current - begin;
     const size_t cap = header.end_copy - begin;
     void** batch =
-        reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, 0) + begin);
+        reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
     TSANAcquireBatch(batch, size);
     drain_handler(cpu, size_class, batch, size, cap);
   }
@@ -206,12 +206,12 @@ void TcmallocSlab::DrainCpu(void* slabs, Shift shift, int cpu,
 void TcmallocSlab::StopConcurrentMutations(void* slabs, Shift shift, int cpu,
                                            size_t virtual_cpu_id_offset) {
   for (bool done = false; !done;) {
-    for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+    for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
       LockHeader(slabs, shift, cpu, size_class);
     }
     FenceCpu(cpu, virtual_cpu_id_offset);
     done = true;
-    for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+    for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
       Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
       if (!hdr.IsLocked()) {
         // Header was overwritten by Grow/Shrink. Retry.
@@ -251,7 +251,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   resizing_.store(true, std::memory_order_relaxed);
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
-    for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+    for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
       Header header =
           LoadHeader(GetHeader(old_slabs, old_shift, cpu, size_class));
       CHECK_CONDITION(!header.IsLocked());
@@ -278,7 +278,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   // accurate `current` values.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     if (!populated(cpu)) continue;
-    for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+    for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
       std::atomic<int64_t>* header_ptr =
           GetHeader(old_slabs, old_shift, cpu, size_class);
       Header header = LoadHeader(header_ptr);
@@ -420,7 +420,7 @@ void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
 
   // Phase 1: collect all begin's (these are not mutated by anybody else).
   uint16_t* begin = &resize_begins_[cpu * num_classes_];
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
     CHECK_CONDITION(!hdr.IsLocked());
     begin[size_class] = hdr.begin;
@@ -443,7 +443,7 @@ void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
   // no Push/Pop will make progress.  Once we Fence below, we know no Push/Pop
   // is using the old current, and can safely update begin/end to be an empty
   // slab.
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
     hdr.current = begin[size_class];
@@ -453,7 +453,7 @@ void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
   // Phase 5: fence and reset the remaining fields to beginning of the region.
   // This allows concurrent mutations again.
   FenceCpu(cpu, virtual_cpu_id_offset);
-  for (size_t size_class = 0; size_class < num_classes_; ++size_class) {
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr;
     hdr.current = begin[size_class];

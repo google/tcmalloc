@@ -274,7 +274,7 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
   // Allocate an object. As we are using less than kMinShardsAllowed number of
   // shards, we should bypass sharded transfer cache entirely.
   void* ptr = cache.Allocate(kSizeClass);
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     EXPECT_FALSE(sharded_transfer_cache.should_use(size_class));
     EXPECT_EQ(sharded_transfer_cache.GetStats(size_class).capacity, 0);
     EXPECT_EQ(sharded_transfer_cache.GetStats(size_class).max_capacity, 0);
@@ -480,7 +480,7 @@ TEST(CpuCacheTest, Metadata) {
               cache.Capacity(cpu));
   }
 
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     // This is sensitive to the current growth policies of CpuCache.  It may
     // require updating from time-to-time.
     EXPECT_EQ(cache.TotalObjectsOfClass(size_class),
@@ -1289,7 +1289,7 @@ TEST(CpuCacheTest, SizeClassCapacityTest) {
     EXPECT_TRUE(cache.HasPopulated(cpu));
   }
 
-  for (int size_class = 0; size_class < kNumClasses; ++size_class) {
+  for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     SCOPED_TRACE(absl::StrFormat("Failed size_class: %d", size_class));
     CpuCache::SizeClassCapacityStats capacity_stats =
         cache.GetSizeClassCapacityStats(size_class);
