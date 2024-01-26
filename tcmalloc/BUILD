@@ -459,7 +459,9 @@ cc_library(
         "-DTCMALLOC_INTERNAL_NUMA_AWARE",
     ] + TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    visibility = [":tcmalloc_tests"],
+    visibility = [
+        ":tcmalloc_tests",
+    ],
     deps = tcmalloc_deps + [
         ":common_256k_pages_numa_aware",
         "//tcmalloc/internal:allocation_guard",
