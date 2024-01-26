@@ -714,13 +714,8 @@ void CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
 }
 
 template <class Forwarder>
-#if defined(__clang__)
-// gcc complains without explaining why:
-// cpu_cache.h:702:35: error: 'always_inline' function might not be inlinable
-ABSL_ATTRIBUTE_ALWAYS_INLINE
-#endif
-    bool
-    CpuCache<Forwarder>::DeallocateFast(void* ptr, size_t size_class) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::DeallocateFast(
+    void* ptr, size_t size_class) {
   ASSERT(size_class > 0);
   return freelist_.Push(size_class, ptr);
 }
