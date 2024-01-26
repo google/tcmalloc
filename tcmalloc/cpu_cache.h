@@ -604,12 +604,6 @@ class CpuCache {
   void Grow(int cpu, size_t size_class, size_t desired_increase,
             ObjectsToReturn* to_return);
 
-  // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
-  // that CPU. Returns acquired bytes. <to_return> will contain objects that
-  // need to be freed.
-  size_t Steal(int cpu, size_t size_class, size_t bytes,
-               ObjectsToReturn* to_return);
-
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
   // remain the same.
@@ -642,8 +636,8 @@ class CpuCache {
   // (4) capacity of the source cpu/size_class is non-zero
   //
   // For a given source cpu, we iterate through the size classes to steal from
-  // them. Currently, we use a similar clock-like algorithm from Steal() to
-  // identify the size_class to steal from.
+  // them. Currently, we use a clock-like algorithm to identify the size_class
+  // to steal from.
   void StealFromOtherCache(int cpu, int max_populated_cpu, size_t bytes);
 
   // Resizes capacities of up to kMaxSizeClassesToResize size classes for a
@@ -1210,10 +1204,7 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   // First, there might be unreserved slack.  Take what we can.
   for (;;) {
     size_t before = resize_[cpu].available.load(std::memory_order_relaxed);
-    // Skip atomic RMW if we have less than 6% of one object spare capacity.
-    // This number is somewhat arbitrary, the idea is to avoid the RMW cost
-    // if the remaining spare capacity is unlikely to help to avoid stealing.
-    if (before <= (size / 16)) {
+    if (before < size) {
       break;
     }
     size_t can_acquire = std::min(before, desired_bytes);
@@ -1227,8 +1218,9 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   if (acquired_bytes < desired_bytes) {
     resize_[cpu].per_class[size_class].RecordMiss();
   }
-
-  // We have all the memory we could reserve.  Time to actually do the growth.
+  if (acquired_bytes == 0) {
+    return;
+  }
 
   // We might have gotten more than we wanted (stealing from larger sizeclasses)
   // so don't grow _too_ much.
@@ -1546,9 +1538,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
       }
       const size_t length = freelist_.Length(src_cpu, source_size_class);
 
-      // TODO(vgogte): Currently, scoring is similar to stealing from the
-      // same cpu in CpuCache<Forwarder>::Steal(). Revisit this later to tune
-      // the knobs.
+      // TODO(vgogte): Revisit this algorithm later to tune the knobs.
       const size_t batch_length =
           forwarder_.num_objects_to_move(source_size_class);
       size_t size = forwarder_.class_to_size(source_size_class);
@@ -1730,69 +1720,6 @@ inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
     }
 
     if (acquired >= bytes) {
-      // can't steal any more or don't need to
-      break;
-    }
-  }
-  // update the hint
-  resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
-  return acquired;
-}
-// There are rather a lot of policy knobs we could tweak here.
-template <class Forwarder>
-inline size_t CpuCache<Forwarder>::Steal(int cpu, size_t dest_size_class,
-                                         size_t bytes,
-                                         ObjectsToReturn* to_return) {
-  // Steal from other sizeclasses.  Try to go in a nice circle.
-  // Complicated by sizeclasses actually being 1-indexed.
-  size_t acquired = 0;
-  size_t start = resize_[cpu].last_steal.load(std::memory_order_relaxed);
-  ASSERT(start < kNumClasses);
-  ASSERT(0 < start);
-  size_t source_size_class = start;
-  for (size_t offset = 1; offset < kNumClasses; ++offset) {
-    source_size_class = start + offset;
-    if (source_size_class >= kNumClasses) {
-      source_size_class -= kNumClasses - 1;
-    }
-    ASSERT(0 < source_size_class);
-    ASSERT(source_size_class < kNumClasses);
-    // Decide if we want to steal source_size_class.
-    if (source_size_class == dest_size_class) {
-      // First, no sense in picking your own pocket.
-      continue;
-    }
-    if (!IsGoodCandidateForShrinking(cpu, source_size_class)) continue;
-    size_t size = forwarder_.class_to_size(source_size_class);
-    const size_t capacity = freelist_.Capacity(cpu, source_size_class);
-    const size_t length = freelist_.Length(cpu, source_size_class);
-
-    if (length >= capacity) {
-      // The list is full, need to evict an object to shrink it.
-      if (to_return == nullptr) {
-        continue;
-      }
-      if (to_return->count == 0) {
-        // Can't steal any more because the to_return set is full.
-        break;
-      }
-      if (void* obj = freelist_.Pop(source_size_class)) {
-        --to_return->count;
-        to_return->size_class[to_return->count] = source_size_class;
-        to_return->obj[to_return->count] = obj;
-      }
-    }
-
-    // Finally, try to shrink (can fail if we were migrated).
-    // We always shrink by 1 object. The idea is that inactive lists will be
-    // shrunk to zero eventually anyway (or they just would not grow in the
-    // first place), but for active lists it does not make sense to aggressively
-    // shuffle capacity all the time.
-    if (freelist_.Shrink(cpu, source_size_class, 1) == 1) {
-      acquired += size;
-    }
-
-    if (cpu != freelist_.GetCurrentVirtualCpuUnsafe() || acquired >= bytes) {
       // can't steal any more or don't need to
       break;
     }

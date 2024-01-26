@@ -252,14 +252,9 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Pop(size_class), &objects[i - 1]);
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
-      // Ensure that Shink don't underflow capacity.
-      ASSERT_EQ(slab_.Shrink(cpu, size_class, kCapacity), kCapacity / 2);
-      ASSERT_EQ(slab_.Capacity(cpu, size_class), 0);
 
-      // Grow capacity to kCapacity.
-      ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2, max_capacity),
-                kCapacity / 2);
-      // Ensure that grow don't overflow max capacity.
+      // Grow capacity to kCapacity and ensure that grow don't overflow max
+      // capacity.
       ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity, max_capacity),
                 kCapacity / 2);
       ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity);
@@ -273,14 +268,9 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(slab_.Length(cpu, size_class), i - 1);
       }
 
-      // Ensure that we can't shrink below length.
+      // Test Drain.
       ASSERT_TRUE(slab_.Push(size_class, &objects[0]));
       ASSERT_TRUE(slab_.Push(size_class, &objects[1]));
-      ASSERT_EQ(slab_.Shrink(cpu, size_class, kCapacity), kCapacity - 2);
-      ASSERT_EQ(slab_.Capacity(cpu, size_class), 2);
-
-      // Test Drain.
-      ASSERT_EQ(slab_.Grow(cpu, size_class, 2, max_capacity), 2);
 
       slab_.Drain(cpu, [size_class, cpu, &objects](
                            int cpu_arg, size_t size_class_arg, void** batch,
@@ -288,7 +278,7 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_EQ(cpu, cpu_arg);
         if (size_class == size_class_arg) {
           ASSERT_EQ(size, 2);
-          ASSERT_EQ(cap, 4);
+          ASSERT_EQ(cap, 10);
           ASSERT_EQ(batch[0], &objects[0]);
           ASSERT_EQ(batch[1], &objects[1]);
         } else {
@@ -399,7 +389,21 @@ TEST_F(TcmallocSlabTest, Unit) {
           batch[j] = nullptr;
         }
       }
-      ASSERT_EQ(slab_.Shrink(cpu, size_class, kCapacity / 2), kCapacity / 2);
+
+      slab_.Drain(cpu,
+                  [size_class, cpu](int cpu_arg, size_t size_class_arg,
+                                    void** batch, size_t size, size_t cap) {
+                    ASSERT_EQ(cpu, cpu_arg);
+                    if (size_class == size_class_arg) {
+                      ASSERT_EQ(size, 0);
+                      ASSERT_EQ(cap, 5);
+                    } else {
+                      ASSERT_EQ(size, 0);
+                      ASSERT_EQ(cap, 0);
+                    }
+                  });
+      ASSERT_EQ(slab_.Length(cpu, size_class), 0);
+      ASSERT_EQ(slab_.Capacity(cpu, size_class), 0);
       slab_.UncacheCpuSlab();
     }
   }
@@ -496,7 +500,7 @@ void StressThread(size_t thread_id, Context& ctx) {
   absl::BitGen rnd(absl::SeedSeq({thread_id}));
   while (!*ctx.stop) {
     size_t size_class = absl::Uniform<int32_t>(rnd, 1, kStressSlabs);
-    const int what = absl::Uniform<int32_t>(rnd, 0, 101);
+    const int what = absl::Uniform<int32_t>(rnd, 0, 91);
     if (what < 10) {
       if (!block.empty()) {
         if (ctx.slab->Push(size_class, block.back())) {
@@ -562,23 +566,14 @@ void StressThread(size_t thread_id, Context& ctx) {
         ctx.capacity->fetch_add(n - res);
       }
     } else if (what < 60) {
-      const int cpu = ctx.slab->GetCurrentVirtualCpuUnsafe();
-      // Shrink mutates the header array and must be operating on an initialized
-      // core.
-      InitCpuOnce(ctx, cpu);
-
-      size_t n = ctx.slab->Shrink(
-          cpu, size_class, absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1);
-      ctx.capacity->fetch_add(n);
-    } else if (what < 70) {
       size_t len = ctx.slab->Length(absl::Uniform<int32_t>(rnd, 0, num_cpus),
                                     size_class);
       EXPECT_LE(len, kStressCapacity);
-    } else if (what < 80) {
+    } else if (what < 70) {
       size_t cap = ctx.slab->Capacity(absl::Uniform<int32_t>(rnd, 0, num_cpus),
                                       size_class);
       EXPECT_LE(cap, kStressCapacity);
-    } else if (what < 90) {
+    } else if (what < 80) {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
 
       // ShrinkOtherCache mutates the header array and must be operating on an
@@ -601,7 +596,7 @@ void StressThread(size_t thread_id, Context& ctx) {
       EXPECT_LE(total_shrunk, to_shrink);
       EXPECT_LE(0, total_shrunk);
       ctx.capacity->fetch_add(total_shrunk);
-    } else if (what < 100) {
+    } else if (what < 90) {
       size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
       for (;;) {
         size_t c = ctx.capacity->load();

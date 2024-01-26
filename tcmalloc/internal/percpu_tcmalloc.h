@@ -186,11 +186,6 @@ class TcmallocSlab {
   size_t Grow(int cpu, size_t size_class, size_t len,
               absl::FunctionRef<size_t(uint8_t)> max_capacity);
 
-  // If running on cpu, decrement the cpu/size_class slab's capacity to no less
-  // than max(capacity-len, 0) and return the actual decrement applied.
-  // Otherwise return 0.
-  size_t Shrink(int cpu, size_t size_class, size_t len);
-
   // Add an item (which must be non-zero) to the current CPU's slab. Returns
   // true if add succeeds. Otherwise invokes <overflow_handler> and returns
   // false (assuming that <overflow_handler> returns negative value).
@@ -418,29 +413,6 @@ inline size_t TcmallocSlab::Grow(
     Header hdr = old;
     hdr.end += n;
     hdr.end_copy += n;
-    const int ret =
-        CompareAndSwapHeader(cpu, hdrp, old, hdr, virtual_cpu_id_offset);
-    if (ret == cpu) {
-      return n;
-    } else if (ret >= 0) {
-      return 0;
-    }
-  }
-}
-
-inline size_t TcmallocSlab::Shrink(int cpu, size_t size_class, size_t len) {
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
-  for (;;) {
-    Header old = LoadHeader(hdrp);
-    if (old.IsLocked() || old.current == old.end) {
-      return 0;
-    }
-    uint16_t n = std::min<uint16_t>(len, old.end - old.current);
-    Header hdr = old;
-    hdr.end -= n;
-    hdr.end_copy -= n;
     const int ret =
         CompareAndSwapHeader(cpu, hdrp, old, hdr, virtual_cpu_id_offset);
     if (ret == cpu) {
