@@ -60,6 +60,10 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
   // either case we'll record nothing in the loop below.
   partition_to_nodes[NodeToPartition(0, num_partitions)] |= 1 << 0;
 
+  // If we only compiled in support for one partition then we're trivially
+  // done; NUMA awareness is unavailable.
+  if (num_partitions == 1) return false;
+
   // We rely on rseq to quickly obtain a CPU ID & lookup the appropriate
   // partition in NumaTopology::GetCurrentPartition(). If rseq is unavailable,
   // disable NUMA awareness.
@@ -76,12 +80,9 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
   // CPU 0 added above.
   const char* e =
       tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_NUMA_AWARE");
-  bool enabled = true;
   if (e == nullptr) {
     // Enable NUMA awareness iff default_want_numa_aware().
-    if (!default_want_numa_aware()) {
-      enabled = false;
-    }
+    if (!default_want_numa_aware()) return false;
   } else if (!strcmp(e, "no-binding")) {
     // Enable NUMA awareness with no memory binding behavior.
     *bind_mode = NumaBindMode::kNone;
@@ -93,7 +94,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     *bind_mode = NumaBindMode::kStrict;
   } else if (!strcmp(e, "0")) {
     // Disable NUMA awareness.
-    enabled = false;
+    return false;
   } else {
     Crash(kCrash, __FILE__, __LINE__, "bad TCMALLOC_NUMA_AWARE env var", e);
   }
@@ -160,7 +161,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     signal_safe_close(fd);
   }
 
-  return enabled && numa_aware;
+  return numa_aware;
 }
 
 }  // namespace tcmalloc_internal

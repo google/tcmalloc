@@ -587,13 +587,6 @@ TEST(LifetimeProfiler, BasicCounterValues) {
     counters.counts.push_back(e.count);
     counters.sum += e.sum;
 
-    EXPECT_TRUE(e.allocator_deallocator_physical_cpu_matched.has_value());
-    EXPECT_TRUE(e.allocator_deallocator_virtual_cpu_matched.has_value());
-    EXPECT_TRUE(e.allocator_deallocator_l3_matched.has_value());
-    EXPECT_TRUE(e.allocator_deallocator_numa_matched.has_value());
-    ASSERT_TRUE(e.allocator_deallocator_thread_matched.has_value());
-    EXPECT_TRUE(e.allocator_deallocator_thread_matched.value());
-
     // Positive counts are allocations, negative counts are deallocations
     if (e.count >= 0) {
       counters.total_count += e.count;

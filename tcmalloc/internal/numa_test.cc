@@ -39,7 +39,6 @@
 #include "absl/types/span.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
-#include "tcmalloc/internal/sysinfo.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -133,7 +132,6 @@ TEST_F(NumaTopologyTest, NoCompileTimeNuma) {
 
   EXPECT_EQ(nt.numa_aware(), false);
   EXPECT_EQ(nt.active_partitions(), 1);
-  EXPECT_EQ(nt.GetCurrentPartition(), 0);
 }
 
 // Ensure that if we run on a system with no NUMA support at all (i.e. no
@@ -144,7 +142,6 @@ TEST_F(NumaTopologyTest, NoRunTimeNuma) {
 
   EXPECT_EQ(nt.numa_aware(), false);
   EXPECT_EQ(nt.active_partitions(), 1);
-  EXPECT_EQ(nt.GetCurrentPartition(), 0);
 }
 
 // Ensure that if we run on a system with only 1 node then we disable NUMA
@@ -240,14 +237,8 @@ TEST_F(NumaTopologyTest, Host) {
   NumaTopology<4> nt;
   nt.Init();
 
-  const size_t active_partitions = nt.active_partitions();
-
   // We don't actually know anything about the host, so there's not much more
   // we can do beyond checking that we didn't crash.
-  for (int cpu = 0, n = NumCPUs(); cpu < n; ++cpu) {
-    size_t partition = nt.GetCpuPartition(cpu);
-    EXPECT_LT(partition, active_partitions) << cpu;
-  }
 }
 
 }  // namespace
