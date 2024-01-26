@@ -71,7 +71,6 @@ struct PerCPUMetadataState {
 
 // The bit denotes that tcmalloc_slabs contains valid slabs offset.
 constexpr inline uintptr_t kCachedSlabsBit = 63;
-constexpr inline uintptr_t kCachedSlabsMask = 1ul << kCachedSlabsBit;
 
 struct ResizeSlabsInfo {
   void* old_slabs;
@@ -278,6 +277,10 @@ class TcmallocSlab {
         : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
       ASSERT((raw_ & kShiftMask) == ToUint8(shift));
       ASSERT(reinterpret_cast<void*>(raw_ & kSlabsMask) == slabs);
+      // We depend on this in PushBatch/PopBatch.
+      static_assert(kShiftMask == 0xFF);
+      static_assert(kSlabsMask ==
+                    static_cast<size_t>(TCMALLOC_PERCPU_SLABS_MASK));
     }
 
     std::pair<void*, Shift> Get() const {
@@ -289,14 +292,6 @@ class TcmallocSlab {
       // x86 only use the lowest byte for shift count in variable shifts.
       return {reinterpret_cast<void*>(raw_ & kSlabsMask),
               static_cast<Shift>(raw_ & kShiftMask)};
-    }
-
-    uintptr_t Raw() const {
-      // We depend on this in PushBatch/PopBatch.
-      static_assert(kShiftMask == 0xFF);
-      static_assert(kSlabsMask ==
-                    static_cast<size_t>(TCMALLOC_PERCPU_SLABS_MASK));
-      return raw_;
     }
 
    private:
