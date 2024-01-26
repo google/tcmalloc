@@ -936,11 +936,8 @@ TcmallocSlab<NumClasses>::CacheCpuSlabSlow(int cpu) {
     Slabs* start = CpuMemoryStart(slabs, shift, cpu);
     intptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
     auto* ptr = reinterpret_cast<std::atomic<intptr_t>*>(
         const_cast<uintptr_t*>(&tcmalloc_slabs));
-#pragma GCC diagnostic pop
     int new_cpu =
         CompareAndSwapUnsafe(cpu, ptr, val, new_val, virtual_cpu_id_offset_);
     if (cpu == new_cpu) {
