@@ -510,6 +510,7 @@ cc_test(
         ":logging",
         ":numa",
         ":percpu",
+        ":sysinfo",
         "//tcmalloc:want_numa_aware",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/strings",
