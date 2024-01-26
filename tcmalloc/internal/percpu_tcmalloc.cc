@@ -156,23 +156,19 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow(int cpu) {
+std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
+  int cpu = -1;
   for (;;) {
-    intptr_t val = tcmalloc_slabs;
-    ASSERT(!(val & TCMALLOC_CACHED_SLABS_MASK));
+    ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
+    tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
+    CompilerBarrier();
+    cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
     const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
     void* start = CpuMemoryStart(slabs, shift, cpu);
-    intptr_t new_val =
+    uintptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-    auto* ptr = reinterpret_cast<std::atomic<intptr_t>*>(
-        const_cast<uintptr_t*>(&tcmalloc_slabs));
-    int new_cpu =
-        CompareAndSwapUnsafe(cpu, ptr, val, new_val, virtual_cpu_id_offset_);
-    if (cpu == new_cpu) {
+    if (StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
       break;
-    }
-    if (new_cpu >= 0) {
-      cpu = new_cpu;
     }
   }
   // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may

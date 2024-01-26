@@ -211,40 +211,6 @@ ENCODE_SIZE(tcmalloc_internal_tls_fetch_pic)
 
 /* start of atomic restartable sequences */
 
-/*
- * NOTE:  We don't use cmpxchgq in the following functions since this would
-   make checking the success of our commit operation dependent on flags (which
- * are in turn clobbered by the restart region) -- furthermore we can't just
- * retry to fill in the flags since the restarted cmpxchg may have actually
- * succeeded; spuriously failing subsequent attempts.
- */
-
-/*
- * int TcmallocSlab_Internal_PerCpuCmpxchg64(
- *     int target_cpu (%rdi), long *p (%rsi), long old_val (%rdx),
- *     long new_val (%rcx), size_t virtual_cpu_id_offset (%r8))
- */
-  .p2align 6; /* aligns to 2^6 with NOP filling */
-  .globl TcmallocSlab_Internal_PerCpuCmpxchg64
-  .type  TcmallocSlab_Internal_PerCpuCmpxchg64, @function
-TcmallocSlab_Internal_PerCpuCmpxchg64:
-  CFI(.cfi_startproc)
-  START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64);
-  FETCH_CPU(%eax, %r8)
-  cmp %eax, %edi; /* check cpu vs current_cpu */
-  jne .LTcmallocSlab_Internal_PerCpuCmpxchg64_commit;
-  cmp %rdx, (%rsi); /* verify *p == old */
-  jne .LTcmallocSlab_Internal_PerCpuCmpxchg64_value_mismatch;
-  mov %rcx, (%rsi);
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_commit:
-  ret;  /* return current cpu, indicating mismatch OR success */
-.LTcmallocSlab_Internal_PerCpuCmpxchg64_value_mismatch:
-  mov $-1, %eax;  /* mismatch versus "old" or "check", return -1 */
-  ret;
-  CFI(.cfi_endproc)
-ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
-DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
-
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (%rdi),
  *     void** batch (%rsi),

@@ -198,10 +198,6 @@ static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
 // files.
 extern "C" {
-int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, intptr_t* p,
-                                          intptr_t old_val, intptr_t new_val,
-                                          size_t virtual_cpu_id_offset);
-
 size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
                                        size_t len);
 size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
@@ -362,22 +358,6 @@ inline void TSANReleaseBatch(void** batch, int n) {
     __tsan_release(batch[i]);
   }
 #endif
-}
-
-inline void TSANMemoryBarrierOn(void* p) {
-  TSANAcquire(p);
-  TSANRelease(p);
-}
-
-// These methods may *only* be called if IsFast() has been called by the current
-// thread (and it returned true).
-inline int CompareAndSwapUnsafe(int target_cpu, std::atomic<intptr_t>* p,
-                                intptr_t old_val, intptr_t new_val,
-                                const size_t virtual_cpu_id_offset) {
-  TSANMemoryBarrierOn(p);
-  return TcmallocSlab_Internal_PerCpuCmpxchg64(
-      target_cpu, tcmalloc_internal::atomic_danger::CastToIntegral(p), old_val,
-      new_val, virtual_cpu_id_offset);
 }
 
 void FenceCpu(int cpu, const size_t virtual_cpu_id_offset);
