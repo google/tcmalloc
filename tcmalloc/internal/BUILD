@@ -622,12 +622,15 @@ cc_test(
 
 cc_library(
     name = "percpu_tcmalloc",
+    srcs = ["percpu_tcmalloc.cc"],
     hdrs = ["percpu_tcmalloc.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
+        ":linux_syscall_support",
         ":logging",
         ":mincore",
         ":optimization",
