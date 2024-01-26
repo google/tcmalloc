@@ -930,3 +930,13 @@ create_tcmalloc_testsuite(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+create_tcmalloc_testsuite(
+    name = "disable_numa_test",
+    srcs = ["disable_numa_test.cc"],
+    env = {"TCMALLOC_NUMA_AWARE": "0"},
+    deps = [
+        "//tcmalloc/internal:numa",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

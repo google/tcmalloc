@@ -101,6 +101,25 @@ test_variants = [
         "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
     {
+        "name": "numa_aware_enabled_runtime",
+        "malloc": "//tcmalloc:tcmalloc_numa_aware",
+        "deps": [
+            "//tcmalloc:common_numa_aware",
+        ],
+        "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+        "env": {"TCMALLOC_NUMA_AWARE": "1"},
+    },
+    {
+        "name": "numa_aware_disabled",
+        "malloc": "//tcmalloc:tcmalloc_numa_aware",
+        "deps": [
+            "//tcmalloc:common_numa_aware",
+            "//tcmalloc:want_numa_aware",
+        ],
+        "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+        "env": {"TCMALLOC_NUMA_AWARE": "0"},
+    },
+    {
         "name": "256k_pages_numa_aware",
         "malloc": "//tcmalloc:tcmalloc_256k_pages_numa_aware",
         "deps": [
@@ -294,8 +313,8 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     for variant in test_variants:
         inner_target_name = name + "_" + variant["name"]
         variant_targets.append(inner_target_name)
-        env = dict(env0)
-        env.update(variant.get("env", {}))
+        env = dict(variant.get("env", {}))
+        env.update(env0)
         create_one(
             inner_target_name,
             copts = copts + variant.get("copts", []),
