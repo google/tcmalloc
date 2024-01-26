@@ -267,6 +267,29 @@ TEST_F(HugeRegionTest, Release) {
   CheckMock();
 }
 
+TEST_F(HugeRegionTest, ReleaseFailure) {
+  const Length n = kPagesPerHugePage;
+  bool from_released;
+  auto a = Allocate(n * 4 - Length(1), &from_released);
+  EXPECT_TRUE(from_released);
+  EXPECT_EQ(NHugePages(4), region_.backed());
+
+  // Don't unback the first or last hugepage this touches -- since they
+  // overlap with others.
+  Delete(a);
+  ExpectUnback({p_, NHugePages(4)}, false);
+  EXPECT_EQ(NHugePages(0), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(4), region_.backed());
+  CheckMock();
+
+  // Reallocate.
+  a = Allocate(n * 4 - Length(1), &from_released);
+  EXPECT_FALSE(from_released);
+  Delete(a);
+
+  EXPECT_EQ(NHugePages(4), region_.backed());
+}
+
 TEST_F(HugeRegionTest, Reback) {
   const Length n = kPagesPerHugePage / 4;
   bool from_released;

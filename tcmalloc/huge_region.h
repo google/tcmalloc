@@ -141,7 +141,7 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // If release is true, unback any hugepage that becomes empty.
   void Dec(PageId p, Length n, bool release);
 
-  void UnbackHugepages(bool should_unback[kNumHugePages]);
+  HugeLength UnbackHugepages(bool should_unback[kNumHugePages]);
 
   // How many pages are used in each hugepage?
   Length pages_used_[kNumHugePages];
@@ -296,18 +296,17 @@ inline HugeLength HugeRegion::Release(double release_fraction) {
   size_t to_release = std::max<size_t>(
       free_yet_backed * std::clamp<double>(release_fraction, 0, 1), 1);
 
-  HugeLength released = NHugePages(0);
+  HugeLength release_target = NHugePages(0);
   bool should_unback[kNumHugePages] = {};
   for (size_t i = 0; i < kNumHugePages; ++i) {
     if (backed_[i] && pages_used_[i] == Length(0)) {
       should_unback[i] = true;
-      ++released;
+      ++release_target;
     }
 
-    if (released.raw_num() >= to_release) break;
+    if (release_target.raw_num() >= to_release) break;
   }
-  UnbackHugepages(should_unback);
-  return released;
+  return UnbackHugepages(should_unback);
 }
 
 inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
@@ -468,8 +467,10 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
   }
 }
 
-inline void HugeRegion::UnbackHugepages(bool should_unback[kNumHugePages]) {
+inline HugeLength HugeRegion::UnbackHugepages(
+    bool should_unback[kNumHugePages]) {
   const int64_t now = absl::base_internal::CycleClock::Now();
+  HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
     if (!should_unback[i]) {
@@ -492,9 +493,13 @@ inline void HugeRegion::UnbackHugepages(bool should_unback[kNumHugePages]) {
         backed_[k] = false;
         last_touched_[k] = now;
       }
+
+      released += hl;
     }
     i = j;
   }
+
+  return released;
 }
 
 // If available, return a range of n free pages, setting *from_released =
