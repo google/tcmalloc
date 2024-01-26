@@ -20,10 +20,8 @@
 #include <new>
 
 #include "absl/base/attributes.h"
-#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN

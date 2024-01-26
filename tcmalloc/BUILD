@@ -714,6 +714,7 @@ cc_fuzz_test(
         ":common_8k_pages",
         ":mock_central_freelist",
         ":mock_transfer_cache",
+        "//tcmalloc/internal:config",
         "@com_google_absl//absl/log:check",
     ],
 )
@@ -758,7 +759,10 @@ create_tcmalloc_benchmark(
         ":common_8k_pages",
         ":mock_central_freelist",
         ":mock_transfer_cache",
+        "//tcmalloc/internal:config",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
         "@com_google_absl//absl/types:optional",
     ],
 )

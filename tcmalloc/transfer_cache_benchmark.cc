@@ -15,10 +15,11 @@
 #include <atomic>
 #include <optional>
 
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
 #include "absl/types/optional.h"
 #include "benchmark/benchmark.h"
-#include "tcmalloc/central_freelist.h"
-#include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/transfer_cache_internals.h"
