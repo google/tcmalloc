@@ -81,22 +81,19 @@ constexpr size_t kStressSlabs = 4;
 constexpr size_t kStressCapacity = 4;
 
 constexpr size_t kShift = 18;
-typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
-TcmallocSlab::Slabs* AllocSlabs(
-    absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    size_t raw_shift) {
+void* AllocSlabs(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
+                 size_t raw_shift) {
   Shift shift = ToShiftType(raw_shift);
   const size_t slabs_size = GetSlabsAllocSize(shift, NumCPUs());
-  return static_cast<TcmallocSlab::Slabs*>(
-      alloc(slabs_size, kPhysicalPageAlign));
+  return alloc(slabs_size, kPhysicalPageAlign);
 }
 
 void InitSlab(TcmallocSlab& slab,
               absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
               absl::FunctionRef<size_t(size_t)> capacity, size_t raw_shift) {
-  TcmallocSlab::Slabs* slabs = AllocSlabs(alloc, raw_shift);
-  slab.Init(slabs, capacity, ToShiftType(raw_shift));
+  void* slabs = AllocSlabs(alloc, raw_shift);
+  slab.Init(kStressSlabs, alloc, slabs, capacity, ToShiftType(raw_shift));
 }
 
 class TcmallocSlabTest : public testing::Test {
@@ -449,9 +446,9 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
     auto alloc = [&](size_t size, std::align_val_t alignment) {
       return ByteCountingMalloc(size, alignment);
     };
-    TcmallocSlab::Slabs* slabs = AllocSlabs(alloc, shift);
+    void* slabs = AllocSlabs(alloc, shift);
     (void)slab_.ResizeSlabs(
-        subtle::percpu::ToShiftType(shift), slabs, alloc,
+        subtle::percpu::ToShiftType(shift), slabs,
         [](size_t) { return kCapacity / 2; }, [](int cpu) { return cpu == 0; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
@@ -699,9 +696,9 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
       }
     }
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
-    TcmallocSlab::Slabs* slabs = AllocSlabs(allocator, shift);
+    void* slabs = AllocSlabs(allocator, shift);
     const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
-        ToShiftType(shift), slabs, allocator, get_capacity,
+        ToShiftType(shift), slabs, get_capacity,
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },

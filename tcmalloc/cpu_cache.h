@@ -450,7 +450,7 @@ class CpuCache {
   friend struct DrainHandler<CpuCache>;
   friend class ::tcmalloc::tcmalloc_internal::CpuCachePeer;
 
-  using Freelist = subtle::percpu::TcmallocSlab<kNumClasses>;
+  using Freelist = subtle::percpu::TcmallocSlab;
 
   // Return a set of objects to be returned to the Transfer Cache.
   static constexpr int kMaxToReturn = 16;
@@ -653,7 +653,7 @@ class CpuCache {
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   // can't calculate this from `shift` directly due to numa shift.
   // Returns the allocated slabs and the number of reused bytes.
-  ABSL_MUST_USE_RESULT std::pair<Freelist::Slabs*, size_t> AllocOrReuseSlabs(
+  ABSL_MUST_USE_RESULT std::pair<void*, size_t> AllocOrReuseSlabs(
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset);
 
@@ -687,7 +687,7 @@ class CpuCache {
   // Pointers to allocations for slabs of each shift value for use in
   // ResizeSlabs. This memory is allocated on the arena, and it is nonresident
   // while not in use.
-  Freelist::Slabs* slabs_by_shift_[kNumPossiblePerCpuShifts] = {nullptr};
+  void* slabs_by_shift_[kNumPossiblePerCpuShifts] = {nullptr};
 };
 
 template <class Forwarder>
@@ -780,7 +780,6 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   static const uint16_t kLargeObjectDepth = 6;
 #else
   // We allocate 256KiB per-cpu for pointers to cached per-cpu memory.
-  // Each 256KiB is a subtle::percpu::TcmallocSlab::Slabs
   // Max(kNumClasses) is 89, so the maximum footprint per CPU for a 256KiB
   // slab is:
   //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78) = 254 KiB
@@ -957,13 +956,14 @@ inline void CpuCache<Forwarder>::Activate() {
     resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
-  Freelist::Slabs* slabs =
+  void* slabs =
       AllocOrReuseSlabs(&forwarder_.Alloc,
                         subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
                         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift))
           .first;
   freelist_.Init(
-      slabs, GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
+      kNumClasses, &forwarder_.Alloc, slabs,
+      GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
       subtle::percpu::ToShiftType(per_cpu_shift));
 }
 
@@ -2001,11 +2001,10 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
 }
 
 template <class Forwarder>
-inline auto CpuCache<Forwarder>::AllocOrReuseSlabs(
+inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset)
-    -> std::pair<Freelist::Slabs*, size_t> {
-  Freelist::Slabs*& reused_slabs = slabs_by_shift_[shift_offset];
+    subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset) {
+  void*& reused_slabs = slabs_by_shift_[shift_offset];
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   const bool can_reuse = reused_slabs != nullptr;
   if (can_reuse) {
@@ -2015,8 +2014,7 @@ inline auto CpuCache<Forwarder>::AllocOrReuseSlabs(
     ErrnoRestorer errno_restorer;
     madvise(reused_slabs, size, MADV_HUGEPAGE);
   } else {
-    reused_slabs = static_cast<Freelist::Slabs*>(
-        alloc(size, subtle::percpu::kPhysicalPageAlign));
+    reused_slabs = alloc(size, subtle::percpu::kPhysicalPageAlign);
     // MSan does not see writes in assembly.
     ANNOTATE_MEMORY_IS_INITIALIZED(reused_slabs, size);
   }
@@ -2105,7 +2103,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
     // We can't allocate while holding the per-cpu spinlocks.
     AllocationGuard enforce_no_alloc;
 
-    Freelist::Slabs* new_slabs;
+    void* new_slabs;
     std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
@@ -2113,7 +2111,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         new_shift, num_cpus,
         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift));
     info = freelist_.ResizeSlabs(
-        new_shift, new_slabs, &forwarder_.Alloc,
+        new_shift, new_slabs,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
         [this](int cpu) { return HasPopulated(cpu); },
         DrainHandler<CpuCache>{*this, nullptr});

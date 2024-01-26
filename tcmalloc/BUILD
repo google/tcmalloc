@@ -1245,6 +1245,7 @@ cc_test(
         ":mock_transfer_cache",
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:optimization",
+        "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/testing:testutil",
         "//tcmalloc/testing:thread_manager",
