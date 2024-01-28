@@ -601,6 +601,7 @@ cc_test(
     name = "numa_locality_test",
     srcs = ["numa_locality_test.cc"],
     copts = ["-DTCMALLOC_INTERNAL_NUMA_AWARE"] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
     tags = [
     ],

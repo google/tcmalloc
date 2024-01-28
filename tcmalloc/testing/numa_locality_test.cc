@@ -84,8 +84,9 @@ class FakeNumaAwareRegionFactory final : public tcmalloc::AddressRegionFactory {
 
   AddressRegion* Create(void* start_addr, size_t size,
                         UsageHint hint) override {
-    EXPECT_NE(hint, UsageHint::kNormal)
-        << "We should never see kNormal under numa_aware.";
+    // We should never see kNormal under numa_aware.
+    CHECK_CONDITION(hint != UsageHint::kNormal ||
+                    !tc_globals.numa_topology().numa_aware());
 
     static std::atomic<uint32_t> log_idx = 0;
     addrs_and_hints_[log_idx % kAddrsAndHintsSize] =
@@ -119,13 +120,13 @@ class FakeNumaAwareRegionFactory final : public tcmalloc::AddressRegionFactory {
     return tracked_regions;
   }
 
+  int NotFoundCount() { return not_found_.load(std::memory_order_relaxed); }
+
   void VerifyHint(void* const ptr, int expected_partition) {
-    static std::atomic<int> found = 0;
-    static std::atomic<int> not_found = 0;
     for (const auto& [start, size, hint] : addrs_and_hints_) {
       if (start == nullptr) break;
       if (ptr >= start && ptr < static_cast<const char*>(start) + size) {
-        ++found;
+        ++found_;
         // Ignore "special" hints, e.x. kInfrequentAllocation and
         // kInfrequentAccess.
         if (hint != UsageHint::kNormalNumaAwareS0 &&
@@ -139,24 +140,21 @@ class FakeNumaAwareRegionFactory final : public tcmalloc::AddressRegionFactory {
       }
     }
 
-    ++not_found;
+    ++not_found_;
     LOG(WARNING) << "Region not found for {ptr=" << (uintptr_t)ptr
                  << ", expected_partition=" << expected_partition << "} ("
-                 << not_found << " not found so far, of " << not_found + found
-                 << ").\n=== TRACKED REGIONS ===\n"
+                 << not_found_ << " not found so far, of "
+                 << not_found_ + found_ << ").\n=== TRACKED REGIONS ===\n"
                  << AddrsAndHintsDebug();
   }
 
  private:
-  static std::array<std::tuple<void*, size_t, UsageHint>, kAddrsAndHintsSize>
-      addrs_and_hints_;
+  std::array<std::tuple<void*, size_t, UsageHint>, kAddrsAndHintsSize>
+      addrs_and_hints_ = {};
   AddressRegionFactory* under_ = nullptr;
+  std::atomic<int> found_ = 0;
+  std::atomic<int> not_found_ = 0;
 };
-
-ABSL_CONST_INIT std::array<
-    std::tuple<void*, size_t, tcmalloc::AddressRegionFactory::UsageHint>,
-    FakeNumaAwareRegionFactory::kAddrsAndHintsSize>
-    FakeNumaAwareRegionFactory::addrs_and_hints_ = {};
 
 FakeNumaAwareRegionFactory* GetFakeNumaAwareRegionFactory() {
   AddressRegionFactory* existing_factory = MallocExtension::GetRegionFactory();
@@ -225,6 +223,11 @@ TEST(NumaLocalityTest, AllocationsAreLocal) {
 
     ::operator delete(ptr);
   }
+
+#ifndef TCMALLOC_TEST_DISABLE_FAKE_NUMA_FACTORY
+  // All of our allocations should match known regions.
+  EXPECT_EQ(logging_factory->NotFoundCount(), 0);
+#endif  // TCMALLOC_TEST_DISABLE_FAKE_NUMA_FACTORY
 }
 
 #ifndef TCMALLOC_TEST_DISABLE_FAKE_NUMA_FACTORY
@@ -233,9 +236,7 @@ static void install_factory() {
   MallocExtension::SetRegionFactory(GetFakeNumaAwareRegionFactory());
 }
 
-// TODO(b/320570400):  Debug using .preinit_array to ensure this is installed
-// for the first allocation.
-__attribute__((section(".init_array"), used)) void (
+__attribute__((section(".preinit_array"), used)) void (
     *__local_install_factory_preinit)() = install_factory;
 #endif  // TCMALLOC_TEST_DISABLE_FAKE_NUMA_FACTORY
 
