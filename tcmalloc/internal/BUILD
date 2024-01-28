@@ -620,6 +620,20 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "percpu_early_test",
+    srcs = ["percpu_early_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    tags = [
+    ],
+    deps = [
+        ":percpu",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "percpu_tcmalloc",
     srcs = ["percpu_tcmalloc.cc"],
