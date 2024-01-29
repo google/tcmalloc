@@ -60,6 +60,10 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
 // The <sys/prctl.h> on some systems may not define these macros yet even though
 // the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
 // define them here.
@@ -404,6 +408,35 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
 
 ABSL_CONST_INIT std::atomic<int> system_release_errors(0);
 
+int MapFixedNoReplaceFlagAvailable() {
+  ABSL_CONST_INIT static int noreplace_flag;
+  ABSL_CONST_INIT static absl::once_flag flag;
+
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    void* ptr =
+        mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (ptr == MAP_FAILED) {
+      Crash(kCrash, __FILE__, __LINE__,
+            "Initial mmap() reservation failed (errno, size)", errno,
+            kPageSize);
+    }
+
+    // Try to map over ptr.  If we get a different address, we don't have
+    // MAP_FIXED_NOREPLACE.
+    void* ptr2 = mmap(ptr, kPageSize, PROT_NONE,
+                      MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    const bool rejected = ptr2 == MAP_FAILED;
+    if (!rejected) {
+      munmap(ptr2, kPageSize);
+    }
+    munmap(ptr, kPageSize);
+
+    noreplace_flag = rejected ? MAP_FIXED_NOREPLACE : 0;
+  });
+
+  return noreplace_flag;
+}
+
 }  // namespace
 
 AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
@@ -618,13 +651,14 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
     next_addr = RandomMmapHint(size, alignment, tag);
   }
+  const int map_fixed_noreplace_flag = MapFixedNoReplaceFlagAvailable();
   void* hint;
   for (int i = 0; i < 1000; ++i) {
     hint = reinterpret_cast<void*>(next_addr);
     ASSERT(GetMemoryTag(hint) == tag);
-    // TODO(b/140190055): Use MAP_FIXED_NOREPLACE once available.
-    void* result =
-        mmap(hint, size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int flags = MAP_PRIVATE | MAP_ANONYMOUS | map_fixed_noreplace_flag;
+
+    void* result = mmap(hint, size, PROT_NONE, flags, -1, 0);
     if (result == hint) {
       if (numa_partition.has_value()) {
         BindMemory(result, size, *numa_partition);
@@ -654,16 +688,23 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
 #endif  // __linux__
       return result;
     }
-    if (result == MAP_FAILED) {
-      Log(kLogWithStack, __FILE__, __LINE__,
-          "mmap() reservation failed (hint, size, error)", hint, size,
-          strerror(errno));
-      return nullptr;
-    }
-    if (int err = munmap(result, size)) {
-      Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed (error)",
-          strerror(errno));
-      ASSERT(err == 0);
+    if (map_fixed_noreplace_flag) {
+      // If MAP_FIXED_NOREPLACE was correctly detected, we should either get
+      // result == hint or MAP_FAILED.  Any other value indicates incorrect
+      // detection.
+      CHECK_CONDITION(result == MAP_FAILED);
+    } else {
+      if (result == MAP_FAILED) {
+        Log(kLogWithStack, __FILE__, __LINE__,
+            "mmap() reservation failed (hint, size, error)", hint, size,
+            strerror(errno));
+        return nullptr;
+      }
+      if (int err = munmap(result, size)) {
+        Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed (error)",
+            strerror(errno));
+        ASSERT(err == 0);
+      }
     }
     next_addr = RandomMmapHint(size, alignment, tag);
   }
