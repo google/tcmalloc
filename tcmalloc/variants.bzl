@@ -307,9 +307,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
     linkopts = kwargs.pop("linkopts", [])
-
-    # Empty env var disables random experiments.
-    env0 = kwargs.pop("env", {"BORG_EXPERIMENTS": ""})
+    env0 = kwargs.pop("env", {})
 
     variant_targets = []
     for variant in test_variants:
