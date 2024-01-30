@@ -197,6 +197,40 @@ label##_trampoline:                                               \
 
 /* start of atomic restartable sequences */
 
+/*
+ * int TcmallocSlab_Internal_PerCpuCmpxchg64(int target_cpu, long *p,
+ *                                           long old_val, long new_val,
+ *                                           size_t virtual_cpu_id_offset)
+ * w0: target_cpu
+ * x1: p
+ * x2: old_val
+ * x3: new_val
+ * x4: virtual_cpu_id_offset
+ */
+  .p2align 6 /* aligns to 2^6 with NOP filling */
+  .globl TcmallocSlab_Internal_PerCpuCmpxchg64
+  .type  TcmallocSlab_Internal_PerCpuCmpxchg64, @function
+TcmallocSlab_Internal_PerCpuCmpxchg64:
+  CFI(.cfi_startproc)
+  BTI_C
+  START_RSEQ(TcmallocSlab_Internal_PerCpuCmpxchg64)
+  FETCH_CPU(w7, x4)
+  cmp w0, w7 /* check cpu vs current_cpu */
+  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_commit
+  ldr x6, [x1]
+  cmp x6, x2 /* verify *p == old */
+  bne .LTcmallocSlab_Internal_PerCpuCmpxchg64_mismatch
+  str x3, [x1]
+.LTcmallocSlab_Internal_PerCpuCmpxchg64_commit:
+  mov x0, x7
+  ret  /* return current cpu, indicating mismatch OR success */
+.LTcmallocSlab_Internal_PerCpuCmpxchg64_mismatch:
+  mov x0, #-1 /* mismatch versus "old" or "check", return -1 */
+  ret
+  CFI(.cfi_endproc)
+ENCODE_SIZE(TcmallocSlab_Internal_PerCpuCmpxchg64)
+DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PerCpuCmpxchg64)
+
 /* size_t TcmallocSlab_Internal_PushBatch(
  *     size_t size_class (x0),
  *     void** batch (x1),

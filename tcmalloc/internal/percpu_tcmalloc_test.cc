@@ -207,17 +207,26 @@ TEST_F(TcmallocSlabTest, Unit) {
 
       if (!initialized[cpu]) {
         ASSERT_EQ(slab_.Pop(size_class), nullptr);
-        slab_.InitCpu(cpu, [](size_t size_class) { return kCapacity; });
+        slab_.InitCpu(slab_.GetCurrentVirtualCpuUnsafe(),
+                      [](size_t size_class) { return kCapacity; });
         initialized[cpu] = true;
       }
 
-      // Test that operations on uncached slab fail.
+      // Test overflow/underflow handlers.
       ASSERT_EQ(slab_.Pop(size_class), nullptr);
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
       EXPECT_FALSE(slab_.Push(size_class, &objects[0]));
+
+      // Grow capacity to kCapacity / 2.
       const auto max_capacity = [](uint8_t shift) { return kCapacity; };
-      ASSERT_EQ(slab_.Grow(cpu, size_class, 1, max_capacity), 0);
+      ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2, max_capacity),
+                kCapacity / 2);
+      ASSERT_EQ(slab_.Length(cpu, size_class), 0);
+      ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
+      ASSERT_EQ(slab_.Pop(size_class), nullptr);
+
+      ASSERT_FALSE(slab_.Push(size_class, &objects[0]));
       {
         auto [got_cpu, cached] = slab_.CacheCpuSlab();
         ASSERT_TRUE(cached);
@@ -228,13 +237,6 @@ TEST_F(TcmallocSlabTest, Unit) {
         ASSERT_FALSE(cached);
         ASSERT_EQ(got_cpu, cpu);
       }
-
-      // Grow capacity to kCapacity / 2.
-      ASSERT_EQ(slab_.Grow(cpu, size_class, kCapacity / 2, max_capacity),
-                kCapacity / 2);
-      ASSERT_EQ(slab_.Length(cpu, size_class), 0);
-      ASSERT_EQ(slab_.Capacity(cpu, size_class), kCapacity / 2);
-      ASSERT_EQ(slab_.Pop(size_class), nullptr);
       ASSERT_TRUE(slab_.Push(size_class, &objects[0]));
 
       ASSERT_EQ(slab_.Length(cpu, size_class), 1);
@@ -553,7 +555,7 @@ void StressThread(size_t thread_id, Context& ctx) {
         }
       }
       if (n != 0) {
-        const int cpu = ctx.slab->CacheCpuSlab().first;
+        const int cpu = ctx.slab->GetCurrentVirtualCpuUnsafe();
         // Grow mutates the header array and must be operating on an initialized
         // core.
         InitCpuOnce(ctx, cpu);
