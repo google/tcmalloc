@@ -962,7 +962,7 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
   forwarder.wider_slabs_enabled_ = use_wider_slab();
   SizeMap size_map;
-  size_map.Init(kSizeClasses);
+  size_map.Init(kSizeClasses.classes);
   forwarder.size_map_ = size_map;
 
   cache.Activate();
@@ -1025,7 +1025,7 @@ TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
 #endif
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses);
+  size_map.Init(kSizeClasses.classes);
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {

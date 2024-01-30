@@ -43,17 +43,18 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
     GTEST_SKIP() << "cold size classes are not activated on the small page";
   }
 
+  const auto& classes = kSizeClasses.classes;
   std::vector<size_t> allowed_alloc_size;
   std::vector<size_t> expected_cold_size_classes;
-    for (int i = 0; i < kSizeClasses.size(); ++i) {
-      if (kSizeClasses[i].size >= SizeMap::kMinAllocSizeForCold) {
-        allowed_alloc_size.push_back(kSizeClasses[i].size);
-        expected_cold_size_classes.push_back(i + kExpandedClassesStart);
-      }
+  for (int i = 0; i < classes.size(); ++i) {
+    if (classes[i].size >= SizeMap::kMinAllocSizeForCold) {
+      allowed_alloc_size.push_back(classes[i].size);
+      expected_cold_size_classes.push_back(i + kExpandedClassesStart);
     }
+  }
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses);
+  size_map.Init(classes);
   for (const size_t request_size : allowed_alloc_size) {
     EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
               size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
@@ -71,15 +72,16 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   }
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses);
+  const auto& classes = kSizeClasses.classes;
+  size_map.Init(classes);
 
   size_t size_before_min_alloc_for_cold = 0;
-  auto it = std::lower_bound(kSizeClasses.begin(), kSizeClasses.end(),
+  auto it = std::lower_bound(classes.begin(), classes.end(),
                              SizeMap::kMinAllocSizeForCold,
                              [](const SizeClassInfo& lhs, const size_t rhs) {
                                return lhs.size < rhs;
                              });
-  ASSERT_NE(it, kSizeClasses.begin());
+  ASSERT_NE(it, classes.begin());
   size_before_min_alloc_for_cold = (--it)->size;
 
   // Confirm that small sizes are allocated as "hot".
@@ -96,7 +98,7 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   }
 
   // Confirm that large sizes are allocated as cold as requested.
-  size_t max_size = kSizeClasses[kSizeClasses.size() - 1].size;
+  size_t max_size = classes[classes.size() - 1].size;
   for (int request_size = size_before_min_alloc_for_cold + 1;
        request_size <= max_size; ++request_size) {
       EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),

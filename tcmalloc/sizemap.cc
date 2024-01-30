@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 #include <new>
 
@@ -25,13 +26,69 @@
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/span.h"
+#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+const SizeClasses& SizeMap::CurrentClasses() {
+  switch (Static::size_class_configuration()) {
+    case SizeClassConfiguration::kPow2Below64:
+      return kSizeClasses;
+    case SizeClassConfiguration::kPow2Only:
+      return kExperimentalPow2SizeClasses;
+    case SizeClassConfiguration::kLowFrag:
+      return kLowFragSizeClasses;
+    case SizeClassConfiguration::kLegacy:
+      // TODO(b/242710633): remove this opt out.
+      return kLegacySizeClasses;
+  }
+  CHECK_CONDITION(false);
+}
+
+void SizeMap::CheckAssumptions() {
+  bool failed = false;
+  auto a = CurrentClasses().assumptions;
+  if (a.has_expanded_classes != kHasExpandedClasses) {
+    fprintf(stderr, "kHasExpandedClasses: assumed %d, actual %d\n",
+            a.has_expanded_classes, kHasExpandedClasses);
+    failed = true;
+  }
+  if (a.span_size != sizeof(Span)) {
+    fprintf(stderr, "sizeof(Span): assumed %zu, actual %zu\n", a.span_size,
+            sizeof(Span));
+    failed = true;
+  }
+  if (a.sampling_rate != kDefaultProfileSamplingRate) {
+    fprintf(stderr, "kDefaultProfileSamplingRate: assumed %zu, actual %zu\n",
+            a.sampling_rate, kDefaultProfileSamplingRate);
+    failed = true;
+  }
+  if (a.large_size != SizeMap::kLargeSize) {
+    fprintf(stderr, "SizeMap::kLargeSize: assumed %zu, actual %u\n",
+            a.large_size, SizeMap::kLargeSize);
+    failed = true;
+  }
+  if (a.large_size_alignment != SizeMap::kLargeSizeAlignment) {
+    fprintf(stderr, "SizeMap::kLargeSizeAlignment: assumed %zu, actual %u\n",
+            a.large_size_alignment, SizeMap::kLargeSizeAlignment);
+    failed = true;
+  }
+  if (failed) {
+    fprintf(stderr, "*************************************\n");
+    fprintf(stderr, "* MISMATCHED SIZE CLASS ASSUMPTIONS *\n");
+    fprintf(stderr, "*************************************\n");
+  }
+}
+
+extern "C" void TCMallocInternalCheckSizeClassAssumptions() {
+  SizeMap::CheckAssumptions();
+}
 
 bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
                                size_t num_objects_to_move) {
@@ -51,8 +108,9 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     return false;
   }
   // Check required alignment
-  const size_t alignment =
-      size <= SizeMap::kMaxSmallSize ? static_cast<size_t>(kAlignment) : 128;
+  const size_t alignment = size > SizeMap::kLargeSize
+                               ? kLargeSizeAlignment
+                               : static_cast<size_t>(kAlignment);
   if ((size & (alignment - 1)) != 0) {
     Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
     return false;

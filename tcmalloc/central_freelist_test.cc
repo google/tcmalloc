@@ -849,7 +849,8 @@ INSTANTIATE_TEST_SUITE_P(
     CentralFreeList, CentralFreeListTest,
     testing::Combine(
         // We skip the first size class since it is set to 0.
-        testing::ValuesIn(kSizeClasses.begin() + 1, kSizeClasses.end()),
+        testing::ValuesIn(kSizeClasses.classes.begin() + 1,
+                          kSizeClasses.classes.end()),
         /*use_all_buckets_for_few_object_spans=*/testing::Values(false, true)));
 
 }  // namespace

@@ -18,7 +18,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-
 #include "absl/base/attributes.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
@@ -34,12 +33,12 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // Definition of size class that is set in size_classes.cc
-extern const absl::Span<const SizeClassInfo> kSizeClasses;
+extern const SizeClasses kSizeClasses;
 
 // Experimental size classes:
-extern const absl::Span<const SizeClassInfo> kExperimentalPow2SizeClasses;
-extern const absl::Span<const SizeClassInfo> kLegacySizeClasses;
-extern const absl::Span<const SizeClassInfo> kLowFragSizeClasses;
+extern const SizeClasses kExperimentalPow2SizeClasses;
+extern const SizeClasses kLegacySizeClasses;
+extern const SizeClasses kLowFragSizeClasses;
 
 // Size-class information + mapping
 class SizeMap {
@@ -48,6 +47,8 @@ class SizeMap {
   // with PGHO, we can consider adding more size classes for cold to increase
   // cold coverage fleet-wide.
   static constexpr size_t kMinAllocSizeForCold = 4096;
+  static constexpr int kLargeSize = 1024;
+  static constexpr int kLargeSizeAlignment = 128;
 
  private:
   // Shifts the provided value right by `n` bits.
@@ -110,7 +111,6 @@ class SizeMap {
   //   1025       (1025 + 127 + (120<<7)) / 128   129
   //   ...
   //   32768      (32768 + 127 + (120<<7)) / 128  376
-  static constexpr int kMaxSmallSize = 1024;
   static constexpr size_t kClassArraySize =
       ((kMaxSize + 127 + (120 << 7)) >> 7) + 1;
 
@@ -138,7 +138,7 @@ class SizeMap {
   // parameter idx and returning true. Otherwise return false.
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
                                                                   size_t& idx) {
-    if (ABSL_PREDICT_TRUE(s <= kMaxSmallSize)) {
+    if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = Shr<3>(s + 7);
       return true;
     } else if (s <= kMaxSize) {
@@ -171,6 +171,13 @@ class SizeMap {
   size_t cold_sizes_count_ = 0;
 
  public:
+  // Returns size classes to use in the current process.
+  static const SizeClasses& CurrentClasses();
+
+  // Checks assumptions used to generate the current size classes.
+  // Prints any wrong assumptions to stderr.
+  static void CheckAssumptions();
+
   // constexpr constructor to guarantee zero-initialization at compile-time.  We
   // rely on Init() to populate things.
   constexpr SizeMap() = default;

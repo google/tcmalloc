@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -43,6 +44,19 @@ struct SizeClassInfo {
   // Max per-CPU slab capacity for the default 256KB slab size.
   // Scaled up/down for larger/smaller slab sizes.
   uint32_t max_capacity;
+};
+
+struct SizeClassAssumptions {
+  bool has_expanded_classes;    // kHasExpandedClasses
+  size_t span_size;             // sizeof(Span)
+  size_t sampling_rate;         // kDefaultProfileSamplingRate
+  size_t large_size;            // SizeMap::kLargeSize
+  size_t large_size_alignment;  // SizeMap::kLargeSizeAlignment
+};
+
+struct SizeClasses {
+  absl::Span<const SizeClassInfo> classes;
+  SizeClassAssumptions assumptions;
 };
 
 }  // namespace tcmalloc_internal

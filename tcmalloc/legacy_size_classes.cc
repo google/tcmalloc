@@ -16,7 +16,6 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
-#include "tcmalloc/sizemap.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -49,9 +48,14 @@ namespace tcmalloc_internal {
 #if defined(__cpp_aligned_new) && __STDCPP_DEFAULT_NEW_ALIGNMENT__ <= 8
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 86;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -141,12 +145,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {229376,   28,    2,  143},  // 83     1  0.02%    0.03%  12.00%
   {262144,   32,    2,  143},  // 84     1  0.02%    0.03%  14.29%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 78;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -228,12 +236,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {229376,    7,    2,  155},  // 75     1  0.02%    0.03%  16.67%
   {262144,    8,    2,  157},  // 76     1  0.02%    0.03%  14.29%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 89;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -326,12 +338,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {209664,    4,    2,  146},  // 86     5  0.03%   12.54%   6.64%
   {262144,    1,    2,  147},  // 87     1  0.02%    0.03%  25.03%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 46;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = false,
+  .span_size = 48,
+  .sampling_rate = 524288,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -381,16 +397,20 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {  7168,    7,    9,  178},  // 43     4  0.17%    1.70%  16.67%
   {  8192,    4,    8,  204},  // 44     2  0.29%    1.70%  14.29%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
 #else
 #if TCMALLOC_PAGE_SHIFT == 13
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 86;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -480,12 +500,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {237568,   29,    2,  158},  // 83     1  0.02%    0.03%   7.41%
   {262144,   32,    2,  158},  // 84     1  0.02%    0.03%  10.34%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 15
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 78;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -567,12 +591,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {229376,    7,    2,  166},  // 75     1  0.02%    0.03%  16.67%
   {262144,    8,    2,  172},  // 76     1  0.02%    0.03%  14.29%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 18
 static_assert(kMaxSize == 262144, "kMaxSize mismatch");
-static const int kCount = 89;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = true,
+  .span_size = 48,
+  .sampling_rate = 2097152,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -665,12 +693,16 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {209664,    4,    2,  156},  // 86     5  0.03%   12.54%   6.64%
   {262144,    1,    2,  158},  // 87     1  0.02%    0.03%  25.03%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #elif TCMALLOC_PAGE_SHIFT == 12
 static_assert(kMaxSize == 8192, "kMaxSize mismatch");
-static const int kCount = 46;
-static_assert(kCount <= kNumBaseClasses);
-static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
+static constexpr SizeClassAssumptions Assumptions{
+  .has_expanded_classes = false,
+  .span_size = 48,
+  .sampling_rate = 524288,
+  .large_size = 1024,
+  .large_size_alignment = 128,
+};
+static constexpr SizeClassInfo List[] = {
 //                                         |    waste     |
 //  bytes pages batch   cap    class  objs |fixed sampling|    inc
   {     0,    0,    0,    0},  //  0     0  0.00%    0.00%   0.00%
@@ -720,12 +752,14 @@ static constexpr SizeClassInfo kLegacySizeClassesList[kCount] = {
   {  7168,    7,    9,  198},  // 43     4  0.17%    1.70%  16.67%
   {  8192,    4,    8,  237},  // 44     2  0.29%    1.70%  14.29%
 };
-constexpr absl::Span<const SizeClassInfo> kLegacySizeClasses(kLegacySizeClassesList);
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif
 #endif
 // clang-format on
+
+static_assert(sizeof(List) / sizeof(List[0]) <= kNumBaseClasses);
+extern constexpr SizeClasses kLegacySizeClasses{List, Assumptions};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
