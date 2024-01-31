@@ -75,8 +75,9 @@ class SizeMap {
   // BM_new_sized_delete/512    6.71ns ± 6%   6.21ns ± 1%   -7.40%  (p=0.000)
   template <int n>
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t Shr(size_t value) {
+    ASSERT(value <= std::numeric_limits<uint32_t>::max());
 #if defined(__x86_64__)
-    asm("shr %[n], %[value]" : [value] "+r"(value) : [n] "n"(n));
+    asm("shrl %[n], %k[value]" : [value] "+r"(value) : [n] "n"(n));
     return value;
 #elif defined(__aarch64__)
     size_t result;
