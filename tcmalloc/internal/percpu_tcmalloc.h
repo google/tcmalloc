@@ -273,10 +273,6 @@ class TcmallocSlab {
         : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
       ASSERT((raw_ & kShiftMask) == ToUint8(shift));
       ASSERT(reinterpret_cast<void*>(raw_ & kSlabsMask) == slabs);
-      // We depend on this in PushBatch/PopBatch.
-      static_assert(kShiftMask == 0xFF);
-      static_assert(kSlabsMask ==
-                    static_cast<size_t>(TCMALLOC_PERCPU_SLABS_MASK));
     }
 
     std::pair<void*, Shift> Get() const {

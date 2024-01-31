@@ -22,8 +22,6 @@
 // Sampler::HotDataOffset()
 #define TCMALLOC_SAMPLER_HOT_OFFSET 32
 
-#define TCMALLOC_PERCPU_SLABS_MASK 0xFFFFFFFFFFFFFF00
-
 // Offset from __rseq_abi to the cached slabs address.
 #define TCMALLOC_RSEQ_SLABS_OFFSET -4
 
@@ -64,7 +62,6 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
-#include "tcmalloc/internal/atomic_danger.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
@@ -114,9 +111,9 @@ inline constexpr int kCpuIdInitialized = 0;
 //   cpu_offset = TcmallocSlab.virtual_cpu_id_offset_;
 //   cpu = *(&__rseq_abi + virtual_cpu_id_offset_);
 //   slabs_and_shift = TcmallocSlab.slabs_and_shift_;
-//   shift = slabs_and_shift & ~TCMALLOC_PERCPU_SLABS_MASK;
+//   shift = slabs_and_shift & kShiftMask;
 //   shifted_cpu = cpu << shift;
-//   slabs = slabs_and_shift & TCMALLOC_PERCPU_SLABS_MASK;
+//   slabs = slabs_and_shift & kSlabsMask;
 //   slabs += shifted_cpu;
 //
 // To remove this calculation from fast paths, we cache the slabs address
