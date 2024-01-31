@@ -739,9 +739,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   // Important! code below this must not affect any flags (i.e.: ccbe)
   // If so, the above code needs to explicitly set a ccbe return value.
 #endif
+      "movq -16(%[scratch], %[current], 8), %[next]\n"
+      "movq -8(%[scratch], %[current], 8), %[result]\n"
       "lea -1(%[current]), %[current]\n"
-      "movq -8(%[scratch], %[current], 8), %[next]\n"
-      "movq (%[scratch], %[current], 8), %[result]\n"
       "mov %w[current], (%[scratch], %[size_class], 8)\n"
       // Commit
       "5:\n"
