@@ -250,10 +250,6 @@ class TcmallocSlab {
 
   PerCPUMetadataState MetadataMemoryUsage() const;
 
-  inline int GetCurrentVirtualCpuUnsafe() {
-    return VirtualRseqCpuId(virtual_cpu_id_offset_);
-  }
-
   // Gets the current shift of the slabs. Intended for use by the thread that
   // calls ResizeSlabs().
   uint8_t GetShift() const {
@@ -348,9 +344,6 @@ class TcmallocSlab {
   static Header LoadHeader(std::atomic<int64_t>* hdrp);
   static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
   static void LockHeader(void* slabs, Shift shift, int cpu, size_t size_class);
-  static int CompareAndSwapHeader(int cpu, std::atomic<int64_t>* hdrp,
-                                  Header old, Header hdr,
-                                  size_t virtual_cpu_id_offset);
   // <begins> is an array of the <begin> values for each size class.
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
   // Stops concurrent mutations from occurring for <cpu> by locking the
@@ -364,7 +357,7 @@ class TcmallocSlab {
                    size_t virtual_cpu_id_offset,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
-  std::pair<int, bool> CacheCpuSlabSlow(int cpu);
+  std::pair<int, bool> CacheCpuSlabSlow();
 
   size_t num_classes_ = 0;
   // We store both a pointer to the array of slabs and the shift value together
@@ -392,32 +385,6 @@ inline size_t TcmallocSlab::Capacity(int cpu, size_t size_class) const {
   return hdr.IsLocked() ? 0 : hdr.end - hdr.begin;
 }
 
-inline size_t TcmallocSlab::Grow(
-    int cpu, size_t size_class, size_t len,
-    absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  const size_t max_cap = max_capacity(ToUint8(shift));
-  const size_t virtual_cpu_id_offset = virtual_cpu_id_offset_;
-  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
-  for (;;) {
-    Header old = LoadHeader(hdrp);
-    if (old.IsLocked() || old.end - old.begin == max_cap) {
-      return 0;
-    }
-    uint16_t n = std::min<uint16_t>(len, max_cap - (old.end - old.begin));
-    Header hdr = old;
-    hdr.end += n;
-    hdr.end_copy += n;
-    const int ret =
-        CompareAndSwapHeader(cpu, hdrp, old, hdr, virtual_cpu_id_offset);
-    if (ret == cpu) {
-      return n;
-    } else if (ret >= 0) {
-      return 0;
-    }
-  }
-}
-
 #if defined(__x86_64__)
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_X86_64_NONE"
 #define TCMALLOC_RSEQ_JUMP "jmp"
@@ -432,9 +399,28 @@ inline size_t TcmallocSlab::Grow(
 #endif
 
 #elif defined(__aarch64__)
+// The trampoline uses a non-local branch to restart critical sections.
+// The trampoline is located in the .text.unlikely section, and the maximum
+// distance of B and BL branches in ARM64 is limited to 128MB. If the linker
+// detects the distance being too large, it injects a thunk which may clobber
+// the x16 or x17 register according to the ARMv8 ABI standard.
+// The actual clobbering is hard to trigger in a test, so instead of waiting
+// for clobbering to happen in production binaries, we proactively always
+// clobber x16 and x17 to shake out bugs earlier.
+// RSEQ critical section asm blocks should use TCMALLOC_RSEQ_CLOBBER
+// in the clobber list to account for this.
+#ifndef NDEBUG
+#define TCMALLOC_RSEQ_TRAMPLINE_SMASH \
+  "mov x16, #-2097\n"                 \
+  "mov x17, #-2099\n"
+#else
+#define TCMALLOC_RSEQ_TRAMPLINE_SMASH
+#endif
+#define TCMALLOC_RSEQ_CLOBBER "x16", "x17"
 #define TCMALLOC_RSEQ_RELOC_TYPE "R_AARCH64_NONE"
 #define TCMALLOC_RSEQ_JUMP "b"
 #define TCMALLOC_RSEQ_SET_CS(name)                     \
+  TCMALLOC_RSEQ_TRAMPLINE_SMASH                        \
   "adrp %[scratch], __rseq_cs_" #name                  \
   "_%=\n"                                              \
   "add %[scratch], %[scratch], :lo12:__rseq_cs_" #name \
@@ -512,6 +498,42 @@ inline size_t TcmallocSlab::Grow(
                                               consts. */                     \
       [cached_slabs_bit] "n"(TCMALLOC_CACHED_SLABS_BIT),                     \
       [cached_slabs_mask_neg] "n"(~TCMALLOC_CACHED_SLABS_MASK)
+
+// Store v to p (*p = v) if the current thread wasn't rescheduled
+// (still has the slab pointer cached). Otherwise returns false.
+template <typename T>
+inline bool StoreCurrentCpu(volatile void* p, T v) {
+  uintptr_t scratch = 0;
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+          R"(
+      xorq %[scratch], %[scratch]
+      btq $%c[cached_slabs_bit], %[rseq_slabs_addr]
+      jnc 5f
+      movl $1, %k[scratch]
+      movq %[v], %[p]
+      5 :)"
+      : [scratch] "=&r"(scratch)
+      : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
+        [v] "r"(v)
+      : "cc", "memory");
+#elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
+  uintptr_t tmp;
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+          R"(
+      mov %[scratch], #0
+      ldr %[tmp], %[rseq_slabs_addr]
+      tbz %[tmp], #%c[cached_slabs_bit], 5f
+      mov %[scratch], #1
+      str %[v], %[p]
+      5 :)"
+      : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
+      : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
+        [v] "r"(v)
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
+#endif
+  return scratch;
+}
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
@@ -628,13 +650,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
         [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item)
-      // Add x16 and x17 as an explicit clobber registers:
-      // The RSEQ code above uses non-local branches in the restart sequence
-      // which is located inside .text.unlikely. The maximum distance of B
-      // and BL branches in ARM is limited to 128MB. If the linker detects
-      // the distance being too large, it injects a thunk which may clobber
-      // the x16 or x17 register according to the ARMv8 ABI standard.
-      : "x16", "x17", "cc", "memory"
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
 #endif
@@ -828,13 +844,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
         [size_class] "r"(size_class), [size_class_lsl3] "r"(size_class << 3)
-      // Add x16 and x17 as an explicit clobber registers:
-      // The RSEQ code above uses non-local branches in the restart sequence
-      // which is located inside .text.unlikely. The maximum distance of B
-      // and BL branches in ARM is limited to 128MB. If the linker detects
-      // the distance being too large, it injects a thunk which may clobber
-      // the x16 or x17 register according to the ARMv8 ABI standard.
-      : "x16", "x17", "cc", "memory"
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : underflow_path
 #endif
@@ -858,12 +868,29 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
 }
 #endif
 
+inline size_t TcmallocSlab::Grow(
+    int cpu, size_t size_class, size_t len,
+    absl::FunctionRef<size_t(uint8_t)> max_capacity) {
+  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  const size_t max_cap = max_capacity(ToUint8(shift));
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
+  Header hdr = LoadHeader(hdrp);
+  ssize_t have = static_cast<ssize_t>(max_cap - (hdr.end - hdr.begin));
+  if (hdr.IsLocked() || have <= 0) {
+    return 0;
+  }
+  uint16_t n = std::min<uint16_t>(len, have);
+  hdr.end += n;
+  hdr.end_copy += n;
+  return StoreCurrentCpu(hdrp, hdr) ? n : 0;
+}
+
 inline std::pair<int, bool> TcmallocSlab::CacheCpuSlab() {
   int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
-    return CacheCpuSlabSlow(cpu);
+    return CacheCpuSlabSlow();
   }
   // We already have slab offset cached, so the slab is indeed full/empty.
 #endif
@@ -931,16 +958,6 @@ inline void TcmallocSlab::LockHeader(void* slabs, Shift shift, int cpu,
   // C++ does not allow to legally express what we need here: atomic writes
   // of different sizes.
   reinterpret_cast<Header*>(GetHeader(slabs, shift, cpu, size_class))->Lock();
-}
-
-inline int TcmallocSlab::CompareAndSwapHeader(
-    int cpu, std::atomic<int64_t>* hdrp, Header old, Header hdr,
-    const size_t virtual_cpu_id_offset) {
-  const int64_t old_raw = absl::bit_cast<int64_t>(old);
-  const int64_t new_raw = absl::bit_cast<int64_t>(hdr);
-  return CompareAndSwapUnsafe(cpu, hdrp, static_cast<intptr_t>(old_raw),
-                              static_cast<intptr_t>(new_raw),
-                              virtual_cpu_id_offset);
 }
 
 inline bool TcmallocSlab::Header::IsLocked() const {
