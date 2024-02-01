@@ -1356,54 +1356,57 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
 
   size_t available =
       resize_[cpu].available.exchange(0, std::memory_order_relaxed);
-  const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
   size_t num_resizes = 0;
-  size_t size_classes_to_resize = 5;
-  ASSERT(size_classes_to_resize < kNumClasses);
-  for (size_t i = 0; i < size_classes_to_resize; ++i) {
-    // If a size class with largest misses is zero, break. Other size classes
-    // should also have suffered zero misses as well.
-    if (miss_stats[i].misses == 0) break;
-    const size_t size_class_to_grow = miss_stats[i].size_class;
+  {
+    AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+    subtle::percpu::ScopedSlabCpuStop cpu_stop(freelist_, cpu);
+    const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
+    size_t size_classes_to_resize = 5;
+    ASSERT(size_classes_to_resize < kNumClasses);
+    for (size_t i = 0; i < size_classes_to_resize; ++i) {
+      // If a size class with largest misses is zero, break. Other size classes
+      // should also have suffered zero misses as well.
+      if (miss_stats[i].misses == 0) break;
+      const size_t size_class_to_grow = miss_stats[i].size_class;
 
-    // If we are already at a maximum capacity, nothing to grow.
-    const ssize_t can_grow = max_capacity(size_class_to_grow) -
-                             freelist_.Capacity(cpu, size_class_to_grow);
-    // can_grow can be negative only if slabs were resized,
-    // but since we hold resize_[cpu].lock it must not happen.
-    ASSERT(can_grow >= 0);
-    if (can_grow <= 0) {
-      // If one of the highest miss classes is already at the max capacity,
-      // we need to try to grow more classes. Otherwise, if first 5 are at
-      // max capacity, resizing will stop working.
-      if (size_classes_to_resize < kNumClasses) {
-        size_classes_to_resize++;
+      // If we are already at a maximum capacity, nothing to grow.
+      const ssize_t can_grow = max_capacity(size_class_to_grow) -
+                               freelist_.Capacity(cpu, size_class_to_grow);
+      // can_grow can be negative only if slabs were resized,
+      // but since we hold resize_[cpu].lock it must not happen.
+      ASSERT(can_grow >= 0);
+      if (can_grow <= 0) {
+        // If one of the highest miss classes is already at the max capacity,
+        // we need to try to grow more classes. Otherwise, if first 5 are at
+        // max capacity, resizing will stop working.
+        if (size_classes_to_resize < kNumClasses) {
+          size_classes_to_resize++;
+        }
+        continue;
       }
-      continue;
-    }
 
-    num_resizes++;
+      num_resizes++;
 
-    size_t size = forwarder_.class_to_size(size_class_to_grow);
-    // Get total bytes to steal from other size classes. We would like to grow
-    // the capacity of the size class by a batch size.
-    const size_t need_bytes =
-        std::min<size_t>(can_grow,
-                         forwarder_.num_objects_to_move(size_class_to_grow)) *
-        size;
-    const ssize_t to_steal_bytes = need_bytes - available;
-    if (to_steal_bytes > 0) {
-      available += StealCapacityForSizeClassWithinCpu(
-          cpu, {miss_stats.begin(), size_classes_to_resize}, to_steal_bytes);
-    }
-    size_t capacity_acquired = std::min<size_t>(can_grow, available / size);
-    if (capacity_acquired != 0) {
-      AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
-      size_t got = freelist_.GrowOtherCache(
-          cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
-            return GetMaxCapacity(size_class_to_grow, shift);
-          });
-      available -= got * size;
+      size_t size = forwarder_.class_to_size(size_class_to_grow);
+      // Get total bytes to steal from other size classes. We would like to grow
+      // the capacity of the size class by a batch size.
+      const size_t need_bytes =
+          std::min<size_t>(can_grow,
+                           forwarder_.num_objects_to_move(size_class_to_grow)) *
+          size;
+      const ssize_t to_steal_bytes = need_bytes - available;
+      if (to_steal_bytes > 0) {
+        available += StealCapacityForSizeClassWithinCpu(
+            cpu, {miss_stats.begin(), size_classes_to_resize}, to_steal_bytes);
+      }
+      size_t capacity_acquired = std::min<size_t>(can_grow, available / size);
+      if (capacity_acquired != 0) {
+        size_t got = freelist_.GrowOtherCache(
+            cpu, size_class_to_grow, capacity_acquired, [&](uint8_t shift) {
+              return GetMaxCapacity(size_class_to_grow, shift);
+            });
+        available -= got * size;
+      }
     }
   }
   resize_[cpu].available.fetch_add(available, std::memory_order_relaxed);
@@ -1558,6 +1561,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
       }
     }
 
+    AllocationGuardSpinLockHolder h(&resize_[src_cpu].lock);
+    subtle::percpu::ScopedSlabCpuStop cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
     for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
       if (source_size_class >= kNumClasses) {
@@ -1589,6 +1594,7 @@ template <class Forwarder>
 size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   ASSERT(cpu >= 0 && cpu < NumCPUs());
   ASSERT(size_class >= 1 && size_class < kNumClasses);
+  ASSERT(resize_[cpu].lock.IsHeld());
   const size_t capacity = freelist_.Capacity(cpu, size_class);
   if (capacity == 0) {
     return 0;  // Nothing to steal.
@@ -1634,7 +1640,6 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   }
 
   // Finally, try to shrink.
-  AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
   if (!freelist_.ShrinkOtherCache(
           cpu, size_class, /*len=*/1,
           [this](size_t size_class, void** batch, size_t count) {

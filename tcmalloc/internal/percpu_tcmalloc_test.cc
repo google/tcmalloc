@@ -420,6 +420,7 @@ TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
   constexpr int kCpu = 1;
   constexpr int kSizeClass = 1;
   slab_.InitCpu(kCpu, [](size_t size_class) { return kCapacity; });
+  slab_.StopCpu(kCpu);
   EXPECT_EQ(
       slab_.ShrinkOtherCache(kCpu, kSizeClass, /*len=*/1,
                              [](size_t size_class, void** batch, size_t n) {
@@ -431,6 +432,7 @@ TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
                                }
                              }),
       0);
+  slab_.StartCpu(kCpu);
 }
 
 TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
@@ -586,6 +588,7 @@ void StressThread(size_t thread_id, Context& ctx) {
 
       absl::MutexLock lock(&ctx.mutexes[cpu]);
       size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
+      ctx.slab->StopCpu(cpu);
       size_t total_shrunk = ctx.slab->ShrinkOtherCache(
           cpu, size_class, to_shrink,
           [&block](size_t size_class, void** batch, size_t n) {
@@ -597,6 +600,7 @@ void StressThread(size_t thread_id, Context& ctx) {
               block.push_back(batch[i]);
             }
           });
+      ctx.slab->StartCpu(cpu);
       EXPECT_LE(total_shrunk, to_shrink);
       EXPECT_LE(0, total_shrunk);
       ctx.capacity->fetch_add(total_shrunk);
@@ -620,9 +624,11 @@ void StressThread(size_t thread_id, Context& ctx) {
         InitCpuOnce(ctx, cpu);
 
         absl::MutexLock lock(&ctx.mutexes[cpu]);
+        ctx.slab->StopCpu(cpu);
         size_t grown = ctx.slab->GrowOtherCache(
             cpu, size_class, to_grow,
             [](uint8_t shift) { return kStressCapacity; });
+        ctx.slab->StartCpu(cpu);
         EXPECT_LE(grown, to_grow);
         EXPECT_GE(grown, 0);
         ctx.capacity->fetch_add(to_grow - grown);

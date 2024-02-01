@@ -81,10 +81,9 @@ void TcmallocSlab::Init(
 
 void TcmallocSlab::InitCpu(int cpu,
                            absl::FunctionRef<size_t(size_t)> capacity) {
-  StopCpu(cpu);
+  ScopedSlabCpuStop cpu_stop(*this, cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   InitCpuImpl(slabs, shift, cpu, capacity);
-  StartCpu(cpu);
 }
 
 void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
@@ -220,7 +219,7 @@ void* TcmallocSlab::Destroy(
 size_t TcmallocSlab::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  StopCpu(cpu);
+  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -228,13 +227,12 @@ size_t TcmallocSlab::GrowOtherCache(
   uint16_t to_grow = std::min<uint16_t>(len, max_cap - (hdr.end - hdr.begin));
   hdr.end += to_grow;
   StoreHeader(hdrp, hdr);
-  StartCpu(cpu);
   return to_grow;
 }
 
 size_t TcmallocSlab::ShrinkOtherCache(int cpu, size_t size_class, size_t len,
                                       ShrinkHandler shrink_handler) {
-  StopCpu(cpu);
+  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -257,15 +255,13 @@ size_t TcmallocSlab::ShrinkOtherCache(int cpu, size_t size_class, size_t len,
   const uint16_t to_shrink = std::min<uint16_t>(len, hdr.end - hdr.current);
   hdr.end -= to_shrink;
   StoreHeader(hdrp, hdr);
-  StartCpu(cpu);
   return to_shrink;
 }
 
 void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
-  StopCpu(cpu);
+  ScopedSlabCpuStop cpu_stop(*this, cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   DrainCpu(slabs, shift, cpu, drain_handler);
-  StartCpu(cpu);
 }
 
 void TcmallocSlab::StopCpu(int cpu) {

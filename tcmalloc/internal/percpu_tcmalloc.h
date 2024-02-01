@@ -363,6 +363,23 @@ class TcmallocSlab {
   std::atomic<bool>* stopped_ = nullptr;
 };
 
+// RAII for StopCpu/StartCpu.
+class ScopedSlabCpuStop {
+ public:
+  ScopedSlabCpuStop(TcmallocSlab& slab, int cpu) : slab_(slab), cpu_(cpu) {
+    slab_.StopCpu(cpu_);
+  }
+
+  ~ScopedSlabCpuStop() { slab_.StartCpu(cpu_); }
+
+ private:
+  TcmallocSlab& slab_;
+  const int cpu_;
+
+  ScopedSlabCpuStop(const ScopedSlabCpuStop&) = delete;
+  ScopedSlabCpuStop& operator=(const ScopedSlabCpuStop&) = delete;
+};
+
 inline size_t TcmallocSlab::Length(int cpu, size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
