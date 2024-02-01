@@ -529,8 +529,8 @@ class CpuCache {
     // cache space on this CPU we're not using.  Modify atomically;
     // we don't want to lose space.
     std::atomic<size_t> available;
-    // this is just a hint
-    std::atomic<size_t> last_steal;
+    // Size class to steal from for the clock-wise algorithm.
+    size_t next_steal = 1;
     // Track whether we have initialized this CPU.
     absl::once_flag initialized;
     // Track whether we have ever populated this CPU.
@@ -664,7 +664,7 @@ class CpuCache {
 
   // Provides a hint to StealFromOtherCache() so that we can steal from the
   // caches in a round-robin fashion.
-  std::atomic<int> last_cpu_cache_steal_ = 0;
+  int next_cpu_cache_steal_ = 0;
 
   // Provides a hint to ResizeSizeClasses() that records the last CPU for which
   // we resized size classes. We use this to resize size classes for CPUs in a
@@ -947,7 +947,6 @@ inline void CpuCache<Forwarder>::Activate() {
     }
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
-    resize_[cpu].last_steal.store(1, std::memory_order_relaxed);
   }
 
   void* slabs =
@@ -1472,11 +1471,10 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
 
   size_t acquired = 0;
 
-  // We use last_cpu_cache_steal_ as a hint to start our search for cpu ids to
+  // We use next_cpu_cache_steal_ as a hint to start our search for cpu ids to
   // steal from so that we can iterate through the cpus in a nice round-robin
   // fashion.
-  int src_cpu = std::min(last_cpu_cache_steal_.load(std::memory_order_relaxed),
-                         max_populated_cpu);
+  int src_cpu = next_cpu_cache_steal_;
 
   // We iterate through max_populate_cpus number of cpus to steal from.
   // max_populate_cpus records the max cpu id that has been populated. Note
@@ -1488,10 +1486,9 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
   // We break from the loop once we iterate through all the cpus once, or if the
   // total number of acquired bytes is higher than or equal to the desired bytes
   // we want to steal.
-  for (int cpu_offset = 0; cpu_offset <= max_populated_cpu && acquired < bytes;
-       ++cpu_offset) {
-    if (--src_cpu < 0) {
-      src_cpu = max_populated_cpu;
+  for (int i = 0; i <= max_populated_cpu && acquired < bytes; ++i, ++src_cpu) {
+    if (src_cpu > max_populated_cpu) {
+      src_cpu = 0;
     }
     ASSERT(0 <= src_cpu);
     ASSERT(src_cpu <= max_populated_cpu);
@@ -1517,16 +1514,10 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
         src_misses.overflows > kCacheMissThreshold * dest_misses.overflows)
       continue;
 
-    size_t start_size_class =
-        resize_[src_cpu].last_steal.load(std::memory_order_relaxed);
-
-    ASSERT(start_size_class < kNumClasses);
-    ASSERT(0 < start_size_class);
-    size_t source_size_class = start_size_class;
-    for (size_t offset = 1; offset < kNumClasses; ++offset) {
-      source_size_class = start_size_class + offset;
+    size_t source_size_class = resize_[src_cpu].next_steal;
+    for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
       if (source_size_class >= kNumClasses) {
-        source_size_class -= kNumClasses - 1;
+        source_size_class = 1;
       }
       ASSERT(0 < source_size_class);
       ASSERT(source_size_class < kNumClasses);
@@ -1611,12 +1602,11 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
         break;
       }
     }
-    resize_[src_cpu].last_steal.store(source_size_class,
-                                      std::memory_order_relaxed);
+    resize_[src_cpu].next_steal = source_size_class;
   }
   // Record the last cpu id we stole from, which would provide a hint to the
   // next time we iterate through the cpus for stealing.
-  last_cpu_cache_steal_.store(src_cpu, std::memory_order_relaxed);
+  next_cpu_cache_steal_ = src_cpu;
 
   // Increment the capacity of the destination cpu cache by the amount of bytes
   // acquired from source caches.
@@ -1683,14 +1673,10 @@ inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
   // Steal from other sizeclasses.  Try to go in a nice circle.
   // Complicated by sizeclasses actually being 1-indexed.
   size_t acquired = 0;
-  size_t start = resize_[cpu].last_steal.load(std::memory_order_relaxed);
-  ASSERT(start < kNumClasses);
-  ASSERT(0 < start);
-  size_t source_size_class = start;
-  for (size_t offset = 1; offset < kNumClasses; ++offset) {
-    source_size_class = start + offset;
+  size_t source_size_class = resize_[cpu].next_steal;
+  for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
     if (source_size_class >= kNumClasses) {
-      source_size_class -= kNumClasses - 1;
+      source_size_class = 1;
     }
     ASSERT(0 < source_size_class);
     ASSERT(source_size_class < kNumClasses);
@@ -1726,7 +1712,7 @@ inline size_t CpuCache<Forwarder>::StealCapacityForSizeClassWithinCpu(
     }
   }
   // update the hint
-  resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
+  resize_[cpu].next_steal = source_size_class;
   return acquired;
 }
 

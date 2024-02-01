@@ -34,6 +34,7 @@
 #include "absl/base/optimization.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/random.h"
+#include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
@@ -1412,15 +1413,21 @@ class CpuCacheEnvironment {
       case 9:
         benchmark::DoNotOptimize(cache_.Capacity(cpu));
         break;
-      case 10:
+      case 10: {
+        absl::MutexLock lock(&background_mutex_);
         cache_.ShuffleCpuCaches();
         break;
-      case 11:
+      }
+      case 11: {
+        absl::MutexLock lock(&background_mutex_);
         cache_.TryReclaimingCaches();
         break;
-      case 12:
+      }
+      case 12: {
+        absl::MutexLock lock(&background_mutex_);
         cache_.Reclaim(cpu);
         break;
+      }
       case 13:
         benchmark::DoNotOptimize(cache_.GetNumReclaims(cpu));
         break;
@@ -1478,6 +1485,8 @@ class CpuCacheEnvironment {
  private:
   const int num_cpus_;
   CpuCache cache_;
+  // Protects operations executed on the background thread in real life.
+  absl::Mutex background_mutex_;
   std::atomic<bool> ready_{false};
 };
 
