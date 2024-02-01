@@ -150,7 +150,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
   CompilerBarrier();
   if (stopped_[cpu].load(std::memory_order_acquire)) {
     tcmalloc_slabs = 0;
-    return {cpu, false};
+    return {-1, true};
   }
   return {cpu, true};
 }

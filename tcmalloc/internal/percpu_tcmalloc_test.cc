@@ -479,6 +479,9 @@ struct Context {
 void InitCpuOnce(Context& ctx, int cpu) {
   if (cpu < 0) {
     cpu = ctx.slab->CacheCpuSlab().first;
+    if (cpu < 0) {
+      return;
+    }
   }
   absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
     absl::MutexLock lock(&ctx.mutexes[cpu]);
@@ -552,15 +555,18 @@ void StressThread(size_t thread_id, Context& ctx) {
           break;
         }
       }
+      size_t res = 0;
       if (n != 0) {
         const int cpu = ctx.slab->CacheCpuSlab().first;
-        // Grow mutates the header array and must be operating on an initialized
-        // core.
-        InitCpuOnce(ctx, cpu);
+        if (cpu >= 0) {
+          // Grow mutates the header array and must be operating on
+          // an initialized core.
+          InitCpuOnce(ctx, cpu);
 
-        size_t res = ctx.slab->Grow(
-            cpu, size_class, n, [](uint8_t shift) { return kStressCapacity; });
-        EXPECT_LE(res, n);
+          res = ctx.slab->Grow(cpu, size_class, n,
+                               [](uint8_t shift) { return kStressCapacity; });
+          EXPECT_LE(res, n);
+        }
         ctx.capacity->fetch_add(n - res);
       }
     } else if (what < 60) {

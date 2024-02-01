@@ -209,8 +209,9 @@ class TcmallocSlab {
   size_t PopBatch(size_t size_class, void** batch, size_t len);
 
   // Caches the current cpu slab offset in tcmalloc_slabs if it wasn't
-  // cached and the slab is not resizing. Returns the current cpu and the flag
-  // if the offset was previously uncached and is now cached.
+  // cached and the cpu is not stopped. Returns the current cpu and the flag
+  // if the offset was previously uncached and is now cached. If the cpu
+  // is stopped, returns {-1, true}.
   std::pair<int, bool> CacheCpuSlab();
 
   // Uncaches the slab offset for the current thread, so that the next Push/Pop
