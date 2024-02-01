@@ -1611,7 +1611,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
         break;
       }
     }
-    resize_[cpu].last_steal.store(source_size_class, std::memory_order_relaxed);
+    resize_[src_cpu].last_steal.store(source_size_class,
+                                      std::memory_order_relaxed);
   }
   // Record the last cpu id we stole from, which would provide a hint to the
   // next time we iterate through the cpus for stealing.
