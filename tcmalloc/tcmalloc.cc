@@ -130,6 +130,32 @@
 #error "Unsupported platform."
 #endif
 
+// We use this before out-of-line calls to slow paths so that compiler
+// does not emit long conditional jump on the fast path.
+//
+// Without this compiler used to emit such jump for new sampling slow path:
+//
+// 0000000000516300 <TCMallocInternalNew>:
+//   ...
+//   51631b: 64 48 29 04 25 d0 fc ff ff    subq    %rax, %fs:-0x330
+//   516324: 0f 82 b6 44 00 00             jb      0x51a7e0 <sampling slow path>
+//   ...
+//
+// With this compiler emits a short jump on for the new new sampling slow path:
+//
+// 00000000005164c0 <TCMallocInternalNew>:
+//   ...
+//   5164db: 64 48 29 04 25 d0 fc ff ff    subq    %rax, %fs:-0x330
+//   5164e4: 72 6c                         jb      0x516552 <_Znwm+0x92>
+//   ...
+//   ...
+//   ...
+//   516552: e9 e9 44 00 00                jmp     0x51aa40 <sampling slow path>
+//
+// The corresponding llvm issue:
+// https://github.com/llvm/llvm-project/issues/80107
+#define SLOW_PATH_BARRIER() asm("")
+
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -688,6 +714,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
     ASSERT(ptr != nullptr);
     FreeSmall(ptr, size_class);
   } else {
+    SLOW_PATH_BARRIER();
     InvokeHooksAndFreePages(ptr);
   }
 }
@@ -735,6 +762,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   if (ABSL_PREDICT_FALSE(IsSampledMemory(ptr))) {
     if (ABSL_PREDICT_TRUE(ptr == nullptr)) return;
     // Outline cold path to avoid putting cold size lookup on the fast path.
+    SLOW_PATH_BARRIER();
     return free_sampled(ptr, size, align);
   }
 
@@ -749,6 +777,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     // We couldn't calculate the size class, which means size > kMaxSize.
     ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
+    SLOW_PATH_BARRIER();
     return InvokeHooksAndFreePages(ptr);
   }
 
@@ -962,6 +991,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   uint32_t size_class;
   bool is_small = tc_globals.sizemap().GetSizeClass(policy, size, &size_class);
   if (ABSL_PREDICT_FALSE(!is_small)) {
+    SLOW_PATH_BARRIER();
     return slow_alloc_large(size, policy);
   }
 
@@ -971,6 +1001,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   // - no need to initialize thread globals, data or caches.
   // The method updates 'bytes until next sample' thread sampler counters.
   if (ABSL_PREDICT_FALSE(!GetThreadSampler()->TryRecordAllocationFast(size))) {
+    SLOW_PATH_BARRIER();
     return slow_alloc_small(size, size_class, policy);
   }
 
@@ -982,7 +1013,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   // - no new/delete hook is installed and required to be called.
   void* ret = tc_globals.cpu_cache().AllocateFast(size_class);
   if (ABSL_PREDICT_FALSE(ret == nullptr)) {
-    // Pass negated size_class to denote that sampling was already done.
+    SLOW_PATH_BARRIER();
     return slow_alloc_small(size, size_class, policy);
   }
 
