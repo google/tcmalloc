@@ -1488,7 +1488,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(int cpu,
   // We break from the loop once we iterate through all the cpus once, or if the
   // total number of acquired bytes is higher than or equal to the desired bytes
   // we want to steal.
-  for (int cpu_offset = 1; cpu_offset <= max_populated_cpu && acquired < bytes;
+  for (int cpu_offset = 0; cpu_offset <= max_populated_cpu && acquired < bytes;
        ++cpu_offset) {
     if (--src_cpu < 0) {
       src_cpu = max_populated_cpu;
