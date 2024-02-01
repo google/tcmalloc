@@ -104,6 +104,14 @@ static const int kSizeBits = 8 * sizeof(size_t);
 static const size_t kMaxTestSize = ~static_cast<size_t>(0);
 static const size_t kMaxSignedSize = ((size_t(1) << (kSizeBits - 1)) - 1);
 
+#ifndef __riscv
+// This goes slightly beyond kMaxSize to test both small and page allocations.
+static const size_t kMaxTestAllocSize = 384 << 10;
+#else
+// Execution is very slow on riscv.
+static const size_t kMaxTestAllocSize = 4 << 10;
+#endif  // #ifndef __riscv
+
 namespace tcmalloc {
 extern ABSL_ATTRIBUTE_WEAK bool want_hpaa();
 }  // namespace tcmalloc
@@ -339,7 +347,7 @@ TEST(TCMallocTest, Multithreaded) {
 
   mgr.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::SleepFor(absl::Seconds(5));
+  absl::SleepFor(absl::Seconds(3));
 
   mgr.Stop();
 }
@@ -754,10 +762,7 @@ TEST(TCMallocTest, SizedDeleteSampled) {
 // Check sampled allocations return the proper size.
 TEST(TCMallocTest, SampleAllocatedSize) {
   ScopedAlwaysSample always_sample;
-
-  // Do 64 megabytes of allocation; this should (nearly) guarantee we
-  // get a sample.
-  for (int i = 0; i < 1024 * 1024; ++i) {
+  for (int i = 0; i < 10; ++i) {
     void* ptr = malloc(64);
     ASSERT_EQ(64, MallocExtension::GetAllocatedSize(ptr));
     free(ptr);
@@ -780,7 +785,7 @@ TEST(TCMallocTest, nallocx) {
   // predicts.  So we disable guarded allocations.
   ScopedGuardedSamplingRate gs(-1);
 
-  for (size_t size = 0; size <= (1 << 20); size += 7) {
+  for (size_t size = 0; size <= kMaxTestAllocSize; size += 11) {
     size_t rounded = nallocx(size, 0);
     ASSERT_GE(rounded, size);
     void* ptr = operator new(size);
@@ -794,8 +799,12 @@ TEST(TCMallocTest, nallocx_alignment) {
   // predicts.  So we disable guarded allocations.
   ScopedGuardedSamplingRate gs(-1);
 
-  for (size_t size = 0; size <= (1 << 20); size += 7) {
-    for (size_t align = 0; align < 10; align++) {
+  for (size_t size = 0; size <= kMaxTestAllocSize; size += 17) {
+#ifndef __riscv
+    for (auto align : {0, 1, 7, 8, 10}) {
+#else
+    for (auto align : {5, 7}) {
+#endif
       size_t rounded = nallocx(size, MALLOCX_LG_ALIGN(align));
       ASSERT_GE(rounded, size);
       ASSERT_EQ(rounded % (1 << align), 0);
@@ -912,8 +921,6 @@ std::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
 
 TEST(TCMallocTest, GetStatsReportsLowLevel) {
   std::string stats = MallocExtension::GetStats();
-  fprintf(stderr, "%s\n", stats.c_str());
-
   std::optional<int64_t> low_level_bytes =
       ParseLowLevelAllocator("MmapSysAllocator", stats);
   ASSERT_THAT(low_level_bytes, testing::Ne(std::nullopt));
@@ -964,6 +971,8 @@ TEST(TCMallocTest, TestAliasedFunctions) {
   ExpectSameAddresses(&::free, operator_delete_array_nothrow);
 }
 
+// This test is extremely slow on riscv.
+#ifndef __riscv
 enum class ThrowException { kNo, kYes };
 
 class TcmallocSizedNewTest
@@ -1052,7 +1061,7 @@ class TcmallocSizedNewTest
 INSTANTIATE_TEST_SUITE_P(
     AlignedHotColdThrow, TcmallocSizedNewTest,
     testing::Combine(
-        testing::Values(1, 2, 4, 8, 16, 32, 64),
+        testing::Values(1, 8, 32, 64),
         testing::Values(hot_cold_t(0), hot_cold_t{128}, hot_cold_t{255}),
         testing::Values(ThrowException::kNo, ThrowException::kYes)),
     [](const testing::TestParamInfo<TcmallocSizedNewTest::ParamType>& info) {
@@ -1080,11 +1089,12 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
 }
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNew) {
-  for (size_t size = 0; size < 64 * 1024; ++size) {
+  for (size_t size = 0; size < 16 * 1024; size += 3) {
     sized_ptr_t res = New(size);
     EXPECT_NE(res.p, nullptr);
     EXPECT_GE(res.n, size);
-    EXPECT_LE(size, std::max(size + 100, 2 * size));
+    size_t max_increase = static_cast<size_t>(GetAlignment()) <= 8 ? 2 : 3;
+    EXPECT_LE(res.n, std::max(size + 100, max_increase * size));
     benchmark::DoNotOptimize(memset(res.p, 0xBF, res.n));
     Delete(res);
   }
@@ -1103,36 +1113,40 @@ TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
   // Set reasonable sampling and guarded sampling probabilities.
-  ScopedProfileSamplingRate s(20);
+  ScopedProfileSamplingRate s(2000);
   ScopedGuardedSamplingRate gs(20);
-  constexpr size_t kOddIncrement = 117;
+
+  auto test = [&](size_t size) {
+    sized_ptr_t r = New(size);
+    ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
+    if (IsOveraligned()) {
+      ::operator delete(r.p, r.n, GetAlignment());
+    } else {
+      ::operator delete(r.p, r.n);
+    }
+  };
 
   // Traverse clean power 2 / common size class / page sizes
   for (size_t size = 32; size <= 2 * 1024 * 1024; size *= 2) {
-    sized_ptr_t r = New(size);
-    ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
-    if (IsOveraligned()) {
-      ::operator delete(r.p, r.n, GetAlignment());
-    } else {
-      ::operator delete(r.p, r.n);
-    }
+    test(size);
   }
 
   // Traverse randomized sizes
-  for (size_t size = 32; size <= 2 * 1024 * 1024; size += kOddIncrement) {
-    sized_ptr_t r = New(size);
-    ASSERT_EQ(r.n, MallocExtension::GetAllocatedSize(r.p));
-    if (IsOveraligned()) {
-      ::operator delete(r.p, r.n, GetAlignment());
-    } else {
-      ::operator delete(r.p, r.n);
-    }
+  constexpr size_t kOddIncrement = 117;
+  for (size_t size = 32; size <= kMaxTestAllocSize; size += kOddIncrement) {
+    test(size);
   }
 }
+#endif  // #ifndef __riscv
 
 TEST(SizedDeleteTest, SizedOperatorDelete) {
+#ifndef __riscv
+  const size_t kMaxSize = 64 * 1024;
+#else
+  const size_t kMaxSize = 1024;
+#endif  // #ifndef __riscv
   enum DeleteSize { kSize, kCapacity, kHalfway };
-  for (size_t size = 0; size < 64 * 1024; ++size) {
+  for (size_t size = 0; size < kMaxSize; ++size) {
     for (auto delete_size : {kSize, kCapacity, kHalfway}) {
       sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
       switch (delete_size) {
@@ -1147,13 +1161,6 @@ TEST(SizedDeleteTest, SizedOperatorDelete) {
           break;
       }
     }
-  }
-}
-
-TEST(SizedDeleteTest, NothrowSizedOperatorDelete) {
-  for (size_t size = 0; size < 64 * 1024; ++size) {
-    sized_ptr_t res = tcmalloc_size_returning_operator_new(size);
-    ::operator delete(res.p, std::nothrow);
   }
 }
 

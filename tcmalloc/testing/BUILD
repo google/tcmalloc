@@ -75,6 +75,7 @@ create_tcmalloc_testsuite(
         "//conditions:default": None,
     }),
     linkstatic = 1,  # get the most realistic performance
+    shard_count = 3,
     tags = [
         "nosan",
     ],
