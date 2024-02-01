@@ -90,11 +90,9 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
-        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE_V2)
-            ? absl::ZeroDuration()
-            : absl::Seconds(60)
+                absl::Seconds(60)
 #endif
-                    ),
+                ),
             std::memory_order_relaxed);
     // clang-format on
   });
@@ -109,18 +107,8 @@ static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE_V2)
-            ? absl::Seconds(60)
-            : absl::ZeroDuration()
-#endif
-                    ),
+    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
             std::memory_order_relaxed);
-    // clang-format on
   });
   return v;
 }
@@ -130,18 +118,8 @@ static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    // clang-format off
-    v.store(absl::ToInt64Nanoseconds(
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-                absl::ZeroDuration()
-#else
-        IsExperimentActive(Experiment::TCMALLOC_SHORT_LONG_TERM_SUBRELEASE_V2)
-            ? absl::Seconds(300)
-            : absl::ZeroDuration()
-#endif
-                    ),
+    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
             std::memory_order_relaxed);
-    // clang-format on
   });
   return v;
 }
