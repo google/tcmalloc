@@ -370,7 +370,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   tc_globals.InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
-  uint32_t size_class;
+  size_t size_class;
   if (ABSL_PREDICT_TRUE(tc_globals.sizemap().GetSizeClass(
           CppPolicy().AlignAs(align), size, &size_class))) {
     ASSERT(size_class != 0);
@@ -389,7 +389,7 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   if (ABSL_PREDICT_FALSE(!tc_globals.IsInited() || flags != 0)) {
     return nallocx_slow(size, flags);
   }
-  uint32_t size_class;
+  size_t size_class;
   if (ABSL_PREDICT_TRUE(
           tc_globals.sizemap().GetSizeClass(CppPolicy(), size, &size_class))) {
     ASSERT(size_class != 0);
@@ -733,7 +733,7 @@ ABSL_ATTRIBUTE_NOINLINE static void free_sampled(void* ptr, size_t size,
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr);
   }
-  uint32_t size_class;
+  size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
           CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
           &size_class))) {
@@ -770,7 +770,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
   ASSERT(ptr != nullptr);
 
-  uint32_t size_class;
+  size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
           CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size,
           &size_class))) {
@@ -791,7 +791,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   // have an incorrect one.
   if (size == 0) return true;
   if (ptr == nullptr) return true;
-  uint32_t size_class = 0;
+  size_t size_class = 0;
   // Round-up passed in size to how much tcmalloc allocates for that size.
   if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
     // For guarded allocations we recorded the actual requested size.
@@ -913,7 +913,7 @@ namespace tcmalloc_internal {
 
 template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
-alloc_small_sampled_hooks_or_perthread(size_t size, uint32_t size_class,
+alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
                                        Policy policy, size_t weight) {
   if (ABSL_PREDICT_FALSE(size_class == 0)) {
     // This happens on the first call then the size class table is not inited.
@@ -988,7 +988,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
   // path. If malloc is not yet initialized, we may end up with size_class == 0
   // (regardless of size), but in this case should also delegate to the slow
   // path by the fast path check further down.
-  uint32_t size_class;
+  size_t size_class;
   bool is_small = tc_globals.sizemap().GetSizeClass(policy, size, &size_class);
   if (ABSL_PREDICT_FALSE(!is_small)) {
     SLOW_PATH_BARRIER();

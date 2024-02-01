@@ -204,7 +204,7 @@ class SizeMap {
   // absl::optional<uint32_t>.
   template <typename Policy>
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
-      Policy policy, size_t size, uint32_t* size_class) const {
+      Policy policy, size_t size, size_t* size_class) const {
     const size_t align = policy.align();
     ASSERT(absl::has_single_bit(align));
 
@@ -256,7 +256,7 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
                                                        size_t size) const {
     ASSERT(size <= kMaxSize);
-    uint32_t ret = 0;
+    size_t ret = 0;
     GetSizeClass(policy, size, &ret);
     return ret;
   }
