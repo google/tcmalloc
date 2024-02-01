@@ -244,7 +244,7 @@ TcmallocSlab_Internal_PushBatch:
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PushBatch_full;
   movzwq (%r8, %rdi, 8), %r9; /* current */
-  movzwq 6(%r8, %rdi, 8), %r10; /* end */
+  movzwq 4(%r8, %rdi, 8), %r10; /* end */
   cmpq %r10, %r9;
   jae .LTcmallocSlab_Internal_PushBatch_full;
   movq %rdx, %r11; /* r11 = copy of len */
@@ -305,7 +305,7 @@ TcmallocSlab_Internal_PopBatch:
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PopBatch_commit;
   movzwq (%r8, %rdi, 8), %r9; /* current */
-  movzwq 4(%r8, %rdi, 8), %r10; /* begin */
+  movzwq 2(%r8, %rdi, 8), %r10; /* begin */
   cmp %r10, %r9;
   jbe .LTcmallocSlab_Internal_PopBatch_commit;
   movq %r9, %r11;

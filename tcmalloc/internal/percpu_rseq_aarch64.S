@@ -233,7 +233,7 @@ TcmallocSlab_Internal_PushBatch:
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
   add x15, x8, x0, LSL #3    /* r15 = hdr */
   ldrh w9, [x15]             /* r9 = current */
-  ldrh w10, [x15, #6]        /* r10 = end */
+  ldrh w10, [x15, #4]        /* r10 = end */
   cmp w9, w10
   bge .LTcmallocSlab_Internal_PushBatch_no_capacity
   add  x11, x1, x2, LSL #3  /* r11 = batch + len * 8 */
@@ -304,7 +304,7 @@ TcmallocSlab_Internal_PopBatch:
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
   add x15, x8, x0, LSL #3
   ldrh w9, [x15]             /* current */
-  ldrh w10, [x15, #4]        /* begin */
+  ldrh w10, [x15, #2]        /* begin */
   cmp w10, w9
   bhs .LTcmallocSlab_Internal_PopBatch_no_items
   sub w11, w9, w10          /* r11 = available items */

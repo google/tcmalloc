@@ -376,7 +376,7 @@ TEST(CpuCacheTest, Metadata) {
   PerCPUMetadataState r = cache.MetadataMemoryUsage();
   size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
       subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
-  size_t resize_size = num_cpus * kNumClasses * sizeof(uint16_t);
+  size_t resize_size = num_cpus * sizeof(bool);
   EXPECT_EQ(r.virtual_size, slabs_size + resize_size);
   EXPECT_EQ(r.resident_size, 0);
 
