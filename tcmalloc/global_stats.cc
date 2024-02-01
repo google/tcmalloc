@@ -871,23 +871,6 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
         PageAllocator::kHard);
     return true;
   }
-
-  // TODO(b/288099265): Delete "limit_hits" after 2024-02-01
-  if (name == "tcmalloc.limit_hits") {
-    *value = tc_globals.page_allocator().limit_hits(PageAllocator::kSoft) +
-             tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
-    return true;
-  }
-  // TODO(b/288099265): Delete "successful_shrinks_after_limit_hit" after
-  // 2024-02-01
-  if (name == "tcmalloc.successful_shrinks_after_limit_hit") {
-    *value = tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                 PageAllocator::kSoft) +
-             tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                 PageAllocator::kHard);
-    return true;
-  }
-
   if (name == "tcmalloc.required_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);

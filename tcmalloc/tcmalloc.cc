@@ -490,22 +490,10 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.hard_limit_hits"].value =
       tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
 
-  // TODO(b/288099265): delete this after 2024-02-01.
-  (*result)["tcmalloc.limit_hits"].value =
-      tc_globals.page_allocator().limit_hits(PageAllocator::kSoft) +
-      tc_globals.page_allocator().limit_hits(PageAllocator::kHard);
-
   (*result)["tcmalloc.successful_shrinks_after_soft_limit_hit"].value =
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kSoft);
   (*result)["tcmalloc.successful_shrinks_after_hard_limit_hit"].value =
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-          PageAllocator::kHard);
-
-  // TODO(b/288099265): delete this after 2024-02-01.
-  (*result)["tcmalloc.successful_shrinks_after_limit_hit"].value =
-      tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-          PageAllocator::kSoft) +
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kHard);
 
