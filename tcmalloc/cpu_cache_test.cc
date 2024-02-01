@@ -819,13 +819,15 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
   }
 
   CpuCache cache;
+  // Reduce cache capacity so that it will see need in stealing and rebalancing.
+  const size_t max_cpu_cache_size = 128 << 10;
+  cache.SetCacheLimit(max_cpu_cache_size);
   cache.Activate();
 
   // Temporarily fake being on the given CPU.
   constexpr int kCpuId = 0;
   constexpr int kCpuId1 = 1;
 
-  const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
   constexpr int kSmallClass = 1;
   constexpr int kLargeClass = 2;
   const int kMaxCapacity = cache.forwarder().max_capacity(kLargeClass);
@@ -1078,12 +1080,13 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   }
 
   CpuCache cache;
+  // Reduce cache capacity so that it will see need in stealing and rebalancing.
+  const size_t max_cpu_cache_size = 1 << 10;
+  cache.SetCacheLimit(max_cpu_cache_size);
   cache.Activate();
 
   constexpr int hot_cpu_id = 0;
   constexpr int cold_cpu_id = 1;
-
-  const size_t max_cpu_cache_size = Parameters::max_per_cpu_cache_size();
 
   // Empirical tests suggest that we should be able to steal all the steal-able
   // capacity from colder cache in < 100 tries. Keeping enough buffer here to
@@ -1118,6 +1121,7 @@ TEST(CpuCacheTest, ColdHotCacheShuffleTest) {
   // Check that we drained cold cache to the lower capacity limit.
   // We also keep some tolerance, up to the largest class size, below the lower
   // capacity threshold that we can drain cold cache to.
+  EXPECT_LT(cold_cache_capacity, max_cpu_cache_size);
   EXPECT_GT(cold_cache_capacity,
             CpuCache::kCacheCapacityThreshold * max_cpu_cache_size -
                 cache.forwarder().class_to_size(size_class));
