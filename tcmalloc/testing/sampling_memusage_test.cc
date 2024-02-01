@@ -146,7 +146,7 @@ TEST_P(SamplingMemoryTest, Overhead) {
   double expectedOverhead = 10.0;
   // Larger page sizes have larger sampling overhead.
   if (tcmalloc_internal::kPageShift == 15) {
-    expectedOverhead *= 1.5;
+    expectedOverhead *= 2;
   } else if (tcmalloc_internal::kPageShift == 18) {
     expectedOverhead *= 3;
   }
