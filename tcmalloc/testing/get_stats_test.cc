@@ -93,14 +93,18 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_rate: ",
                                      Parameters::profile_sampling_rate())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
-#else
-  EXPECT_THAT(buf,
-              HasSubstr("tcmalloc_skip_subrelease_interval_ns: 60000000000"));
-#endif
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
+#else
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 60000000000"));
+  EXPECT_THAT(
+      buf,
+      HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
+#endif
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));

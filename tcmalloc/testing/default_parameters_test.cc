@@ -37,17 +37,21 @@ constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0
 };
-constexpr absl::Duration kDefaultSkipSubreleaseInterval =
+constexpr absl::Duration kDefaultSkipSubreleaseInterval = absl::ZeroDuration();
+constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     absl::ZeroDuration()
 #else
     absl::Seconds(60)
 #endif
     ;
-constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
-    absl::ZeroDuration();
 constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
-    absl::ZeroDuration();
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    absl::ZeroDuration()
+#else
+    absl::Seconds(300)
+#endif
+    ;
 
 bool TestProfileSamplingRate() {
 

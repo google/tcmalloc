@@ -81,7 +81,22 @@ static std::atomic<int64_t>& background_process_sleep_interval_ns() {
 // skip_subrelease_long_interval_ns() are determined at runtime, we cannot
 // require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
+//
+// TODO(b/197880883):  Clean up legacy subrelease when short-long-term
+// subrelease is the default.
 static std::atomic<int64_t>& skip_subrelease_interval_ns() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
+            std::memory_order_relaxed);
+  });
+  return v;
+}
+
+// Configures short and long intervals to zero by default. We expect to set them
+// to the non-zero durations once the feature is no longer experimental.
+static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
@@ -92,34 +107,27 @@ static std::atomic<int64_t>& skip_subrelease_interval_ns() {
 #else
                 absl::Seconds(60)
 #endif
-                ),
+                    ),
             std::memory_order_relaxed);
     // clang-format on
   });
   return v;
 }
 
-// Configures short and long intervals to zero by default. We expect to set them
-// to the non-zero durations once the feature is no longer experimental.
-//
-// TODO(b/197880883):  Complete experiments with this flag.
-static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int64_t> v{0};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
-            std::memory_order_relaxed);
-  });
-  return v;
-}
-
-// TODO(b/197880883):  Complete experiments with this flag.
 static std::atomic<int64_t>& skip_subrelease_long_interval_ns() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int64_t> v{0};
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(absl::ToInt64Nanoseconds(absl::ZeroDuration()),
+    // clang-format off
+    v.store(absl::ToInt64Nanoseconds(
+#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+                absl::ZeroDuration()
+#else
+                absl::Seconds(300)
+#endif
+                    ),
             std::memory_order_relaxed);
+    // clang-format on
   });
   return v;
 }
