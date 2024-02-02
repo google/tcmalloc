@@ -152,10 +152,7 @@ class TcMallocTest : public testing::Test {
     unsetenv("XML_OUTPUT_FILE");
   }
 
-  void MaybeResetStackTraceFilter(bool improved_coverage_enabled) {
-    if (!improved_coverage_enabled) {
-      return;
-    }
+  void ResetStackTraceFilter() {
     ++reset_request_count_;
     // Only reset when the requests (expected to be matched to detected guards)
     // exceeds the maximum number of guards for a single location provided by
@@ -180,14 +177,10 @@ namespace {
 
 class ReadWriteTcMallocTest
     : public TcMallocTest,
-      public testing::WithParamInterface<std::tuple<
-          bool /* write_test */, bool /* improved_coverage_enabled */>> {};
+      public testing::WithParamInterface<bool /* write_test */> {};
 
 TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
-  const bool write_test = std::get<0>(GetParam());
-  const bool improved_coverage_enabled = std::get<1>(GetParam());
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-      improved_coverage_enabled);
+  const bool write_test = GetParam();
   auto RepeatUnderflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
       auto buf = std::make_unique<char[]>(kPageSize / 2);
@@ -201,7 +194,7 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
           volatile char sink = buf[-1];
           benchmark::DoNotOptimize(sink);
         }
-        MaybeResetStackTraceFilter(improved_coverage_enabled);
+        ResetStackTraceFilter();
       }
     }
   };
@@ -218,10 +211,7 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 }
 
 TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
-  const bool write_test = std::get<0>(GetParam());
-  const bool improved_coverage_enabled = std::get<1>(GetParam());
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-      improved_coverage_enabled);
+  const bool write_test = GetParam();
   auto RepeatOverflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
       auto buf = std::make_unique<char[]>(kPageSize / 2);
@@ -236,7 +226,7 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
           volatile char sink = buf[kPageSize / 2];
           benchmark::DoNotOptimize(sink);
         }
-        MaybeResetStackTraceFilter(improved_coverage_enabled);
+        ResetStackTraceFilter();
       }
     }
   };
@@ -253,10 +243,7 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
 }
 
 TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
-  const bool write_test = std::get<0>(GetParam());
-  const bool improved_coverage_enabled = std::get<1>(GetParam());
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-      improved_coverage_enabled);
+  const bool write_test = GetParam();
   auto RepeatUseAfterFree = [&]() {
     for (int i = 0; i < 1000000; i++) {
       char* sink_buf = new char[kPageSize];
@@ -282,19 +269,12 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
 
-INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest,
-                         testing::Combine(testing::Bool(), testing::Bool()));
-
-class ParameterizedTcMallocTest
-    : public TcMallocTest,
-      public testing::WithParamInterface<bool /* improved_coverage_enabled */> {
-};
+INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest, testing::Bool());
 
 // Double free triggers an ASSERT within TCMalloc in non-opt builds.  So only
 // run this test for opt builds.
 #ifdef NDEBUG
-TEST_P(ParameterizedTcMallocTest, DoubleFreeDetected) {
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
+TEST_F(TcMallocTest, DoubleFreeDetected) {
   auto RepeatDoubleFree = []() {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(kPageSize);
@@ -306,15 +286,14 @@ TEST_P(ParameterizedTcMallocTest, DoubleFreeDetected) {
       }
     }
   };
-  std::string expected_output = absl::StrCat(
-      "Double free occurs in thread [0-9]+ at"
-  );
+  std::string expected_output =
+      absl::StrCat("Double free occurs in thread [0-9]+ at"
+      );
   EXPECT_DEATH(RepeatDoubleFree(), expected_output);
 }
 #endif
 
-TEST_P(ParameterizedTcMallocTest, OverflowWriteDetectedAtFree) {
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
+TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
   auto RepeatOverflowWrite = [&]() {
     for (int i = 0; i < 1000000; i++) {
       // Make buffer smaller than kPageSize to test detection-at-free of write
@@ -324,7 +303,7 @@ TEST_P(ParameterizedTcMallocTest, OverflowWriteDetectedAtFree) {
       benchmark::DoNotOptimize(sink_buf);
       sink_buf[kSize] = '\0';
       benchmark::DoNotOptimize(sink_buf[kSize]);
-      MaybeResetStackTraceFilter(GetParam());
+      ResetStackTraceFilter();
     }
   };
   std::string expected_output = absl::StrCat(
@@ -333,8 +312,7 @@ TEST_P(ParameterizedTcMallocTest, OverflowWriteDetectedAtFree) {
   EXPECT_DEATH(RepeatOverflowWrite(), expected_output);
 }
 
-TEST_P(ParameterizedTcMallocTest, ReallocNoFalsePositive) {
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
+TEST_F(TcMallocTest, ReallocNoFalsePositive) {
   for (int i = 0; i < 1000000; i++) {
     auto sink_buf = reinterpret_cast<char*>(malloc(kPageSize - 1));
     benchmark::DoNotOptimize(sink_buf);
@@ -345,10 +323,7 @@ TEST_P(ParameterizedTcMallocTest, ReallocNoFalsePositive) {
   }
 }
 
-TEST_P(ParameterizedTcMallocTest, OffsetAndLength) {
-  bool improved_coverage_enabled = GetParam();
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-      improved_coverage_enabled);
+TEST_F(TcMallocTest, OffsetAndLength) {
   auto RepeatUseAfterFree = [&](size_t buffer_len, off_t access_offset) {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(buffer_len);
@@ -358,7 +333,7 @@ TEST_P(ParameterizedTcMallocTest, OffsetAndLength) {
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf)) {
         volatile char sink = static_cast<char*>(buf)[access_offset];
         benchmark::DoNotOptimize(sink);
-        MaybeResetStackTraceFilter(improved_coverage_enabled);
+        ResetStackTraceFilter();
       }
     }
   };
@@ -373,8 +348,7 @@ TEST_P(ParameterizedTcMallocTest, OffsetAndLength) {
 }
 
 // Ensure non-GWP-ASan segfaults also crash.
-TEST_P(ParameterizedTcMallocTest, NonGwpAsanSegv) {
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
+TEST_F(TcMallocTest, NonGwpAsanSegv) {
   int* volatile p = static_cast<int*>(
       mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
   EXPECT_DEATH((*p)++, "");
@@ -383,9 +357,8 @@ TEST_P(ParameterizedTcMallocTest, NonGwpAsanSegv) {
 
 // Verify memory is aligned suitably according to compiler assumptions
 // (b/201199449).
-TEST_P(ParameterizedTcMallocTest, b201199449_AlignedObjectConstruction) {
+TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
   ScopedAlwaysSample always_sample;
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
 
   struct A {
     char c[__STDCPP_DEFAULT_NEW_ALIGNMENT__ + 1];
@@ -410,10 +383,9 @@ TEST_P(ParameterizedTcMallocTest, b201199449_AlignedObjectConstruction) {
   EXPECT_TRUE(allocated) << "Failed to allocate with GWP-ASan";
 }
 
-TEST_P(ParameterizedTcMallocTest, DoubleFree) {
+TEST_F(TcMallocTest, DoubleFree) {
   ScopedGuardedSamplingRate gs(-1);
   ScopedProfileSamplingRate s(1);
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(GetParam());
   auto DoubleFree = []() {
     void* buf = ::operator new(42);
     ::operator delete(buf);
@@ -425,7 +397,7 @@ TEST_P(ParameterizedTcMallocTest, DoubleFree) {
                "InvokeHooksAndFreePages\\(\\)");
 }
 
-TEST_P(ParameterizedTcMallocTest, ReallocLarger) {
+TEST_F(TcMallocTest, ReallocLarger) {
   // Note: sizes are chosen so that size + 2 access below
   // does not write out of actual allocation bounds.
   for (size_t size : {2, 29, 60, 505}) {
@@ -433,21 +405,19 @@ TEST_P(ParameterizedTcMallocTest, ReallocLarger) {
         {
           fprintf(stderr, "size=%zu\n", size);
           ScopedAlwaysSample always_sample;
-          ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-              GetParam());
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile ptr = static_cast<char*>(malloc(size));
             ptr = static_cast<char*>(realloc(ptr, size + 1));
             ptr[size + 2] = 'A';
             free(ptr);
-            MaybeResetStackTraceFilter(GetParam());
+            ResetStackTraceFilter();
           }
         },
         "SIGSEGV");
   }
 }
 
-TEST_P(ParameterizedTcMallocTest, ReallocSmaller) {
+TEST_F(TcMallocTest, ReallocSmaller) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
@@ -456,21 +426,19 @@ TEST_P(ParameterizedTcMallocTest, ReallocSmaller) {
     EXPECT_DEATH(
         {
           ScopedAlwaysSample always_sample;
-          ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-              GetParam());
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile ptr = static_cast<char*>(malloc(size));
             ptr = static_cast<char*>(realloc(ptr, size - 1));
             ptr[size - 1] = 'A';
             free(ptr);
-            MaybeResetStackTraceFilter(GetParam());
+            ResetStackTraceFilter();
           }
         },
         "SIGSEGV");
   }
 }
 
-TEST_P(ParameterizedTcMallocTest, ReallocUseAfterFree) {
+TEST_F(TcMallocTest, ReallocUseAfterFree) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
@@ -479,8 +447,6 @@ TEST_P(ParameterizedTcMallocTest, ReallocUseAfterFree) {
     EXPECT_DEATH(
         {
           ScopedAlwaysSample always_sample;
-          ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(
-              GetParam());
           for (size_t i = 0; i < 10000; ++i) {
             char* volatile old_ptr = static_cast<char*>(malloc(size));
             void* volatile new_ptr = realloc(old_ptr, size - 1);
@@ -491,8 +457,6 @@ TEST_P(ParameterizedTcMallocTest, ReallocUseAfterFree) {
         "SIGSEGV");
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(ptmt, ParameterizedTcMallocTest, testing::Bool());
 
 }  // namespace
 }  // namespace tcmalloc

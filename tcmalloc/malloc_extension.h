@@ -208,7 +208,7 @@ class Profile final {
       // Request guard: may still not be guarded for other reasons (see
       //    above)
       Requested = 1,
-      // Require guard: If at all possible, guard this sample to maintain rates.
+      // Unused.
       Required = 2,
       // The result when a sample is actually guarded by GWP-ASAN.
       Guarded = 10,
@@ -476,10 +476,6 @@ class MallocExtension final {
   // overflow, and use-after-free when GWP-ASan is active (via calling
   // ActivateGuardedSampling).
   static void SetGuardedSamplingRate(int64_t rate);
-
-  // TODO(b/263387812): remove when experimentation is complete
-  static bool GetImprovedGuardedSampling();
-  static void SetImprovedGuardedSampling(bool enable);
 
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
   // use-after-free according to the guarded sample parameter value.

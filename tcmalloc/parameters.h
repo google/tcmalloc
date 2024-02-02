@@ -58,16 +58,6 @@ class Parameters {
     TCMalloc_Internal_SetGuardedSamplingRate(value);
   }
 
-  // TODO(b/263387812): remove when experimentation is complete
-  static bool improved_guarded_sampling() {
-    return improved_guarded_sampling_.load(std::memory_order_relaxed);
-  }
-
-  // TODO(b/263387812): remove when experimentation is complete
-  static void set_improved_guarded_sampling(bool enable) {
-    TCMalloc_Internal_SetImprovedGuardedSampling(enable);
-  }
-
   static int32_t max_per_cpu_cache_size();
 
   static void set_max_per_cpu_cache_size(int32_t value) {
@@ -189,8 +179,6 @@ class Parameters {
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
-  // TODO(b/263387812): remove when experimentation is complete
-  friend void ::TCMalloc_Internal_SetImprovedGuardedSampling(bool v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
@@ -219,8 +207,6 @@ class Parameters {
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_rate_;
-  // TODO(b/263387812): remove when experimentation is complete
-  static std::atomic<bool> improved_guarded_sampling_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;

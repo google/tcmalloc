@@ -104,27 +104,6 @@ TEST(Sampler, TestPickNextSample_MultipleValues) {
   TestPickNextSample(10000);  // Make sure there's no systematic error
 }
 
-void TestPickNextGuardedSample(int n) {
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
-  std::vector<uint64_t> int_random_sample(n);
-  for (int i = 0; i < n; i++) {
-    int_random_sample[i] = 1 + sampler.PickNextGuardedSamplingPoint();
-    ASSERT_GE(int_random_sample[i], 1);
-  }
-  TestSampleAndersonDarling(kGuardedSamplingInterval / kSamplingInterval,
-                            &int_random_sample);
-}
-
-TEST(Sampler, TestPickNextGuardedSample_MultipleValues) {
-  ScopedGuardedSamplingRate s(kGuardedSamplingInterval);
-
-  TestPickNextGuardedSample(10);  // Make sure the first few are good (enough)
-  TestPickNextGuardedSample(100);
-  TestPickNextGuardedSample(1000);
-  TestPickNextGuardedSample(10000);  // Make sure there's no systematic error
-}
-
 // Further tests
 
 double StandardDeviationsErrorInSample(int total_samples, int picked_samples,
@@ -163,35 +142,6 @@ TEST(Sampler, LargeAndSmallAllocs_CombinedTest) {
   ASSERT_LE(fabs(small_allocs_sds), kSigmas) << small_allocs_sds;
 }
 
-TEST(Sampler, TestShouldSampleGuardedAllocation) {
-  ScopedGuardedSamplingRate s(kGuardedSamplingInterval);
-  ScopedImprovedGuardedSampling scoped_improved_guarded_sampling(false);
-
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
-  int counter = 0;
-  int num_iters = 10000;
-  for (int i = 0; i < num_iters; i++) {
-    if (sampler.ShouldSampleGuardedAllocation() ==
-        Profile::Sample::GuardedStatus::Required) {
-      counter++;
-    }
-  }
-  double sd = StandardDeviationsErrorInSample(
-      num_iters, counter, /*alloc_size=*/1,
-      kGuardedSamplingInterval / kSamplingInterval);
-  EXPECT_LE(fabs(sd), kSigmas);
-}
-
-TEST(Sampler, TestShouldSampleGuardedAllocationWithImprovedSampling) {
-  tcmalloc::MallocExtension::SetImprovedGuardedSampling(true);
-
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
-  EXPECT_EQ(sampler.ShouldSampleGuardedAllocation(),
-            Profile::Sample::GuardedStatus::Requested);
-}
-
 template <typename Body>
 void DoCheckMean(size_t mean, int num_samples, Body next_sampling_point) {
   size_t total = 0;
@@ -203,25 +153,12 @@ void DoCheckMean(size_t mean, int num_samples, Body next_sampling_point) {
   EXPECT_LT(fabs(mean - empirical_mean), expected_sd * kSigmas);
 }
 
-void CheckMean(size_t mean, int num_samples, bool guarded) {
-  Sampler sampler;
-  SamplerTest::Init(&sampler, 1);
-  DoCheckMean(mean, num_samples, [guarded, &sampler]() {
-    if (guarded) {
-      return sampler.PickNextGuardedSamplingPoint();
-    } else {
-      return sampler.PickNextSamplingPoint();
-    }
-  });
-}
-
 // Tests whether the mean is about right over 1000 samples
 TEST(Sampler, IsMeanRight) {
-  ScopedGuardedSamplingRate s(kGuardedSamplingInterval);
-
-  CheckMean(kSamplingInterval, 1000, /*guarded=*/false);
-  CheckMean(kGuardedSamplingInterval / kSamplingInterval, 1000,
-            /*guarded=*/true);
+  Sampler sampler;
+  SamplerTest::Init(&sampler, 1);
+  DoCheckMean(kSamplingInterval, 1000,
+              [&sampler]() { return sampler.PickNextSamplingPoint(); });
 }
 
 // This checks that the stated maximum value for the sampling rate never

@@ -128,27 +128,6 @@ inline Sampler* GetThreadSampler() {
   return &tcmalloc_sampler;
 }
 
-inline bool ShouldGuardingBeAttempted(
-    Profile::Sample::GuardedStatus guarded_status) {
-  switch (guarded_status) {
-    case Profile::Sample::GuardedStatus::LargerThanOnePage:
-    case Profile::Sample::GuardedStatus::Disabled:
-    case Profile::Sample::GuardedStatus::RateLimited:
-    case Profile::Sample::GuardedStatus::TooSmall:
-    case Profile::Sample::GuardedStatus::NoAvailableSlots:
-    case Profile::Sample::GuardedStatus::MProtectFailed:
-    case Profile::Sample::GuardedStatus::Filtered:
-    case Profile::Sample::GuardedStatus::Unknown:
-    case Profile::Sample::GuardedStatus::NotAttempted:
-      return false;
-    case Profile::Sample::GuardedStatus::Requested:
-    case Profile::Sample::GuardedStatus::Required:
-    case Profile::Sample::GuardedStatus::Guarded:
-      return true;
-  }
-  return false;
-}
-
 // If this allocation can be guarded, and if it's time to do a guarded sample,
 // returns an instance of GuardedAllocWithStatus, that includes guarded
 // allocation Span and guarded status. Otherwise, returns nullptr and the status
@@ -160,76 +139,64 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
   if (num_pages != Length(1)) {
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
-  Profile::Sample::GuardedStatus guarded_status =
-      GetThreadSampler()->ShouldSampleGuardedAllocation();
-  if (!ShouldGuardingBeAttempted(guarded_status)) {
-    return {nullptr, guarded_status};
+  const int64_t guarded_sampling_rate =
+      tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
+  if (guarded_sampling_rate < 0) {
+    return {nullptr, Profile::Sample::GuardedStatus::Disabled};
   }
-  // Assumes Parameters::improved_guarded_sampling() is true, as that is the
-  // only way Requested can be returned.
-  if (guarded_status == Profile::Sample::GuardedStatus::Requested) {
-    // TODO(b/273954799): Possible optimization: only calculate this when
-    // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
-    // margin_multiplier below.
-    const int64_t profile_sampling_rate =
-        tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
-    const int64_t guarded_sampling_rate =
-        tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
-    // If guarded_sampling_rate < 0, then do not guard at all.
-    // This is an edge case which is usually caught in
-    // ShouldSampleGuardedAllocation().
-    if (guarded_sampling_rate < 0) {
-      return {nullptr, Profile::Sample::GuardedStatus::Disabled};
-    }
-    // If guarded_sampling_rate == 0, then attempt to guard, as usual.
-    if (guarded_sampling_rate > 0) {
-      const double configured_sampled_to_guarded_ratio =
-          profile_sampling_rate > 0
-              ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
-              : 1.0;
-      // Select a multiplier of the configured_sampled_to_guarded_ratio that
-      // yields a product at least 2.0 greater than
-      // configured_sampled_to_guarded_ratio.
-      //
-      //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
-      //        configured_sampled_to_guarded_ratio) >= 2.0
-      //
-      // This multiplier is applied to configured_sampled_to_guarded_ratio to
-      // create the maximum, and configured_sampled_to_guarded_ratio is the
-      // minimum. This max and min are the boundaries between which
-      // current_sampled_to_guarded_ratio travels between.  While traveling
-      // towards the maximum, no guarding is attempted.  While traveling towards
-      // the minimum, guarding of every sample is attempted.
-      const double margin_multiplier =
-          std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
-                         configured_sampled_to_guarded_ratio,
-                     1.2, 2.0);
-      const double maximum_configured_sampled_to_guarded_ratio =
-          margin_multiplier * configured_sampled_to_guarded_ratio;
-      const double minimum_configured_sampled_to_guarded_ratio =
-          configured_sampled_to_guarded_ratio;
+  // TODO(b/273954799): Possible optimization: only calculate this when
+  // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
+  // margin_multiplier below.
+  const int64_t profile_sampling_rate =
+      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
+  // If guarded_sampling_rate == 0, then attempt to guard, as usual.
+  if (guarded_sampling_rate > 0) {
+    const double configured_sampled_to_guarded_ratio =
+        profile_sampling_rate > 0
+            ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
+            : 1.0;
+    // Select a multiplier of the configured_sampled_to_guarded_ratio that
+    // yields a product at least 2.0 greater than
+    // configured_sampled_to_guarded_ratio.
+    //
+    //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
+    //        configured_sampled_to_guarded_ratio) >= 2.0
+    //
+    // This multiplier is applied to configured_sampled_to_guarded_ratio to
+    // create the maximum, and configured_sampled_to_guarded_ratio is the
+    // minimum. This max and min are the boundaries between which
+    // current_sampled_to_guarded_ratio travels between.  While traveling
+    // towards the maximum, no guarding is attempted.  While traveling towards
+    // the minimum, guarding of every sample is attempted.
+    const double margin_multiplier =
+        std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
+                       configured_sampled_to_guarded_ratio,
+                   1.2, 2.0);
+    const double maximum_configured_sampled_to_guarded_ratio =
+        margin_multiplier * configured_sampled_to_guarded_ratio;
+    const double minimum_configured_sampled_to_guarded_ratio =
+        configured_sampled_to_guarded_ratio;
 
-      // Ensure that successful_allocations is at least 1 (not zero).
-      const size_t successful_allocations =
-          std::max(state.guardedpage_allocator().SuccessfulAllocations(), 1UL);
-      const size_t current_sampled_to_guarded_ratio =
-          state.total_sampled_count_.value() / successful_allocations;
-      static std::atomic<bool> striving_to_guard_{true};
-      if (striving_to_guard_.load(std::memory_order_relaxed)) {
-        if (current_sampled_to_guarded_ratio <=
-            minimum_configured_sampled_to_guarded_ratio) {
-          striving_to_guard_.store(false, std::memory_order_relaxed);
-          return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-        }
+    // Ensure that successful_allocations is at least 1 (not zero).
+    const size_t successful_allocations =
+        std::max(state.guardedpage_allocator().SuccessfulAllocations(), 1UL);
+    const size_t current_sampled_to_guarded_ratio =
+        state.total_sampled_count_.value() / successful_allocations;
+    static std::atomic<bool> striving_to_guard_{true};
+    if (striving_to_guard_.load(std::memory_order_relaxed)) {
+      if (current_sampled_to_guarded_ratio <=
+          minimum_configured_sampled_to_guarded_ratio) {
+        striving_to_guard_.store(false, std::memory_order_relaxed);
+        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+      }
+      // Fall through to possible allocation below.
+    } else {
+      if (current_sampled_to_guarded_ratio >=
+          maximum_configured_sampled_to_guarded_ratio) {
+        striving_to_guard_.store(true, std::memory_order_relaxed);
         // Fall through to possible allocation below.
       } else {
-        if (current_sampled_to_guarded_ratio >=
-            maximum_configured_sampled_to_guarded_ratio) {
-          striving_to_guard_.store(true, std::memory_order_relaxed);
-          // Fall through to possible allocation below.
-        } else {
-          return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-        }
+        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
       }
     }
 
@@ -278,8 +245,7 @@ static GuardedAllocWithStatus TrySampleGuardedAllocation(
   // are met.
   GuardedAllocWithStatus alloc_with_status =
       state.guardedpage_allocator().Allocate(size, alignment);
-  if (Parameters::improved_guarded_sampling() &&
-      alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
+  if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
     state.stacktrace_filter().Add(stack_trace);
   }
   return alloc_with_status;

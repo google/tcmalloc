@@ -110,21 +110,12 @@ class Sampler {
   // without changing the internal state.
   bool WillRecordAllocation(size_t k);
 
-  // If the guarded sampling point has been reached, selects a new sampling
-  // point and returns GuardedStatus::Required. When improved guarding is
-  // enabled returns GuardedStatus::Requested. Otherwise returns status
-  // indicating the reason for not guarding.
-  Profile::Sample::GuardedStatus ShouldSampleGuardedAllocation();
-
   // Generate a geometric with mean profile_sampling_rate.
   //
   // Remembers the value of sample_rate for use in reweighing the sample
   // later (so that if the flag value changes before the next sample is taken,
   // the next sample is still weighed properly).
   ssize_t PickNextSamplingPoint();
-
-  // Generates a geometric with mean guarded_sample_rate.
-  ssize_t PickNextGuardedSamplingPoint();
 
   // Returns the current sample period
   static ssize_t GetSamplePeriod();
@@ -139,7 +130,6 @@ class Sampler {
 
   constexpr Sampler()
       : sample_period_(0),
-        allocs_until_guarded_sample_(0),
         rnd_(0),
         initialized_(false),
         bytes_until_sample_(0) {}
@@ -149,9 +139,6 @@ class Sampler {
   // bytes_until_sample_. This allows us to properly calculate the sample
   // weight of the first sample after the sampling period is changed.
   ssize_t sample_period_;
-
-  // Number of sampled allocations until we do a guarded allocation.
-  ssize_t allocs_until_guarded_sample_;
 
   uint64_t rnd_;  // Cheap random number generator
   bool initialized_;
@@ -204,22 +191,6 @@ inline size_t Sampler::RecordedAllocationFast(size_t k) {
 
 inline bool Sampler::WillRecordAllocation(size_t k) {
   return ABSL_PREDICT_FALSE(bytes_until_sample_ < (k + 1));
-}
-
-inline Profile::Sample::GuardedStatus ABSL_ATTRIBUTE_ALWAYS_INLINE
-Sampler::ShouldSampleGuardedAllocation() {
-  if (Parameters::guarded_sampling_rate() < 0) {
-    return Profile::Sample::GuardedStatus::Disabled;
-  }
-  if (Parameters::improved_guarded_sampling()) {
-    return Profile::Sample::GuardedStatus::Requested;
-  }
-  allocs_until_guarded_sample_--;
-  if (ABSL_PREDICT_FALSE(allocs_until_guarded_sample_ < 0)) {
-    allocs_until_guarded_sample_ = PickNextGuardedSamplingPoint();
-    return Profile::Sample::GuardedStatus::Required;
-  }
-  return Profile::Sample::GuardedStatus::RateLimited;
 }
 
 // Returns the approximate number of bytes that would have been allocated to

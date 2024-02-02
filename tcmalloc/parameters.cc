@@ -170,8 +170,6 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
     50 * kDefaultProfileSamplingRate);
-// TODO(b/263387812): remove when experimentation is complete
-ABSL_CONST_INIT std::atomic<bool> Parameters::improved_guarded_sampling_(true);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
@@ -317,16 +315,6 @@ void MallocExtension_Internal_SetGuardedSamplingRate(int64_t value) {
   Parameters::set_guarded_sampling_rate(value);
 }
 
-// TODO(b/263387812): remove when experimentation is complete
-bool MallocExtension_Internal_GetImprovedGuardedSampling() {
-  return Parameters::improved_guarded_sampling();
-}
-
-// TODO(b/263387812): remove when experimentation is complete
-void MallocExtension_Internal_SetImprovedGuardedSampling(bool value) {
-  Parameters::set_improved_guarded_sampling(value);
-}
-
 int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
   return Parameters::max_total_thread_cache_bytes();
 }
@@ -424,11 +412,6 @@ bool TCMalloc_Internal_GetPerCpuCachesEnabled() {
 
 void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v) {
   Parameters::guarded_sampling_rate_.store(v, std::memory_order_relaxed);
-}
-
-// TODO(b/263387812): remove when experimentation is complete
-void TCMalloc_Internal_SetImprovedGuardedSampling(bool v) {
-  Parameters::improved_guarded_sampling_.store(v, std::memory_order_relaxed);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.

@@ -69,7 +69,7 @@ class StackTraceFilter {
   // trace more than kMaxGuardsPerStackTraceSignature times.
   void Reset();
 
-  friend class ParameterizedGuardedPageAllocatorProfileTest;
+  friend class GuardedPageAllocatorProfileTest;
   friend class StackTraceFilterTest;
   friend class StackTraceFilterThreadedTest;
   friend class tcmalloc::TcMallocTest;

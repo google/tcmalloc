@@ -295,8 +295,6 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
         "*** Try rerunning with --config=asan to get stack trace of overflow "
         "***");
   }
-  Log(kLog, __FILE__, __LINE__,
-      "improved_guarded_sampling:", Parameters::improved_guarded_sampling());
 }
 
 static struct sigaction old_sa;

@@ -61,7 +61,6 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
   }
   // Initialize counters
   bytes_until_sample_ = PickNextSamplingPoint();
-  allocs_until_guarded_sample_ = PickNextGuardedSamplingPoint();
 }
 
 ssize_t Sampler::PickNextSamplingPoint() {
@@ -82,21 +81,6 @@ ssize_t Sampler::PickNextSamplingPoint() {
   }
   return std::max<ssize_t>(
       0, GetGeometricVariable(sample_period_) - kIntervalOffset);
-}
-
-ssize_t Sampler::PickNextGuardedSamplingPoint() {
-  double guarded_sample_rate = Parameters::guarded_sampling_rate();
-  double profile_sample_rate = Parameters::profile_sampling_rate();
-  if (guarded_sample_rate < 0 || profile_sample_rate <= 0) {
-    // Guarded sampling is disabled but could be turned on at run time.  So we
-    // return a sampling point (default mean=100) in case guarded sampling is
-    // later enabled.  Since the flag is also checked in
-    // ShouldSampleGuardedAllocation(), guarded sampling is still guaranteed
-    // not to run until it is enabled.
-    return GetGeometricVariable(/*mean=*/100);
-  }
-  return GetGeometricVariable(
-      std::ceil(guarded_sample_rate / profile_sample_rate));
 }
 
 // Generates a geometric variable with the specified mean.

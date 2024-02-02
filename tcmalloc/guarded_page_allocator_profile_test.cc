@@ -14,9 +14,7 @@
 
 #include <stddef.h>
 
-#include <cmath>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -26,7 +24,6 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
-#include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
@@ -34,8 +31,9 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
-namespace {
 
+// By placing this class in the tcmalloc_internal namespace, it may call the
+// private method StackTraceFilter::Reset as a friend.
 class GuardedPageAllocatorProfileTest : public testing::Test {
  public:
   struct NextSteps {
@@ -96,58 +94,18 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
     });
     EXPECT_THAT(found_statuses, ::testing::Contains(sought_status));
   }
+
+  void ResetStackTraceFilter() { tc_globals.stacktrace_filter().Reset(); }
 };
-
-}  // namespace
-
-// By placing this class in the tcmalloc_internal namespace, it may call the
-// private method StackTraceFilter::Reset as a friend.
-class ParameterizedGuardedPageAllocatorProfileTest
-    : public GuardedPageAllocatorProfileTest,
-      public testing::WithParamInterface<
-          bool /* improved_guarded_sampling_enabled */> {
- protected:
-  void MaybeResetStackTraceFilter(bool improved_coverage_enabled) {
-    if (!improved_coverage_enabled) {
-      return;
-    }
-    tc_globals.stacktrace_filter().Reset();
-  }
-
-  void AllocateAndValidate(bool improved_guarded_sampling_enabled);
-};
-
-void ParameterizedGuardedPageAllocatorProfileTest::AllocateAndValidate(
-    bool improved_guarded_sampling_enabled) {
-  tcmalloc::ScopedImprovedGuardedSampling improved_guarded_sampling(
-      improved_guarded_sampling_enabled);
-  AllocateUntilGuarded();
-
-  // Accumulate at least 2 guarded allocations.
-  auto token = MallocExtension::StartAllocationProfiling();
-  int guarded_count = 0;
-  AllocateGuardableUntil(1063, [&](void* alloc) -> NextSteps {
-    if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
-      ++guarded_count;
-      MaybeResetStackTraceFilter(improved_guarded_sampling_enabled);
-    }
-    return {guarded_count > 1, true};
-  });
-
-  auto profile = std::move(token).Stop();
-  ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
-}
 
 namespace {
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Guarded) {
+
+TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
   ScopedAlwaysSample always_sample;
-  bool improved_guarded_sampling_enabled = GetParam();
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      improved_guarded_sampling_enabled);
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
-  MaybeResetStackTraceFilter(improved_guarded_sampling_enabled);
+  ResetStackTraceFilter();
   AllocateGuardableUntil(1051, [&](void* alloc) -> NextSteps {
     return {true, true};
   });
@@ -156,10 +114,8 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Guarded) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NotAttempted) {
+TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
   ScopedProfileSamplingRate profile_sampling_rate(4096);
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      /*is_enabled=*/GetParam());
   auto token = MallocExtension::StartAllocationProfiling();
 
   constexpr size_t alloc_size = 2 * 1024 * 1024;
@@ -180,11 +136,8 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NotAttempted) {
                  });
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, LargerThanOnePage) {
+TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
   ScopedAlwaysSample always_sample;
-  bool improved_guarded_sampling_enabled = GetParam();
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      improved_guarded_sampling_enabled);
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
@@ -206,11 +159,9 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, LargerThanOnePage) {
                  });
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Disabled) {
+TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
   ScopedGuardedSamplingRate guarded_sampling_rate(-1);
   ScopedProfileSamplingRate profile_sampling_rate(1);
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      /*is_enabled=*/GetParam());
   auto token = MallocExtension::StartAllocationProfiling();
 
   AllocateGuardableUntil(1024, [&](void* alloc) -> NextSteps {
@@ -221,12 +172,9 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, Disabled) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Disabled);
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, RateLimited) {
+TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   ScopedGuardedSamplingRate guarded_sampling_rate(1);
   ScopedProfileSamplingRate profile_sampling_rate(1);
-  bool improved_guarded_sampling_enabled = GetParam();
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      improved_guarded_sampling_enabled);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // Keep allocating until something is sampled
@@ -237,7 +185,7 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, RateLimited) {
     if (IsSampledMemory(alloc)) {
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
         guarded_found = true;
-        MaybeResetStackTraceFilter(improved_guarded_sampling_enabled);
+        ResetStackTraceFilter();
       } else {
         unguarded_found = true;
       }
@@ -270,7 +218,7 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, RateLimited) {
   EXPECT_TRUE(ratelimited_found);
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, TooSmall) {
+TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {
   ScopedAlwaysSample always_sample;
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
@@ -297,11 +245,8 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, TooSmall) {
                  });
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NoAvailableSlots) {
+TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ScopedAlwaysSample always_sample;
-  bool improved_guarded_sampling_enabled = GetParam();
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      improved_guarded_sampling_enabled);
   AllocateUntilGuarded();
 
   std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
@@ -310,7 +255,7 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NoAvailableSlots) {
     if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
       allocs.emplace_back(alloc,
                           static_cast<void (*)(void*)>(::operator delete));
-      MaybeResetStackTraceFilter(improved_guarded_sampling_enabled);
+      ResetStackTraceFilter();
       return {Static::guardedpage_allocator().GetNumAvailablePages() == 0,
               false};
     }
@@ -327,10 +272,8 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NoAvailableSlots) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::NoAvailableSlots);
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NeverSample) {
+TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
   ScopedProfileSamplingRate profile_sampling_rate(0);
-  ScopedImprovedGuardedSampling improved_guarded_sampling(
-      /*is_enabled=*/GetParam());
   auto token = MallocExtension::StartAllocationProfiling();
 
   // This will not succeed in guarding anything.
@@ -345,19 +288,7 @@ TEST_P(ParameterizedGuardedPageAllocatorProfileTest, NeverSample) {
   EXPECT_EQ(samples, 0);
 }
 
-INSTANTIATE_TEST_SUITE_P(x, ParameterizedGuardedPageAllocatorProfileTest,
-                         testing::Bool());
-
 TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
-  // Enable improved sampling, as filtered is only returned when improved
-  // sampling is enabled.
-  tcmalloc::ScopedImprovedGuardedSampling improved_guarded_sampling(
-      /*is_enabled=*/true);
-
-  // Attempt to guard every sample.
-  ScopedAlwaysSample always_sample;
-  AllocateUntilGuarded();
-
   auto token = MallocExtension::StartAllocationProfiling();
   // Allocate until 2 guards placed, it should not exceed 5 attempts
   // (1st Guard: 100% (1), 2nd: 25% (4))
@@ -378,11 +309,6 @@ TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
-  // Enable improved sampling, as filtered is only returned when improved
-  // sampling is enabled.
-  tcmalloc::ScopedImprovedGuardedSampling improved_guarded_sampling(
-      /*is_enabled=*/true);
-
   // Have to have a rate that is less than every single one.
   ScopedGuardedSamplingRate scoped_guarded_sampling_rate(
       2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate());
@@ -409,13 +335,25 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Filtered);
 }
 
-TEST_P(ParameterizedGuardedPageAllocatorProfileTest, DynamicParamChange) {
-  bool improved_guarded_sampling_enabled = GetParam();
+TEST_F(GuardedPageAllocatorProfileTest, DynamicParamChange) {
   ScopedGuardedSamplingRate scoped_guarded_sampling_rate(
       2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate());
   for (int loop_count = 0; loop_count < 10; ++loop_count) {
-    AllocateAndValidate(improved_guarded_sampling_enabled);
-    AllocateAndValidate(!improved_guarded_sampling_enabled);
+    AllocateUntilGuarded();
+
+    // Accumulate at least 2 guarded allocations.
+    auto token = MallocExtension::StartAllocationProfiling();
+    int guarded_count = 0;
+    AllocateGuardableUntil(1063, [&](void* alloc) -> NextSteps {
+      if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+        ++guarded_count;
+        ResetStackTraceFilter();
+      }
+      return {guarded_count > 1, true};
+    });
+
+    auto profile = std::move(token).Stop();
+    ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
   }
 }
 

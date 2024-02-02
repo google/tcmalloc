@@ -16,11 +16,11 @@
 #define TCMALLOC_INTERNAL_PERCPU_H_
 
 // sizeof(Sampler)
-#define TCMALLOC_SAMPLER_SIZE 40
+#define TCMALLOC_SAMPLER_SIZE 32
 // alignof(Sampler)
 #define TCMALLOC_SAMPLER_ALIGN 8
 // Sampler::HotDataOffset()
-#define TCMALLOC_SAMPLER_HOT_OFFSET 32
+#define TCMALLOC_SAMPLER_HOT_OFFSET 24
 
 // Offset from __rseq_abi to the cached slabs address.
 #define TCMALLOC_RSEQ_SLABS_OFFSET -4

@@ -209,16 +209,13 @@ void GuardedPageAllocator::Print(Printer* out) {
       "StackTraceFilter Replacement Inserts: %zu\n"
       "Total Slots Used Once: %zu / %zu\n"
       "Allocation Count When All Slots Used Once: %zu\n"
-      "PARAMETER tcmalloc_guarded_sample_parameter %d\n"
-      // TODO(b/263387812): remove when experiment is finished
-      "PARAMETER tcmalloc_improved_guarded_sampling %d\n",
+      "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
       num_allocation_requests_ - num_failed_allocations_,
       num_failed_allocations_, num_alloced_pages_,
       total_pages_ - num_alloced_pages_, num_alloced_pages_max_,
       max_alloced_pages_, tc_globals.stacktrace_filter().max_slots_used(),
       tc_globals.stacktrace_filter().replacement_inserts(), total_pages_used_,
-      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate(),
-      Parameters::improved_guarded_sampling());
+      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
@@ -240,9 +237,6 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
                      alloced_page_count_when_all_used_once_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
-  // TODO(b/263387812): remove when experiment is finished
-  gwp_asan->PrintI64("tcmalloc_improved_guarded_sampling",
-                     Parameters::improved_guarded_sampling());
 }
 
 size_t GuardedPageAllocator::SuccessfulAllocations() {
