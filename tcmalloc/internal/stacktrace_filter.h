@@ -25,6 +25,7 @@
 namespace tcmalloc {
 
 class TcMallocTest;
+class GuardedAllocAlignmentTest;
 
 namespace tcmalloc_internal {
 
@@ -73,6 +74,7 @@ class StackTraceFilter {
   friend class StackTraceFilterTest;
   friend class StackTraceFilterThreadedTest;
   friend class tcmalloc::TcMallocTest;
+  friend class tcmalloc::GuardedAllocAlignmentTest;
 };
 
 inline size_t StackTraceFilter::Count(const StackTrace& stacktrace) const {

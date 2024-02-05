@@ -41,7 +41,6 @@
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
-namespace {
 
 using tcmalloc_internal::kPageShift;
 using tcmalloc_internal::kPageSize;
@@ -49,8 +48,13 @@ using tcmalloc_internal::tc_globals;
 
 class GuardedAllocAlignmentTest : public testing::Test, ScopedAlwaysSample {
  public:
-  GuardedAllocAlignmentTest() { MallocExtension::ActivateGuardedSampling(); }
+  GuardedAllocAlignmentTest() {
+    MallocExtension::ActivateGuardedSampling();
+    tc_globals.stacktrace_filter().Reset();
+  }
 };
+
+namespace {
 
 TEST_F(GuardedAllocAlignmentTest, Malloc) {
   for (size_t lg = 0; lg <= kPageShift; lg++) {
@@ -114,6 +118,8 @@ TEST_F(GuardedAllocAlignmentTest, AlignedNew) {
 class TcMallocTest : public testing::Test {
  protected:
   TcMallocTest() {
+    // Start with clean state to avoid hash collisions.
+    tc_globals.stacktrace_filter().Reset();
     MallocExtension::SetGuardedSamplingRate(
         10 * MallocExtension::GetProfileSamplingRate());
 
