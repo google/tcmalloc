@@ -47,40 +47,9 @@ using tcmalloc_internal::kPageShift;
 using tcmalloc_internal::kPageSize;
 using tcmalloc_internal::tc_globals;
 
-class GuardedAllocAlignmentTest : public testing::Test {
- protected:
-  GuardedAllocAlignmentTest() {
-    profile_sampling_rate_ = MallocExtension::GetProfileSamplingRate();
-    guarded_sample_rate_ = MallocExtension::GetGuardedSamplingRate();
-    MallocExtension::SetProfileSamplingRate(1);  // Always do heapz samples.
-    MallocExtension::SetGuardedSamplingRate(
-        0);  // TODO(b/201336703): Guard every heapz sample.
-    MallocExtension::ActivateGuardedSampling();
-
-    // Eat up unsampled bytes remaining to flush the new sample rates.
-    while (true) {
-      void* p = ::operator new(kPageSize);
-      if (tc_globals.guardedpage_allocator().PointerIsMine(p)) {
-        ::operator delete(p);
-        break;
-      }
-      ::operator delete(p);
-    }
-
-    // Ensure subsequent allocations are guarded.
-    void* p = ::operator new(1);
-    CHECK_CONDITION(tc_globals.guardedpage_allocator().PointerIsMine(p));
-    ::operator delete(p);
-  }
-
-  ~GuardedAllocAlignmentTest() override {
-    MallocExtension::SetProfileSamplingRate(profile_sampling_rate_);
-    MallocExtension::SetGuardedSamplingRate(guarded_sample_rate_);
-  }
-
- private:
-  int64_t profile_sampling_rate_;
-  int32_t guarded_sample_rate_;
+class GuardedAllocAlignmentTest : public testing::Test, ScopedAlwaysSample {
+ public:
+  GuardedAllocAlignmentTest() { MallocExtension::ActivateGuardedSampling(); }
 };
 
 TEST_F(GuardedAllocAlignmentTest, Malloc) {
