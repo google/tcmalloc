@@ -452,17 +452,6 @@ class CpuCache {
 
   using Freelist = subtle::percpu::TcmallocSlab;
 
-  // Return a set of objects to be returned to the Transfer Cache.
-  static constexpr int kMaxToReturn = 16;
-  struct ObjectsToReturn {
-    // The number of slots available for storing objects.
-    int count = kMaxToReturn;
-    // The size class of the returned object. kNumClasses is the
-    // largest value that needs to be stored in size_class.
-    CompactSizeClass size_class[kMaxToReturn];
-    void* obj[kMaxToReturn];
-  };
-
   struct PerClassMissCounts {
     std::atomic<size_t>
         misses[static_cast<size_t>(PerClassMissType::kNumTypes)];
@@ -591,18 +580,13 @@ class CpuCache {
   // from/to a sharded transfer cache. Else, we use a legacy transfer cache.
   bool UseBackingShardedTransferCache(size_t size_class) const;
 
-  // Called on <size_class> freelist overflow/underflow on <cpu> to balance
-  // cache capacity between size classes. Returns number of objects to
-  // return/request from transfer cache. <to_return> will contain objects that
-  // need to be freed.
-  size_t UpdateCapacity(int cpu, size_t size_class, bool overflow,
-                        ObjectsToReturn* to_return);
+  // Called on <size_class> freelist on <cpu> to record overflow/underflow
+  // Returns number of objects to return/request from transfer cache.
+  size_t UpdateCapacity(int cpu, size_t size_class, bool overflow);
 
-  // Tries to obtain up to <desired_increase> bytes of freelist space on <cpu>
-  // for <size_class> from other <cls>. <to_return> will contain objects that
-  // need to be freed.
-  void Grow(int cpu, size_t size_class, size_t desired_increase,
-            ObjectsToReturn* to_return);
+  // Tries to grow freelist <size_class> on the current <cpu> by up to
+  // <desired_increase> objects if there is available capacity.
+  void Grow(int cpu, size_t size_class, size_t desired_increase);
 
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
@@ -623,9 +607,7 @@ class CpuCache {
   };
 
   // Tries to steal <bytes> for <size_class> on <cpu> from other size classes on
-  // that CPU. Returns acquired bytes. <to_return> will contain objects that
-  // need to be freed. Unlike Steal, this method may be called from a different
-  // cpu.
+  // that CPU. Returns acquired bytes.
   size_t StealCapacityForSizeClassWithinCpu(
       int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes);
 
@@ -1049,13 +1031,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
 // return memory to the correct CPU.)
 template <class Forwarder>
 inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
-  // UpdateCapacity can evict objects from other size classes as it tries to
-  // increase capacity of this size class. The objects are returned in
-  // to_return, we insert them into transfer cache at the end of function
-  // (to increase possibility that we stay on the current CPU as we are
-  // refilling the list).
-  ObjectsToReturn to_return;
-  const size_t target = UpdateCapacity(cpu, size_class, false, &to_return);
+  const size_t target = UpdateCapacity(cpu, size_class, false);
 
   // Refill target objects in batch_length batches.
   size_t total = 0;
@@ -1083,11 +1059,6 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
       }
     }
   } while (got == kMaxObjectsToMove && i == 0 && total < target);
-
-  for (int i = to_return.count; i < kMaxToReturn; ++i) {
-    ReleaseToBackingCache(to_return.size_class[i], {&(to_return.obj[i]), 1});
-  }
-
   return result;
 }
 
@@ -1148,8 +1119,7 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
 
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
-                                                  bool overflow,
-                                                  ObjectsToReturn* to_return) {
+                                                  bool overflow) {
   // Freelist size balancing strategy:
   //  - We grow a size class only on overflow/underflow.
   //  - We shrink size classes in Steal as it scans all size classes.
@@ -1205,7 +1175,7 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
       // what we want to request from transfer cache.
       increase = batch_length - capacity;
     }
-    Grow(cpu, size_class, increase, to_return);
+    Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
@@ -1227,8 +1197,7 @@ inline size_t subtract_at_least(std::atomic<size_t>* a, size_t min,
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
-                                      size_t desired_increase,
-                                      ObjectsToReturn* to_return) {
+                                      size_t desired_increase) {
   const size_t size = forwarder_.class_to_size(size_class);
   const size_t desired_bytes = desired_increase * size;
   size_t acquired_bytes =
@@ -1707,7 +1676,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
     }
   }
   RecordCacheMissStat(cpu, false);
-  const size_t target = UpdateCapacity(cpu, size_class, true, nullptr);
+  const size_t target = UpdateCapacity(cpu, size_class, true);
   size_t total = 0;
   size_t count = 1;
   void* batch[kMaxObjectsToMove];
