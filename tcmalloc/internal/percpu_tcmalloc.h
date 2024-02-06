@@ -505,8 +505,7 @@ inline size_t TcmallocSlab::Capacity(int cpu, size_t size_class) const {
 // Store v to p (*p = v) if the current thread wasn't rescheduled
 // (still has the slab pointer cached). Otherwise returns false.
 template <typename T>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
-                                                         T v) {
+TCMALLOC_RELEASE_INLINE bool StoreCurrentCpu(volatile void* p, T v) {
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
@@ -559,7 +558,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
+static TCMALLOC_RELEASE_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t scratch, current;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -620,7 +619,7 @@ overflow_label:
 #endif  // defined(__x86_64__)
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
+static TCMALLOC_RELEASE_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t region_start, scratch, end_ptr, end;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -687,8 +686,7 @@ overflow_label:
 }
 #endif  // defined (__aarch64__)
 
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab::Push(size_t size_class,
-                                                            void* item) {
+TCMALLOC_RELEASE_INLINE bool TcmallocSlab::Push(size_t size_class, void* item) {
   ASSERT(size_class != 0);
   ASSERT(item != nullptr);
   ASSERT((reinterpret_cast<uintptr_t>(item) & kBeginMark) == 0);
@@ -709,8 +707,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab::Push(size_t size_class,
 //
 // It is in a distinct, always-lined method to make its cost more transparent
 // when profiling with debug information.
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
-    void* prefetch_target) {
+TCMALLOC_RELEASE_INLINE void PrefetchNextObject(void* prefetch_target) {
   // A note about prefetcht0 in Pop:  While this prefetch may appear costly,
   // trace analysis shows the target is frequently used (b/70294962). Stalling
   // on a TLB miss at the prefetch site (which has no deps) and prefetching the
@@ -726,7 +723,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
+TCMALLOC_RELEASE_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   ASSERT(size_class != 0);
   void* next;
   void* result;
@@ -802,7 +799,7 @@ underflow_path:
 #endif  // defined(__x86_64__)
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
+TCMALLOC_RELEASE_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   ASSERT(size_class != 0);
   void* result;
   void* region_start;
@@ -883,7 +880,7 @@ underflow_path:
 #endif  // defined(__aarch64__)
 
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
+TCMALLOC_RELEASE_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   return nullptr;
 }
 #endif

@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/transfer_cache_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -344,7 +345,7 @@ class TransferCache {
 
   // This is a thin wrapper for the CentralFreeList.  It is intended to ensure
   // that we are not holding lock_ when we access it.
-  ABSL_ATTRIBUTE_ALWAYS_INLINE FreeList &freelist() ABSL_LOCKS_EXCLUDED(lock_) {
+  TCMALLOC_RELEASE_INLINE FreeList &freelist() ABSL_LOCKS_EXCLUDED(lock_) {
     return freelist_do_not_access_directly_;
   }
 

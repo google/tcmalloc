@@ -362,11 +362,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 }
 
 // nallocx slow path.
-// Moved to a separate function because size_class_with_alignment is not inlined
-// which would cause nallocx to become non-leaf function with stack frame and
-// stack spills. ABSL_ATTRIBUTE_ALWAYS_INLINE does not work on
-// size_class_with_alignment, compiler barks that it can't inline the function
-// somewhere.
+// Moved to a separate function to make nallocx a leaf function.
 static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   tc_globals.InitIfNecessary();
   size_t align = static_cast<size_t>(1ull << (flags & 0x3f));
@@ -572,8 +568,7 @@ FreeSmallSlow(void* ptr, size_t size_class) {
   tc_globals.cpu_cache().DeallocateSlowNoHooks(ptr, size_class);
 }
 
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
-                                                          size_t size_class) {
+TCMALLOC_RELEASE_INLINE static void FreeSmall(void* ptr, size_t size_class) {
   if (!IsExpandedSizeClass(size_class)) {
     ASSERT(IsNormalMemory(ptr));
   } else {
@@ -687,7 +682,7 @@ static size_t GetSizeClass(void* ptr) {
 // would know that places that call this function with explicit 0 is
 // "have_size_class-case" and others are "!have_size_class-case". But we
 // certainly don't have such compiler. See also do_free_with_size below.
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
+TCMALLOC_RELEASE_INLINE void do_free(void* ptr) {
   if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
     return;
   }
@@ -734,9 +729,8 @@ ABSL_ATTRIBUTE_NOINLINE static void free_sampled(void* ptr, size_t size,
 }
 
 template <typename AlignPolicy>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
-                                                           size_t size,
-                                                           AlignPolicy align) {
+TCMALLOC_RELEASE_INLINE void do_free_with_size(void* ptr, size_t size,
+                                               AlignPolicy align) {
   ASSERT(CorrectSize(ptr, size, align));
   ASSERT(CorrectAlignment(ptr, static_cast<std::align_val_t>(align.align())));
 
@@ -876,7 +870,6 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::CppPolicy;
@@ -895,7 +888,6 @@ using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -969,8 +961,7 @@ ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
 }
 
 template <typename Policy, typename Pointer = typename Policy::pointer_type>
-static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
-                                                              size_t size) {
+TCMALLOC_RELEASE_INLINE static Pointer fast_alloc(Policy policy, size_t size) {
   // If size is larger than kMaxSize, it's not fast-path anymore. In
   // such case, GetSizeClass will return false, and we'll delegate to the slow
   // path. If malloc is not yet initialized, we may end up with size_class == 0
@@ -1011,7 +1002,6 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 using tcmalloc::tcmalloc_internal::GetOwnership;
 using tcmalloc::tcmalloc_internal::GetSize;
@@ -1168,8 +1158,8 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalCalloc(
   return result;
 }
 
-static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* do_realloc(void* old_ptr,
-                                                            size_t new_size) {
+TCMALLOC_RELEASE_INLINE static void* do_realloc(void* old_ptr,
+                                                size_t new_size) {
   tc_globals.InitIfNecessary();
   // Get the size of the old entry
   const size_t old_size = GetSize(old_ptr);
@@ -1502,7 +1492,6 @@ extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
   return GetSize(ptr);
 }
 
-GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
@@ -1528,7 +1517,6 @@ static TCMallocGuard module_enter_exit_hook;
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
-GOOGLE_MALLOC_SECTION_END
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 ABSL_CACHELINE_ALIGNED void* operator new(
@@ -1615,3 +1603,4 @@ ABSL_CACHELINE_ALIGNED void* operator new[](
   }
 }
 #endif  // !TCMALLOC_INTERNAL_METHODS_ONLY
+GOOGLE_MALLOC_SECTION_END

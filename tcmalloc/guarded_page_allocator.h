@@ -162,8 +162,7 @@ class GuardedPageAllocator {
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns true if ptr points to memory managed by this class.
-  inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
-  PointerIsMine(const void* ptr) const {
+  TCMALLOC_RELEASE_INLINE bool PointerIsMine(const void* ptr) const {
     uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
     return pages_base_addr_ <= addr && addr < pages_end_addr_;
   }

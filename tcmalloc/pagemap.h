@@ -38,6 +38,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -124,7 +125,7 @@ class PageMap2 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
+  TCMALLOC_RELEASE_INLINE CompactSizeClass
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
@@ -299,7 +300,7 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // REQUIRES: Must be a valid page number previously Ensure()d.
-  CompactSizeClass ABSL_ATTRIBUTE_ALWAYS_INLINE
+  TCMALLOC_RELEASE_INLINE CompactSizeClass
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);

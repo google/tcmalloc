@@ -56,6 +56,19 @@ namespace tcmalloc_internal {
 #define TCMALLOC_MUSTTAIL
 #endif
 
+// TCMALLOC_RELEASE_INLINE marks functions that need to be inlined in release
+// builds for performance reasons.
+// Gcc wants always_inline to be combined with inline, otherwise complains:
+//   error: 'always_inline' function might not be inlinable
+// In debug builds we don't use always_inline to not excessively bloat
+// runtime and test functions, and to make breakpoints work. But we still use
+// inline to allow seamless use on functions in headers.
+#ifdef NDEBUG
+#define TCMALLOC_RELEASE_INLINE inline ABSL_ATTRIBUTE_ALWAYS_INLINE
+#else
+#define TCMALLOC_RELEASE_INLINE inline
+#endif
+
 static inline void* AssumeNotNull(void* p) {
   ASSUME(p != nullptr);
   return p;

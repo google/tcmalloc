@@ -216,6 +216,7 @@ cc_library(
     deps = [
         ":config",
         ":logging",
+        ":optimization",
         "@com_google_absl//absl/base:core_headers",
     ],
 )
