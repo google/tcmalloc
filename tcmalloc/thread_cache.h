@@ -26,7 +26,6 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/linked_list.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/static_vars.h"
 
@@ -109,7 +108,7 @@ class ThreadCache {
     int lowwatermark() const { return lowater_; }
     void clear_lowwatermark() { lowater_ = length(); }
 
-    TCMALLOC_RELEASE_INLINE bool TryPop(void** ret) {
+    ABSL_ATTRIBUTE_ALWAYS_INLINE bool TryPop(void** ret) {
       bool out = LinkedList::TryPop(ret);
       if (ABSL_PREDICT_TRUE(out) && ABSL_PREDICT_FALSE(length() < lowater_)) {
         lowater_ = length();
@@ -223,7 +222,8 @@ class ThreadCache {
   char padding_[ABSL_CACHELINE_SIZE];
 };
 
-TCMALLOC_RELEASE_INLINE void* ThreadCache::Allocate(size_t size_class) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
+    size_t size_class) {
   const size_t allocated_size = tc_globals.sizemap().class_to_size(size_class);
 
   FreeList* list = &list_[size_class];
@@ -236,8 +236,8 @@ TCMALLOC_RELEASE_INLINE void* ThreadCache::Allocate(size_t size_class) {
   return FetchFromTransferCache(size_class, allocated_size);
 }
 
-TCMALLOC_RELEASE_INLINE void ThreadCache::Deallocate(void* ptr,
-                                                     size_t size_class) {
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE
+ThreadCache::Deallocate(void* ptr, size_t size_class) {
   FreeList* list = &list_[size_class];
   size_ += tc_globals.sizemap().class_to_size(size_class);
   ssize_t size_headroom = max_size_ - size_ - 1;
@@ -254,7 +254,8 @@ TCMALLOC_RELEASE_INLINE void ThreadCache::Deallocate(void* ptr,
   }
 }
 
-TCMALLOC_RELEASE_INLINE ThreadCache* ThreadCache::GetCacheIfPresent() {
+inline ThreadCache* ABSL_ATTRIBUTE_ALWAYS_INLINE
+ThreadCache::GetCacheIfPresent() {
   return thread_local_data_;
 }
 

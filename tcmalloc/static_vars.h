@@ -37,7 +37,7 @@
 #include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
-#include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/internal/stacktrace_filter.h"
@@ -162,14 +162,14 @@ class Static final {
     return linked_sample_allocator_;
   }
 
-  TCMALLOC_RELEASE_INLINE static bool CpuCacheActive() {
+  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE CpuCacheActive() {
     return cpu_cache_active_.load(std::memory_order_acquire);
   }
   static void ActivateCpuCache() {
     cpu_cache_active_.store(true, std::memory_order_release);
   }
 
-  TCMALLOC_RELEASE_INLINE static bool HaveHooks() {
+  static bool ABSL_ATTRIBUTE_ALWAYS_INLINE HaveHooks() {
     return false;
   }
 

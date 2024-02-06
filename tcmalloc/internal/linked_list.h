@@ -25,21 +25,20 @@
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-TCMALLOC_RELEASE_INLINE void* SLL_Next(void* t) {
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* SLL_Next(void* t) {
   return *(reinterpret_cast<void**>(t));
 }
 
-TCMALLOC_RELEASE_INLINE void SLL_SetNext(void* t, void* n) {
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_SetNext(void* t, void* n) {
   *(reinterpret_cast<void**>(t)) = n;
 }
 
-TCMALLOC_RELEASE_INLINE void SLL_Push(void** list, void* element) {
+inline void ABSL_ATTRIBUTE_ALWAYS_INLINE SLL_Push(void** list, void* element) {
   SLL_SetNext(element, *list);
   *list = element;
 }
@@ -79,12 +78,12 @@ class LinkedList {
   // Is list empty?
   bool empty() const { return list_ == nullptr; }
 
-  TCMALLOC_RELEASE_INLINE void Push(void* ptr) {
+  void ABSL_ATTRIBUTE_ALWAYS_INLINE Push(void* ptr) {
     SLL_Push(&list_, ptr);
     length_++;
   }
 
-  TCMALLOC_RELEASE_INLINE bool TryPop(void** ret) {
+  bool ABSL_ATTRIBUTE_ALWAYS_INLINE TryPop(void** ret) {
     void* obj = list_;
     if (ABSL_PREDICT_FALSE(obj == nullptr)) {
       return false;

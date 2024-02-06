@@ -28,6 +28,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
@@ -38,8 +39,11 @@
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
@@ -685,7 +689,7 @@ void* CpuCache<Forwarder>::Allocate(size_t size_class) {
 }
 
 template <class Forwarder>
-TCMALLOC_RELEASE_INLINE void* CpuCache<Forwarder>::AllocateFast(
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuCache<Forwarder>::AllocateFast(
     size_t size_class) {
   ASSERT(size_class > 0);
   return freelist_.Pop(size_class);
@@ -699,7 +703,7 @@ void CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
 }
 
 template <class Forwarder>
-TCMALLOC_RELEASE_INLINE bool CpuCache<Forwarder>::DeallocateFast(
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::DeallocateFast(
     void* ptr, size_t size_class) {
   ASSERT(size_class > 0);
   return freelist_.Push(size_class, ptr);

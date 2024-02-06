@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "absl/base/attributes.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
@@ -25,7 +26,6 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/size_class_info.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -74,7 +74,7 @@ class SizeMap {
   // BM_new_sized_delete/64     6.52ns ± 5%   6.04ns ± 1%   -7.37%  (p=0.000)
   // BM_new_sized_delete/512    6.71ns ± 6%   6.21ns ± 1%   -7.40%  (p=0.000)
   template <int n>
-  TCMALLOC_RELEASE_INLINE static size_t Shr(size_t value) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t Shr(size_t value) {
     ASSERT(value <= std::numeric_limits<uint32_t>::max());
 #if defined(__x86_64__)
     asm("shrl %[n], %k[value]" : [value] "+r"(value) : [n] "n"(n));
@@ -137,7 +137,8 @@ class SizeMap {
   // If size is no more than kMaxSize, compute index of the
   // class_array[] entry for it, putting the class index in output
   // parameter idx and returning true. Otherwise return false.
-  TCMALLOC_RELEASE_INLINE static bool ClassIndexMaybe(size_t s, size_t& idx) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline bool ClassIndexMaybe(size_t s,
+                                                                  size_t& idx) {
     if (ABSL_PREDICT_TRUE(s <= kLargeSize)) {
       idx = Shr<3>(s + 7);
       return true;
@@ -148,7 +149,7 @@ class SizeMap {
     return false;
   }
 
-  TCMALLOC_RELEASE_INLINE static size_t ClassIndex(size_t s) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
     size_t ret;
     CHECK_CONDITION(ClassIndexMaybe(s, ret));
     return ret;
@@ -202,8 +203,8 @@ class SizeMap {
   // TODO(b/171978365): Replace the output parameter with returning
   // absl::optional<uint32_t>.
   template <typename Policy>
-  TCMALLOC_RELEASE_INLINE bool GetSizeClass(Policy policy, size_t size,
-                                            size_t* size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
+      Policy policy, size_t size, size_t* size_class) const {
     const size_t align = policy.align();
     ASSERT(absl::has_single_bit(align));
 
@@ -252,7 +253,8 @@ class SizeMap {
   // Returns size class for given size, or 0 if this instance has not been
   // initialized yet. REQUIRES: size <= kMaxSize.
   template <typename Policy>
-  TCMALLOC_RELEASE_INLINE size_t SizeClass(Policy policy, size_t size) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
+                                                       size_t size) const {
     ASSERT(size <= kMaxSize);
     size_t ret = 0;
     GetSizeClass(policy, size, &ret);
@@ -261,13 +263,15 @@ class SizeMap {
 
   // Get the byte-size for a specified class. REQUIRES: size_class <=
   // kNumClasses.
-  TCMALLOC_RELEASE_INLINE size_t class_to_size(size_t size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
+      size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return class_to_size_[size_class];
   }
 
   // Mapping from size class to number of pages to allocate at a time
-  TCMALLOC_RELEASE_INLINE size_t class_to_pages(size_t size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_pages(
+      size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return class_to_pages_[size_class];
   }
@@ -277,7 +281,7 @@ class SizeMap {
   // amortize the lock overhead for accessing the central list.  Making
   // it too big may temporarily cause unnecessary memory wastage in the
   // per-thread free list until the scavenger cleans up the list.
-  TCMALLOC_RELEASE_INLINE SizeMap::BatchSize num_objects_to_move(
+  ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
       size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return num_objects_to_move_[size_class];
@@ -286,12 +290,13 @@ class SizeMap {
   // Max per-CPU slab capacity for the default 256KB slab size.
   //
   // TODO(b/271598304): Revise this when 512KB slabs are available.
-  TCMALLOC_RELEASE_INLINE size_t max_capacity(size_t size_class) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE size_t max_capacity(size_t size_class) const {
     ASSERT(size_class < kNumClasses);
     return max_capacity_[size_class];
   }
 
-  TCMALLOC_RELEASE_INLINE absl::Span<const size_t> ColdSizeClasses() const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::Span<const size_t> ColdSizeClasses()
+      const {
     return {cold_sizes_, cold_sizes_count_};
   }
 
