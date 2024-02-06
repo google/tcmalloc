@@ -34,11 +34,11 @@ namespace tcmalloc_internal {
 class CpuCachePeer {
  public:
   template <typename CpuCache>
-  static void ResizeSlab(CpuCache& cpu_cache, bool should_grow) {
+  static void ResizeSlab(CpuCache& cpu_cache, bool overflow) {
     for (int i = 0; i < 100000; ++i)
-      cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/!should_grow);
+      cpu_cache.RecordMiss(/*cpu=*/0, /*size_class=*/1, /*overflow=*/!overflow);
     // We need at least one of each type of miss for the ratios to be sensical.
-    cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/should_grow);
+    cpu_cache.RecordMiss(/*cpu=*/0, /*size_class=*/1, /*overflow=*/overflow);
     cpu_cache.ResizeSlabIfNeeded();
   }
 };
@@ -154,8 +154,8 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
 
   auto& cpu_cache = tc_globals.cpu_cache();
   for (int i = 0; i < 100; ++i) {
-    CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/true);
-    CpuCachePeer::ResizeSlab(cpu_cache, /*should_grow=*/false);
+    CpuCachePeer::ResizeSlab(cpu_cache, /*overflow=*/false);
+    CpuCachePeer::ResizeSlab(cpu_cache, /*overflow=*/true);
   }
   auto properties = MallocExtension::GetProperties();
   EXPECT_THAT(

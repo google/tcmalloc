@@ -28,6 +28,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
@@ -228,12 +229,6 @@ class CpuCache {
       overflows += rhs.overflows;
       return *this;
     }
-  };
-
-  enum class DynamicSlabResize {
-    kNoop = 0,
-    kShrink,
-    kGrow,
   };
 
   enum class PerClassMissType {
@@ -460,13 +455,12 @@ class CpuCache {
   // Per-size-class freelist resizing info.
   class PerClassResizeInfo {
    public:
-    void Init();
     // Updates info on overflow/underflow.
     // <overflow> says if it's overflow or underflow.
     // <grow> is caller approximation of whether we want to grow capacity.
-    // <successive> will contain number of successive overflows/underflows.
-    // Returns if capacity needs to be grown aggressively (i.e. by batch size).
-    bool Update(bool overflow, bool grow, uint32_t* successive);
+    // Returns if capacity needs to be grown aggressively (i.e. by batch size),
+    // and number of successive overflows/underflows.
+    std::pair<bool, uint32_t> Update(bool overflow, bool grow);
     uint32_t Tick();
 
     // Records a miss. A miss occurs when size class attempts to grow it's
@@ -486,7 +480,7 @@ class CpuCache {
     void UpdateIntervalMisses(PerClassMissType type);
 
    private:
-    std::atomic<int32_t> state_;
+    std::atomic<int32_t> state_ = 0;
     // state_ layout:
     struct State {
       // last overflow/underflow?
@@ -541,12 +535,6 @@ class CpuCache {
     std::atomic<int64_t> last_reclaim;
   };
 
-  struct DynamicSlabInfo {
-    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> madvise_failed_bytes;
-  };
-
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes.
   size_t MaxCapacity(size_t size_class) const;
@@ -578,11 +566,17 @@ class CpuCache {
 
   // Called on <size_class> freelist on <cpu> to record overflow/underflow
   // Returns number of objects to return/request from transfer cache.
-  size_t UpdateCapacity(int cpu, size_t size_class, bool overflow);
+  size_t RecordMiss(int cpu, size_t size_class, bool overflow);
 
   // Tries to grow freelist <size_class> on the current <cpu> by up to
   // <desired_increase> objects if there is available capacity.
   void Grow(int cpu, size_t size_class, size_t desired_increase);
+
+  enum class DynamicSlabResize {
+    kNoop = 0,
+    kShrink,
+    kGrow,
+  };
 
   // Depending on the number of misses that cpu caches encountered in the
   // previous resize interval, returns if slabs should be grown, shrunk or
@@ -606,12 +600,6 @@ class CpuCache {
   // that CPU. Returns acquired bytes.
   size_t StealCapacityForSizeClassWithinCpu(
       int cpu, absl::Span<SizeClassMissStat> dest_size_classes, size_t bytes);
-
-  // Records a cache underflow or overflow on <cpu>, increments underflow or
-  // overflow by 1.
-  // <is_alloc> determines whether the associated count corresponds to an
-  // underflow or overflow.
-  void RecordCacheMissStat(int cpu, bool is_alloc);
 
   // Tries to steal <bytes> for the destination <cpu>. It iterates through the
   // the set of populated cpu caches and steals the bytes from them. A cpu is
@@ -667,7 +655,11 @@ class CpuCache {
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 
-  DynamicSlabInfo dynamic_slab_info_{};
+  struct {
+    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
+    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
+    std::atomic<size_t> madvise_failed_bytes;
+  } dynamic_slab_info_{};
 
   // Pointers to allocations for slabs of each shift value for use in
   // ResizeSlabs. This memory is allocated on the arena, and it is nonresident
@@ -932,10 +924,6 @@ inline void CpuCache<Forwarder>::Activate() {
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     new (&resize_[cpu]) ResizeInfo();
-
-    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      resize_[cpu].per_class[size_class].Init();
-    }
     resize_[cpu].available.store(max_cache_size, std::memory_order_relaxed);
     resize_[cpu].capacity.store(max_cache_size, std::memory_order_relaxed);
   }
@@ -1011,7 +999,6 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
       return ret;
     }
   }
-  RecordCacheMissStat(cpu, true);
   return Refill(cpu, size_class);
 }
 
@@ -1027,7 +1014,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
 // return memory to the correct CPU.)
 template <class Forwarder>
 inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
-  const size_t target = UpdateCapacity(cpu, size_class, false);
+  const size_t target = RecordMiss(cpu, size_class, false);
 
   // Refill target objects in batch_length batches.
   size_t total = 0;
@@ -1114,8 +1101,14 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
 }
 
 template <class Forwarder>
-inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
-                                                  bool overflow) {
+inline size_t CpuCache<Forwarder>::RecordMiss(int cpu, size_t size_class,
+                                              bool overflow) {
+  ResizeInfo& resize = resize_[cpu];
+  auto& misses =
+      (overflow ? resize.overflows : resize.underflows)[MissCount::kTotal];
+  misses.store(misses.load(std::memory_order_relaxed) + 1,
+               std::memory_order_relaxed);
+
   // Freelist size balancing strategy:
   //  - We grow a size class only on overflow/underflow.
   //  - We shrink size classes in Steal as it scans all size classes.
@@ -1142,14 +1135,12 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
   size_t capacity = freelist_.Capacity(cpu, size_class);
   const bool grow_by_one = capacity < 2 * batch_length;
-  uint32_t successive = 0;
-  ResizeInfo& resize = resize_[cpu];
   const int64_t now = absl::base_internal::CycleClock::Now();
   // TODO(ckennelly): Use a strongly typed enum.
   resize.last_miss_cycles[overflow][size_class].store(
       now, std::memory_order_relaxed);
-  bool grow_by_batch =
-      resize.per_class[size_class].Update(overflow, grow_by_one, &successive);
+  auto [grow_by_batch, successive] =
+      resize.per_class[size_class].Update(overflow, grow_by_one);
   if ((grow_by_one || grow_by_batch) && capacity != max_capacity) {
     size_t increase = 1;
     if (grow_by_batch) {
@@ -1581,7 +1572,7 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   // Clock-like algorithm to prioritize size classes for shrinking.
   //
   // Each size class has quiescent ticks counter which is incremented as we
-  // pass it, the counter is reset to 0 in UpdateCapacity on grow.
+  // pass it, the counter is reset to 0 in RecordMiss on grow.
   // If the counter value is 0, then we've just tried to grow the size class,
   // so it makes little sense to shrink it back. The higher counter value
   // the longer ago we grew the list and the more probable it is that
@@ -1680,8 +1671,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
       return;
     }
   }
-  RecordCacheMissStat(cpu, false);
-  const size_t target = UpdateCapacity(cpu, size_class, true);
+  const size_t target = RecordMiss(cpu, size_class, true);
   size_t total = 0;
   size_t count = 1;
   void* batch[kMaxObjectsToMove];
@@ -2000,15 +1990,6 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::RecordCacheMissStat(const int cpu,
-                                                     const bool is_alloc) {
-  MissCounts& misses =
-      is_alloc ? resize_[cpu].underflows : resize_[cpu].overflows;
-  auto& c = misses[MissCount::kTotal];
-  c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
-}
-
-template <class Forwarder>
 inline typename CpuCache<Forwarder>::CpuCacheMissStats
 CpuCache<Forwarder>::GetTotalCacheMissStats(int cpu) const {
   CpuCacheMissStats stats;
@@ -2307,37 +2288,24 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::PerClassResizeInfo::Init() {
-  state_.store(0, std::memory_order_relaxed);
-}
-
-template <class Forwarder>
-inline bool CpuCache<Forwarder>::PerClassResizeInfo::Update(
-    bool overflow, bool grow, uint32_t* successive) {
-  int32_t raw = state_.load(std::memory_order_relaxed);
-  State state;
-  memcpy(&state, &raw, sizeof(state));
+std::pair<bool, uint32_t> CpuCache<Forwarder>::PerClassResizeInfo::Update(
+    bool overflow, bool grow) {
+  auto state = absl::bit_cast<State>(state_.load(std::memory_order_relaxed));
   const bool overflow_then_underflow = !overflow && state.overflow;
   grow |= overflow_then_underflow;
+  state.successive = overflow == state.overflow ? state.successive + 1 : 0;
+  state.overflow = overflow;
   // Reset quiescent ticks for Steal clock algorithm if we are going to grow.
-  State new_state;
-  new_state.overflow = overflow;
-  new_state.quiescent_ticks = grow ? 0 : state.quiescent_ticks;
-  new_state.successive = overflow == state.overflow ? state.successive + 1 : 0;
-  memcpy(&raw, &new_state, sizeof(raw));
-  state_.store(raw, std::memory_order_relaxed);
-  *successive = new_state.successive;
-  return overflow_then_underflow;
+  state.quiescent_ticks = grow ? 0 : state.quiescent_ticks;
+  state_.store(absl::bit_cast<int32_t>(state), std::memory_order_relaxed);
+  return {overflow_then_underflow, static_cast<uint32_t>(state.successive)};
 }
 
 template <class Forwarder>
-inline uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
-  int32_t raw = state_.load(std::memory_order_relaxed);
-  State state;
-  memcpy(&state, &raw, sizeof(state));
+uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
+  auto state = absl::bit_cast<State>(state_.load(std::memory_order_relaxed));
   state.quiescent_ticks++;
-  memcpy(&raw, &state, sizeof(raw));
-  state_.store(raw, std::memory_order_relaxed);
+  state_.store(absl::bit_cast<int32_t>(state), std::memory_order_relaxed);
   return state.quiescent_ticks - 1;
 }
 
