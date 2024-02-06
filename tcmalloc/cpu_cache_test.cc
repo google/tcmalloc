@@ -62,8 +62,8 @@ class CpuCachePeer {
 
   template <typename CpuCache>
   static void IncrementCacheMisses(CpuCache& cpu_cache) {
-    cpu_cache.RecordMiss(/*cpu=*/0, /*size_class=*/1, /*overflow=*/false);
-    cpu_cache.RecordMiss(/*cpu=*/0, /*size_class=*/1, /*overflow=*/true);
+    cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/true);
+    cpu_cache.RecordCacheMissStat(/*cpu=*/0, /*is_alloc=*/false);
   }
 
   // Validate that we're using >90% of the available slab bytes.
