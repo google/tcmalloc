@@ -149,8 +149,8 @@ class TcmallocSlab {
       absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
 
-  // For tests. Returns the freed slabs pointer.
-  void* Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
+  // For tests.
+  void Destroy(absl::FunctionRef<void(void*, size_t, std::align_val_t)> free);
 
   // Number of elements in cpu/size_class slab.
   size_t Length(int cpu, size_t size_class) const;

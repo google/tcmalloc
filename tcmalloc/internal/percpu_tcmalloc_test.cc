@@ -871,9 +871,9 @@ TEST_P(StressThreadTest, Stress) {
   }
   EXPECT_EQ(objects.size(), blocks.size() * kStressCapacity);
   EXPECT_EQ(capacity.load(), kTotalCapacity);
-  void* deleted_slabs = slab.Destroy(sized_aligned_delete);
+  slab.Destroy(sized_aligned_delete);
   for (const auto& [old_slabs, old_slabs_size] : old_slabs_arr) {
-    if (old_slabs == nullptr || old_slabs == deleted_slabs) continue;
+    if (old_slabs == nullptr) continue;
     sized_aligned_delete(old_slabs, old_slabs_size,
                          std::align_val_t{EXEC_PAGESIZE});
   }

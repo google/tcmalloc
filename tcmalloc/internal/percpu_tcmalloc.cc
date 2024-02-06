@@ -214,7 +214,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
 }
 
-void* TcmallocSlab::Destroy(
+void TcmallocSlab::Destroy(
     absl::FunctionRef<void(void*, size_t, std::align_val_t)> free) {
   free(stopped_, sizeof(stopped_[0]) * NumCPUs(),
        std::align_val_t{ABSL_CACHELINE_SIZE});
@@ -222,10 +222,7 @@ void* TcmallocSlab::Destroy(
   free(begins_, sizeof(begins_[0]) * num_classes_,
        std::align_val_t{ABSL_CACHELINE_SIZE});
   begins_ = nullptr;
-  const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  free(slabs, GetSlabsAllocSize(shift, NumCPUs()), kPhysicalPageAlign);
-  slabs_and_shift_.store({nullptr, shift}, std::memory_order_relaxed);
-  return slabs;
+  slabs_and_shift_.store(SlabsAndShift{}, std::memory_order_relaxed);
 }
 
 size_t TcmallocSlab::GrowOtherCache(

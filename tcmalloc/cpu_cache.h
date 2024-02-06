@@ -628,7 +628,7 @@ class CpuCache {
   // Returns the allocated slabs and the number of reused bytes.
   ABSL_MUST_USE_RESULT std::pair<void*, size_t> AllocOrReuseSlabs(
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-      subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset);
+      subtle::percpu::Shift shift, int num_cpus);
 
   Freelist freelist_;
 
@@ -930,8 +930,7 @@ inline void CpuCache<Forwarder>::Activate() {
 
   void* slabs =
       AllocOrReuseSlabs(&forwarder_.Alloc,
-                        subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
-                        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift))
+                        subtle::percpu::ToShiftType(per_cpu_shift), num_cpus)
           .first;
   freelist_.Init(
       kNumClasses, &forwarder_.Alloc, slabs,
@@ -947,6 +946,16 @@ inline void CpuCache<Forwarder>::Deactivate() {
   }
 
   freelist_.Destroy(&forwarder_.Dealloc);
+  for (uint8_t offset = 0; offset < kNumPossiblePerCpuShifts; offset++) {
+    if (slabs_by_shift_[offset] != nullptr) {
+      forwarder_.Dealloc(
+          slabs_by_shift_[offset],
+          subtle::percpu::GetSlabsAllocSize(
+              subtle::percpu::ToShiftType(shift_bounds_.initial_shift + offset),
+              num_cpus),
+          subtle::percpu::kPhysicalPageAlign);
+    }
+  }
   static_assert(std::is_trivially_destructible<decltype(*resize_)>::value,
                 "ResizeInfo is expected to be trivially destructible");
   forwarder_.Dealloc(resize_, sizeof(*resize_) * num_cpus,
@@ -1854,8 +1863,9 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
 template <class Forwarder>
 inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset) {
-  void*& reused_slabs = slabs_by_shift_[shift_offset];
+    subtle::percpu::Shift shift, int num_cpus) {
+  uint8_t offset = ShiftOffset(ToUint8(shift), shift_bounds_.initial_shift);
+  void*& reused_slabs = slabs_by_shift_[offset];
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   const bool can_reuse = reused_slabs != nullptr;
   if (can_reuse) {
@@ -1959,8 +1969,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
         [&](size_t size, std::align_val_t align) {
           return forwarder_.AllocReportedImpending(size, align);
         },
-        new_shift, num_cpus,
-        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift));
+        new_shift, num_cpus);
     info = freelist_.ResizeSlabs(
         new_shift, new_slabs,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
