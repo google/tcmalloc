@@ -247,9 +247,6 @@ class CpuCache {
     // Tracks number of misses recorded as of the end of the last shuffle
     // interval.
     kShuffle,
-    // Tracks number of misses recorded as of the end of the last resize
-    // interval.
-    kReclaim,
     // Tracks number of misses recorded as of the end of the last slab resize
     // interval.
     kSlabResize,
@@ -511,7 +508,9 @@ class CpuCache {
     // Size class to steal from for the clock-wise algorithm.
     size_t next_steal = 1;
     // Track whether we have ever populated this CPU.
-    std::atomic<bool> populated;
+    std::atomic<bool> populated = false;
+    // Tracks whether the CPU was used since last reclaim check.
+    std::atomic<bool> used = false;
     // For cross-cpu operations. We can't allocate while holding one of these so
     // please use AllocationGuardSpinLockHolder to hold it.
     absl::base_internal::SpinLock lock ABSL_ACQUIRED_BEFORE(pageheap_lock){
@@ -526,8 +525,6 @@ class CpuCache {
     // total cache space available on this CPU. This tracks the total
     // allocated and unallocated bytes on this CPU cache.
     std::atomic<size_t> capacity;
-    // Used bytes in the cache as of the end of the last resize interval.
-    std::atomic<uint64_t> reclaim_used_bytes;
     // Tracks number of times this CPU has been reclaimed.
     std::atomic<size_t> num_reclaims;
     // Tracks last time this CPU was reclaimed.  If last underflow/overflow data
@@ -1168,10 +1165,12 @@ inline size_t CpuCache<Forwarder>::RecordMiss(int cpu, size_t size_class,
 template <class Forwarder>
 std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
   auto [cpu, cached] = freelist_.CacheCpuSlab();
-  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0) &&
-      ABSL_PREDICT_FALSE(
-          !resize_[cpu].populated.load(std::memory_order_acquire))) {
-    Populate(cpu);
+  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0)) {
+    resize_[cpu].used.store(true, std::memory_order_relaxed);
+    if (ABSL_PREDICT_FALSE(
+            !resize_[cpu].populated.load(std::memory_order_acquire))) {
+      Populate(cpu);
+    }
   }
   return {cpu, cached};
 }
@@ -1230,35 +1229,15 @@ inline void CpuCache<Forwarder>::TryReclaimingCaches() {
   const int num_cpus = NumCPUs();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    // Nothing to reclaim if the cpu is not populated.
-    if (!HasPopulated(cpu)) {
-      continue;
-    }
-
-    uint64_t used_bytes = UsedBytes(cpu);
-    uint64_t prev_used_bytes =
-        resize_[cpu].reclaim_used_bytes.load(std::memory_order_relaxed);
-
-    // Get reclaim miss and used bytes stats that were captured at the end of
-    // the previous interval.
-    const CpuCacheMissStats miss_stats =
-        GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    uint64_t misses =
-        uint64_t{miss_stats.underflows} + uint64_t{miss_stats.overflows};
-
-    // Reclaim the cache if the number of used bytes and total number of misses
-    // stayed constant since the last interval.
-    if (used_bytes != 0 && used_bytes == prev_used_bytes && misses == 0) {
+    // We reset used flag on each reclaim check, each time a thread caches
+    // the CPU, it sets used flag. If we see the flag unset, the CPU wasn't
+    // used since the last reclaim check.
+    if (HasPopulated(cpu) &&
+        !resize_[cpu].used.load(std::memory_order_relaxed) &&
+        UsedBytes(cpu) != 0) {
       Reclaim(cpu);
     }
-
-    // Takes a snapshot of used bytes in the cache at the end of this interval
-    // so that we can calculate if cache usage changed in the next interval.
-    //
-    // Reclaim occurs on a single thread. So, the relaxed store to used_bytes
-    // is safe.
-    resize_[cpu].reclaim_used_bytes.store(used_bytes,
-                                          std::memory_order_relaxed);
+    resize_[cpu].used.store(false, std::memory_order_relaxed);
   }
 }
 

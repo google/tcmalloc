@@ -394,6 +394,13 @@ TEST(CpuCacheTest, Metadata) {
 
   EXPECT_EQ(0, count_cores());
 
+  // Ensure that reclaiming unpopulated CPUs, don't page in any memory.
+  for (int i = 0; i < num_cpus; i++) {
+    cache.Reclaim(i);
+  }
+  EXPECT_EQ(0, count_cores());
+  EXPECT_EQ(cache.MetadataMemoryUsage().resident_size, 0);
+
   int allowed_cpu_id;
   const size_t kSizeClass = 2;
   const size_t num_to_move = cache.forwarder().num_objects_to_move(kSizeClass);
@@ -1170,12 +1177,6 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   const int num_cpus = NumCPUs();
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    // Check that reclaim miss metrics are reset.
-    CpuCache::CpuCacheMissStats reclaim_misses =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    EXPECT_EQ(reclaim_misses.underflows, 0);
-    EXPECT_EQ(reclaim_misses.overflows, 0);
-
     // None of the caches should have been reclaimed yet.
     EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
 
@@ -1201,16 +1202,6 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    CpuCache::CpuCacheMissStats misses_last_interval =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    CpuCache::CpuCacheMissStats total_misses =
-        cache.GetTotalCacheMissStats(cpu);
-
-    // Misses since the last reclaim (i.e. since we initialized the caches)
-    // should match the total miss metrics.
-    EXPECT_EQ(misses_last_interval.underflows, total_misses.underflows);
-    EXPECT_EQ(misses_last_interval.overflows, total_misses.overflows);
-
     // Caches should have non-zero used bytes.
     EXPECT_GT(cache.UsedBytes(cpu), 0);
   }
@@ -1221,14 +1212,6 @@ TEST(CpuCacheTest, ReclaimCpuCache) {
   // bytes was non-zero, so none of the caches should get reclaimed.
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
     SCOPED_TRACE(absl::StrFormat("Failed CPU: %d", cpu));
-    // As no cache operations were performed since the last reclaim
-    // operation, the reclaim misses captured during the last interval (i.e.
-    // since the last reclaim) should be zero.
-    CpuCache::CpuCacheMissStats reclaim_misses =
-        cache.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
-    EXPECT_EQ(reclaim_misses.underflows, 0);
-    EXPECT_EQ(reclaim_misses.overflows, 0);
-
     // None of the caches should have been reclaimed as the caches were
     // accessed in the previous interval.
     EXPECT_EQ(cache.GetNumReclaims(cpu), 0);
@@ -1438,13 +1421,10 @@ class CpuCacheEnvironment {
         break;
       case 14: {
         const auto total_misses = cache_.GetTotalCacheMissStats(cpu);
-        const auto reclaim_misses =
-            cache_.GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kReclaim);
         const auto shuffle_misses =
             cache_.GetIntervalCacheMissStats(cpu, MissCount::kShuffle);
 
         benchmark::DoNotOptimize(total_misses);
-        benchmark::DoNotOptimize(reclaim_misses);
         benchmark::DoNotOptimize(shuffle_misses);
         break;
       }
