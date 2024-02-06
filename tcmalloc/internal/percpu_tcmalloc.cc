@@ -54,8 +54,7 @@ void TcmallocSlab::Init(
   }
   begins_ = static_cast<std::atomic<uint16_t>*>(alloc(
       sizeof(begins_[0]) * num_classes, std::align_val_t{ABSL_CACHELINE_SIZE}));
-  slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
-  InitCpuImpl(slabs, shift, /*cpu=*/0, /*init_begins=*/true, capacity);
+  InitSlabs(slabs, shift, capacity);
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   // This is needed only for tests that create/destroy slabs,
@@ -64,25 +63,46 @@ void TcmallocSlab::Init(
 #endif
 }
 
+void TcmallocSlab::InitSlabs(void* slabs, Shift shift,
+                             absl::FunctionRef<size_t(size_t)> capacity) {
+  slabs_and_shift_.store({slabs, shift}, std::memory_order_relaxed);
+  size_t consumed_bytes = (num_classes_ * sizeof(Header) + sizeof(void*) - 1) &
+                          ~(sizeof(void*) - 1);
+  bool prev_empty = false;
+  for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
+    size_t cap = capacity(size_class);
+    CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
+    // One extra element for prefetch/begin marker.
+    if (!prev_empty) {
+      consumed_bytes += sizeof(void*);
+    }
+    prev_empty = cap == 0;
+    begins_[size_class].store(consumed_bytes / sizeof(void*),
+                              std::memory_order_relaxed);
+    consumed_bytes += cap * sizeof(void*);
+    if (consumed_bytes > (1 << ToUint8(shift))) {
+      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
+            1 << ToUint8(shift), " need ", consumed_bytes, " size_class ",
+            size_class);
+    }
+  }
+}
+
 void TcmallocSlab::InitCpu(int cpu,
                            absl::FunctionRef<size_t(size_t)> capacity) {
   ScopedSlabCpuStop cpu_stop(*this, cpu);
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
-  InitCpuImpl(slabs, shift, cpu, false, capacity);
+  InitCpuImpl(slabs, shift, cpu, capacity);
 }
 
 void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
-                               bool init_begins,
                                absl::FunctionRef<size_t(size_t)> capacity) {
-  // If init_begins == true, we are initializing begins_ array, which is not
-  // published yet and cpu is passed only for convinience to use in offset
-  // calculation (can be any).
-  CHECK_CONDITION(init_begins || stopped_[cpu].load(std::memory_order_relaxed));
+  CHECK_CONDITION(stopped_[cpu].load(std::memory_order_relaxed));
   CHECK_CONDITION((1 << ToUint8(shift)) <= (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
-  void** cur_slab = reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu));
+  void* curr_slab = CpuMemoryStart(slabs, shift, cpu);
   void** elems = reinterpret_cast<void**>(
       (reinterpret_cast<uintptr_t>(GetHeader(slabs, shift, cpu, num_classes_)) +
        sizeof(void*) - 1) &
@@ -97,26 +117,20 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
     // (Pop prefetches the previous element and prefetching an invalid pointer
     // is slow, this is a valid pointer for prefetching).
     if (!prev_empty) {
-      if (!init_begins) {
-        *elems = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(elems) |
-                                         kBeginMark);
-      }
+      *elems = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(elems) |
+                                       kBeginMark);
       ++elems;
     }
     prev_empty = cap == 0;
 
-    uint16_t off = elems - cur_slab;
-    if (init_begins) {
-      begins_[size_class].store(off, std::memory_order_relaxed);
-    } else {
-      Header hdr = {};
-      hdr.current = off;
-      hdr.end = off;
-      StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
-    }
+    Header hdr = {};
+    hdr.current = elems - reinterpret_cast<void**>(curr_slab);
+    hdr.end = hdr.current;
+    StoreHeader(GetHeader(slabs, shift, cpu, size_class), hdr);
 
     elems += cap;
-    const size_t bytes_used_on_curr_slab = (elems - cur_slab) * sizeof(void*);
+    const size_t bytes_used_on_curr_slab =
+        reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
     if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
       Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
             1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
@@ -191,7 +205,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
     CHECK_CONDITION(!stopped_[cpu].load(std::memory_order_relaxed));
     stopped_[cpu].store(true, std::memory_order_relaxed);
     if (populated(cpu)) {
-      InitCpuImpl(new_slabs, new_shift, cpu, /*init_begins=*/false, capacity);
+      InitCpuImpl(new_slabs, new_shift, cpu, capacity);
     }
   }
   FenceAllCpus();
@@ -203,8 +217,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   }
 
   // Phase 3: Atomically update slabs and shift.
-  slabs_and_shift_.store({new_slabs, new_shift}, std::memory_order_relaxed);
-  InitCpuImpl(new_slabs, new_shift, /*cpu=*/0, /*init_begins=*/true, capacity);
+  InitSlabs(new_slabs, new_shift, capacity);
 
   // Phase 4: Re-start all CPUs.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {

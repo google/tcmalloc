@@ -125,6 +125,9 @@ class TcmallocSlab {
             void* slabs, absl::FunctionRef<size_t(size_t)> capacity,
             Shift shift);
 
+  void InitSlabs(void* slabs, Shift shift,
+                 absl::FunctionRef<size_t(size_t)> capacity);
+
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <size_class>.
   //
@@ -337,7 +340,7 @@ class TcmallocSlab {
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
 
   // Implementation of InitCpu() allowing for reuse in ResizeSlabs().
-  void InitCpuImpl(void* slabs, Shift shift, int cpu, bool init_begins,
+  void InitCpuImpl(void* slabs, Shift shift, int cpu,
                    absl::FunctionRef<size_t(size_t)> capacity);
 
   std::pair<int, bool> CacheCpuSlabSlow();
