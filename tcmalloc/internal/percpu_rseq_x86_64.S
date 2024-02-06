@@ -243,8 +243,8 @@ TcmallocSlab_Internal_PushBatch:
   FETCH_SLABS(%r8);
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PushBatch_full;
-  movzwq (%r8, %rdi, 8), %r9; /* current */
-  movzwq 4(%r8, %rdi, 8), %r10; /* end */
+  movzwq (%r8, %rdi, 4), %r9; /* current */
+  movzwq 2(%r8, %rdi, 4), %r10; /* end */
   cmpq %r10, %r9;
   jae .LTcmallocSlab_Internal_PushBatch_full;
   movq %rdx, %r11; /* r11 = copy of len */
@@ -259,7 +259,7 @@ TcmallocSlab_Internal_PushBatch:
   incq %r9;
   cmpq %r9, %r10;
   jne .LTcmallocSlab_Internal_PushBatch_loop
-  movw %r9w, (%r8, %rdi, 8);
+  movw %r9w, (%r8, %rdi, 4);
 .LTcmallocSlab_Internal_PushBatch_commit:
   movq %rdx, %rax;
   subq %r11, %rax;
@@ -274,19 +274,20 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 /* size_t TcmallocSlab_Internal_PopBatch(
  *     size_t size_class (%rdi),
  *     void** batch (%rsi),
- *     size_t len (%rdx)) {
+ *     size_t len (%rdx),
+ *     std::atomic<uint16_t>* begin_ptr (%rcx)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(rdi, rax, size_class);
  *   uint64_t r9 = hdr->current;
- *   uint64_t r10 = hdr->begin;
+ *   uint64_t r10 = *begin_ptr;
  *   if (r9 <= r10) return 0;
  *   r11 = min(rdx, r9 - r10);
  *   rax = 0;
  * loop:
  *   r9--;
- *   r10 = *(r12 + r9 * 8);
+ *   r10 = *(r8 + r9 * 8);
  *   batch[rax] = r10;
  *   rax++;
  *   if (rax != r11) goto loop;
@@ -304,8 +305,8 @@ TcmallocSlab_Internal_PopBatch:
   xorq %rax, %rax;
   btrq $TCMALLOC_CACHED_SLABS_BIT, %r8;
   jnc .LTcmallocSlab_Internal_PopBatch_commit;
-  movzwq (%r8, %rdi, 8), %r9; /* current */
-  movzwq 2(%r8, %rdi, 8), %r10; /* begin */
+  movzwq (%r8, %rdi, 4), %r9; /* current */
+  movzwq (%rcx), %r10; /* begin */
   cmp %r10, %r9;
   jbe .LTcmallocSlab_Internal_PopBatch_commit;
   movq %r9, %r11;
@@ -319,7 +320,7 @@ TcmallocSlab_Internal_PopBatch:
   incq %rax;
   cmpq %rax, %r11;
   jne .LTcmallocSlab_Internal_PopBatch_loop
-  movw %r9w, (%r8, %rdi, 8);
+  movw %r9w, (%r8, %rdi, 4);
 .LTcmallocSlab_Internal_PopBatch_commit:
   ret;
   CFI(.cfi_endproc)

@@ -520,8 +520,6 @@ class CpuCache {
     std::atomic<size_t> available;
     // Size class to steal from for the clock-wise algorithm.
     size_t next_steal = 1;
-    // Track whether we have initialized this CPU.
-    absl::once_flag initialized;
     // Track whether we have ever populated this CPU.
     std::atomic<bool> populated;
     // For cross-cpu operations. We can't allocate while holding one of these so
@@ -569,6 +567,8 @@ class CpuCache {
   void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
 
   void* Refill(int cpu, size_t size_class);
+  std::pair<int, bool> CacheCpuSlab();
+  void Populate(int cpu);
 
   // Returns true if we bypass cpu cache for a <size_class>. We may bypass
   // per-cpu cache when we enable certain configurations of sharded transfer
@@ -1003,7 +1003,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
   if (BypassCpuCache(size_class)) {
     return forwarder_.sharded_transfer_cache().Pop(size_class);
   }
-  auto [cpu, cached] = freelist_.CacheCpuSlab();
+  auto [cpu, cached] = CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached)) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
@@ -1142,18 +1142,6 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
   // We assert that the return value, target, is non-zero, so starting from an
   // initial capacity of zero means we may be populating this core for the
   // first time.
-  absl::base_internal::LowLevelCallOnce(
-      &resize_[cpu].initialized,
-      [](CpuCache* cache, int cpu) {
-        AllocationGuardSpinLockHolder h(&cache->resize_[cpu].lock);
-        cache->freelist_.InitCpu(
-            cpu, cache->GetMaxCapacityFunctor(cache->freelist_.GetShift()));
-
-        // We update this under the lock so it's guaranteed that the populated
-        // CPUs don't change during ResizeSlabs.
-        cache->resize_[cpu].populated.store(true, std::memory_order_relaxed);
-      },
-      this, cpu);
   size_t batch_length = forwarder_.num_objects_to_move(size_class);
   const size_t max_capacity = GetMaxCapacity(size_class, freelist_.GetShift());
   size_t capacity = freelist_.Capacity(cpu, size_class);
@@ -1179,6 +1167,27 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
     capacity = freelist_.Capacity(cpu, size_class);
   }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
+}
+
+template <class Forwarder>
+std::pair<int, bool> CpuCache<Forwarder>::CacheCpuSlab() {
+  auto [cpu, cached] = freelist_.CacheCpuSlab();
+  if (ABSL_PREDICT_FALSE(cached) && ABSL_PREDICT_TRUE(cpu >= 0) &&
+      ABSL_PREDICT_FALSE(
+          !resize_[cpu].populated.load(std::memory_order_acquire))) {
+    Populate(cpu);
+  }
+  return {cpu, cached};
+}
+
+template <class Forwarder>
+ABSL_ATTRIBUTE_NOINLINE void CpuCache<Forwarder>::Populate(int cpu) {
+  AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
+  if (resize_[cpu].populated.load(std::memory_order_relaxed)) {
+    return;
+  }
+  freelist_.InitCpu(cpu, GetMaxCapacityFunctor(freelist_.GetShift()));
+  resize_[cpu].populated.store(true, std::memory_order_release);
 }
 
 inline size_t subtract_at_least(std::atomic<size_t>* a, size_t min,
@@ -1665,7 +1674,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
   if (BypassCpuCache(size_class)) {
     return forwarder_.sharded_transfer_cache().Push(size_class, ptr);
   }
-  auto [cpu, cached] = freelist_.CacheCpuSlab();
+  auto [cpu, cached] = CacheCpuSlab();
   if (ABSL_PREDICT_FALSE(cached)) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
