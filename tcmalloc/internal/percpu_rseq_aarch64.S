@@ -231,9 +231,9 @@ TcmallocSlab_Internal_PushBatch:
   FETCH_SLABS(x8)
   tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PushBatch_no_capacity
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
-  add x15, x8, x0, LSL #2    /* r15 = hdr */
+  add x15, x8, x0, LSL #3    /* r15 = hdr */
   ldrh w9, [x15]             /* r9 = current */
-  ldrh w10, [x15, #2]        /* r10 = end */
+  ldrh w10, [x15, #4]        /* r10 = end */
   cmp w9, w10
   bge .LTcmallocSlab_Internal_PushBatch_no_capacity
   add  x11, x1, x2, LSL #3  /* r11 = batch + len * 8 */
@@ -271,14 +271,13 @@ DEFINE_UPSTREAM_CS(TcmallocSlab_Internal_PushBatch)
 /* size_t TcmallocSlab_Internal_PopBatch(
  *     size_t size_class (x0),
  *     void** batch (x1),
- *     size_t len (x2),
- *     std::atomic<uint16_t>* begin_ptr (x3)) {
+ *     size_t len (x2)) {
  *   uint64_t* r8 = tcmalloc_rseq.slabs;
  *   if ((r8 & TCMALLOC_CACHED_SLABS_BIT) == 0) return 0;
  *   r8 &= ~TCMALLOC_CACHED_SLABS_BIT;
  *   Header* hdr = GetHeader(r8, size_class)
  *   uint64_t r9 = hdr->current
- *   uint64_t r10 = *begin_ptr
+ *   uint64_t r10 = hdr->begin
  *   if (r9 <= r10) return 0
  *   r11 = min(len, r9 - r10)
  *   r13 = r8 + r9 * 8
@@ -303,9 +302,9 @@ TcmallocSlab_Internal_PopBatch:
   FETCH_SLABS(x8)
   tbz x8, #TCMALLOC_CACHED_SLABS_BIT, .LTcmallocSlab_Internal_PopBatch_no_items
   and x8, x8, #~TCMALLOC_CACHED_SLABS_MASK
-  add x15, x8, x0, LSL #2
+  add x15, x8, x0, LSL #3
   ldrh w9, [x15]             /* current */
-  ldrh w10, [x3]             /* begin */
+  ldrh w10, [x15, #2]        /* begin */
   cmp w10, w9
   bhs .LTcmallocSlab_Internal_PopBatch_no_items
   sub w11, w9, w10          /* r11 = available items */

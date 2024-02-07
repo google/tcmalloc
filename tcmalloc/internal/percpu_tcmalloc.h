@@ -22,7 +22,6 @@
 #endif
 #include <sys/mman.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -34,14 +33,31 @@
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
-#include "absl/numeric/bits.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 
+#if defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
+#if !defined(__clang__)
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 1
+#elif __clang_major__ >= 9 && !__has_feature(speculative_load_hardening)
+// asm goto requires the use of Clang 9 or newer:
+// https://releases.llvm.org/9.0.0/tools/clang/docs/ReleaseNotes.html#c-language-changes-in-clang
+//
+// SLH (Speculative Load Hardening) builds do not support asm goto.  We can
+// detect these compilation modes since
+// https://github.com/llvm/llvm-project/commit/379e68a763097bed55556c6dc7453e4b732e3d68.
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 1
 #if __clang_major__ >= 11
 #define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT 1
+#endif
+
+#else
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 0
+#endif
+#else
+#define TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO 0
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -107,7 +123,7 @@ class TcmallocSlab {
   // First num_classes_ words of each CPU region are occupied by slab
   // headers (Header struct). The remaining memory contain slab arrays.
   // struct Slabs {
-  //  std::atomic<int32_t> header[NumClasses];
+  //  std::atomic<int64_t> header[NumClasses];
   //  void* mem[];
   // };
 
@@ -124,9 +140,6 @@ class TcmallocSlab {
             absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
             void* slabs, absl::FunctionRef<size_t(size_t)> capacity,
             Shift shift);
-
-  void InitSlabs(void* slabs, Shift shift,
-                 absl::FunctionRef<size_t(size_t)> capacity);
 
   // Lazily initializes the slab for a specific cpu.
   // <capacity> callback returns max capacity for size class <size_class>.
@@ -300,29 +313,23 @@ class TcmallocSlab {
     uintptr_t raw_;
   };
 
-  // Slab header (packed, atomically updated 32-bit).
-  // Current and end are pointer offsets from per-CPU region start.
-  // The slot array is prefixed with an item that has low bit set and ends
-  // at end, and the occupied slots are up to current.
+  // Slab header (packed, atomically updated 64-bit).
+  // All {begin, current, end} values are pointer offsets from per-CPU region
+  // start. The slot array is in [begin, end), and the occupied slots are in
+  // [begin, current).
   struct Header {
     // The end offset of the currently occupied slots.
     uint16_t current;
+    // The begin offset of the slot array for this size class.
+    uint16_t begin;
     // The end offset of the slot array for this size class.
     uint16_t end;
+    uint16_t unused;
   };
 
-  using AtomicHeader = std::atomic<int32_t>;
-
-  // We cast Header to AtomicHeader.
-  static_assert(sizeof(Header) == sizeof(AtomicHeader));
-
-  // We mark the pointer that's stored right before size class object range
-  // in the slabs array with this mask. When we reach pointer marked with this
-  // mask when popping, we understand that we reached the beginning of the
-  // range (the slab is empty). The pointer is also a valid pointer for
-  // prefetching, so it allows us to always prefetch the previous element
-  // when popping.
-  static constexpr uintptr_t kBeginMark = 1;
+  // We cast Header to std::atomic<int64_t>.
+  static_assert(sizeof(Header) == sizeof(std::atomic<int64_t>),
+                "bad Header size");
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
@@ -332,10 +339,10 @@ class TcmallocSlab {
   }
 
   static void* CpuMemoryStart(void* slabs, Shift shift, int cpu);
-  static AtomicHeader* GetHeader(void* slabs, Shift shift, int cpu,
-                                 size_t size_class);
-  static Header LoadHeader(AtomicHeader* hdrp);
-  static void StoreHeader(AtomicHeader* hdrp, Header hdr);
+  static std::atomic<int64_t>* GetHeader(void* slabs, Shift shift, int cpu,
+                                         size_t size_class);
+  static Header LoadHeader(std::atomic<int64_t>* hdrp);
+  static void StoreHeader(std::atomic<int64_t>* hdrp, Header hdr);
   static void LockHeader(void* slabs, Shift shift, int cpu, size_t size_class);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
 
@@ -354,8 +361,6 @@ class TcmallocSlab {
   // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
   // operations (Push/Pop) should fail.
   std::atomic<bool>* stopped_ = nullptr;
-  // begins_[size_class] is offset of the size_class region in the slabs area.
-  std::atomic<uint16_t>* begins_ = nullptr;
 };
 
 // RAII for StopCpu/StartCpu.
@@ -378,17 +383,13 @@ class ScopedSlabCpuStop {
 inline size_t TcmallocSlab::Length(int cpu, size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
-  uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  // We can read inconsistent hdr/begin during Resize, to avoid surprising
-  // callers return 0 instead of overflows values.
-  return std::max<ssize_t>(0, hdr.current - begin);
+  return hdr.current - hdr.begin;
 }
 
 inline size_t TcmallocSlab::Capacity(int cpu, size_t size_class) const {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   Header hdr = LoadHeader(GetHeader(slabs, shift, cpu, size_class));
-  uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  return std::max<ssize_t>(0, hdr.end - begin);
+  return hdr.end - hdr.begin;
 }
 
 #if defined(__x86_64__)
@@ -508,8 +509,7 @@ inline size_t TcmallocSlab::Capacity(int cpu, size_t size_class) const {
 // Store v to p (*p = v) if the current thread wasn't rescheduled
 // (still has the slab pointer cached). Otherwise returns false.
 template <typename T>
-inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
-                                                         T v) {
+inline bool StoreCurrentCpu(volatile void* p, T v) {
   uintptr_t scratch = 0;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
   asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
@@ -518,7 +518,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
       btq $%c[cached_slabs_bit], %[rseq_slabs_addr]
       jnc 5f
       movl $1, %k[scratch]
-      mov %[v], %[p]
+      movq %[v], %[p]
       5 :)"
       : [scratch] "=&r"(scratch)
       : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
@@ -526,37 +526,18 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool StoreCurrentCpu(volatile void* p,
       : "cc", "memory");
 #elif TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
   uintptr_t tmp;
-  // Aarch64 requires different argument references for different sizes
-  // for the STR instruction (%[v] vs %w[v]), so we have to duplicate
-  // the asm block.
-  if constexpr (sizeof(T) == sizeof(uint64_t)) {
-    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
-            R"(
-        mov %[scratch], #0
-        ldr %[tmp], %[rseq_slabs_addr]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
-        mov %[scratch], #1
-        str %[v], %[p]
-        5 :)"
-        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
-        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint64_t* volatile*>(p)),
-          [v] "r"(v)
-        : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
-  } else {
-    ASSERT((sizeof(T) == sizeof(uint32_t)));
-    asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
-            R"(
-        mov %[scratch], #0
-        ldr %[tmp], %[rseq_slabs_addr]
-        tbz %[tmp], #%c[cached_slabs_bit], 5f
-        mov %[scratch], #1
-        str %w[v], %[p]
-        5 :)"
-        : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
-        : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<uint32_t* volatile*>(p)),
-          [v] "r"(v)
-        : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
-  }
+  asm(TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_StoreCurrentCpu)
+          R"(
+      mov %[scratch], #0
+      ldr %[tmp], %[rseq_slabs_addr]
+      tbz %[tmp], #%c[cached_slabs_bit], 5f
+      mov %[scratch], #1
+      str %[v], %[p]
+      5 :)"
+      : [scratch] "=&r"(scratch), [tmp] "=&r"(tmp)
+      : TCMALLOC_RSEQ_INPUTS, [p] "m"(*static_cast<void* volatile*>(p)),
+        [v] "r"(v)
+      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory");
 #endif
   return scratch;
 }
@@ -583,9 +564,9 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "jae 5f\n"  // ae==c
 #endif
       // current = slabs->current;
-      "movzwq (%[scratch], %[size_class], 4), %[current]\n"
+      "movzwq (%[scratch], %[size_class], 8), %[current]\n"
       // if (ABSL_PREDICT_FALSE(current >= slabs->end)) { goto overflow_label; }
-      "cmp 2(%[scratch], %[size_class], 4), %w[current]\n"
+      "cmp 4(%[scratch], %[size_class], 8), %w[current]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "jae %l[overflow_label]\n"
 #else
@@ -595,7 +576,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #endif
       "mov %[item], (%[scratch], %[current], 8)\n"
       "lea 1(%[current]), %[current]\n"
-      "mov %w[current], (%[scratch], %[size_class], 4)\n"
+      "mov %w[current], (%[scratch], %[size_class], 8)\n"
       // Commit
       "5:\n"
       :
@@ -626,6 +607,8 @@ overflow_label:
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t region_start, scratch, end_ptr, end;
+  // Multiply size_class by the bytesize of each header
+  size_t size_class_lsl3 = size_class * 8;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
@@ -645,11 +628,11 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
       "b.ls 5f\n"
 #endif
       // end_ptr = &(slab_headers[0]->end)
-      "add %[end_ptr], %[region_start], #2\n"
+      "add %[end_ptr], %[region_start], #4\n"
       // scratch = slab_headers[size_class]->current (current index)
-      "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "ldrh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
       // end = slab_headers[size_class]->end (end index)
-      "ldrh %w[end], [%[end_ptr], %[size_class_lsl2]]\n"
+      "ldrh %w[end], [%[end_ptr], %[size_class_lsl3]]\n"
       // if (ABSL_PREDICT_FALSE(end <= scratch)) { goto overflow_label; }
       "cmp %[end], %[scratch]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
@@ -661,7 +644,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #endif
       "str %[item], [%[region_start], %[scratch], LSL #3]\n"
       "add %w[scratch], %w[scratch], #1\n"
-      "strh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "strh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
       // Commit
       "5:\n"
       : [end_ptr] "=&r"(end_ptr), [scratch] "=&r"(scratch), [end] "=&r"(end),
@@ -673,7 +656,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-        [size_class_lsl2] "r"(size_class << 2), [item] "r"(item)
+        [size_class_lsl3] "r"(size_class_lsl3), [item] "r"(item)
       : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : overflow_label
@@ -694,7 +677,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab::Push(size_t size_class,
                                                             void* item) {
   ASSERT(size_class != 0);
   ASSERT(item != nullptr);
-  ASSERT((reinterpret_cast<uintptr_t>(item) & kBeginMark) == 0);
   // Speculatively annotate item as released to TSan.  We may not succeed in
   // pushing the item, but if we wait for the restartable sequence to succeed,
   // it may become visible to another thread before we can trigger the
@@ -745,42 +727,43 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
       TCMALLOC_RSEQ_PROLOGUE(TcmallocSlab_Internal_Pop)
       // scratch = tcmalloc_slabs;
       "movq %[rseq_slabs_addr], %[scratch]\n"
-      // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
-      // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
-      "btrq $%c[cached_slabs_bit], %[scratch]\n"
+  // if (scratch & TCMALLOC_CACHED_SLABS_MASK) goto overflow_label;
+  // scratch &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+      "btrq $%c[cached_slabs_bit], %[scratch]\n"
       "jnc %l[underflow_path]\n"
 #else
-      "cmc\n"
-      "jc 5f\n"
+      "cmpq %[cached_slabs_mask], %[scratch]\n"
+      "jbe 5f\n"
+      "subq %[cached_slabs_mask], %[scratch]\n"
 #endif
       // current = scratch->header[size_class].current;
-      "movzwq (%[scratch], %[size_class], 4), %[current]\n"
-      "movq -8(%[scratch], %[current], 8), %[result]\n"
+      "movzwq (%[scratch], %[size_class], 8), %[current]\n"
+      // if (ABSL_PREDICT_FALSE(current <=
+      //                        scratch->header[size_class].begin))
+      //   goto underflow_path;
+      "cmp 2(%[scratch], %[size_class], 8), %w[current]\n"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      "testb $%c[begin_mark_mask], %b[result]\n"
-      "jnz %l[underflow_path]\n"
+      "jbe %l[underflow_path]\n"
 #else
-      "btq $%c[begin_mark_bit], %[result]\n"
-      "jc 5f\n"
-  // Important! code below this must not affect any flags (i.e.: ccc)
-  // If so, the above code needs to explicitly set a ccc return value.
+      "jbe 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccbe)
+  // If so, the above code needs to explicitly set a ccbe return value.
 #endif
       "movq -16(%[scratch], %[current], 8), %[next]\n"
+      "movq -8(%[scratch], %[current], 8), %[result]\n"
       "lea -1(%[current]), %[current]\n"
-      "movw %w[current], (%[scratch], %[size_class], 4)\n"
+      "mov %w[current], (%[scratch], %[size_class], 8)\n"
       // Commit
       "5:\n"
       : [result] "=&r"(result),
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [underflow] "=@ccc"(underflow),
+        [underflow] "=@ccbe"(underflow),
 #endif
         [scratch] "=&r"(scratch), [current] "=&r"(current), [next] "=&r"(next)
       : TCMALLOC_RSEQ_INPUTS,
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [begin_mark_mask] "n"(kBeginMark),
-#else
-        [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+        [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
         [size_class] "r"(size_class)
       : "cc", "memory"
@@ -812,6 +795,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   void* prefetch;
   uintptr_t scratch;
   uintptr_t previous;
+  uintptr_t begin;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
 #else
@@ -825,48 +809,48 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   // region_start &= ~TCMALLOC_CACHED_SLABS_MASK;
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       "tbz %[region_start], #%c[cached_slabs_bit], %l[underflow_path]\n"
-#else
-      "tst %[region_start], %[cached_slabs_mask]\n"
-      "b.eq 5f\n"
-#endif
       "and %[region_start], %[region_start], #%c[cached_slabs_mask_neg]\n"
+#else
+      "subs %[region_start], %[region_start], %[cached_slabs_mask]\n"
+      "b.ls 5f\n"
+#endif
       // scratch = slab_headers[size_class]->current (current index)
-      "ldrh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "ldrh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
+      // begin = slab_headers[size_class]->begin (begin index)
+      // Temporarily use begin as scratch.
+      "add %[begin], %[size_class_lsl3], #2\n"
+      "ldrh %w[begin], [%[region_start], %[begin]]\n"
+      // if (ABSL_PREDICT_FALSE(begin >= scratch)) { goto underflow_path; }
+      "cmp %w[scratch], %w[begin]\n"
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+      "b.ls %l[underflow_path]\n"
+#else
+      "b.ls 5f\n"
+  // Important! code below this must not affect any flags (i.e.: ccls)
+  // If so, the above code needs to explicitly set a ccls return value.
+#endif
       // scratch--
       "sub %w[scratch], %w[scratch], #1\n"
       "ldr %[result], [%[region_start], %[scratch], LSL #3]\n"
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      "tbnz %[result], #%c[begin_mark_bit], %l[underflow_path]\n"
-#else
-      // Temporary use %[previous] to store %[result] with inverted mark bit.
-      "eor %[previous], %[result], #%c[begin_mark_mask]\n"
-      "tst %[previous], #%c[begin_mark_mask]\n"
-      "b.eq 5f\n"
-  // Important! code below this must not affect any flags (i.e.: cceq)
-  // If so, the above code needs to explicitly set a cceq return value.
-#endif
       "sub %w[previous], %w[scratch], #1\n"
       "ldr %[prefetch], [%[region_start], %[previous], LSL #3]\n"
-      "strh %w[scratch], [%[region_start], %[size_class_lsl2]]\n"
+      "strh %w[scratch], [%[region_start], %[size_class_lsl3]]\n"
       // Commit
       "5:\n"
       :
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-      [underflow] "=@cceq"(underflow),
+      [underflow] "=@ccls"(underflow),
 #endif
       [result] "=&r"(result), [prefetch] "=&r"(prefetch),
       // Temps
       [region_start] "=&r"(region_start), [previous] "=&r"(previous),
-      [scratch] "=&r"(scratch)
+      [begin] "=&r"(begin), [scratch] "=&r"(scratch)
       // Real inputs
       : TCMALLOC_RSEQ_INPUTS,
-#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
-        [begin_mark_bit] "n"(absl::countr_zero(kBeginMark)),
-#else
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
-        [begin_mark_mask] "n"(kBeginMark), [size_class] "r"(size_class),
-        [size_class_lsl2] "r"(size_class << 2)
+        [size_class] "r"(size_class), [size_class_lsl3] "r"(size_class << 3)
       : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
       : underflow_path
@@ -896,10 +880,9 @@ inline size_t TcmallocSlab::Grow(
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
-  auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+  std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
   Header hdr = LoadHeader(hdrp);
-  uint16_t begin = begins_[size_class].load(std::memory_order_relaxed);
-  ssize_t have = static_cast<ssize_t>(max_cap - (hdr.end - begin));
+  ssize_t have = static_cast<ssize_t>(max_cap - (hdr.end - hdr.begin));
   if (have <= 0) {
     return 0;
   }
@@ -944,9 +927,7 @@ inline size_t TcmallocSlab::PopBatch(size_t size_class, void** batch,
                                      size_t len) {
   ASSERT(size_class != 0);
   ASSERT(len != 0);
-
-  const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len,
-                                                  &begins_[size_class]);
+  const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len);
   ASSERT(n <= len);
 
   // PopBatch is implemented in assembly, msan does not know that the returned
@@ -960,19 +941,20 @@ inline void* TcmallocSlab::CpuMemoryStart(void* slabs, Shift shift, int cpu) {
   return &static_cast<char*>(slabs)[cpu << ToUint8(shift)];
 }
 
-inline auto TcmallocSlab::GetHeader(void* slabs, Shift shift, int cpu,
-                                    size_t size_class) -> AtomicHeader* {
+inline std::atomic<int64_t>* TcmallocSlab::GetHeader(void* slabs, Shift shift,
+                                                     int cpu,
+                                                     size_t size_class) {
   ASSERT(size_class != 0);
-  return &static_cast<AtomicHeader*>(
+  return &static_cast<std::atomic<int64_t>*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
 }
 
-inline auto TcmallocSlab::LoadHeader(AtomicHeader* hdrp) -> Header {
+inline auto TcmallocSlab::LoadHeader(std::atomic<int64_t>* hdrp) -> Header {
   return absl::bit_cast<Header>(hdrp->load(std::memory_order_relaxed));
 }
 
-inline void TcmallocSlab::StoreHeader(AtomicHeader* hdrp, Header hdr) {
-  hdrp->store(absl::bit_cast<int32_t>(hdr), std::memory_order_relaxed);
+inline void TcmallocSlab::StoreHeader(std::atomic<int64_t>* hdrp, Header hdr) {
+  hdrp->store(absl::bit_cast<int64_t>(hdr), std::memory_order_relaxed);
 }
 
 }  // namespace percpu

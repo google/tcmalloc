@@ -186,7 +186,7 @@ TEST_F(TcmallocSlabTest, Unit) {
   // slab to trigger initialization.
   absl::FixedArray<bool, 0> initialized(NumCPUs(), false);
 
-  void* objects[kCapacity];
+  char objects[kCapacity];
   void* object_ptrs[kCapacity];
   for (int i = 0; i < kCapacity; ++i) {
     object_ptrs[i] = &objects[i];
@@ -456,7 +456,6 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
         [](size_t) { return kCapacity / 2; }, [](int cpu) { return cpu == 0; },
         [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
           EXPECT_EQ(size, 0);
-          EXPECT_EQ(cap, 0);
         });
   };
 
@@ -802,8 +801,7 @@ TEST_P(StressThreadTest, Stress) {
   std::vector<std::vector<void*>> blocks(n_stress_threads);
   for (size_t i = 0; i < blocks.size(); ++i) {
     for (size_t j = 0; j < kStressCapacity; ++j) {
-      blocks[i].push_back(reinterpret_cast<void*>(
-          (i * kStressCapacity + j + 1) * sizeof(void*)));
+      blocks[i].push_back(reinterpret_cast<void*>(i * kStressCapacity + j + 1));
     }
   }
   std::atomic<bool> stop(false);
