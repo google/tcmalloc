@@ -633,8 +633,6 @@ class BlockingUnback final : public MemoryModifyFunction {
     return success_;
   }
 
-  void set_lock(absl::Mutex* mu) { mu_ = mu; }
-
   absl::BlockingCounter* counter_ = nullptr;
   bool success_ = true;
 
