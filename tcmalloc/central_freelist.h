@@ -116,8 +116,8 @@ class CentralFreeList {
   SpanStats GetSpanStats() const;
 
   // Reports span utilization histogram stats.
-  void PrintSpanUtilStats(Printer* out) const;
-  void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region) const;
+  void PrintSpanUtilStats(Printer* out);
+  void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region);
 
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
@@ -623,7 +623,7 @@ inline size_t CentralFreeList<Forwarder>::NumSpansWith(
 }
 
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) const {
+inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) {
   out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
     out->printf("%6zu < %zu", NumSpansWith(i), 1 << i);
@@ -632,16 +632,31 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) const {
     }
   }
   out->printf("\n");
+  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  for (size_t i = 0; i < kNumLists; ++i) {
+    out->printf("%6zu: %zu", i, NumSpansInList(i));
+    if (i < kNumLists - 1) {
+      out->printf(",");
+    }
+  }
+  out->printf("\n");
 }
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
-    PbtxtRegion* region) const {
+    PbtxtRegion* region) {
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
     PbtxtRegion histogram = region->CreateSubRegion("span_util_histogram");
     histogram.PrintI64("lower_bound", 1 << (i - 1));
     histogram.PrintI64("upper_bound", 1 << i);
     histogram.PrintI64("value", NumSpansWith(i));
+  }
+
+  for (size_t i = 0; i < kNumLists; ++i) {
+    PbtxtRegion occupancy =
+        region->CreateSubRegion("prioritization_list_occupancy");
+    occupancy.PrintI64("list_index", i);
+    occupancy.PrintI64("value", NumSpansInList(i));
   }
 }
 
