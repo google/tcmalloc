@@ -683,10 +683,8 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
             matching_case.first.virtual_cpu_matched;
         sample.allocator_deallocator_l3_matched =
             matching_case.first.l3_matched;
-#ifdef TCMALLOC_INTERNAL_NUMA_AWARE
         sample.allocator_deallocator_numa_matched =
             matching_case.first.numa_matched;
-#endif  // TCMALLOC_INTERNAL_NUMA_AWARE
         sample.allocator_deallocator_thread_matched =
             matching_case.first.thread_matched;
       }
