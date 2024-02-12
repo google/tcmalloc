@@ -91,13 +91,13 @@ class StaticForwarder {
   static void* Alloc(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return tc_globals.arena().Alloc(size, alignment);
   }
   static void* AllocReportedImpending(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
     tc_globals.arena().UpdateAllocatedAndNonresident(
         -static_cast<int64_t>(size), 0);
@@ -112,13 +112,13 @@ class StaticForwarder {
                                                  int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     tc_globals.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
   static void ShrinkToUsageLimit() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     ASSERT(tc_globals.IsInited());
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     tc_globals.page_allocator().ShrinkToUsageLimit(Length(0));
   }
 

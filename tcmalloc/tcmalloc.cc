@@ -180,7 +180,7 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
   size_t required = printer.SpaceRequired();
 
   if (buffer_length > required) {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     required += GetRegionFactory()->GetStatsInPbtxt(
         absl::Span<char>(buffer + required, buffer_length - required));
   }
@@ -303,13 +303,13 @@ extern "C" void MallocExtension_Internal_MarkThreadIdle() {
 }
 
 extern "C" AddressRegionFactory* MallocExtension_Internal_GetRegionFactory() {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   return GetRegionFactory();
 }
 
 extern "C" void MallocExtension_Internal_SetRegionFactory(
     AddressRegionFactory* factory) {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   SetRegionFactory(factory);
 }
 
@@ -330,7 +330,7 @@ extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
 
   AllocationGuardSpinLockHolder rh(&release_lock);
 
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   if (num_bytes <= extra_bytes_released) {
     // We released too much on a prior call, so don't release any
     // more this time.
@@ -456,7 +456,7 @@ extern "C" void MallocExtension_Internal_GetProperties(
 
   size_t overall_thread_cache_size;
   {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     overall_thread_cache_size = ThreadCache::overall_thread_cache_size();
   }
   (*result)["tcmalloc.max_total_thread_cache_bytes"].value =
@@ -639,7 +639,7 @@ static void InvokeHooksAndFreePages(void* ptr) {
   MaybeUnsampleAllocation(tc_globals, ptr, span);
 
   {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     ASSERT(span->first_page() == p);
     if (IsSampledMemory(ptr)) {
       if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {

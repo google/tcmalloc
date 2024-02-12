@@ -465,7 +465,7 @@ class PageMap {
   int GetAllocatedSpans(
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans) {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     int allocated_span_count = 0;
     for (std::optional<uintptr_t> i = 0; i.has_value();
          i = map_.get_next_set_page(i.value())) {

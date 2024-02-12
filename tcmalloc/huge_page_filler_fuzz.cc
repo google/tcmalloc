@@ -39,7 +39,6 @@
 namespace {
 
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
-using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::Clock;
 using tcmalloc::tcmalloc_internal::HugePage;
 using tcmalloc::tcmalloc_internal::HugePageFiller;
@@ -52,6 +51,7 @@ using tcmalloc::tcmalloc_internal::LengthFromBytes;
 using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
 using tcmalloc::tcmalloc_internal::NHugePages;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
+using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
 using tcmalloc::tcmalloc_internal::PageId;
 using tcmalloc::tcmalloc_internal::PageIdContaining;
 using tcmalloc::tcmalloc_internal::PageTracker;
@@ -202,7 +202,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         HugePageFiller<PageTracker>::TryGetResult result;
         {
-          AllocationGuardSpinLockHolder l(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           result = filler.TryGet(n, alloc_info);
         }
 
@@ -219,7 +219,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           result.pt = new PageTracker(HugePage{.pn = next_hugepage}, donated);
           next_hugepage++;
           {
-            AllocationGuardSpinLockHolder l(&pageheap_lock);
+            PageHeapSpinLockHolder l;
 
             result.page = result.pt->Get(n).page;
             filler.Contribute(result.pt, donated, alloc_info);
@@ -269,7 +269,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         PageTracker* ret;
         {
-          AllocationGuardSpinLockHolder l(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           ret = filler.Put(pt, alloc.page, alloc.length);
         }
         CHECK_EQ(ret != nullptr, last_alloc);
@@ -330,7 +330,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         Length released;
         {
-          AllocationGuardSpinLockHolder l(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           to_release_from_partial_allocs =
               HugePageFiller<PageTracker>::kPartialAllocPagesRelease *
               filler.FreePagesInPartialAllocs().raw_num();
@@ -368,7 +368,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         std::string s;
         s.resize(1 << 20);
         Printer p(&s[0], s.size());
-        AllocationGuardSpinLockHolder l(&pageheap_lock);
+        PageHeapSpinLockHolder l;
         filler.Print(&p, true);
         break;
       }
@@ -387,7 +387,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         next_hugepage++;
         PageId start;
         {
-          AllocationGuardSpinLockHolder l(&pageheap_lock);
+          PageHeapSpinLockHolder l;
 
           start = pt->Get(n).page;
           filler.Contribute(pt, /*donated=*/true,
@@ -417,7 +417,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         Length released;
         const Length free = filler.free_pages();
         {
-          AllocationGuardSpinLockHolder l(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           released = filler.ReleasePages(desired, SkipSubreleaseIntervals{},
                                          /*release_partial_alloc_pages=*/false,
                                          /*hit_limit=*/true);
@@ -435,7 +435,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         s.resize(1 << 20);
         Printer p(&s[0], s.size());
         PbtxtRegion region(&p, kTop);
-        AllocationGuardSpinLockHolder l(&pageheap_lock);
+        PageHeapSpinLockHolder l;
         filler.PrintInPbtxt(&region);
         break;
       }
@@ -458,7 +458,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       auto alloc = v[i];
       PageTracker* ret;
       {
-        AllocationGuardSpinLockHolder l(&pageheap_lock);
+        PageHeapSpinLockHolder l;
         ret = filler.Put(pt, alloc.page, alloc.length);
       }
       CHECK_EQ(ret != nullptr, i + 1 == n);

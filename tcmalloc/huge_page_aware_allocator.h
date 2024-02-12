@@ -601,7 +601,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
   if (n <= kSmallAllocPages) {
@@ -633,7 +633,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
   bool from_released;
   Span* s;
   {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     s = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
   if (s && from_released) BackSpan(s);
@@ -890,7 +890,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   SmallSpanStats small;
   LargeSpanStats large;
   BackingStats bstats;
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   bstats = stats();
   GetSpanStats(&small, &large);
   PrintStats("HugePageAware", out, bstats, small, large, everything);
@@ -950,7 +950,7 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
     PbtxtRegion* region) {
   SmallSpanStats small;
   LargeSpanStats large;
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   GetSpanStats(&small, &large);
   PrintStatsInPbtxt(region, small, large);
   {

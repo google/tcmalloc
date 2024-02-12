@@ -161,7 +161,7 @@ void BM_NewDelete(benchmark::State& state) {
 
     benchmark::DoNotOptimize(sp);
 
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(sp, kSpanInfo.objects_per_span,
                                        MemoryTag::kNormal);
   }

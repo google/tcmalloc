@@ -332,7 +332,7 @@ static sized_ptr_t SampleifyAllocation(State& state, Policy policy,
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
-      AllocationGuardSpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       span = Span::New(p, num_pages);
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not

@@ -37,7 +37,6 @@
 
 namespace {
 using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
-using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::BackingStats;
 using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
 using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
@@ -49,6 +48,7 @@ using tcmalloc::tcmalloc_internal::kTop;
 using tcmalloc::tcmalloc_internal::Length;
 using tcmalloc::tcmalloc_internal::MemoryTag;
 using tcmalloc::tcmalloc_internal::pageheap_lock;
+using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
 using tcmalloc::tcmalloc_internal::SizeMap;
@@ -215,7 +215,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         allocs.resize(allocs.size() - 1);
         allocated -= span_info.span->num_pages();
         {
-          AllocationGuardSpinLockHolder h(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           allocator->Delete(span_info.span, span_info.objects_per_span);
         }
         break;
@@ -227,7 +227,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value[63:8] - Reserved.
         Length desired(value & 0x00FF);
         {
-          AllocationGuardSpinLockHolder h(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           allocator->ReleaseAtLeastNPages(desired);
         }
         break;
@@ -242,7 +242,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         Length released;
         size_t releasable_bytes;
         {
-          AllocationGuardSpinLockHolder h(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           releasable_bytes = allocator->FillerStats().free_bytes +
                              allocator->RegionsFreeBacked().in_bytes();
           released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
@@ -287,7 +287,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // value is unused.
         BackingStats stats;
         {
-          AllocationGuardSpinLockHolder h(&pageheap_lock);
+          PageHeapSpinLockHolder l;
           stats = allocator->stats();
         }
         uint64_t used_bytes =
@@ -339,7 +339,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Clean up.
   for (auto span_info : allocs) {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     allocated -= span_info.span->num_pages();
     allocator->Delete(span_info.span, span_info.objects_per_span);
   }

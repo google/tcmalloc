@@ -83,7 +83,7 @@ Span* StaticForwarder::AllocateSpan(int size_class,
 static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
                                   size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   for (Span* const free_span : free_spans) {
     ASSERT(tag == GetMemoryTag(free_span->start_address()));
     tc_globals.page_allocator().Delete(free_span, objects_per_span, tag);

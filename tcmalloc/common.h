@@ -352,6 +352,16 @@ inline size_t NumaPartitionFromPointer(void* ptr) {
 // if both are going to be held simultaneously.
 extern absl::base_internal::SpinLock pageheap_lock;
 
+class ABSL_SCOPED_LOCKABLE PageHeapSpinLockHolder {
+ public:
+  PageHeapSpinLockHolder()
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(pageheap_lock) = default;
+  ~PageHeapSpinLockHolder() ABSL_UNLOCK_FUNCTION() = default;
+
+ private:
+  AllocationGuardSpinLockHolder lock_{&pageheap_lock};
+};
+
 // Evaluates a/b, avoiding division by zero.
 inline double safe_div(double a, double b) {
   if (b == 0) {

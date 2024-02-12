@@ -156,7 +156,7 @@ SizeClassConfiguration Static::size_class_configuration() {
 }
 
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
 
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {

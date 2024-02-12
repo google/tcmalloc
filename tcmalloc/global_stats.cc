@@ -94,7 +94,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   // Add stats from per-thread heaps
   r->thread_bytes = 0;
   {  // scope
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
     r->span_stats = tc_globals.span_allocator().stats();
     r->stack_stats = tc_globals.sampledallocation_allocator().stats();
@@ -733,7 +733,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "generic.heap_size") {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     BackingStats stats = tc_globals.page_allocator().stats();
     *value = HeapSizeBytes(stats);
     return true;
@@ -763,7 +763,7 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   if (name == "tcmalloc.slack_bytes") {
     // Kept for backwards compatibility.  Now defined externally as:
     //    pageheap_free_bytes + pageheap_unmapped_bytes.
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     BackingStats stats = tc_globals.page_allocator().stats();
     *value = SlackBytes(stats);
     return true;
@@ -771,14 +771,14 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
 
   if (name == "tcmalloc.pageheap_free_bytes" ||
       name == "tcmalloc.page_heap_free") {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     *value = tc_globals.page_allocator().stats().free_bytes;
     return true;
   }
 
   if (name == "tcmalloc.pageheap_unmapped_bytes" ||
       name == "tcmalloc.page_heap_unmapped") {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     // Arena non-resident bytes aren't on the page heap, but they are unmapped.
     *value = tc_globals.page_allocator().stats().unmapped_bytes +
              tc_globals.arena().stats().bytes_nonresident;
@@ -791,13 +791,13 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.page_algorithm") {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     *value = tc_globals.page_allocator().algorithm();
     return true;
   }
 
   if (name == "tcmalloc.max_total_thread_cache_bytes") {
-    AllocationGuardSpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     *value = ThreadCache::overall_thread_cache_size();
     return true;
   }

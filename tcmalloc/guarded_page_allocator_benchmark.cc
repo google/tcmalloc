@@ -42,7 +42,7 @@ static size_t PageSize() {
 void BM_AllocDealloc(benchmark::State& state) {
   static GuardedPageAllocator* gpa = []() {
     auto gpa = new GuardedPageAllocator;
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     gpa->Init(kMaxGpaPages, kMaxGpaPages);
     gpa->AllowAllocations();
     return gpa;

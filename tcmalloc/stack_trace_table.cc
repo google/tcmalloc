@@ -42,7 +42,7 @@ StackTraceTable::~StackTraceTable() {
     LinkedSample* next = cur->next;
     cur->~LinkedSample();
     {
-      AllocationGuardSpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       tc_globals.linked_sample_allocator().Delete(cur);
     }
     cur = next;
@@ -65,7 +65,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // under google3/tcmalloc/heap_profiling_test.cc.
   LinkedSample* s;
   {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     s = tc_globals.linked_sample_allocator().New();
   }
   s = new (s) LinkedSample;

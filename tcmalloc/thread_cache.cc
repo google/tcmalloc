@@ -217,7 +217,7 @@ void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
 }
 
 void ThreadCache::IncreaseCacheLimit() {
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   IncreaseCacheLimitLocked();
 }
 
@@ -270,7 +270,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   }
 
   {
-    AllocationGuardSpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     const pthread_t me = pthread_self();
 
     // This may be a recursive malloc call from pthread_setspecific()
@@ -358,7 +358,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
   heap->Cleanup();
 
   // Remove from linked list
-  AllocationGuardSpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
   if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
   if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
