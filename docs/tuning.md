@@ -100,7 +100,7 @@ caches to the heavily used caches, using miss rate as the proxy for their usage.
 The heavily used per-cpu caches may steal capacity from lightly used caches and
 grow beyond the limit set by `tcmalloc_max_per_cpu_cache_size` flag.
 
-Releasing memory held by unuable CPU caches is handled by
+Releasing memory held by unusable CPU caches is handled by
 `tcmalloc::MallocExtension::ProcessBackgroundActions`.
 
 In contrast `tcmalloc::MallocExtension::SetMaxTotalThreadCacheBytes` controls
