@@ -127,31 +127,49 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
+  ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
   int cpu = -1;
   for (;;) {
-    ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
     cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
-    const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+    auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
+    const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, cpu);
     uintptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
-    if (StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
-      break;
+    if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
+      continue;
     }
+    // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
+    // cache the offset with the shift that won't match slabs pointer used
+    // by Push/Pop operations later. To avoid this, we check stopped_ after
+    // the calculation. Coupled with setting of stopped_ and a Fence
+    // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
+    CompilerBarrier();
+    if (stopped_[cpu].load(std::memory_order_acquire)) {
+      tcmalloc_slabs = 0;
+      return {-1, true};
+    }
+    // Ensure that we've cached the current slabs pointer.
+    // Without this check the following bad interleaving is possible.
+    // Thread 1 executes ResizeSlabs, stops all CPUs and executes Fence.
+    // Now thread 2 executes CacheCpuSlabSlow, reads old slabs and caches
+    // the pointer. Now thread 1 stores the new slabs pointer and resets
+    // stopped_[cpu]. Now thread 2 resumes, checks that stopped_[cpu] is not
+    // set and proceeds with using the old slabs pointer. Since we use
+    // acquire/release on stopped_[cpu], if this thread observes reset
+    // stopped_[cpu], it's also guaranteed to observe the new value of slabs
+    // and retry. In the very unlikely case that slabs are resized twice in
+    // between (to new slabs and then back to old slabs), the check below will
+    // not lead to a retry, but changing slabs back also implies another Fence,
+    // so this thread won't have old slabs cached already (Fence invalidates
+    // the cached pointer).
+    if (slabs_and_shift != slabs_and_shift_.load(std::memory_order_relaxed)) {
+      continue;
+    }
+    return {cpu, true};
   }
-  // If ResizeSlabs is concurrently modifying slabs_and_shift_, we may
-  // cache the offset with the shift that won't match slabs pointer used
-  // by Push/Pop operations later. To avoid this, we check resizing_ after
-  // the calculation. Coupled with setting of resizing_ and a Fence
-  // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
-  CompilerBarrier();
-  if (stopped_[cpu].load(std::memory_order_acquire)) {
-    tcmalloc_slabs = 0;
-    return {-1, true};
-  }
-  return {cpu, true};
 }
 #endif
 

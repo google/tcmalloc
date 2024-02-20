@@ -309,6 +309,10 @@ class TcmallocSlab {
               static_cast<Shift>(raw_ & kShiftMask)};
     }
 
+    bool operator!=(const SlabsAndShift& other) const {
+      return raw_ != other.raw_;
+    }
+
    private:
     uintptr_t raw_;
   };
