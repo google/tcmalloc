@@ -43,7 +43,9 @@
     defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
     defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
     defined(ABSL_HAVE_DATAFLOW_SANITIZER) || defined(ABSL_HAVE_LEAK_SANITIZER)
+#if !defined(TCMALLOC_UNDER_SANITIZERS)
 #define TCMALLOC_UNDER_SANITIZERS 1
+#endif
 static constexpr size_t kTerabyte = (size_t)(1ULL << 40);
 
 #include <sanitizer/allocator_interface.h>
