@@ -223,6 +223,8 @@ cc_test(
     timeout = "long",
     srcs = ["sampling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    # Some experiments change sampling overhead.
+    env = {"BORG_EXPERIMENTS": ""},
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [

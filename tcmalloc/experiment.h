@@ -50,8 +50,9 @@ constexpr size_t kNumExperiments =
 // buffer must be sized for kMaxExperimentID entries.
 //
 // This is exposed for testing purposes only.
-const bool* SelectExperiments(bool* buffer, absl::string_view active,
-                              absl::string_view disabled);
+const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
+                              absl::string_view active,
+                              absl::string_view disabled, bool unset);
 
 }  // namespace tcmalloc_internal
 

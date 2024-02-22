@@ -17,7 +17,9 @@
 #include <string.h>
 
 #include <algorithm>
+#include <functional>
 #include <optional>
+#include <string_view>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
@@ -40,6 +42,10 @@ const char kExperiments[] = "BORG_EXPERIMENTS";
 const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
+
+// Experiments that are not safe have known issues, are not enabled
+// involuntarily in tests, and shouldn't be enabled widely.
+bool IsSafeExperiment(Experiment exp) { return false; }
 
 bool IsCompilerExperiment(Experiment exp) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
@@ -65,10 +71,14 @@ const bool* GetSelectedExperiments() {
   ABSL_CONST_INIT static absl::once_flag flag;
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    const char* test_target = thread_safe_getenv("TEST_TARGET");
     const char* active_experiments = thread_safe_getenv(kExperiments);
     const char* disabled_experiments = thread_safe_getenv(kDisableExperiments);
-    SelectExperiments(by_id, active_experiments ? active_experiments : "",
-                      disabled_experiments ? disabled_experiments : "");
+    SelectExperiments(
+        by_id, test_target ? test_target : "",
+        active_experiments ? active_experiments : "",
+        disabled_experiments ? disabled_experiments : "",
+        active_experiments == nullptr && disabled_experiments == nullptr);
   });
   return by_id;
 }
@@ -93,8 +103,9 @@ void ParseExperiments(absl::string_view labels, F f) {
 
 }  // namespace
 
-const bool* SelectExperiments(bool* buffer, absl::string_view active,
-                              absl::string_view disabled) {
+const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
+                              absl::string_view active,
+                              absl::string_view disabled, bool unset) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
@@ -134,6 +145,36 @@ const bool* SelectExperiments(bool* buffer, absl::string_view active,
       buffer[static_cast<int>(id)] = false;
     }
   });
+
+  // Enable some random combination of experiments for tests that don't
+  // explicitly set any of the experiment env vars. This allows to get better
+  // test coverage of experiments before production.
+  // Tests can opt out by exporting BORG_EXPERIMENTS="".
+  // Enabled experiments are selected based on the stable test target name hash,
+  // this allows get a wide range of experiment permutations on a large test
+  // base, but at the same time avoids flaky test failures (if a particular
+  // test fails only with a particular experiment combination).
+  // It would be nice to print what experiments we enable, but printing even
+  // to stderr breaks some tests that capture subprocess output.
+  if (unset && !test_target.empty()) {
+    CHECK_CONDITION(active.empty() && disabled.empty());
+    size_t target_hash = std::hash<std::string_view>{}(test_target);
+    constexpr size_t kVanillaOneOf = 10;
+    constexpr size_t kEnableOneOf = 3;
+    if ((target_hash % kVanillaOneOf) == 0) {
+      return buffer;
+    }
+
+    for (auto config : experiments) {
+      if (IsCompilerExperiment(config.id)) {
+        continue;
+      }
+      CHECK_CONDITION(!buffer[static_cast<int>(config.id)]);
+      buffer[static_cast<int>(config.id)] =
+          IsSafeExperiment(config.id) && (target_hash % kEnableOneOf) == 0;
+      target_hash /= kEnableOneOf;
+    }
+  }
 
   return buffer;
 }
