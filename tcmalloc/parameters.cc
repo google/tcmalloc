@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/static_vars.h"
