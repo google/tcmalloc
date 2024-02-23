@@ -93,7 +93,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     ASSERT(false && "mprotect failed");
     AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    num_failed_allocations_++;
+    num_failed_allocations_.LossyAdd(1);
+    num_successful_allocations_.LossyAdd(-1);
     FreeSlot(free_slot);
     return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
   }
@@ -109,7 +110,7 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
     ++total_pages_used_;
     if (total_pages_used_ == total_pages_) {
       alloced_page_count_when_all_used_once_ =
-          num_allocation_requests_ - num_failed_allocations_;
+          num_successful_allocations_.value();
     }
   }
   d.dealloc_trace.depth = 0;
@@ -210,10 +211,10 @@ void GuardedPageAllocator::Print(Printer* out) {
       "Total Slots Used Once: %zu / %zu\n"
       "Allocation Count When All Slots Used Once: %zu\n"
       "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
-      num_allocation_requests_ - num_failed_allocations_,
-      num_failed_allocations_, num_alloced_pages_,
-      total_pages_ - num_alloced_pages_, num_alloced_pages_max_,
-      max_alloced_pages_, tc_globals.stacktrace_filter().max_slots_used(),
+      num_successful_allocations_.value(), num_failed_allocations_.value(),
+      num_alloced_pages_, total_pages_ - num_alloced_pages_,
+      num_alloced_pages_max_, max_alloced_pages_,
+      tc_globals.stacktrace_filter().max_slots_used(),
       tc_globals.stacktrace_filter().replacement_inserts(), total_pages_used_,
       total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate());
 }
@@ -221,8 +222,8 @@ void GuardedPageAllocator::Print(Printer* out) {
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   gwp_asan->PrintI64("successful_allocations",
-                     num_allocation_requests_ - num_failed_allocations_);
-  gwp_asan->PrintI64("failed_allocations", num_failed_allocations_);
+                     num_successful_allocations_.value());
+  gwp_asan->PrintI64("failed_allocations", num_failed_allocations_.value());
   gwp_asan->PrintI64("current_slots_allocated", num_alloced_pages_);
   gwp_asan->PrintI64("current_slots_quarantined",
                      total_pages_ - num_alloced_pages_);
@@ -237,12 +238,6 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
                      alloced_page_count_when_all_used_once_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
-}
-
-size_t GuardedPageAllocator::SuccessfulAllocations() {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-  ASSERT(num_allocation_requests_ >= num_failed_allocations_);
-  return num_allocation_requests_ - num_failed_allocations_;
 }
 
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages
@@ -286,11 +281,11 @@ void GuardedPageAllocator::MapPages() {
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
-  num_allocation_requests_++;
   if (num_alloced_pages_ == max_alloced_pages_) {
-    num_failed_allocations_++;
+    num_failed_allocations_.LossyAdd(1);
     return -1;
   }
+  num_successful_allocations_.LossyAdd(1);
 
   rand_ = ExponentialBiased::NextRandom(rand_);
   size_t num_free_pages = total_pages_ - num_alloced_pages_;

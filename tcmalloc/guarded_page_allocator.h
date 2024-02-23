@@ -25,6 +25,7 @@
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
+#include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 
@@ -74,8 +75,6 @@ class GuardedPageAllocator {
         free_pages_{},
         num_alloced_pages_(0),
         num_alloced_pages_max_(0),
-        num_allocation_requests_(0),
-        num_failed_allocations_(0),
         data_(nullptr),
         pages_base_addr_(0),
         pages_end_addr_(0),
@@ -181,7 +180,7 @@ class GuardedPageAllocator {
     return max_alloced_pages_ - num_alloced_pages_;
   }
 
-  size_t SuccessfulAllocations() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+  size_t SuccessfulAllocations() { return num_successful_allocations_.value(); }
 
   size_t page_size() const { return page_size_; }
 
@@ -264,11 +263,11 @@ class GuardedPageAllocator {
   // The high-water mark for num_alloced_pages_.
   size_t num_alloced_pages_max_ ABSL_GUARDED_BY(guarded_page_lock_);
 
-  // Number of calls to Allocate.
-  size_t num_allocation_requests_ ABSL_GUARDED_BY(guarded_page_lock_);
+  // Number of successful allocations (calls to Allocate - failed).
+  tcmalloc_internal::StatsCounter num_successful_allocations_;
 
   // Number of times Allocate has failed.
-  size_t num_failed_allocations_ ABSL_GUARDED_BY(guarded_page_lock_);
+  tcmalloc_internal::StatsCounter num_failed_allocations_;
 
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
