@@ -63,7 +63,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
   manager.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
   absl::Time start = absl::Now();
-  constexpr absl::Duration kDelta = absl::Seconds(15);
+  constexpr absl::Duration kDelta = absl::Seconds(20);
   // Another few threads busy with iterating different kinds of heap profiles.
   for (auto t : {
            ProfileType::kHeap,
