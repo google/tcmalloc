@@ -22,6 +22,8 @@
 #include <string>
 
 #include "benchmark/benchmark.h"
+#include "absl/time/clock.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -110,6 +112,12 @@ class ScopedBackgroundProcessActionsEnabled {
   explicit ScopedBackgroundProcessActionsEnabled(bool value)
       : previous_(MallocExtension::GetBackgroundProcessActionsEnabled()) {
     MallocExtension::SetBackgroundProcessActionsEnabled(value);
+    if (!value) {
+      // If the thread is doing something at the moment, let it finish.
+      // This is unreliable, but simple. The thread sleeps for 1 sec,
+      // so we sleep for 5.
+      absl::SleepFor(absl::Seconds(5));
+    }
   }
 
   ~ScopedBackgroundProcessActionsEnabled() {

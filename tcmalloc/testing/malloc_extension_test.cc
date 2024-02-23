@@ -28,6 +28,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -151,6 +152,8 @@ TEST(MallocExtension, DynamicSlabMallocMetadata) {
   if (!tc_globals.CpuCacheActive()) {
     GTEST_SKIP() << "CPU cache disabled.";
   }
+
+  ScopedBackgroundProcessActionsEnabled background(false);
 
   auto& cpu_cache = tc_globals.cpu_cache();
   for (int i = 0; i < 100; ++i) {

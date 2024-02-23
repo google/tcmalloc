@@ -63,6 +63,7 @@ cc_library(
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:percpu",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/time",
     ],
 )
 
@@ -803,6 +804,7 @@ create_tcmalloc_testsuite(
         "nosan",
     ],
     deps = [
+        ":testutil",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
