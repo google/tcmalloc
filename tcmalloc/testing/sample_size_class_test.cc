@@ -15,7 +15,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-
 #include "gtest/gtest.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
@@ -52,6 +51,7 @@ double HeapProfileReport(size_t s) {
 }
 
 TEST(SampleSizeClassTest, Main) {
+
   // We choose a small tcmalloc sampling parameter because this reduces the
   // random variance in this test's result.
   MallocExtension::SetProfileSamplingRate(1024);
