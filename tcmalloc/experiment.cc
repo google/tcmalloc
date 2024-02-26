@@ -43,9 +43,20 @@ const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
 
-// Experiments that are not safe have known issues, are not enabled
+// Experiments that have known issues with brittle tests, are not enabled
 // involuntarily in tests, and shouldn't be enabled widely.
-bool IsSafeExperiment(Experiment exp) { return false; }
+bool HasNoBrittleTestFailures(Experiment exp) {
+
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS) {
+    return false;
+  }
+
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES) {
+    return false;
+  }
+
+  return true;
+}
 
 bool IsCompilerExperiment(Experiment exp) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
@@ -171,7 +182,8 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
       }
       CHECK_CONDITION(!buffer[static_cast<int>(config.id)]);
       buffer[static_cast<int>(config.id)] =
-          IsSafeExperiment(config.id) && (target_hash % kEnableOneOf) == 0;
+          HasNoBrittleTestFailures(config.id) &&
+          (target_hash % kEnableOneOf) == 0;
       target_hash /= kEnableOneOf;
     }
   }
