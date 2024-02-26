@@ -713,6 +713,7 @@ create_tcmalloc_testsuite(
         "//tcmalloc/internal:profile_builder",
         "//tcmalloc/internal:profile_cc_proto",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
