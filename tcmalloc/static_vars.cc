@@ -40,7 +40,6 @@
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/percpu.h"
-#include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator.h"
@@ -96,7 +95,6 @@ ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
 ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
-ABSL_CONST_INIT StackTraceFilter Static::stacktrace_filter_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
 // LINT.ThenChange(:static_vars_size)
@@ -123,8 +121,8 @@ size_t Static::metadata_bytes() {
       sizeof(sampled_internal_fragmentation_) + sizeof(total_sampled_count_) +
       sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
-      sizeof(guardedpage_allocator_) + sizeof(stacktrace_filter_) +
-      sizeof(numa_topology_) + sizeof(CacheTopology::Instance());
+      sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
+      sizeof(CacheTopology::Instance());
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

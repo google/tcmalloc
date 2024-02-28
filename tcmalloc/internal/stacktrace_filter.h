@@ -52,6 +52,11 @@ class StackTraceFilter {
     return replacement_inserts_.load(std::memory_order_relaxed);
   }
 
+  // For Testing Only: expunge all counts, allowing for resetting the count,
+  // which allows the Improved Coverage algorithm to guard a specific stack
+  // trace more than kMaxGuardsPerStackTraceSignature times.
+  void Reset();
+
  private:
   constexpr static size_t kMask = 0xFF;
   constexpr static size_t kHashCountLimit = kMask;
@@ -64,11 +69,6 @@ class StackTraceFilter {
     return absl::HashOf(
         absl::Span<void* const>(stacktrace.stack, stacktrace.depth));
   }
-
-  // For Testing Only: expunge all counts, allowing for resetting the count,
-  // which allows the Improved Coverage algorithm to guard a specific stack
-  // trace more than kMaxGuardsPerStackTraceSignature times.
-  void Reset();
 
   friend class GuardedPageAllocatorProfileTest;
   friend class StackTraceFilterTest;

@@ -35,7 +35,6 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
@@ -50,7 +49,7 @@ class GuardedAllocAlignmentTest : public testing::Test, ScopedAlwaysSample {
  public:
   GuardedAllocAlignmentTest() {
     MallocExtension::ActivateGuardedSampling();
-    tc_globals.stacktrace_filter().Reset();
+    tc_globals.guardedpage_allocator().Reset();
   }
 };
 
@@ -119,7 +118,7 @@ class TcMallocTest : public testing::Test {
  protected:
   TcMallocTest() {
     // Start with clean state to avoid hash collisions.
-    tc_globals.stacktrace_filter().Reset();
+    tc_globals.guardedpage_allocator().Reset();
     MallocExtension::SetGuardedSamplingRate(
         10 * MallocExtension::GetProfileSamplingRate());
 
@@ -134,7 +133,7 @@ class TcMallocTest : public testing::Test {
     // Improved Guarded Sampling.
     if (reset_request_count_ >=
         tcmalloc_internal::kMaxGuardsPerStackTraceSignature) {
-      tc_globals.stacktrace_filter().Reset();
+      tc_globals.guardedpage_allocator().Reset();
       reset_request_count_ = 0;
     }
   }

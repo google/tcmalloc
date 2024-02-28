@@ -28,6 +28,8 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/stacktrace_filter.h"
+#include "tcmalloc/pages.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -114,6 +116,14 @@ class GuardedPageAllocator {
   // and avoiding use-after-destruction issues for static/global instances.
   void Destroy();
 
+  // If this allocation can be guarded, and if it's time to do a guarded sample,
+  // returns an instance of GuardedAllocWithStatus, that includes guarded
+  // allocation Span and guarded status. Otherwise, returns nullptr and the
+  // status indicating why the allocation may not be guarded.
+  GuardedAllocWithStatus TrySample(size_t size, size_t alignment,
+                                   Length num_pages,
+                                   const StackTrace& stack_trace);
+
   // On success, returns an instance of GuardedAllocWithStatus which includes a
   // pointer to size bytes of page-guarded memory, aligned to alignment.  The
   // member 'alloc' is a pointer that is guaranteed to be tagged.  The 'status'
@@ -181,6 +191,9 @@ class GuardedPageAllocator {
   }
 
   size_t SuccessfulAllocations() { return num_successful_allocations_.value(); }
+
+  // Resets sampling state.
+  void Reset();
 
   size_t page_size() const { return page_size_; }
 
@@ -250,6 +263,8 @@ class GuardedPageAllocator {
 
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
+
+  StackTraceFilter stacktrace_filter_;
 
   absl::base_internal::SpinLock guarded_page_lock_;
 

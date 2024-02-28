@@ -90,129 +90,6 @@ std::unique_ptr<const ProfileBase> DumpHeapProfile(Static& state) {
   return profile;
 }
 
-// If this allocation can be guarded, and if it's time to do a guarded sample,
-// returns an instance of GuardedAllocWithStatus, that includes guarded
-// allocation Span and guarded status. Otherwise, returns nullptr and the status
-// indicating why the allocation may not be guarded.
-template <typename State>
-static GuardedAllocWithStatus TrySampleGuardedAllocation(
-    State& state, size_t size, size_t alignment, Length num_pages,
-    const StackTrace& stack_trace) {
-  if (num_pages != Length(1)) {
-    return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
-  }
-  const int64_t guarded_sampling_rate =
-      tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
-  if (guarded_sampling_rate < 0) {
-    return {nullptr, Profile::Sample::GuardedStatus::Disabled};
-  }
-  // TODO(b/273954799): Possible optimization: only calculate this when
-  // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
-  // margin_multiplier below.
-  const int64_t profile_sampling_rate =
-      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
-  // If guarded_sampling_rate == 0, then attempt to guard, as usual.
-  if (guarded_sampling_rate > 0) {
-    const double configured_sampled_to_guarded_ratio =
-        profile_sampling_rate > 0
-            ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
-            : 1.0;
-    // Select a multiplier of the configured_sampled_to_guarded_ratio that
-    // yields a product at least 2.0 greater than
-    // configured_sampled_to_guarded_ratio.
-    //
-    //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
-    //        configured_sampled_to_guarded_ratio) >= 2.0
-    //
-    // This multiplier is applied to configured_sampled_to_guarded_ratio to
-    // create the maximum, and configured_sampled_to_guarded_ratio is the
-    // minimum. This max and min are the boundaries between which
-    // current_sampled_to_guarded_ratio travels between.  While traveling
-    // towards the maximum, no guarding is attempted.  While traveling towards
-    // the minimum, guarding of every sample is attempted.
-    const double margin_multiplier =
-        std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
-                       configured_sampled_to_guarded_ratio,
-                   1.2, 2.0);
-    const double maximum_configured_sampled_to_guarded_ratio =
-        margin_multiplier * configured_sampled_to_guarded_ratio;
-    const double minimum_configured_sampled_to_guarded_ratio =
-        configured_sampled_to_guarded_ratio;
-
-    // Ensure that successful_allocations is at least 1 (not zero).
-    const size_t successful_allocations =
-        std::max(state.guardedpage_allocator().SuccessfulAllocations(), 1UL);
-    const size_t current_sampled_to_guarded_ratio =
-        state.total_sampled_count_.value() / successful_allocations;
-    static std::atomic<bool> striving_to_guard_{true};
-    if (striving_to_guard_.load(std::memory_order_relaxed)) {
-      if (current_sampled_to_guarded_ratio <=
-          minimum_configured_sampled_to_guarded_ratio) {
-        striving_to_guard_.store(false, std::memory_order_relaxed);
-        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-      }
-      // Fall through to possible allocation below.
-    } else {
-      if (current_sampled_to_guarded_ratio >=
-          maximum_configured_sampled_to_guarded_ratio) {
-        striving_to_guard_.store(true, std::memory_order_relaxed);
-        // Fall through to possible allocation below.
-      } else {
-        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-      }
-    }
-
-    size_t guard_count = state.stacktrace_filter().Count(stack_trace);
-    if (guard_count >= kMaxGuardsPerStackTraceSignature) {
-      return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-    }
-    ABSL_CONST_INIT static std::atomic<uint64_t> rnd_(0);
-    uint64_t new_rnd = 0;
-    if (guard_count > 0) {
-      new_rnd =
-          ExponentialBiased::NextRandom(rnd_.load(std::memory_order_relaxed));
-      rnd_.store(new_rnd, std::memory_order_relaxed);
-    }
-    switch (guard_count) {
-      case 0:
-        // Fall through to allocation below.
-        break;
-      case 1:
-        /* 25% */
-        if (new_rnd % 4 != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      case 2:
-        /* 12.5% */
-        if (new_rnd % 8 != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      case 3:
-        /* ~1% */
-        if (new_rnd % 128 != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      default:
-        return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-    }
-  }
-  // The num_pages == 1 constraint ensures that size <= kPageSize.  And
-  // since alignments above kPageSize cause size_class == 0, we're also
-  // guaranteed alignment <= kPageSize
-  //
-  // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
-  // are met.
-  GuardedAllocWithStatus alloc_with_status =
-      state.guardedpage_allocator().Allocate(size, alignment);
-  if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
-    state.stacktrace_filter().Add(stack_trace);
-  }
-  return alloc_with_status;
-}
-
 template <typename State>
 ABSL_ATTRIBUTE_NOINLINE static inline void FreeProxyObject(State& state,
                                                            void* ptr,
@@ -287,8 +164,8 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
 
     Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
-    alloc_with_status = TrySampleGuardedAllocation(
-        state, requested_size, stack_trace.requested_alignment, num_pages,
+    alloc_with_status = state.guardedpage_allocator().TrySample(
+        requested_size, stack_trace.requested_alignment, num_pages,
         stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
       ASSERT(IsSampledMemory(alloc_with_status.alloc));

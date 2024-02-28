@@ -17,12 +17,14 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
@@ -73,6 +75,125 @@ void GuardedPageAllocator::Destroy() {
     (void)err;
     initialized_ = false;
   }
+}
+
+void GuardedPageAllocator::Reset() { stacktrace_filter_.Reset(); }
+
+GuardedAllocWithStatus GuardedPageAllocator::TrySample(
+    size_t size, size_t alignment, Length num_pages,
+    const StackTrace& stack_trace) {
+  if (num_pages != Length(1)) {
+    return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
+  }
+  const int64_t guarded_sampling_rate =
+      tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
+  if (guarded_sampling_rate < 0) {
+    return {nullptr, Profile::Sample::GuardedStatus::Disabled};
+  }
+  // TODO(b/273954799): Possible optimization: only calculate this when
+  // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
+  // margin_multiplier below.
+  const int64_t profile_sampling_rate =
+      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
+  // If guarded_sampling_rate == 0, then attempt to guard, as usual.
+  if (guarded_sampling_rate > 0) {
+    const double configured_sampled_to_guarded_ratio =
+        profile_sampling_rate > 0
+            ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
+            : 1.0;
+    // Select a multiplier of the configured_sampled_to_guarded_ratio that
+    // yields a product at least 2.0 greater than
+    // configured_sampled_to_guarded_ratio.
+    //
+    //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
+    //        configured_sampled_to_guarded_ratio) >= 2.0
+    //
+    // This multiplier is applied to configured_sampled_to_guarded_ratio to
+    // create the maximum, and configured_sampled_to_guarded_ratio is the
+    // minimum. This max and min are the boundaries between which
+    // current_sampled_to_guarded_ratio travels between.  While traveling
+    // towards the maximum, no guarding is attempted.  While traveling towards
+    // the minimum, guarding of every sample is attempted.
+    const double margin_multiplier =
+        std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
+                       configured_sampled_to_guarded_ratio,
+                   1.2, 2.0);
+    const double maximum_configured_sampled_to_guarded_ratio =
+        margin_multiplier * configured_sampled_to_guarded_ratio;
+    const double minimum_configured_sampled_to_guarded_ratio =
+        configured_sampled_to_guarded_ratio;
+
+    // Ensure that successful_allocations is at least 1 (not zero).
+    const size_t successful_allocations =
+        std::max(SuccessfulAllocations(), 1UL);
+    const size_t current_sampled_to_guarded_ratio =
+        tc_globals.total_sampled_count_.value() / successful_allocations;
+    static std::atomic<bool> striving_to_guard_{true};
+    if (striving_to_guard_.load(std::memory_order_relaxed)) {
+      if (current_sampled_to_guarded_ratio <=
+          minimum_configured_sampled_to_guarded_ratio) {
+        striving_to_guard_.store(false, std::memory_order_relaxed);
+        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+      }
+      // Fall through to possible allocation below.
+    } else {
+      if (current_sampled_to_guarded_ratio >=
+          maximum_configured_sampled_to_guarded_ratio) {
+        striving_to_guard_.store(true, std::memory_order_relaxed);
+        // Fall through to possible allocation below.
+      } else {
+        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
+      }
+    }
+
+    size_t guard_count = stacktrace_filter_.Count(stack_trace);
+    if (guard_count >= kMaxGuardsPerStackTraceSignature) {
+      return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+    }
+    ABSL_CONST_INIT static std::atomic<uint64_t> rnd_(0);
+    uint64_t new_rnd = 0;
+    if (guard_count > 0) {
+      new_rnd =
+          ExponentialBiased::NextRandom(rnd_.load(std::memory_order_relaxed));
+      rnd_.store(new_rnd, std::memory_order_relaxed);
+    }
+    switch (guard_count) {
+      case 0:
+        // Fall through to allocation below.
+        break;
+      case 1:
+        /* 25% */
+        if (new_rnd % 4 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      case 2:
+        /* 12.5% */
+        if (new_rnd % 8 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      case 3:
+        /* ~1% */
+        if (new_rnd % 128 != 0) {
+          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+        }
+        break;
+      default:
+        return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+    }
+  }
+  // The num_pages == 1 constraint ensures that size <= kPageSize.  And
+  // since alignments above kPageSize cause size_class == 0, we're also
+  // guaranteed alignment <= kPageSize
+  //
+  // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
+  // are met.
+  auto alloc_with_status = Allocate(size, alignment);
+  if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
+    stacktrace_filter_.Add(stack_trace);
+  }
+  return alloc_with_status;
 }
 
 GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
@@ -214,9 +335,9 @@ void GuardedPageAllocator::Print(Printer* out) {
       num_successful_allocations_.value(), num_failed_allocations_.value(),
       num_alloced_pages_, total_pages_ - num_alloced_pages_,
       num_alloced_pages_max_, max_alloced_pages_,
-      tc_globals.stacktrace_filter().max_slots_used(),
-      tc_globals.stacktrace_filter().replacement_inserts(), total_pages_used_,
-      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate());
+      stacktrace_filter_.max_slots_used(),
+      stacktrace_filter_.replacement_inserts(), total_pages_used_, total_pages_,
+      alloced_page_count_when_all_used_once_, GetChainedRate());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
@@ -230,9 +351,9 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("max_slots_allocated", num_alloced_pages_max_);
   gwp_asan->PrintI64("allocated_slot_limit", max_alloced_pages_);
   gwp_asan->PrintI64("stack_trace_filter_max_slots_used",
-                     tc_globals.stacktrace_filter().max_slots_used());
+                     stacktrace_filter_.max_slots_used());
   gwp_asan->PrintI64("stack_trace_filter_replacement_inserts",
-                     tc_globals.stacktrace_filter().replacement_inserts());
+                     stacktrace_filter_.replacement_inserts());
   gwp_asan->PrintI64("total_pages_used", total_pages_used_);
   gwp_asan->PrintI64("total_pages", total_pages_);
   gwp_asan->PrintI64("alloced_page_count_when_all_used_once",

@@ -95,7 +95,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
     EXPECT_THAT(found_statuses, ::testing::Contains(sought_status));
   }
 
-  void ResetStackTraceFilter() { tc_globals.stacktrace_filter().Reset(); }
+  void ResetStackTraceFilter() { tc_globals.guardedpage_allocator().Reset(); }
 };
 
 namespace {
