@@ -47,6 +47,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES, "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
 };
 // clang-format on
+
 }  // namespace tcmalloc
 
 #endif  // TCMALLOC_EXPERIMENT_CONFIG_H_
