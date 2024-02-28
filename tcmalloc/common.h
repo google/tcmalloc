@@ -232,6 +232,8 @@ enum class MemoryTag : uint8_t {
   kNormal = kNormalP0,
   // Cold
   kCold = (kNumaPartitions > 1) ? 0x4 : 0x2,
+  // Metadata
+  kMetadata = 0x3,
 };
 
 // We make kNormal and kCold disjoint so that IsCold implies IsSampled.  This

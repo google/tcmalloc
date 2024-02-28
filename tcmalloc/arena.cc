@@ -42,23 +42,7 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   char* result;
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
-    // TODO(b/171081864): Arena allocations should be made relatively
-    // infrequently.  Consider tagging this memory with sampled objects which
-    // are also infrequently allocated.
-    //
-    // In the meantime it is important that we use the current NUMA partition
-    // rather than always using a particular one because it's possible that any
-    // single partition we choose might only contain nodes that the process is
-    // unable to allocate from due to cgroup restrictions.
-    MemoryTag tag;
-    const auto& numa_topology = tc_globals.numa_topology();
-    if (numa_topology.numa_aware()) {
-      tag = NumaNormalTag(numa_topology.GetCurrentPartition());
-    } else {
-      tag = MemoryTag::kNormal;
-    }
-
-    auto [ptr, actual_size] = SystemAlloc(ask, kPageSize, tag);
+    auto [ptr, actual_size] = SystemAlloc(ask, kPageSize, MemoryTag::kMetadata);
     free_area_ = reinterpret_cast<char*>(ptr);
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       Crash(kCrash, __FILE__, __LINE__,

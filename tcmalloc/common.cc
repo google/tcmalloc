@@ -32,6 +32,8 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
       return "SAMPLED";
     case MemoryTag::kCold:
       return "COLD";
+    case MemoryTag::kMetadata:
+      return "METADATA";
   }
 
   ASSUME(false);

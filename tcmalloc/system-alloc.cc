@@ -173,6 +173,7 @@ class RegionManager {
     std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
     sampled_region_ = nullptr;
     cold_region_ = nullptr;
+    metadata_region_ = nullptr;
   }
 
  private:
@@ -186,6 +187,7 @@ class RegionManager {
   std::array<AddressRegion*, kNumaPartitions> normal_region_{{nullptr}};
   AddressRegion* sampled_region_{nullptr};
   AddressRegion* cold_region_{nullptr};
+  AddressRegion* metadata_region_{nullptr};
 };
 ABSL_CONST_INIT
 std::aligned_storage<sizeof(RegionManager), alignof(RegionManager)>::type
@@ -278,6 +280,8 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
       break;
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;
+    case MemoryTag::kMetadata:
+      return UsageHint::kInfrequentAllocation;
   }
 
   ASSUME(false);
@@ -335,6 +339,8 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
         return &sampled_region_;
       case MemoryTag::kCold:
         return &cold_region_;
+      case MemoryTag::kMetadata:
+        return &metadata_region_;
     }
 
     ASSUME(false);
@@ -605,7 +611,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   // MSan and TSan use up all of the lower address space, so we allow use of
   // mid-upper address space when they're active.  This only matters for
   // TCMalloc-internal tests, since sanitizers install their own malloc/free.
-  constexpr uintptr_t kAddrMask = (uintptr_t{3} << (kAddressBits - 3)) - 1;
+  constexpr uintptr_t kAddrMask = (uintptr_t{0xF} << (kAddressBits - 5)) - 1;
 #endif
 
   // Ensure alignment >= size so we're guaranteed the full mapping has the same
@@ -626,6 +632,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   static uintptr_t next_sampled_addr = 0;
   static std::array<uintptr_t, kNumaPartitions> next_normal_addr = {0};
   static uintptr_t next_cold_addr = 0;
+  static uintptr_t next_metadata_addr = 0;
 
   std::optional<int> numa_partition;
   uintptr_t& next_addr = *[&]() {
@@ -640,6 +647,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
         return &next_normal_addr[1];
       case MemoryTag::kCold:
         return &next_cold_addr;
+      case MemoryTag::kMetadata:
+        return &next_metadata_addr;
     }
 
     ASSUME(false);
