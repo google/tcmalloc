@@ -50,7 +50,6 @@ using tcmalloc::tcmalloc_internal::Length;
 using tcmalloc::tcmalloc_internal::LengthFromBytes;
 using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
 using tcmalloc::tcmalloc_internal::NHugePages;
-using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
 using tcmalloc::tcmalloc_internal::PageId;
 using tcmalloc::tcmalloc_internal::PageIdContaining;

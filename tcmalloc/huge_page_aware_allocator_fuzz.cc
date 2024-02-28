@@ -47,7 +47,6 @@ using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
 using tcmalloc::tcmalloc_internal::kTop;
 using tcmalloc::tcmalloc_internal::Length;
 using tcmalloc::tcmalloc_internal::MemoryTag;
-using tcmalloc::tcmalloc_internal::pageheap_lock;
 using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
 using tcmalloc::tcmalloc_internal::PbtxtRegion;
 using tcmalloc::tcmalloc_internal::Printer;
