@@ -172,6 +172,7 @@ create_tcmalloc_libraries(
     name = "common",
     srcs = [
         "allocation_sample.cc",
+        "allocation_sampling.cc",
         "arena.cc",
         "arena.h",
         "background.cc",
