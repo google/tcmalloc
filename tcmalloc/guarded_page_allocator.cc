@@ -103,53 +103,14 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
   // If guarded_sampling_rate == 0, then attempt to guard, as usual.
   if (guarded_sampling_rate > 0) {
-    const double configured_sampled_to_guarded_ratio =
+    const double target_ratio =
         profile_sampling_rate > 0
             ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
             : 1.0;
-    // Select a multiplier of the configured_sampled_to_guarded_ratio that
-    // yields a product at least 2.0 greater than
-    // configured_sampled_to_guarded_ratio.
-    //
-    //    ((configured_sampled_to_guarded_ratio * margin_multiplier) -
-    //        configured_sampled_to_guarded_ratio) >= 2.0
-    //
-    // This multiplier is applied to configured_sampled_to_guarded_ratio to
-    // create the maximum, and configured_sampled_to_guarded_ratio is the
-    // minimum. This max and min are the boundaries between which
-    // current_sampled_to_guarded_ratio travels between.  While traveling
-    // towards the maximum, no guarding is attempted.  While traveling towards
-    // the minimum, guarding of every sample is attempted.
-    const double margin_multiplier =
-        std::clamp((configured_sampled_to_guarded_ratio + 2.0) /
-                       configured_sampled_to_guarded_ratio,
-                   1.2, 2.0);
-    const double maximum_configured_sampled_to_guarded_ratio =
-        margin_multiplier * configured_sampled_to_guarded_ratio;
-    const double minimum_configured_sampled_to_guarded_ratio =
-        configured_sampled_to_guarded_ratio;
-
-    // Ensure that successful_allocations is at least 1 (not zero).
-    const size_t successful_allocations =
-        std::max(SuccessfulAllocations(), 1UL);
-    const size_t current_sampled_to_guarded_ratio =
-        tc_globals.total_sampled_count_.value() / successful_allocations;
-    static std::atomic<bool> striving_to_guard_{true};
-    if (striving_to_guard_.load(std::memory_order_relaxed)) {
-      if (current_sampled_to_guarded_ratio <=
-          minimum_configured_sampled_to_guarded_ratio) {
-        striving_to_guard_.store(false, std::memory_order_relaxed);
-        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-      }
-      // Fall through to possible allocation below.
-    } else {
-      if (current_sampled_to_guarded_ratio >=
-          maximum_configured_sampled_to_guarded_ratio) {
-        striving_to_guard_.store(true, std::memory_order_relaxed);
-        // Fall through to possible allocation below.
-      } else {
-        return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
-      }
+    const double current_ratio = 1.0 * tc_globals.total_sampled_count_.value() /
+                                 (std::max(SuccessfulAllocations(), 1UL));
+    if (current_ratio <= target_ratio) {
+      return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
     }
 
     switch (stacktrace_filter_.Count(stack_trace)) {
