@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/internal/sysinfo.h"
 
 #if defined(TCMALLOC_INTERNAL_PERCPU_USE_RSEQ)
@@ -546,6 +547,13 @@ inline bool StoreCurrentCpu(volatile void* p, T v) {
   return scratch;
 }
 
+// Prefetch slabs memory for the case of repeated pushes/pops.
+// Note: this prefetch slows down micro-benchmarks, but provides ~0.1-0.5%
+// speedup for larger real applications.
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
+  PrefetchWT0(reinterpret_cast<void*>(ptr));
+}
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
@@ -596,14 +604,14 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
   );
 #if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   if (ABSL_PREDICT_FALSE(overflow)) {
-    return false;
+    goto overflow_label;
   }
-  return true;
-#else
+#endif
+  // Current now points to the slot we are going to push to next.
+  PrefetchSlabMemory(scratch + current * sizeof(void*));
   return true;
 overflow_label:
   return false;
-#endif
 }
 #endif  // defined(__x86_64__)
 
@@ -719,8 +727,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   ASSERT(size_class != 0);
   void* next;
   void* result;
-  void* scratch;
-  uintptr_t current;
+  uintptr_t scratch, current;
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
   asm goto(
@@ -784,6 +791,9 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
   ASSERT(result);
   TSANAcquire(result);
 
+  // The next pop will be from current-1, but because we prefetch the previous
+  // element we've already just read that, so prefetch current-2.
+  PrefetchSlabMemory(scratch + (current - 2) * sizeof(void*));
   PrefetchNextObject(next);
   return AssumeNotNull(result);
 underflow_path:

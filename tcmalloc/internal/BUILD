@@ -650,6 +650,7 @@ cc_library(
         ":mincore",
         ":optimization",
         ":percpu",
+        ":prefetch",
         ":sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

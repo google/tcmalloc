@@ -8,9 +8,9 @@ malloc                   -   -   5   -    7   -   -    -   1   -     2
 new                      -   -   4   -    6   -   -    -   1   -     2
 new(align)               -   -   6   -    7   -   -    -   1   -     2
 new(align)->size         -   -   6   -    8   -   -    -   1   -     2
-new(align,cold)->size    -   -  13   2   16   -   -    -   2   -     4
+new(align,cold)->size    -   -  13   1   16   -   -    -   2   -     4
 new(align,nothrow)       -   -   6   -    7   -   -    -   1   -     2
-new(cold)->size          -   -   9   2   14   -   -    -   2   -     4
+new(cold)->size          -   -   5   -    8   -   -    -   1   -     2
 new(nothrow)             -   -   4   -    6   -   -    -   1   -     2
 new->size                -   -   4   -    7   -   -    -   1   -     2
 posix_memalign           -   -   8   -    7   -   3    3   1   2     3
