@@ -24,7 +24,6 @@
 #include <cstring>
 #include <utility>
 
-#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
@@ -146,40 +145,30 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       }
     }
 
-    size_t guard_count = stacktrace_filter_.Count(stack_trace);
-    if (guard_count >= kMaxGuardsPerStackTraceSignature) {
-      return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-    }
-    ABSL_CONST_INIT static std::atomic<uint64_t> rnd_(0);
-    uint64_t new_rnd = 0;
-    if (guard_count > 0) {
-      new_rnd =
-          ExponentialBiased::NextRandom(rnd_.load(std::memory_order_relaxed));
-      rnd_.store(new_rnd, std::memory_order_relaxed);
-    }
-    switch (guard_count) {
+    switch (stacktrace_filter_.Count(stack_trace)) {
       case 0:
         // Fall through to allocation below.
         break;
       case 1:
         /* 25% */
-        if (new_rnd % 4 != 0) {
+        if (Rand(4) != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
       case 2:
         /* 12.5% */
-        if (new_rnd % 8 != 0) {
+        if (Rand(8) != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
       case 3:
         /* ~1% */
-        if (new_rnd % 128 != 0) {
+        if (Rand(128) != 0) {
           return {nullptr, Profile::Sample::GuardedStatus::Filtered};
         }
         break;
       default:
+        // Reached max per stack.
         return {nullptr, Profile::Sample::GuardedStatus::Filtered};
     }
   }
@@ -408,14 +397,19 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   }
   num_successful_allocations_.LossyAdd(1);
 
-  rand_ = ExponentialBiased::NextRandom(rand_);
   size_t num_free_pages = total_pages_ - num_alloced_pages_;
-  size_t slot = GetIthFreeSlot(rand_ % num_free_pages);
+  size_t slot = GetIthFreeSlot(Rand(num_free_pages));
   ASSERT(free_pages_[slot]);
   free_pages_[slot] = false;
   num_alloced_pages_++;
   num_alloced_pages_max_ = std::max(num_alloced_pages_, num_alloced_pages_max_);
   return slot;
+}
+
+size_t GuardedPageAllocator::Rand(size_t max) {
+  auto x = ExponentialBiased::NextRandom(rand_.load(std::memory_order_relaxed));
+  rand_.store(x, std::memory_order_relaxed);
+  return x % max;
 }
 
 size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {

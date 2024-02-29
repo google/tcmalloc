@@ -290,18 +290,10 @@ TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
 
 TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
   auto token = MallocExtension::StartAllocationProfiling();
-  // Allocate until 2 guards placed, it should not exceed 5 attempts
-  // (1st Guard: 100% (1), 2nd: 25% (4))
-  int sampled_count = 0;
   int guarded_count = 0;
   AllocateGuardableUntil(1058, [&](void* alloc) -> NextSteps {
-    if (IsSampledMemory(alloc)) {
-      ++sampled_count;
-      if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
-        ++guarded_count;
-      }
-    }
-    return {guarded_count > 1 && sampled_count > 2, true};
+    guarded_count += Static::guardedpage_allocator().PointerIsMine(alloc);
+    return {guarded_count == 4, true};
   });
 
   auto profile = std::move(token).Stop();
