@@ -15,7 +15,6 @@
 #ifndef TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 #define TCMALLOC_GUARDED_PAGE_ALLOCATOR_H_
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -265,9 +264,6 @@ class GuardedPageAllocator {
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
 
-  // Returns a random number in range [0, max).
-  size_t Rand(size_t max);
-
   StackTraceFilter stacktrace_filter_;
 
   absl::base_internal::SpinLock guarded_page_lock_;
@@ -305,7 +301,7 @@ class GuardedPageAllocator {
   size_t alloced_page_count_when_all_used_once_
       ABSL_GUARDED_BY(guarded_page_lock_);
   size_t page_size_;           // Size of pages we allocate.
-  std::atomic<uint64_t> rand_;  // RNG seed.
+  uint64_t rand_;              // RNG seed.
 
   // True if this object has been fully initialized.
   bool initialized_ ABSL_GUARDED_BY(guarded_page_lock_);

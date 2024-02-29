@@ -126,7 +126,25 @@ class TcMallocTest : public testing::Test {
     unsetenv("XML_OUTPUT_FILE");
   }
 
-  void ResetStackTraceFilter() { tc_globals.guardedpage_allocator().Reset(); }
+  void ResetStackTraceFilter() {
+    ++reset_request_count_;
+    // Only reset when the requests (expected to be matched to detected guards)
+    // exceeds the maximum number of guards for a single location provided by
+    // Improved Guarded Sampling.
+    if (reset_request_count_ >=
+        tcmalloc_internal::kMaxGuardsPerStackTraceSignature) {
+      tc_globals.guardedpage_allocator().Reset();
+      reset_request_count_ = 0;
+    }
+  }
+
+ private:
+  // Maintain the number of times the reset was requested. The count is compared
+  // against the kMaxGuardsPerStackTraceSignature threshold, allowing for
+  // conservatively resetting the filter. This avoids exceeding the maximum
+  // number of guards for a single location when improved guarded sampling is
+  // enabled.
+  size_t reset_request_count_ = 0;
 };
 
 namespace {

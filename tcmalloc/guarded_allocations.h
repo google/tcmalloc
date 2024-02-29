@@ -25,6 +25,9 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// The limit of the guards placed on a stack trace signature.
+inline constexpr size_t kMaxGuardsPerStackTraceSignature = 4;
+
 struct GuardedAllocationsStackTrace {
   void* stack[kMaxStackDepth];
   size_t depth = 0;
