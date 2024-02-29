@@ -43,9 +43,9 @@ const char kDisableExperiments[] = "BORG_DISABLE_EXPERIMENTS";
 constexpr absl::string_view kEnableAll = "enable-all-known-experiments";
 constexpr absl::string_view kDisableAll = "all";
 
-// Experiments that are not safe have known issues, are not enabled
+// Experiments that have known issues with brittle tests, are not enabled
 // involuntarily in tests, and shouldn't be enabled widely.
-bool IsSafeExperiment(Experiment exp) { return false; }
+bool HasBrittleTestFailures(Experiment exp) { return true; }
 
 bool IsCompilerExperiment(Experiment exp) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
@@ -158,7 +158,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
     CHECK_CONDITION(active.empty() && disabled.empty());
-    size_t target_hash = std::hash<std::string_view>{}(test_target);
+    const size_t target_hash = std::hash<std::string_view>{}(test_target);
     constexpr size_t kVanillaOneOf = 10;
     constexpr size_t kEnableOneOf = 3;
     if ((target_hash % kVanillaOneOf) == 0) {
@@ -166,13 +166,16 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     }
 
     for (auto config : experiments) {
-      if (IsCompilerExperiment(config.id)) {
+      if (IsCompilerExperiment(config.id) ||
+          HasBrittleTestFailures(config.id)) {
         continue;
       }
       CHECK_CONDITION(!buffer[static_cast<int>(config.id)]);
+      // Enabling is specifically based on the experiment name so that it's
+      // stable when experiments are added/removed.
       buffer[static_cast<int>(config.id)] =
-          IsSafeExperiment(config.id) && (target_hash % kEnableOneOf) == 0;
-      target_hash /= kEnableOneOf;
+          ((target_hash ^ std::hash<std::string_view>{}(config.name)) %
+           kEnableOneOf) == 0;
     }
   }
 
