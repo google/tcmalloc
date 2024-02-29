@@ -259,7 +259,9 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
       benchmark::DoNotOptimize(sink_buf);
       sink_buf[kSize] = '\0';
       benchmark::DoNotOptimize(sink_buf[kSize]);
-      ResetStackTraceFilter();
+      if (tc_globals.guardedpage_allocator().PointerIsMine(sink_buf.get())) {
+        ResetStackTraceFilter();
+      }
     }
   };
   std::string expected_output = absl::StrCat(

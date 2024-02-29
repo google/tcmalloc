@@ -76,7 +76,14 @@ void GuardedPageAllocator::Destroy() {
   }
 }
 
-void GuardedPageAllocator::Reset() { stacktrace_filter_.Reset(); }
+void GuardedPageAllocator::Reset() {
+  // Reset is used by tests to ensure that subsequent allocations will be
+  // sampled. Reset sampled/guarded counters so that that we don't skip
+  // guarded sampling for a prolonged time due to accumulated stats.
+  tc_globals.total_sampled_count_.Add(-tc_globals.total_sampled_count_.value());
+  num_successful_allocations_.Add(-num_successful_allocations_.value());
+  stacktrace_filter_.Reset();
+}
 
 GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     size_t size, size_t alignment, Length num_pages,
