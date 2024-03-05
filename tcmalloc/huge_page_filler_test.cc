@@ -247,18 +247,18 @@ class PageTrackerTest : public testing::Test {
   }
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     PageId p = tracker_.Get(n).page;
     return {p, n, span_alloc_info};
   }
 
   void Put(PAlloc a) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     tracker_.Put(a.p, a.n);
   }
 
   Length ReleaseFree() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return tracker_.ReleaseFree(mock_);
   }
 };
@@ -768,7 +768,7 @@ class FillerTest : public testing::TestWithParam<
   }
 
   Length ReleasePages(Length desired, SkipSubreleaseIntervals intervals = {}) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 /*release_partial_alloc_pages=*/false,
                                 /*hit_limit=*/false);
@@ -776,14 +776,14 @@ class FillerTest : public testing::TestWithParam<
 
   Length ReleasePartialPages(Length desired,
                              SkipSubreleaseIntervals intervals = {}) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, intervals,
                                 /*release_partial_alloc_pages=*/true,
                                 /*hit_limit=*/false);
   }
 
   Length HardReleasePages(Length desired) {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return filler_.ReleasePages(desired, SkipSubreleaseIntervals{},
                                 /*release_partial_alloc_pages=*/false,
                                 /*hit_limit=*/true);
@@ -811,7 +811,7 @@ class FillerTest : public testing::TestWithParam<
     ret.mark = ++next_mark_;
     ret.span_alloc_info = span_alloc_info;
     if (!donated) {  // Donated means always create a new hugepage
-      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       auto [pt, page, from_released] = filler_.TryGet(n, span_alloc_info);
       ret.pt = pt;
       ret.p = page;
@@ -820,7 +820,7 @@ class FillerTest : public testing::TestWithParam<
     if (ret.pt == nullptr) {
       ret.pt = new PageTracker(GetBacking(), donated);
       {
-        absl::base_internal::SpinLockHolder l(&pageheap_lock);
+        PageHeapSpinLockHolder l;
         ret.p = ret.pt->Get(n).page;
       }
       filler_.Contribute(ret.pt, donated, span_alloc_info);
@@ -835,7 +835,7 @@ class FillerTest : public testing::TestWithParam<
   bool DeleteRaw(const PAlloc& p) {
     PageTracker* pt;
     {
-      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       pt = filler_.Put(p.pt, p.p, p.n);
     }
     total_allocated_ -= p.n;

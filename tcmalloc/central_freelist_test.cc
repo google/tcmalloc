@@ -282,7 +282,7 @@ class StaticForwarderEnvironment {
 };
 
 static BackingStats PageHeapStats() {
-  absl::base_internal::SpinLockHolder l(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   return tc_globals.page_allocator().stats();
 }
 

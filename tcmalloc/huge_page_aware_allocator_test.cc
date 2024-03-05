@@ -103,7 +103,7 @@ class HugePageAwareAllocatorTest
     // It'd be very complicated to rebuild the allocator to support
     // teardown, so we just put up with it.
     {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       auto stats = allocator_->stats();
       if (stats.free_bytes + stats.unmapped_bytes != stats.system_bytes) {
         Crash(kCrash, __FILE__, __LINE__, stats.free_bytes,
@@ -121,7 +121,7 @@ class HugePageAwareAllocatorTest
     size_t actual_used_bytes = total_.in_bytes();
     BackingStats stats;
     {
-      absl::base_internal::SpinLockHolder h2(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       stats = allocator_->stats();
     }
     uint64_t used_bytes =
@@ -132,7 +132,7 @@ class HugePageAwareAllocatorTest
   uint64_t GetFreeBytes() {
     BackingStats stats;
     {
-      absl::base_internal::SpinLockHolder h2(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       stats = allocator_->stats();
     }
     return stats.free_bytes;
@@ -143,7 +143,7 @@ class HugePageAwareAllocatorTest
   }
 
   void AllocatorDelete(Span* s, size_t objects_per_span) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     allocator_->Delete(s, objects_per_span);
   }
 
@@ -198,17 +198,17 @@ class HugePageAwareAllocatorTest
   }
 
   Length ReleasePages(Length k) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return allocator_->ReleaseAtLeastNPages(k);
   }
 
   Length ReleaseAtLeastNPagesBreakingHugepages(Length n) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return allocator_->ReleaseAtLeastNPagesBreakingHugepages(n);
   }
 
   bool UseHugeRegionMoreOften() {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     return allocator_->region().UseHugeRegionMoreOften();
   }
 
@@ -432,7 +432,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   BackingStats region_stats;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     small_pages = allocator_->info().small();
     donated_huge_pages = allocator_->DonatedHugePages();
@@ -542,7 +542,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
   if (UseHugeRegionMoreOften()) {
     Length released;
     {
-      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       released = allocator_->ReleaseAtLeastNPages(Length(1));
     }
     EXPECT_GT(released.in_bytes(), 0);
@@ -551,7 +551,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     backed_bytes = region_stats.system_bytes - region_stats.unmapped_bytes;
 
     {
-      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       released = allocator_->ReleaseAtLeastNPages(Length(1));
     }
     EXPECT_GT(released.in_bytes(), 0);
@@ -560,7 +560,7 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
 
     Length backed_in_pages = LengthFromBytes(backed_bytes);
     {
-      absl::base_internal::SpinLockHolder l(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       released =
           allocator_->ReleaseAtLeastNPagesBreakingHugepages(backed_in_pages);
     }
@@ -590,7 +590,7 @@ TEST_P(HugePageAwareAllocatorTest, DonatedHugePages) {
   Length abandoned_pages;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
@@ -683,7 +683,7 @@ TEST_P(HugePageAwareAllocatorTest, SmallDonations) {
   Length abandoned_pages;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
@@ -780,7 +780,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeDonations) {
   Length abandoned_pages;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
@@ -837,7 +837,7 @@ TEST_P(HugePageAwareAllocatorTest, TailDonation) {
   Length abandoned_pages;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
@@ -917,7 +917,7 @@ TEST_P(HugePageAwareAllocatorTest, NotDonated) {
   Length abandoned_pages;
 
   auto RefreshStats = [&]() {
-    absl::base_internal::SpinLockHolder l(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     slack = allocator_->info().slack();
     donated_huge_pages = allocator_->DonatedHugePages();
     abandoned_pages = allocator_->AbandonedPages();
@@ -1014,7 +1014,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
 
   BackingStats stats;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     stats = allocator_->stats();
   }
 
@@ -1091,7 +1091,7 @@ TEST_P(HugePageAwareAllocatorTest, DonationAccounting) {
   HugeLength donated;
   // Check donation count.
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     donated = allocator_->DonatedHugePages();
   }
   EXPECT_EQ(donated, NHugePages(4));
@@ -1106,7 +1106,7 @@ TEST_P(HugePageAwareAllocatorTest, DonationAccounting) {
 
   // Check donation count.
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     donated = allocator_->DonatedHugePages();
   }
   EXPECT_EQ(donated, NHugePages(0));
@@ -1305,7 +1305,7 @@ class StatTest : public testing::Test {
   }
 
   BackingStats Stats() {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     BackingStats stats = alloc->stats();
     return stats;
   }
@@ -1344,7 +1344,7 @@ class StatTest : public testing::Test {
     Length n = s->num_pages();
     total_ -= n;
     {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       alloc->Delete(s, span_info.objects_per_span);
     }
   }
@@ -1355,7 +1355,7 @@ class StatTest : public testing::Test {
     SmallSpanStats small;
     LargeSpanStats large;
     {
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       alloc->GetSmallSpanStats(&small);
       alloc->GetLargeSpanStats(&large);
     }
@@ -1421,7 +1421,7 @@ TEST_F(StatTest, Basic) {
 
     if (absl::Bernoulli(rng, 1.0 / 3)) {
       Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
-      absl::base_internal::SpinLockHolder h(&pageheap_lock);
+      PageHeapSpinLockHolder l;
       alloc->ReleaseAtLeastNPages(pages);
     }
 

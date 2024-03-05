@@ -23,6 +23,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/container/flat_hash_set.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/static_vars.h"
@@ -44,13 +45,13 @@ static size_t PageSize() {
 class GuardedPageAllocatorTest : public testing::Test {
  protected:
   GuardedPageAllocatorTest() {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     gpa_.Init(kMaxGpaPages, kMaxGpaPages);
     gpa_.AllowAllocations();
   }
 
   explicit GuardedPageAllocatorTest(size_t num_pages) {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     gpa_.Init(num_pages, kMaxGpaPages);
     gpa_.AllowAllocations();
   }

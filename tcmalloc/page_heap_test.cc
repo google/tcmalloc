@@ -40,7 +40,7 @@ void CheckStats(const PageHeap* ph, Length system_pages, Length free_pages,
                 Length unmapped_pages) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   BackingStats stats;
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     stats = ph->stats();
   }
 
@@ -52,13 +52,13 @@ void CheckStats(const PageHeap* ph, Length system_pages, Length free_pages,
 static void Delete(PageHeap* ph, Span* s, size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
   {
-    absl::base_internal::SpinLockHolder h(&pageheap_lock);
+    PageHeapSpinLockHolder l;
     ph->Delete(s, objects_per_span);
   }
 }
 
 static Length Release(PageHeap* ph, Length n) {
-  absl::base_internal::SpinLockHolder h(&pageheap_lock);
+  PageHeapSpinLockHolder l;
   return ph->ReleaseAtLeastNPages(n);
 }
 
