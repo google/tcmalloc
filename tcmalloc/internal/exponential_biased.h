@@ -23,6 +23,7 @@ namespace tcmalloc_internal {
 class ExponentialBiased {
  public:
   static uint64_t NextRandom(uint64_t rnd);
+  static uint32_t GetRandom(uint64_t rnd);
 };
 
 // Returns the next prng value.
@@ -36,6 +37,11 @@ inline uint64_t ExponentialBiased::NextRandom(uint64_t rnd) {
       ~((~static_cast<uint64_t>(0)) << prng_mod_power);
   return (prng_mult * rnd + prng_add) & prng_mod_mask;
 }
+
+// Extracts higher-quality random bits.
+// The raw value returned from NextRandom has poor randomness low bits
+// and is not directly suitable for things like 'if (rnd % 2)'.
+inline uint32_t ExponentialBiased::GetRandom(uint64_t rnd) { return rnd >> 16; }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

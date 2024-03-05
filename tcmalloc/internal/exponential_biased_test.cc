@@ -14,6 +14,8 @@
 
 #include "tcmalloc/internal/exponential_biased.h"
 
+#include <cstdint>
+
 #include "gtest/gtest.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -93,6 +95,27 @@ TEST(ExponentialBiased, arithmetic_1) {
     double q = (rnd >> (prng_mod_power - 26)) + 1.0;
     ASSERT_GE(q, 0) << " rnd=" << rnd << "  i=" << i << " prng_mod_power"
                     << prng_mod_power;
+  }
+}
+
+TEST(ExponentialBiased, CoinFlip) {
+  // Ensure that the low bits contain good randomness and can be as a coin flip.
+  for (uint64_t seed = 0; seed < 100; seed++) {
+    uint64_t rnd = seed;
+    int even = 0;
+    constexpr int kIters = 100;
+    for (int i = 0; i < 2 * kIters; i++) {
+      rnd = ExponentialBiased::NextRandom(rnd);
+      // Check that it works even if we look at every second value
+      // (i.e. if the rand is used twice per some operation).
+      // This fails without GetRandom, which caused issues for guarded page
+      // allocator sampling (left-right-alignment decision).
+      if (i % 2) {
+        even += ExponentialBiased::GetRandom(rnd) % 2;
+      }
+    }
+    EXPECT_GT(even, kIters / 10) << seed;
+    EXPECT_LT(even, kIters / 10 * 9) << seed;
   }
 }
 }  // namespace

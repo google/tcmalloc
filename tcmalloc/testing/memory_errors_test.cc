@@ -126,25 +126,7 @@ class TcMallocTest : public testing::Test {
     unsetenv("XML_OUTPUT_FILE");
   }
 
-  void ResetStackTraceFilter() {
-    ++reset_request_count_;
-    // Only reset when the requests (expected to be matched to detected guards)
-    // exceeds the maximum number of guards for a single location provided by
-    // Improved Guarded Sampling.
-    if (reset_request_count_ >=
-        tcmalloc_internal::kMaxGuardsPerStackTraceSignature) {
-      tc_globals.guardedpage_allocator().Reset();
-      reset_request_count_ = 0;
-    }
-  }
-
- private:
-  // Maintain the number of times the reset was requested. The count is compared
-  // against the kMaxGuardsPerStackTraceSignature threshold, allowing for
-  // conservatively resetting the filter. This avoids exceeding the maximum
-  // number of guards for a single location when improved guarded sampling is
-  // enabled.
-  size_t reset_request_count_ = 0;
+  void ResetStackTraceFilter() { tc_globals.guardedpage_allocator().Reset(); }
 };
 
 namespace {
@@ -320,6 +302,8 @@ TEST_F(TcMallocTest, OffsetAndLength) {
                  ">>> Access at offset 1221 into buffer of length 6543");
     EXPECT_DEATH(RepeatUseAfterFree(8192, 8484),
                  ">>> Access at offset 8484 into buffer of length 8192");
+    EXPECT_DEATH(RepeatUseAfterFree(4096, 4096),
+                 ">>> Access at offset 4096 into buffer of length 4096");
   }
 }
 
