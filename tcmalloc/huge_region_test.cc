@@ -200,19 +200,19 @@ TEST_F(HugeRegionTest, ReleaseFrac) {
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/0.1));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(2), NHugePages(1)});
-  EXPECT_EQ(NHugePages(1), region_.Release(/*release_fraction=*/0.1));
+  EXPECT_EQ(NHugePages(1), region_.Release(NHugePages(1).in_pages()));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(3), NHugePages(8)});
-  EXPECT_EQ(NHugePages(8), region_.Release(/*release_fraction=*/0.5));
+  EXPECT_EQ(NHugePages(8), region_.Release(NHugePages(8).in_pages()));
   CheckMock();
 
   ExpectUnback({p_ + NHugePages(11), NHugePages(9)});
-  EXPECT_EQ(NHugePages(9), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(9), region_.Release(NHugePages(9).in_pages()));
   CheckMock();
 }
 
@@ -240,18 +240,18 @@ TEST_F(HugeRegionTest, Release) {
   // overlap with others.
   Delete(b);
   ExpectUnback({p_ + NHugePages(4), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
   CheckMock();
 
   // Now we're on exact boundaries so we should unback the whole range.
   Delete(d);
   ExpectUnback({p_ + NHugePages(12), NHugePages(2)});
-  EXPECT_EQ(NHugePages(2), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(2), region_.Release(NHugePages(2).in_pages()));
   CheckMock();
 
   Delete(a);
   ExpectUnback({p_ + NHugePages(0), NHugePages(4)});
-  EXPECT_EQ(NHugePages(4), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(4), region_.Release(NHugePages(4).in_pages()));
   CheckMock();
 
   // Should work just as well with aggressive Put():
@@ -278,7 +278,7 @@ TEST_F(HugeRegionTest, ReleaseFailure) {
   // overlap with others.
   Delete(a);
   ExpectUnback({p_, NHugePages(4)}, false);
-  EXPECT_EQ(NHugePages(0), region_.Release(/*release_fraction=*/1.0));
+  EXPECT_EQ(NHugePages(0), region_.Release(NHugePages(4).in_pages()));
   EXPECT_EQ(NHugePages(4), region_.backed());
   CheckMock();
 
