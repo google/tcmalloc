@@ -714,6 +714,8 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
     // madvise failing.
     const bool simulate_madvise_failure = absl::Bernoulli(rnd, 0.1);
     if (!simulate_madvise_failure) {
+      // Verify that we do not write to an old slab, as this may indicate a bug.
+      mprotect(old_slabs, old_slabs_size, PROT_READ);
       // It's important that we do this here in order to uncover any potential
       // correctness issues due to madvising away the old slabs.
       // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
@@ -756,8 +758,10 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
 
     // Delete the old slab from 100 iterations ago.
     if (old_slabs_span[old_slabs_idx].first != nullptr) {
-      sized_aligned_delete(old_slabs_span[old_slabs_idx].first,
-                           old_slabs_span[old_slabs_idx].second,
+      auto [old_slabs, old_slabs_size] = old_slabs_span[old_slabs_idx];
+
+      mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
+      sized_aligned_delete(old_slabs, old_slabs_size,
                            std::align_val_t{EXEC_PAGESIZE});
     }
     old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
@@ -872,6 +876,8 @@ TEST_P(StressThreadTest, Stress) {
   void* deleted_slabs = slab.Destroy(sized_aligned_delete);
   for (const auto& [old_slabs, old_slabs_size] : old_slabs_arr) {
     if (old_slabs == nullptr || old_slabs == deleted_slabs) continue;
+
+    mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
     sized_aligned_delete(old_slabs, old_slabs_size,
                          std::align_val_t{EXEC_PAGESIZE});
   }
