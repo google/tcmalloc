@@ -484,7 +484,8 @@ class DeallocationProfiler {
     // TODO(mmaas): Do we need to worry about b/65384231 anymore?
     allocation.creation_time = stack_trace.allocation_time;
     allocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
-    allocation.vcpu_id = tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
+    allocation.vcpu_id =
+        tcmalloc_internal::subtle::percpu::GetCurrentVirtualCpuUnsafe();
     allocation.l3_id = GetL3Id(allocation.cpu_id);
     allocation.numa_id = GetNumaId(allocation.cpu_id);
     allocation.thread_id = absl::base_internal::GetTID();
@@ -512,7 +513,7 @@ class DeallocationProfiler {
     deallocation.creation_time = absl::Now();
     deallocation.cpu_id = tcmalloc_internal::subtle::percpu::GetCurrentCpu();
     deallocation.vcpu_id =
-        tcmalloc_internal::subtle::percpu::VirtualRseqCpuId();
+        tcmalloc_internal::subtle::percpu::GetCurrentVirtualCpuUnsafe();
     deallocation.l3_id = GetL3Id(deallocation.cpu_id);
     deallocation.numa_id = GetNumaId(deallocation.cpu_id);
     deallocation.thread_id = absl::base_internal::GetTID();

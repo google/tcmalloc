@@ -248,7 +248,7 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
   // We can't use the unsafe version unless we have the appropriate version of
   // the rseq extension. This also allows us a convenient escape hatch if the
   // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset);
+  int cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
 
   // We open-code the check for fast-cpu availability since we do not want to
   // force initialization in the first-call case.  This so done so that we can
@@ -271,10 +271,10 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
   return cpu;
 }
 
-inline int VirtualRseqCpuId() {
+inline int GetCurrentVirtualCpuUnsafe() {
   const size_t offset = UsingFlatVirtualCpus() ? offsetof(kernel_rseq, cpu_id)
                                                : offsetof(kernel_rseq, vcpu_id);
-  return VirtualRseqCpuId(offset);
+  return GetCurrentVirtualCpuUnsafe(offset);
 }
 
 bool InitFastPerCpu();

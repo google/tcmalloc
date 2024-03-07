@@ -906,7 +906,7 @@ inline size_t TcmallocSlab::Grow(
 }
 
 inline std::pair<int, bool> TcmallocSlab::CacheCpuSlab() {
-  int cpu = VirtualRseqCpuId(virtual_cpu_id_offset_);
+  int cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset_);
   ASSERT(cpu >= 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
