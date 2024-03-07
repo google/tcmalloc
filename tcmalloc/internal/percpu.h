@@ -272,8 +272,8 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
 }
 
 inline int GetCurrentVirtualCpuUnsafe() {
-  const size_t offset = UsingFlatVirtualCpus() ? offsetof(kernel_rseq, cpu_id)
-                                               : offsetof(kernel_rseq, vcpu_id);
+  const size_t offset = UsingFlatVirtualCpus() ? offsetof(kernel_rseq, vcpu_id)
+                                               : offsetof(kernel_rseq, cpu_id);
   return GetCurrentVirtualCpuUnsafe(offset);
 }
 
