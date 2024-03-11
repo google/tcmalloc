@@ -35,6 +35,7 @@ config_setting(
     },
     visibility = [
         "//tcmalloc/internal:__subpackages__",
+        "//tcmalloc/selsan:__subpackages__",
         "//tcmalloc/testing:__subpackages__",
     ],
 )

@@ -44,6 +44,10 @@ void SetTestResourceLimit(size_t limit) {
 #define USE_RESOURCE RLIMIT_RSS
 #endif
 
+#ifdef TCMALLOC_INTERNAL_SELSAN
+  return;  // SelSan allocates lots of virtual memory.
+#endif
+
   // Be careful we don't overflow rlim - if we would, this is a no-op
   // and we can just do nothing.
   const int64_t lim = static_cast<int64_t>(limit);
