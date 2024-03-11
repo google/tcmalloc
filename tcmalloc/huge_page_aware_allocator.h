@@ -1022,6 +1022,8 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   released += filler_.ReleasePages(n - released, SkipSubreleaseIntervals{},
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
+
+  info_.RecordRelease(n, released);
   return released;
 }
 
