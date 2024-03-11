@@ -46,6 +46,8 @@
 namespace tcmalloc {
 namespace {
 
+auto process_start = absl::Now();
+
 class HeapProfilingTest : public ::testing::TestWithParam<int64_t> {};
 
 // Verify that heap profiling sessions concurrent with allocations/deallocations
@@ -62,8 +64,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
   // Some threads are busy with allocating and deallocating.
   manager.Start(kThreads, [&](int thread_id) { harness.Run(thread_id); });
 
-  absl::Time start = absl::Now();
-  constexpr absl::Duration kDelta = absl::Seconds(20);
+  absl::Time test_start = absl::Now();
   // Another few threads busy with iterating different kinds of heap profiles.
   for (auto t : {
            ProfileType::kHeap,
@@ -78,8 +79,10 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
             CHECK_GT(s.depth, 0);
             CHECK_GT(s.requested_size, 0);
             CHECK_GT(s.allocated_size, 0);
-            CHECK_GT(s.allocation_time, start - kDelta);
-            CHECK_LT(s.allocation_time, start + kDelta);
+            // Note: there may be few allocations that happened before
+            // process_start initialization.
+            CHECK_GT(s.allocation_time, process_start - absl::Seconds(10));
+            CHECK_LT(s.allocation_time, test_start + absl::Seconds(20));
           });
     });
   }
