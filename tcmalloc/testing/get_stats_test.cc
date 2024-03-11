@@ -107,6 +107,8 @@ TEST_F(GetStatsTest, Pbtxt) {
 #endif
 
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, ContainsRegex("(tcmalloc_filler_chunks_per_alloc: 8|(16))"));
 
@@ -157,6 +159,9 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));

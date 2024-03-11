@@ -830,8 +830,22 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    constexpr double kFractionPagesToRelease = 0.1;
-    released += regions_.ReleasePages(kFractionPagesToRelease);
+    if (Parameters::huge_region_demand_based_release()) {
+      if (released < num_pages) {
+        released += regions_.ReleasePagesByPeakDemand(
+            num_pages - released,
+            SkipSubreleaseIntervals{
+                .peak_interval = forwarder_.filler_skip_subrelease_interval(),
+                .short_interval =
+                    forwarder_.filler_skip_subrelease_short_interval(),
+                .long_interval =
+                    forwarder_.filler_skip_subrelease_long_interval()},
+            /*hit_limit*/ false);
+      }
+    } else {
+      constexpr double kFractionPagesToRelease = 0.1;
+      released += regions_.ReleasePages(kFractionPagesToRelease);
+    }
   }
 
   // This is our long term plan but in current state will lead to insufficient
@@ -1014,7 +1028,13 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
 
   Length released;
   // We try to release as many free hugepages from HugeRegion as possible.
-  released += regions_.ReleasePages(/*release_fraction=*/1.0);
+  if (Parameters::huge_region_demand_based_release()) {
+    released += regions_.ReleasePagesByPeakDemand(
+        n - released, SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  } else {
+    released += regions_.ReleasePages(/*release_fraction=*/1.0);
+  }
+
   if (released >= n) {
     return released;
   }

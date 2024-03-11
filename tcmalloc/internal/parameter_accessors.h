@@ -36,6 +36,7 @@ ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval(
     absl::Duration* v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHugeRegionDemandBasedRelease();
 ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
@@ -48,6 +49,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHPAASubrelease(bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(
+    bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
     bool v);

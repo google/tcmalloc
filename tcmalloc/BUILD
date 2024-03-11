@@ -898,6 +898,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
+        "//tcmalloc/internal:clock",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
