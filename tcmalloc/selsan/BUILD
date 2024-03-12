@@ -25,6 +25,19 @@ cc_library(
     features = ["-use_header_modules"],  # to avoid flags mismatch errors (b/327555681)
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
-    deps = ["//tcmalloc/internal:config"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
     alwayslink = 1,
+)
+
+cc_test(
+    name = "report_test",
+    srcs = ["report_test.cc"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_googletest//:gtest_main",
+    ],
 )

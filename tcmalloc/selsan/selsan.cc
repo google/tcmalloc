@@ -25,8 +25,11 @@
 #ifdef __x86_64__
 #include <asm/prctl.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
+#include <ucontext.h>
 #endif
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 
 // This is used by the compiler instrumentation.
@@ -46,8 +49,10 @@ constexpr uintptr_t kPieBuild = false;
 // Note: this is not necessary equal to kAddressBits since we need to cover
 // everything kernel can mmap, rather than just the heap.
 constexpr uintptr_t kAddressSpaceBits = 47;
+constexpr uintptr_t kTagShift = 57;
 #elif defined(__aarch64__)
 constexpr uintptr_t kAddressSpaceBits = 48;
+constexpr uintptr_t kTagShift = 56;
 #else
 #error "Unsupported platform."
 #endif
@@ -63,6 +68,8 @@ constexpr uintptr_t kShadowScale = 1 << kShadowShift;
 // huge pages for shadow.
 constexpr uintptr_t kShadowBase = kPieBuild ? 0 : (1ul << 32) - (2ul << 20);
 constexpr uintptr_t kShadowOffset = kPieBuild ? 64 << 10 : 0;
+
+ABSL_CONST_INIT bool enabled = false;
 
 void MapShadow() {
   void* const kShadowStart =
@@ -104,14 +111,60 @@ bool EnableTBI() {
 
 void Init() {
   MapShadow();
-  EnableTBI();
+  enabled = EnableTBI();
 }
 
 void CheckAccess(uintptr_t p, size_t n, bool write) {
   // Not implemented yet.
 }
 
+void PrintTagMismatch(uintptr_t addr, size_t size, bool write) {
+  uintptr_t ptr = addr & ((1ul << kTagShift) - 1);
+  uintptr_t ptr_tag = addr >> kTagShift;
+  uintptr_t mem_tag =
+      *reinterpret_cast<uint8_t*>(kShadowBase + (ptr >> kShadowShift));
+  fprintf(stderr,
+          "WARNING: SelSan: %s tag-mismatch at addr %p ptr/mem tag:%zu/%zu "
+          "size:%zu\n",
+          write ? "write" : "read", reinterpret_cast<void*>(ptr), ptr_tag,
+          mem_tag, size);
+}
+
 }  // namespace
+
+bool SelsanEnabled() { return enabled; }
+
+#ifdef __x86_64__
+void SelsanTrapHandler(void* info, void* ctx) {
+  // Tag mismatch is signalled using INT3 instruction + some NOP instructions
+  // after it that encode access type/size. For the format and reference
+  // implementation see:
+  // https://github.com/llvm/llvm-project/blob/main/compiler-rt/lib/hwasan/hwasan_linux.cpp#L379-L396
+  //
+  // Note: we need to use process_vm_readv to read the code b/c we are not yet
+  // sure this is hwasan trap. It may be some other INT3 instruction,
+  // or an async SIGTRAP. Potentially RIP may be near page end and the next
+  // page may be not mapped.
+  const auto& mctx = (static_cast<ucontext_t*>(ctx))->uc_mcontext;
+  unsigned char code[5];
+  struct iovec local = {code, sizeof(code)};
+  struct iovec remote = {reinterpret_cast<void*>(mctx.gregs[REG_RIP] - 1),
+                         sizeof(code)};
+  ssize_t n = process_vm_readv(getpid(), &local, 1, &remote, 1, 0);
+  if (n != sizeof(code)) {
+    return;
+  }
+  // Verify that we have INT3 (0xcc) + expected NOPs after it.
+  if (code[0] != 0xcc || code[1] != 0x0f || code[2] != 0x1f ||
+      code[3] != 0x40 || (code[4] & 0xc0) != 0x40 || (code[4] & 0xf) > 4) {
+    return;
+  }
+  const bool write = (code[4] & 0x10) != 0;
+  const size_t size = 1 << (code[4] & 0xf);
+  const uintptr_t addr = mctx.gregs[REG_RDI];
+  PrintTagMismatch(addr, size, write);
+}
+#endif  // #ifdef __x86_64__
 
 extern "C" {
 
@@ -148,10 +201,51 @@ _Unwind_Reason_Code __hwasan_personality_wrapper(
                           : _URC_CONTINUE_UNWIND;
 }
 
-void __hwasan_tag_mismatch_v2() {
-  fprintf(stderr, "selsan: __hwasan_tag_mismatch_v2 is not implemented\n");
+#ifdef __aarch64__
+__attribute__((naked)) void __hwasan_tag_mismatch_v2() {
+  // See the following links for the function interface:
+  // https://github.com/llvm/llvm-project/blob/main/clang/docs/HardwareAssistedAddressSanitizerDesign.rst
+  // https://github.com/llvm/llvm-project/blob/main/compiler-rt/lib/hwasan/hwasan_tag_mismatch_aarch64.S
+  asm(
+#ifdef __ARM_FEATURE_BTI_DEFAULT
+      "hint 36"  // BTI_J
+#endif
+      "add x29, sp, #232"
+#ifdef __GCC_HAVE_DWARF2_CFI_ASM
+      R"(
+        .cfi_def_cfa w29, 24
+        .cfi_offset w30, -16
+        .cfi_offset w29, -24
+      )"
+#endif
+      R"(
+        str x28, [sp, #224]
+        stp x26, x27, [sp, #208]
+        stp x24, x25, [sp, #192]
+        stp x22, x23, [sp, #176]
+        stp x20, x21, [sp, #160]
+        stp x18, x19, [sp, #144]
+        stp x16, x17, [sp, #128]
+        stp x14, x15, [sp, #112]
+        stp x12, x13, [sp, #96]
+        stp x10, x11, [sp, #80]
+        stp x8, x9, [sp, #64]
+        stp x6, x7, [sp, #48]
+        stp x4, x5, [sp, #32]
+        stp x2, x3, [sp, #16]
+        mov x2, sp
+        bl TCMallocInternalTagMismatch
+      )");
+}
+
+void TCMallocInternalTagMismatch(uintptr_t addr, uintptr_t type,
+                                 uintptr_t* regs) {
+  const size_t size = 1 << (type & 0xf);
+  const bool write = (type & 0x10) != 0;
+  PrintTagMismatch(addr, size, write);
   abort();
 }
+#endif  // #ifdef __aarch64__
 
 void __hwasan_init() {}
 

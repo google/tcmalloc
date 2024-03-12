@@ -24,6 +24,7 @@
 #include <cstring>
 #include <tuple>
 
+#include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
@@ -211,9 +212,15 @@ GuardedAllocationsErrorType RefineErrorTypeBasedOnContext(
   return RefineErrorTypeBasedOnWriteFlag(error, write_flag);
 }
 
+// This is overridden by selsan, if it's linked in.
+ABSL_ATTRIBUTE_WEAK void SelsanTrapHandler(void* info, void* ctx) {}
+
 // A SEGV handler that prints stack traces for the allocation and deallocation
 // of relevant memory as well as the location of the memory error.
 void SegvHandler(int signo, siginfo_t* info, void* context) {
+  if (signo == SIGTRAP) {
+    SelsanTrapHandler(info, context);
+  }
   if (signo != SIGSEGV) return;
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
@@ -297,9 +304,11 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   }
 }
 
-static struct sigaction old_sa;
+static struct sigaction old_segv_sa;
+static struct sigaction old_trap_sa;
 
 static void ForwardSignal(int signo, siginfo_t* info, void* context) {
+  auto& old_sa = signo == SIGSEGV ? old_segv_sa : old_trap_sa;
   if (old_sa.sa_flags & SA_SIGINFO) {
     old_sa.sa_sigaction(signo, info, context);
   } else if (old_sa.sa_handler == SIG_DFL) {
@@ -328,7 +337,8 @@ extern "C" void MallocExtension_Internal_ActivateGuardedSampling() {
     action.sa_sigaction = HandleSegvAndForward;
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &action, &old_sa);
+    sigaction(SIGSEGV, &action, &old_segv_sa);
+    sigaction(SIGTRAP, &action, &old_trap_sa);
     tc_globals.guardedpage_allocator().AllowAllocations();
   });
 }
