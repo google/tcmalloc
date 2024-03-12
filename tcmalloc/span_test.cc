@@ -24,10 +24,13 @@
 
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
+#include "absl/base/optimization.h"
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
 
 namespace tcmalloc {
@@ -194,6 +197,45 @@ TEST_P(SpanTest, FreelistRandomized) {
 }
 
 INSTANTIATE_TEST_SUITE_P(All, SpanTest, testing::Range(size_t(1), kNumClasses));
+
+TEST(SpanAllocatorTest, Alignment) {
+  PageId p{1};
+  Length len{2};
+
+  constexpr int kNumSpans = 1000;
+  std::vector<Span*> spans;
+  spans.reserve(kNumSpans);
+
+  {
+    PageHeapSpinLockHolder l;
+    for (int i = 0; i < kNumSpans; ++i) {
+      spans.push_back(Span::New(p, len));
+    }
+  }
+
+  absl::flat_hash_map<uintptr_t, int> address_mod_cacheline;
+  for (Span* s : spans) {
+    ++address_mod_cacheline[reinterpret_cast<uintptr_t>(s) %
+                            ABSL_CACHELINE_SIZE];
+  }
+
+  // Not all spans are currently aligned to a cacheline.
+  //
+  // TODO(b/304135905): Modify this assumption.
+  EXPECT_LT(address_mod_cacheline[0], kNumSpans);
+
+  // Verify alignof is respected.
+  for (auto [alignment, count] : address_mod_cacheline) {
+    EXPECT_EQ(alignment % alignof(Span), 0);
+  }
+
+  {
+    PageHeapSpinLockHolder l;
+    for (Span* s : spans) {
+      Span::Delete(s);
+    }
+  }
+}
 
 }  // namespace
 }  // namespace tcmalloc_internal
