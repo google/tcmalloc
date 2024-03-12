@@ -633,39 +633,20 @@ static void InvokeHooksAndFreePages(void* ptr) {
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   CHECK_CONDITION(span != nullptr && "Possible double free detected");
-  // Prefetch now to avoid a stall accessing *span while under the lock.
-  span->Prefetch();
 
   MaybeUnsampleAllocation(tc_globals, ptr, span);
 
-  {
+  if (ABSL_PREDICT_FALSE(
+          tc_globals.guardedpage_allocator().PointerIsMine(ptr))) {
+    tc_globals.guardedpage_allocator().Deallocate(ptr);
     PageHeapSpinLockHolder l;
+    Span::Delete(span);
+  } else {
     ASSERT(span->first_page() == p);
-    if (IsSampledMemory(ptr)) {
-      if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
-        // Release lock while calling Deallocate() since it does a system call.
-        pageheap_lock.Unlock();
-        tc_globals.guardedpage_allocator().Deallocate(ptr);
-        pageheap_lock.Lock();
-        Span::Delete(span);
-      } else if (IsColdMemory(ptr)) {
-        ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
-                                           MemoryTag::kCold);
-      } else {
-        ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-        tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
-                                           MemoryTag::kSampled);
-      }
-    } else if (kNumaPartitions != 1) {
-      ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
-                                         GetMemoryTag(ptr));
-    } else {
-      ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
-      tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
-                                         MemoryTag::kNormal);
-    }
+    ASSERT(reinterpret_cast<uintptr_t>(ptr) % kPageSize == 0);
+    PageHeapSpinLockHolder l;
+    tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
+                                       GetMemoryTag(ptr));
   }
 }
 
