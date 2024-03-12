@@ -187,7 +187,7 @@ class Span : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  bool FreelistPush(void* ptr, size_t size);
+  bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal);
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
@@ -211,6 +211,10 @@ class Span : public SpanList::Elem {
   // for cold size classes.
   static bool IsNonIntrusive(size_t size);
 
+  // For bitmap'd spans conversion from an offset to an index is performed
+  // by multiplying by the scaled reciprocal of the object size.
+  static uint32_t CalcReciprocal(size_t size);
+
  private:
   // See the comment on freelist organization in cc file.
   typedef uint16_t ObjIdx;
@@ -224,16 +228,10 @@ class Span : public SpanList::Elem {
   // cases so it is not enabled by default. For more information, please
   // look at b/35680381 and cl/199502226.
   // For available objects stored as a compressed linked list, the index of
-  // the first object in recorded in freelist_. When a bitmap is used to
-  // represent available objects, the reciprocal of the object size is
-  // stored to enable conversion from the offset of an object within a
-  // span to the index of the object.
-  union {
-    struct {
-      uint16_t embed_count_;
-      uint16_t freelist_;
-    };
-    uint32_t reciprocal_;
+  // the first object in recorded in freelist_.
+  struct {
+    uint16_t embed_count_;
+    uint16_t freelist_;
   };
   std::atomic<uint16_t> allocated_;  // Number of non-free objects
   uint8_t cache_size_;
@@ -271,12 +269,8 @@ class Span : public SpanList::Elem {
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
   ObjIdx* IdxToPtr(ObjIdx idx, size_t size, uintptr_t start) const;
 
-  // For bitmap'd spans conversion from an offset to an index is performed
-  // by multiplying by the scaled reciprocal of the object size.
-  static uint32_t CalcReciprocal(size_t size);
-
   // Convert object pointer <-> freelist index for bitmap managed objects.
-  ObjIdx BitmapPtrToIdx(void* ptr, size_t size) const;
+  ObjIdx BitmapPtrToIdx(void* ptr, size_t size, uint32_t reciprocal) const;
   void* BitmapIdxToPtr(ObjIdx idx, size_t size) const;
 
   // Helper function for converting a pointer to an index.
@@ -288,7 +282,7 @@ class Span : public SpanList::Elem {
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
-  bool BitmapPush(void* ptr, size_t size);
+  bool BitmapPush(void* ptr, size_t size, uint32_t reciprocal);
 
   // A bitmap is used to indicate object availability for spans containing
   // 64 or fewer objects.
@@ -329,7 +323,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   return idx;
 }
 
-inline bool Span::FreelistPush(void* ptr, size_t size) {
+inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal) {
   const auto allocated = allocated_.load(std::memory_order_relaxed);
   ASSERT(allocated > 0);
   if (ABSL_PREDICT_FALSE(allocated == 1)) {
@@ -339,7 +333,7 @@ inline bool Span::FreelistPush(void* ptr, size_t size) {
   // Bitmaps are used to record object availability when there are fewer than
   // 64 objects in a span.
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
-    return BitmapPush(ptr, size);
+    return BitmapPush(ptr, size, reciprocal);
   }
   return ListPush(ptr, size);
 }
@@ -375,20 +369,21 @@ inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
       kBitmapScalingDenominator);
 }
 
-inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size) const {
+inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
+                                         uint32_t reciprocal) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   uintptr_t off = static_cast<uint32_t>(p - first_page_.start_uintptr());
-  ObjIdx idx = OffsetToIdx(off, reciprocal_);
+  ObjIdx idx = OffsetToIdx(off, reciprocal);
   ASSERT(BitmapIdxToPtr(idx, size) == ptr);
   return idx;
 }
 
-inline bool Span::BitmapPush(void* ptr, size_t size) {
+inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
 #ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
 #endif
   // TODO(djgove) Conversions to offsets can be computed outside of lock.
-  ObjIdx idx = BitmapPtrToIdx(ptr, size);
+  ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
   // Check that the object is not already returned.
   ASSERT(bitmap_.GetBit(idx) == 0);
   // Set the bit indicating where the object was returned.

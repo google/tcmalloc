@@ -63,6 +63,7 @@ class SpanTest : public testing::TestWithParam<size_t> {
   size_t npages_;
   size_t batch_size_;
   size_t objects_per_span_;
+  uint32_t reciprocal_;
   RawSpan raw_span_;
 
  private:
@@ -76,6 +77,7 @@ class SpanTest : public testing::TestWithParam<size_t> {
     npages_ = tc_globals.sizemap().class_to_pages(size_class_);
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = npages_ * kPageSize / size_;
+    reciprocal_ = Span::CalcReciprocal(size_);
 
     raw_span_.Init(size_class_);
   }
@@ -128,7 +130,7 @@ TEST_P(SpanTest, FreelistBasic) {
     // Push all objects back except the last one (which would not be pushed).
     for (size_t idx = 0; idx < objects_per_span_ - 1; ++idx) {
       EXPECT_TRUE(objects[idx]);
-      bool ok = span_.FreelistPush(start + idx * size_, size_);
+      bool ok = span_.FreelistPush(start + idx * size_, size_, reciprocal_);
       EXPECT_TRUE(ok);
       EXPECT_FALSE(span_.FreelistEmpty(size_));
       objects[idx] = false;
@@ -136,8 +138,8 @@ TEST_P(SpanTest, FreelistBasic) {
     }
     // On the last iteration we can actually push the last object.
     if (x == 1) {
-      bool ok =
-          span_.FreelistPush(start + (objects_per_span_ - 1) * size_, size_);
+      bool ok = span_.FreelistPush(start + (objects_per_span_ - 1) * size_,
+                                   size_, reciprocal_);
       EXPECT_FALSE(ok);
     }
   }
@@ -155,7 +157,7 @@ TEST_P(SpanTest, FreelistRandomized) {
   for (size_t x = 0; x < 10000; ++x) {
     if (!objects.empty() && absl::Bernoulli(rng, 1.0 / 2)) {
       void* p = *objects.begin();
-      if (span_.FreelistPush(p, size_)) {
+      if (span_.FreelistPush(p, size_, reciprocal_)) {
         objects.erase(objects.begin());
       } else {
         EXPECT_EQ(objects.size(), 1);

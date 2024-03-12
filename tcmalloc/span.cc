@@ -224,7 +224,6 @@ uint32_t Span::CalcReciprocal(size_t size) {
   // object. Instead we'll multiply by a scaled version of the reciprocal.
   // We divide kBitmapScalingDenominator by the object size, so later we can
   // multiply by this reciprocal, and then divide this scaling factor out.
-  // TODO(djgove) These divides can be computed once at start up.
   return kBitmapScalingDenominator / size;
 }
 
@@ -232,7 +231,6 @@ void Span::BuildBitmap(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap_.size() objects.
   ASSERT(count <= bitmap_.size());
-  reciprocal_ = CalcReciprocal(size);
   allocated_.store(0, std::memory_order_relaxed);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);

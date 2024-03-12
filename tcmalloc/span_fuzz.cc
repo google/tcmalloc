@@ -50,6 +50,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   const auto pages = Length(num_pages);
   const size_t objects_per_span = pages.in_bytes() / object_size;
+  const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
   void* mem;
   int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
@@ -81,7 +82,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   CHECK_CONDITION(ptrs.size() == span.Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
-    bool ok = span.FreelistPush(ptrs[i], object_size);
+    bool ok = span.FreelistPush(ptrs[i], object_size, size_reciprocal);
     CHECK_CONDITION(ok == (i != popped - 1));
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.

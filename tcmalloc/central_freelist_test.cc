@@ -65,6 +65,7 @@ class StaticForwarderTest : public testing::TestWithParam<
   Length pages_per_span_;
   size_t batch_size_;
   size_t objects_per_span_;
+  uint32_t size_reciprocal_;
   AccessDensityPrediction density_;
 
  private:
@@ -92,6 +93,7 @@ class StaticForwarderTest : public testing::TestWithParam<
     pages_per_span_ = Length(tc_globals.sizemap().class_to_pages(size_class_));
     batch_size_ = tc_globals.sizemap().num_objects_to_move(size_class_);
     objects_per_span_ = pages_per_span_.in_bytes() / object_size_;
+    size_reciprocal_ = Span::CalcReciprocal(object_size_);
   }
 };
 
@@ -119,7 +121,7 @@ TEST_P(StaticForwarderTest, Simple) {
   }
 
   for (void* ptr : batch) {
-    span->FreelistPush(ptr, object_size_);
+    span->FreelistPush(ptr, object_size_, size_reciprocal_);
   }
 
   StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,

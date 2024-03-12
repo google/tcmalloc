@@ -131,7 +131,8 @@ class CentralFreeList {
  private:
   // Release an object to spans.
   // Returns object's span if it become completely free.
-  Span* ReleaseToSpans(void* object, Span* span, size_t object_size)
+  Span* ReleaseToSpans(void* object, Span* span, size_t object_size,
+                       uint32_t size_reciprocal)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
@@ -179,6 +180,9 @@ class CentralFreeList {
   size_t size_class_;  // My size class (immutable after Init())
   size_t object_size_;
   size_t objects_per_span_;
+  // Size reciprocal is used to replace division with multiplication when
+  // computing object indices in the Span bitmap.
+  uint32_t size_reciprocal_ = 0;
   // Hint used for parsing through the nonempty_ lists. This prevents us from
   // parsing the lists with an index starting zero, if the lowest possible index
   // is higher than that.
@@ -268,9 +272,13 @@ inline void CentralFreeList<Forwarder>::Init(
     bool use_all_buckets_for_few_object_spans) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
+  if (object_size_ == 0) {
+    return;
+  }
   pages_per_span_ = forwarder_.class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
+  size_reciprocal_ = Span::CalcReciprocal(object_size_);
   use_all_buckets_for_few_object_spans_ =
       use_all_buckets_for_few_object_spans &&
       objects_per_span_ <= 2 * kNumLists;
@@ -290,9 +298,8 @@ inline void CentralFreeList<Forwarder>::Init(
 }
 
 template <class Forwarder>
-inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
-                                                        Span* span,
-                                                        size_t object_size) {
+inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
+    void* object, Span* span, size_t object_size, uint32_t size_reciprocal) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     nonempty_.prepend(span);
@@ -306,7 +313,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // We maintain a single nonempty list for small-but-slow. Also, we do not
   // collect histogram stats due to performance issues.
-  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size))) {
+  if (ABSL_PREDICT_TRUE(
+          span->FreelistPush(object, object_size, size_reciprocal))) {
     return nullptr;
   }
   nonempty_.remove(span);
@@ -315,7 +323,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(void* object,
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-  if (ABSL_PREDICT_FALSE(!span->FreelistPush(object, object_size))) {
+  if (ABSL_PREDICT_FALSE(
+          !span->FreelistPush(object, object_size, size_reciprocal))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -438,11 +447,13 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   // Then, release all individual objects into spans under our mutex
   // and collect spans that become completely free.
   {
-    // Use local copy of variable to ensure that it is not reloaded.
+    // Use local copy of variables to ensure that they are not reloaded.
     size_t object_size = object_size_;
+    uint32_t size_reciprocal = size_reciprocal_;
     absl::base_internal::SpinLockHolder h(&lock_);
     for (int i = 0; i < batch.size(); ++i) {
-      Span* span = ReleaseToSpans(batch[i], spans[i], object_size);
+      Span* span =
+          ReleaseToSpans(batch[i], spans[i], object_size, size_reciprocal);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
