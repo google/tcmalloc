@@ -601,12 +601,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   //
   //  *  Below that, the top highest the hardware allows us to use, since it is
   //     reserved for kernel space addresses.
-  //
-  //  *  One additional bit below that, to avoid collisions with mappings that
-  //     tend to be placed in the upper half of the address space (e.g. stack,
-  //     executable, and VDSO mappings).
-  //
-  constexpr uintptr_t kAddrMask = (uintptr_t{1} << (kAddressBits - 2)) - 1;
+  constexpr uintptr_t kAddrMask = (uintptr_t{1} << (kAddressBits - 1)) - 1;
 #else
   // MSan and TSan use up all of the lower address space, so we allow use of
   // mid-upper address space when they're active.  This only matters for
