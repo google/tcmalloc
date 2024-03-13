@@ -371,7 +371,9 @@ cc_library(
     name = "want_disable_wider_slabs",
     srcs = ["want_disable_wider_slabs.cc"],
     copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = ["//visibility:public"],
+    visibility = [
+        "//tcmalloc/testing:__pkg__",
+    ],
     deps = ["@com_google_absl//absl/base:core_headers"],
     alwayslink = 1,
 )
