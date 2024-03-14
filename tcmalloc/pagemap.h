@@ -134,14 +134,14 @@ class PageMap2 {
   }
 
   void set(Number k, Span* s) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     root_[i1]->span[i2] = s;
   }
 
   void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     Leaf* leaf = root_[i1];
@@ -150,30 +150,30 @@ class PageMap2 {
   }
 
   void clear_sizeclass(Number k) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     root_[i1]->sizeclass[i2] = 0;
   }
 
   void* get_hugepage(Number k) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     const Leaf* leaf = root_[i1];
-    ASSERT(leaf != nullptr);
+    TC_ASSERT_NE(leaf, nullptr);
     return leaf->hugepage[i2 >> (kLeafBits - kLeafHugeBits)];
   }
 
   void set_hugepage(Number k, void* v) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
     root_[i1]->hugepage[i2 >> (kLeafBits - kLeafHugeBits)] = v;
   }
 
   bool Ensure(Number start, size_t n) {
-    ASSERT(n > 0);
+    TC_ASSERT_GT(n, 0);
     for (Number key = start; key <= start + n - 1;) {
       const Number i1 = key >> kLeafBits;
 
@@ -311,7 +311,7 @@ class PageMap3 {
   }
 
   void set(Number k, Span* s) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -319,7 +319,7 @@ class PageMap3 {
   }
 
   void set_with_sizeclass(Number k, Span* s, CompactSizeClass sc) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -329,7 +329,7 @@ class PageMap3 {
   }
 
   void clear_sizeclass(Number k) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -337,19 +337,19 @@ class PageMap3 {
   }
 
   void* get_hugepage(Number k) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
     const Node* node = root_[i1];
-    ASSERT(node != nullptr);
+    TC_ASSERT_NE(node, nullptr);
     const Leaf* leaf = node->leafs[i2];
-    ASSERT(leaf != nullptr);
+    TC_ASSERT_NE(leaf, nullptr);
     return leaf->hugepage[i3 >> (kLeafBits - kLeafHugeBits)];
   }
 
   void set_hugepage(Number k, void* v) {
-    ASSERT(k >> BITS == 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
@@ -440,7 +440,7 @@ class PageMap {
   ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span* GetExistingDescriptor(
       PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     Span* span = map_.get_existing(p.index());
-    ASSERT(span != nullptr);
+    TC_ASSERT_NE(span, nullptr);
     return span;
   }
 
@@ -473,7 +473,7 @@ class PageMap {
       Span* s = GetDescriptor(page_id);
       if (s == nullptr) {
         // The value returned by get_next_set_page should belong to a Span.
-        ASSERT(i == 0);
+        TC_ASSERT_EQ(i, 0);
         continue;
       }
       // Free'd up Span that's not yet removed from PageMap.

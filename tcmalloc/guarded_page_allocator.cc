@@ -49,9 +49,9 @@ namespace tcmalloc_internal {
 const size_t GuardedPageAllocator::kMagicSize;  // NOLINT
 
 void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
-  CHECK_CONDITION(max_alloced_pages > 0);
-  CHECK_CONDITION(max_alloced_pages <= total_pages);
-  CHECK_CONDITION(total_pages <= kGpaMaxPages);
+  TC_CHECK_GT(max_alloced_pages, 0);
+  TC_CHECK_LE(max_alloced_pages, total_pages);
+  TC_CHECK_LE(total_pages, kGpaMaxPages);
   max_alloced_pages_ = max_alloced_pages;
   total_pages_ = total_pages;
 
@@ -59,7 +59,7 @@ void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
   // system page size for this allocator since mprotect operates on full pages
   // only.  This case happens on PPC.
   page_size_ = std::max(kPageSize, static_cast<size_t>(GetPageSize()));
-  ASSERT(page_size_ % kPageSize == 0);
+  TC_ASSERT_EQ(page_size_ % kPageSize, 0);
 
   rand_ = reinterpret_cast<uint64_t>(this);  // Initialize RNG seed.
   MapPages();
@@ -70,7 +70,7 @@ void GuardedPageAllocator::Destroy() {
   if (initialized_) {
     size_t len = pages_end_addr_ - pages_base_addr_;
     int err = munmap(reinterpret_cast<void*>(pages_base_addr_), len);
-    ASSERT(err != -1);
+    TC_ASSERT_NE(err, -1);
     (void)err;
     initialized_ = false;
   }
@@ -164,8 +164,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
     return {nullptr, Profile::Sample::GuardedStatus::NoAvailableSlots};
   }
 
-  ASSERT(size <= page_size_);
-  ASSERT(alignment <= page_size_);
+  TC_ASSERT_LE(size, page_size_);
+  TC_ASSERT_LE(alignment, page_size_);
   ASSERT(alignment == 0 || absl::has_single_bit(alignment));
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
@@ -381,7 +381,7 @@ size_t GuardedPageAllocator::Rand(size_t max) {
 }
 
 size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
-  ASSERT(ith_free_slot < total_pages_ - num_alloced_pages_);
+  TC_ASSERT_LT(ith_free_slot, total_pages_ - num_alloced_pages_);
   for (size_t free_slot_count = 0, j = 0;; j++) {
     if (free_pages_[j]) {
       if (free_slot_count == ith_free_slot) return j;
@@ -391,7 +391,7 @@ size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
 }
 
 void GuardedPageAllocator::FreeSlot(size_t slot) {
-  ASSERT(slot < total_pages_);
+  TC_ASSERT_LT(slot, total_pages_);
   ASSERT(!free_pages_[slot]);
   free_pages_[slot] = true;
   num_alloced_pages_--;
@@ -460,13 +460,13 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
 }
 
 uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
-  ASSERT(slot < total_pages_);
+  TC_ASSERT_LT(slot, total_pages_);
   return first_page_addr_ + 2 * slot * page_size_;
 }
 
 size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
   uintptr_t offset = addr - first_page_addr_;
-  ASSERT(offset % page_size_ == 0);
+  TC_ASSERT_EQ(offset % page_size_, 0);
   ASSERT((offset / page_size_) % 2 == 0);
   int slot = offset / page_size_ / 2;
   ASSERT(slot >= 0 && slot < total_pages_);

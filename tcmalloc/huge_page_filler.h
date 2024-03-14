@@ -299,7 +299,7 @@ class HugePageFiller {
 
   // Useful statistics
   Length pages_allocated(AccessDensityPrediction type) const {
-    ASSERT(type < AccessDensityPrediction::kPredictionCounts);
+    TC_ASSERT_LT(type, AccessDensityPrediction::kPredictionCounts);
     return pages_allocated_[type];
   }
   Length pages_allocated() const {
@@ -456,8 +456,8 @@ class HugePageFiller {
   // CompareForSubrelease identifies the worse candidate for subrelease, between
   // the choice of huge pages a and b.
   static bool CompareForSubrelease(TrackerType* a, TrackerType* b) {
-    ASSERT(a != nullptr);
-    ASSERT(b != nullptr);
+    TC_ASSERT_NE(a, nullptr);
+    TC_ASSERT_NE(b, nullptr);
 
     if (a->used_pages() < b->used_pages()) return true;
     if (a->used_pages() > b->used_pages()) return false;
@@ -516,7 +516,7 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
   if (ABSL_PREDICT_FALSE(released_count_ > 0)) {
     unbacked = released_by_page_.CountBits(index, n.raw_num());
     released_by_page_.ClearRange(index, n.raw_num());
-    ASSERT(released_count_ >= unbacked);
+    TC_ASSERT_GE(released_count_, unbacked);
     released_count_ -= unbacked;
   }
 
@@ -596,7 +596,7 @@ inline void PageTracker::AddSpanStats(SmallSpanStats* small,
                         : released_by_page_.FindSet(index + 1);
     }
     n = std::min(end - index, n);
-    ASSERT(n > 0);
+    TC_ASSERT_GT(n, 0);
 
     if (n < kMaxPages.raw_num()) {
       if (small != nullptr) {
@@ -774,7 +774,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     ++n_was_released_[type];
   }
   ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
-  ASSERT(unmapped_ >= page_allocation.previously_unbacked);
+  TC_ASSERT_GE(unmapped_, page_allocation.previously_unbacked);
   unmapped_ -= page_allocation.previously_unbacked;
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
@@ -806,8 +806,8 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
     if (pt->released()) {
       const Length free_pages = pt->free_pages();
       const Length released_pages = pt->released_pages();
-      ASSERT(free_pages >= released_pages);
-      ASSERT(unmapped_ >= released_pages);
+      TC_ASSERT_GE(free_pages, released_pages);
+      TC_ASSERT_GE(unmapped_, released_pages);
       unmapped_ -= released_pages;
 
       if (free_pages > released_pages) {
@@ -927,7 +927,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
 #endif
   for (int i = 0; i < candidates.size() && total_released < target; i++) {
     TrackerType* best = candidates[i];
-    ASSERT(best != nullptr);
+    TC_ASSERT_NE(best, nullptr);
 
     // Verify that we have pages that we can release.
     ASSERT(best->free_pages() != Length(0));
@@ -991,7 +991,7 @@ inline Length HugePageFiller<TrackerType>::GetDesiredSubreleasePages(
   // the recent *demand* requirement, i.e., if we have a large amount of free
   // memory right now but demand is below the requirement, we still want to
   // subrelease.
-  ASSERT(total_released < desired);
+  TC_ASSERT_LT(total_released, desired);
   if (!intervals.SkipSubreleaseEnabled()) {
     return desired;
   }
@@ -1231,12 +1231,12 @@ class UsageInfo {
       bucket_bounds_[buckets_size_] = i;
       buckets_size_++;
     }
-    CHECK_CONDITION(buckets_size_ <= kBucketCapacity);
+    TC_CHECK_LE(buckets_size_, kBucketCapacity);
   }
 
   template <class TrackerType>
   void Record(const TrackerType* pt, Type which) {
-    ASSERT(which < kNumTypes);
+    TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt->used_pages();
     const Length lf = pt->longest_free_range();
     const size_t nalloc = pt->nallocs();
@@ -1292,7 +1292,7 @@ class UsageInfo {
   int BucketNum(size_t page) {
     auto it =
         std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
-    CHECK_CONDITION(it != bucket_bounds_);
+    TC_CHECK_NE(it, bucket_bounds_);
     return it - bucket_bounds_ - 1;
   }
 
@@ -1321,7 +1321,7 @@ class UsageInfo {
   }
 
   absl::string_view TypeToStr(Type type) const {
-    ASSERT(type < kNumTypes);
+    TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
         return "sparsely-accessed regular";
@@ -1345,7 +1345,7 @@ class UsageInfo {
   }
 
   absl::string_view AllocType(Type type) const {
-    ASSERT(type < kNumTypes);
+    TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
       case kDenseRegular:
@@ -1366,7 +1366,7 @@ class UsageInfo {
   }
 
   absl::string_view ObjectType(Type type) const {
-    ASSERT(type < kNumTypes);
+    TC_ASSERT_LT(type, kNumTypes);
     switch (type) {
       case kSparseRegular:
       case kDonated:
@@ -1578,7 +1578,7 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
     absl::string_view field, PbtxtRegion* hpaa,
     const HugePageFillerStats& stats, AccessDensityPrediction count) const {
-  ASSERT(count < AccessDensityPrediction::kPredictionCounts);
+  TC_ASSERT_LT(count, AccessDensityPrediction::kPredictionCounts);
   PbtxtRegion alloc_region = hpaa->CreateSubRegion(field);
   alloc_region.PrintI64("full_huge_pages", stats.n_full[count].raw_num());
   alloc_region.PrintI64("partial_huge_pages", stats.n_partial[count].raw_num());
@@ -1741,24 +1741,24 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
   // chunks_per_alloc_ - 1.)
   const size_t kOffset = __builtin_clzl(1) - (chunks_per_alloc_ - 1);
   const size_t i = std::max(neg_ceil_log, kOffset) - kOffset;
-  ASSERT(i < chunks_per_alloc_);
-  ASSERT(i < kChunks);
+  TC_ASSERT_LT(i, chunks_per_alloc_);
+  TC_ASSERT_LT(i, kChunks);
   return i;
 }
 
 template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::ListFor(const Length longest,
                                                    const size_t chunk) const {
-  ASSERT(chunk < kChunks);
-  ASSERT(chunk < chunks_per_alloc_);
-  ASSERT(longest < kPagesPerHugePage);
+  TC_ASSERT_LT(chunk, kChunks);
+  TC_ASSERT_LT(chunk, chunks_per_alloc_);
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
   return longest.raw_num() * chunks_per_alloc_ + chunk;
 }
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
-  ASSERT(longest < kPagesPerHugePage);
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
 
   if (pt->donated()) {
     donated_alloc_.Remove(pt, longest.raw_num());
@@ -1791,7 +1791,7 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   size_t chunk = IndexFor(pt);
   Length longest = pt->longest_free_range();
-  ASSERT(longest < kPagesPerHugePage);
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
 
   // Once a donated alloc is used in any way, it degenerates into being a
   // regular alloc. This allows the algorithm to keep using it (we had to be
@@ -1821,7 +1821,7 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   Length longest = pt->longest_free_range();
-  ASSERT(longest < kPagesPerHugePage);
+  TC_ASSERT_LT(longest, kPagesPerHugePage);
 
   // We should never be donating already-released trackers!
   ASSERT(!pt->released());
@@ -1837,14 +1837,14 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   // just the difference:
   const Length used = used_pages();
   const Length used_on_rel = used_pages_in_any_subreleased();
-  ASSERT(used >= used_on_rel);
+  TC_ASSERT_GE(used, used_on_rel);
   const Length used_on_huge = used - used_on_rel;
 
   const Length denom = used > Length(0) ? used : Length(1);
   const double ret =
       static_cast<double>(used_on_huge.raw_num()) / denom.raw_num();
-  ASSERT(ret >= 0);
-  ASSERT(ret <= 1);
+  TC_ASSERT_GE(ret, 0);
+  TC_ASSERT_LE(ret, 1);
   return std::clamp<double>(ret, 0, 1);
 }
 

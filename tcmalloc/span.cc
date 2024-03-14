@@ -69,14 +69,14 @@ SampledAllocation* Span::Unsample() {
 double Span::Fragmentation(size_t object_size) const {
   if (object_size == 0) {
     // Avoid crashes in production mode code, but report in tests.
-    ASSERT(object_size != 0);
+    TC_ASSERT_NE(object_size, 0);
     return 0;
   }
   const size_t span_objects = bytes_in_span() / object_size;
   const size_t live = allocated_.load(std::memory_order_relaxed);
   if (live == 0) {
     // Avoid crashes in production mode code, but report in tests.
-    ASSERT(live != 0);
+    TC_ASSERT_NE(live, 0);
     return 0;
   }
   // Assume that all in-use objects in this span are spread evenly
@@ -206,7 +206,7 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
     }
 
     // The first object on the freelist is empty, pop it.
-    ASSERT(embed_count == 0);
+    TC_ASSERT_EQ(embed_count, 0);
 
     batch[result] = host;
     result++;
@@ -238,7 +238,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
-  ASSERT(count > 0);
+  TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
   if (UseBitmapForSize(size)) {
@@ -288,7 +288,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   int embed_count = 0;
   while (idx < idxEnd) {
     // Check the no idx can be confused with kListEnd.
-    ASSERT(idx != kListEnd);
+    TC_ASSERT_NE(idx, kListEnd);
     if (host && embed_count != max_embed) {
       // Push onto first object on the freelist.
       embed_count++;

@@ -67,7 +67,7 @@ TEST(AllocationSample, Threaded) {
     ret = std::move(global.samplers.back());
     global.samplers.pop_back();
 
-    CHECK_CONDITION(ret != nullptr);
+    TC_CHECK_NE(ret.get(), nullptr);
     return ret;
   };
 

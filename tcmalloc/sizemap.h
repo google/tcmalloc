@@ -255,7 +255,7 @@ class SizeMap {
   template <typename Policy>
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
                                                        size_t size) const {
-    ASSERT(size <= kMaxSize);
+    TC_ASSERT_LE(size, kMaxSize);
     size_t ret = 0;
     GetSizeClass(policy, size, &ret);
     return ret;
@@ -265,14 +265,14 @@ class SizeMap {
   // kNumClasses.
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_size(
       size_t size_class) const {
-    ASSERT(size_class < kNumClasses);
+    TC_ASSERT_LT(size_class, kNumClasses);
     return class_to_size_[size_class];
   }
 
   // Mapping from size class to number of pages to allocate at a time
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t class_to_pages(
       size_t size_class) const {
-    ASSERT(size_class < kNumClasses);
+    TC_ASSERT_LT(size_class, kNumClasses);
     return class_to_pages_[size_class];
   }
 
@@ -283,7 +283,7 @@ class SizeMap {
   // per-thread free list until the scavenger cleans up the list.
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline SizeMap::BatchSize num_objects_to_move(
       size_t size_class) const {
-    ASSERT(size_class < kNumClasses);
+    TC_ASSERT_LT(size_class, kNumClasses);
     return num_objects_to_move_[size_class];
   }
 
@@ -291,7 +291,7 @@ class SizeMap {
   //
   // TODO(b/271598304): Revise this when 512KB slabs are available.
   ABSL_ATTRIBUTE_ALWAYS_INLINE size_t max_capacity(size_t size_class) const {
-    ASSERT(size_class < kNumClasses);
+    TC_ASSERT_LT(size_class, kNumClasses);
     return max_capacity_[size_class];
   }
 

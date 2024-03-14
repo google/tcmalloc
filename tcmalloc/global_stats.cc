@@ -121,7 +121,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   if (report_residence) {
     auto resident_bytes = tc_globals.pagemap_residence();
     r->pagemap_root_bytes_res = resident_bytes;
-    ASSERT(r->metadata_bytes >= r->pagemap_bytes);
+    TC_ASSERT_GE(r->metadata_bytes, r->pagemap_bytes);
     r->metadata_bytes = r->metadata_bytes - r->pagemap_bytes + resident_bytes;
   } else {
     r->pagemap_root_bytes_res = 0;
@@ -141,7 +141,7 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       r->percpu_metadata_bytes_res = percpu_metadata.resident_size;
       r->percpu_metadata_bytes = percpu_metadata.virtual_size;
 
-      ASSERT(r->metadata_bytes >= r->percpu_metadata_bytes);
+      TC_ASSERT_GE(r->metadata_bytes, r->percpu_metadata_bytes);
       r->metadata_bytes = r->metadata_bytes - r->percpu_metadata_bytes +
                           r->percpu_metadata_bytes_res;
     }
@@ -686,8 +686,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 bool GetNumericProperty(const char* name_data, size_t name_size,
                         size_t* value) {
   // LINT.IfChange
-  ASSERT(name_data != nullptr);
-  ASSERT(value != nullptr);
+  TC_ASSERT_NE(name_data, nullptr);
+  TC_ASSERT_NE(value, nullptr);
   const absl::string_view name(name_data, name_size);
 
   // This is near the top since ReleasePerCpuMemoryToOS() calls it frequently.

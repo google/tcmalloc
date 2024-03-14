@@ -1281,6 +1281,7 @@ cc_test(
         ":common_8k_pages",
         ":mock_transfer_cache",
         "//tcmalloc/internal:affinity",
+        "//tcmalloc/internal:logging",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:sysinfo",

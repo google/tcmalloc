@@ -78,7 +78,7 @@ class LimitTest : public ::testing::Test {
 
   // avoid fragmentation in local caches
   void* malloc_pages(size_t bytes) {
-    CHECK_CONDITION(bytes % kPageSize == 0);
+    TC_CHECK_EQ(bytes % kPageSize, 0);
     void* ptr;
     CHECK_CONDITION(posix_memalign(&ptr, kPageSize, bytes) == 0);
     return ptr;

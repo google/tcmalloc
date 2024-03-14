@@ -62,7 +62,7 @@ class AllocationSampleList {
     AllocationSample** link = &first_;
     AllocationSample* cur = first_;
     while (cur != as) {
-      CHECK_CONDITION(cur != nullptr);
+      TC_CHECK_NE(cur, nullptr);
       link = &cur->next_;
       cur = cur->next_;
     }

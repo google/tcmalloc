@@ -629,7 +629,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
 
   // we can do better than this, but...
   // TODO(b/134690769): support higher align.
-  CHECK_CONDITION(align <= kPagesPerHugePage);
+  TC_CHECK_LE(align, kPagesPerHugePage);
   bool from_released;
   Span* s;
   {
@@ -709,15 +709,15 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   // c) we came straight from the HugeCache - return straight there.  (We
   //    might have had slack put into the filler - if so, return that virtual
   //    allocation to the filler too!)
-  ASSERT(n >= kPagesPerHugePage);
+  TC_ASSERT_GE(n, kPagesPerHugePage);
   HugeLength hl = HLFromPages(n);
   HugePage last = hp + hl - NHugePages(1);
   Length slack = hl.in_pages() - n;
   if (slack == Length(0)) {
-    ASSERT(GetTracker(last) == nullptr);
+    TC_ASSERT_EQ(GetTracker(last), nullptr);
   } else {
     pt = GetTracker(last);
-    CHECK_CONDITION(pt != nullptr);
+    TC_CHECK_NE(pt, nullptr);
     ASSERT(pt->was_donated());
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation

@@ -61,7 +61,7 @@ class Length {
   }
 
   constexpr Length& operator-=(Length rhs) {
-    ASSERT(n_ >= rhs.n_);
+    TC_ASSERT_GE(n_, rhs.n_);
     n_ -= rhs.n_;
     return *this;
   }
@@ -72,13 +72,13 @@ class Length {
   }
 
   constexpr Length& operator/=(size_t rhs) {
-    ASSERT(rhs != 0);
+    TC_ASSERT_NE(rhs, 0);
     n_ /= rhs;
     return *this;
   }
 
   constexpr Length& operator%=(Length rhs) {
-    ASSERT(rhs.n_ != 0);
+    TC_ASSERT_NE(rhs.n_, 0);
     n_ %= rhs.n_;
     return *this;
   }
@@ -230,7 +230,7 @@ inline constexpr PageId operator-(PageId lhs, Length rhs) { return lhs -= rhs; }
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length operator-(PageId lhs, PageId rhs) {
-  ASSERT(lhs.pn_ >= rhs.pn_);
+  TC_ASSERT_GE(lhs.pn_, rhs.pn_);
   return Length(lhs.pn_ - rhs.pn_);
 }
 

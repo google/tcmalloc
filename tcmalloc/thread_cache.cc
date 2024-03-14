@@ -56,7 +56,7 @@ ThreadCache::ThreadCache(pthread_t tid) {
 
     // Take unclaimed_cache_space_ negative.
     unclaimed_cache_space_ -= kMinThreadCacheSize;
-    ASSERT(unclaimed_cache_space_ < 0);
+    TC_ASSERT_LT(unclaimed_cache_space_, 0);
   }
 
   next_ = nullptr;
@@ -114,7 +114,7 @@ void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
     // and kMaxDynamicFreeListLength is not necessarily a multiple
     // of batch_size.
     new_length -= new_length % batch_size;
-    ASSERT(new_length % batch_size == 0);
+    TC_ASSERT_EQ(new_length % batch_size, 0);
     list->set_max_length(new_length);
   }
   return batch[0];
@@ -234,7 +234,7 @@ void ThreadCache::IncreaseCacheLimitLocked() {
   for (int i = 0; i < 10; ++i, next_memory_steal_ = next_memory_steal_->next_) {
     // Reached the end of the linked list.  Start at the beginning.
     if (next_memory_steal_ == nullptr) {
-      ASSERT(thread_heaps_ != nullptr);
+      TC_ASSERT_NE(thread_heaps_, nullptr);
       next_memory_steal_ = thread_heaps_;
     }
     if (next_memory_steal_ == this ||
@@ -313,7 +313,7 @@ ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
     thread_heaps_->prev_ = heap;
   } else {
     // This is the only thread heap at the moment.
-    ASSERT(next_memory_steal_ == nullptr);
+    TC_ASSERT_EQ(next_memory_steal_, nullptr);
     next_memory_steal_ = heap;
   }
   thread_heaps_ = heap;

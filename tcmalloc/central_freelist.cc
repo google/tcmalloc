@@ -58,7 +58,7 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
   for (int i = 0; i < batch.size(); ++i) {
     const PageId p = PageIdContaining(batch[i]);
     Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-    ASSERT(span != nullptr);
+    TC_ASSERT_NE(span, nullptr);
     span->Prefetch();
     spans[i] = span;
   }

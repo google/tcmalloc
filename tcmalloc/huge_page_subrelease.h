@@ -318,7 +318,7 @@ class SubreleaseStatsTracker {
     // SkippedSubreleaseCorrectnessTracker for evaluating the correctness of
     // skipped subrelease. Here we check the length of the two trackers are
     // sufficient for the evaluation.
-    ASSERT(summary_interval <= w);
+    TC_ASSERT_LE(summary_interval, w);
   }
 
   // Not copyable or movable
@@ -385,7 +385,7 @@ class SubreleaseStatsTracker {
                          absl::Duration long_interval) {
     if (short_interval != absl::ZeroDuration() &&
         long_interval != absl::ZeroDuration()) {
-      ASSERT(short_interval <= long_interval);
+      TC_ASSERT_LE(short_interval, long_interval);
     }
     last_skip_subrelease_intervals_.short_interval =
         std::min(short_interval, epoch_length_ * kEpochs);

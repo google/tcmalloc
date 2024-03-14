@@ -687,8 +687,8 @@ overflow_label:
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab::Push(size_t size_class,
                                                             void* item) {
-  ASSERT(size_class != 0);
-  ASSERT(item != nullptr);
+  TC_ASSERT_NE(size_class, 0);
+  TC_ASSERT_NE(item, nullptr);
   // Speculatively annotate item as released to TSan.  We may not succeed in
   // pushing the item, but if we wait for the restartable sequence to succeed,
   // it may become visible to another thread before we can trigger the
@@ -724,7 +724,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchNextObject(
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
-  ASSERT(size_class != 0);
+  TC_ASSERT_NE(size_class, 0);
   void* next;
   void* result;
   uintptr_t scratch, current;
@@ -803,7 +803,7 @@ underflow_path:
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__aarch64__)
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
-  ASSERT(size_class != 0);
+  TC_ASSERT_NE(size_class, 0);
   void* result;
   void* region_start;
   void* prefetch;
@@ -907,7 +907,7 @@ inline size_t TcmallocSlab::Grow(
 
 inline std::pair<int, bool> TcmallocSlab::CacheCpuSlab() {
   int cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset_);
-  ASSERT(cpu >= 0);
+  TC_ASSERT_GE(cpu, 0);
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (ABSL_PREDICT_FALSE((tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK) == 0)) {
     return CacheCpuSlabSlow();
@@ -925,8 +925,8 @@ inline void TcmallocSlab::UncacheCpuSlab() {
 
 inline size_t TcmallocSlab::PushBatch(size_t size_class, void** batch,
                                       size_t len) {
-  ASSERT(size_class != 0);
-  ASSERT(len != 0);
+  TC_ASSERT_NE(size_class, 0);
+  TC_ASSERT_NE(len, 0);
   // We need to annotate batch[...] as released before running the restartable
   // sequence, since those objects become visible to other threads the moment
   // the restartable sequence is complete and before the annotation potentially
@@ -939,10 +939,10 @@ inline size_t TcmallocSlab::PushBatch(size_t size_class, void** batch,
 
 inline size_t TcmallocSlab::PopBatch(size_t size_class, void** batch,
                                      size_t len) {
-  ASSERT(size_class != 0);
-  ASSERT(len != 0);
+  TC_ASSERT_NE(size_class, 0);
+  TC_ASSERT_NE(len, 0);
   const size_t n = TcmallocSlab_Internal_PopBatch(size_class, batch, len);
-  ASSERT(n <= len);
+  TC_ASSERT_LE(n, len);
 
   // PopBatch is implemented in assembly, msan does not know that the returned
   // batch is initialized.
@@ -958,7 +958,7 @@ inline void* TcmallocSlab::CpuMemoryStart(void* slabs, Shift shift, int cpu) {
 inline std::atomic<int64_t>* TcmallocSlab::GetHeader(void* slabs, Shift shift,
                                                      int cpu,
                                                      size_t size_class) {
-  ASSERT(size_class != 0);
+  TC_ASSERT_NE(size_class, 0);
   return &static_cast<std::atomic<int64_t>*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
 }

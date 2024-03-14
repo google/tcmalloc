@@ -297,14 +297,14 @@ class FakeCpuLayout {
   static constexpr int kCpusPerShard = 2;
 
   void Init(int shards) {
-    ASSERT(shards > 0);
+    TC_ASSERT_GT(shards, 0);
     ASSERT(shards * kCpusPerShard <= kNumCpus);
     num_shards_ = shards;
   }
 
   void SetCurrentCpu(int cpu) {
-    ASSERT(cpu >= 0);
-    ASSERT(cpu < kNumCpus);
+    TC_ASSERT_GE(cpu, 0);
+    TC_ASSERT_LT(cpu, kNumCpus);
     current_cpu_ = cpu;
   }
 

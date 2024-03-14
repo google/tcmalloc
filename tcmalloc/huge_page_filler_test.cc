@@ -194,7 +194,7 @@ class PageTrackerTest : public testing::Test {
     }
 
     void Expect(void* p, size_t len, bool success) {
-      CHECK_CONDITION(expected_index_ < kMaxCalls);
+      TC_CHECK_LT(expected_index_, kMaxCalls);
       expected_[expected_index_] = {p, len, success};
       ++expected_index_;
     }
@@ -662,7 +662,7 @@ class FillerTest : public testing::TestWithParam<
     intptr_t i = backing_.size();
     backing_.resize(i + kPagesPerHugePage.raw_num());
     intptr_t addr = i << kPageShift;
-    CHECK_CONDITION(addr % kHugePageSize == 0);
+    TC_CHECK_EQ(addr % kHugePageSize, 0);
     return HugePageContaining(reinterpret_cast<void*>(addr));
   }
 
@@ -732,7 +732,7 @@ class FillerTest : public testing::TestWithParam<
 
   PAlloc AllocateWithSpanAllocInfo(Length n, SpanAllocInfo span_alloc_info,
                                    bool donated = false) {
-    CHECK_CONDITION(n <= kPagesPerHugePage);
+    TC_CHECK_LE(n, kPagesPerHugePage);
     PAlloc ret = AllocateRaw(n, span_alloc_info, donated);
     ret.n = n;
     Mark(ret);
@@ -741,7 +741,7 @@ class FillerTest : public testing::TestWithParam<
   }
 
   PAlloc Allocate(Length n, bool donated = false) {
-    CHECK_CONDITION(n <= kPagesPerHugePage);
+    TC_CHECK_LE(n, kPagesPerHugePage);
     PAlloc ret;
     size_t objects =
         randomize_density_ ? (1 << absl::Uniform<size_t>(gen_, 0, 8)) : 1;

@@ -42,7 +42,7 @@ std::vector<int> AllowedCpus() {
       n--;
     }
   }
-  CHECK_CONDITION(0 == n);
+  TC_CHECK_EQ(0, n);
 
   return result;
 }

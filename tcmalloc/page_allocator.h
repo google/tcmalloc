@@ -90,7 +90,7 @@ class PageAllocator {
   void set_limit(size_t limit, LimitKind limit_kind)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   int64_t limit(LimitKind limit_kind) const ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(limit_kind < kNumLimits);
+    TC_ASSERT_LT(limit_kind, kNumLimits);
     PageHeapSpinLockHolder h;
     return limits_[limit_kind];
   }
@@ -178,7 +178,7 @@ class PageAllocator {
 
 inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
   if constexpr (huge_page_allocator_internal::kUnconditionalHPAA) {
-    ASSERT(alg_ == HPAA);
+    TC_ASSERT_EQ(alg_, HPAA);
   }
 
   switch (tag) {
@@ -310,14 +310,14 @@ inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {
 }
 
 inline int64_t PageAllocator::limit_hits(LimitKind limit_kind) const {
-  ASSERT(limit_kind < kNumLimits);
+  TC_ASSERT_LT(limit_kind, kNumLimits);
   PageHeapSpinLockHolder l;
   return limit_hits_[limit_kind];
 }
 
 inline int64_t PageAllocator::successful_shrinks_after_limit_hit(
     LimitKind limit_kind) const {
-  ASSERT(limit_kind < kNumLimits);
+  TC_ASSERT_LT(limit_kind, kNumLimits);
   PageHeapSpinLockHolder l;
   return successful_shrinks_after_limit_hit_[limit_kind];
 }

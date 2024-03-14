@@ -185,8 +185,8 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
 }  // namespace tcmalloc_internal
 
 bool IsExperimentActive(Experiment exp) {
-  ASSERT(static_cast<int>(exp) >= 0);
-  ASSERT(exp < Experiment::kMaxExperimentID);
+  TC_ASSERT_GE(static_cast<int>(exp), 0);
+  TC_ASSERT_LT(exp, Experiment::kMaxExperimentID);
 
   return tcmalloc_internal::GetSelectedExperiments()[static_cast<int>(exp)];
 }

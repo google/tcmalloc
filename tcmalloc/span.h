@@ -300,7 +300,7 @@ inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
   ASSERT(num_pages_ == Length(1));
   ASSERT(start == first_page_.start_uintptr());
-  ASSERT(idx != kListEnd);
+  TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
   ASSERT(PtrToIdx(ptr, size) == idx);
@@ -316,8 +316,8 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   ASSERT(PageIdContaining(ptr) == first_page_);
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
-  ASSERT(idx != kListEnd);
-  ASSERT(idx == off);
+  TC_ASSERT_NE(idx, kListEnd);
+  TC_ASSERT_EQ(idx, off);
   ASSERT(p == first_page_.start_uintptr() +
                   (static_cast<uintptr_t>(idx) << kAlignmentShift));
   return idx;
@@ -325,7 +325,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 
 inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal) {
   const auto allocated = allocated_.load(std::memory_order_relaxed);
-  ASSERT(allocated > 0);
+  TC_ASSERT_GT(allocated, 0);
   if (ABSL_PREDICT_FALSE(allocated == 1)) {
     return false;
   }

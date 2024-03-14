@@ -135,7 +135,7 @@ class FakeStaticForwarder {
   bool ReleasePages(void* ptr, size_t size) {
     const uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~kTagMask;
     const uintptr_t end = start + size;
-    CHECK_CONDITION(end <= fake_allocation_);
+    TC_CHECK_LE(end, fake_allocation_);
 
     return release_succeeds_;
   }

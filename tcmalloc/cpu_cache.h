@@ -188,7 +188,7 @@ uint8_t NumaShift(const NumaTopology& topology) {
 // Translates from a shift value to the offset of that shift in arrays of
 // possible shift values.
 inline uint8_t ShiftOffset(uint8_t shift, uint8_t initial_shift) {
-  ASSERT(shift >= initial_shift);
+  TC_ASSERT_GE(shift, initial_shift);
   return shift - initial_shift;
 }
 
@@ -200,7 +200,7 @@ struct SlabShiftBounds {
 
 struct GetShiftMaxCapacity {
   size_t operator()(size_t size_class) const {
-    ASSERT(shift_bounds.max_shift >= shift);
+    TC_ASSERT_GE(shift_bounds.max_shift, shift);
     const uint8_t relative_shift = shift_bounds.max_shift - shift;
     if (relative_shift == 0) return max_capacities[size_class];
     int mc = max_capacities[size_class] >> relative_shift;
@@ -691,7 +691,7 @@ void* CpuCache<Forwarder>::Allocate(size_t size_class) {
 template <class Forwarder>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* CpuCache<Forwarder>::AllocateFast(
     size_t size_class) {
-  ASSERT(size_class > 0);
+  TC_ASSERT_GT(size_class, 0);
   return freelist_.Pop(size_class);
 }
 
@@ -705,7 +705,7 @@ void CpuCache<Forwarder>::Deallocate(void* ptr, size_t size_class) {
 template <class Forwarder>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::DeallocateFast(
     void* ptr, size_t size_class) {
-  ASSERT(size_class > 0);
+  TC_ASSERT_GT(size_class, 0);
   return freelist_.Push(size_class, ptr);
 }
 
@@ -895,7 +895,7 @@ inline void CpuCache<Forwarder>::Activate() {
   shift_bounds_.max_shift += numa_shift + wider_slab_shift;
   per_cpu_shift += numa_shift + wider_slab_shift;
 
-  CHECK_CONDITION(shift_bounds_.initial_shift <= shift_bounds_.max_shift);
+  TC_CHECK_LE(shift_bounds_.initial_shift, shift_bounds_.max_shift);
   CHECK_CONDITION(per_cpu_shift >= shift_bounds_.initial_shift &&
                   per_cpu_shift <= shift_bounds_.max_shift);
   CHECK_CONDITION(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1 ==
@@ -1112,8 +1112,8 @@ inline size_t TargetOverflowRefillCount(size_t capacity, size_t batch_length,
     // do the wrong thing.
     target = 1;
   }
-  ASSERT(target <= capacity + 1);
-  ASSERT(target != 0);
+  TC_ASSERT_LE(target, capacity + 1);
+  TC_ASSERT_NE(target, 0);
   return target;
 }
 
@@ -1271,8 +1271,8 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
     if (++cpu >= num_cpus) {
       cpu = 0;
     }
-    ASSERT(cpu >= 0);
-    ASSERT(cpu < num_cpus);
+    TC_ASSERT_GE(cpu, 0);
+    TC_ASSERT_LT(cpu, num_cpus);
 
     // Nothing to resize if the cache is not populated.
     if (!HasPopulated(cpu)) {
@@ -1331,7 +1331,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     subtle::percpu::ScopedSlabCpuStop cpu_stop(freelist_, cpu);
     const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
     size_t size_classes_to_resize = 5;
-    ASSERT(size_classes_to_resize < kNumClasses);
+    TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
     for (size_t i = 0; i < size_classes_to_resize; ++i) {
       // If a size class with largest misses is zero, break. Other size classes
       // should also have suffered zero misses as well.
@@ -1343,7 +1343,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
                                freelist_.Capacity(cpu, size_class_to_grow);
       // can_grow can be negative only if slabs were resized,
       // but since we hold resize_[cpu].lock it must not happen.
-      ASSERT(can_grow >= 0);
+      TC_ASSERT_GE(can_grow, 0);
       if (can_grow <= 0) {
         // If one of the highest miss classes is already at the max capacity,
         // we need to try to grow more classes. Otherwise, if first 5 are at
@@ -1487,8 +1487,8 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
     if (src_cpu > max_populated_cpu) {
       src_cpu = 0;
     }
-    ASSERT(0 <= src_cpu);
-    ASSERT(src_cpu <= max_populated_cpu);
+    TC_ASSERT_LE(0, src_cpu);
+    TC_ASSERT_LE(src_cpu, max_populated_cpu);
 
     // We do not steal from the CPUs we want to grow. Maybe we can explore
     // combining this with stealing from the same CPU later.
@@ -1612,7 +1612,7 @@ size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
   if (!freelist_.ShrinkOtherCache(
           cpu, size_class, /*len=*/1,
           [this](size_t size_class, void** batch, size_t count) {
-            ASSERT(count == 1);
+            TC_ASSERT_EQ(count, 1);
             ReleaseToBackingCache(size_class, {batch, count});
           })) {
     return 0;
@@ -1697,7 +1697,7 @@ void CpuCache<Forwarder>::DeallocateSlowNoHooks(void* ptr, size_t size_class) {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::Allocated(int target_cpu) const {
-  ASSERT(target_cpu >= 0);
+  TC_ASSERT_GE(target_cpu, 0);
   if (!HasPopulated(target_cpu)) {
     return 0;
   }
@@ -1712,7 +1712,7 @@ inline uint64_t CpuCache<Forwarder>::Allocated(int target_cpu) const {
 
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::UsedBytes(int target_cpu) const {
-  ASSERT(target_cpu >= 0);
+  TC_ASSERT_GE(target_cpu, 0);
   if (!HasPopulated(target_cpu)) {
     return 0;
   }
@@ -1727,7 +1727,7 @@ inline uint64_t CpuCache<Forwarder>::UsedBytes(int target_cpu) const {
 
 template <class Forwarder>
 inline bool CpuCache<Forwarder>::HasPopulated(int target_cpu) const {
-  ASSERT(target_cpu >= 0);
+  TC_ASSERT_GE(target_cpu, 0);
   return resize_[target_cpu].populated.load(std::memory_order_relaxed);
 }
 
@@ -1748,7 +1748,7 @@ inline uint64_t CpuCache<Forwarder>::TotalUsedBytes() const {
 template <class Forwarder>
 inline uint64_t CpuCache<Forwarder>::TotalObjectsOfClass(
     size_t size_class) const {
-  ASSERT(size_class < kNumClasses);
+  TC_ASSERT_LT(size_class, kNumClasses);
   uint64_t total_objects = 0;
   if (size_class > 0) {
     for (int cpu = 0, n = NumCPUs(); cpu < n; cpu++) {
@@ -2027,8 +2027,8 @@ template <class Forwarder>
 inline typename CpuCache<Forwarder>::CpuCacheMissStats
 CpuCache<Forwarder>::GetIntervalCacheMissStats(int cpu,
                                                MissCount miss_count) const {
-  ASSERT(miss_count != MissCount::kTotal);
-  ASSERT(miss_count < MissCount::kNumCounts);
+  TC_ASSERT_NE(miss_count, MissCount::kTotal);
+  TC_ASSERT_LT(miss_count, MissCount::kNumCounts);
   const auto get_safe_miss_diff = [miss_count](MissCounts& misses) {
     const size_t total_misses =
         misses[MissCount::kTotal].load(std::memory_order_relaxed);
@@ -2350,8 +2350,8 @@ inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetTotalMisses() {
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetIntervalMisses(
     PerClassMissType type) {
-  ASSERT(type != PerClassMissType::kTotal);
-  ASSERT(type < PerClassMissType::kNumTypes);
+  TC_ASSERT_NE(type, PerClassMissType::kTotal);
+  TC_ASSERT_LT(type, PerClassMissType::kNumTypes);
 
   const size_t total_misses =
       misses_[PerClassMissType::kTotal].load(std::memory_order_relaxed);

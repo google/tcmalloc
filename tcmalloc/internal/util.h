@@ -122,7 +122,7 @@ inline ScopedSigmask::~ScopedSigmask() noexcept {
 
 inline void ScopedSigmask::Setmask(int how, sigset_t *set, sigset_t *old) {
   const int result = pthread_sigmask(how, set, old);
-  CHECK_CONDITION(result == 0);
+  TC_CHECK_EQ(result, 0);
 }
 
 }  // namespace tcmalloc_internal

@@ -302,13 +302,13 @@ class Printer {
  public:
   // REQUIRES: "length > 0"
   Printer(char* buf, size_t length) : buf_(buf), left_(length), required_(0) {
-    ASSERT(length > 0);
+    TC_ASSERT_GT(length, 0);
     buf[0] = '\0';
   }
 
   template <typename... Args>
   void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
-    ASSERT(left_ >= 0);
+    TC_ASSERT_GE(left_, 0);
     if (left_ <= 0) {
       return;
     }
@@ -338,7 +338,7 @@ class Printer {
 
  private:
   void AppendPieces(std::initializer_list<absl::string_view> pieces) {
-    ASSERT(left_ >= 0);
+    TC_ASSERT_GE(left_, 0);
     if (left_ <= 0) {
       return;
     }

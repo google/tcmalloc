@@ -189,7 +189,7 @@ void HugeCache::DecUsage(HugeLength n) {
   usage_tracker_.Report(usage_);
   detailed_tracker_.Report(usage_);
   const HugeLength max = usage_tracker_.MaxOverTime(kCacheTime);
-  ASSERT(max >= usage_);
+  TC_ASSERT_GE(max, usage_);
   const HugeLength off_peak = max - usage_;
   off_peak_tracker_.Report(off_peak);
 }

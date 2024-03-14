@@ -193,7 +193,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         } else {
           s = allocator->New(length, alloc_info);
         }
-        CHECK_CONDITION(s != nullptr);
+        TC_CHECK_NE(s, nullptr);
         CHECK_GE(s->num_pages().raw_num(), length.raw_num());
 
         allocs.push_back(SpanInfo{s, num_objects});

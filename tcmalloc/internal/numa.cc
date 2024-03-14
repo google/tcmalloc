@@ -104,7 +104,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
   // sufficient, but sanity check that indexing it by CPU number shouldn't
   // exceed its bounds.
   int num_cpus = NumCPUs();
-  CHECK_CONDITION(num_cpus <= CPU_SETSIZE);
+  TC_CHECK_LE(num_cpus, CPU_SETSIZE);
 
   // We could just always report that we're NUMA aware, but if a NUMA-aware
   // binary runs on a system that doesn't include multiple NUMA nodes then our
@@ -119,7 +119,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     if (fd == -1) {
       // We expect to encounter ENOENT once node surpasses the actual number of
       // nodes present in the system. Any other error is a problem.
-      CHECK_CONDITION(errno == ENOENT);
+      TC_CHECK_EQ(errno, ENOENT);
       break;
     }
 

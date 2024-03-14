@@ -234,7 +234,7 @@ inline int GetCurrentCpu() {
 
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
   cpu = sched_getcpu();
-  ASSERT(cpu >= 0);
+  TC_ASSERT_GE(cpu, 0);
 #endif  // TCMALLOC_HAVE_SCHED_GETCPU
 
   return cpu;
@@ -265,7 +265,7 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
 
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
   cpu = sched_getcpu();
-  ASSERT(cpu >= 0);
+  TC_ASSERT_GE(cpu, 0);
 #endif  // TCMALLOC_HAVE_SCHED_GETCPU
 
   return cpu;

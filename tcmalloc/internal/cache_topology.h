@@ -40,8 +40,8 @@ class CacheTopology {
   unsigned l3_count() const { return l3_count_; }
 
   unsigned GetL3FromCpuId(int cpu) const {
-    ASSERT(cpu >= 0);
-    ASSERT(cpu < cpu_count_);
+    TC_ASSERT_GE(cpu, 0);
+    TC_ASSERT_LT(cpu, cpu_count_);
     return l3_cache_index_[cpu];
   }
 

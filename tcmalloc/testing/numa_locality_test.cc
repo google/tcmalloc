@@ -71,7 +71,7 @@ size_t BackingNode(void* const ptr) {
   int status = -1;
   CHECK_CONDITION(syscall(__NR_move_pages, /*pid=*/0, /*count=*/1, &page_addr,
                           /*nodes=*/nullptr, &status, /*flags=*/0) == 0);
-  CHECK_CONDITION(status >= 0);
+  TC_CHECK_GE(status, 0);
   return status;
 }
 
@@ -158,7 +158,7 @@ class FakeNumaAwareRegionFactory final : public tcmalloc::AddressRegionFactory {
 
 FakeNumaAwareRegionFactory* GetFakeNumaAwareRegionFactory() {
   AddressRegionFactory* existing_factory = MallocExtension::GetRegionFactory();
-  CHECK_CONDITION(existing_factory != nullptr);
+  TC_CHECK_NE(existing_factory, nullptr);
   static absl::NoDestructor<FakeNumaAwareRegionFactory> f(existing_factory);
   return f.get();
 }

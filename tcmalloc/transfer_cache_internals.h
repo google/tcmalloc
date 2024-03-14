@@ -123,7 +123,7 @@ class TransferCache {
     // is not done, large size class objects will consume a lot of memory if
     // they just sit in the transfer cache.
     const size_t objs_to_move = Manager::num_objects_to_move(size_class);
-    ASSERT(objs_to_move > 0);
+    TC_ASSERT_GT(objs_to_move, 0);
 
     // Starting point for the maximum number of entries in the transfer cache.
     // This actual maximum for a given size class may be lower than this
@@ -216,7 +216,7 @@ class TransferCache {
 
     int to_return = low_water_mark_;
     SizeInfo info = GetSlotInfo();
-    ASSERT(to_return <= info.used);
+    TC_ASSERT_LE(to_return, info.used);
     // Make sure to record number of used objects in the cache in the low water
     // mark at the start of each plunder. If we plunder objects below, we record
     // the new value of info.used in the low water mark as we progress.
@@ -357,9 +357,9 @@ class TransferCache {
   }
 
   void SetSlotInfo(SizeInfo info) {
-    ASSERT(0 <= info.used);
-    ASSERT(info.used <= info.capacity);
-    ASSERT(info.capacity <= max_capacity_);
+    TC_ASSERT_LE(0, info.used);
+    TC_ASSERT_LE(info.used, info.capacity);
+    TC_ASSERT_LE(info.capacity, max_capacity_);
     slot_info_.store(info, std::memory_order_relaxed);
   }
 
@@ -414,8 +414,9 @@ class TransferCache {
 
 template <typename Manager>
 void ResizeCaches(Manager &manager, int start_size_class) {
-  ASSERT(start_size_class >= 0);
-  ASSERT(start_size_class + Manager::kNumBaseClasses <= Manager::kNumClasses);
+  TC_ASSERT_GE(start_size_class, 0);
+  TC_ASSERT_LE(start_size_class + Manager::kNumBaseClasses,
+               Manager::kNumClasses);
   // Tracks misses per size class.
   struct MissInfo {
     int size_class;

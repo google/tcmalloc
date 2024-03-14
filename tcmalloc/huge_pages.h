@@ -42,17 +42,17 @@ inline constexpr Length kPagesPerHugePage =
 // A single aligned huge page.
 struct HugePage {
   void* start_addr() const {
-    ASSERT(pn <= kMaxPageNumber);
+    TC_ASSERT_LE(pn, kMaxPageNumber);
     return reinterpret_cast<void*>(pn << kHugePageShift);
   }
 
   PageId first_page() const {
-    ASSERT(pn <= kMaxPageNumber);
+    TC_ASSERT_LE(pn, kMaxPageNumber);
     return PageId(pn << (kHugePageShift - kPageShift));
   }
 
   size_t index() const {
-    ASSERT(pn <= kMaxPageNumber);
+    TC_ASSERT_LE(pn, kMaxPageNumber);
     return pn;
   }
 
@@ -74,7 +74,7 @@ struct HugePage {
 
 struct HugeLength {
   constexpr HugeLength() : n(0) {}
-  explicit HugeLength(double x) : n(ceil(x)) { ASSERT(x >= 0); }
+  explicit HugeLength(double x) : n(ceil(x)) { TC_ASSERT_GE(x, 0); }
   constexpr size_t raw_num() const { return n; }
   constexpr size_t in_bytes() const { return n * kHugePageSize; }
   constexpr size_t in_mib() const {
@@ -148,13 +148,13 @@ inline HugeLength& operator++(HugeLength& len) {  // NOLINT(runtime/references)
 }
 
 inline HugePage& operator++(HugePage& p) {  // NOLINT(runtime/references)
-  ASSERT(p.pn + 1 <= HugePage::kMaxPageNumber);
+  TC_ASSERT_LE(p.pn + 1, HugePage::kMaxPageNumber);
   p.pn++;
   return p;
 }
 
 inline HugeLength& operator--(HugeLength& len) {  // NOLINT(runtime/references)
-  ASSERT(len.n >= 1);
+  TC_ASSERT_GE(len.n, 1);
   len.n--;
   return len;
 }
@@ -245,7 +245,7 @@ inline constexpr HugeLength operator%(HugeLength lhs, HugeLength rhs) {
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugePage operator+(HugePage lhs, HugeLength rhs) {
-  ASSERT(lhs.pn + rhs.n <= HugePage::kMaxPageNumber);
+  TC_ASSERT_LE(lhs.pn + rhs.n, HugePage::kMaxPageNumber);
   return HugePage{lhs.pn + rhs.n};
 }
 
@@ -256,16 +256,16 @@ inline constexpr HugePage operator+(HugeLength lhs, HugePage rhs) {
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugePage operator-(HugePage lhs, HugeLength rhs) {
-  return ASSERT(lhs.pn >= rhs.n), HugePage{lhs.pn - rhs.n};
+  return TC_ASSERT_GE(lhs.pn, rhs.n), HugePage{lhs.pn - rhs.n};
 }
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator-(HugePage lhs, HugePage rhs) {
-  return ASSERT(lhs.pn >= rhs.pn), NHugePages(lhs.pn - rhs.pn);
+  return TC_ASSERT_GE(lhs.pn, rhs.pn), NHugePages(lhs.pn - rhs.pn);
 }
 
 inline HugePage& operator+=(HugePage& lhs, HugeLength rhs) {
-  ASSERT(lhs.pn + rhs.n <= HugePage::kMaxPageNumber);
+  TC_ASSERT_LE(lhs.pn + rhs.n, HugePage::kMaxPageNumber);
   lhs.pn += rhs.n;
   return lhs;
 }
@@ -282,11 +282,11 @@ inline HugeLength& operator+=(HugeLength& lhs, HugeLength rhs) {
 
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr HugeLength operator-(HugeLength lhs, HugeLength rhs) {
-  return ASSERT(lhs.n >= rhs.n), NHugePages(lhs.n - rhs.n);
+  return TC_ASSERT_GE(lhs.n, rhs.n), NHugePages(lhs.n - rhs.n);
 }
 
 inline HugeLength& operator-=(HugeLength& lhs, HugeLength rhs) {
-  ASSERT(lhs.n >= rhs.n);
+  TC_ASSERT_GE(lhs.n, rhs.n);
   lhs.n -= rhs.n;
   return lhs;
 }

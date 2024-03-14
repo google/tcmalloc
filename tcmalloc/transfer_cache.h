@@ -143,7 +143,7 @@ class ShardedTransferCacheManagerBase {
     num_shards_ = cpu_layout_->NumShards();
     shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
         sizeof(Shard) * num_shards_, std::align_val_t{ABSL_CACHELINE_SIZE}));
-    ASSERT(shards_ != nullptr);
+    TC_ASSERT_NE(shards_, nullptr);
 
     for (int shard = 0; shard < num_shards_; ++shard) {
       new (&shards_[shard]) Shard;
@@ -363,7 +363,7 @@ class ShardedTransferCacheManagerBase {
     TransferCache *new_caches = reinterpret_cast<TransferCache *>(
         owner_->Alloc(sizeof(TransferCache) * kNumClasses,
                       std::align_val_t{ABSL_CACHELINE_SIZE}));
-    ASSERT(new_caches != nullptr);
+    TC_ASSERT_NE(new_caches, nullptr);
     for (int size_class = 0; size_class < kNumClasses; ++size_class) {
       Capacity capacity = UseGenericCache() ? ScaledCacheCapacity(size_class)
                                             : LargeCacheCapacity(size_class);
@@ -385,7 +385,7 @@ class ShardedTransferCacheManagerBase {
   TransferCache &get_cache(int size_class) {
     const uint8_t shard_index =
         cpu_layout_->CpuShard(cpu_layout_->CurrentCpu());
-    ASSERT(shard_index < num_shards_);
+    TC_ASSERT_LT(shard_index, num_shards_);
     Shard &shard = shards_[shard_index];
     absl::base_internal::LowLevelCallOnce(
         &shard.once_flag, [this, &shard]() { InitShard(shard); });

@@ -199,7 +199,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   // already been populated in the old slab.
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
-  ASSERT(new_shift != old_shift);
+  TC_ASSERT_NE(new_shift, old_shift);
   const int num_cpus = NumCPUs();
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     CHECK_CONDITION(!stopped_[cpu].load(std::memory_order_relaxed));

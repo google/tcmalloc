@@ -49,7 +49,7 @@ int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current) {
 
   int first_cpu;
   CHECK_CONDITION(absl::SimpleAtoi(current, &first_cpu));
-  CHECK_CONDITION(first_cpu < CPU_SETSIZE);
+  TC_CHECK_LT(first_cpu, CPU_SETSIZE);
   return first_cpu;
 }
 
@@ -60,7 +60,7 @@ void CacheTopology::Init() {
     if (fd == -1) {
       // At some point we reach the number of CPU on the system, and
       // we should exit. We verify that there was no other problem.
-      CHECK_CONDITION(errno == ENOENT);
+      TC_CHECK_EQ(errno, ENOENT);
       // For aarch64 if
       // /sys/devices/system/cpu/cpu*/cache/index3/shared_cpu_list is missing
       // then L3 is assumed to be shared by all CPUs.
@@ -80,12 +80,12 @@ void CacheTopology::Init() {
     const size_t bytes_read =
         signal_safe_read(fd, buf, 10, /*bytes_read=*/nullptr);
     signal_safe_close(fd);
-    CHECK_CONDITION(bytes_read >= 0);
+    TC_CHECK_GE(bytes_read, 0);
 
     const int first_cpu =
         BuildCpuToL3CacheMap_FindFirstNumberInBuf({buf, bytes_read});
-    CHECK_CONDITION(first_cpu < CPU_SETSIZE);
-    CHECK_CONDITION(first_cpu <= cpu);
+    TC_CHECK_LT(first_cpu, CPU_SETSIZE);
+    TC_CHECK_LE(first_cpu, cpu);
     if (cpu == first_cpu) {
       l3_cache_index_[cpu] = l3_count_++;
     } else {

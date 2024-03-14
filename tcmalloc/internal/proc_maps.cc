@@ -52,7 +52,7 @@ ProcMapsIterator::ProcMapsIterator(pid_t pid, Buffer* buffer) {
   // Use the main thread's "local" view to ensure adequate performance.
   int path_length = absl::SNPrintF(ibuf_, Buffer::kBufSize,
                                    "/proc/%d/task/%d/maps", pid, pid);
-  CHECK_CONDITION(path_length < Buffer::kBufSize);
+  TC_CHECK_LT(path_length, Buffer::kBufSize);
 
   // No error logging since this can be called from the crash dump
   // handler at awkward moments. Users should call Valid() before

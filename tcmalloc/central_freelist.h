@@ -500,7 +500,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     // We do not collect histogram stats for small-but-slow.
     int here = span->FreelistPopBatch(batch + result, N - result, object_size);
-    ASSERT(here > 0);
+    TC_ASSERT_GT(here, 0);
     if (span->FreelistEmpty(object_size)) {
       nonempty_.remove(span);
     }
@@ -509,7 +509,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
     const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
     const uint8_t prev_index = span->nonempty_index();
     int here = span->FreelistPopBatch(batch + result, N - result, object_size);
-    ASSERT(here > 0);
+    TC_ASSERT_GT(here, 0);
     // As the objects are being popped from the span, its utilization might
     // change. So, we remove the stale utilization from the histogram here and
     // add it again once we pop the objects.
@@ -555,7 +555,7 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
   }
 
   int result = span->BuildFreelist(object_size_, objects_per_span_, batch, N);
-  ASSERT(result > 0);
+  TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
 
@@ -628,7 +628,7 @@ inline SpanStats CentralFreeList<Forwarder>::GetSpanStats() const {
 template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansWith(
     uint16_t bitwidth) const {
-  ASSERT(bitwidth > 0);
+  TC_ASSERT_GT(bitwidth, 0);
   const int bucket = bitwidth - 1;
   return objects_to_spans_[bucket].value();
 }

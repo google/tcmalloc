@@ -39,6 +39,7 @@
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/affinity.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
@@ -260,7 +261,7 @@ TEST(CpuCacheTest, MinimumShardsForGenericCache) {
 
   ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
   constexpr int kNumShards = ShardedManager::kMinShardsAllowed - 1;
-  ASSERT(kNumShards > 0);
+  TC_ASSERT_GT(kNumShards, 0);
   forwarder.InitializeShardedManager(kNumShards);
 
   constexpr int kCpuId = 0;
@@ -311,7 +312,7 @@ TEST(CpuCacheTest, UsesShardedAsBackingCache) {
 
   ShardedManager& sharded_transfer_cache = forwarder.sharded_transfer_cache();
   constexpr int kNumShards = ShardedManager::kMinShardsAllowed;
-  ASSERT(kNumShards > 0);
+  TC_ASSERT_GT(kNumShards, 0);
   forwarder.InitializeShardedManager(kNumShards);
 
   ScopedFakeCpuId fake_cpu_id(0);

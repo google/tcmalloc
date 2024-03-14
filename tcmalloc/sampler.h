@@ -170,7 +170,7 @@ inline size_t Sampler::RecordAllocation(size_t k) {
 
 inline bool ABSL_ATTRIBUTE_ALWAYS_INLINE
 Sampler::TryRecordAllocationFast(size_t k) {
-  ASSERT(bytes_until_sample_ >= 0);
+  TC_ASSERT_GE(bytes_until_sample_, 0);
 
   // Avoid missampling 0.  Callers pass in requested size (which based on the
   // assertion below k>=0 at this point).  Since subtracting 0 from

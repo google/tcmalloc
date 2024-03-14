@@ -167,7 +167,7 @@ namespace tcmalloc_internal {
 // REQUIRES: buffer_length > 0.
 extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length) {
-  ASSERT(buffer_length > 0);
+  TC_ASSERT_GT(buffer_length, 0);
   Printer printer(buffer, buffer_length);
 
   // Print level one stats unless lots of space is available
@@ -373,7 +373,7 @@ static ABSL_ATTRIBUTE_NOINLINE size_t nallocx_slow(size_t size, int flags) {
   size_t size_class;
   if (ABSL_PREDICT_TRUE(tc_globals.sizemap().GetSizeClass(
           CppPolicy().AlignAs(align), size, &size_class))) {
-    ASSERT(size_class != 0);
+    TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
     return BytesToLengthCeil(size).in_bytes();
@@ -392,7 +392,7 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept {
   size_t size_class;
   if (ABSL_PREDICT_TRUE(
           tc_globals.sizemap().GetSizeClass(CppPolicy(), size, &size_class))) {
-    ASSERT(size_class != 0);
+    TC_ASSERT_NE(size_class, 0);
     return tc_globals.sizemap().class_to_size(size_class);
   } else {
     return BytesToLengthCeil(size).in_bytes();
@@ -617,7 +617,7 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 
   if (weight != 0) {
     auto ptr = SampleLargeAllocation(tc_globals, policy, size, weight, span);
-    CHECK_CONDITION(res.p == ptr.p);
+    TC_CHECK_EQ(res.p, ptr.p);
   }
 
   return res;
@@ -680,7 +680,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
     ASSERT(size_class == GetSizeClass(ptr));
-    ASSERT(ptr != nullptr);
+    TC_ASSERT_NE(ptr, nullptr);
     FreeSmall(ptr, size_class);
   } else {
     SLOW_PATH_BARRIER();
@@ -696,7 +696,7 @@ bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 template <typename AlignPolicy>
 ABSL_ATTRIBUTE_NOINLINE static void free_sampled(void* ptr, size_t size,
                                                  AlignPolicy align) {
-  ASSERT(ptr != nullptr);
+  TC_ASSERT_NE(ptr, nullptr);
   // IsColdMemory(ptr) implies IsSampledMemory(ptr).
   if (!IsColdMemory(ptr)) {
     // we don't know true class size of the ptr
@@ -737,7 +737,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
-  ASSERT(ptr != nullptr);
+  TC_ASSERT_NE(ptr, nullptr);
 
   size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
@@ -986,7 +986,7 @@ static inline Pointer ABSL_ATTRIBUTE_ALWAYS_INLINE fast_alloc(Policy policy,
     return slow_alloc_small(size, size_class, policy);
   }
 
-  ASSERT(ret != nullptr);
+  TC_ASSERT_NE(ret, nullptr);
   return Policy::to_pointer(ret, size_class);
 }
 
@@ -1418,7 +1418,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalAlignedAlloc(
 
 extern "C" ABSL_CACHELINE_ALIGNED int TCMallocInternalPosixMemalign(
     void** result_ptr, size_t align, size_t size) noexcept {
-  ASSERT(result_ptr != nullptr);
+  TC_ASSERT_NE(result_ptr, nullptr);
   if (ABSL_PREDICT_FALSE(((align % sizeof(void*)) != 0) ||
                          !absl::has_single_bit(align))) {
     return EINVAL;

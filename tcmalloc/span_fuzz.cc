@@ -54,7 +54,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   void* mem;
   int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
-  CHECK_CONDITION(res == 0);
+  TC_CHECK_EQ(res, 0);
   Span span;
   span.Init(PageIdContaining(mem), pages);
   span.BuildFreelist(object_size, objects_per_span, nullptr, 0);
@@ -66,14 +66,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   while (ptrs.size() < objects_per_span) {
     size_t want = std::min(num_to_move, objects_per_span - ptrs.size());
-    CHECK_CONDITION(want > 0);
+    TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
     CHECK_CONDITION(!span.FreelistEmpty(object_size));
     size_t n = span.FreelistPopBatch(batch, want, object_size);
 
-    CHECK_CONDITION(n > 0);
-    CHECK_CONDITION(n <= want);
-    CHECK_CONDITION(n <= kMaxObjectsToMove);
+    TC_CHECK_GT(n, 0);
+    TC_CHECK_LE(n, want);
+    TC_CHECK_LE(n, kMaxObjectsToMove);
     ptrs.insert(ptrs.end(), batch, batch + n);
   }
 

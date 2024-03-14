@@ -156,7 +156,7 @@ Span* PageHeap::NewAligned(Length n, Length align,
     const Length mask = align - Length(1);
     PageId aligned = PageId{(p.index() + mask.raw_num()) & ~mask.raw_num()};
     ASSERT(aligned.index() % align.raw_num() == 0);
-    ASSERT(p <= aligned);
+    TC_ASSERT_LE(p, aligned);
     ASSERT(aligned + n <= p + span->num_pages());
     // we have <extra> too many pages now, possible all before, possibly all
     // after, maybe both

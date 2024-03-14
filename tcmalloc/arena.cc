@@ -31,7 +31,7 @@ namespace tcmalloc_internal {
 
 void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
-  ASSERT(align > 0);
+  TC_ASSERT_GT(align, 0);
   {  // First we need to move up to the correct alignment.
     const int misalignment = reinterpret_cast<uintptr_t>(free_area_) % align;
     const int alignment_bytes = misalignment != 0 ? align - misalignment : 0;

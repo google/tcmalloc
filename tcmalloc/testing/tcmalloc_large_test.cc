@@ -97,9 +97,9 @@ class NoErrnoRegionFactory final : public AddressRegionFactory {
 
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     AddressRegion* underlying_region = underlying_->Create(start, size, hint);
-    CHECK_CONDITION(underlying_region != nullptr);
+    TC_CHECK_NE(underlying_region, nullptr);
     void* region_space = MallocInternal(sizeof(NoErrnoRegion));
-    CHECK_CONDITION(region_space != nullptr);
+    TC_CHECK_NE(region_space, nullptr);
     return new (region_space) NoErrnoRegion(underlying_region);
   }
 

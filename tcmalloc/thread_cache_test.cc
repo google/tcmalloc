@@ -40,7 +40,7 @@ int64_t MemoryUsageSlow(pid_t pid) {
 
   FILE* f =
       fopen(absl::StrCat("/proc/", pid, "/task/", pid, "/smaps").c_str(), "r");
-  CHECK_CONDITION(f != nullptr);
+  TC_CHECK_NE(f, nullptr);
 
   char buf[BUFSIZ];
   while (fgets(buf, sizeof(buf), f) != nullptr) {

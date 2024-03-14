@@ -66,7 +66,7 @@ std::unique_ptr<const ProfileBase> DumpFragmentationProfile(Static& state) {
         Span* span = state.pagemap().GetDescriptor(p);
         if (span == nullptr) {
           // Avoid crashes in production mode code, but report in tests.
-          ASSERT(span != nullptr);
+          TC_ASSERT_NE(span, nullptr);
           return;
         }
 
@@ -197,7 +197,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
     size_t objects_per_span = span_size / stack_trace.allocated_size;
 
     if (objects_per_span != 1) {
-      ASSERT(objects_per_span > 1);
+      TC_ASSERT_GT(objects_per_span, 1);
       stack_trace.proxy = obj;
       obj = nullptr;
     }
@@ -213,7 +213,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
   }
 
   // A span must be provided or created by this point.
-  ASSERT(span != nullptr);
+  TC_ASSERT_NE(span, nullptr);
 
   stack_trace.sampled_alloc_handle =
       state.sampled_alloc_handle_generator.fetch_add(
@@ -229,7 +229,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
       static_cast<double>(weight) / (requested_size + 1);
 
   // Adjust our estimate of internal fragmentation.
-  ASSERT(requested_size <= stack_trace.allocated_size);
+  TC_ASSERT_LE(requested_size, stack_trace.allocated_size);
   if (requested_size < stack_trace.allocated_size) {
     state.sampled_internal_fragmentation_.Add(
         allocation_estimate * (stack_trace.allocated_size - requested_size));
@@ -253,7 +253,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
   if (obj != nullptr) {
     // We are not maintaining precise statistics on malloc hit/miss rates at our
     // cache tiers.  We can deallocate into our ordinary cache.
-    ASSERT(size_class != 0);
+    TC_ASSERT_NE(size_class, 0);
     FreeProxyObject(state, obj, size_class);
   }
   ASSERT(state.pagemap().sizeclass(span->first_page()) == 0);
@@ -290,7 +290,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
     state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
     // Adjust our estimate of internal fragmentation.
-    ASSERT(requested_size <= allocated_size);
+    TC_ASSERT_LE(requested_size, allocated_size);
     if (requested_size < allocated_size) {
       const size_t sampled_fragmentation =
           allocation_estimate * (allocated_size - requested_size);

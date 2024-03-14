@@ -59,7 +59,7 @@ class SyntheticCpuList {
  public:
   explicit SyntheticCpuList(const absl::string_view content) {
     fd_ = memfd_create("cpulist", MFD_CLOEXEC);
-    CHECK_CONDITION(fd_ != -1);
+    TC_CHECK_NE(fd_, -1);
 
     CHECK_CONDITION(write(fd_, content.data(), content.size()) ==
                     content.size());

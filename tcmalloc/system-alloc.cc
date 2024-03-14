@@ -317,10 +317,10 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
     }
     std::pair<void*, size_t> result = region->Alloc(size, alignment);
     if (result.first != nullptr) {
-      ASSERT(result.first == ptr);
-      ASSERT(result.second == size);
+      TC_ASSERT_EQ(result.first, ptr);
+      TC_ASSERT_EQ(result.second, size);
     } else {
-      ASSERT(result.second == 0);
+      TC_ASSERT_EQ(result.second, 0);
     }
     return result;
   }
@@ -406,7 +406,7 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
     return;
   }
 
-  ASSERT(bind_mode == NumaBindMode::kStrict);
+  TC_ASSERT_EQ(bind_mode, NumaBindMode::kStrict);
   Crash(kCrash, __FILE__, __LINE__,
         "Unable to mbind memory (errno, base, nodemask)", errno, base,
         nodemask);
@@ -532,7 +532,7 @@ bool SystemRelease(void* start, size_t length) {
   ASSERT((new_start & pagemask) == 0);
   ASSERT((new_end & pagemask) == 0);
   ASSERT(new_start >= reinterpret_cast<size_t>(start));
-  ASSERT(new_end <= end);
+  TC_ASSERT_LE(new_end, end);
 
   if (new_end > new_start) {
     void* new_ptr = reinterpret_cast<void*>(new_start);
@@ -621,8 +621,8 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
 }
 
 void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
-  ASSERT(size <= kTagMask);
-  ASSERT(alignment <= kTagMask);
+  TC_ASSERT_LE(size, kTagMask);
+  TC_ASSERT_LE(alignment, kTagMask);
 
   static uintptr_t next_sampled_addr = 0;
   static std::array<uintptr_t, kNumaPartitions> next_normal_addr = {0};
@@ -696,7 +696,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       // If MAP_FIXED_NOREPLACE was correctly detected, we should either get
       // result == hint or MAP_FAILED.  Any other value indicates incorrect
       // detection.
-      CHECK_CONDITION(result == MAP_FAILED);
+      TC_CHECK_EQ(result, MAP_FAILED);
     } else {
       if (result == MAP_FAILED) {
         Log(kLogWithStack, __FILE__, __LINE__,
@@ -707,7 +707,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       if (int err = munmap(result, size)) {
         Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed (error)",
             strerror(errno));
-        ASSERT(err == 0);
+        TC_ASSERT_EQ(err, 0);
       }
     }
     next_addr = RandomMmapHint(size, alignment, tag);

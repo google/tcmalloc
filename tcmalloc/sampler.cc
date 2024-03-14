@@ -47,7 +47,7 @@ ssize_t Sampler::GetSamplePeriod() {
 
 // Run this before using your sampler
 ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
-  ASSERT(seed != 0);
+  TC_ASSERT_NE(seed, 0);
 
   // do_malloc comes here without having initialized statics, and
   // PickNextSamplingPoint uses data initialized in static vars.

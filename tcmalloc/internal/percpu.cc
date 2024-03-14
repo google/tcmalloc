@@ -107,18 +107,18 @@ static void InitPerCpu() {
     volatile auto slabs_addr = reinterpret_cast<uintptr_t>(&tcmalloc_slabs);
     auto rseq_abi_addr = reinterpret_cast<uintptr_t>(&__rseq_abi);
     //  Ensure __rseq_abi alignment required by ABI.
-    CHECK_CONDITION(rseq_abi_addr % 32 == 0);
+    TC_CHECK_EQ(rseq_abi_addr % 32, 0);
     // Ensure that all our TLS data is in a single cache line.
     CHECK_CONDITION((rseq_abi_addr / 64) == (slabs_addr / 64));
     CHECK_CONDITION((rseq_abi_addr / 64) ==
                     ((sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64));
     // Ensure that tcmalloc_slabs partially overlap with
     // __rseq_abi.cpu_id_start as we expect.
-    CHECK_CONDITION(slabs_addr == rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
+    TC_CHECK_EQ(slabs_addr, rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
     // Ensure Sampler is properly aligned.
     CHECK_CONDITION((sampler_addr % TCMALLOC_SAMPLER_ALIGN) == 0);
     // Ensure that tcmalloc_sampler is located before tcmalloc_slabs.
-    CHECK_CONDITION(sampler_addr + TCMALLOC_SAMPLER_SIZE <= slabs_addr);
+    TC_CHECK_LE(sampler_addr + TCMALLOC_SAMPLER_SIZE, slabs_addr);
 
     constexpr int kMEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_RSEQ = (1 << 8);
     // It is safe to make the syscall below multiple times.
@@ -189,7 +189,7 @@ static bool SetAffinityOneCpu(int cpu) {
   if (0 == sched_setaffinity(0, sizeof(cpu_set_t), &set)) {
     return true;
   }
-  CHECK_CONDITION(errno == EINVAL);
+  TC_CHECK_EQ(errno, EINVAL);
   return false;
 }
 
@@ -268,7 +268,7 @@ static void SlowFence(int target) {
   using tcmalloc::tcmalloc_internal::signal_safe_open;
   using tcmalloc::tcmalloc_internal::signal_safe_read;
   int fd = signal_safe_open("/proc/self/cpuset", O_RDONLY);
-  CHECK_CONDITION(fd >= 0);
+  TC_CHECK_GE(fd, 0);
 
   char c;
   CHECK_CONDITION(1 == signal_safe_read(fd, &c, 1, nullptr));
@@ -277,7 +277,7 @@ static void SlowFence(int target) {
 
   // Try to go back to what we originally had before Fence.
   if (0 != sched_setaffinity(0, sizeof(cpu_set_t), &old)) {
-    CHECK_CONDITION(EINVAL == errno);
+    TC_CHECK_EQ(EINVAL, errno);
     // The original set is no longer valid, which should only happen if
     // cpuset.cpus was changed at some point in Fence.  If that happened and we
     // didn't fence, our control plane would have rewritten our affinity mask to

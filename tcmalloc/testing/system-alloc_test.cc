@@ -138,7 +138,7 @@ class SimpleRegion : public AddressRegion {
     free_size_ -= actual_size;
     void* ptr = reinterpret_cast<void*>(result);
     int err = mprotect(ptr, actual_size, PROT_READ | PROT_WRITE);
-    CHECK_CONDITION(err == 0);
+    TC_CHECK_EQ(err, 0);
     return {ptr, actual_size};
   }
 
@@ -151,7 +151,7 @@ class SimpleRegionFactory : public AddressRegionFactory {
  public:
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     void* region_space = MallocInternal(sizeof(SimpleRegion));
-    CHECK_CONDITION(region_space != nullptr);
+    TC_CHECK_NE(region_space, nullptr);
     return new (region_space)
         SimpleRegion(reinterpret_cast<uintptr_t>(start), size);
   }

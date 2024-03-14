@@ -93,10 +93,10 @@ void HugeAllocator::CheckFreelist() {
   size_t num_nodes = free_.nranges();
   HugeLength n = free_.total_mapped();
   free_.Check();
-  CHECK_CONDITION(n == from_system_ - in_use_);
+  TC_CHECK_EQ(n, from_system_ - in_use_);
   LargeSpanStats large;
   AddSpanStats(nullptr, &large);
-  CHECK_CONDITION(num_nodes == large.spans);
+  TC_CHECK_EQ(num_nodes, large.spans);
   CHECK_CONDITION(n.in_pages() == large.returned_pages);
 }
 
@@ -109,9 +109,9 @@ HugeRange HugeAllocator::AllocateRange(HugeLength n) {
     // OOM...
     return HugeRange::Nil();
   }
-  CHECK_CONDITION(ptr != nullptr);
+  TC_CHECK_NE(ptr, nullptr);
   // It's possible for a request to return extra hugepages.
-  CHECK_CONDITION(actual % kHugePageSize == 0);
+  TC_CHECK_EQ(actual % kHugePageSize, 0);
   n = HLFromBytes(actual);
   from_system_ += n;
   return HugeRange::Make(HugePageContaining(ptr), n);
@@ -127,7 +127,7 @@ HugeRange HugeAllocator::Get(HugeLength n) {
     in_use_ += r.len();
     Release(r);
     node = Find(n);
-    CHECK_CONDITION(node != nullptr);
+    TC_CHECK_NE(node, nullptr);
   }
   in_use_ += n;
 

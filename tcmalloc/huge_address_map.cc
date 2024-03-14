@@ -62,9 +62,9 @@ void HugeAddressMap::Node::Check(size_t* num_nodes, HugeLength* size) const {
     // disjoint
     CHECK_CONDITION(left_->range_.end_addr() < range_.start_addr());
     // well-formed
-    CHECK_CONDITION(left_->parent_ == this);
+    TC_CHECK_EQ(left_->parent_, this);
     // heap
-    CHECK_CONDITION(left_->prio_ <= prio_);
+    TC_CHECK_LE(left_->prio_, prio_);
     left_->Check(num_nodes, size);
     if (left_->longest_ > longest) longest = left_->longest_;
   }
@@ -75,14 +75,14 @@ void HugeAddressMap::Node::Check(size_t* num_nodes, HugeLength* size) const {
     // disjoint
     CHECK_CONDITION(right_->range_.start_addr() > range_.end_addr());
     // well-formed
-    CHECK_CONDITION(right_->parent_ == this);
+    TC_CHECK_EQ(right_->parent_, this);
     // heap
-    CHECK_CONDITION(right_->prio_ <= prio_);
+    TC_CHECK_LE(right_->prio_, prio_);
     right_->Check(num_nodes, size);
     if (right_->longest_ > longest) longest = right_->longest_;
   }
 
-  CHECK_CONDITION(longest_ == longest);
+  TC_CHECK_EQ(longest_, longest);
 }
 
 const HugeAddressMap::Node* HugeAddressMap::first() const {
@@ -106,12 +106,12 @@ void HugeAddressMap::Check() {
   size_t nodes = 0;
   HugeLength size = NHugePages(0);
   if (root_) {
-    CHECK_CONDITION(root_->parent_ == nullptr);
+    TC_CHECK_EQ(root_->parent_, nullptr);
     root_->Check(&nodes, &size);
   }
   CHECK_CONDITION(nodes == nranges());
   CHECK_CONDITION(size == total_mapped());
-  CHECK_CONDITION(total_nodes_ == used_nodes_ + freelist_size_);
+  TC_CHECK_EQ(total_nodes_, used_nodes_ + freelist_size_);
 }
 
 size_t HugeAddressMap::nranges() const { return used_nodes_; }

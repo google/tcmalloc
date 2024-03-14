@@ -1003,7 +1003,7 @@ void BM_PushPop(benchmark::State& state) {
     slab.InitCpu(cpu, get_capacity);
   }
   auto [cpu, _] = slab.CacheCpuSlab();
-  CHECK_CONDITION(cpu == kCpu);
+  TC_CHECK_EQ(cpu, kCpu);
 
   CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
     return kBatchSize;
@@ -1042,7 +1042,7 @@ void BM_PushPopBatch(benchmark::State& state) {
     slab.InitCpu(cpu, get_capacity);
   }
   auto [cpu, _] = slab.CacheCpuSlab();
-  CHECK_CONDITION(cpu == kCpu);
+  TC_CHECK_EQ(cpu, kCpu);
   CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
     return kBatchSize;
   }) == kBatchSize);

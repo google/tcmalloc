@@ -36,13 +36,13 @@ class RawSpan {
  public:
   void Init(size_t size_class) {
     size_t size = tc_globals.sizemap().class_to_size(size_class);
-    CHECK_CONDITION(size > 0);
+    TC_CHECK_GT(size, 0);
     auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
-    CHECK_CONDITION(res == 0);
+    TC_CHECK_EQ(res, 0);
     span_.Init(PageIdContaining(mem), npages);
     span_.BuildFreelist(size, objects_per_span, nullptr, 0);
   }
@@ -89,7 +89,7 @@ void BM_single_span_fulldrain(benchmark::State& state) {
 
   size_t size = tc_globals.sizemap().class_to_size(size_class);
   uint32_t reciprocal = Span::CalcReciprocal(size);
-  CHECK_CONDITION(size > 0);
+  TC_CHECK_GT(size, 0);
   size_t npages = tc_globals.sizemap().class_to_pages(size_class);
   size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   size_t objects_per_span = npages * kPageSize / size;
@@ -179,7 +179,7 @@ void BM_multiple_spans(benchmark::State& state) {
   std::vector<RawSpan> spans(num_spans);
   size_t size = tc_globals.sizemap().class_to_size(size_class);
   uint32_t reciprocal = Span::CalcReciprocal(size);
-  CHECK_CONDITION(size > 0);
+  TC_CHECK_GT(size, 0);
   size_t batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
   for (int i = 0; i < num_spans; i++) {
     spans[i].Init(size_class);

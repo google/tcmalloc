@@ -420,7 +420,7 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
       object_to_span.emplace_back(batch[i], s);
       allocated_per_span[s] += 1;
     }
-    ASSERT(span_idx < kNumSpans);
+    TC_ASSERT_LT(span_idx, kNumSpans);
   }
 
   // Make sure that we have fetched exactly from kNumSpans spans.
@@ -465,7 +465,7 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
       // If span has non-zero allocated objects, include it in the histogram.
       if (span_and_count.second > 0) {
         const size_t bucket = absl::bit_width(span_and_count.second) - 1;
-        ASSERT(bucket <= last_bucket);
+        TC_ASSERT_LE(bucket, last_bucket);
         ++expected[bucket];
       }
     }
@@ -516,7 +516,7 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
 // each operation, the actual index is matched against the expected one.
 template <typename IndexingFunc>
 void TestIndexing(TypeParam& e, IndexingFunc f) {
-  ASSERT(kNumLists > 0);
+  TC_ASSERT_GT(kNumLists, 0);
   const int num_objects_to_fetch = e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch);
   size_t fetched = 0;
@@ -535,8 +535,8 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
       EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 0);
     } else {
       expected_idx = f(fetched);
-      ASSERT(expected_idx >= 0);
-      ASSERT(expected_idx < kNumLists);
+      TC_ASSERT_GE(expected_idx, 0);
+      TC_ASSERT_LT(expected_idx, kNumLists);
       // Check that the span exists in the corresponding nonempty_ list.
       EXPECT_EQ(e.central_freelist().NumSpansInList(expected_idx), 1);
     }

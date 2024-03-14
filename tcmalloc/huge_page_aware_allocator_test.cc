@@ -150,7 +150,7 @@ class HugePageAwareAllocatorTest
   Span* New(Length n, SpanAllocInfo span_alloc_info) {
     absl::base_internal::SpinLockHolder h(&lock_);
     Span* span = AllocatorNew(n, span_alloc_info);
-    CHECK_CONDITION(span != nullptr);
+    TC_CHECK_NE(span, nullptr);
     EXPECT_GE(span->num_pages(), n);
     const size_t id = next_id_++;
     total_ += n;
@@ -1230,7 +1230,7 @@ class StatTest : public testing::Test {
       if (!ret.first) return {nullptr, 0};
 
       // we only support so many allocations here for simplicity
-      CHECK_CONDITION(factory_->n_ < factory_->kNumAllocs);
+      TC_CHECK_LT(factory_->n_, factory_->kNumAllocs);
       // Anything coming from the test allocator will request full
       // alignment.  Metadata allocations will not.  Since we can't
       // control the backing of metadata allocations, elide them.
@@ -1475,7 +1475,7 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     if (absl::Bernoulli(m.rng, 0.6) || m.spans.empty()) {
       Span* s =
           AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)), kSpanInfo);
-      CHECK_CONDITION(s != nullptr);
+      TC_CHECK_NE(s, nullptr);
 
       // Touch the contents of the buffer.  We later use it to verify we are the
       // only thread manipulating the Span, for example, if another thread

@@ -90,11 +90,11 @@ static const char* GetSoName(const dl_phdr_info* const info) {
   if (dt_soname == nullptr) {
     return nullptr;
   }
-  CHECK_CONDITION(dt_strtab != nullptr);
-  CHECK_CONDITION(dt_strsz != nullptr);
+  TC_CHECK_NE(dt_strtab, nullptr);
+  TC_CHECK_NE(dt_strsz, nullptr);
   const char* const strtab =
       reinterpret_cast<char*>(info->dlpi_addr + dt_strtab->d_un.d_val);
-  CHECK_CONDITION(dt_soname->d_un.d_val < dt_strsz->d_un.d_val);
+  TC_CHECK_LT(dt_soname->d_un.d_val, dt_strsz->d_un.d_val);
   return strtab + dt_soname->d_un.d_val;
 }
 #endif  // defined(__linux__)
@@ -359,7 +359,7 @@ int ProfileBuilder::InternLocation(const void* ptr) {
     return inserted.first->second;
   }
   perftools::profiles::Location& location = *profile_->add_location();
-  ASSERT(inserted.first->second == index);
+  TC_ASSERT_EQ(inserted.first->second, index);
   location.set_id(index);
   location.set_address(address);
 
@@ -418,7 +418,7 @@ void ProfileBuilder::AddCurrentMappings() {
       }
       const ElfW(Phdr)* pt_load = &info->dlpi_phdr[i];
 
-      CHECK_CONDITION(pt_load != nullptr);
+      TC_CHECK_NE(pt_load, nullptr);
 
       // Extract data.
       const size_t memory_start = info->dlpi_addr + pt_load->p_vaddr;
@@ -488,7 +488,7 @@ int ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
 
 static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
                                      ProfileBuilder* builder) {
-  CHECK_CONDITION(builder != nullptr);
+  TC_CHECK_NE(builder, nullptr);
   perftools::profiles::Profile& converted = builder->profile();
   perftools::profiles::ValueType* period_type = converted.mutable_period_type();
 
