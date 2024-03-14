@@ -82,6 +82,7 @@ create_tcmalloc_testsuite(
     ],
     visibility = ["//visibility:private"],
     deps = REGTEST_DEPS + [
+        "//tcmalloc/internal:config",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",

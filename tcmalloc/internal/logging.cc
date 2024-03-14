@@ -117,12 +117,9 @@ void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
 }
 
 ABSL_ATTRIBUTE_NOINLINE
-void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
-           LogItem c, LogItem d, LogItem e, LogItem f) {
-  Logger state = FormatLog(true, filename, line, a, b, c, d, e, f);
-
-  int msglen = state.p_ - state.buf_;
-
+ABSL_ATTRIBUTE_NORETURN
+static void Crash(CrashMode mode, const StackTrace& trace, const char* filename,
+                  int line, const char* msg, size_t msglen) {
   // FailureSignalHandler mallocs for various logging attempts.
   // We might be crashing holding tcmalloc locks.
   // We're substantially less likely to try to take those locks
@@ -142,7 +139,7 @@ void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
     }
   }
 
-  (*log_message_writer)(state.buf_, msglen);
+  (*log_message_writer)(msg, msglen);
   if (first_crash && mode == kCrashWithStats) {
 #ifndef __APPLE__
     if (&TCMalloc_Internal_GetStats != nullptr) {
@@ -153,6 +150,20 @@ void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
   }
 
   abort();
+}
+
+ABSL_ATTRIBUTE_NOINLINE
+void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
+           LogItem c, LogItem d, LogItem e, LogItem f) {
+  Logger state = FormatLog(true, filename, line, a, b, c, d, e, f);
+  Crash(mode, state.trace, filename, line, state.buf_, state.p_ - state.buf_);
+}
+
+ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
+                                         const char* msg, int msglen) {
+  StackTrace trace;
+  trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth, 1);
+  Crash(kCrash, trace, file, line, msg, msglen);
 }
 
 bool Logger::Add(const LogItem& item) {

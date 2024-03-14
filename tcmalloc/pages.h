@@ -90,6 +90,11 @@ class Length {
   friend constexpr bool operator==(Length lhs, Length rhs);
   friend constexpr bool operator!=(Length lhs, Length rhs);
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const Length& v) {
+    absl::Format(&sink, "%zu", v.in_bytes());
+  }
+
  private:
   uintptr_t n_;
 };
@@ -139,6 +144,11 @@ class PageId {
   template <typename H>
   friend H AbslHashValue(H h, const PageId& p) {
     return H::combine(std::move(h), p.pn_);
+  }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const PageId& v) {
+    absl::Format(&sink, "%p", v.start_addr());
   }
 
  private:

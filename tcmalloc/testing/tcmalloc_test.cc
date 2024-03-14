@@ -68,11 +68,14 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/huge_pages.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/new_extension.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/test_allocator_harness.h"
 #include "tcmalloc/testing/testutil.h"
@@ -1615,4 +1618,42 @@ TEST(TCMalloc, malloc_info) {
 }
 
 }  // namespace
+
+namespace tcmalloc_internal {
+namespace {
+
+TEST(Check, CustomTypes) {
+  Length len1(1), len2(2);
+  TC_CHECK_NE(len1, len2);
+  EXPECT_DEATH(
+      TC_CHECK_EQ(len1, len2),
+      absl::StrFormat("len1 == len2 \\(%u == %u\\)", kPageSize, 2 * kPageSize));
+
+  HugeLength hlen1(1.0), hlen2(2.0);
+  TC_CHECK_NE(hlen1, hlen2);
+  EXPECT_DEATH(TC_CHECK_EQ(hlen1, hlen2),
+               absl::StrFormat("hlen1 == hlen2 \\(%u == %u\\)", kHugePageSize,
+                               2 * kHugePageSize));
+
+  PageId page1{1}, page2{2};
+  TC_CHECK_NE(page1, page2);
+  EXPECT_DEATH(TC_CHECK_EQ(page1, page2),
+               absl::StrFormat("page1 == page2 \\(0x%zx == 0x%zx\\)", kPageSize,
+                               2 * kPageSize));
+
+  HugePage hpage1{1}, hpage2{2};
+  TC_CHECK_NE(hpage1, hpage2);
+  EXPECT_DEATH(TC_CHECK_EQ(hpage1, hpage2),
+               absl::StrFormat("hpage1 == hpage2 \\(0x%zx == 0x%zx\\)",
+                               kHugePageSize, 2 * kHugePageSize));
+
+  absl::Duration dur1(absl::Seconds(1));
+  absl::Duration dur2(absl::Seconds(2));
+  TC_CHECK_NE(dur1, dur2);
+  EXPECT_DEATH(TC_CHECK_EQ(dur1, dur2), "dur1 == dur2 \\(1s == 2s\\)");
+}
+
+}  // namespace
+}  // namespace tcmalloc_internal
+
 }  // namespace tcmalloc

@@ -64,6 +64,11 @@ struct HugePage {
   static constexpr uintptr_t kMaxPageNumber =
       std::numeric_limits<uintptr_t>::max() >> kHugePageShift;
 
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const HugePage& v) {
+    absl::Format(&sink, "%p", v.start_addr());
+  }
+
   uintptr_t pn;
 };
 
@@ -86,6 +91,11 @@ struct HugeLength {
   }
   static constexpr HugeLength max() {
     return HugeLength(static_cast<size_t>(HugePage::kMaxPageNumber));
+  }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const HugeLength& v) {
+    absl::Format(&sink, "%zu", v.in_bytes());
   }
 
  private:
