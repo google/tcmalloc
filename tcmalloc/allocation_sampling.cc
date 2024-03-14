@@ -168,7 +168,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
         requested_size, stack_trace.requested_alignment, num_pages,
         stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
-      ASSERT(IsSampledMemory(alloc_with_status.alloc));
+      ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
       PageHeapSpinLockHolder l;
       span = Span::New(p, num_pages);
@@ -208,7 +208,8 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
     // the current assumption is that only class sized allocs are sampled
     // for gwp-asan.
     stack_trace.allocated_size = span->bytes_in_span();
-    stack_trace.cold_allocated = IsColdMemory(span->start_address());
+    stack_trace.cold_allocated =
+        GetMemoryTag(span->start_address()) == MemoryTag::kCold;
     capacity = stack_trace.allocated_size;
   }
 

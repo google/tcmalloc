@@ -42,7 +42,7 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
 // This only provides correct answer for TCMalloc-allocated memory,
 // and may give a false positive for non-allocated block.
 extern "C" bool TCMalloc_Internal_PossiblyCold(const void* ptr) {
-  return IsColdMemory(ptr);
+  return GetMemoryTag(ptr) == MemoryTag::kCold;
 }
 
 }  // namespace tcmalloc_internal

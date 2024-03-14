@@ -577,7 +577,7 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
   if (!IsExpandedSizeClass(size_class)) {
     ASSERT(IsNormalMemory(ptr));
   } else {
-    ASSERT(IsColdMemory(ptr));
+    ASSERT(GetMemoryTag(ptr) == MemoryTag::kCold);
   }
 
   // DeallocateFast may fail if:
@@ -698,7 +698,7 @@ ABSL_ATTRIBUTE_NOINLINE static void free_sampled(void* ptr, size_t size,
                                                  AlignPolicy align) {
   TC_ASSERT_NE(ptr, nullptr);
   // IsColdMemory(ptr) implies IsSampledMemory(ptr).
-  if (!IsColdMemory(ptr)) {
+  if (GetMemoryTag(ptr) != MemoryTag::kCold) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr);
   }
@@ -728,7 +728,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   //
   // The optimized path doesn't work with sampled objects, whose deletions
   // trigger more operations and require to visit metadata.
-  if (ABSL_PREDICT_FALSE(IsSampledMemory(ptr))) {
+  if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
     if (ABSL_PREDICT_TRUE(ptr == nullptr)) return;
     // Outline cold path to avoid putting cold size lookup on the fast path.
     SLOW_PATH_BARRIER();
@@ -777,7 +777,7 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
   //
   // Nonetheless, it is permitted to pass a size anywhere in [requested, actual]
   // to sized delete.
-  if (actual > size && IsSampledMemory(ptr)) {
+  if (actual > size && !IsNormalMemory(ptr)) {
     if (tc_globals.sizemap().GetSizeClass(
             CppPolicy().AlignAs(align.align()).AccessAsCold(), size,
             &size_class)) {

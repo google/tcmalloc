@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-namespace tcmalloc {
+namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 TEST(TcmallocTest, EmptyAllocations) {
@@ -1169,8 +1169,6 @@ TEST(SizedDeleteTest, SizedOperatorDelete) {
 
 TEST(HotColdTest, HotColdNew) {
   const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
 
   absl::flat_hash_set<uintptr_t> hot;
   absl::flat_hash_set<uintptr_t> cold;
@@ -1182,7 +1180,6 @@ TEST(HotColdTest, HotColdNew) {
     void* ptr;
     size_t size;
   };
-
   constexpr size_t kSmall = 2 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1197,12 +1194,12 @@ TEST(HotColdTest, HotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    EXPECT_TRUE(!IsColdMemory(ptr)) << ptr;
+    EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold) << ptr;
   }
 
   // Delete
   for (SizedPtr s : ptrs) {
-    if (expectColdTags && !IsSampledMemory(s.ptr)) {
+    if (expectColdTags && IsNormalMemory(s.ptr)) {
       EXPECT_TRUE(hot.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1225,7 +1222,7 @@ TEST(HotColdTest, HotColdNew) {
   }
 
   for (SizedPtr s : ptrs) {
-    if (expectColdTags && IsColdMemory(s.ptr)) {
+    if (expectColdTags && GetMemoryTag(s.ptr) == MemoryTag::kCold) {
       EXPECT_TRUE(cold.insert(reinterpret_cast<uintptr_t>(s.ptr)).second);
     }
 
@@ -1251,9 +1248,6 @@ TEST(HotColdTest, NothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1277,11 +1271,9 @@ TEST(HotColdTest, NothrowHotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size});
 
     if (label >= 128) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << size << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
 
@@ -1299,9 +1291,6 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1328,11 +1317,9 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
     if (label >= 128) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << size << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
 
@@ -1358,9 +1345,6 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1384,11 +1368,9 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size});
 
     if (label >= 128) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << size << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
 
@@ -1406,9 +1388,6 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1435,11 +1414,9 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
     if (label >= 128) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << size << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
 
@@ -1465,9 +1442,6 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
 
@@ -1491,11 +1465,9 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
     ASSERT_GE(actual, requested);
 
     if (label >= 128) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << requested << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
     }
 
     std::optional<size_t> allocated_size =
@@ -1529,10 +1501,6 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
   if (!expectColdTags) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
-  using tcmalloc_internal::IsColdMemory;
-  using tcmalloc_internal::IsSampledMemory;
-  using tcmalloc_internal::Parameters;
-
   // Test using a non-default threshold.
   Parameters::set_min_hot_access_hint(static_cast<tcmalloc::hot_cold_t>(1));
 
@@ -1559,11 +1527,9 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
 
     // The hotness threshold should have been set to 1 above via SetFlag.
     if (label >= 1) {
-      // Hot
-      EXPECT_FALSE(IsColdMemory(ptr));
+      EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
-      EXPECT_TRUE(IsSampledMemory(ptr) || IsColdMemory(ptr))
-          << size << " " << label;
+      EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
     }
   }
 
@@ -1617,11 +1583,6 @@ TEST(TCMalloc, malloc_info) {
   free(buf);
 }
 
-}  // namespace
-
-namespace tcmalloc_internal {
-namespace {
-
 TEST(Check, CustomTypes) {
   Length len1(1), len2(2);
   TC_CHECK_NE(len1, len2);
@@ -1654,6 +1615,4 @@ TEST(Check, CustomTypes) {
 }
 
 }  // namespace
-}  // namespace tcmalloc_internal
-
-}  // namespace tcmalloc
+}  // namespace tcmalloc::tcmalloc_internal

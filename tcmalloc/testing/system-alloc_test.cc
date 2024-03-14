@@ -73,13 +73,14 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
   void MmapAndCheck(size_t size, size_t alignment) {
     SCOPED_TRACE(absl::StrFormat("size = %u, alignment = %u", size, alignment));
 
-    for (MemoryTag tag : {MemoryTag::kNormal, MemoryTag::kSampled}) {
+    for (MemoryTag tag :
+         {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
       void* p = MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
-      EXPECT_EQ(IsSampledMemory(p), tag == MemoryTag::kSampled);
+      EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);
       EXPECT_EQ(GetMemoryTag(p), tag);
       EXPECT_EQ(GetMemoryTag(static_cast<char*>(p) + size - 1), tag);
       if (PrSetVmaIsSupported()) {

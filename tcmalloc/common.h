@@ -167,12 +167,19 @@ inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
 #endif
 
 // Sanitizers constrain the memory layout which causes problems with the
-// enlarged tags required to represent NUMA partitions. Disable NUMA awareness
-// to avoid failing to mmap memory.
-#if defined(TCMALLOC_INTERNAL_NUMA_AWARE) && \
-    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&  \
-    !defined(ABSL_HAVE_THREAD_SANITIZER)
-inline constexpr size_t kNumaPartitions = 2;
+// enlarged tags required to represent NUMA partitions and for SelSan.
+#if defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+#ifdef TCMALLOC_INTERNAL_SELSAN
+#error "MSan/TSan are incompatible with SelSan."
+#endif
+inline constexpr bool kSanitizerAddressSpace = true;
+#else
+inline constexpr bool kSanitizerAddressSpace = false;
+#endif
+
+// Disable NUMA awareness under Sanitizers to avoid failing to mmap memory.
+#if defined(TCMALLOC_INTERNAL_NUMA_AWARE)
+inline constexpr size_t kNumaPartitions = kSanitizerAddressSpace ? 1 : 2;
 #else
 inline constexpr size_t kNumaPartitions = 1;
 #endif
@@ -224,63 +231,40 @@ inline constexpr size_t kMaxDynamicFreeListLength = 8192;
 enum class MemoryTag : uint8_t {
   // Sampled, infrequently allocated
   kSampled = 0x0,
-  // Not sampled, NUMA partition 0
-  kNormalP0 = 0x1,
-  // Not sampled, NUMA partition 1
-  kNormalP1 = (kNumaPartitions > 1) ? 0x2 : 0xff,
-  // Not sampled
+  // Normal memory, NUMA partition 0
+  kNormalP0 = kSanitizerAddressSpace ? 0x1 : 0x4,
+  // Normal memory, NUMA partition 1
+  kNormalP1 = kSanitizerAddressSpace ? 0xff : 0x6,
+  // Normal memory
   kNormal = kNormalP0,
   // Cold
-  kCold = (kNumaPartitions > 1) ? 0x4 : 0x2,
+  kCold = 0x2,
   // Metadata
   kMetadata = 0x3,
 };
 
-// We make kNormal and kCold disjoint so that IsCold implies IsSampled.  This
-// allows us to avoid modifying the fast delete path in any way when cold-tagged
-// memory allocations are absent.  We can overload the IsSampled check and then
-// do a second check for whether the possibly-sampled allocation is actually
-// IsCold.
-static_assert((static_cast<uint8_t>(MemoryTag::kNormal) &
-               static_cast<uint8_t>(MemoryTag::kCold)) == 0,
-              "kNormal and kCold should have disjoint bit patterns");
-
 inline constexpr uintptr_t kTagShift = std::min(kAddressBits - 4, 42);
-inline constexpr uintptr_t kTagMask = uintptr_t{kNumaPartitions > 1 ? 0x7 : 0x3}
-                                      << kTagShift;
-
-inline bool IsSampledMemory(const void* ptr) {
-  constexpr uintptr_t kSampledNormalMask = kNumaPartitions > 1 ? 0x3 : 0x1;
-
-  static_assert(static_cast<uintptr_t>(MemoryTag::kNormalP0) &
-                kSampledNormalMask);
-  static_assert(static_cast<uintptr_t>(MemoryTag::kNormalP1) &
-                kSampledNormalMask);
-
-  const uintptr_t tag =
-      (reinterpret_cast<uintptr_t>(ptr) & kTagMask) >> kTagShift;
-  return (tag & kSampledNormalMask) ==
-         static_cast<uintptr_t>(MemoryTag::kSampled);
-}
-
-inline bool IsNormalMemory(const void* ptr) { return !IsSampledMemory(ptr); }
-
-inline bool IsColdMemory(const void* ptr) {
-  bool r = (reinterpret_cast<uintptr_t>(ptr) & kTagMask) ==
-           (static_cast<uintptr_t>(MemoryTag::kCold) << kTagShift);
-  // IsColdMemory(ptr) implies IsSampledMemory(ptr).  This allows us to avoid
-  // introducing new branches on the delete fast path when cold memory tags are
-  // not in use.
-  ASSERT(!r || IsSampledMemory(ptr));
-  return r;
-}
-
-inline constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
+inline constexpr uintptr_t kTagMask =
+    uintptr_t{kSanitizerAddressSpace ? 0x3 : 0x7} << kTagShift;
 
 inline MemoryTag GetMemoryTag(const void* ptr) {
   return static_cast<MemoryTag>((reinterpret_cast<uintptr_t>(ptr) & kTagMask) >>
                                 kTagShift);
 }
+
+inline bool IsNormalMemory(const void* ptr) {
+  // This is slightly faster than checking kNormalP0/P1 separetly.
+  static_assert((static_cast<uint8_t>(MemoryTag::kNormalP0) &
+                 (static_cast<uint8_t>(MemoryTag::kSampled) |
+                  static_cast<uint8_t>(MemoryTag::kCold))) == 0);
+  bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
+              static_cast<uintptr_t>(MemoryTag::kNormal)) != 0;
+  ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kNormalP0 ||
+                 GetMemoryTag(ptr) == MemoryTag::kNormalP1));
+  return res;
+}
+
+inline constexpr bool ColdFeatureActive() { return kHasExpandedClasses; }
 
 absl::string_view MemoryTagToLabel(MemoryTag tag);
 
@@ -316,12 +300,13 @@ inline bool IsColdHint(hot_cold_t hint) {
 
 inline AllocationAccess AccessFromPointer(void* ptr) {
   if (!kHasExpandedClasses) {
-    ASSERT(!IsColdMemory(ptr));
+    ASSERT(GetMemoryTag(ptr) != MemoryTag::kCold);
     return AllocationAccess::kHot;
   }
 
-  return ABSL_PREDICT_FALSE(IsColdMemory(ptr)) ? AllocationAccess::kCold
-                                               : AllocationAccess::kHot;
+  return ABSL_PREDICT_FALSE(GetMemoryTag(ptr) == MemoryTag::kCold)
+             ? AllocationAccess::kCold
+             : AllocationAccess::kHot;
 }
 
 inline MemoryTag NumaNormalTag(size_t numa_partition) {

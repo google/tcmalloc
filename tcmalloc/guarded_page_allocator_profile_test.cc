@@ -24,6 +24,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/log/check.h"
+#include "tcmalloc/common.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
@@ -75,7 +76,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
   // the counter to the configured rate.
   void AllocateUntilGuarded() {
     AllocateGuardableUntil(968, [&](void* alloc) -> NextSteps {
-      return {IsSampledMemory(alloc) &&
+      return {!IsNormalMemory(alloc) &&
                   Static::guardedpage_allocator().PointerIsMine(alloc),
               true};
     });
@@ -182,7 +183,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   bool guarded_found = false;
   bool unguarded_found = false;
   AllocateGuardableUntil(alloc_size, [&](void* alloc) -> NextSteps {
-    if (IsSampledMemory(alloc)) {
+    if (!IsNormalMemory(alloc)) {
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
         guarded_found = true;
         ResetStackTraceFilter();
@@ -312,7 +313,7 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   int guarded_count = 0;
   int sampled_count = 0;
   AllocateGuardableUntil(1062, [&](void* alloc) -> NextSteps {
-    if (IsSampledMemory(alloc)) {
+    if (!IsNormalMemory(alloc)) {
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
         ++guarded_count;
       }

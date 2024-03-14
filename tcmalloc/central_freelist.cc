@@ -94,8 +94,7 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
                                       absl::Span<Span*> free_spans) {
   // Unregister size class doesn't require holding any locks.
   for (Span* const free_span : free_spans) {
-    ASSERT(IsNormalMemory(free_span->start_address()) ||
-           IsColdMemory(free_span->start_address()));
+    ASSERT(GetMemoryTag(free_span->start_address()) != MemoryTag::kSampled);
     tc_globals.pagemap().UnregisterSizeClass(free_span);
 
     // Before taking pageheap_lock, prefetch the PageTrackers these spans are
