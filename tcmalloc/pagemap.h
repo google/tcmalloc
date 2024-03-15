@@ -1,3 +1,4 @@
+
 // Copyright 2019 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -117,8 +118,8 @@ class PageMap2 {
   Span* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
-    ASSERT((k >> BITS) == 0);
-    ASSERT(root_[i1] != nullptr);
+    TC_ASSERT_EQ(k >> BITS, 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
     return root_[i1]->span[i2];
   }
 
@@ -128,8 +129,8 @@ class PageMap2 {
   sizeclass(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> kLeafBits;
     const Number i2 = k & (kLeafLength - 1);
-    ASSERT((k >> BITS) == 0);
-    ASSERT(root_[i1] != nullptr);
+    TC_ASSERT_EQ(k >> BITS, 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
     return root_[i1]->sizeclass[i2];
   }
 
@@ -291,9 +292,9 @@ class PageMap3 {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    ASSERT((k >> BITS) == 0);
-    ASSERT(root_[i1] != nullptr);
-    ASSERT(root_[i1]->leafs[i2] != nullptr);
+    TC_ASSERT_EQ(k >> BITS, 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
+    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
     return root_[i1]->leafs[i2]->span[i3];
   }
 
@@ -304,9 +305,9 @@ class PageMap3 {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    ASSERT((k >> BITS) == 0);
-    ASSERT(root_[i1] != nullptr);
-    ASSERT(root_[i1]->leafs[i2] != nullptr);
+    TC_ASSERT_EQ((k >> BITS), 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
+    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
     return root_[i1]->leafs[i2]->sizeclass[i3];
   }
 
@@ -479,7 +480,7 @@ class PageMap {
       // Free'd up Span that's not yet removed from PageMap.
       if (page_id < s->first_page() || s->last_page() < page_id) continue;
       CompactSizeClass size_class = sizeclass(page_id);
-      ASSERT(s->first_page().index() == i);
+      TC_ASSERT_EQ(s->first_page().index(), i);
       // As documented, GetAllocatedSpans wants to avoid allocating more memory
       // for the output vector while holding the pageheap_lock. So, we stop
       // adding more entries after we reach its existing capacity. Note that the

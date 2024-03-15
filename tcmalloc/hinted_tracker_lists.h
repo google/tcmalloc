@@ -43,7 +43,7 @@ class HintedTrackerLists {
     if (i == N) {
       return nullptr;
     }
-    ASSERT(!lists_[i].empty());
+    TC_ASSERT(!lists_[i].empty());
     TrackerType* pt = lists_[i].first();
     if (lists_[i].remove(pt)) {
       nonempty_.ClearBit(i);
@@ -63,7 +63,7 @@ class HintedTrackerLists {
     if (i == N) {
       return nullptr;
     }
-    ASSERT(!lists_[i].empty());
+    TC_ASSERT(!lists_[i].empty());
     return lists_[i].first();
   }
 
@@ -108,7 +108,7 @@ class HintedTrackerLists {
     size_t i = nonempty_.FindSet(start);
     while (i < N) {
       auto& list = lists_[i];
-      ASSERT(!list.empty());
+      TC_ASSERT(!list.empty());
       for (TrackerType* pt : list) {
         func(pt);
       }

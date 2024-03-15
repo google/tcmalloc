@@ -200,14 +200,14 @@ class TList {
 
   // Returns first element in the list. The list must not be empty.
   ABSL_ATTRIBUTE_RETURNS_NONNULL T* first() const {
-    ASSERT(!empty());
+    TC_ASSERT(!empty());
     TC_ASSERT_NE(head_.next_, nullptr);
     return static_cast<T*>(head_.next_);
   }
 
   // Returns last element in the list. The list must not be empty.
   ABSL_ATTRIBUTE_RETURNS_NONNULL T* last() const {
-    ASSERT(!empty());
+    TC_ASSERT(!empty());
     TC_ASSERT_NE(head_.prev_, nullptr);
     return static_cast<T*>(head_.prev_);
   }

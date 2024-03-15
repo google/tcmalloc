@@ -14,7 +14,6 @@
 
 #include "tcmalloc/allocation_sampling.h"
 
-#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstddef>
@@ -158,7 +157,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
 
   size_t capacity = 0;
   if (size_class != 0) {
-    ASSERT(size_class == state.pagemap().sizeclass(PageIdContaining(obj)));
+    TC_ASSERT_EQ(size_class, state.pagemap().sizeclass(PageIdContaining(obj)));
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
@@ -168,7 +167,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
         requested_size, stack_trace.requested_alignment, num_pages,
         stack_trace);
     if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
-      ASSERT(!IsNormalMemory(alloc_with_status.alloc));
+      TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
       PageHeapSpinLockHolder l;
       span = Span::New(p, num_pages);
@@ -257,7 +256,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
     TC_ASSERT_NE(size_class, 0);
     FreeProxyObject(state, obj, size_class);
   }
-  ASSERT(state.pagemap().sizeclass(span->first_page()) == 0);
+  TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
   return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
                                                : span->start_address(),
           capacity};
@@ -268,7 +267,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
   if (SampledAllocation* sampled_allocation = span->Unsample()) {
-    ASSERT(state.pagemap().sizeclass(PageIdContaining(ptr)) == 0);
+    TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContaining(ptr)), 0);
 
     void* const proxy = sampled_allocation->sampled_stack.proxy;
     const size_t weight = sampled_allocation->sampled_stack.weight;
@@ -297,8 +296,8 @@ void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
           allocation_estimate * (allocated_size - requested_size);
 
       // Check against wraparound
-      ASSERT(state.sampled_internal_fragmentation_.value() >=
-             sampled_fragmentation);
+      TC_ASSERT_GE(state.sampled_internal_fragmentation_.value(),
+                   sampled_fragmentation);
       state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
     }
 
@@ -314,7 +313,8 @@ void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
         size_class = state.sizemap().SizeClass(
             policy.AccessAsHot().AlignAs(alignment), allocated_size);
       }
-      ASSERT(size_class == state.pagemap().sizeclass(PageIdContaining(proxy)));
+      TC_ASSERT_EQ(size_class,
+                   state.pagemap().sizeclass(PageIdContaining(proxy)));
       FreeProxyObject(state, proxy, size_class);
     }
   }

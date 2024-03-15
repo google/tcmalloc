@@ -397,7 +397,7 @@ inline HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
 HugePageAwareAllocator<Forwarder>::GetTracker(HugePage p) {
   void* v = forwarder_.GetHugepage(p);
   FillerType::Tracker* pt = reinterpret_cast<FillerType::Tracker*>(v);
-  ASSERT(pt == nullptr || pt->location() == p);
+  TC_ASSERT(pt == nullptr || pt->location() == p);
   return pt;
 }
 
@@ -413,18 +413,18 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
   TC_CHECK_NE(p.start_addr(), nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
   new (pt) FillerType::Tracker(p, donated);
-  ASSERT(pt->longest_free_range() >= n);
-  ASSERT(pt->was_donated() == donated);
+  TC_ASSERT_GE(pt->longest_free_range(), n);
+  TC_ASSERT_EQ(pt->was_donated(), donated);
   // if the page was donated, we track its size so that we can potentially
   // measure it in abandoned_count_ once this large allocation gets deallocated.
   if (pt->was_donated()) {
     pt->set_abandoned_count(n);
   }
   PageId page = pt->Get(n).page;
-  ASSERT(page == p.first_page());
+  TC_ASSERT_EQ(page, p.first_page());
   SetTracker(p, pt);
   filler_.Contribute(pt, donated, span_alloc_info);
-  ASSERT(pt->was_donated() == donated);
+  TC_ASSERT_EQ(pt->was_donated(), donated);
   return page;
 }
 
@@ -449,10 +449,10 @@ template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::Finalize(
     Length n, SpanAllocInfo span_alloc_info, PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  ASSERT(page != PageId{0});
+  TC_ASSERT_NE(page, PageId{0});
   Span* ret = forwarder_.NewSpan(page, n);
   forwarder_.Set(page, ret);
-  ASSERT(!ret->sampled());
+  TC_ASSERT(!ret->sampled());
   info_.RecordAlloc(page, n);
   forwarder_.ShrinkToUsageLimit(n);
   return ret;
@@ -571,7 +571,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   ++donated_huge_pages_;
 
   Length here = kPagesPerHugePage - slack;
-  ASSERT(here > Length(0));
+  TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
   Span* span = Finalize(n, span_alloc_info, r.start().first_page());
   span->set_donated(/*value=*/true);
@@ -594,7 +594,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     PrefetchW(s->start_address());
     if (from_released) BackSpan(s);
   }
-  ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
+  TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
 
@@ -637,7 +637,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     s = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
   if (s && from_released) BackSpan(s);
-  ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
+  TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }
 
@@ -648,7 +648,7 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
     // If this allocation had resulted in a donation to the filler, we record
     // these pages as abandoned.
     if (ABSL_PREDICT_FALSE(might_abandon)) {
-      ASSERT(pt->was_donated());
+      TC_ASSERT(pt->was_donated());
       abandoned_pages_ += pt->abandoned_count();
       pt->set_abandoned(true);
     }
@@ -661,7 +661,7 @@ inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
       pt->set_abandoned(false);
     }
   } else {
-    ASSERT(pt->abandoned_count() == Length(0));
+    TC_ASSERT_EQ(pt->abandoned_count(), Length(0));
   }
   ReleaseHugepage(pt);
 }
@@ -679,7 +679,7 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
                                                       size_t objects_per_span) {
-  ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
+  TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
@@ -697,7 +697,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   // a) We got packed by the filler onto a single hugepage - return our
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    ASSERT(hp == HugePageContaining(p + n - Length(1)));
+    TC_ASSERT_EQ(hp, HugePageContaining(p + n - Length(1)));
     DeleteFromHugepage(pt, p, n, might_abandon);
     return;
   }
@@ -718,7 +718,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   } else {
     pt = GetTracker(last);
     TC_CHECK_NE(pt, nullptr);
-    ASSERT(pt->was_donated());
+    TC_ASSERT(pt->was_donated());
     // We put the slack into the filler (see AllocEnormous.)
     // Handle this page separately as a virtual allocation
     // onto the last hugepage.
@@ -741,7 +741,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
       //
       // We were able to reclaim the donated slack.
       --donated_huge_pages_;
-      ASSERT(!pt->abandoned());
+      TC_ASSERT(!pt->abandoned());
 
       if (pt->released()) {
         --hl;
@@ -760,7 +760,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
     FillerType::Tracker* pt) {
-  ASSERT(pt->used_pages() == Length(0));
+  TC_ASSERT_EQ(pt->used_pages(), Length(0));
   HugeRange r = {pt->location(), NHugePages(1)};
   SetTracker(pt->location(), nullptr);
 

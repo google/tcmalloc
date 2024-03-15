@@ -173,18 +173,6 @@ ABSL_ATTRIBUTE_NORETURN ABSL_ATTRIBUTE_NOINLINE void CheckFailed(
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
-// Our own version of assert so we can avoid hanging by trying to do all kinds
-// of goofy printing while holding the malloc lock.
-#ifndef NDEBUG
-#define ASSERT(cond)                                                    \
-  (ABSL_PREDICT_TRUE(cond) ? (void)0                                    \
-                           : (::tcmalloc::tcmalloc_internal::Crash(     \
-                                 ::tcmalloc::tcmalloc_internal::kCrash, \
-                                 __FILE__, __LINE__, #cond)))
-#else
-#define ASSERT(cond) ((void)0)
-#endif
-
 // TC_BUG unconditionally aborts the program with the message.
 #define TC_BUG(msg, ...)                                                       \
   tcmalloc::tcmalloc_internal::CheckFailed(__FUNCTION__, __FILE__, __LINE__,   \

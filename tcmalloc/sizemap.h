@@ -75,7 +75,7 @@ class SizeMap {
   // BM_new_sized_delete/512    6.71ns ± 6%   6.21ns ± 1%   -7.40%  (p=0.000)
   template <int n>
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t Shr(size_t value) {
-    ASSERT(value <= std::numeric_limits<uint32_t>::max());
+    TC_ASSERT_LE(value, std::numeric_limits<uint32_t>::max());
 #if defined(__x86_64__)
     asm("shrl %[n], %k[value]" : [value] "+r"(value) : [n] "n"(n));
     return value;
@@ -206,7 +206,7 @@ class SizeMap {
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline bool GetSizeClass(
       Policy policy, size_t size, size_t* size_class) const {
     const size_t align = policy.align();
-    ASSERT(absl::has_single_bit(align));
+    TC_ASSERT(absl::has_single_bit(align));
 
     if (ABSL_PREDICT_FALSE(align > kPageSize)) {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));

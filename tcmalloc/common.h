@@ -259,8 +259,10 @@ inline bool IsNormalMemory(const void* ptr) {
                   static_cast<uint8_t>(MemoryTag::kCold))) == 0);
   bool res = (static_cast<uintptr_t>(GetMemoryTag(ptr)) &
               static_cast<uintptr_t>(MemoryTag::kNormal)) != 0;
-  ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kNormalP0 ||
-                 GetMemoryTag(ptr) == MemoryTag::kNormalP1));
+  TC_ASSERT(res == (GetMemoryTag(ptr) == MemoryTag::kNormalP0 ||
+                    GetMemoryTag(ptr) == MemoryTag::kNormalP1),
+            "ptr=%p res=%d tag=%d", ptr, res,
+            static_cast<int>(GetMemoryTag(ptr)));
   return res;
 }
 
@@ -300,7 +302,7 @@ inline bool IsColdHint(hot_cold_t hint) {
 
 inline AllocationAccess AccessFromPointer(void* ptr) {
   if (!kHasExpandedClasses) {
-    ASSERT(GetMemoryTag(ptr) != MemoryTag::kCold);
+    TC_ASSERT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     return AllocationAccess::kHot;
   }
 

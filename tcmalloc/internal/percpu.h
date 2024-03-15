@@ -179,8 +179,8 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
 static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-  ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
-         virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
+  TC_ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
+            virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
   return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
                                    virtual_cpu_id_offset);
 }

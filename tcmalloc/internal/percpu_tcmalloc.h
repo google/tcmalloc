@@ -84,7 +84,7 @@ namespace percpu {
 enum class Shift : uint8_t;
 constexpr uint8_t ToUint8(Shift shift) { return static_cast<uint8_t>(shift); }
 constexpr Shift ToShiftType(size_t shift) {
-  ASSERT(ToUint8(static_cast<Shift>(shift)) == shift);
+  TC_ASSERT_EQ(ToUint8(static_cast<Shift>(shift)), shift);
   return static_cast<Shift>(shift);
 }
 
@@ -295,8 +295,8 @@ class TcmallocSlab {
     constexpr explicit SlabsAndShift() noexcept : raw_(0) {}
     SlabsAndShift(const void* slabs, Shift shift)
         : raw_(reinterpret_cast<uintptr_t>(slabs) | ToUint8(shift)) {
-      ASSERT((raw_ & kShiftMask) == ToUint8(shift));
-      ASSERT(reinterpret_cast<void*>(raw_ & kSlabsMask) == slabs);
+      TC_ASSERT_EQ(raw_ & kShiftMask, ToUint8(shift));
+      TC_ASSERT_EQ(reinterpret_cast<void*>(raw_ & kSlabsMask), slabs);
     }
 
     std::pair<void*, Shift> Get() const {
@@ -787,8 +787,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab::Pop(size_t size_class) {
     goto underflow_path;
   }
 #endif
-  ASSERT(next);
-  ASSERT(result);
+  TC_ASSERT(next);
+  TC_ASSERT(result);
   TSANAcquire(result);
 
   // The next pop will be from current-1, but because we prefetch the previous

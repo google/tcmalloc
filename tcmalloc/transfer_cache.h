@@ -197,14 +197,14 @@ class ShardedTransferCacheManagerBase {
   }
 
   void *Pop(int size_class) {
-    ASSERT(subtle::percpu::IsFastNoInit());
+    TC_ASSERT(subtle::percpu::IsFastNoInit());
     void *batch[1];
     const int got = get_cache(size_class).RemoveRange(size_class, batch, 1);
     return got == 1 ? batch[0] : nullptr;
   }
 
   void Push(int size_class, void *ptr) {
-    ASSERT(subtle::percpu::IsFastNoInit());
+    TC_ASSERT(subtle::percpu::IsFastNoInit());
     get_cache(size_class).InsertRange(size_class, {&ptr, 1});
   }
 

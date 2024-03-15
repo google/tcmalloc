@@ -61,7 +61,7 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
     free_avail_ = actual_size;
   }
 
-  ASSERT(reinterpret_cast<uintptr_t>(free_area_) % align == 0);
+  TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(free_area_) % align, 0);
   result = free_area_;
   free_area_ += bytes;
   free_avail_ -= bytes;

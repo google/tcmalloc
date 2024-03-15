@@ -41,7 +41,7 @@ void TcmallocSlab::Init(
     size_t num_classes,
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc, void* slabs,
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
-  ASSERT(num_classes_ == 0 && num_classes != 0);
+  TC_ASSERT(num_classes_ == 0 && num_classes != 0);
   num_classes_ = num_classes;
   if (UsingFlatVirtualCpus()) {
     virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
@@ -127,7 +127,7 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
-  ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
+  TC_ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
   int cpu = -1;
   for (;;) {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
@@ -175,7 +175,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
 
 void TcmallocSlab::DrainCpu(void* slabs, Shift shift, int cpu,
                             DrainHandler drain_handler) {
-  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
     Header hdr = LoadHeader(hdrp);
@@ -237,7 +237,7 @@ void* TcmallocSlab::Destroy(
 size_t TcmallocSlab::GrowOtherCache(
     int cpu, size_t size_class, size_t len,
     absl::FunctionRef<size_t(uint8_t)> max_capacity) {
-  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
   const size_t max_cap = max_capacity(ToUint8(shift));
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -250,7 +250,7 @@ size_t TcmallocSlab::GrowOtherCache(
 
 size_t TcmallocSlab::ShrinkOtherCache(int cpu, size_t size_class, size_t len,
                                       ShrinkHandler shrink_handler) {
-  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   const auto [slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
 
   std::atomic<int64_t>* hdrp = GetHeader(slabs, shift, cpu, size_class);
@@ -283,15 +283,15 @@ void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
 }
 
 void TcmallocSlab::StopCpu(int cpu) {
-  ASSERT(cpu >= 0 && cpu < NumCPUs());
+  TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
   TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(true, std::memory_order_relaxed);
   FenceCpu(cpu, virtual_cpu_id_offset_);
 }
 
 void TcmallocSlab::StartCpu(int cpu) {
-  ASSERT(cpu >= 0 && cpu < NumCPUs());
-  ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
+  TC_ASSERT(stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(false, std::memory_order_release);
 }
 

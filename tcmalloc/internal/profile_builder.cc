@@ -378,7 +378,7 @@ int ProfileBuilder::InternLocation(const void* ptr) {
   const perftools::profiles::Mapping& mapping =
       profile_->mapping(mapping_index);
   const int mapping_id = mapping.id();
-  ASSERT(it->first == mapping.memory_start());
+  TC_ASSERT(it->first == mapping.memory_start());
 
   if (it->first <= address && address < mapping.memory_limit()) {
     location.set_mapping_id(mapping_id);
@@ -397,7 +397,7 @@ void ProfileBuilder::InternCallstack(absl::Span<const void* const> stack,
         absl::bit_cast<const void*>(absl::bit_cast<uintptr_t>(frame) - 1));
     sample.add_location_id(id);
   }
-  ASSERT(sample.location_id().size() == stack.size());
+  TC_ASSERT_EQ(sample.location_id().size(), stack.size());
 }
 
 void ProfileBuilder::AddCurrentMappings() {

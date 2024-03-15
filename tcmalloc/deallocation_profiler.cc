@@ -73,7 +73,7 @@ class AllocAdaptor final {
 
   T* allocate(size_t n) {
     // Check if n is too big to allocate.
-    ASSERT((n * sizeof(T)) / sizeof(T) == n);
+    TC_ASSERT_EQ((n * sizeof(T)) / sizeof(T), n);
     return static_cast<T*>(Alloc::Allocate(n * sizeof(T)));
   }
   void deallocate(T* p, size_t n) { Alloc::Free(p, n * sizeof(T)); }
@@ -615,7 +615,7 @@ void DeallocationProfiler::DeallocationStackTraceTable::AddTrace(
   double life_time_ns = absl::ToDoubleNanoseconds(life_time);
 
   // Update mean and variance using Welford’s online algorithm.
-  ASSERT(index < ABSL_ARRAYSIZE(v.counts));
+  TC_ASSERT_LT(index, ABSL_ARRAYSIZE(v.counts));
 
   double old_mean_ns = v.mean_life_times_ns[index];
   v.mean_life_times_ns[index] +=

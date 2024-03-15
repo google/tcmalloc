@@ -137,8 +137,8 @@ HugeRange HugeAllocator::Get(HugeLength n) {
     HugeLength before = r.len();
     HugeRange extra = HugeRange::Make(r.start() + n, before - n);
     r = HugeRange::Make(r.start(), n);
-    ASSERT(r.precedes(extra));
-    ASSERT(r.len() + extra.len() == before);
+    TC_ASSERT(r.precedes(extra));
+    TC_ASSERT_EQ(r.len() + extra.len(), before);
     in_use_ += extra.len();
     Release(extra);
   } else {

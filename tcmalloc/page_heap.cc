@@ -53,22 +53,22 @@ PageHeap::PageHeap(PageMap* map, MemoryTag tag)
       release_index_(kMaxPages.raw_num()) {}
 
 Span* PageHeap::SearchFreeAndLargeLists(Length n, bool* from_returned) {
-  ASSERT(Check());
-  ASSERT(n > Length(0));
+  TC_ASSERT(Check());
+  TC_ASSERT_GT(n, Length(0));
 
   // Find first size >= n that has a non-empty list
   for (Length s = n; s < kMaxPages; ++s) {
     SpanList* ll = &free_[s.raw_num()].normal;
     // If we're lucky, ll is non-empty, meaning it has a suitable span.
     if (!ll->empty()) {
-      ASSERT(ll->first()->location() == Span::ON_NORMAL_FREELIST);
+      TC_ASSERT_EQ(ll->first()->location(), Span::ON_NORMAL_FREELIST);
       *from_returned = false;
       return Carve(ll->first(), n);
     }
     // Alternatively, maybe there's a usable returned span.
     ll = &free_[s.raw_num()].returned;
     if (!ll->empty()) {
-      ASSERT(ll->first()->location() == Span::ON_RETURNED_FREELIST);
+      TC_ASSERT_EQ(ll->first()->location(), Span::ON_RETURNED_FREELIST);
       *from_returned = true;
       return Carve(ll->first(), n);
     }
@@ -78,25 +78,25 @@ Span* PageHeap::SearchFreeAndLargeLists(Length n, bool* from_returned) {
 }
 
 Span* PageHeap::AllocateSpan(Length n, bool* from_returned) {
-  ASSERT(Check());
+  TC_ASSERT(Check());
   Span* result = SearchFreeAndLargeLists(n, from_returned);
   if (result != nullptr) return result;
 
   // Grow the heap and try again.
   if (!GrowHeap(n)) {
-    ASSERT(Check());
+    TC_ASSERT(Check());
     return nullptr;
   }
 
   result = SearchFreeAndLargeLists(n, from_returned);
   // our new memory should be unbacked
-  ASSERT(*from_returned);
+  TC_ASSERT(*from_returned);
   return result;
 }
 
 Span* PageHeap::New(Length n,
                     SpanAllocInfo span_alloc_info ABSL_ATTRIBUTE_UNUSED) {
-  ASSERT(n > Length(0));
+  TC_ASSERT_GT(n, Length(0));
   bool from_returned;
   Span* result;
   {
@@ -110,7 +110,7 @@ Span* PageHeap::New(Length n,
     SystemBack(result->start_address(), result->bytes_in_span());
   }
 
-  ASSERT(!result || GetMemoryTag(result->start_address()) == tag_);
+  TC_ASSERT(!result || GetMemoryTag(result->start_address()) == tag_);
   return result;
 }
 
@@ -136,8 +136,8 @@ static bool IsSpanBetter(Span* span, Span* best, Length n) {
 // don't bother.
 Span* PageHeap::NewAligned(Length n, Length align,
                            SpanAllocInfo span_alloc_info) {
-  ASSERT(n > Length(0));
-  ASSERT(absl::has_single_bit(align.raw_num()));
+  TC_ASSERT_GT(n, Length(0));
+  TC_ASSERT(absl::has_single_bit(align.raw_num()));
 
   if (align <= Length(1)) {
     return New(n, span_alloc_info);
@@ -155,9 +155,9 @@ Span* PageHeap::NewAligned(Length n, Length align,
     PageId p = span->first_page();
     const Length mask = align - Length(1);
     PageId aligned = PageId{(p.index() + mask.raw_num()) & ~mask.raw_num()};
-    ASSERT(aligned.index() % align.raw_num() == 0);
+    TC_ASSERT_EQ(aligned.index() % align.raw_num(), 0);
     TC_ASSERT_LE(p, aligned);
-    ASSERT(aligned + n <= p + span->num_pages());
+    TC_ASSERT_LE(aligned + n, p + span->num_pages());
     // we have <extra> too many pages now, possible all before, possibly all
     // after, maybe both
     Length before = aligned - p;
@@ -189,7 +189,7 @@ Span* PageHeap::NewAligned(Length n, Length align,
     SystemBack(span->start_address(), span->bytes_in_span());
   }
 
-  ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
+  TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   return span;
 }
 
@@ -200,7 +200,7 @@ Span* PageHeap::AllocLarge(Length n, bool* from_returned) {
 
   // Search through normal list
   for (Span* span : large_.normal) {
-    ASSERT(span->location() == Span::ON_NORMAL_FREELIST);
+    TC_ASSERT_EQ(span->location(), Span::ON_NORMAL_FREELIST);
     if (IsSpanBetter(span, best, n)) {
       best = span;
       *from_returned = false;
@@ -209,7 +209,7 @@ Span* PageHeap::AllocLarge(Length n, bool* from_returned) {
 
   // Search through released list in case it has a better fit
   for (Span* span : large_.returned) {
-    ASSERT(span->location() == Span::ON_RETURNED_FREELIST);
+    TC_ASSERT_EQ(span->location(), Span::ON_RETURNED_FREELIST);
     if (IsSpanBetter(span, best, n)) {
       best = span;
       *from_returned = true;
@@ -220,8 +220,8 @@ Span* PageHeap::AllocLarge(Length n, bool* from_returned) {
 }
 
 Span* PageHeap::Carve(Span* span, Length n) {
-  ASSERT(n > Length(0));
-  ASSERT(span->location() != Span::IN_USE);
+  TC_ASSERT_GT(n, Length(0));
+  TC_ASSERT_NE(span->location(), Span::IN_USE);
   const Span::Location old_location = span->location();
   RemoveFromFreeList(span);
   span->set_location(Span::IN_USE);
@@ -259,26 +259,26 @@ Span* PageHeap::Carve(Span* span, Length n) {
     span->set_num_pages(n);
     pagemap_->Set(span->last_page(), span);
   }
-  ASSERT(Check());
+  TC_ASSERT(Check());
   return span;
 }
 
 void PageHeap::Delete(Span* span, size_t objects_per_span) {
-  ASSERT(GetMemoryTag(span->start_address()) == tag_);
+  TC_ASSERT_EQ(GetMemoryTag(span->start_address()), tag_);
   info_.RecordFree(span->first_page(), span->num_pages());
-  ASSERT(Check());
+  TC_ASSERT(Check());
   TC_CHECK_EQ(span->location(), Span::IN_USE);
-  ASSERT(!span->sampled());
-  ASSERT(span->num_pages() > Length(0));
-  ASSERT(pagemap_->GetDescriptor(span->first_page()) == span);
-  ASSERT(pagemap_->GetDescriptor(span->last_page()) == span);
+  TC_ASSERT(!span->sampled());
+  TC_ASSERT_GT(span->num_pages(), Length(0));
+  TC_ASSERT_EQ(pagemap_->GetDescriptor(span->first_page()), span);
+  TC_ASSERT_EQ(pagemap_->GetDescriptor(span->last_page()), span);
   span->set_location(Span::ON_NORMAL_FREELIST);
   MergeIntoFreeList(span);  // Coalesces if possible
-  ASSERT(Check());
+  TC_ASSERT(Check());
 }
 
 void PageHeap::MergeIntoFreeList(Span* span) {
-  ASSERT(span->location() != Span::IN_USE);
+  TC_ASSERT_NE(span->location(), Span::IN_USE);
 
   // Coalesce -- we guarantee that "p" != 0, so no bounds checking
   // necessary.  We do not bother resetting the stale pagemap
@@ -292,7 +292,7 @@ void PageHeap::MergeIntoFreeList(Span* span) {
   Span* prev = pagemap_->GetDescriptor(p - Length(1));
   if (prev != nullptr && prev->location() == span->location()) {
     // Merge preceding span into this span
-    ASSERT(prev->last_page() + Length(1) == p);
+    TC_ASSERT_EQ(prev->last_page() + Length(1), p);
     const Length len = prev->num_pages();
     RemoveFromFreeList(prev);
     Span::Delete(prev);
@@ -303,7 +303,7 @@ void PageHeap::MergeIntoFreeList(Span* span) {
   Span* next = pagemap_->GetDescriptor(p + n);
   if (next != nullptr && next->location() == span->location()) {
     // Merge next span into this span
-    ASSERT(next->first_page() == p + n);
+    TC_ASSERT_EQ(next->first_page(), p + n);
     const Length len = next->num_pages();
     RemoveFromFreeList(next);
     Span::Delete(next);
@@ -315,7 +315,7 @@ void PageHeap::MergeIntoFreeList(Span* span) {
 }
 
 void PageHeap::PrependToFreeList(Span* span) {
-  ASSERT(span->location() != Span::IN_USE);
+  TC_ASSERT_NE(span->location(), Span::IN_USE);
   SpanListPair* list = (span->num_pages() < kMaxPages)
                            ? &free_[span->num_pages().raw_num()]
                            : &large_;
@@ -329,7 +329,7 @@ void PageHeap::PrependToFreeList(Span* span) {
 }
 
 void PageHeap::RemoveFromFreeList(Span* span) {
-  ASSERT(span->location() != Span::IN_USE);
+  TC_ASSERT_NE(span->location(), Span::IN_USE);
   SpanListPair* list = (span->num_pages() < kMaxPages)
                            ? &free_[span->num_pages().raw_num()]
                            : &large_;
@@ -344,7 +344,7 @@ void PageHeap::RemoveFromFreeList(Span* span) {
 
 Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {
   Span* s = slist->normal.last();
-  ASSERT(s->location() == Span::ON_NORMAL_FREELIST);
+  TC_ASSERT_EQ(s->location(), Span::ON_NORMAL_FREELIST);
   RemoveFromFreeList(s);
 
   // We're dropping very important and otherwise contended pageheap_lock around
@@ -440,7 +440,7 @@ bool PageHeap::GrowHeap(Length n) {
 
   stats_.system_bytes += actual_size;
   const PageId p = PageIdContaining(ptr);
-  ASSERT(p > PageId{0});
+  TC_ASSERT_GT(p, PageId{0});
 
   // If we have already a lot of pages allocated, just pre allocate a bunch of
   // memory for the page map. This prevents fragmentation by pagemap metadata
@@ -456,7 +456,7 @@ bool PageHeap::GrowHeap(Length n) {
     RecordSpan(span);
     span->set_location(Span::ON_RETURNED_FREELIST);
     MergeIntoFreeList(span);
-    ASSERT(Check());
+    TC_ASSERT(Check());
     return true;
   } else {
     // We could not allocate memory within the pagemap.
@@ -470,8 +470,8 @@ bool PageHeap::GrowHeap(Length n) {
 }
 
 bool PageHeap::Check() {
-  ASSERT(free_[0].normal.empty());
-  ASSERT(free_[0].returned.empty());
+  TC_ASSERT(free_[0].normal.empty());
+  TC_ASSERT(free_[0].returned.empty());
   return true;
 }
 

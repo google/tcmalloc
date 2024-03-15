@@ -279,7 +279,7 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
     if (r.len() > delta) {
       HugeRange to_remove, leftover;
       std::tie(to_remove, leftover) = Split(r, delta);
-      ASSERT(leftover.valid());
+      TC_ASSERT(leftover.valid());
       cache_.Insert(leftover);
       r = to_remove;
     }

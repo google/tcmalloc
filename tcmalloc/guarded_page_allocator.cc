@@ -166,10 +166,10 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
 
   TC_ASSERT_LE(size, page_size_);
   TC_ASSERT_LE(alignment, page_size_);
-  ASSERT(alignment == 0 || absl::has_single_bit(alignment));
+  TC_ASSERT(alignment == 0 || absl::has_single_bit(alignment));
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
-    ASSERT(false && "mprotect failed");
+    TC_ASSERT(false && "mprotect failed");
     AllocationGuardSpinLockHolder h(&guarded_page_lock_);
     num_failed_allocations_.LossyAdd(1);
     num_successful_allocations_.LossyAdd(-1);
@@ -198,12 +198,12 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
 
-  ASSERT(!alignment || d.allocation_start % alignment == 0);
+  TC_ASSERT(!alignment || d.allocation_start % alignment == 0);
   return {result, Profile::Sample::GuardedStatus::Guarded};
 }
 
 void GuardedPageAllocator::Deallocate(void* ptr) {
-  ASSERT(PointerIsMine(ptr));
+  TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
   size_t slot = AddrToSlot(page_addr);
 
@@ -235,14 +235,14 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
 }
 
 size_t GuardedPageAllocator::GetRequestedSize(const void* ptr) const {
-  ASSERT(PointerIsMine(ptr));
+  TC_ASSERT(PointerIsMine(ptr));
   size_t slot = AddrToSlot(GetPageAddr(reinterpret_cast<uintptr_t>(ptr)));
   return data_[slot].requested_size;
 }
 
 std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
     const void* ptr) const {
-  ASSERT(PointerIsMine(ptr));
+  TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   const size_t slot = GetNearestSlot(addr);
   return {addr - data_[slot].allocation_start, data_[slot].requested_size};
@@ -251,7 +251,7 @@ std::pair<off_t, size_t> GuardedPageAllocator::GetAllocationOffsetAndSize(
 GuardedAllocationsErrorType GuardedPageAllocator::GetStackTraces(
     const void* ptr, GuardedAllocationsStackTrace** alloc_trace,
     GuardedAllocationsStackTrace** dealloc_trace) const {
-  ASSERT(PointerIsMine(ptr));
+  TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
   size_t slot = GetNearestSlot(addr);
   *alloc_trace = &data_[slot].alloc_trace;
@@ -322,19 +322,19 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
 // we can return from Allocate with guard pages before and after them.
 void GuardedPageAllocator::MapPages() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-  ASSERT(!first_page_addr_);
-  ASSERT(page_size_ % GetPageSize() == 0);
+  TC_ASSERT(!first_page_addr_);
+  TC_ASSERT_EQ(page_size_ % GetPageSize(), 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
   auto base_addr = reinterpret_cast<uintptr_t>(
       MmapAligned(len, page_size_, MemoryTag::kSampled));
-  ASSERT(base_addr);
+  TC_ASSERT(base_addr);
   if (!base_addr) return;
 
   // Tell TCMalloc's PageMap about the memory we own.
   const PageId page = PageIdContaining(reinterpret_cast<void*>(base_addr));
   const Length page_len = BytesToLengthFloor(len);
   if (!tc_globals.pagemap().Ensure(page, page_len)) {
-    ASSERT(false && "Failed to notify page map of page-guarded memory.");
+    TC_ASSERT(false && "Failed to notify page map of page-guarded memory.");
     return;
   }
 
@@ -367,7 +367,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
 
   size_t num_free_pages = total_pages_ - num_alloced_pages_;
   size_t slot = GetIthFreeSlot(Rand(num_free_pages));
-  ASSERT(free_pages_[slot]);
+  TC_ASSERT(free_pages_[slot]);
   free_pages_[slot] = false;
   num_alloced_pages_++;
   num_alloced_pages_max_ = std::max(num_alloced_pages_, num_alloced_pages_max_);
@@ -392,7 +392,7 @@ size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
 
 void GuardedPageAllocator::FreeSlot(size_t slot) {
   TC_ASSERT_LT(slot, total_pages_);
-  ASSERT(!free_pages_[slot]);
+  TC_ASSERT(!free_pages_[slot]);
   free_pages_[slot] = true;
   num_alloced_pages_--;
 }
@@ -467,9 +467,9 @@ uintptr_t GuardedPageAllocator::SlotToAddr(size_t slot) const {
 size_t GuardedPageAllocator::AddrToSlot(uintptr_t addr) const {
   uintptr_t offset = addr - first_page_addr_;
   TC_ASSERT_EQ(offset % page_size_, 0);
-  ASSERT((offset / page_size_) % 2 == 0);
+  TC_ASSERT_EQ((offset / page_size_) % 2, 0);
   int slot = offset / page_size_ / 2;
-  ASSERT(slot >= 0 && slot < total_pages_);
+  TC_ASSERT(slot >= 0 && slot < total_pages_);
   return slot;
 }
 

@@ -90,13 +90,13 @@ class StaticForwarder {
  public:
   static void* Alloc(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(tc_globals.IsInited());
+    TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
     return tc_globals.arena().Alloc(size, alignment);
   }
   static void* AllocReportedImpending(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(tc_globals.IsInited());
+    TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
     tc_globals.arena().UpdateAllocatedAndNonresident(
@@ -105,19 +105,19 @@ class StaticForwarder {
   }
 
   static void Dealloc(void* ptr, size_t size, std::align_val_t alignment) {
-    ASSERT(false);
+    TC_ASSERT(false);
   }
 
   static void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
                                                  int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(tc_globals.IsInited());
+    TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
     tc_globals.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
   }
 
   static void ShrinkToUsageLimit() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    ASSERT(tc_globals.IsInited());
+    TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().ShrinkToUsageLimit(Length(0));
   }
@@ -1075,7 +1075,7 @@ template <class Forwarder>
 inline bool CpuCache<Forwarder>::UseBackingShardedTransferCache(
     size_t size_class) const {
   // Make sure that the thread is registered with rseq.
-  ASSERT(subtle::percpu::IsFastNoInit());
+  TC_ASSERT(subtle::percpu::IsFastNoInit());
   // We enable sharded cache as a backing cache for all size classes when
   // generic configuration is enabled.
   return forwarder_.sharded_transfer_cache().should_use(size_class) &&
@@ -1209,7 +1209,8 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
     return;
   }
   size_t actual_increase = acquired_bytes / size;
-  ASSERT(actual_increase > 0 && actual_increase <= desired_increase);
+  TC_ASSERT_GT(actual_increase, 0);
+  TC_ASSERT_LE(actual_increase, desired_increase);
   // Remember, Grow may not give us all we ask for.
   size_t increase = freelist_.Grow(
       cpu, size_class, actual_increase,
@@ -1561,9 +1562,9 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
 
 template <class Forwarder>
 size_t CpuCache<Forwarder>::ShrinkOtherCache(int cpu, size_t size_class) {
-  ASSERT(cpu >= 0 && cpu < NumCPUs());
-  ASSERT(size_class >= 1 && size_class < kNumClasses);
-  ASSERT(resize_[cpu].lock.IsHeld());
+  TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
+  TC_ASSERT(size_class >= 1 && size_class < kNumClasses);
+  TC_ASSERT(resize_[cpu].lock.IsHeld());
   const size_t capacity = freelist_.Capacity(cpu, size_class);
   if (capacity == 0) {
     return 0;  // Nothing to steal.

@@ -298,12 +298,12 @@ class Span : public SpanList::Elem {
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
-  ASSERT(num_pages_ == Length(1));
-  ASSERT(start == first_page_.start_uintptr());
+  TC_ASSERT_EQ(num_pages_, Length(1));
+  TC_ASSERT_EQ(start, first_page_.start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
-  ASSERT(PtrToIdx(ptr, size) == idx);
+  TC_ASSERT_EQ(PtrToIdx(ptr, size), idx);
   return ptr;
 }
 
@@ -312,14 +312,14 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
-  ASSERT(num_pages_ == Length(1));
-  ASSERT(PageIdContaining(ptr) == first_page_);
+  TC_ASSERT_EQ(num_pages_, Length(1));
+  TC_ASSERT_EQ(PageIdContaining(ptr), first_page_);
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
   TC_ASSERT_NE(idx, kListEnd);
   TC_ASSERT_EQ(idx, off);
-  ASSERT(p == first_page_.start_uintptr() +
-                  (static_cast<uintptr_t>(idx) << kAlignmentShift));
+  TC_ASSERT_EQ(p, first_page_.start_uintptr() +
+                      (static_cast<uintptr_t>(idx) << kAlignmentShift));
   return idx;
 }
 
@@ -374,21 +374,19 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   uintptr_t off = static_cast<uint32_t>(p - first_page_.start_uintptr());
   ObjIdx idx = OffsetToIdx(off, reciprocal);
-  ASSERT(BitmapIdxToPtr(idx, size) == ptr);
+  TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
   return idx;
 }
 
 inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
-#ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
-#endif
   // TODO(djgove) Conversions to offsets can be computed outside of lock.
   ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
   // Check that the object is not already returned.
-  ASSERT(bitmap_.GetBit(idx) == 0);
+  TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
   // Set the bit indicating where the object was returned.
   bitmap_.SetBit(idx);
-  ASSERT(before + 1 == bitmap_.CountBits(0, bitmap_.size()));
+  TC_ASSERT_EQ(before + 1, bitmap_.CountBits(0, bitmap_.size()));
   return true;
 }
 
@@ -401,7 +399,7 @@ inline void Span::set_location(Location loc) {
 }
 
 inline SampledAllocation* Span::sampled_allocation() const {
-  ASSERT(sampled_);
+  TC_ASSERT(sampled_);
   return sampled_allocation_;
 }
 
@@ -414,12 +412,12 @@ inline PageId Span::last_page() const {
 }
 
 inline void Span::set_first_page(PageId p) {
-  ASSERT(p > PageId{0});
+  TC_ASSERT_GT(p, PageId{0});
   first_page_ = p;
 }
 
 inline void* Span::start_address() const {
-  ASSERT(first_page_ > PageId{0});
+  TC_ASSERT_GT(first_page_, PageId{0});
   return first_page_.start_addr();
 }
 
@@ -450,7 +448,7 @@ inline void Span::Prefetch() {
 }
 
 inline void Span::Init(PageId p, Length n) {
-  ASSERT(p > PageId{0});
+  TC_ASSERT_GT(p, PageId{0});
 #ifndef NDEBUG
   // In debug mode we have additional checking of our list ops; these must be
   // initialized.

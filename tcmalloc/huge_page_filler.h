@@ -1,3 +1,4 @@
+
 // Copyright 2019 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -146,7 +147,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // Requires was_donated().
   Length abandoned_count() const { return Length(abandoned_count_); }
   void set_abandoned_count(Length count) {
-    ASSERT(was_donated_);
+    TC_ASSERT(was_donated_);
     abandoned_count_ = count.raw_num();
   }
 
@@ -310,26 +311,28 @@ class HugePageFiller {
   Length unmapped_pages() const { return unmapped_; }
   Length free_pages() const;
   Length used_pages_in_released() const {
-    ASSERT(n_used_released_[AccessDensityPrediction::kSparse] <=
-           regular_alloc_released_[AccessDensityPrediction::kSparse]
-               .size()
-               .in_pages());
-    ASSERT(n_used_released_[AccessDensityPrediction::kDense] <=
-           regular_alloc_released_[AccessDensityPrediction::kDense]
-               .size()
-               .in_pages());
+    TC_ASSERT_LE(n_used_released_[AccessDensityPrediction::kSparse],
+                 regular_alloc_released_[AccessDensityPrediction::kSparse]
+                     .size()
+                     .in_pages());
+    TC_ASSERT_LE(n_used_released_[AccessDensityPrediction::kDense],
+                 regular_alloc_released_[AccessDensityPrediction::kDense]
+                     .size()
+                     .in_pages());
     return n_used_released_[AccessDensityPrediction::kDense] +
            n_used_released_[AccessDensityPrediction::kSparse];
   }
   Length used_pages_in_partial_released() const {
-    ASSERT(n_used_partial_released_[AccessDensityPrediction::kSparse] <=
-           regular_alloc_partial_released_[AccessDensityPrediction::kSparse]
-               .size()
-               .in_pages());
-    ASSERT(n_used_partial_released_[AccessDensityPrediction::kDense] <=
-           regular_alloc_partial_released_[AccessDensityPrediction::kDense]
-               .size()
-               .in_pages());
+    TC_ASSERT_LE(
+        n_used_partial_released_[AccessDensityPrediction::kSparse],
+        regular_alloc_partial_released_[AccessDensityPrediction::kSparse]
+            .size()
+            .in_pages());
+    TC_ASSERT_LE(
+        n_used_partial_released_[AccessDensityPrediction::kDense],
+        regular_alloc_partial_released_[AccessDensityPrediction::kDense]
+            .size()
+            .in_pages());
     return n_used_partial_released_[AccessDensityPrediction::kDense] +
            n_used_partial_released_[AccessDensityPrediction::kSparse];
   }
@@ -504,8 +507,8 @@ class HugePageFiller {
 inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
   size_t index = free_.FindAndMark(n.raw_num());
 
-  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
-         released_count_);
+  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
+               released_count_);
 
   size_t unbacked = 0;
   // If release_count_ == 0, CountBits will return 0 and ClearRange will be a
@@ -520,8 +523,8 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
     released_count_ -= unbacked;
   }
 
-  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
-         released_count_);
+  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
+               released_count_);
   return PageAllocation{location_.first_page() + Length(index),
                         Length(unbacked)};
 }
@@ -556,7 +559,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 
       // In debug builds, verify [free_index, end) is backed.
       size_t length = end - free_index;
-      ASSERT(released_by_page_.CountBits(free_index, length) == 0);
+      TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length), 0);
       PageId p = location_.first_page() + Length(free_index);
 
       if (ABSL_PREDICT_TRUE(ReleasePages(p, Length(length), unback))) {
@@ -574,9 +577,9 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
   }
 
   released_count_ += count;
-  ASSERT(Length(released_count_) <= kPagesPerHugePage);
-  ASSERT(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()) ==
-         released_count_);
+  TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
+  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
+               released_count_);
   return Length(count);
 }
 
@@ -645,13 +648,13 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback) {
-  ASSERT(chunks_per_alloc_ > 0 && chunks_per_alloc_ <= kChunks);
+  TC_ASSERT(chunks_per_alloc_ > 0 && chunks_per_alloc_ <= kChunks);
 }
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
 HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
-  ASSERT(n > Length(0));
+  TC_ASSERT_GT(n, Length(0));
 
   // How do we choose which hugepage to allocate from (among those with
   // a free range of at least n?) Our goal is to be as space-efficient
@@ -730,7 +733,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   do {
     pt = regular_alloc_[type].GetLeast(ListFor(n, 0));
     if (pt) {
-      ASSERT(!pt->donated());
+      TC_ASSERT(!pt->donated());
       break;
     }
     if (ABSL_PREDICT_TRUE(type == AccessDensityPrediction::kSparse)) {
@@ -741,17 +744,17 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     }
     pt = regular_alloc_partial_released_[type].GetLeast(ListFor(n, 0));
     if (pt) {
-      ASSERT(!pt->donated());
+      TC_ASSERT(!pt->donated());
       was_released = true;
-      ASSERT(n_used_partial_released_[type] >= pt->used_pages());
+      TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
       n_used_partial_released_[type] -= pt->used_pages();
       break;
     }
     pt = regular_alloc_released_[type].GetLeast(ListFor(n, 0));
     if (pt) {
-      ASSERT(!pt->donated());
+      TC_ASSERT(!pt->donated());
       was_released = true;
-      ASSERT(n_used_released_[type] >= pt->used_pages());
+      TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
       n_used_released_[type] -= pt->used_pages();
       break;
     }
@@ -759,10 +762,10 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     return {nullptr, PageId{0}};
   } while (false);
   ASSUME(pt != nullptr);
-  ASSERT(pt->longest_free_range() >= n);
+  TC_ASSERT_GE(pt->longest_free_range(), n);
   // type == AccessDensityPrediction::kDense => pt->HasDenseSpans(). This
   // also verifies we do not end up with a donated pt on the kDense path.
-  ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
+  TC_ASSERT(type == AccessDensityPrediction::kSparse || pt->HasDenseSpans());
   const auto page_allocation = pt->Get(n);
   AddToFillerList(pt);
   pages_allocated_[type] += n;
@@ -773,12 +776,12 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
     pt->set_was_released(/*status=*/true);
     ++n_was_released_[type];
   }
-  ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
+  TC_ASSERT(was_released || page_allocation.previously_unbacked == Length(0));
   TC_ASSERT_GE(unmapped_, page_allocation.previously_unbacked);
   unmapped_ -= page_allocation.previously_unbacked;
   // We're being used for an allocation, so we are no longer considered
   // donated by this point.
-  ASSERT(!pt->donated());
+  TC_ASSERT(!pt->donated());
   UpdateFillerStatsTracker();
   return {pt, page_allocation.page, was_released};
 }
@@ -793,15 +796,15 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
   RemoveFromFillerList(pt);
   pt->Put(p, n);
   if (pt->HasDenseSpans()) {
-    ASSERT(pages_allocated_[AccessDensityPrediction::kDense] >= n);
+    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kDense], n);
     pages_allocated_[AccessDensityPrediction::kDense] -= n;
   } else {
-    ASSERT(pages_allocated_[AccessDensityPrediction::kSparse] >= n);
+    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kSparse], n);
     pages_allocated_[AccessDensityPrediction::kSparse] -= n;
   }
 
   if (pt->longest_free_range() == kPagesPerHugePage) {
-    ASSERT(pt->nallocs() == 0);
+    TC_ASSERT_EQ(pt->nallocs(), 0);
     --size_;
     if (pt->released()) {
       const Length free_pages = pt->free_pages();
@@ -847,7 +850,7 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::Contribute(
     TrackerType* pt, bool donated, SpanAllocInfo span_alloc_info) {
   // A contributed huge page should not yet be subreleased.
-  ASSERT(pt->released_pages() == Length(0));
+  TC_ASSERT_EQ(pt->released_pages(), Length(0));
 
   const AccessDensityPrediction type =
       ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
@@ -857,9 +860,9 @@ inline void HugePageFiller<TrackerType>::Contribute(
           : AccessDensityPrediction::kSparse;
 
   pages_allocated_[type] += pt->used_pages();
-  ASSERT(!(type == AccessDensityPrediction::kDense && donated));
+  TC_ASSERT(!(type == AccessDensityPrediction::kDense && donated));
   if (donated) {
-    ASSERT(pt->was_donated());
+    TC_ASSERT(pt->was_donated());
     DonateToFillerList(pt);
   } else {
     if (type == AccessDensityPrediction::kDense) {
@@ -878,8 +881,8 @@ inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType*> candidates, int current_candidates,
     const PageTrackerLists<N>& tracker_list, size_t tracker_start) {
   auto PushCandidate = [&](TrackerType* pt) {
-    ASSERT(pt->free_pages() > Length(0));
-    ASSERT(pt->free_pages() > pt->released_pages());
+    TC_ASSERT_GT(pt->free_pages(), Length(0));
+    TC_ASSERT_GT(pt->free_pages(), pt->released_pages());
 
     // If we have few candidates, we can avoid creating a heap.
     //
@@ -930,15 +933,15 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     TC_ASSERT_NE(best, nullptr);
 
     // Verify that we have pages that we can release.
-    ASSERT(best->free_pages() != Length(0));
+    TC_ASSERT_NE(best->free_pages(), Length(0));
     // TODO(b/73749855):  This assertion may need to be relaxed if we release
     // the pageheap_lock here.  A candidate could change state with another
     // thread while we have the lock released for another candidate.
-    ASSERT(best->free_pages() > best->released_pages());
+    TC_ASSERT_GT(best->free_pages(), best->released_pages());
 
 #ifndef NDEBUG
     // Double check that our sorting criteria were applied correctly.
-    ASSERT(last <= best->used_pages());
+    TC_ASSERT_LE(last, best->used_pages());
     last = best->used_pages();
 #endif
 
@@ -948,7 +951,7 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     RemoveFromFillerList(best);
     Length ret = best->ReleaseFree(unback_);
     unmapped_ += ret;
-    ASSERT(unmapped_ >= best->released_pages());
+    TC_ASSERT_GE(unmapped_, best->released_pages());
     total_released += ret;
     AddToFillerList(best);
   }
@@ -1214,7 +1217,7 @@ class UsageInfo {
       // Because kPagesPerHugePage is a power of two, it must be at least 16
       // to get inside this "if" - either i=5 and kPagesPerHugePage=8 and
       // the test fails, or kPagesPerHugePage <= 4 and the test fails.
-      ASSERT(kPagesPerHugePage >= Length(16));
+      TC_ASSERT_GE(kPagesPerHugePage, Length(16));
       constexpr int step = kPagesPerHugePage.raw_num() / 16;
       // We want to move in "step"-sized increments, aligned every "step".
       // So first we have to round i up to the nearest step boundary. This
@@ -1454,7 +1457,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
 
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
-  ASSERT(donated_alloc_[0].empty());
+  TC_ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
   const auto safe_div = [](Length a, Length b) {
     return b == Length(0) ? 0.
@@ -1496,7 +1499,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   const HugeLength n_nonfull =
       stats.n_partial[AccessDensityPrediction::kPredictionCounts] +
       stats.n_partial_released[AccessDensityPrediction::kPredictionCounts];
-  ASSERT(free_pages() <= n_nonfull.in_pages());
+  TC_ASSERT_LE(free_pages(), n_nonfull.in_pages());
   out->printf("HugePageFiller: among non-fulls, %.4f free\n",
               safe_div(free_pages(), n_nonfull.in_pages()));
 
@@ -1594,7 +1597,7 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
 
   // A donated alloc full list is impossible because it would have never been
   // donated in the first place. (It's an even hugepage.)
-  ASSERT(donated_alloc_[0].empty());
+  TC_ASSERT(donated_alloc_[0].empty());
   // Evaluate a/b, avoiding division by zero
   const auto safe_div = [](Length a, Length b) {
     return b == Length(0) ? 0.
@@ -1727,7 +1730,7 @@ inline void HugePageFiller<TrackerType>::UpdateFillerStatsTracker() {
 
 template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
-  ASSERT(!pt->empty());
+  TC_ASSERT(!pt->empty());
   // Prefer to allocate from hugepages with many allocations already present;
   // spaced logarithmically.
   const size_t na = pt->nallocs();
@@ -1778,11 +1781,11 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     regular_alloc_[type].Remove(pt, i);
   } else if (pt->free_pages() <= pt->released_pages()) {
     regular_alloc_released_[type].Remove(pt, i);
-    ASSERT(n_used_released_[type] >= pt->used_pages());
+    TC_ASSERT_GE(n_used_released_[type], pt->used_pages());
     n_used_released_[type] -= pt->used_pages();
   } else {
     regular_alloc_partial_released_[type].Remove(pt, i);
-    ASSERT(n_used_partial_released_[type] >= pt->used_pages());
+    TC_ASSERT_GE(n_used_partial_released_[type], pt->used_pages());
     n_used_partial_released_[type] -= pt->used_pages();
   }
 }
@@ -1824,7 +1827,7 @@ inline void HugePageFiller<TrackerType>::DonateToFillerList(TrackerType* pt) {
   TC_ASSERT_LT(longest, kPagesPerHugePage);
 
   // We should never be donating already-released trackers!
-  ASSERT(!pt->released());
+  TC_ASSERT(!pt->released());
   pt->set_donated(true);
 
   donated_alloc_.Add(pt, longest.raw_num());

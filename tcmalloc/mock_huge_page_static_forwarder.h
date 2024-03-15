@@ -175,7 +175,7 @@ class FakeStaticForwarder {
 
     T* allocate(size_t n) {
       // Check if n is too big to allocate.
-      ASSERT((n * sizeof(T)) / sizeof(T) == n);
+      TC_ASSERT_EQ((n * sizeof(T)) / sizeof(T), n);
       return static_cast<T*>(absl::base_internal::LowLevelAlloc::AllocWithArena(
           n * sizeof(T), ll_arena()));
     }

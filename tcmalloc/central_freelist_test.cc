@@ -528,7 +528,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
     // Try to fetch one object from the span.
     int got = e.central_freelist().RemoveRange(&objects[fetched], 1);
     fetched += got;
-    ASSERT(fetched);
+    TC_ASSERT(fetched);
     if (fetched % num_objects_to_fetch == 0) {
       // Span should have been removed from nonempty_ lists because we have
       // allocated all the objects from it.
@@ -548,7 +548,7 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
   while (--remaining > 0) {
     // Return objects back to the span one at a time.
     e.central_freelist().InsertRange({&objects[remaining], 1});
-    ASSERT(remaining);
+    TC_ASSERT(remaining);
     // When allocated objects are more than the threshold, the span is indexed
     // to nonempty_ list 0.
     expected_idx = f(remaining);

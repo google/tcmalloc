@@ -132,22 +132,19 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 }
 
 size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
-#ifndef NDEBUG
   size_t before = bitmap_.CountBits(0, bitmap_.size());
-#endif  // NDEBUG
-
   size_t count = 0;
   // Want to fill the batch either with N objects, or the number of objects
   // remaining in the span.
   while (!bitmap_.IsZero() && count < N) {
     size_t offset = bitmap_.FindSet(0);
-    ASSERT(offset < bitmap_.size());
+    TC_ASSERT_LT(offset, bitmap_.size());
     batch[count] = BitmapIdxToPtr(offset, size);
     bitmap_.ClearLowestBit();
     count++;
   }
 
-  ASSERT(bitmap_.CountBits(0, bitmap_.size()) + count == before);
+  TC_ASSERT_EQ(bitmap_.CountBits(0, bitmap_.size()) + count, before);
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
@@ -230,11 +227,11 @@ uint32_t Span::CalcReciprocal(size_t size) {
 void Span::BuildBitmap(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
   // maximum capacity for the bitmap is bitmap_.size() objects.
-  ASSERT(count <= bitmap_.size());
+  TC_ASSERT_LE(count, bitmap_.size());
   allocated_.store(0, std::memory_order_relaxed);
   bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
   bitmap_.SetRange(0, count);
-  ASSERT(bitmap_.CountBits(0, bitmap_.size()) == count);
+  TC_ASSERT_EQ(bitmap_.CountBits(0, bitmap_.size()), count);
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
@@ -266,7 +263,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   // PtrToIdx for that) but rules out some bugs and weakening it wouldn't
   // actually help. One example of the potential bugs that are ruled out is the
   // possibility of idxEnd (below) overflowing.
-  ASSERT(count * idxStep < kListEnd);
+  TC_ASSERT_LT(count * idxStep, kListEnd);
 
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;

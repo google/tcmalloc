@@ -62,9 +62,9 @@ class Arena {
   // Updates the stats for allocated and non-resident bytes.
   void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    ASSERT(static_cast<int64_t>(bytes_allocated_) + allocated >= 0);
+    TC_ASSERT_GE(static_cast<int64_t>(bytes_allocated_) + allocated, 0);
     bytes_allocated_ += allocated;
-    ASSERT(static_cast<int64_t>(bytes_nonresident_) + nonresident >= 0);
+    TC_ASSERT_GE(static_cast<int64_t>(bytes_nonresident_) + nonresident, 0);
     bytes_nonresident_ += nonresident;
   }
 

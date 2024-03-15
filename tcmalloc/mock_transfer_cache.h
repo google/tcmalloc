@@ -298,7 +298,7 @@ class FakeCpuLayout {
 
   void Init(int shards) {
     TC_ASSERT_GT(shards, 0);
-    ASSERT(shards * kCpusPerShard <= kNumCpus);
+    TC_ASSERT_LE(shards * kCpusPerShard, kNumCpus);
     num_shards_ = shards;
   }
 

@@ -294,7 +294,7 @@ inline void CentralFreeList<Forwarder>::Init(
           : kNumLists -
                 std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
 
-  ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
+  TC_ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
 }
 
 template <class Forwarder>
@@ -335,7 +335,7 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   // We remove the stale utilization from the histogram and add the new
   // utilization to the histogram after we release objects to the span.
   uint16_t cur_allocated = prev_allocated - 1;
-  ASSERT(cur_allocated == span->Allocated());
+  TC_ASSERT_EQ(cur_allocated, span->Allocated());
   const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
   if (cur_bitwidth != prev_bitwidth) {
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -514,7 +514,7 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
     // change. So, we remove the stale utilization from the histogram here and
     // add it again once we pop the objects.
     const uint16_t cur_allocated = prev_allocated + here;
-    ASSERT(cur_allocated == span->Allocated());
+    TC_ASSERT_EQ(cur_allocated, span->Allocated());
     const uint8_t cur_bitwidth = absl::bit_width(cur_allocated);
     if (cur_bitwidth != prev_bitwidth) {
       RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -570,7 +570,7 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 #else
   // Update the histogram once we populate the span.
   const uint16_t allocated = result;
-  ASSERT(allocated == span->Allocated());
+  TC_ASSERT_EQ(allocated, span->Allocated());
   const uint8_t bitwidth = absl::bit_width(allocated);
   RecordSpanUtil(bitwidth, /*increase=*/true);
   if (!span_empty) {

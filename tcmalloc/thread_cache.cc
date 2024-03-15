@@ -85,7 +85,7 @@ void ThreadCache::Cleanup() {
 // return NULL.
 void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
   FreeList* list = &list_[size_class];
-  ASSERT(list->empty());
+  TC_ASSERT(list->empty());
   const int batch_size = tc_globals.sizemap().num_objects_to_move(size_class);
 
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
@@ -137,7 +137,7 @@ void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
     // shrink it, some amount of memory will always stay in this freelist.
     list->set_length_overages(list->length_overages() + 1);
     if (list->length_overages() > kMaxOverages) {
-      ASSERT(list->max_length() > batch_size);
+      TC_ASSERT_GT(list->max_length(), batch_size);
       list->set_max_length(list->max_length() - batch_size);
       list->set_length_overages(0);
     }
@@ -148,7 +148,7 @@ void ThreadCache::ListTooLong(FreeList* list, size_t size_class) {
 // transfer cache.
 void ThreadCache::ReleaseToTransferCache(FreeList* src, size_t size_class,
                                          int N) {
-  ASSERT(src == &list_[size_class]);
+  TC_ASSERT_EQ(src, &list_[size_class]);
   if (N > src->length()) N = src->length();
   size_t delta_bytes = N * tc_globals.sizemap().class_to_size(size_class);
 
@@ -250,7 +250,7 @@ void ThreadCache::IncreaseCacheLimitLocked() {
 }
 
 void ThreadCache::InitTSD() {
-  ASSERT(!tsd_inited_);
+  TC_ASSERT(!tsd_inited_);
   pthread_key_create(&heap_key_, DestroyThreadCache);
   tsd_inited_ = true;
 }

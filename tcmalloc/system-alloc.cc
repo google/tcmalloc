@@ -94,7 +94,7 @@ namespace {
 // Check that no bit is set at position ADDRESS_BITS or higher.
 template <int ADDRESS_BITS>
 void CheckAddressBits(uintptr_t ptr) {
-  ASSERT((ptr >> ADDRESS_BITS) == 0);
+  TC_ASSERT_EQ(ptr >> ADDRESS_BITS, 0);
 }
 
 // Specialize for the bit width of a pointer to avoid undefined shift.
@@ -127,7 +127,7 @@ ABSL_CONST_INIT AddressRegionFactory* region_factory ABSL_GUARDED_BY(spinlock) =
 // Rounds size down to a multiple of alignment.
 size_t RoundDown(const size_t size, const size_t alignment) {
   // Checks that the alignment has only one bit set.
-  ASSERT(absl::has_single_bit(alignment));
+  TC_ASSERT(absl::has_single_bit(alignment));
   return (size) & ~(alignment - 1);
 }
 
@@ -212,7 +212,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   if (result < start_) return {nullptr, 0};  // Out of memory in region.
   size_t actual_size = end - result;
 
-  ASSERT(result % GetPageSize() == 0);
+  TC_ASSERT_EQ(result % GetPageSize(), 0);
   void* result_ptr = reinterpret_cast<void*>(result);
   if (mprotect(result_ptr, actual_size, PROT_READ | PROT_WRITE) != 0) {
     Log(kLogWithStack, __FILE__, __LINE__,
@@ -462,7 +462,7 @@ AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
   if (result != nullptr) {
     CheckAddressBits<kAddressBits>(reinterpret_cast<uintptr_t>(result) +
                                    actual_bytes - 1);
-    ASSERT(GetMemoryTag(result) == tag);
+    TC_ASSERT_EQ(GetMemoryTag(result), tag);
   }
   return {result, actual_bytes};
 }
@@ -529,9 +529,9 @@ bool SystemRelease(void* start, size_t length) {
   new_start = (new_start + GetPageSize() - 1) & ~pagemask;
   new_end = new_end & ~pagemask;
 
-  ASSERT((new_start & pagemask) == 0);
-  ASSERT((new_end & pagemask) == 0);
-  ASSERT(new_start >= reinterpret_cast<size_t>(start));
+  TC_ASSERT_EQ(new_start & pagemask, 0);
+  TC_ASSERT_EQ(new_end & pagemask, 0);
+  TC_ASSERT_GE(new_start, reinterpret_cast<size_t>(start));
   TC_ASSERT_LE(new_end, end);
 
   if (new_end > new_start) {
@@ -616,7 +616,7 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
   rnd = ExponentialBiased::NextRandom(rnd);
   uintptr_t addr = rnd & kAddrMask & ~(alignment - 1) & ~kTagMask;
   addr |= static_cast<uintptr_t>(tag) << kTagShift;
-  ASSERT(GetMemoryTag(reinterpret_cast<const void*>(addr)) == tag);
+  TC_ASSERT_EQ(GetMemoryTag(reinterpret_cast<const void*>(addr)), tag);
   return addr;
 }
 
@@ -659,7 +659,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   void* hint;
   for (int i = 0; i < 1000; ++i) {
     hint = reinterpret_cast<void*>(next_addr);
-    ASSERT(GetMemoryTag(hint) == tag);
+    TC_ASSERT_EQ(GetMemoryTag(hint), tag);
     int flags = MAP_PRIVATE | MAP_ANONYMOUS | map_fixed_noreplace_flag;
 
     void* result = mmap(hint, size, PROT_NONE, flags, -1, 0);
@@ -672,7 +672,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       TC_CHECK(kAddressBits == std::numeric_limits<uintptr_t>::digits ||
                next_addr <= uintptr_t{1} << kAddressBits);
 
-      ASSERT((reinterpret_cast<uintptr_t>(result) & (alignment - 1)) == 0);
+      TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(result) & (alignment - 1), 0);
       // Give the mmaped region a name based on its tag.
 #ifdef __linux__
       // Make a best-effort attempt to name the allocated region based on its

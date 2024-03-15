@@ -405,7 +405,7 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
       n -= here.raw_num();
       p += here;
       i++;
-      ASSERT(i < kNumHugePages || n == 0);
+      TC_ASSERT(i < kNumHugePages || n == 0);
     }
     n = truncated.raw_num();
     const bool released = !backed;
@@ -507,7 +507,7 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
       last_touched_[i] = now;
     }
     pages_used_[i] += here;
-    ASSERT(pages_used_[i] <= kPagesPerHugePage);
+    TC_ASSERT_LE(pages_used_[i], kPagesPerHugePage);
     p += here;
     n -= here;
   }
@@ -522,9 +522,9 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
     Length here = std::min(n, lim - p);
-    ASSERT(here > Length(0));
-    ASSERT(pages_used_[i] >= here);
-    ASSERT(backed_[i]);
+    TC_ASSERT_GT(here, Length(0));
+    TC_ASSERT_GE(pages_used_[i], here);
+    TC_ASSERT(backed_[i]);
     last_touched_[i] = AverageWhens(
         here, now, kPagesPerHugePage - pages_used_[i], last_touched_[i]);
     pages_used_[i] -= here;
@@ -561,7 +561,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
       total_unbacked_ += hl;
 
       for (size_t k = i; k < j; k++) {
-        ASSERT(should_unback[k]);
+        TC_ASSERT(should_unback[k]);
         backed_[k] = false;
         last_touched_[k] = now;
       }

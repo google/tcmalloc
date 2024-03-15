@@ -647,7 +647,7 @@ void StressThread(size_t thread_id, Context& ctx) {
         std::optional<ScopedUnregisterRseq> scoped_rseq;
         if (unregister) {
           scoped_rseq.emplace();
-          ASSERT(!IsFastNoInit());
+          TC_ASSERT(!IsFastNoInit());
         }
 
         ctx.slab->Drain(
@@ -666,7 +666,7 @@ void StressThread(size_t thread_id, Context& ctx) {
       }
 
       // Verify we re-registered with rseq as required.
-      ASSERT(IsFastNoInit());
+      TC_ASSERT(IsFastNoInit());
     }
   }
 }

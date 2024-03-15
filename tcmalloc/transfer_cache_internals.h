@@ -153,7 +153,7 @@ class TransferCache {
   void InsertRange(int size_class, absl::Span<void *> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     const int N = batch.size();
-    ASSERT(0 < N && N <= kMaxObjectsToMove);
+    TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.capacity > info.used) {
       AllocationGuardSpinLockHolder h(&lock_);
@@ -184,7 +184,7 @@ class TransferCache {
   // batch.
   ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int N)
       ABSL_LOCKS_EXCLUDED(lock_) {
-    ASSERT(0 < N && N <= kMaxObjectsToMove);
+    TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.used) {
       AllocationGuardSpinLockHolder h(&lock_);

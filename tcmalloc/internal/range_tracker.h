@@ -241,7 +241,7 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
 // Unmarks it.
 template <size_t N>
 inline void RangeTracker<N>::Unmark(size_t index, size_t n) {
-  ASSERT(bits_.FindClear(index) >= index + n);
+  TC_ASSERT(bits_.FindClear(index) >= index + n);
   bits_.ClearRange(index, n);
   nused_ -= n;
   nallocs_--;
@@ -279,7 +279,7 @@ inline size_t Bitmap<N>::CountWordBits(size_t i, size_t from, size_t to) const {
   const size_t all_ones = ~static_cast<size_t>(0);
   // how many bits are we setting?
   const size_t n = to - from;
-  ASSERT(0 < n && n <= kWordSize);
+  TC_ASSERT(0 < n && n <= kWordSize);
   const size_t mask = (all_ones >> (kWordSize - n)) << from;
 
   ASSUME(i < kWords);
@@ -295,7 +295,7 @@ inline void Bitmap<N>::SetWordBits(size_t i, size_t from, size_t to) {
   const size_t all_ones = ~static_cast<size_t>(0);
   // how many bits are we setting?
   const size_t n = to - from;
-  ASSERT(n > 0 && n <= kWordSize);
+  TC_ASSERT(n > 0 && n <= kWordSize);
   const size_t mask = (all_ones >> (kWordSize - n)) << from;
   ASSUME(i < kWords);
   if (Value) {

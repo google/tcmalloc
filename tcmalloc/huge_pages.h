@@ -370,7 +370,7 @@ inline HugeRange Join(HugeRange a, HugeRange b) {
 // Splits r into two ranges, one of length n.  The other is either the rest
 // of the space (if any) or Nil.
 inline std::pair<HugeRange, HugeRange> Split(HugeRange r, HugeLength n) {
-  ASSERT(r.len() >= n);
+  TC_ASSERT_GE(r.len(), n);
   if (r.len() > n) {
     return {HugeRange::Make(r.start(), n),
             HugeRange::Make(r.start() + n, r.len() - n)};
