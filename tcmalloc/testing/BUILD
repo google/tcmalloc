@@ -349,7 +349,10 @@ create_tcmalloc_testsuite(
     srcs = ["no_deps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    deps = ["//tcmalloc:malloc_extension"],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )
 
 create_tcmalloc_testsuite(
@@ -357,7 +360,10 @@ create_tcmalloc_testsuite(
     srcs = ["no_deps_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    deps = ["//tcmalloc:malloc_extension"],
+    deps = [
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )
 
 create_tcmalloc_testsuite(
