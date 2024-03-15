@@ -48,7 +48,7 @@ int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current) {
   if (comma != absl::string_view::npos) current = current.substr(0, comma);
 
   int first_cpu;
-  CHECK_CONDITION(absl::SimpleAtoi(current, &first_cpu));
+  TC_CHECK(absl::SimpleAtoi(current, &first_cpu));
   TC_CHECK_LT(first_cpu, CPU_SETSIZE);
   return first_cpu;
 }

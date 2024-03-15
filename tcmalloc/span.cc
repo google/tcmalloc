@@ -36,7 +36,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 void Span::Sample(SampledAllocation* sampled_allocation) {
-  CHECK_CONDITION(!sampled_ && sampled_allocation);
+  TC_CHECK(!sampled_ && sampled_allocation);
   sampled_ = 1;
   sampled_allocation_ = sampled_allocation;
 
@@ -52,7 +52,7 @@ SampledAllocation* Span::Unsample() {
   if (!sampled_) {
     return nullptr;
   }
-  CHECK_CONDITION(sampled_ && sampled_allocation_);
+  TC_CHECK(sampled_ && sampled_allocation_);
   sampled_ = 0;
   SampledAllocation* sampled_allocation = sampled_allocation_;
   sampled_allocation_ = nullptr;

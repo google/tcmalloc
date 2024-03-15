@@ -133,7 +133,7 @@ PageAllocator::PageAllocator() {
     alg_ = PAGE_HEAP;
 #else
     static_assert(huge_page_allocator_internal::kUnconditionalHPAA);
-    CHECK_CONDITION(false && "unreachable");
+    TC_BUG("unreachable");
 #endif
   }
 }

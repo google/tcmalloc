@@ -215,13 +215,13 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
       write_overflow_detected_ = true;
     }
 
-    CHECK_CONDITION(mprotect(reinterpret_cast<void*>(page_addr), page_size_,
-                             PROT_NONE) != -1);
+    TC_CHECK_EQ(
+        0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
   }
 
   if (write_overflow_detected_ || double_free_detected_) {
     *reinterpret_cast<char*>(ptr) = 'X';  // Trigger SEGV handler.
-    CHECK_CONDITION(false);               // Unreachable.
+    TC_BUG("unreachable");
   }
 
   // Record stack trace.

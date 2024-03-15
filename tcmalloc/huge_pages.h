@@ -362,7 +362,7 @@ inline constexpr bool operator==(HugeRange lhs, HugeRange rhs) {
 // REQUIRES: a and b are disjoint but adjacent (in that order)
 
 inline HugeRange Join(HugeRange a, HugeRange b) {
-  CHECK_CONDITION(a.precedes(b));
+  TC_CHECK(a.precedes(b));
   return {a.start(), a.len() + b.len()};
 }
 

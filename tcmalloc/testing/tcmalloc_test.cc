@@ -427,7 +427,7 @@ TEST(TCMallocTest, EnormousAllocations) {
 static size_t GetUnmappedBytes() {
   std::optional<size_t> bytes =
       MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
-  CHECK_CONDITION(bytes.has_value());
+  TC_CHECK(bytes.has_value());
   return *bytes;
 }
 
@@ -774,13 +774,13 @@ TEST(TCMallocTest, SampleAllocatedSize) {
 
 // Ensure that nallocx works before main.
 struct GlobalNallocx {
-  GlobalNallocx() { CHECK_CONDITION(nallocx(99, 0) >= 99); }
+  GlobalNallocx() { TC_CHECK_GE(nallocx(99, 0), 99); }
 } global_nallocx;
 
 #ifdef __GNUC__
 // 101 is the max user priority.
 static void check_global_nallocx() __attribute__((constructor(101)));
-static void check_global_nallocx() { CHECK_CONDITION(nallocx(99, 0) >= 99); }
+static void check_global_nallocx() { TC_CHECK_GE(nallocx(99, 0), 99); }
 #endif
 
 TEST(TCMallocTest, nallocx) {
@@ -894,7 +894,7 @@ std::optional<int64_t> ParseLowLevelAllocator(absl::string_view allocator_name,
   char needlebuf[32];
   int len =
       absl::SNPrintF(needlebuf, sizeof(needlebuf), "\n%s: ", allocator_name);
-  CHECK_CONDITION(0 < len && len < sizeof(needlebuf));
+  TC_CHECK(0 < len && len < sizeof(needlebuf));
   const absl::string_view needle = needlebuf;
 
   auto pos = buf.find(needle);

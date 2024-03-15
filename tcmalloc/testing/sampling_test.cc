@@ -74,7 +74,7 @@ ABSL_ATTRIBUTE_NOINLINE static void* AllocateAllocate(bool align) {
   if (align) {
     // A 10000 byte allocation aligned to 2K will use a 10K size class
     // and get 'charged' identically to malloc(10000).
-    CHECK_CONDITION(posix_memalign(&p, 2048, 10000) == 0);
+    TC_CHECK_EQ(0, posix_memalign(&p, 2048, 10000));
   } else {
     p = malloc(10000);
   }

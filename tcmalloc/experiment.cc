@@ -157,7 +157,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   // It would be nice to print what experiments we enable, but printing even
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
-    CHECK_CONDITION(active.empty() && disabled.empty());
+    TC_CHECK(active.empty() && disabled.empty());
     const size_t target_hash = std::hash<std::string_view>{}(test_target);
     constexpr size_t kVanillaOneOf = 10;
     constexpr size_t kEnableOneOf = 3;
@@ -170,7 +170,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
           HasBrittleTestFailures(config.id)) {
         continue;
       }
-      CHECK_CONDITION(!buffer[static_cast<int>(config.id)]);
+      TC_CHECK(!buffer[static_cast<int>(config.id)]);
       // Enabling is specifically based on the experiment name so that it's
       // stable when experiments are added/removed.
       buffer[static_cast<int>(config.id)] =

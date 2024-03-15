@@ -151,7 +151,7 @@ class SizeMap {
 
   ABSL_ATTRIBUTE_ALWAYS_INLINE static inline size_t ClassIndex(size_t s) {
     size_t ret;
-    CHECK_CONDITION(ClassIndexMaybe(s, ret));
+    TC_CHECK(ClassIndexMaybe(s, ret));
     return ret;
   }
 

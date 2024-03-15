@@ -48,7 +48,7 @@ const SizeClasses& SizeMap::CurrentClasses() {
       // TODO(b/242710633): remove this opt out.
       return kLegacySizeClasses;
   }
-  CHECK_CONDITION(false);
+  TC_BUG("unreachable");
 }
 
 void SizeMap::CheckAssumptions() {
@@ -287,7 +287,8 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
       continue;
     }
 
-    CHECK_CONDITION(Span::IsNonIntrusive(max_size_in_class));
+    TC_CHECK(Span::IsNonIntrusive(max_size_in_class), "size=%v",
+             max_size_in_class);
     cold_sizes_[cold_sizes_count_] = c;
     ++cold_sizes_count_;
 

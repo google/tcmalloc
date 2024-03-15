@@ -27,10 +27,10 @@ namespace tcmalloc_internal {
 // debug builds.
 #ifndef NDEBUG
 #ifdef __clang__
-#define ASSUME(cond) CHECK_CONDITION(cond), __builtin_assume(cond)
+#define ASSUME(cond) TC_CHECK(cond), __builtin_assume(cond)
 #else
 #define ASSUME(cond) \
-  CHECK_CONDITION(cond), (!(cond) ? __builtin_unreachable() : (void)0)
+  TC_CHECK(cond), (!(cond) ? __builtin_unreachable() : (void)0)
 #endif
 #else
 #ifdef __clang__

@@ -410,7 +410,7 @@ inline void HugePageAwareAllocator<Forwarder>::SetTracker(
 template <class Forwarder>
 inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
-  CHECK_CONDITION(p.start_addr() != nullptr);
+  TC_CHECK_NE(p.start_addr(), nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
   new (pt) FillerType::Tracker(p, donated);
   ASSERT(pt->longest_free_range() >= n);
@@ -536,7 +536,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
     return AllocRawHugepages(n, span_alloc_info, from_released);
   }
 
-  CHECK_CONDITION(regions_.MaybeGet(n, &page, from_released));
+  TC_CHECK(regions_.MaybeGet(n, &page, from_released));
   return Finalize(n, span_alloc_info, page);
 }
 
@@ -586,7 +586,7 @@ inline static void BackSpan(Span* span) {
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::New(
     Length n, SpanAllocInfo span_alloc_info) {
-  CHECK_CONDITION(n > Length(0));
+  TC_CHECK_GT(n, Length(0));
   bool from_released;
   Span* s = LockAndAlloc(n, span_alloc_info, &from_released);
   if (s) {

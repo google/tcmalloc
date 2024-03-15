@@ -983,7 +983,7 @@ TEST(TcmallocSlab, CriticalSectionMetadata) {
 }
 
 void BM_PushPop(benchmark::State& state) {
-  CHECK_CONDITION(IsFast());
+  TC_CHECK(IsFast());
   constexpr int kCpu = 0;
   constexpr size_t kSizeClass = 0;
   // Fake being on the given CPU. This allows Grow to succeed for
@@ -1005,26 +1005,26 @@ void BM_PushPop(benchmark::State& state) {
   auto [cpu, _] = slab.CacheCpuSlab();
   TC_CHECK_EQ(cpu, kCpu);
 
-  CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
-    return kBatchSize;
-  }) == kBatchSize);
+  TC_CHECK_EQ(slab.Grow(kCpu, kSizeClass, kBatchSize,
+                        [](uint8_t shift) { return kBatchSize; }),
+              kBatchSize);
   void* batch[kBatchSize];
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
   }
   for (auto _ : state) {
     for (size_t x = 0; x < kBatchSize; x++) {
-      CHECK_CONDITION(slab.Push(kSizeClass, batch[x]));
+      TC_CHECK(slab.Push(kSizeClass, batch[x]));
     }
     for (size_t x = 0; x < kBatchSize; x++) {
-      CHECK_CONDITION(slab.Pop(kSizeClass) == batch[kBatchSize - x - 1]);
+      TC_CHECK(slab.Pop(kSizeClass) == batch[kBatchSize - x - 1]);
     }
   }
 }
 BENCHMARK(BM_PushPop);
 
 void BM_PushPopBatch(benchmark::State& state) {
-  CHECK_CONDITION(IsFast());
+  TC_CHECK(IsFast());
   constexpr int kCpu = 0;
   constexpr size_t kSizeClass = 0;
   // Fake being on the given CPU. This allows Grow to succeed for
@@ -1043,17 +1043,16 @@ void BM_PushPopBatch(benchmark::State& state) {
   }
   auto [cpu, _] = slab.CacheCpuSlab();
   TC_CHECK_EQ(cpu, kCpu);
-  CHECK_CONDITION(slab.Grow(kCpu, kSizeClass, kBatchSize, [](uint8_t shift) {
-    return kBatchSize;
-  }) == kBatchSize);
+  TC_CHECK_EQ(slab.Grow(kCpu, kSizeClass, kBatchSize,
+                        [](uint8_t shift) { return kBatchSize; }),
+              kBatchSize);
   void* batch[kBatchSize];
   for (int i = 0; i < kBatchSize; i++) {
     batch[i] = &batch[i];
   }
   for (auto _ : state) {
-    CHECK_CONDITION(slab.PushBatch(kSizeClass, batch, kBatchSize) ==
-                    kBatchSize);
-    CHECK_CONDITION(slab.PopBatch(kSizeClass, batch, kBatchSize) == kBatchSize);
+    TC_CHECK_EQ(slab.PushBatch(kSizeClass, batch, kBatchSize), kBatchSize);
+    TC_CHECK_EQ(slab.PopBatch(kSizeClass, batch, kBatchSize), kBatchSize);
   }
 }
 BENCHMARK(BM_PushPopBatch);

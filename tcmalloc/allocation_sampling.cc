@@ -133,8 +133,8 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
                                 size_t align, size_t weight, size_t size_class,
                                 hot_cold_t access_hint, bool size_returning,
                                 void* obj, Span* span) {
-  CHECK_CONDITION((size_class != 0 && obj != nullptr && span == nullptr) ||
-                  (size_class == 0 && obj == nullptr && span != nullptr));
+  TC_CHECK((size_class != 0 && obj != nullptr && span == nullptr) ||
+           (size_class == 0 && obj == nullptr && span != nullptr));
 
   StackTrace stack_trace;
   stack_trace.proxy = nullptr;

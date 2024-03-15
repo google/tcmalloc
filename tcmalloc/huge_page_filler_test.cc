@@ -184,9 +184,9 @@ class PageTrackerTest : public testing::Test {
   class MockUnbackInterface final : public MemoryModifyFunction {
    public:
     ABSL_MUST_USE_RESULT bool operator()(void* p, size_t len) override {
-      CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(actual_));
+      TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
       actual_[actual_index_] = {p, len};
-      CHECK_CONDITION(actual_index_ < ABSL_ARRAYSIZE(expected_));
+      TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(expected_));
       // Assume expected calls occur and use those return values.
       const bool success = expected_[actual_index_].success;
       ++actual_index_;

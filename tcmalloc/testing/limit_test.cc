@@ -80,7 +80,7 @@ class LimitTest : public ::testing::Test {
   void* malloc_pages(size_t bytes) {
     TC_CHECK_EQ(bytes % kPageSize, 0);
     void* ptr;
-    CHECK_CONDITION(posix_memalign(&ptr, kPageSize, bytes) == 0);
+    TC_CHECK_EQ(0, posix_memalign(&ptr, kPageSize, bytes));
     return ptr;
   }
 
@@ -88,7 +88,7 @@ class LimitTest : public ::testing::Test {
     std::map<std::string, MallocExtension::Property> m =
         MallocExtension::GetProperties();
     auto i = m.find("generic.physical_memory_used");
-    CHECK_CONDITION(i != m.end());
+    TC_CHECK(i != m.end());
     return i->second.value;
   }
 

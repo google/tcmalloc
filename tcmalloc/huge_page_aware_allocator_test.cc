@@ -94,8 +94,8 @@ class HugePageAwareAllocatorTest
   }
 
   ~HugePageAwareAllocatorTest() override {
-    CHECK_CONDITION(ids_.empty());
-    CHECK_CONDITION(total_ == Length(0));
+    TC_CHECK(ids_.empty());
+    TC_CHECK_EQ(total_, Length(0));
     // We end up leaking both the backing allocations and the metadata.
     // The backing allocations are unmapped--it's silly, but not
     // costing us muchin a 64-bit address space.
@@ -156,7 +156,7 @@ class HugePageAwareAllocatorTest
     total_ += n;
     CheckStats();
     // and distinct spans...
-    CHECK_CONDITION(ids_.insert({span, id}).second);
+    TC_CHECK(ids_.insert({span, id}).second);
     return span;
   }
 
@@ -165,7 +165,7 @@ class HugePageAwareAllocatorTest
     {
       absl::base_internal::SpinLockHolder h(&lock_);
       auto i = ids_.find(span);
-      CHECK_CONDITION(i != ids_.end());
+      TC_CHECK(i != ids_.end());
       const size_t id = i->second;
       ids_.erase(i);
       AllocatorDelete(span, objects_per_span);
@@ -1254,9 +1254,9 @@ class StatTest : public testing::Test {
 
     AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
       AddressRegion* underlying_region = underlying_->Create(start, size, hint);
-      CHECK_CONDITION(underlying_region);
+      TC_CHECK(underlying_region);
       void* region_space = MallocInternal(sizeof(Region));
-      CHECK_CONDITION(region_space);
+      TC_CHECK(region_space);
       return new (region_space) Region(underlying_region, this);
     }
 

@@ -435,8 +435,8 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
 
     index += n;
   }
-  CHECK_CONDITION(f == free_pages());
-  CHECK_CONDITION(u == unmapped_pages());
+  TC_CHECK_EQ(f, free_pages());
+  TC_CHECK_EQ(u, unmapped_pages());
 }
 
 inline HugeLength HugeRegion::free_backed() const {

@@ -328,8 +328,7 @@ class DeallocationProfiler {
       ~LowLevelArenaReference() {
         AllocationGuardSpinLockHolder h(&arena_lock_);
         if ((--refcount_) == 0) {
-          CHECK_CONDITION(
-              absl::base_internal::LowLevelAlloc::DeleteArena(arena_));
+          TC_CHECK(absl::base_internal::LowLevelAlloc::DeleteArena(arena_));
           arena_ = nullptr;
         }
       }

@@ -426,8 +426,8 @@ inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
-  CHECK_CONDITION(!batch.empty());
-  CHECK_CONDITION(batch.size() <= kMaxObjectsToMove);
+  TC_CHECK(!batch.empty());
+  TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).

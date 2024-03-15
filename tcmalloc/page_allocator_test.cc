@@ -110,25 +110,25 @@ TEST_F(PageAllocatorTest, Record) {
     PageHeapSpinLockHolder l;
     auto info = allocator_->info(MemoryTag::kNormal);
 
-    CHECK_CONDITION(15 == info.counts_for(Length(1)).nalloc);
-    CHECK_CONDITION(15 == info.counts_for(Length(1)).nfree);
+    ASSERT_EQ(15, info.counts_for(Length(1)).nalloc);
+    ASSERT_EQ(15, info.counts_for(Length(1)).nfree);
 
-    CHECK_CONDITION(20 == info.counts_for(Length(2)).nalloc);
-    CHECK_CONDITION(0 == info.counts_for(Length(2)).nfree);
+    ASSERT_EQ(20, info.counts_for(Length(2)).nalloc);
+    ASSERT_EQ(0, info.counts_for(Length(2)).nfree);
 
-    CHECK_CONDITION(25 == info.counts_for(Length(3)).nalloc);
-    CHECK_CONDITION(25 == info.counts_for(Length(3)).nfree);
+    ASSERT_EQ(25, info.counts_for(Length(3)).nalloc);
+    ASSERT_EQ(25, info.counts_for(Length(3)).nfree);
 
     for (auto i = Length(4); i <= kMaxPages; ++i) {
-      CHECK_CONDITION(0 == info.counts_for(i).nalloc);
-      CHECK_CONDITION(0 == info.counts_for(i).nfree);
+      ASSERT_EQ(0, info.counts_for(i).nalloc);
+      ASSERT_EQ(0, info.counts_for(i).nfree);
     }
 
     const Length absurd =
         Length(uintptr_t{1} << (kAddressBits - 1 - kPageShift));
     for (Length i = kMaxPages + Length(1); i < absurd; i *= 2) {
-      CHECK_CONDITION(0 == info.counts_for(i).nalloc);
-      CHECK_CONDITION(0 == info.counts_for(i).nfree);
+      ASSERT_EQ(0, info.counts_for(i).nalloc);
+      ASSERT_EQ(0, info.counts_for(i).nfree);
     }
   }
   for (auto s : spans) Delete(s, kSpanInfo.objects_per_span);

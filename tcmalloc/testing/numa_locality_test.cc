@@ -69,8 +69,8 @@ size_t BackingNode(void* const ptr) {
   // move_pages syscall will write this into status, which we initialize to an
   // invalid value to sanity check that we see it updated.
   int status = -1;
-  CHECK_CONDITION(syscall(__NR_move_pages, /*pid=*/0, /*count=*/1, &page_addr,
-                          /*nodes=*/nullptr, &status, /*flags=*/0) == 0);
+  TC_CHECK_EQ(0, syscall(__NR_move_pages, /*pid=*/0, /*count=*/1, &page_addr,
+                         /*nodes=*/nullptr, &status, /*flags=*/0));
   TC_CHECK_GE(status, 0);
   return status;
 }
@@ -85,8 +85,8 @@ class FakeNumaAwareRegionFactory final : public tcmalloc::AddressRegionFactory {
   AddressRegion* Create(void* start_addr, size_t size,
                         UsageHint hint) override {
     // We should never see kNormal under numa_aware.
-    CHECK_CONDITION(hint != UsageHint::kNormal ||
-                    !tc_globals.numa_topology().numa_aware());
+    TC_CHECK(hint != UsageHint::kNormal ||
+             !tc_globals.numa_topology().numa_aware());
 
     static std::atomic<uint32_t> log_idx = 0;
     addrs_and_hints_[log_idx % kAddrsAndHintsSize] =

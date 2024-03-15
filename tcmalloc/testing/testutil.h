@@ -203,8 +203,7 @@ inline void UnregisterRseq() {
           tcmalloc_internal::subtle::percpu::kRseqUnregister,
           TCMALLOC_PERCPU_RSEQ_SIGNATURE);
 #else
-  // rseq is is unavailable in this build
-  CHECK_CONDITION(false);
+  TC_BUG("rseq is is unavailable in this build");
 #endif
 }
 
@@ -215,18 +214,18 @@ class ScopedUnregisterRseq {
   ScopedUnregisterRseq() {
     // Since we expect that we will be able to register the thread for rseq in
     // the destructor, verify that we can do so now.
-    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+    TC_CHECK(tcmalloc_internal::subtle::percpu::IsFast());
 
     UnregisterRseq();
 
     // Unregistering stores kCpuIdUninitialized to the cpu_id field.
-    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::RseqCpuId() ==
-                    tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
+    TC_CHECK_EQ(tcmalloc_internal::subtle::percpu::RseqCpuId(),
+                tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
   }
 
   // REQUIRES: __rseq_abi.cpu_id == kCpuIdUninitialized
   ~ScopedUnregisterRseq() {
-    CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+    TC_CHECK(tcmalloc_internal::subtle::percpu::IsFast());
   }
 };
 

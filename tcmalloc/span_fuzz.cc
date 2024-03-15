@@ -59,7 +59,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   span.Init(PageIdContaining(mem), pages);
   span.BuildFreelist(object_size, objects_per_span, nullptr, 0);
 
-  CHECK_CONDITION(span.Allocated() == 0);
+  TC_CHECK_EQ(span.Allocated(), 0);
 
   std::vector<void*> ptrs;
   ptrs.reserve(objects_per_span);
@@ -68,7 +68,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     size_t want = std::min(num_to_move, objects_per_span - ptrs.size());
     TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
-    CHECK_CONDITION(!span.FreelistEmpty(object_size));
+    TC_CHECK(!span.FreelistEmpty(object_size));
     size_t n = span.FreelistPopBatch(batch, want, object_size);
 
     TC_CHECK_GT(n, 0);
@@ -77,18 +77,18 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     ptrs.insert(ptrs.end(), batch, batch + n);
   }
 
-  CHECK_CONDITION(span.FreelistEmpty(object_size));
-  CHECK_CONDITION(ptrs.size() == objects_per_span);
-  CHECK_CONDITION(ptrs.size() == span.Allocated());
+  TC_CHECK(span.FreelistEmpty(object_size));
+  TC_CHECK_EQ(ptrs.size(), objects_per_span);
+  TC_CHECK_EQ(ptrs.size(), span.Allocated());
 
   for (size_t i = 0, popped = ptrs.size(); i < popped; ++i) {
     bool ok = span.FreelistPush(ptrs[i], object_size, size_reciprocal);
-    CHECK_CONDITION(ok == (i != popped - 1));
+    TC_CHECK_EQ(ok, i != popped - 1);
     // If the freelist becomes full, then the span does not actually push the
     // element onto the freelist.
     //
     // For single object spans, the freelist always stays "empty" as a result.
-    CHECK_CONDITION(popped == 1 || !span.FreelistEmpty(object_size));
+    TC_CHECK(popped == 1 || !span.FreelistEmpty(object_size));
   }
 
   free(mem);

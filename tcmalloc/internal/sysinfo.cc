@@ -120,14 +120,14 @@ int NumPossibleCPUsNoCache() {
 
   signal_safe_close(fd);
 
-  CHECK_CONDITION(cpus.has_value());
+  TC_CHECK(cpus.has_value());
   std::optional<int> max_so_far;
   for (int i = 0; i < CPU_SETSIZE; ++i) {
     if (CPU_ISSET(i, &*cpus)) {
       max_so_far = std::max(i, max_so_far.value_or(-1));
     }
   }
-  CHECK_CONDITION(max_so_far.has_value());
+  TC_CHECK(max_so_far.has_value());
   return *max_so_far + 1;
 }
 

@@ -33,7 +33,7 @@ ABSL_CONST_INIT std::atomic<int> alarms{0};
 
 void sa_alrm(int sig) {
   alarms.fetch_add(1, std::memory_order_relaxed);
-  CHECK_CONDITION(IsFast());
+  TC_CHECK(IsFast());
 }
 
 TEST(PerCpu, SignalHandling) {
@@ -58,7 +58,7 @@ TEST(PerCpu, SignalHandling) {
 
   for (int i = 0; i < 100000; ++i) {
     UnregisterRseq();
-    CHECK_CONDITION(IsFast());
+    TC_CHECK(IsFast());
   }
 
   timeval = absl::ToTimeval(absl::ZeroDuration());

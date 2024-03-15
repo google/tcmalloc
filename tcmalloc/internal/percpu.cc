@@ -92,7 +92,7 @@ bool UsingFlatVirtualCpus() {
 }
 
 static void InitPerCpu() {
-  CHECK_CONDITION(NumCPUs() <= std::numeric_limits<uint16_t>::max());
+  TC_CHECK(NumCPUs() <= std::numeric_limits<uint16_t>::max());
 
   // Based on the results of successfully initializing the first thread, mark
   // init_status to initialize all subsequent threads.
@@ -109,14 +109,14 @@ static void InitPerCpu() {
     //  Ensure __rseq_abi alignment required by ABI.
     TC_CHECK_EQ(rseq_abi_addr % 32, 0);
     // Ensure that all our TLS data is in a single cache line.
-    CHECK_CONDITION((rseq_abi_addr / 64) == (slabs_addr / 64));
-    CHECK_CONDITION((rseq_abi_addr / 64) ==
-                    ((sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64));
+    TC_CHECK_EQ(rseq_abi_addr / 64, slabs_addr / 64);
+    TC_CHECK_EQ(rseq_abi_addr / 64,
+                (sampler_addr + TCMALLOC_SAMPLER_HOT_OFFSET) / 64);
     // Ensure that tcmalloc_slabs partially overlap with
     // __rseq_abi.cpu_id_start as we expect.
     TC_CHECK_EQ(slabs_addr, rseq_abi_addr + TCMALLOC_RSEQ_SLABS_OFFSET);
     // Ensure Sampler is properly aligned.
-    CHECK_CONDITION((sampler_addr % TCMALLOC_SAMPLER_ALIGN) == 0);
+    TC_CHECK_EQ(sampler_addr % TCMALLOC_SAMPLER_ALIGN, 0);
     // Ensure that tcmalloc_sampler is located before tcmalloc_slabs.
     TC_CHECK_LE(sampler_addr + TCMALLOC_SAMPLER_SIZE, slabs_addr);
 
@@ -163,7 +163,7 @@ bool InitFastPerCpu() {
   // Once we've decided fast-cpu support is available, initialization for all
   // subsequent threads must succeed for consistency.
   if (init_status == kFastMode && RseqCpuId() == kCpuIdUninitialized) {
-    CHECK_CONDITION(InitThreadPerCpu());
+    TC_CHECK(InitThreadPerCpu());
   }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
@@ -207,7 +207,7 @@ static void SlowFence(int target) {
   // First, save our cpumask (the user may want it back.)
   cpu_set_t old;
   CPU_ZERO(&old);
-  CHECK_CONDITION(0 == sched_getaffinity(0, sizeof(cpu_set_t), &old));
+  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(cpu_set_t), &old));
 
   // Here's the basic idea: if we run on every CPU, then every thread
   // that runs after us has certainly seen every store we've made up
@@ -271,9 +271,8 @@ static void SlowFence(int target) {
   TC_CHECK_GE(fd, 0);
 
   char c;
-  CHECK_CONDITION(1 == signal_safe_read(fd, &c, 1, nullptr));
-
-  CHECK_CONDITION(0 == signal_safe_close(fd));
+  TC_CHECK_EQ(1, signal_safe_read(fd, &c, 1, nullptr));
+  TC_CHECK_EQ(0, signal_safe_close(fd));
 
   // Try to go back to what we originally had before Fence.
   if (0 != sched_setaffinity(0, sizeof(cpu_set_t), &old)) {
@@ -287,14 +286,14 @@ static void SlowFence(int target) {
     for (int i = 0, n = NumCPUs(); i < n; ++i) {
       CPU_SET(i, &set);
     }
-    CHECK_CONDITION(0 == sched_setaffinity(0, sizeof(cpu_set_t), &set));
+    TC_CHECK_EQ(0, sched_setaffinity(0, sizeof(cpu_set_t), &set));
   }
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static void UpstreamRseqFenceCpu(int cpu) {
-  CHECK_CONDITION(using_upstream_fence.load(std::memory_order_relaxed) &&
-                  "upstream fence unavailable.");
+  TC_CHECK(using_upstream_fence.load(std::memory_order_relaxed) &&
+           "upstream fence unavailable.");
 
   constexpr int kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ = (1 << 7);
   constexpr int kMEMBARRIER_CMD_FLAG_CPU = (1 << 0);
@@ -302,8 +301,8 @@ static void UpstreamRseqFenceCpu(int cpu) {
   int64_t res = syscall(__NR_membarrier, kMEMBARRIER_CMD_PRIVATE_EXPEDITED_RSEQ,
                         kMEMBARRIER_CMD_FLAG_CPU, cpu);
 
-  CHECK_CONDITION((res == 0 || res == -ENXIO /* missing CPU */) &&
-                  "Upstream fence failed.");
+  TC_CHECK(res == 0 || res == -ENXIO /* missing CPU */,
+           "Upstream fence failed.");
 }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
@@ -311,7 +310,7 @@ static void UpstreamRseqFenceCpu(int cpu) {
 // our writes up til now are visible to every other CPU. (cpu == -1 is
 // equivalent to all CPUs.)
 static void FenceInterruptCPU(int cpu) {
-  CHECK_CONDITION(IsFast());
+  TC_CHECK(IsFast());
 
   // TODO(b/149390298):  Provide an upstream extension for sys_membarrier to
   // interrupt ongoing restartable sequences.

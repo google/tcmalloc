@@ -142,7 +142,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     // We are on the same side of an airtight hatchway as the kernel, but we
     // want to know if we can no longer parse the values the kernel is
     // providing.
-    CHECK_CONDITION(node_cpus.has_value());
+    TC_CHECK(node_cpus.has_value());
 
     // Assign local CPUs to the appropriate partition.
     for (size_t cpu = 0; cpu < CPU_SETSIZE; cpu++) {

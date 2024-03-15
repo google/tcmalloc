@@ -115,7 +115,7 @@ class HugeRegionTest : public ::testing::Test {
 
   Alloc Allocate(Length n, bool* from_released) {
     Alloc ret;
-    CHECK_CONDITION(region_.MaybeGet(n, &ret.p, from_released));
+    TC_CHECK(region_.MaybeGet(n, &ret.p, from_released));
     ret.n = n;
     ret.mark = ++next_mark_;
     Mark(ret);
@@ -533,12 +533,12 @@ class HugeRegionSetTest
 
   Alloc Allocate(Length n, bool* from_released) {
     Alloc ret;
-    CHECK_CONDITION(set_.MaybeGet(n, &ret.p, from_released));
+    TC_CHECK(set_.MaybeGet(n, &ret.p, from_released));
     ret.n = n;
     return ret;
   }
 
-  void Delete(Alloc a) { CHECK_CONDITION(set_.MaybePut(a.p, a.n)); }
+  void Delete(Alloc a) { TC_CHECK(set_.MaybePut(a.p, a.n)); }
 
   Length ReleasePagesByPeakDemand(Length desired,
                                   SkipSubreleaseIntervals intervals = {},

@@ -62,7 +62,7 @@ void TcmallocSlab::Init(
   size_t consumed_bytes = num_classes_ * sizeof(Header);
   for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     size_t cap = capacity(size_class);
-    CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
+    TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
 
     if (cap == 0) {
       continue;
@@ -88,8 +88,8 @@ void TcmallocSlab::InitCpu(int cpu,
 
 void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
                                absl::FunctionRef<size_t(size_t)> capacity) {
-  CHECK_CONDITION(stopped_[cpu].load(std::memory_order_relaxed));
-  CHECK_CONDITION((1 << ToUint8(shift)) <= (1 << 16) * sizeof(void*));
+  TC_CHECK(stopped_[cpu].load(std::memory_order_relaxed));
+  TC_CHECK_LE((1 << ToUint8(shift)), (1 << 16) * sizeof(void*));
 
   // Initialize prefetch target and compute the offsets for the
   // boundaries of each size class' cache.
@@ -98,7 +98,7 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
       reinterpret_cast<void**>(GetHeader(slabs, shift, cpu, num_classes_));
   for (size_t size_class = 1; size_class < num_classes_; ++size_class) {
     size_t cap = capacity(size_class);
-    CHECK_CONDITION(static_cast<uint16_t>(cap) == cap);
+    TC_CHECK_EQ(static_cast<uint16_t>(cap), cap);
 
     if (cap) {
       // In Pop() we prefetch the item a subsequent Pop() would return; this is
@@ -202,7 +202,7 @@ auto TcmallocSlab::ResizeSlabs(Shift new_shift, void* new_slabs,
   TC_ASSERT_NE(new_shift, old_shift);
   const int num_cpus = NumCPUs();
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    CHECK_CONDITION(!stopped_[cpu].load(std::memory_order_relaxed));
+    TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
     stopped_[cpu].store(true, std::memory_order_relaxed);
     if (populated(cpu)) {
       InitCpuImpl(new_slabs, new_shift, cpu, capacity);
@@ -284,7 +284,7 @@ void TcmallocSlab::Drain(int cpu, DrainHandler drain_handler) {
 
 void TcmallocSlab::StopCpu(int cpu) {
   ASSERT(cpu >= 0 && cpu < NumCPUs());
-  CHECK_CONDITION(!stopped_[cpu].load(std::memory_order_relaxed));
+  TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(true, std::memory_order_relaxed);
   FenceCpu(cpu, virtual_cpu_id_offset_);
 }

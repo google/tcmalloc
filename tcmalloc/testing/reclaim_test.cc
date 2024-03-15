@@ -44,7 +44,7 @@ namespace {
 int64_t ParseCpuCacheSize(absl::string_view buf, int cpu) {
   char needlebuf[32];
   int len = absl::SNPrintF(needlebuf, sizeof(needlebuf), "\ncpu %3d: ", cpu);
-  CHECK_CONDITION(0 < len && len < sizeof(needlebuf));
+  TC_CHECK(0 < len && len < sizeof(needlebuf));
 
   const absl::string_view needle = needlebuf;
 
@@ -76,7 +76,7 @@ int64_t ParseCpuCacheSize(absl::string_view buf, int cpu) {
 void GetMallocStats(std::string* buffer) {
   buffer->resize(buffer->capacity());
 
-  CHECK_CONDITION(&TCMalloc_Internal_GetStats != nullptr);
+  TC_CHECK(&TCMalloc_Internal_GetStats != nullptr);
   size_t required = TCMalloc_Internal_GetStats(buffer->data(), buffer->size());
   EXPECT_LE(required, buffer->size());
 
@@ -148,10 +148,10 @@ TEST(ReclaimTest, ReclaimStable) {
     static void Go(std::atomic<bool>* sync, bool initialize_rseq) {
       if (initialize_rseq) {
         // Require initialization to succeed.
-        CHECK_CONDITION(tcmalloc_internal::subtle::percpu::IsFast());
+        TC_CHECK(tcmalloc_internal::subtle::percpu::IsFast());
       } else {
         // Require that we have not initialized this thread with rseq yet.
-        CHECK_CONDITION(!tcmalloc_internal::subtle::percpu::IsFastNoInit());
+        TC_CHECK(!tcmalloc_internal::subtle::percpu::IsFastNoInit());
       }
 
       int iter = 0;

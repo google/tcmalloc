@@ -896,10 +896,10 @@ inline void CpuCache<Forwarder>::Activate() {
   per_cpu_shift += numa_shift + wider_slab_shift;
 
   TC_CHECK_LE(shift_bounds_.initial_shift, shift_bounds_.max_shift);
-  CHECK_CONDITION(per_cpu_shift >= shift_bounds_.initial_shift &&
-                  per_cpu_shift <= shift_bounds_.max_shift);
-  CHECK_CONDITION(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1 ==
-                  kNumPossiblePerCpuShifts);
+  TC_CHECK_GE(per_cpu_shift, shift_bounds_.initial_shift);
+  TC_CHECK_LE(per_cpu_shift, shift_bounds_.max_shift);
+  TC_CHECK_EQ(shift_bounds_.max_shift - shift_bounds_.initial_shift + 1,
+              kNumPossiblePerCpuShifts);
 
   // Deal with size classes that correspond only to NUMA partitions that are in
   // use. If NUMA awareness is disabled then we may have a smaller shift than

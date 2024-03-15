@@ -267,7 +267,7 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
   while (size_ > target) {
     // Remove smallest-ish nodes, to avoid fragmentation where possible.
     auto* node = Find(NHugePages(1));
-    CHECK_CONDITION(node);
+    TC_CHECK_NE(node, nullptr);
     HugeRange r = node->range();
     cache_.Remove(node);
     // Suppose we're 10 MiB over target but the smallest available node

@@ -158,7 +158,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
 
   // double-checked locking
   if (!inited_.load(std::memory_order_acquire)) {
-    CHECK_CONDITION(sizemap_.Init(SizeMap::CurrentClasses().classes));
+    TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
     // Verify we can determine the number of CPUs now, since we will need it
     // later for per-CPU caches and initializing the cache topology.
     (void)NumCPUs();
@@ -174,7 +174,7 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     span_allocator_.New();  // Reduce cache conflicts
     linked_sample_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
-    CHECK_CONDITION((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE) == 0);
+    TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
     transfer_cache_.Init();
     // The constructor of the sharded transfer cache leaves it in a disabled
     // state.

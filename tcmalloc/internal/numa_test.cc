@@ -61,10 +61,9 @@ class SyntheticCpuList {
     fd_ = memfd_create("cpulist", MFD_CLOEXEC);
     TC_CHECK_NE(fd_, -1);
 
-    CHECK_CONDITION(write(fd_, content.data(), content.size()) ==
-                    content.size());
-    CHECK_CONDITION(write(fd_, "\n", 1) == 1);
-    CHECK_CONDITION(lseek(fd_, 0, SEEK_SET) == 0);
+    TC_CHECK_EQ(write(fd_, content.data(), content.size()), content.size());
+    TC_CHECK_EQ(write(fd_, "\n", 1), 1);
+    TC_CHECK_EQ(lseek(fd_, 0, SEEK_SET), 0);
   }
 
   ~SyntheticCpuList() { close(fd_); }

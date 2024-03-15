@@ -86,7 +86,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       // with rseq.  While this is not strictly required to succeed, we do not
       // expect an inconsistent state for rseq (some threads registered and some
       // threads unable to).
-      CHECK_CONDITION(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
+      TC_CHECK(tcmalloc::tcmalloc_internal::subtle::percpu::IsFast());
 
       // Try to reclaim per-cpu caches once every cpu_cache_reclaim_period
       // when enabled.

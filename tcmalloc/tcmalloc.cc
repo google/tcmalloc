@@ -632,7 +632,7 @@ static void InvokeHooksAndFreePages(void* ptr) {
   const PageId p = PageIdContaining(ptr);
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-  CHECK_CONDITION(span != nullptr && "Possible double free detected");
+  TC_CHECK_NE(span, nullptr, "Possible double free detected");
 
   MaybeUnsampleAllocation(tc_globals, ptr, span);
 

@@ -62,9 +62,9 @@ class ExtraRegionFactory : public AddressRegionFactory {
 
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     AddressRegion* underlying_region = under_->Create(start, size, hint);
-    CHECK_CONDITION(underlying_region);
+    TC_CHECK(underlying_region);
     void* region_space = MallocInternal(sizeof(ExtraRegion));
-    CHECK_CONDITION(region_space);
+    TC_CHECK(region_space);
     return new (region_space) ExtraRegion(underlying_region);
   }
 

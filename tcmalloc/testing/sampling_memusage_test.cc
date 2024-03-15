@@ -43,7 +43,7 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
 
   size_t Property(absl::string_view name) {
     std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
-    CHECK_CONDITION(result.has_value());
+    TC_CHECK(result.has_value());
     return *result;
   }
 

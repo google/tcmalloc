@@ -74,7 +74,7 @@ size_t GetTestResourceLimit() {
 #endif
 
   struct rlimit rlim;
-  CHECK_CONDITION(getrlimit(USE_RESOURCE, &rlim) == 0);
+  TC_CHECK_EQ(0, getrlimit(USE_RESOURCE, &rlim));
   return rlim.rlim_cur;
 }
 

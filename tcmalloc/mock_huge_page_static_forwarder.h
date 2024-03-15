@@ -121,7 +121,7 @@ class FakeStaticForwarder {
 
   // SystemAlloc state.
   AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
-    CHECK_CONDITION(absl::has_single_bit(align));
+    TC_CHECK(absl::has_single_bit(align), "align=%v", align);
     fake_allocation_ = (fake_allocation_ + align - 1u) & ~(align - 1u);
 
     AddressRange ret{

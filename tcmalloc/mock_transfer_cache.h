@@ -92,7 +92,7 @@ class ArenaBasedFakeTransferCacheManager {
     if (aligned != nullptr) {
       // Increase by the allocated size plus the alignment offset.
       used_ += size + (kTotalSize - space);
-      CHECK_CONDITION(used_ <= bytes_.capacity());
+      TC_CHECK_LE(used_, bytes_.capacity());
     }
     return aligned;
   }

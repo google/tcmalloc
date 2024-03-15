@@ -669,8 +669,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       }
       // Attempt to keep the next mmap contiguous in the common case.
       next_addr += size;
-      CHECK_CONDITION(kAddressBits == std::numeric_limits<uintptr_t>::digits ||
-                      next_addr <= uintptr_t{1} << kAddressBits);
+      TC_CHECK(kAddressBits == std::numeric_limits<uintptr_t>::digits ||
+               next_addr <= uintptr_t{1} << kAddressBits);
 
       ASSERT((reinterpret_cast<uintptr_t>(result) & (alignment - 1)) == 0);
       // Give the mmaped region a name based on its tag.

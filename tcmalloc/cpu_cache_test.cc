@@ -1511,7 +1511,7 @@ TEST(CpuCacheTest, Fuzz) {
   threads.Start(10, [&](int thread_id) {
     // Ensure this thread has registered itself with the kernel to use
     // restartable sequences.
-    CHECK_CONDITION(subtle::percpu::IsFast());
+    ASSERT_TRUE(subtle::percpu::IsFast());
     env.RandomlyPoke(thread_state[thread_id].rng);
   });
 
@@ -1571,7 +1571,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
     // Ensure this thread has registered itself with the kernel to use
     // restartable sequences.
     if (thread_id > 0) {
-      CHECK_CONDITION(subtle::percpu::IsFast());
+      ASSERT_TRUE(subtle::percpu::IsFast());
       env.RandomlyPoke(thread_state[thread_id].rng);
       return;
     }
@@ -1580,7 +1580,7 @@ TEST(CpuCacheTest, DISABLED_ChangingSizes) {
     // ensure that we can call SetCacheLimit with either precondition.
     std::optional<ScopedUnregisterRseq> rseq;
     if (rseq_active_for_size_changing_thread) {
-      CHECK_CONDITION(subtle::percpu::IsFast());
+      ASSERT_TRUE(subtle::percpu::IsFast());
     } else {
       rseq.emplace();
     }

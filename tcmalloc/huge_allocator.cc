@@ -97,7 +97,7 @@ void HugeAllocator::CheckFreelist() {
   LargeSpanStats large;
   AddSpanStats(nullptr, &large);
   TC_CHECK_EQ(num_nodes, large.spans);
-  CHECK_CONDITION(n.in_pages() == large.returned_pages);
+  TC_CHECK_EQ(n.in_pages(), large.returned_pages);
 }
 
 HugeRange HugeAllocator::AllocateRange(HugeLength n) {
@@ -118,7 +118,7 @@ HugeRange HugeAllocator::AllocateRange(HugeLength n) {
 }
 
 HugeRange HugeAllocator::Get(HugeLength n) {
-  CHECK_CONDITION(n > NHugePages(0));
+  TC_CHECK_GT(n, NHugePages(0));
   auto* node = Find(n);
   if (!node) {
     // Get more memory, then "delete" it

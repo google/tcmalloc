@@ -93,19 +93,6 @@ TEST(InternalLogging, MessageFormatting) {
   delete log_buffer;
 }
 
-TEST(InternalLogging, Assert) {
-  CHECK_CONDITION((2 + 2) == 4);
-
-  if (false)
-    CHECK_CONDITION(false);
-  else
-    CHECK_CONDITION(true);
-
-  ASSERT_DEATH(CHECK_CONDITION((2 + 2) == 5),
-               ".*tcmalloc\\/internal/logging_test\\.cc:[0-9]+\\] "
-               "\\(2 \\+ 2\\) == 5 @( 0x[0-9a-f]+)+");
-}
-
 TEST(InternalLogging, Crash) {
   EXPECT_DEATH(Crash(kCrash, "foo.cc", 100, "a", "b", "c", "d", "e", "f"),
                "foo.cc:100] a b c d e f");
