@@ -1,0 +1,97 @@
+module(
+    name = "tcmalloc",
+    version = "0.0.0",
+    repo_name = "com_google_tcmalloc",
+)
+
+bazel_dep(
+    name = "abseil-cpp",
+    version = "20240116.1",
+    repo_name = "com_google_absl",
+)
+bazel_dep(
+    name = "bazel_skylib",
+    version = "1.3.0",
+)
+bazel_dep(
+    name = "google_benchmark",
+    version = "1.8.3",
+    repo_name = "com_github_google_benchmark",
+)
+bazel_dep(
+    name = "googletest",
+    version = "1.13.0",
+    repo_name = "com_google_googletest",
+)
+bazel_dep(
+    name = "platforms",
+    version = "0.0.7",
+)
+bazel_dep(
+    name = "rules_cc",
+    version = "0.0.9",
+)
+bazel_dep(
+    name = "rules_proto",
+    version = "4.0.0",
+)
+bazel_dep(
+    name = "rules_python",
+    version = "0.28.0",
+)
+
+# -- bazel_dep definitions -- #
+non_module_dependencies = use_extension("//:extensions.bzl", "non_module_dependencies")
+use_repo(
+    non_module_dependencies,
+    "com_google_protobuf",
+    "rules_fuzzing",
+)
+
+rules_fuzzing_deps = use_extension("//:rules_fuzzing_deps.bzl", "rules_fuzzing_deps")
+use_repo(
+    rules_fuzzing_deps,
+    "rules_fuzzing_oss_fuzz",
+)
+
+protobuf_deps = use_extension("//:protobuf_deps.bzl", "protobuf_deps")
+use_repo(
+    protobuf_deps,
+    "rules_java",
+    "rules_pkg",
+    "zlib",
+)
+
+SUPPORTED_PYTHON_VERSIONS = [
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+]
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+
+[
+    python.toolchain(
+        # Required to avoid an error when running as root in OSS-Fuzz.
+        ignore_root_user_error = True,
+        is_default = python_version == SUPPORTED_PYTHON_VERSIONS[-1],
+        python_version = python_version,
+    )
+    for python_version in SUPPORTED_PYTHON_VERSIONS
+]
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+
+[
+    pip.parse(
+        extra_pip_args = ["--require-hashes"],
+        hub_name = "rules_fuzzing_py_deps",
+        python_version = python_version,
+        requirements_lock = "@rules_fuzzing//fuzzing:requirements.txt",
+    )
+    for python_version in SUPPORTED_PYTHON_VERSIONS
+]
+
+use_repo(pip, fuzzing_py_deps = "rules_fuzzing_py_deps")
