@@ -224,13 +224,13 @@ extern void (*log_message_writer)(const char* msg, int length);
 #define TC_ASSERT_GT TC_CHECK_GT
 #define TC_ASSERT_GE TC_CHECK_GE
 #else  // #ifndef NDEBUG
-#define TC_ASSERT(a) TC_CHECK(true || (a))
-#define TC_ASSERT_EQ(a, b) TC_ASSERT((a) == (b))
-#define TC_ASSERT_NE(a, b) TC_ASSERT((a) == (b))
-#define TC_ASSERT_LT(a, b) TC_ASSERT((a) == (b))
-#define TC_ASSERT_LE(a, b) TC_ASSERT((a) == (b))
-#define TC_ASSERT_GT(a, b) TC_ASSERT((a) == (b))
-#define TC_ASSERT_GE(a, b) TC_ASSERT((a) == (b))
+#define TC_ASSERT(a, ...) TC_CHECK(true || (a), ##__VA_ARGS__)
+#define TC_ASSERT_EQ(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
+#define TC_ASSERT_NE(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
+#define TC_ASSERT_LT(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
+#define TC_ASSERT_LE(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
+#define TC_ASSERT_GT(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
+#define TC_ASSERT_GE(a, b, ...) TC_ASSERT((a) == (b), ##__VA_ARGS__)
 #endif  // #ifndef NDEBUG
 
 #define TCMALLOC_CHECK_IMPL(condition, str, msg, ...)          \

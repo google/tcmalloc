@@ -184,7 +184,8 @@ TEST(Check, DebugCheck) {
 
 TEST(Check, DebugAssert) {
   int eval1 = 0, eval2 = 0;
-  TC_ASSERT_EQ([&]() { return ++eval1; }(), [&]() { return ++eval2; }());
+  TC_ASSERT_EQ([&]() { return ++eval1; }(), [&]() { return ++eval2; }(),
+               "val=%d", 1);
 #ifdef NDEBUG
   ASSERT_EQ(eval1, 0);
   ASSERT_EQ(eval2, 0);
@@ -230,6 +231,10 @@ TEST(Check, Message) {
   EXPECT_DEATH(TC_CHECK_EQ(0%s, 1), "0%s == 1 \\(0 == 1\\)");
   TC_ASSERT_NE(0%s, 1);
   // clang-format on
+
+#ifndef NDEBUG
+  EXPECT_DEATH(TC_ASSERT(false, "foo=%d", 42), "false \\(false\\) foo=42");
+#endif
 }
 
 TEST(Check, DoubleEvaluation) {
