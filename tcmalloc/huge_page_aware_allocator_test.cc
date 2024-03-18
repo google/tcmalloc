@@ -1216,54 +1216,8 @@ class StatTest : public testing::Test {
  protected:
   StatTest() = default;
 
-  // TODO(b/242550501): Replace this with a fake forwarder, rather than using
-  // the real page heap.
-  class RegionFactory;
-
-  class Region : public AddressRegion {
+  class Forwarder : public huge_page_allocator_internal::StaticForwarder {
    public:
-    Region(AddressRegion* underlying, RegionFactory* factory)
-        : underlying_(underlying), factory_(factory) {}
-
-    std::pair<void*, size_t> Alloc(size_t size, size_t alignment) override {
-      std::pair<void*, size_t> ret = underlying_->Alloc(size, alignment);
-      if (!ret.first) return {nullptr, 0};
-
-      // we only support so many allocations here for simplicity
-      TC_CHECK_LT(factory_->n_, factory_->kNumAllocs);
-      // Anything coming from the test allocator will request full
-      // alignment.  Metadata allocations will not.  Since we can't
-      // control the backing of metadata allocations, elide them.
-      // TODO(b/128521238): this is not a good way to do this.
-      if (alignment >= kHugePageSize) {
-        factory_->allocs_[factory_->n_] = ret;
-        factory_->n_++;
-      }
-      return ret;
-    }
-
-   private:
-    AddressRegion* underlying_;
-    RegionFactory* factory_;
-  };
-
-  class RegionFactory : public AddressRegionFactory {
-   public:
-    explicit RegionFactory(AddressRegionFactory* underlying)
-        : underlying_(underlying), n_(0) {}
-
-    AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
-      AddressRegion* underlying_region = underlying_->Create(start, size, hint);
-      TC_CHECK(underlying_region);
-      void* region_space = MallocInternal(sizeof(Region));
-      TC_CHECK(region_space);
-      return new (region_space) Region(underlying_region, this);
-    }
-
-    size_t GetStats(absl::Span<char> buffer) override {
-      return underlying_->GetStats(buffer);
-    }
-
     MemoryBytes Memory() {
       MemoryBytes b = {0, 0};
       for (int i = 0; i < n_; ++i) {
@@ -1276,37 +1230,50 @@ class StatTest : public testing::Test {
       return b;
     }
 
-    AddressRegionFactory* underlying() const { return underlying_; }
+    // Provide hooked versions of AllocatePages
+    AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
+      auto& underlying = *static_cast<StaticForwarder*>(this);
+      auto range = underlying.AllocatePages(bytes, align, tag);
+
+      // we only support so many allocations here for simplicity
+      TC_CHECK_LT(n_, kNumAllocs);
+      // Anything coming from the test allocator will request full
+      // alignment.  Metadata allocations will not.  Since we can't
+      // control the backing of metadata allocations, elide them.
+      // TODO(b/128521238): this is not a good way to do this.
+      if (align >= kHugePageSize) {
+        allocs_[n_] = {range.ptr, range.bytes};
+        n_++;
+      }
+
+      return range;
+    }
 
    private:
-    friend class Region;
-    AddressRegionFactory* underlying_;
-
     static constexpr size_t kNumAllocs = 1000;
-    size_t n_;
-    std::pair<void*, size_t> allocs_[kNumAllocs];
+    size_t n_ = 0;
+    std::pair<void*, size_t> allocs_[kNumAllocs] = {};
   };
 
+  using HookedAllocator =
+      huge_page_allocator_internal::HugePageAwareAllocator<Forwarder>;
+
   // Carefully get memory usage without touching anything.
-  MemoryBytes GetSystemBytes() { return replacement_region_factory_.Memory(); }
+  MemoryBytes GetSystemBytes() { return alloc_->forwarder().Memory(); }
 
   // This is essentially a test case set up, but run manually -
   // we can't guarantee gunit won't malloc between.
   void PrepTest() {
-    memset(buf, 0, sizeof(buf));
-    MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
-    SetRegionFactory(&replacement_region_factory_);
-    alloc = new (buf) HugePageAwareAllocator(
-        HugePageAwareAllocatorOptions{MemoryTag::kNormal});
+    memset(buf_, 0, sizeof(buf_));
+    alloc_ = new (buf_)
+        HookedAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
   }
 
-  ~StatTest() override {
-    SetRegionFactory(replacement_region_factory_.underlying());
-  }
+  ~StatTest() override = default;
 
   BackingStats Stats() {
     PageHeapSpinLockHolder l;
-    BackingStats stats = alloc->stats();
+    BackingStats stats = alloc_->stats();
     return stats;
   }
 
@@ -1327,7 +1294,7 @@ class StatTest : public testing::Test {
   }
 
   Span* Alloc(Length n, SpanAllocInfo span_info) {
-    Span* span = alloc->New(n, span_info);
+    Span* span = alloc_->New(n, span_info);
     TouchTHP(span);
     if (n > span->num_pages()) {
       Crash(kCrash, __FILE__, __LINE__, n.raw_num(),
@@ -1345,7 +1312,7 @@ class StatTest : public testing::Test {
     total_ -= n;
     {
       PageHeapSpinLockHolder l;
-      alloc->Delete(s, span_info.objects_per_span);
+      alloc_->Delete(s, span_info.objects_per_span);
     }
   }
 
@@ -1356,8 +1323,8 @@ class StatTest : public testing::Test {
     LargeSpanStats large;
     {
       PageHeapSpinLockHolder l;
-      alloc->GetSmallSpanStats(&small);
-      alloc->GetLargeSpanStats(&large);
+      alloc_->GetSmallSpanStats(&small);
+      alloc_->GetLargeSpanStats(&large);
     }
 
     size_t span_stats_free_bytes = 0, span_stats_released_bytes = 0;
@@ -1380,9 +1347,8 @@ class StatTest : public testing::Test {
     ASSERT_EQ(stats.unmapped_bytes, span_stats_released_bytes);
   }
 
-  char buf[sizeof(HugePageAwareAllocator)];
-  HugePageAwareAllocator* alloc;
-  RegionFactory replacement_region_factory_{GetRegionFactory()};
+  char buf_[sizeof(HookedAllocator)];
+  HookedAllocator* alloc_;
 
   Length total_;
   Length longest_;
@@ -1422,7 +1388,7 @@ TEST_F(StatTest, Basic) {
     if (absl::Bernoulli(rng, 1.0 / 3)) {
       Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
       PageHeapSpinLockHolder l;
-      alloc->ReleaseAtLeastNPages(pages);
+      alloc_->ReleaseAtLeastNPages(pages);
     }
 
     // stats are expensive, don't always check
@@ -1439,7 +1405,7 @@ TEST_F(StatTest, Basic) {
   {
     CheckStats();
     pageheap_lock.Lock();
-    auto final_stats = alloc->stats();
+    auto final_stats = alloc_->stats();
     pageheap_lock.Unlock();
     ASSERT_EQ(final_stats.free_bytes + final_stats.unmapped_bytes,
               final_stats.system_bytes);
