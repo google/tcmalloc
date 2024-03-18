@@ -14,10 +14,8 @@
 
 #include "tcmalloc/segv_handler.h"
 
-#include <fcntl.h>
 #include <unistd.h>
 
-#include <array>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +29,6 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/parameters.h"
@@ -40,62 +37,6 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
-
-
-// If this failure occurs during "bazel test", writes a warning for Bazel to
-// display.
-static void RecordBazelWarning(absl::string_view error) {
-  const char* warning_file = thread_safe_getenv("TEST_WARNINGS_OUTPUT_FILE");
-  if (!warning_file) return;  // Not a bazel test.
-
-  constexpr char warning[] = "GWP-ASan error detected: ";
-  int fd = open(warning_file, O_CREAT | O_WRONLY | O_APPEND, 0644);
-  if (fd == -1) return;
-  (void)write(fd, warning, sizeof(warning) - 1);
-  (void)write(fd, error.data(), error.size());
-  (void)write(fd, "\n", 1);
-  close(fd);
-}
-
-// If this failure occurs during a gUnit test, writes an XML file describing the
-// error type.  Note that we cannot use ::testing::Test::RecordProperty()
-// because it doesn't write the XML file if a test crashes (which we're about to
-// do here).  So we write directly to the XML file instead.
-//
-static void RecordTestFailure(absl::string_view error) {
-  const char* xml_file = thread_safe_getenv("XML_OUTPUT_FILE");
-  if (!xml_file) return;  // Not a gUnit test.
-
-  // Record test failure for Sponge.
-  constexpr char xml_text_header[] =
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-      "<testsuites><testsuite><testcase>"
-      "  <properties>"
-      "    <property name=\"gwp-asan-report\" value=\"";
-  constexpr char xml_text_footer[] =
-      "\"/>"
-      "  </properties>"
-      "  <failure message=\"MemoryError\">"
-      "    GWP-ASan detected a memory error.  See the test log for full report."
-      "  </failure>"
-      "</testcase></testsuite></testsuites>";
-
-  int fd = open(xml_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-  if (fd == -1) return;
-  (void)write(fd, xml_text_header, sizeof(xml_text_header) - 1);
-  (void)write(fd, error.data(), error.size());
-  (void)write(fd, xml_text_footer, sizeof(xml_text_footer) - 1);
-  close(fd);
-}
-//
-// If this crash occurs in a test, records test failure summaries.
-//
-// error contains the type of error to record.
-static void RecordCrash(absl::string_view error) {
-
-  RecordBazelWarning(error);
-  RecordTestFailure(error);
-}
 
 static void PrintStackTrace(void** stack_frames, size_t depth) {
   for (size_t i = 0; i < depth; ++i) {
@@ -225,7 +166,6 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   void* fault = info->si_addr;
   if (!tc_globals.guardedpage_allocator().PointerIsMine(fault)) return;
 
-
   GuardedAllocationsStackTrace *alloc_trace, *dealloc_trace;
   GuardedAllocationsErrorType error =
       tc_globals.guardedpage_allocator().GetStackTraces(fault, &alloc_trace,
@@ -260,7 +200,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       Log(kLog, __FILE__, __LINE__, "Use-after-free",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
-      RecordCrash("use-after-free");
+      RecordCrash("GWP-ASan", "use-after-free");
       break;
     case GuardedAllocationsErrorType::kBufferUnderflow:
     case GuardedAllocationsErrorType::kBufferUnderflowRead:
@@ -268,7 +208,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       Log(kLog, __FILE__, __LINE__, "Buffer underflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
-      RecordCrash("buffer-underflow");
+      RecordCrash("GWP-ASan", "buffer-underflow");
       break;
     case GuardedAllocationsErrorType::kBufferOverflow:
     case GuardedAllocationsErrorType::kBufferOverflowRead:
@@ -276,7 +216,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       Log(kLog, __FILE__, __LINE__, "Buffer overflow",
           WriteFlagToString(write_flag), "occurs in thread", current_thread,
           "at:");
-      RecordCrash("buffer-overflow");
+      RecordCrash("GWP-ASan", "buffer-overflow");
       break;
     case GuardedAllocationsErrorType::kDoubleFree:
       Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
@@ -284,13 +224,13 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
       Log(kLog, __FILE__, __LINE__, "Double free occurs in thread",
           current_thread, "at:");
-      RecordCrash("double-free");
+      RecordCrash("GWP-ASan", "double-free");
       break;
     case GuardedAllocationsErrorType::kBufferOverflowOnDealloc:
       Log(kLog, __FILE__, __LINE__,
           "Buffer overflow (write) detected in thread", current_thread,
           "at free:");
-      RecordCrash("buffer-overflow-detected-at-free");
+      RecordCrash("GWP-ASan", "buffer-overflow-detected-at-free");
       break;
     case GuardedAllocationsErrorType::kUnknown:
       Crash(kCrash, __FILE__, __LINE__,

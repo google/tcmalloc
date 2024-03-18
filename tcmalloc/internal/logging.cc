@@ -14,6 +14,7 @@
 
 #include "tcmalloc/internal/logging.h"
 
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -29,9 +31,11 @@
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
+#include "absl/strings/ascii.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -114,6 +118,78 @@ void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
       FormatLog(mode == kLogWithStack, filename, line, a, b, c, d, e, f);
   int msglen = state.p_ - state.buf_;
   (*log_message_writer)(state.buf_, msglen);
+}
+
+// If this failure occurs during "bazel test", writes a warning for Bazel to
+// display.
+static void RecordBazelWarning(absl::string_view type,
+                               absl::string_view error) {
+  constexpr absl::string_view kHeaderSuffix = " error detected: ";
+
+  const char* warning_file = thread_safe_getenv("TEST_WARNINGS_OUTPUT_FILE");
+  if (!warning_file) return;  // Not a bazel test.
+
+  int fd = open(warning_file, O_CREAT | O_WRONLY | O_APPEND, 0644);
+  if (fd == -1) return;
+  (void)write(fd, type.data(), type.size());
+  (void)write(fd, kHeaderSuffix.data(), kHeaderSuffix.size());
+  (void)write(fd, error.data(), error.size());
+  (void)write(fd, "\n", 1);
+  close(fd);
+}
+
+// If this failure occurs during a gUnit test, writes an XML file describing the
+// error type.  Note that we cannot use ::testing::Test::RecordProperty()
+// because it doesn't write the XML file if a test crashes (which we're about to
+// do here).  So we write directly to the XML file instead.
+//
+static void RecordTestFailure(absl::string_view detector,
+                              absl::string_view error) {
+  const char* xml_file = thread_safe_getenv("XML_OUTPUT_FILE");
+  if (!xml_file) return;  // Not a gUnit test.
+
+  // Record test failure for Sponge.
+  constexpr absl::string_view kXmlHeaderPart1 =
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<testsuites><testsuite><testcase>"
+      "  <properties>"
+      "    <property name=\"";
+  constexpr absl::string_view kXmlHeaderPart2 = "-report\" value=\"";
+  constexpr absl::string_view kXmlFooterPart1 =
+      "\"/>"
+      "  </properties>"
+      "  <failure message=\"MemoryError\">"
+      "    ";
+  constexpr absl::string_view kXmlFooterPart2 =
+      " detected a memory error.  See the test log for full report."
+      "  </failure>"
+      "</testcase></testsuite></testsuites>";
+
+  int fd = open(xml_file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  if (fd == -1) return;
+  (void)write(fd, kXmlHeaderPart1.data(), kXmlHeaderPart1.size());
+  for (char c : detector) {
+    c = absl::ascii_tolower(c);
+    (void)write(fd, &c, 1);
+  }
+  (void)write(fd, kXmlHeaderPart2.data(), kXmlHeaderPart2.size());
+  (void)write(fd, error.data(), error.size());
+  (void)write(fd, kXmlFooterPart1.data(), kXmlFooterPart1.size());
+  (void)write(fd, detector.data(), detector.size());
+  (void)write(fd, kXmlFooterPart2.data(), kXmlFooterPart2.size());
+  close(fd);
+}
+//
+// If this crash occurs in a test, records test failure summaries.
+//
+// detector is the bug detector or tools that found the error
+// error contains the type of error to record.
+void RecordCrash(absl::string_view detector, absl::string_view error) {
+  TC_ASSERT(!detector.empty());
+  TC_ASSERT(!error.empty());
+
+  RecordBazelWarning(detector, error);
+  RecordTestFailure(detector, error);
 }
 
 ABSL_ATTRIBUTE_NOINLINE

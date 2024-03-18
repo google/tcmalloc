@@ -268,6 +268,7 @@ cc_library(
     deps = [
         ":allocation_guard",
         ":config",
+        ":environment",
         ":parameter_accessors",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

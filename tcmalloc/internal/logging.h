@@ -148,6 +148,8 @@ enum CrashMode {
   kCrashWithStats  // Print the message, some stats, and crash
 };
 
+void RecordCrash(absl::string_view detector, absl::string_view error);
+
 ABSL_ATTRIBUTE_NORETURN
 void Crash(CrashMode mode, const char* filename, int line, LogItem a,
            LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem(),
