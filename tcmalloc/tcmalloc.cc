@@ -692,10 +692,9 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align);
 bool CorrectAlignment(void* ptr, std::align_val_t alignment);
 
 template <typename AlignPolicy>
-ABSL_ATTRIBUTE_NOINLINE static void free_sampled(void* ptr, size_t size,
-                                                 AlignPolicy align) {
+ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
+                                                    AlignPolicy align) {
   TC_ASSERT_NE(ptr, nullptr);
-  // IsColdMemory(ptr) implies IsSampledMemory(ptr).
   if (GetMemoryTag(ptr) != MemoryTag::kCold) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr);
@@ -725,13 +724,13 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // without any cache misses by doing a plain computation that
   // maps from size to size-class.
   //
-  // The optimized path doesn't work with sampled objects, whose deletions
-  // trigger more operations and require to visit metadata.
+  // The optimized path doesn't work with non-normal objects (sampled, cold),
+  // whose deletions trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
     if (ABSL_PREDICT_TRUE(ptr == nullptr)) return;
     // Outline cold path to avoid putting cold size lookup on the fast path.
     SLOW_PATH_BARRIER();
-    return free_sampled(ptr, size, align);
+    return free_non_normal(ptr, size, align);
   }
 
   // At this point, since ptr's tag bit is 1, it means that it
