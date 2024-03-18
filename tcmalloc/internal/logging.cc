@@ -242,6 +242,20 @@ ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
   Crash(kCrash, trace, file, line, msg, msglen);
 }
 
+void PrintStackTrace(void** stack_frames, size_t depth) {
+  for (size_t i = 0; i < depth; ++i) {
+    Log(kLog, __FILE__, __LINE__, "  @  ", stack_frames[i]);
+  }
+}
+
+void PrintStackTraceFromSignalHandler(void* context) {
+  void* stack_frames[kMaxStackDepth];
+  size_t depth = absl::GetStackTraceWithContext(stack_frames, kMaxStackDepth,
+  1,
+                                                context, nullptr);
+  PrintStackTrace(stack_frames, depth);
+}
+
 bool Logger::Add(const LogItem& item) {
   // Separate real items with spaces
   if (item.tag_ != LogItem::kEnd && p_ < end_) {

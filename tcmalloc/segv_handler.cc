@@ -38,20 +38,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-static void PrintStackTrace(void** stack_frames, size_t depth) {
-  for (size_t i = 0; i < depth; ++i) {
-    Log(kLog, __FILE__, __LINE__, "  @  ", stack_frames[i]);
-  }
-}
-
-static void PrintStackTraceFromSignalHandler(void* context) {
-  void* stack_frames[kMaxStackDepth];
-  size_t depth = absl::GetStackTraceWithContext(stack_frames, kMaxStackDepth,
-  1,
-                                                context, nullptr);
-  PrintStackTrace(stack_frames, depth);
-}
-
 constexpr const char* WriteFlagToString(WriteFlag write_flag) {
   switch (write_flag) {
     case WriteFlag::Unknown:
