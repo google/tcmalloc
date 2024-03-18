@@ -37,7 +37,7 @@ PageAllocatorInterface::PageAllocatorInterface(const char* label, PageMap* map,
 
 PageAllocatorInterface::~PageAllocatorInterface() {
   // This is part of tcmalloc statics - they must be immortal.
-  Crash(kCrash, __FILE__, __LINE__, "should never destroy this");
+  TC_BUG("should never destroy this");
 }
 
 }  // namespace tcmalloc_internal

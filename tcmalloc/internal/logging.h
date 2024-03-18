@@ -143,18 +143,8 @@ extern void Log(LogMode mode, const char* filename, int line, LogItem a,
                 LogItem d = LogItem(), LogItem e = LogItem(),
                 LogItem f = LogItem());
 
-enum CrashMode {
-  kCrash,          // Print the message and crash
-  kCrashWithStats  // Print the message, some stats, and crash
-};
-
 void RecordCrash(absl::string_view detector, absl::string_view error);
-
-ABSL_ATTRIBUTE_NORETURN
-void Crash(CrashMode mode, const char* filename, int line, LogItem a,
-           LogItem b = LogItem(), LogItem c = LogItem(), LogItem d = LogItem(),
-           LogItem e = LogItem(), LogItem f = LogItem());
-
+ABSL_ATTRIBUTE_NORETURN void CrashWithOOM(size_t alloc_size);
 ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
                                          const char* msg, int msglen);
 

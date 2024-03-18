@@ -45,11 +45,11 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
     auto [ptr, actual_size] = SystemAlloc(ask, kPageSize, MemoryTag::kMetadata);
     free_area_ = reinterpret_cast<char*>(ptr);
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
-      Crash(kCrash, __FILE__, __LINE__,
-            "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
-            "data (bytes, object-size); is something preventing mmap from "
-            "succeeding (sandbox, VSS limitations)?",
-            kAllocIncrement, bytes);
+      TC_BUG(
+          "FATAL ERROR: Out of memory trying to allocate internal tcmalloc "
+          "data (bytes=%v, object-size=%v); is something preventing mmap from "
+          "succeeding (sandbox, VSS limitations)?",
+          kAllocIncrement, bytes);
     }
     SystemBack(free_area_, actual_size);
 

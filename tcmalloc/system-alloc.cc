@@ -407,9 +407,8 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
   }
 
   TC_ASSERT_EQ(bind_mode, NumaBindMode::kStrict);
-  Crash(kCrash, __FILE__, __LINE__,
-        "Unable to mbind memory (errno, base, nodemask)", errno, base,
-        nodemask);
+  TC_BUG("Unable to mbind memory (errno=%d, base=%p, nodemask=%v)", errno, base,
+         nodemask);
 }
 
 ABSL_CONST_INIT std::atomic<int> system_release_errors(0);
@@ -421,11 +420,7 @@ int MapFixedNoReplaceFlagAvailable() {
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
     void* ptr =
         mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (ptr == MAP_FAILED) {
-      Crash(kCrash, __FILE__, __LINE__,
-            "Initial mmap() reservation failed (errno, size)", errno,
-            kPageSize);
-    }
+    TC_CHECK_NE(ptr, MAP_FAILED);
 
     // Try to map over ptr.  If we get a different address, we don't have
     // MAP_FIXED_NOREPLACE.
@@ -584,9 +579,8 @@ static uintptr_t RandomMmapHint(size_t size, size_t alignment,
     void* seed =
         mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (seed == MAP_FAILED) {
-      Crash(kCrash, __FILE__, __LINE__,
-            "Initial mmap() reservation failed (errno, size)", errno,
-            kPageSize);
+      TC_BUG("Initial mmap() reservation failed (errno=%v, size=%v)", errno,
+             kPageSize);
     }
     munmap(seed, kPageSize);
     rnd = reinterpret_cast<uintptr_t>(seed);

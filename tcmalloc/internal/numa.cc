@@ -95,7 +95,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     // Disable NUMA awareness.
     enabled = false;
   } else {
-    Crash(kCrash, __FILE__, __LINE__, "bad TCMALLOC_NUMA_AWARE env var", e);
+    TC_BUG("bad TCMALLOC_NUMA_AWARE env var '%s'", e);
   }
 
   // The cpu_to_scaled_partition array has a fixed size so that we can

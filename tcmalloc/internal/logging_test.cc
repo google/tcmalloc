@@ -93,11 +93,6 @@ TEST(InternalLogging, MessageFormatting) {
   delete log_buffer;
 }
 
-TEST(InternalLogging, Crash) {
-  EXPECT_DEATH(Crash(kCrash, "foo.cc", 100, "a", "b", "c", "d", "e", "f"),
-               "foo.cc:100] a b c d e f");
-}
-
 TEST(Printer, RequiredSpace) {
   const char kChunk[] = "0123456789";
   std::string expected;

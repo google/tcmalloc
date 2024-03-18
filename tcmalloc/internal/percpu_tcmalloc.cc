@@ -72,9 +72,8 @@ void TcmallocSlab::Init(
     const size_t num_pointers = cap + 1;
     consumed_bytes += num_pointers * sizeof(void*);
     if (consumed_bytes > (1 << ToUint8(shift))) {
-      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-            1 << ToUint8(shift), " need ", consumed_bytes, " size_class ",
-            size_class);
+      TC_BUG("per-CPU memory exceeded, have %v, need %v, size_class %v",
+             1 << ToUint8(shift), consumed_bytes, size_class);
     }
   }
 }
@@ -119,8 +118,8 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
     const size_t bytes_used_on_curr_slab =
         reinterpret_cast<char*>(elems) - reinterpret_cast<char*>(curr_slab);
     if (bytes_used_on_curr_slab > (1 << ToUint8(shift))) {
-      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-            1 << ToUint8(shift), " need ", bytes_used_on_curr_slab);
+      TC_BUG("per-CPU memory exceeded, have %v, need %v", 1 << ToUint8(shift),
+             bytes_used_on_curr_slab);
     }
   }
 }

@@ -69,8 +69,7 @@ bool decide_want_hpaa() {
       case '2':
         return true;
       default:
-        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-        return false;
+        TC_BUG("bad env var '%s'", e);
     }
   }
 
@@ -199,13 +198,13 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
     }
     const size_t hard_limit = limits_[kHard];
     limits_[kHard] = std::numeric_limits<size_t>::max();
-    Crash(
-        kCrash, __FILE__, __LINE__, "Hit hard tcmalloc heap limit of",
-        hard_limit,
+    TC_BUG(
+        "Hit hard tcmalloc heap limit of %v "
         "(e.g. --tcmalloc_heap_size_hard_limit). "
         "Aborting.\nIt was most likely set to catch "
         "allocations that would crash the process anyway. "
-    );
+        ,
+        hard_limit);
   }
 
   // Print logs once.

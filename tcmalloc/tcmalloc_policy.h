@@ -121,9 +121,7 @@ struct CppOomPolicy {
   template <typename Policy, typename Pointer = typename Policy::pointer_type>
   static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN Pointer
   handle_oom(size_t size) {
-    Crash(kCrashWithStats, __FILE__, __LINE__,
-          "Unable to allocate (new failed)", size);
-    __builtin_unreachable();
+    CrashWithOOM(size);
   }
 };
 

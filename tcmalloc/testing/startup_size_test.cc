@@ -42,11 +42,7 @@ typedef std::map<std::string, MallocExtension::Property> PropertyMap;
 
 static size_t Property(const PropertyMap& map, const char* name) {
   const PropertyMap::const_iterator iter = map.find(name);
-  if (iter == map.end()) {
-    tcmalloc::tcmalloc_internal::Crash(tcmalloc::tcmalloc_internal::kCrash,
-                                       __FILE__, __LINE__, "name not found",
-                                       name);
-  }
+  TC_CHECK(iter != map.end(), "name=%s", name);
   return iter->second.value;
 }
 

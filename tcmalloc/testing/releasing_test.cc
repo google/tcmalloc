@@ -53,8 +53,6 @@ int64_t UnmappedBytes() {
 
 }  // namespace
 
-using tcmalloc::tcmalloc_internal::Crash;
-using tcmalloc::tcmalloc_internal::kCrash;
 using tcmalloc::tcmalloc_internal::kLog;
 using tcmalloc::tcmalloc_internal::Log;
 
@@ -66,9 +64,7 @@ int main() {
     if (kSoftFail) {
       // Determine if we should be able to mlock memory due to our limits.
       struct rlimit lock_limit;
-      if (getrlimit(RLIMIT_MEMLOCK, &lock_limit) != 0) {
-        Crash(kCrash, __FILE__, __LINE__, "getrlimit failed: errno", errno);
-      }
+      TC_CHECK_EQ(0, getrlimit(RLIMIT_MEMLOCK, &lock_limit));
 
       if (lock_limit.rlim_cur != RLIM_INFINITY && errno == ENOMEM) {
         Log(kLog, __FILE__, __LINE__, "mlockall failed: errno", errno,
@@ -76,7 +72,7 @@ int main() {
         return 0;
       }
     }
-    Crash(kCrash, __FILE__, __LINE__, "mlockall failed: errno", errno);
+    TC_BUG("mlockall failed: errno %v", errno);
   }
 
   const int kSmallAllocations = 1000;
@@ -123,12 +119,8 @@ int main() {
 
   int64_t unmapped_diff = after_unmapped - before_unmapped;
   int64_t memusage_diff = before - after;
-  if (unmapped_diff < 0) {
-    Crash(kCrash, __FILE__, __LINE__, "Memory was mapped.");
-  } else if (unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize != 0) {
-    Crash(kCrash, __FILE__, __LINE__,
-          "Non-hugepage size for unmapped memory: ", unmapped_diff);
-  }
+  TC_CHECK_GE(unmapped_diff, 0);
+  TC_CHECK_EQ(unmapped_diff % tcmalloc::tcmalloc_internal::kHugePageSize, 0);
 
   // Try to release all unused memory.
 
@@ -148,18 +140,9 @@ int main() {
   Log(kLog, __FILE__, __LINE__, "Memory Usage [Before]", before);
   Log(kLog, __FILE__, __LINE__, "Memory Usage [After ]", after);
   Log(kLog, __FILE__, __LINE__, "Memory Usage [Diff  ]", before - after);
-
-  if (unmapped_diff == 0) {
-    Crash(kCrash, __FILE__, __LINE__, "No memory was unmapped.");
-  }
-
-  if (unmapped_diff * (1. + kTolerance) < memusage_diff ||
-      unmapped_diff * (1. - kTolerance) > memusage_diff) {
-    Crash(kCrash, __FILE__, __LINE__,
-          "(after_unmapped - before_unmapped) != (before - after)",
-          after_unmapped - before_unmapped, before - after);
-  }
-
+  TC_CHECK_NE(unmapped_diff, 0);
+  TC_CHECK_GE(unmapped_diff * (1. + kTolerance), memusage_diff);
+  TC_CHECK_LE(unmapped_diff * (1. - kTolerance), memusage_diff);
   printf("PASS\n");
   return 0;
 }

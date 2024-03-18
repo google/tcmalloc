@@ -32,6 +32,7 @@
 #include "absl/base/macros.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/strings/ascii.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
@@ -194,8 +195,11 @@ void RecordCrash(absl::string_view detector, absl::string_view error) {
 
 ABSL_ATTRIBUTE_NOINLINE
 ABSL_ATTRIBUTE_NORETURN
-static void Crash(CrashMode mode, const StackTrace& trace, const char* filename,
-                  int line, const char* msg, size_t msglen) {
+static void Crash(const char* filename, int line, const char* msg,
+                  size_t msglen, bool oom) {
+  StackTrace trace;
+  trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth, 1);
+
   // FailureSignalHandler mallocs for various logging attempts.
   // We might be crashing holding tcmalloc locks.
   // We're substantially less likely to try to take those locks
@@ -216,7 +220,7 @@ static void Crash(CrashMode mode, const StackTrace& trace, const char* filename,
   }
 
   (*log_message_writer)(msg, msglen);
-  if (first_crash && mode == kCrashWithStats) {
+  if (first_crash && oom) {
 #ifndef __APPLE__
     if (&TCMalloc_Internal_GetStats != nullptr) {
       size_t n = TCMalloc_Internal_GetStats(stats_buffer, kStatsBufferSize);
@@ -228,18 +232,16 @@ static void Crash(CrashMode mode, const StackTrace& trace, const char* filename,
   abort();
 }
 
-ABSL_ATTRIBUTE_NOINLINE
-void Crash(CrashMode mode, const char* filename, int line, LogItem a, LogItem b,
-           LogItem c, LogItem d, LogItem e, LogItem f) {
-  Logger state = FormatLog(true, filename, line, a, b, c, d, e, f);
-  Crash(mode, state.trace, filename, line, state.buf_, state.p_ - state.buf_);
-}
-
 ABSL_ATTRIBUTE_NORETURN void CheckFailed(const char* file, int line,
                                          const char* msg, int msglen) {
-  StackTrace trace;
-  trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth, 1);
-  Crash(kCrash, trace, file, line, msg, msglen);
+  Crash(file, line, msg, msglen, false);
+}
+
+void CrashWithOOM(size_t alloc_size) {
+  char buf[512];
+  int n = absl::SNPrintF(buf, sizeof(buf),
+                         "Unable to allocate %zu (new failed)", alloc_size);
+  Crash("tcmalloc", 0, buf, n, true);
 }
 
 void PrintStackTrace(void** stack_frames, size_t depth) {

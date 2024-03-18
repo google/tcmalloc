@@ -236,15 +236,8 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
 // Initialize the mapping arrays
 bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
   // Do some sanity checking on add_amount[]/shift_amount[]/class_array[]
-  if (ClassIndex(0) != 0) {
-    Crash(kCrash, __FILE__, __LINE__, "Invalid class index for size 0",
-          ClassIndex(0));
-  }
-  if (ClassIndex(kMaxSize) >= sizeof(class_array_)) {
-    Crash(kCrash, __FILE__, __LINE__, "Invalid class index for kMaxSize",
-          ClassIndex(kMaxSize));
-  }
-
+  TC_CHECK_EQ(ClassIndex(0), 0);
+  TC_CHECK_LT(ClassIndex(kMaxSize), sizeof(class_array_));
   static_assert(kAlignment <= std::align_val_t{16}, "kAlignment is too large");
 
   if (!SetSizeClasses(size_classes)) {

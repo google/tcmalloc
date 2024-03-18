@@ -48,8 +48,7 @@ bool use_wider_slabs() {
       case '1':
         return false;
       default:
-        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-        return false;
+        TC_BUG("bad env var '%s'", e);
     }
   }
 

@@ -1340,10 +1340,8 @@ class UsageInfo {
         return "sparsely-accessed released";
       case kDenseReleased:
         return "densely-accessed released";
-      default: {
-        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
-        return "bad type";
-      }
+      default:
+        TC_BUG("bad type %v", type);
     }
   }
 
@@ -1361,10 +1359,8 @@ class UsageInfo {
       case kSparseReleased:
       case kDenseReleased:
         return "RELEASED";
-      default: {
-        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
-        return "bad type";
-      }
+      default:
+        TC_BUG("bad type %v", type);
     }
   }
 
@@ -1380,10 +1376,8 @@ class UsageInfo {
       case kDensePartialReleased:
       case kDenseReleased:
         return "DENSELY_ACCESSED";
-      default: {
-        Crash(kCrash, __FILE__, __LINE__, "bad type", type);
-        return "bad type";
-      }
+      default:
+        TC_BUG("bad type %v", type);
     }
   }
 

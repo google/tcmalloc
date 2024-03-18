@@ -219,8 +219,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       RecordCrash("GWP-ASan", "buffer-overflow-detected-at-free");
       break;
     case GuardedAllocationsErrorType::kUnknown:
-      Crash(kCrash, __FILE__, __LINE__,
-            "Unexpected GuardedAllocationsErrorType::kUnknown");
+      TC_BUG("Unexpected GuardedAllocationsErrorType::kUnknown");
   }
   PrintStackTraceFromSignalHandler(context);
   if (error == GuardedAllocationsErrorType::kBufferOverflowOnDealloc) {

@@ -249,8 +249,7 @@ static bool want_disable_separate_allocs_for_few_and_many_objects_spans() {
       case '1':
         return true;
       default:
-        Crash(kCrash, __FILE__, __LINE__, "bad env var", e);
-        return false;
+        TC_BUG("bad env var '%s'", e);
     }
   }
   return false;

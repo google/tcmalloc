@@ -924,8 +924,8 @@ inline void CpuCache<Forwarder>::Activate() {
     // We may make certain size classes no-ops by selecting "0" at runtime, so
     // using a compile-time calculation overestimates worst-case memory usage.
     if (ABSL_PREDICT_FALSE(bytes_required > bytes_available)) {
-      Crash(kCrash, __FILE__, __LINE__, "per-CPU memory exceeded, have ",
-            bytes_available, " need ", bytes_required);
+      TC_BUG("per-CPU memory exceeded, have %v, need %v", bytes_available,
+             bytes_required);
     }
   }
 

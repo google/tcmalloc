@@ -105,10 +105,7 @@ class HugePageAwareAllocatorTest
     {
       PageHeapSpinLockHolder l;
       auto stats = allocator_->stats();
-      if (stats.free_bytes + stats.unmapped_bytes != stats.system_bytes) {
-        Crash(kCrash, __FILE__, __LINE__, stats.free_bytes,
-              stats.unmapped_bytes, "!=", stats.system_bytes);
-      }
+      TC_CHECK_EQ(stats.free_bytes + stats.unmapped_bytes, stats.system_bytes);
     }
 
     free(allocator_);
@@ -1145,9 +1142,7 @@ static size_t BytesInCore(void* p, size_t len) {
     // We call mincore in bounded size chunks (though typically one
     // chunk will cover an entire request.)
     const size_t chunk_len = std::min(kChunk, len);
-    if (mincore(p, chunk_len, buf) != 0) {
-      Crash(kCrash, __FILE__, __LINE__, "mincore failed, errno", errno);
-    }
+    TC_CHECK_EQ(0, mincore(p, chunk_len, buf), "errno=%d", errno);
     const size_t lim = chunk_len / pagesize;
     for (size_t i = 0; i < lim; ++i) {
       if (buf[i] & 1) resident += pagesize;
@@ -1296,10 +1291,7 @@ class StatTest : public testing::Test {
   Span* Alloc(Length n, SpanAllocInfo span_info) {
     Span* span = alloc_->New(n, span_info);
     TouchTHP(span);
-    if (n > span->num_pages()) {
-      Crash(kCrash, __FILE__, __LINE__, n.raw_num(),
-            "not <=", span->num_pages().raw_num());
-    }
+    TC_CHECK_LE(n, span->num_pages());
     n = span->num_pages();
     if (n > longest_) longest_ = n;
     total_ += n;
