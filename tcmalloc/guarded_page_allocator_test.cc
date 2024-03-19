@@ -292,19 +292,9 @@ TEST_P(SampledAllocationWithFilterTest, MismatchedSizeDelete) {
     if (!filter(ptr.get())) continue;
     ASSERT_TRUE(!IsNormalMemory(ptr.get()));
 
-#ifdef NDEBUG
     EXPECT_DEATH(
         sized_delete(ptr.get(), 2000),
         "Mismatched-size-delete of 2000 bytes \\(expected 1000 bytes\\) at");
-#else
-    // This will crash with the ASSERT() in the fast path.
-    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
-      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
-                   "size check failed 1000 2000");
-    else
-      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
-                   "size check failed 1024 2048");
-#endif
 
     return;
   }
@@ -343,7 +333,6 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
     if (!filter(ptr.get())) continue;
     ASSERT_TRUE(!IsNormalMemory(ptr.get()));
 
-#ifdef NDEBUG
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
       EXPECT_DEATH(  // Guarded page allocation will return exactly as requested
           sized_delete(ptr.get(), 2000),
@@ -352,15 +341,6 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
       EXPECT_DEATH(sized_delete(ptr.get(), 2000),
                    "Mismatched-size-delete of 2000 bytes \\(expected 1000 - "
                    "1024 bytes\\) at");
-#else
-    // This will crash with the ASSERT() in the fast path.
-    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
-      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
-                   "size check failed 1000 2000");
-    else
-      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
-                   "size check failed 1024 2048");
-#endif
 
     return;
   }

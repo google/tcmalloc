@@ -716,7 +716,6 @@ template <typename AlignPolicy>
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
                                                            size_t size,
                                                            AlignPolicy align) {
-  TC_ASSERT(CorrectSize(ptr, size, align));
   TC_ASSERT(
       CorrectAlignment(ptr, static_cast<std::align_val_t>(align.align())));
 
@@ -733,6 +732,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     SLOW_PATH_BARRIER();
     return free_non_normal(ptr, size, align);
   }
+
+  // Mismatched-size-delete error detection for sampled memory is performed in
+  // the slow path above in all builds.
+  TC_ASSERT(CorrectSize(ptr, size, align));
 
   // At this point, since ptr's tag bit is 1, it means that it
   // cannot be nullptr either. Thus all code below may rely on ptr != nullptr.
