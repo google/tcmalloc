@@ -166,9 +166,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
       tc_globals.guardedpage_allocator().GetAllocationOffsetAndSize(fault);
 
   Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan "
-      "(https://google.github.io/tcmalloc/gwp-asan.html)  "
-      "has detected a memory error ***");
+      "*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
       "into buffer of length", size);
   Log(kLog, __FILE__, __LINE__,

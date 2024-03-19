@@ -268,9 +268,7 @@ static void ReportMismatchedDelete(SampledAllocation& alloc, size_t size,
                                    size_t requested_size,
                                    std::optional<size_t> allocated_size) {
   Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan "
-      "(https://google.github.io/tcmalloc/gwp-asan.html)  "
-      "has detected a memory error ***");
+      "*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   Log(kLog, __FILE__, __LINE__, "Error originates from memory allocated at:");
   PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
 
