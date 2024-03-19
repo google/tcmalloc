@@ -45,7 +45,10 @@ constexpr absl::string_view kDisableAll = "all";
 
 // Experiments that have known issues with brittle tests, are not enabled
 // involuntarily in tests, and shouldn't be enabled widely.
-bool HasBrittleTestFailures(Experiment exp) { return true; }
+bool HasBrittleTestFailures(Experiment exp) {
+
+  return true;
+}
 
 bool IsCompilerExperiment(Experiment exp) {
 #ifdef NPX_COMPILER_ENABLED_EXPERIMENT
