@@ -45,6 +45,7 @@
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
 #include "tcmalloc/sampled_allocation_allocator.h"
 #include "tcmalloc/size_class_info.h"
@@ -169,6 +170,12 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
     sampled_allocation_recorder().Init();
     peak_heap_tracker_.Init(&arena_);
+
+    const bool large_span_experiment =
+        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN);
+    Parameters::set_max_span_cache_size(
+        large_span_experiment ? Span::kLargeCacheSize : Span::kCacheSize);
+
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts
     span_allocator_.New();  // Reduce cache conflicts

@@ -1116,6 +1116,7 @@ create_tcmalloc_testsuite(
     srcs = ["span_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
+        ":experiment",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

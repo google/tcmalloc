@@ -232,6 +232,14 @@ test_variants = [
         ],
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
+    {
+        "name": "large_spans",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_BIG_SPAN"},
+    },
 ]
 
 def create_tcmalloc_library(
@@ -308,8 +316,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     deps = kwargs.pop("deps", [])
     linkopts = kwargs.pop("linkopts", [])
 
-    # Empty env var disables random experiments.
-    env0 = kwargs.pop("env", {"BORG_EXPERIMENTS": ""})
+    env0 = kwargs.pop("env", {})
 
     variant_targets = []
     for variant in test_variants:

@@ -49,6 +49,7 @@ int RunFuzzer(const uint8_t* data, size_t size) {
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
   const bool use_all_buckets_for_few_object_spans = (data[5] & 0x1);
+  const bool use_large_spans = data[5] & 0x2;
   data += 6;
   size -= 6;
   if (!tcmalloc_internal::SizeMap::IsValidSizeClass(object_size, num_pages,
@@ -56,7 +57,7 @@ int RunFuzzer(const uint8_t* data, size_t size) {
     return 0;
   }
   Env env(object_size, num_pages, num_objects_to_move,
-          use_all_buckets_for_few_object_spans);
+          use_all_buckets_for_few_object_spans, use_large_spans);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {

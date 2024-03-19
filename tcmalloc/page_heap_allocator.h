@@ -61,23 +61,29 @@ class PageHeapAllocator {
 
   ABSL_ATTRIBUTE_RETURNS_NONNULL T* New()
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)));
+  }
+
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(size_t size,
+                                                std::align_val_t align)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
     // Consult free list
     T* result = free_list_;
     stats_.in_use++;
     if (ABSL_PREDICT_FALSE(result == nullptr)) {
       stats_.total++;
-      result = reinterpret_cast<T*>(
-          arena_->Alloc(sizeof(T), static_cast<std::align_val_t>(alignof(T))));
-      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, sizeof(*result));
+      result = reinterpret_cast<T*>(arena_->Alloc(size, align));
+      ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
       return result;
     } else {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
       // Unpoison the object on the freelist.
-      ASAN_UNPOISON_MEMORY_REGION(result, sizeof(*result));
+      ASAN_UNPOISON_MEMORY_REGION(result, size);
 #endif
     }
     free_list_ = *(reinterpret_cast<T**>(free_list_));
-    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, sizeof(*result));
+    ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(result, size);
     return result;
   }
 

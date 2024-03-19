@@ -16,6 +16,7 @@
 #define TCMALLOC_MOCK_STATIC_FORWARDER_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <new>
 
@@ -31,14 +32,19 @@ namespace tcmalloc_internal {
 class FakeStaticForwarder {
  public:
   FakeStaticForwarder() : class_size_(0), pages_() {}
-  void Init(size_t class_size, size_t pages, size_t num_objects_to_move) {
+  void Init(size_t class_size, size_t pages, size_t num_objects_to_move,
+            bool use_large_spans) {
     class_size_ = class_size;
     pages_ = Length(pages);
     num_objects_to_move_ = num_objects_to_move;
+    use_large_spans_ = use_large_spans;
   }
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
   size_t num_objects_to_move() const { return num_objects_to_move_; }
+  uint32_t max_span_cache_size() const {
+    return use_large_spans_ ? Span::kLargeCacheSize : Span::kCacheSize;
+  }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
     for (size_t i = 0; i < batch.size(); ++i) {
@@ -68,7 +74,10 @@ class FakeStaticForwarder {
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);
 
-    auto* span = new Span();
+    void* span_buf = ::operator new(Span::CalcSizeOf(max_span_cache_size()),
+                                    Span::CalcAlignOf(max_span_cache_size()));
+
+    auto* span = new (span_buf) Span();
     span->Init(page, pages_per_span);
 
     absl::MutexLock l(&mu_);
@@ -89,9 +98,14 @@ class FakeStaticForwarder {
       }
     }
 
+    const std::align_val_t span_alignment =
+        Span::CalcAlignOf(max_span_cache_size());
+
     for (Span* span : free_spans) {
       ::operator delete(span->start_address(), std::align_val_t(kPageSize));
-      delete span;
+
+      span->~Span();
+      ::operator delete(span, span_alignment);
     }
   }
 
@@ -106,6 +120,7 @@ class FakeStaticForwarder {
   size_t class_size_;
   Length pages_;
   size_t num_objects_to_move_;
+  bool use_large_spans_;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {
@@ -122,9 +137,12 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
     });
     ON_CALL(*this, Init)
         .WillByDefault([this](size_t size_class, size_t pages,
-                              size_t num_objects_to_move) {
-          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move);
+                              size_t num_objects_to_move,
+                              bool use_large_spans) {
+          FakeStaticForwarder::Init(size_class, pages, num_objects_to_move,
+                                    use_large_spans);
         });
+
     ON_CALL(*this, MapObjectsToSpans)
         .WillByDefault([this](absl::Span<void*> batch, Span** spans) {
           return FakeStaticForwarder::MapObjectsToSpans(batch, spans);
@@ -147,7 +165,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Length, class_to_pages, (int size_class));
   MOCK_METHOD(size_t, num_objects_to_move, ());
   MOCK_METHOD(void, Init,
-              (size_t class_size, size_t pages, size_t num_objects_to_move));
+              (size_t class_size, size_t pages, size_t num_objects_to_move,
+               bool use_large_spans));
   MOCK_METHOD(void, MapObjectsToSpans, (absl::Span<void*> batch, Span** spans));
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, SpanAllocInfo span_alloc_info,
@@ -184,10 +203,10 @@ class FakeCentralFreeListEnvironment {
 
   explicit FakeCentralFreeListEnvironment(
       size_t class_size, size_t pages, size_t num_objects_to_move,
-      bool use_all_buckets_for_few_object_spans)
+      bool use_all_buckets_for_few_object_spans, bool use_large_spans)
       : use_all_buckets_for_few_object_spans_(
             use_all_buckets_for_few_object_spans) {
-    forwarder().Init(class_size, pages, num_objects_to_move);
+    forwarder().Init(class_size, pages, num_objects_to_move, use_large_spans);
     cache_.Init(kSizeClass, use_all_buckets_for_few_object_spans);
   }
 

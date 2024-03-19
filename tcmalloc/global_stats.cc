@@ -501,6 +501,8 @@ void DumpStats(Printer* out, int level) {
         SizeClassConfigurationString(tc_globals.size_class_configuration()));
     out->printf("PARAMETER percpu_vcpu_type %s\n",
                 PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
+    out->printf("PARAMETER max_span_cache_size %d\n",
+                Parameters::max_span_cache_size());
   }
 }
 
@@ -677,6 +679,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("tcmalloc_use_all_buckets_for_few_object_spans",
                   Parameters::use_all_buckets_for_few_object_spans_in_cfl());
+  region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());
 
   region.PrintRaw(
       "size_class_config",

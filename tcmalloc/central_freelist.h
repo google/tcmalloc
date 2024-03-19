@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
@@ -50,6 +51,10 @@ namespace central_freelist_internal {
 // testing.
 class StaticForwarder {
  public:
+  static uint32_t max_span_cache_size() {
+    return Parameters::max_span_cache_size();
+  }
+
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
   static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans);
@@ -132,7 +137,7 @@ class CentralFreeList {
   // Release an object to spans.
   // Returns object's span if it become completely free.
   Span* ReleaseToSpans(void* object, Span* span, size_t object_size,
-                       uint32_t size_reciprocal)
+                       uint32_t size_reciprocal, uint32_t max_span_cache_size)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Populate cache by fetching from the page heap.
@@ -299,7 +304,8 @@ inline void CentralFreeList<Forwarder>::Init(
 
 template <class Forwarder>
 inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
-    void* object, Span* span, size_t object_size, uint32_t size_reciprocal) {
+    void* object, Span* span, size_t object_size, uint32_t size_reciprocal,
+    uint32_t max_span_cache_size) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
     nonempty_.prepend(span);
@@ -313,8 +319,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // We maintain a single nonempty list for small-but-slow. Also, we do not
   // collect histogram stats due to performance issues.
-  if (ABSL_PREDICT_TRUE(
-          span->FreelistPush(object, object_size, size_reciprocal))) {
+  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size, size_reciprocal,
+                                           max_span_cache_size))) {
     return nullptr;
   }
   nonempty_.remove(span);
@@ -323,8 +329,8 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
-  if (ABSL_PREDICT_FALSE(
-          !span->FreelistPush(object, object_size, size_reciprocal))) {
+  if (ABSL_PREDICT_FALSE(!span->FreelistPush(
+          object, object_size, size_reciprocal, max_span_cache_size))) {
     // Update the histogram as the span is full and will be removed from the
     // nonempty_ list.
     RecordSpanUtil(prev_bitwidth, /*increase=*/false);
@@ -441,6 +447,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   }
 
   // Safe to store free spans into freed up space in span array.
+  const uint32_t max_span_cache_size = forwarder_.max_span_cache_size();
   Span** free_spans = spans;
   int free_count = 0;
 
@@ -452,8 +459,8 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
     uint32_t size_reciprocal = size_reciprocal_;
     absl::base_internal::SpinLockHolder h(&lock_);
     for (int i = 0; i < batch.size(); ++i) {
-      Span* span =
-          ReleaseToSpans(batch[i], spans[i], object_size, size_reciprocal);
+      Span* span = ReleaseToSpans(batch[i], spans[i], object_size,
+                                  size_reciprocal, max_span_cache_size);
       if (ABSL_PREDICT_FALSE(span)) {
         free_spans[free_count] = span;
         free_count++;
@@ -554,7 +561,8 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
     return 0;
   }
 
-  int result = span->BuildFreelist(object_size_, objects_per_span_, batch, N);
+  int result = span->BuildFreelist(object_size_, objects_per_span_, batch, N,
+                                   forwarder_.max_span_cache_size());
   TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;

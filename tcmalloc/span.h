@@ -85,13 +85,15 @@ struct SpanAllocInfo {
 class Span;
 typedef TList<Span> SpanList;
 
-class Span : public SpanList::Elem {
+class Span final : public SpanList::Elem {
  public:
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
   static Span* New(PageId p, Length len)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  static void operator delete(void*) = delete;
 
   // locations used to track what list a span resides on.
   enum Location {
@@ -187,7 +189,8 @@ class Span : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal);
+  bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal,
+                    uint32_t max_cache_size);
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
@@ -199,7 +202,8 @@ class Span : public SpanList::Elem {
   // Initialize freelist to contain all objects in the span.
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  int BuildFreelist(size_t size, size_t count, void** batch, int N);
+  int BuildFreelist(size_t size, size_t count, void** batch, int N,
+                    uint32_t max_cache_size);
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();
@@ -214,6 +218,18 @@ class Span : public SpanList::Elem {
   // For bitmap'd spans conversion from an offset to an index is performed
   // by multiplying by the scaled reciprocal of the object size.
   static uint32_t CalcReciprocal(size_t size);
+
+  static constexpr size_t kCacheSize = 4;
+  static constexpr size_t kLargeCacheSize =
+#if defined(__clang__)
+      12
+#else
+      kCacheSize
+#endif
+      ;
+
+  static std::align_val_t CalcAlignOf(uint32_t max_cache_size);
+  static size_t CalcSizeOf(uint32_t max_cache_size);
 
  private:
   // See the comment on freelist organization in cc file.
@@ -242,13 +258,19 @@ class Span : public SpanList::Elem {
   // heap? This is used by page heap to compute abandoned pages.
   uint8_t is_donated_ : 1;
 
-  static constexpr size_t kCacheSize = 4;
   static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
+
+  PageId first_page_;  // Starting page number.
+  Length num_pages_;   // Number of pages in span.
 
   union {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
     // Embed cache of free objects.
-    ObjIdx cache_[kCacheSize];
+    ObjIdx cache_[
+#if !defined(__clang__)
+        kCacheSize
+#endif
+    ];
 
     // Used for spans with in CentralFreeList with fewer than 64 objects.
     // Each bit is set to one when the object is available, and zero
@@ -258,9 +280,6 @@ class Span : public SpanList::Elem {
     // Used only for sampled spans (SAMPLED state).
     SampledAllocation* sampled_allocation_;
   };
-
-  PageId first_page_;  // Starting page number.
-  Length num_pages_;   // Number of pages in span.
 
   // Returns true if Span will use bitmap for objects of size <size>.
   static bool UseBitmapForSize(size_t size);
@@ -278,7 +297,7 @@ class Span : public SpanList::Elem {
 
   size_t ListPopBatch(void** __restrict batch, size_t N, size_t size);
 
-  bool ListPush(void* ptr, size_t size);
+  bool ListPush(void* ptr, size_t size, uint32_t max_cache_size);
 
   // For spans containing 64 or fewer objects, indicate that the object at the
   // index has been returned. Always returns true.
@@ -323,7 +342,8 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   return idx;
 }
 
-inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal) {
+inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal,
+                               uint32_t max_cache_size) {
   const auto allocated = allocated_.load(std::memory_order_relaxed);
   TC_ASSERT_GT(allocated, 0);
   if (ABSL_PREDICT_FALSE(allocated == 1)) {
@@ -335,12 +355,12 @@ inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal) {
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
     return BitmapPush(ptr, size, reciprocal);
   }
-  return ListPush(ptr, size);
+  return ListPush(ptr, size, max_cache_size);
 }
 
-inline bool Span::ListPush(void* ptr, size_t size) {
+inline bool Span::ListPush(void* ptr, size_t size, uint32_t max_cache_size) {
   ObjIdx idx = PtrToIdx(ptr, size);
-  if (cache_size_ != kCacheSize) {
+  if (cache_size_ < max_cache_size) {
     // Have empty space in the cache, push there.
     cache_[cache_size_] = idx;
     cache_size_++;
@@ -483,6 +503,23 @@ inline bool Span::UseBitmapForSize(size_t size) {
 // This is equivalent to UseBitmapForSize, but instrusive-ness is the property
 // callers care about, while use of bitmap is an implementation detail.
 inline bool Span::IsNonIntrusive(size_t size) { return UseBitmapForSize(size); }
+
+inline std::align_val_t Span::CalcAlignOf(uint32_t max_cache_size) {
+  TC_ASSERT_GE(max_cache_size, kCacheSize);
+  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
+  return static_cast<std::align_val_t>(
+      max_cache_size == kCacheSize ? 8 : ABSL_CACHELINE_SIZE);
+}
+
+inline size_t Span::CalcSizeOf(uint32_t max_cache_size) {
+  TC_ASSERT_GE(max_cache_size, kCacheSize);
+  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
+  size_t ret = sizeof(Span) + sizeof(uint16_t) * (max_cache_size - kCacheSize);
+  ret = (ret + alignof(Span) - 1) & ~(alignof(Span) - 1);
+  TC_ASSERT_GE(ret, 48);
+  TC_ASSERT_LE(ret, 64);
+  return ret;
+}
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

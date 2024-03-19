@@ -164,7 +164,8 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
 
   // Pop from cache.
   auto csize = cache_size_;
-  ASSUME(csize <= kCacheSize);
+  // TODO(b/304135905):  Complete experiment and update kCacheSize.
+  ASSUME(csize <= kLargeCacheSize);
   auto cache_reads = csize < N ? csize : N;
   const uintptr_t span_start = first_page_.start_uintptr();
   for (; result < cache_reads; result++) {
@@ -234,7 +235,8 @@ void Span::BuildBitmap(size_t size, size_t count) {
   TC_ASSERT_EQ(bitmap_.CountBits(0, bitmap_.size()), count);
 }
 
-int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
+int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
+                        uint32_t max_cache_size) {
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
@@ -269,8 +271,10 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N) {
   ObjIdx idxEnd = count * idxStep;
 
   // Then, push as much as we can into the cache_.
+  TC_ASSERT_GE(max_cache_size, kCacheSize);
+  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
   int cache_size = 0;
-  for (; idx < idxEnd && cache_size < kCacheSize; idx += idxStep) {
+  for (; idx < idxEnd && cache_size < max_cache_size; idx += idxStep) {
     cache_[cache_size] = idx;
     cache_size++;
   }
