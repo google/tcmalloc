@@ -932,6 +932,7 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
+        ":malloc_extension",
         "//tcmalloc/internal:page_size",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/testing:testutil",

@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -262,7 +263,34 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
           capacity};
 }
 
-void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
+ABSL_ATTRIBUTE_NOINLINE
+static void ReportMismatchedDelete(SampledAllocation& alloc, size_t size,
+                                   size_t requested_size,
+                                   std::optional<size_t> allocated_size) {
+  Log(kLog, __FILE__, __LINE__,
+      "*** GWP-ASan "
+      "(https://google.github.io/tcmalloc/gwp-asan.html)  "
+      "has detected a memory error ***");
+  Log(kLog, __FILE__, __LINE__, "Error originates from memory allocated at:");
+  PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
+
+  if (allocated_size.value_or(requested_size) != requested_size) {
+    Log(kLog, __FILE__, __LINE__, "Mismatched-size-delete of", size,
+        "bytes (expected", requested_size, "-", *allocated_size, "bytes) at:");
+  } else {
+    Log(kLog, __FILE__, __LINE__, "Mismatched-size-delete of", size,
+        "bytes (expected", requested_size, "bytes) at:");
+  }
+  static void* stack[kMaxStackDepth];
+  const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
+  PrintStackTrace(stack, depth);
+
+  RecordCrash("GWP-ASan", "mismatched-size-delete");
+  abort();
+}
+
+void MaybeUnsampleAllocation(Static& state, void* ptr,
+                             std::optional<size_t> size, Span* span) {
   // No pageheap_lock required. The sampled span should be unmarked and have its
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
@@ -275,6 +303,18 @@ void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span) {
         sampled_allocation->sampled_stack.requested_size;
     const size_t allocated_size =
         sampled_allocation->sampled_stack.allocated_size;
+    if (size.has_value()) {
+      if (sampled_allocation->sampled_stack.requested_size_returning) {
+        if (ABSL_PREDICT_FALSE(
+                !(requested_size <= *size && *size <= allocated_size))) {
+          ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
+                                 allocated_size);
+        }
+      } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
+        ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
+                               std::nullopt);
+      }
+    }
     // SampleifyAllocation turns alignment 1 into 0, turn it back for
     // SizeMap::SizeClass.
     const size_t alignment =

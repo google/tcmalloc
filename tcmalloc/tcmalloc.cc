@@ -63,6 +63,7 @@
 #include <map>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -628,13 +629,13 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
 // keep it out of fast-path. This helps avoid expensive
 // prologue/epilogue for fast-path freeing functions.
 ABSL_ATTRIBUTE_NOINLINE
-static void InvokeHooksAndFreePages(void* ptr) {
+static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   const PageId p = PageIdContaining(ptr);
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   TC_CHECK_NE(span, nullptr, "Possible double free detected");
 
-  MaybeUnsampleAllocation(tc_globals, ptr, span);
+  MaybeUnsampleAllocation(tc_globals, ptr, size, span);
 
   if (ABSL_PREDICT_FALSE(
           tc_globals.guardedpage_allocator().PointerIsMine(ptr))) {
@@ -682,7 +683,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
     FreeSmall(ptr, size_class);
   } else {
     SLOW_PATH_BARRIER();
-    InvokeHooksAndFreePages(ptr);
+    InvokeHooksAndFreePages(ptr, std::nullopt);
   }
 }
 
@@ -697,7 +698,7 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
   TC_ASSERT_NE(ptr, nullptr);
   if (GetMemoryTag(ptr) != MemoryTag::kCold) {
     // we don't know true class size of the ptr
-    return InvokeHooksAndFreePages(ptr);
+    return InvokeHooksAndFreePages(ptr, size);
   }
   size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
@@ -706,7 +707,7 @@ ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
     // We couldn't calculate the size class, which means size > kMaxSize.
     TC_ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
-    return InvokeHooksAndFreePages(ptr);
+    return InvokeHooksAndFreePages(ptr, size);
   }
   FreeSmall(ptr, size_class);
 }
@@ -745,7 +746,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
     TC_ASSERT(size > kMaxSize || align.align() > alignof(std::max_align_t));
     static_assert(kMaxSize >= kPageSize, "kMaxSize must be at least kPageSize");
     SLOW_PATH_BARRIER();
-    return InvokeHooksAndFreePages(ptr);
+    return InvokeHooksAndFreePages(ptr, size);
   }
 
   FreeSmall(ptr, size_class);

@@ -141,7 +141,7 @@ class LogItem {
 extern void Log(LogMode mode, const char* filename, int line, LogItem a,
                 LogItem b = LogItem(), LogItem c = LogItem(),
                 LogItem d = LogItem(), LogItem e = LogItem(),
-                LogItem f = LogItem());
+                LogItem f = LogItem(), LogItem g = LogItem());
 
 void RecordCrash(absl::string_view detector, absl::string_view error);
 ABSL_ATTRIBUTE_NORETURN void CrashWithOOM(size_t alloc_size);

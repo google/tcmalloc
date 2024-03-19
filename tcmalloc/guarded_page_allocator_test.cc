@@ -16,7 +16,9 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <memory>
+#include <new>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
@@ -26,6 +28,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/sysinfo.h"
+#include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 
@@ -263,22 +266,120 @@ TEST_F(GuardedPageAllocatorTest, ThreadedHighContention) {
   }
 }
 
-TEST_F(GuardedPageAllocatorTest, DeleteSizeCheck) {
-#ifdef NDEBUG
-  GTEST_SKIP() << "requires debug build";
+class SampledAllocationWithFilterTest
+    : public GuardedPageAllocatorTest,
+      public testing::WithParamInterface<std::function<bool(void*)>> {
+ protected:
+  void SetUp() override {
+#ifndef __cpp_sized_deallocation
+    GTEST_SKIP() << "requires sized delete support";
 #endif
-  for (size_t i = 0; i < 1000; ++i) {
-    void* ptr = ::operator new(1000);
-    if (!tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
-      ::operator delete(ptr);
-      continue;
-    }
-    EXPECT_DEATH(sized_delete(ptr, 2000);, "size check failed 1000 2000");
-    ::operator delete(ptr);
+    // Sanitizers override malloc/free with their own.
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+    GTEST_SKIP() << "skipping tests on sanitizers";
+#endif
+  }
+};
+
+TEST_P(SampledAllocationWithFilterTest, MismatchedSizeDelete) {
+  constexpr int kIter = 1000000;
+  const auto& filter = GetParam();
+
+  for (int i = 0; i < kIter; ++i) {
+    auto deleter = [](void* ptr) { ::operator delete(ptr); };
+    std::unique_ptr<void, decltype(deleter)> ptr(::operator new(1000), deleter);
+    if (!filter(ptr.get())) continue;
+    ASSERT_TRUE(!IsNormalMemory(ptr.get()));
+
+#ifdef NDEBUG
+    EXPECT_DEATH(
+        sized_delete(ptr.get(), 2000),
+        "Mismatched-size-delete of 2000 bytes \\(expected 1000 bytes\\) at");
+#else
+    // This will crash with the ASSERT() in the fast path.
+    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
+      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                   "size check failed 1000 2000");
+    else
+      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                   "size check failed 1024 2048");
+#endif
+
     return;
   }
-  GTEST_SKIP() << "can't get a guarded allocation, giving up";
+
+  GTEST_SKIP() << "can't get a sampled allocation, giving up";
 }
+
+TEST_P(SampledAllocationWithFilterTest, MismatchedSizeDeleteZero) {
+  constexpr int kIter = 1000000;
+  const auto& filter = GetParam();
+
+  for (int i = 0; i < kIter; ++i) {
+    auto deleter = [](void* ptr) { ::operator delete(ptr); };
+    std::unique_ptr<void, decltype(deleter)> ptr(::operator new(1000), deleter);
+    if (!filter(ptr.get())) continue;
+    ASSERT_TRUE(!IsNormalMemory(ptr.get()));
+
+    EXPECT_DEATH(
+        sized_delete(ptr.get(), 0),
+        "Mismatched-size-delete of 0 bytes \\(expected 1000 bytes\\) at");
+
+    return;
+  }
+
+  GTEST_SKIP() << "can't get a sampled allocation, giving up";
+}
+
+TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
+  constexpr int kIter = 1000000;
+  const auto& filter = GetParam();
+
+  for (int i = 0; i < kIter; ++i) {
+    auto sized_ptr = tcmalloc_size_returning_operator_new(1000);
+    auto deleter = [](void* ptr) { ::operator delete(ptr); };
+    std::unique_ptr<void, decltype(deleter)> ptr(sized_ptr.p, deleter);
+    if (!filter(ptr.get())) continue;
+    ASSERT_TRUE(!IsNormalMemory(ptr.get()));
+
+#ifdef NDEBUG
+    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
+      EXPECT_DEATH(  // Guarded page allocation will return exactly as requested
+          sized_delete(ptr.get(), 2000),
+          "Mismatched-size-delete of 2000 bytes \\(expected 1000 bytes\\) at");
+    else
+      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                   "Mismatched-size-delete of 2000 bytes \\(expected 1000 - "
+                   "1024 bytes\\) at");
+#else
+    // This will crash with the ASSERT() in the fast path.
+    if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
+      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                   "size check failed 1000 2000");
+    else
+      EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                   "size check failed 1024 2048");
+#endif
+
+    return;
+  }
+
+  GTEST_SKIP() << "can't get a sampled allocation, giving up";
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    VaryingSampleCases, SampledAllocationWithFilterTest,
+    testing::Values(
+        [](void* ptr) {
+          // Sampled page-guarded memory
+          return tc_globals.guardedpage_allocator().PointerIsMine(ptr);
+        },
+        [](void* ptr) {
+          // Sampled memory only
+          return !IsNormalMemory(ptr) &&
+                 !tc_globals.guardedpage_allocator().PointerIsMine(ptr);
+        }));
 
 ABSL_CONST_INIT ABSL_ATTRIBUTE_UNUSED GuardedPageAllocator
     gpa_is_constant_initializable;

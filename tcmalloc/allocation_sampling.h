@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
@@ -94,7 +95,8 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
                                 hot_cold_t access_hint, bool size_returning,
                                 void* obj, Span* span);
 
-void MaybeUnsampleAllocation(Static& state, void* ptr, Span* span);
+void MaybeUnsampleAllocation(Static& state, void* ptr,
+                             std::optional<size_t> size, Span* span);
 
 template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
