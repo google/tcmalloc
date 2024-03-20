@@ -27,7 +27,13 @@
 
 // The bit denotes that tcmalloc_rseq.slabs contains valid slabs offset.
 #define TCMALLOC_CACHED_SLABS_BIT 63
-#define TCMALLOC_CACHED_SLABS_MASK (1ul << TCMALLOC_CACHED_SLABS_BIT)
+#define TCMALLOC_CACHED_SLABS_MASK_SHIFT (1ul << TCMALLOC_CACHED_SLABS_BIT)
+#define TCMALLOC_CACHED_SLABS_MASK 0x8000000000000000ULL
+
+#ifndef __ASSEMBLER__
+// Check constant is correct in C++, not in assembly
+static_assert(TCMALLOC_CACHED_SLABS_MASK == TCMALLOC_CACHED_SLABS_MASK_SHIFT);
+#endif
 
 // TCMALLOC_PERCPU_RSEQ_SUPPORTED_PLATFORM defines whether or not we have an
 // implementation for the target OS and architecture.
