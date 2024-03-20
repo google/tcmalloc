@@ -220,13 +220,7 @@ class Span final : public SpanList::Elem {
   static uint32_t CalcReciprocal(size_t size);
 
   static constexpr size_t kCacheSize = 4;
-  static constexpr size_t kLargeCacheSize =
-#if defined(__clang__)
-      12
-#else
-      kCacheSize
-#endif
-      ;
+  static constexpr size_t kLargeCacheSize = 12;
 
   static std::align_val_t CalcAlignOf(uint32_t max_cache_size);
   static size_t CalcSizeOf(uint32_t max_cache_size);
@@ -266,11 +260,7 @@ class Span final : public SpanList::Elem {
   union {
     // Used only for spans in CentralFreeList (SMALL_OBJECT state).
     // Embed cache of free objects.
-    ObjIdx cache_[
-#if !defined(__clang__)
-        kCacheSize
-#endif
-    ];
+    ObjIdx cache_[0];
 
     // Used for spans with in CentralFreeList with fewer than 64 objects.
     // Each bit is set to one when the object is available, and zero

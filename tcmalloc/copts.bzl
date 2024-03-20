@@ -31,6 +31,7 @@ TCMALLOC_GCC_FLAGS = [
     # Ensure TCMalloc itself builds without errors, even if its dependencies
     # aren't necessarily -Werror clean.
     "-Werror",
+    "-Wno-array-bounds",
     "-Wno-attribute-alias",
     "-Wno-deprecated-declarations",
     "-Wno-sign-compare",
