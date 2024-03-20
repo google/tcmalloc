@@ -704,6 +704,9 @@ MallocExtension::GetProperties() {
   if (&MallocExtension_Internal_GetProperties != nullptr) {
     MallocExtension_Internal_GetProperties(&ret);
   }
+  if (&MallocExtension_Internal_GetExperiments != nullptr) {
+    MallocExtension_Internal_GetExperiments(&ret);
+  }
 #endif
   return ret;
 }

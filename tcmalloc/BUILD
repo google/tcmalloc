@@ -52,6 +52,7 @@ cc_library(
         "//tcmalloc/testing:__pkg__",
     ],
     deps = [
+        "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:logging",

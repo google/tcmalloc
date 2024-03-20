@@ -497,10 +497,6 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.successful_shrinks_after_hard_limit_hit"].value =
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kHard);
-
-  WalkExperiments([&](absl::string_view name, bool active) {
-    (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;
-  });
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {

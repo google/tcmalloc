@@ -18,19 +18,23 @@
 
 #include <algorithm>
 #include <functional>
+#include <map>
 #include <optional>
+#include <string>
 #include <string_view>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/malloc_extension.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -217,6 +221,13 @@ void WalkExperiments(
   for (const auto& config : experiments) {
     callback(config.name, IsExperimentActive(config.id));
   }
+}
+
+extern "C" void MallocExtension_Internal_GetExperiments(
+    std::map<std::string, MallocExtension::Property>* result) {
+  WalkExperiments([&](absl::string_view name, bool active) {
+    (*result)[absl::StrCat("tcmalloc.experiment.", name)].value = active;
+  });
 }
 
 }  // namespace tcmalloc
