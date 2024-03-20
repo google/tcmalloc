@@ -85,11 +85,7 @@ class LimitTest : public ::testing::Test {
   }
 
   size_t physical_memory_used() {
-    std::map<std::string, MallocExtension::Property> m =
-        MallocExtension::GetProperties();
-    auto i = m.find("generic.physical_memory_used");
-    TC_CHECK(i != m.end());
-    return i->second.value;
+    return *MallocExtension::GetNumericProperty("generic.physical_memory_used");
   }
 
   // Returns a human-readable stats representation.  This is backed by
