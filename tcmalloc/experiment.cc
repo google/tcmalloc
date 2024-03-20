@@ -47,7 +47,15 @@ constexpr absl::string_view kDisableAll = "all";
 // involuntarily in tests, and shouldn't be enabled widely.
 bool HasBrittleTestFailures(Experiment exp) {
 
-  return true;
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS) {
+    return true;
+  }
+
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES) {
+    return true;
+  }
+
+  return false;
 }
 
 bool IsCompilerExperiment(Experiment exp) {
