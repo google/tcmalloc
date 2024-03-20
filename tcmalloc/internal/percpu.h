@@ -198,7 +198,8 @@ extern "C" {
 size_t TcmallocSlab_Internal_PushBatch(size_t size_class, void** batch,
                                        size_t len);
 size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
-                                      size_t len);
+                                      size_t len,
+                                      std::atomic<uint16_t>* begin_ptr);
 }  // extern "C"
 
 // NOTE:  We skirt the usual naming convention slightly above using "_" to

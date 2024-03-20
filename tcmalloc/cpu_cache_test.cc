@@ -379,7 +379,8 @@ TEST(CpuCacheTest, Metadata) {
   size_t slabs_size = subtle::percpu::GetSlabsAllocSize(
       subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus);
   size_t resize_size = num_cpus * sizeof(bool);
-  EXPECT_EQ(r.virtual_size, slabs_size + resize_size);
+  size_t begins_size = kNumClasses * sizeof(std::atomic<uint16_t>);
+  EXPECT_EQ(r.virtual_size, slabs_size + resize_size + begins_size);
   EXPECT_EQ(r.resident_size, 0);
 
   auto count_cores = [&]() {
@@ -427,7 +428,7 @@ TEST(CpuCacheTest, Metadata) {
   r = cache.MetadataMemoryUsage();
   EXPECT_EQ(
       r.virtual_size,
-      resize_size +
+      resize_size + begins_size +
           subtle::percpu::GetSlabsAllocSize(
               subtle::percpu::ToShiftType(shift_bounds.max_shift), num_cpus));
 

@@ -2,7 +2,7 @@
 
 <!--*
 # Document freshness: For more information, see go/fresh-source.
-freshness: { owner: 'ckennelly' reviewed: '2024-01-29' }
+freshness: { owner: 'ckennelly' reviewed: '2024-02-01' }
 *-->
 
 ## per-CPU Caches
@@ -54,22 +54,20 @@ these are represented as:
 
 ```
 struct Slabs {
-  std::atomic<int64_t> header[NumClasses];
+  std::atomic<int32_t> header[NumClasses];
   void* mem[((1ul << Shift) - sizeof(header)) / sizeof(void*)];
 };
 
-  // Slab header (packed, atomically updated 64-bit).
-  // All {begin, current, end} values are pointer offsets from per-CPU region
-  // start. The slot array is in [begin, end), and the occupied slots are in
-  // [begin, current).
+  // Slab header (packed, atomically updated 32-bit).
+  // Current and end are pointer offsets from per-CPU region start.
+  // The slot array is in [begin, end), and the occupied slots are in
+  // [begin, current). Begin is stored separately, it's constant and
+  // the same for all CPUs.
   struct Header {
     // The end offset of the currently occupied slots.
     uint16_t current;
-    // The begin offset of the slot array for this size class.
-    uint16_t begin;
     // The end offset of the slot array for this size class.
     uint16_t end;
-    uint16_t unused;
   };
 ```
 
@@ -110,21 +108,19 @@ start:
   uint64_t cpu_id = __rseq_abi.cpu_id;
   Header* hdr = &slabs[cpu_id].header[size_class];
   uint64_t current = hdr->current;
-  uint64_t begin = hdr->begin;
-  if (ABSL_PREDICT_FALSE(current <= begin)) {
+  void* ret = *(&slabs[cpu_id] + current * sizeof(void*) - sizeof(void*));
+  // The element before the array is specifically marked with the low bit set.
+  if (ABSL_PREDICT_FALSE((uintptr_t)ret & 1)) {
     goto underflow;
   }
-
   void* next = *(&slabs[cpu_id] + current * sizeof(void*) - 2 * sizeof(void*))
-  prefetcht0(next);
-
-  void* ret = *(&slabs[cpu_id] + current * sizeof(void*) - sizeof(void*));
   --current;
   hdr->current = current;
 commit:
+  prefetcht0(next);
   return ret;
 underflow:
-  return underflow_handler(cpu_id, size_class);
+  return nullptr;
 }
 
 // This is implemented in assembly, but for exposition.
@@ -150,7 +146,7 @@ pointer-to-self.
 
 This sequence terminates with the *single* committing store to `hdr->current`.
 If we are migrated or otherwise interrupted, we restart the preparatory steps,
-as the values of `cpu_id`, `current`, `begin` may have changed.
+as the values of `cpu_id` and `current` may have changed.
 
 As these operations work on a single core's data and are executed on that core.
 From a memory ordering perspective, loads and stores need to appear on that core
@@ -223,13 +219,9 @@ overflow:
 
 ## Initialization of the Slab
 
-To reduce metadata demands, we lazily initialize the slabs, relying on the
-kernel to provide zeroed pages from the `mmap` call to obtain memory for the
-slab metadata.
-
-At startup, this leaves the `Header` of each initialized to `current = begin =
-end = 0`. The initial push or pop will trigger the overflow or underflow paths
-(respectively), so that we can populate these values.
+To reduce metadata demands, we lazily initialize the slabs for each CPU. When we
+first cache slab pointer for the given CPU (see slab pointer caching section
+below), we initialize `Header` for each size class.
 
 ## More Complex Operations: Batches
 
