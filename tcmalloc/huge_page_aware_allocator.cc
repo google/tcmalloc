@@ -60,7 +60,7 @@ bool decide_subrelease() {
           }
         }
 
-        Log(kLog, __FILE__, __LINE__,
+        TC_LOG(
             "Runtime opt-out from HPAA requires building with "
             "//tcmalloc:want_no_hpaa."
         );

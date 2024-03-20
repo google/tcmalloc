@@ -215,9 +215,8 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   TC_ASSERT_EQ(result % GetPageSize(), 0);
   void* result_ptr = reinterpret_cast<void*>(result);
   if (mprotect(result_ptr, actual_size, PROT_READ | PROT_WRITE) != 0) {
-    Log(kLogWithStack, __FILE__, __LINE__,
-        "mprotect() region failed (ptr, size, error)", result_ptr, actual_size,
-        strerror(errno));
+    TC_LOG("mprotect(%p, %v) failed (%s)", result_ptr, actual_size,
+           strerror(errno));
     return {nullptr, 0};
   }
   // For cold regions (kInfrequentAccess) and sampled regions
@@ -400,9 +399,8 @@ void BindMemory(void* const base, const size_t size, const size_t partition) {
   }
 
   if (bind_mode == NumaBindMode::kAdvisory) {
-    Log(kLogWithStack, __FILE__, __LINE__,
-        "Warning: Unable to mbind memory (errno, base, nodemask)", errno, base,
-        nodemask);
+    TC_LOG("Warning: Unable to mbind memory (errno=%d, base=%p, nodemask=%v)",
+           errno, base, nodemask);
     return;
   }
 
@@ -693,23 +691,21 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       TC_CHECK_EQ(result, MAP_FAILED);
     } else {
       if (result == MAP_FAILED) {
-        Log(kLogWithStack, __FILE__, __LINE__,
-            "mmap() reservation failed (hint, size, error)", hint, size,
-            strerror(errno));
+        TC_LOG("mmap(%p, %v) reservation failed (%s)", hint, size,
+               strerror(errno));
         return nullptr;
       }
       if (int err = munmap(result, size)) {
-        Log(kLogWithStack, __FILE__, __LINE__, "munmap() failed (error)",
-            strerror(errno));
+        TC_LOG("munmap(%p, %v) failed (%s)", result, size, strerror(errno));
         TC_ASSERT_EQ(err, 0);
       }
     }
     next_addr = RandomMmapHint(size, alignment, tag);
   }
 
-  Log(kLogWithStack, __FILE__, __LINE__,
-      "MmapAligned() failed - unable to allocate with tag (hint, size, "
-      "alignment) - is something limiting address placement?",
+  TC_LOG(
+      "MmapAligned() failed - unable to allocate with tag (hint=%p, size=%v, "
+      "alignment=%v) - is something limiting address placement?",
       hint, size, alignment);
   return nullptr;
 }

@@ -954,9 +954,8 @@ TEST_P(HugeRegionSetTest, Set) {
             });
 
   for (int i = 0; i < regions.size(); i++) {
-    Log(kLog, __FILE__, __LINE__, i, regions[i]->used_pages().raw_num(),
-        regions[i]->free_pages().raw_num(),
-        regions[i]->unmapped_pages().raw_num());
+    TC_LOG("i=%v used=%v free=%v unmapped=%v", i, regions[i]->used_pages(),
+           regions[i]->free_pages(), regions[i]->unmapped_pages());
   }
   // Now first two should be "full" (ish)
   EXPECT_LE(Region::size().in_pages().raw_num() * 0.9,

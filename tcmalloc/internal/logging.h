@@ -45,9 +45,6 @@
 // Safe logging helper: we write directly to the stderr file
 // descriptor and avoid FILE buffering because that may invoke
 // malloc().
-//
-// Example:
-//   Log(kLog, __FILE__, __LINE__, "error", bytes);
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -102,46 +99,9 @@ struct StackTrace {
   int guarded_status;
 };
 
-enum LogMode {
-  kLog,           // Just print the message
-  kLogWithStack,  // Print the message and a stack trace
-};
-
-class Logger;
-
-// A LogItem holds any of the argument types that can be passed to Log()
-class LogItem {
- public:
-  LogItem() : tag_(kEnd) {}
-  LogItem(const char* v) : tag_(kStr) { u_.str = v; }
-  LogItem(const std::string& v) : LogItem(v.c_str()) {}
-  LogItem(int v) : tag_(kSigned) { u_.snum = v; }
-  LogItem(long v) : tag_(kSigned) { u_.snum = v; }
-  LogItem(long long v) : tag_(kSigned) { u_.snum = v; }
-  LogItem(unsigned int v) : tag_(kUnsigned) { u_.unum = v; }
-  LogItem(unsigned long v) : tag_(kUnsigned) { u_.unum = v; }
-  LogItem(unsigned long long v) : tag_(kUnsigned) { u_.unum = v; }
-  LogItem(const void* v) : tag_(kPtr) { u_.ptr = v; }
-  // Parameter is reference (against clang-tidy) to prevent pointing at a
-  // temporary (the by-value parameter), which causes a UaF error.
-  LogItem(const absl::string_view& v) : tag_(kStrView) { u_.ptr = &v; }
-
- private:
-  friend class Logger;
-  enum Tag { kStr, kStrView, kSigned, kUnsigned, kPtr, kEnd };
-  Tag tag_;
-  union {
-    const char* str;
-    const void* ptr;
-    int64_t snum;
-    uint64_t unum;
-  } u_;
-};
-
-extern void Log(LogMode mode, const char* filename, int line, LogItem a,
-                LogItem b = LogItem(), LogItem c = LogItem(),
-                LogItem d = LogItem(), LogItem e = LogItem(),
-                LogItem f = LogItem(), LogItem g = LogItem());
+#define TC_LOG(msg, ...)                                                \
+  tcmalloc::tcmalloc_internal::LogImpl("%d %s:%d] " msg "\n", __FILE__, \
+                                       __LINE__, ##__VA_ARGS__)
 
 void RecordCrash(absl::string_view detector, absl::string_view error);
 ABSL_ATTRIBUTE_NORETURN void CrashWithOOM(size_t alloc_size);
@@ -168,10 +128,24 @@ void PrintStackTraceFromSignalHandler(void* context);
 // Tests can override this function to collect logging messages.
 extern void (*log_message_writer)(const char* msg, int length);
 
+template <typename... Args>
+ABSL_ATTRIBUTE_NOINLINE void LogImpl(
+    const absl::FormatSpec<int, Args...>& format, const Args&... args) {
+  char buf[512];
+  int n;
+  {
+    AllocationGuard no_allocations;
+    n = absl::SNPrintF(buf, sizeof(buf), format, absl::base_internal::GetTID(),
+                       args...);
+  }
+  buf[sizeof(buf) - 1] = 0;
+  (*log_message_writer)(buf, std::min<size_t>(n, sizeof(buf) - 1));
+}
+
 // TC_BUG unconditionally aborts the program with the message.
 #define TC_BUG(msg, ...)                                                       \
   tcmalloc::tcmalloc_internal::CheckFailed(__FUNCTION__, __FILE__, __LINE__,   \
-                                           "%d %s:%d: CHECK in %s: " msg "\n", \
+                                           "%d %s:%d] CHECK in %s: " msg "\n", \
                                            ##__VA_ARGS__)
 
 // TC_CHECK* check the given condition in both debug and release builds,

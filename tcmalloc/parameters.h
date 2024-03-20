@@ -115,7 +115,7 @@ class Parameters {
   static void set_per_cpu_caches(bool value) {
 #if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
     if (!value) {
-      Log(kLog, __FILE__, __LINE__,
+      TC_LOG(
           "Using per-thread caches requires linking against "
           ":tcmalloc_deprecated_perthread.");
       return;

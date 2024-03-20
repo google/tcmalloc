@@ -606,8 +606,7 @@ Span* CentralFreeList<Forwarder>::AllocateSpan() {
                         .density = density};
   Span* span = forwarder_.AllocateSpan(size_class_, info, pages_per_span_);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
-    Log(kLog, __FILE__, __LINE__, "tcmalloc: allocation failed",
-        pages_per_span_.in_bytes());
+    TC_LOG("tcmalloc: allocation failed %v", pages_per_span_);
   }
   return span;
 }

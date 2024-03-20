@@ -84,7 +84,7 @@ PageFlags::PageFlags()
 PageFlags::PageFlags(const char* const alternate_filename)
     : fd_(signal_safe_open(alternate_filename, O_RDONLY)) {
   if (fd_ == -1) {
-    Log(kLog, __FILE__, __LINE__, "Could not open", alternate_filename, errno);
+    TC_LOG("Could not open %s (errno %d)", alternate_filename, errno);
   }
 }
 
@@ -116,8 +116,7 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
 
   if (ABSL_PREDICT_FALSE((PageHead(flags) || PageTail(flags)) &&
                          !PageThp(flags))) {
-    Log(kLog, __FILE__, __LINE__,
-        "PageFlags asked for information on non-THP hugepage??");
+    TC_LOG("PageFlags asked for information on non-THP hugepage??");
     return absl::StatusCode::kFailedPrecondition;
   }
 
@@ -131,8 +130,7 @@ absl::StatusCode PageFlags::MaybeReadOne(uintptr_t vaddr, uint64_t& flags,
       return absl::StatusCode::kUnavailable;
     }
     if (ABSL_PREDICT_FALSE(PageTail(flags))) {
-      Log(kLog, __FILE__, __LINE__,
-          "Somehow still at tail page even after seeking?");
+      TC_LOG("Somehow still at tail page even after seeking?");
       return absl::StatusCode::kFailedPrecondition;
     }
     // NOMUTANTS--Efficiency improvement that's not visible
@@ -167,8 +165,8 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
 
       if (PageTail(buf_[i])) {
         if (ABSL_PREDICT_FALSE(last_head_read_ == -1)) {
-          Log(kLog, __FILE__, __LINE__,
-              "Did not see head page before tail page", i, buf_[i]);
+          TC_LOG("Did not see head page before tail page (i=%v, buf=%v)", i,
+                 buf_[i]);
           return absl::StatusCode::kFailedPrecondition;
         }
         auto last_read = last_head_read_;

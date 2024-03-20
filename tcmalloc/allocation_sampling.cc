@@ -267,17 +267,16 @@ ABSL_ATTRIBUTE_NOINLINE
 static void ReportMismatchedDelete(SampledAllocation& alloc, size_t size,
                                    size_t requested_size,
                                    std::optional<size_t> allocated_size) {
-  Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
-  Log(kLog, __FILE__, __LINE__, "Error originates from memory allocated at:");
+  TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
+  TC_LOG("Error originates from memory allocated at:");
   PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
 
   if (allocated_size.value_or(requested_size) != requested_size) {
-    Log(kLog, __FILE__, __LINE__, "Mismatched-size-delete of", size,
-        "bytes (expected", requested_size, "-", *allocated_size, "bytes) at:");
+    TC_LOG("Mismatched-size-delete of %v bytes (expected %v - %v bytes) at:",
+           size, requested_size, *allocated_size);
   } else {
-    Log(kLog, __FILE__, __LINE__, "Mismatched-size-delete of", size,
-        "bytes (expected", requested_size, "bytes) at:");
+    TC_LOG("Mismatched-size-delete of %v bytes (expected %v bytes) at:", size,
+           requested_size);
   }
   static void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);

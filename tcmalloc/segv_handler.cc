@@ -165,55 +165,45 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   std::tie(offset, size) =
       tc_globals.guardedpage_allocator().GetAllocationOffsetAndSize(fault);
 
-  Log(kLog, __FILE__, __LINE__,
-      "*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
-  Log(kLog, __FILE__, __LINE__, ">>> Access at offset", offset,
-      "into buffer of length", size);
-  Log(kLog, __FILE__, __LINE__,
-      "Error originates from memory allocated in thread",
-      alloc_trace->thread_id, "at:");
+  TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
+  TC_LOG(">>> Access at offset %v into buffer of length %v", offset, size);
+  TC_LOG("Error originates from memory allocated in thread %v at:",
+         alloc_trace->thread_id);
   PrintStackTrace(alloc_trace->stack, alloc_trace->depth);
 
   switch (error) {
     case GuardedAllocationsErrorType::kUseAfterFree:
     case GuardedAllocationsErrorType::kUseAfterFreeRead:
     case GuardedAllocationsErrorType::kUseAfterFreeWrite:
-      Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace->thread_id, "at:");
+      TC_LOG("The memory was freed in thread %v at:", dealloc_trace->thread_id);
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
-      Log(kLog, __FILE__, __LINE__, "Use-after-free",
-          WriteFlagToString(write_flag), "occurs in thread", current_thread,
-          "at:");
+      TC_LOG("Use-after-free %s occurs in thread %v at:",
+             WriteFlagToString(write_flag), current_thread);
       RecordCrash("GWP-ASan", "use-after-free");
       break;
     case GuardedAllocationsErrorType::kBufferUnderflow:
     case GuardedAllocationsErrorType::kBufferUnderflowRead:
     case GuardedAllocationsErrorType::kBufferUnderflowWrite:
-      Log(kLog, __FILE__, __LINE__, "Buffer underflow",
-          WriteFlagToString(write_flag), "occurs in thread", current_thread,
-          "at:");
+      TC_LOG("Buffer underflow %s occurs in thread %v at:",
+             WriteFlagToString(write_flag), current_thread);
       RecordCrash("GWP-ASan", "buffer-underflow");
       break;
     case GuardedAllocationsErrorType::kBufferOverflow:
     case GuardedAllocationsErrorType::kBufferOverflowRead:
     case GuardedAllocationsErrorType::kBufferOverflowWrite:
-      Log(kLog, __FILE__, __LINE__, "Buffer overflow",
-          WriteFlagToString(write_flag), "occurs in thread", current_thread,
-          "at:");
+      TC_LOG("Buffer overflow %s occurs in thread %v at:",
+             WriteFlagToString(write_flag), current_thread);
       RecordCrash("GWP-ASan", "buffer-overflow");
       break;
     case GuardedAllocationsErrorType::kDoubleFree:
-      Log(kLog, __FILE__, __LINE__, "The memory was freed in thread",
-          dealloc_trace->thread_id, "at:");
+      TC_LOG("The memory was freed in thread %v at:", dealloc_trace->thread_id);
       PrintStackTrace(dealloc_trace->stack, dealloc_trace->depth);
-      Log(kLog, __FILE__, __LINE__, "Double free occurs in thread",
-          current_thread, "at:");
+      TC_LOG("Double free occurs in thread %v at:", current_thread);
       RecordCrash("GWP-ASan", "double-free");
       break;
     case GuardedAllocationsErrorType::kBufferOverflowOnDealloc:
-      Log(kLog, __FILE__, __LINE__,
-          "Buffer overflow (write) detected in thread", current_thread,
-          "at free:");
+      TC_LOG("Buffer overflow (write) detected in thread %v at free:",
+             current_thread);
       RecordCrash("GWP-ASan", "buffer-overflow-detected-at-free");
       break;
     case GuardedAllocationsErrorType::kUnknown:
@@ -221,7 +211,7 @@ void SegvHandler(int signo, siginfo_t* info, void* context) {
   }
   PrintStackTraceFromSignalHandler(context);
   if (error == GuardedAllocationsErrorType::kBufferOverflowOnDealloc) {
-    Log(kLog, __FILE__, __LINE__,
+    TC_LOG(
         "*** Try rerunning with --config=asan to get stack trace of overflow "
         "***");
   }
@@ -238,7 +228,7 @@ static void ForwardSignal(int signo, siginfo_t* info, void* context) {
     // No previous handler registered.  Re-raise signal for core dump.
     int err = sigaction(signo, &old_sa, nullptr);
     if (err == -1) {
-      Log(kLog, __FILE__, __LINE__, "Couldn't restore previous sigaction!");
+      TC_LOG("Couldn't restore previous sigaction!");
     }
     raise(signo);
   } else if (old_sa.sa_handler == SIG_IGN) {

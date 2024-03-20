@@ -298,8 +298,6 @@ static bool want_disable_dynamic_slabs() {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-using tcmalloc::tcmalloc_internal::kLog;
-using tcmalloc::tcmalloc_internal::Log;
 using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 
@@ -441,8 +439,7 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
       tc_globals.page_allocator().limit(PageAllocator::kHard);
   tc_globals.page_allocator().set_limit(value, PageAllocator::kHard);
   if (value != old_limit) {
-    Log(kLog, __FILE__, __LINE__, "[tcmalloc] set page heap hard limit to",
-        value, "bytes");
+    TC_LOG("[tcmalloc] set page heap hard limit to %v bytes", value);
   }
 }
 
@@ -485,7 +482,7 @@ void TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v) {
 void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
 #if !defined(TCMALLOC_DEPRECATED_PERTHREAD)
   if (!v) {
-    Log(kLog, __FILE__, __LINE__,
+    TC_LOG(
         "Using per-thread caches requires linking against "
         ":tcmalloc_deprecated_perthread.");
     return;

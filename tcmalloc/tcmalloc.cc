@@ -789,7 +789,8 @@ bool CorrectSize(void* ptr, size_t size, AlignPolicy align) {
       }
     }
   }
-  Log(kLog, __FILE__, __LINE__, "size check failed", actual, size, size_class);
+  TC_LOG("size check failed for %p: claimed %v, actual %v, class %v", ptr, size,
+         actual, size_class);
   return false;
 }
 

@@ -93,18 +93,17 @@ extern "C" void TCMallocInternalCheckSizeClassAssumptions() {
 bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
                                size_t num_objects_to_move) {
   if (size == 0) {
-    Log(kLog, __FILE__, __LINE__, "size class is 0", size);
+    TC_LOG("size class is 0");
     return false;
   }
   if (size > kMaxSize) {
-    Log(kLog, __FILE__, __LINE__, "size class too big", size, kMaxSize);
+    TC_LOG("size %v class too big %v", size, kMaxSize);
     return false;
   }
   // Verify Span does not use intrusive list which triggers memory accesses
   // for sizes suitable for cold classes.
   if (size >= kMinAllocSizeForCold && !Span::IsNonIntrusive(size)) {
-    Log(kLog, __FILE__, __LINE__,
-        "size is suitable for cold classes but is intrusive", size);
+    TC_LOG("size %v is suitable for cold classes but is intrusive", size);
     return false;
   }
   // Check required alignment
@@ -112,40 +111,39 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
                                ? kLargeSizeAlignment
                                : static_cast<size_t>(kAlignment);
   if ((size & (alignment - 1)) != 0) {
-    Log(kLog, __FILE__, __LINE__, "Not aligned properly", size, alignment);
+    TC_LOG("%v not aligned properly %v", size, alignment);
     return false;
   }
   if (pages == 0) {
-    Log(kLog, __FILE__, __LINE__, "pages should not be 0", pages);
+    TC_LOG("pages should not be 0");
     return false;
   }
   if (pages >= 255) {
-    Log(kLog, __FILE__, __LINE__, "pages limited to 254", pages);
+    TC_LOG("pages %v limited to 254", pages);
     return false;
   }
   const size_t objects_per_span = Length(pages).in_bytes() / size;
   if (objects_per_span < 1) {
-    Log(kLog, __FILE__, __LINE__, "each span must have at least one object");
+    TC_LOG("each span must have at least one object");
     return false;
   }
   if (!Span::IsValidSizeClass(size, pages)) {
-    Log(kLog, __FILE__, __LINE__, "span size class assumptions are broken",
-        size, pages, objects_per_span);
+    TC_LOG("%v span size class assumptions are broken: pages=%v objs=%v", size,
+           pages, objects_per_span);
     return false;
   }
   if (!HugePageAwareAllocator::IsValidSizeClass(size, pages)) {
-    Log(kLog, __FILE__, __LINE__, "hpaa size class assumptions are broken",
-        size, pages, objects_per_span);
+    TC_LOG("%v hpaa size class assumptions are broken: pages=%v objs=%v", size,
+           pages, objects_per_span);
     return false;
   }
   if (num_objects_to_move < 2) {
-    Log(kLog, __FILE__, __LINE__, "num objects to move too small (<2)",
-        num_objects_to_move);
+    TC_LOG("num objects to move %v too small (<2)", num_objects_to_move);
     return false;
   }
   if (num_objects_to_move > kMaxObjectsToMove) {
-    Log(kLog, __FILE__, __LINE__, "num objects to move too large",
-        num_objects_to_move, kMaxObjectsToMove);
+    TC_LOG("num objects to move %v too large %v", num_objects_to_move,
+           kMaxObjectsToMove);
     return false;
   }
 
@@ -213,8 +211,8 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     size_t num_objects_to_move = size_classes[c].num_to_move;
     // Each size class must be larger than the previous size class.
     if (class_size <= size_classes[c - 1].size) {
-      Log(kLog, __FILE__, __LINE__, "Non-increasing size class", c,
-          size_classes[c - 1].size, class_size);
+      TC_LOG("Non-increasing size class %v: prev=%v next=%v", c,
+             size_classes[c - 1].size, class_size);
       return false;
     }
     if (!IsValidSizeClass(class_size, pages, num_objects_to_move)) {
@@ -226,8 +224,8 @@ bool SizeMap::ValidSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
   // configurations populate fewer distinct size classes and fill the tail of
   // the array with zeroes.
   if (size_classes[num_classes - 1].size != kMaxSize) {
-    Log(kLog, __FILE__, __LINE__, "last class doesn't cover kMaxSize",
-        num_classes - 1, size_classes[num_classes - 1].size, kMaxSize);
+    TC_LOG("last class %v size %v doesn't cover kMaxSize %v", num_classes - 1,
+           size_classes[num_classes - 1].size, kMaxSize);
     return false;
   }
   return true;

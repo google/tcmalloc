@@ -60,68 +60,6 @@ static void WriteMessage(const char* msg, int length) {
 
 void (*log_message_writer)(const char* msg, int length) = WriteMessage;
 
-class Logger {
- public:
-  bool Add(const LogItem& item);
-  bool AddStr(const char* str, int n);
-  bool AddNum(uint64_t num, int base);  // base must be 10 or 16.
-
-  static constexpr int kBufSize = 512;
-  char* p_;
-  char* end_;
-  char buf_[kBufSize];
-
-  StackTrace trace;
-};
-
-static Logger FormatLog(bool with_stack, const char* filename, int line,
-                        LogItem a, LogItem b, LogItem c, LogItem d, LogItem e,
-                        LogItem f, LogItem g) {
-  Logger state;
-  state.p_ = state.buf_;
-  state.end_ = state.buf_ + sizeof(state.buf_);
-  // clang-format off
-  state.AddStr(filename, strlen(filename)) &&
-      state.AddStr(":", 1) &&
-      state.AddNum(line, 10) &&
-      state.AddStr("]", 1) &&
-      state.Add(a) &&
-      state.Add(b) &&
-      state.Add(c) &&
-      state.Add(d) &&
-      state.Add(e) &&
-      state.Add(f) &&
-      state.Add(g);
-  // clang-format on
-
-  if (with_stack) {
-    state.trace.depth =
-        absl::GetStackTrace(state.trace.stack, kMaxStackDepth, 1);
-    state.Add(LogItem("@"));
-    for (int i = 0; i < state.trace.depth; i++) {
-      state.Add(LogItem(state.trace.stack[i]));
-    }
-  }
-
-  // Teminate with newline
-  if (state.p_ >= state.end_) {
-    state.p_ = state.end_ - 1;
-  }
-  *state.p_ = '\n';
-  state.p_++;
-
-  return state;
-}
-
-ABSL_ATTRIBUTE_NOINLINE
-void Log(LogMode mode, const char* filename, int line, LogItem a, LogItem b,
-         LogItem c, LogItem d, LogItem e, LogItem f, LogItem g) {
-  Logger state =
-      FormatLog(mode == kLogWithStack, filename, line, a, b, c, d, e, f, g);
-  int msglen = state.p_ - state.buf_;
-  (*log_message_writer)(state.buf_, msglen);
-}
-
 // If this failure occurs during "bazel test", writes a warning for Bazel to
 // display.
 static void RecordBazelWarning(absl::string_view type,
@@ -247,7 +185,7 @@ void CrashWithOOM(size_t alloc_size) {
 
 void PrintStackTrace(void** stack_frames, size_t depth) {
   for (size_t i = 0; i < depth; ++i) {
-    Log(kLog, __FILE__, __LINE__, "  @  ", stack_frames[i]);
+    TC_LOG("  @  %p", stack_frames[i]);
   }
 }
 
@@ -257,75 +195,6 @@ void PrintStackTraceFromSignalHandler(void* context) {
   1,
                                                 context, nullptr);
   PrintStackTrace(stack_frames, depth);
-}
-
-bool Logger::Add(const LogItem& item) {
-  // Separate real items with spaces
-  if (item.tag_ != LogItem::kEnd && p_ < end_) {
-    *p_ = ' ';
-    p_++;
-  }
-
-  switch (item.tag_) {
-    case LogItem::kStr:
-      return AddStr(item.u_.str, strlen(item.u_.str));
-    case LogItem::kStrView: {
-      const absl::string_view* const sv_ptr =
-          static_cast<const absl::string_view* const>(item.u_.ptr);
-      return AddStr(sv_ptr->data(), sv_ptr->length());
-    }
-    case LogItem::kUnsigned:
-      return AddNum(item.u_.unum, 10);
-    case LogItem::kSigned:
-      if (item.u_.snum < 0) {
-        // The cast to uint64_t is intentionally before the negation
-        // so that we do not attempt to negate -2^63.
-        return AddStr("-", 1) &&
-               AddNum(-static_cast<uint64_t>(item.u_.snum), 10);
-      } else {
-        return AddNum(static_cast<uint64_t>(item.u_.snum), 10);
-      }
-    case LogItem::kPtr:
-      return AddStr("0x", 2) &&
-             AddNum(reinterpret_cast<uintptr_t>(item.u_.ptr), 16);
-    default:
-      return false;
-  }
-}
-
-bool Logger::AddStr(const char* str, int n) {
-  ptrdiff_t remaining = end_ - p_;
-  if (remaining < n) {
-    // Try to log a truncated message if there is some space.
-    static constexpr absl::string_view kDots = "...";
-    if (remaining > kDots.size() + 1) {
-      int truncated = remaining - kDots.size();
-      memcpy(p_, str, truncated);
-      p_ += truncated;
-      memcpy(p_, kDots.data(), kDots.size());
-      p_ += kDots.size();
-
-      return true;
-    }
-    return false;
-  } else {
-    memcpy(p_, str, n);
-    p_ += n;
-    return true;
-  }
-}
-
-bool Logger::AddNum(uint64_t num, int base) {
-  static const char kDigits[] = "0123456789abcdef";
-  char space[22];  // more than enough for 2^64 in smallest supported base (10)
-  char* end = space + sizeof(space);
-  char* pos = end;
-  do {
-    pos--;
-    *pos = kDigits[num % base];
-    num /= base;
-  } while (num > 0 && pos > space);
-  return AddStr(pos, end - pos);
 }
 
 PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type)

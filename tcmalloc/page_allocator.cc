@@ -59,7 +59,7 @@ bool decide_want_hpaa() {
           }
         }
 
-        Log(kLog, __FILE__, __LINE__,
+        TC_LOG(
             "Runtime opt-out from HPAA requires building with "
             "//tcmalloc:want_no_hpaa."
         );
@@ -211,8 +211,8 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
   static bool warned = false;
   if (warned) return;
   warned = true;
-  Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of",
-      limits_[kSoft], "and OOM is likely to follow.");
+  TC_LOG("Couldn't respect usage limit of %v and OOM is likely to follow.",
+         limits_[kSoft]);
 }
 
 bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
@@ -231,8 +231,10 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
     static bool warned_hugepages = false;
     if (!warned_hugepages) {
       const size_t limit = limits_[limit_kind];
-      Log(kLogWithStack, __FILE__, __LINE__, "Couldn't respect usage limit of",
-          limit, "without breaking hugepages - performance will drop");
+      TC_LOG(
+          "Couldn't respect usage limit of %v without breaking hugepages - "
+          "performance will drop",
+          limit);
       warned_hugepages = true;
     }
     if (has_cold_impl_) {

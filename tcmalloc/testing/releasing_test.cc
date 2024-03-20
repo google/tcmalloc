@@ -53,9 +53,6 @@ int64_t UnmappedBytes() {
 
 }  // namespace
 
-using tcmalloc::tcmalloc_internal::kLog;
-using tcmalloc::tcmalloc_internal::Log;
-
 int main() {
   int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
   if (ret != 0) {
@@ -67,8 +64,8 @@ int main() {
       TC_CHECK_EQ(0, getrlimit(RLIMIT_MEMLOCK, &lock_limit));
 
       if (lock_limit.rlim_cur != RLIM_INFINITY && errno == ENOMEM) {
-        Log(kLog, __FILE__, __LINE__, "mlockall failed: errno", errno,
-            " mlock limit ", lock_limit.rlim_cur);
+        TC_LOG("mlockall failed, limit %v, errno %d", lock_limit.rlim_cur,
+               errno);
         return 0;
       }
     }
@@ -133,13 +130,12 @@ int main() {
   memusage_diff = before - after;
   const double kTolerance = 5e-4;
 
-  Log(kLog, __FILE__, __LINE__, "Unmapped Memory [Before]", before_unmapped);
-  Log(kLog, __FILE__, __LINE__, "Unmapped Memory [After ]", after_unmapped);
-  Log(kLog, __FILE__, __LINE__, "Unmapped Memory [Diff  ]",
-      after_unmapped - before_unmapped);
-  Log(kLog, __FILE__, __LINE__, "Memory Usage [Before]", before);
-  Log(kLog, __FILE__, __LINE__, "Memory Usage [After ]", after);
-  Log(kLog, __FILE__, __LINE__, "Memory Usage [Diff  ]", before - after);
+  TC_LOG("Unmapped Memory [Before] %v", before_unmapped);
+  TC_LOG("Unmapped Memory [After ] %v", after_unmapped);
+  TC_LOG("Unmapped Memory [Diff  ] %v", after_unmapped - before_unmapped);
+  TC_LOG("Memory Usage [Before] %v", before);
+  TC_LOG("Memory Usage [After ] %v", after);
+  TC_LOG("Memory Usage [Diff  ] %v", before - after);
   TC_CHECK_NE(unmapped_diff, 0);
   TC_CHECK_GE(unmapped_diff * (1. + kTolerance), memusage_diff);
   TC_CHECK_LE(unmapped_diff * (1. - kTolerance), memusage_diff);
