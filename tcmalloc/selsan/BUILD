@@ -22,7 +22,10 @@ cc_library(
     name = "selsan",
     srcs = ["selsan.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    features = ["-use_header_modules"],  # to avoid flags mismatch errors (b/327555681)
+    features = [
+        "-use_header_modules",  # to avoid flags mismatch errors (b/327555681)
+        "-thin_lto",  # workaround thin lto crash (b/330654590)
+    ],
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
