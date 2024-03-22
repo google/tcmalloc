@@ -60,6 +60,10 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
+#ifndef MADV_FREE
+#define MADV_FREE 8
+#endif
+
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
@@ -480,6 +484,7 @@ static bool ReleasePages(void* start, size_t length) {
   }
 #endif
 
+#ifdef MADV_FREE
   const bool do_madvfree = []() {
     if (Parameters::madvise_free()) {
       return true;
@@ -495,6 +500,14 @@ static bool ReleasePages(void* start, size_t length) {
 
     ABSL_UNREACHABLE();
   }();
+
+  if (do_madvfree) {
+    do {
+      ret = madvise(start, length, MADV_FREE);
+    } while (ret == -1 && errno == EAGAIN);
+  }
+#endif
+#ifdef MADV_DONTNEED
   const bool do_madvdontneed = []() {
     switch (Parameters::madvise()) {
       case MadvisePreference::kDontNeed:
@@ -507,14 +520,6 @@ static bool ReleasePages(void* start, size_t length) {
     ABSL_UNREACHABLE();
   }();
 
-#ifdef MADV_FREE
-  if (do_madvfree) {
-    do {
-      ret = madvise(start, length, MADV_FREE);
-    } while (ret == -1 && errno == EAGAIN);
-  }
-#endif
-#ifdef MADV_DONTNEED
   // MADV_DONTNEED drops page table info and any anonymous pages.
   if (do_madvdontneed) {
     do {
