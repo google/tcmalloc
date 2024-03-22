@@ -385,7 +385,7 @@ class SubreleaseStatsTracker {
                          absl::Duration long_interval) {
     if (short_interval != absl::ZeroDuration() &&
         long_interval != absl::ZeroDuration()) {
-      TC_ASSERT_LE(short_interval, long_interval);
+      short_interval = std::min(short_interval, long_interval);
     }
     last_skip_subrelease_intervals_.short_interval =
         std::min(short_interval, epoch_length_ * kEpochs);

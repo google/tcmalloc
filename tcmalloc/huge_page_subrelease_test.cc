@@ -250,10 +250,10 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
       tracker_.GetRecentDemand(absl::ZeroDuration(), absl::Minutes(5));
   EXPECT_EQ(short_long_peak_pages4, Length(100));
   // The short_interval needs to be shorter or equal to the long_interval when
-  // they are both set.
-  EXPECT_DEBUG_DEATH(
-      tracker_.GetRecentDemand(absl::Minutes(2), absl::Minutes(1)),
-      testing::HasSubstr("short_interval <= long_interval"));
+  // they are both set.  We cap short_interval to long_interval when this is not
+  // the case.
+  EXPECT_EQ(tracker_.GetRecentDemand(absl::Minutes(2), absl::Minutes(1)),
+            tracker_.GetRecentDemand(absl::Minutes(1), absl::Minutes(1)));
 }
 
 TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
