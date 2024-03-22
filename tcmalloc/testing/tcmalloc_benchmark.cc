@@ -53,6 +53,20 @@ static void BM_new_delete(benchmark::State& state) {
 }
 BENCHMARK(BM_new_delete)->Range(1, 1 << 20);
 
+template <int size>
+static void BM_new_delete_fixed(benchmark::State& state) {
+  for (auto s : state) {
+    void* ptr = ::operator new(size);
+    ::operator delete(ptr, size);
+  }
+}
+
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 8);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 16);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 32);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 512);
+BENCHMARK_TEMPLATE(BM_new_delete_fixed, 4096);
+
 static void BM_new_sized_delete(benchmark::State& state) {
   const int arg = state.range(0);
 
