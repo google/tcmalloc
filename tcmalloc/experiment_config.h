@@ -29,6 +29,7 @@ enum class Experiment : int {
   TCMALLOC_FEW_OBJECT_SPAN_PRIORITIZATION,  // TODO(b/309967531): Complete experiment.
   TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES,  // TODO(b/224799825): Complete experiment.
   TEST_ONLY_TCMALLOC_BIG_SPAN,  // TODO(b/304135905): Complete experiment.
+  TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
   kMaxExperimentID,
   // clang-format on
 };
@@ -47,6 +48,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TCMALLOC_FEW_OBJECT_SPAN_PRIORITIZATION, "TCMALLOC_FEW_OBJECT_SPAN_PRIORITIZATION"},
     {Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES, "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
     {Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN, "TEST_ONLY_TCMALLOC_BIG_SPAN"},
+    {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
 };
 // clang-format on
 
