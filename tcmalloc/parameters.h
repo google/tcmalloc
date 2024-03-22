@@ -76,6 +76,14 @@ class Parameters {
     TCMalloc_Internal_SetMadviseFree(value);
   }
 
+  static MadvisePreference madvise() {
+    return madvise_.load(std::memory_order_relaxed);
+  }
+
+  static void set_madvise_free(MadvisePreference value) {
+    TCMalloc_Internal_SetMadvise(value);
+  }
+
   static tcmalloc::hot_cold_t min_hot_access_hint() {
     return min_hot_access_hint_.load(std::memory_order_relaxed);
   }
@@ -215,6 +223,8 @@ class Parameters {
 
   friend void TCMalloc_Internal_SetLifetimeAllocatorOptions(
       absl::string_view s);
+  friend void ::TCMalloc_Internal_SetMadvise(
+      tcmalloc::tcmalloc_internal::MadvisePreference v);
   friend void ::TCMalloc_Internal_SetMadviseFree(bool v);
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
@@ -230,6 +240,7 @@ class Parameters {
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
+  static std::atomic<MadvisePreference> madvise_;
   static std::atomic<bool> madvise_free_;
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;

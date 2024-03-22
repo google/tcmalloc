@@ -20,6 +20,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/time/time.h"
+#include "tcmalloc/malloc_extension.h"
 
 extern "C" {
 
@@ -93,6 +94,10 @@ ABSL_ATTRIBUTE_WEAK void
 TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v);
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetMadviseFree();
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadviseFree(bool v);
+ABSL_ATTRIBUTE_WEAK tcmalloc::tcmalloc_internal::MadvisePreference
+TCMalloc_Internal_GetMadvise();
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetMadvise(
+    tcmalloc::tcmalloc_internal::MadvisePreference v);
 }
 
 #endif  // TCMALLOC_INTERNAL_PARAMETER_ACCESSORS_H_

@@ -54,6 +54,33 @@ namespace tcmalloc_internal {
 
 using subtle::percpu::RseqVcpuMode;
 
+static absl::string_view MadviseString() {
+  MadvisePreference pref = Parameters::madvise();
+
+  if (Parameters::madvise_free()) {
+    switch (pref) {
+      case MadvisePreference::kDontNeed:
+        pref = MadvisePreference::kFreeAndDontNeed;
+        break;
+      case MadvisePreference::kFreeOnly:
+        break;
+      case MadvisePreference::kFreeAndDontNeed:
+        break;
+    }
+  }
+
+  switch (pref) {
+    case MadvisePreference::kDontNeed:
+      return "MADVISE_DONTNEED";
+    case MadvisePreference::kFreeOnly:
+      return "MADVISE_FREE_ONLY";
+    case MadvisePreference::kFreeAndDontNeed:
+      return "MADVISE_FREE_AND_DONTNEED";
+  }
+
+  ABSL_UNREACHABLE();
+}
+
 // Get stats into "r".  Also, if class_count != NULL, class_count[k]
 // will be set to the total number of objects of size class k in the
 // central cache, transfer cache, and per-thread and per-CPU caches.
@@ -503,6 +530,7 @@ void DumpStats(Printer* out, int level) {
                 PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
     out->printf("PARAMETER max_span_cache_size %d\n",
                 Parameters::max_span_cache_size());
+    out->printf("PARAMETER madvise %s\n", MadviseString());
   }
 }
 
@@ -684,6 +712,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintRaw(
       "size_class_config",
       SizeClassConfigurationString(tc_globals.size_class_configuration()));
+  region.PrintRaw("madvise", MadviseString());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

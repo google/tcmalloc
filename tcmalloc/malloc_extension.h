@@ -776,6 +776,42 @@ class ProfileBase {
   virtual absl::Duration Duration() const = 0;
 };
 
+enum class MadvisePreference {
+  kDontNeed = 0x1,
+  kFreeAndDontNeed = 0x3,
+  kFreeOnly = 0x2,
+};
+
+inline bool AbslParseFlag(absl::string_view text, MadvisePreference* preference,
+                          std::string* /* error */) {
+  if (text == "DONTNEED") {
+    *preference = MadvisePreference::kDontNeed;
+    return true;
+  } else if (text == "FREE_AND_DONTNEED") {
+    *preference = MadvisePreference::kFreeAndDontNeed;
+    return true;
+  } else if (text == "FREE_ONLY") {
+    *preference = MadvisePreference::kFreeOnly;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+inline std::string AbslUnparseFlag(MadvisePreference preference) {
+  switch (preference) {
+    case MadvisePreference::kDontNeed:
+      return "DONTNEED";
+    case MadvisePreference::kFreeAndDontNeed:
+      return "FREE_AND_DONTNEED";
+    case MadvisePreference::kFreeOnly:
+      return "FREE_ONLY";
+  }
+
+  ABSL_UNREACHABLE();
+  return "";
+}
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 

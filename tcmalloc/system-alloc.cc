@@ -479,20 +479,48 @@ static bool ReleasePages(void* start, size_t length) {
     return true;
   }
 #endif
+
+  const bool do_madvfree = []() {
+    if (Parameters::madvise_free()) {
+      return true;
+    }
+
+    switch (Parameters::madvise()) {
+      case MadvisePreference::kFreeAndDontNeed:
+      case MadvisePreference::kFreeOnly:
+        return true;
+      case MadvisePreference::kDontNeed:
+        return false;
+    }
+
+    ABSL_UNREACHABLE();
+  }();
+  const bool do_madvdontneed = []() {
+    switch (Parameters::madvise()) {
+      case MadvisePreference::kDontNeed:
+      case MadvisePreference::kFreeAndDontNeed:
+        return true;
+      case MadvisePreference::kFreeOnly:
+        return false;
+    }
+
+    ABSL_UNREACHABLE();
+  }();
+
 #ifdef MADV_FREE
-  if (Parameters::madvise_free()) {
+  if (do_madvfree) {
     do {
       ret = madvise(start, length, MADV_FREE);
     } while (ret == -1 && errno == EAGAIN);
-
-    // We deliberately fall through to use MADV_DONTNEED.
   }
 #endif
 #ifdef MADV_DONTNEED
   // MADV_DONTNEED drops page table info and any anonymous pages.
-  do {
-    ret = madvise(start, length, MADV_DONTNEED);
-  } while (ret == -1 && errno == EAGAIN);
+  if (do_madvdontneed) {
+    do {
+      ret = madvise(start, length, MADV_DONTNEED);
+    } while (ret == -1 && errno == EAGAIN);
+  }
 
   if (ret == 0) {
     return true;
