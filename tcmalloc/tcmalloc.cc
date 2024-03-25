@@ -692,10 +692,11 @@ template <typename AlignPolicy>
 ABSL_ATTRIBUTE_NOINLINE static void free_non_normal(void* ptr, size_t size,
                                                     AlignPolicy align) {
   TC_ASSERT_NE(ptr, nullptr);
-  if (GetMemoryTag(ptr) != MemoryTag::kCold) {
+  if (GetMemoryTag(ptr) == MemoryTag::kSampled) {
     // we don't know true class size of the ptr
     return InvokeHooksAndFreePages(ptr, size);
   }
+  TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
   size_t size_class;
   if (ABSL_PREDICT_FALSE(!tc_globals.sizemap().GetSizeClass(
           CppPolicy().AlignAs(align.align()).AccessAsCold(), size,

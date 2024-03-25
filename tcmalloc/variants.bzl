@@ -159,12 +159,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL"},
     },
     {
-        "name": "few_object_span_prioritization",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TCMALLOC_FEW_OBJECT_SPAN_PRIORITIZATION"},
-    },
-    {
         "name": "32k_no_hpaa",
         "malloc": "//tcmalloc:tcmalloc_large_pages",
         "deps": [

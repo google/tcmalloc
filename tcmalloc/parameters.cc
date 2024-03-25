@@ -156,9 +156,7 @@ bool Parameters::use_all_buckets_for_few_object_spans_in_cfl() {
     v.store(
         IsExperimentActive(
             Experiment::
-                TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL) ||
-            IsExperimentActive(
-                Experiment::TCMALLOC_FEW_OBJECT_SPAN_PRIORITIZATION),
+                TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL),
         std::memory_order_relaxed);
   });
   return v;

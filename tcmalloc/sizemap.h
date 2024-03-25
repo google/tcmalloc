@@ -26,6 +26,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/size_class_info.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -255,7 +256,7 @@ class SizeMap {
   template <typename Policy>
   ABSL_ATTRIBUTE_ALWAYS_INLINE inline size_t SizeClass(Policy policy,
                                                        size_t size) const {
-    TC_ASSERT_LE(size, kMaxSize);
+    ASSUME(size <= kMaxSize);
     size_t ret = 0;
     GetSizeClass(policy, size, &ret);
     return ret;

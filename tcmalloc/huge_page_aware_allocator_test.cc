@@ -1232,11 +1232,7 @@ class StatTest : public testing::Test {
 
       // we only support so many allocations here for simplicity
       TC_CHECK_LT(n_, kNumAllocs);
-      // Anything coming from the test allocator will request full
-      // alignment.  Metadata allocations will not.  Since we can't
-      // control the backing of metadata allocations, elide them.
-      // TODO(b/128521238): this is not a good way to do this.
-      if (align >= kHugePageSize) {
+      if (tag != MemoryTag::kMetadata) {
         allocs_[n_] = {range.ptr, range.bytes};
         n_++;
       }
