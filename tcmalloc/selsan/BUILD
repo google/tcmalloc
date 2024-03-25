@@ -21,6 +21,7 @@ licenses(["notice"])
 cc_library(
     name = "selsan",
     srcs = ["selsan.cc"],
+    hdrs = ["selsan.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     features = [
         "-use_header_modules",  # to avoid flags mismatch errors (b/327555681)
@@ -30,6 +31,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
     ],
     alwayslink = 1,

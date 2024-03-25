@@ -316,6 +316,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:stacktrace_filter",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/internal:timeseries_tracker",
+        "//tcmalloc/selsan",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",

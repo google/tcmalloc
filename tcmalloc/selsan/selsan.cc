@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "tcmalloc/selsan/selsan.h"  // IWYU pragma: keep
+
+#ifdef TCMALLOC_INTERNAL_SELSAN
+
 #include <err.h>
 #include <errno.h>  // IWYU pragma: keep
 #include <stdint.h>
@@ -31,12 +35,13 @@
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 
 // This is used by the compiler instrumentation.
 uintptr_t __hwasan_shadow_memory_dynamic_address;
 
 GOOGLE_MALLOC_SECTION_BEGIN
-namespace tcmalloc::tcmalloc_internal {
+namespace tcmalloc::tcmalloc_internal::selsan {
 namespace {
 
 #if defined(__PIE__) || defined(__PIC__)
@@ -131,6 +136,22 @@ void PrintTagMismatch(uintptr_t addr, size_t size, bool write) {
 }
 
 }  // namespace
+
+void PrintTextStats(Printer* out) {
+  out->printf(R"(
+------------------------------------------------
+SelSan Status
+------------------------------------------------
+Enabled: %d
+
+)",
+              enabled);
+}
+
+void PrintPbtxtStats(PbtxtRegion* out) {
+  auto selsan = out->CreateSubRegion("selsan");
+  selsan.PrintRaw("status", enabled ? "SELSAN_ENABLED" : "SELSAN_DISABLED");
+}
 
 bool SelsanEnabled() { return enabled; }
 
@@ -253,5 +274,6 @@ void __hwasan_init() {}
 
 __attribute__((section(".preinit_array"), used)) static void (*init)() = Init;
 
-}  // namespace tcmalloc::tcmalloc_internal
+}  // namespace tcmalloc::tcmalloc_internal::selsan
 GOOGLE_MALLOC_SECTION_END
+#endif  // #ifdef TCMALLOC_INTERNAL_SELSAN

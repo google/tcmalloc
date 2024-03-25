@@ -39,6 +39,7 @@
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 #include "tcmalloc/stack_trace_table.h"
@@ -467,6 +468,7 @@ void DumpStats(Printer* out, int level) {
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled);
     tc_globals.page_allocator().Print(out, MemoryTag::kCold);
     tc_globals.guardedpage_allocator().Print(out);
+    selsan::PrintTextStats(out);
 
     uint64_t soft_limit_bytes =
         tc_globals.page_allocator().limit(PageAllocator::kSoft);
@@ -669,6 +671,7 @@ void DumpStatsInPbtxt(Printer* out, int level) {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
     tc_globals.guardedpage_allocator().PrintInPbtxt(&gwp_asan);
   }
+  selsan::PrintPbtxtStats(&region);
 
   region.PrintI64("memory_release_failures", SystemReleaseErrors());
 
