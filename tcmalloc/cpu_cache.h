@@ -65,8 +65,6 @@ namespace cpu_cache_internal {
 template <class CpuCache>
 struct DrainHandler;
 
-bool use_wider_slabs();
-
 // Determine number of bits we should use for allocating per-cpu cache.
 // The amount of per-cpu cache is 2 ^ per-cpu-shift.
 // When dynamic slab size is enabled, we start with kInitialPerCpuShift and
@@ -169,7 +167,7 @@ class StaticForwarder {
   static bool UseWiderSlabs() {
     // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
     // increases shift by 1 by itself, so we can not increase it further.
-    return use_wider_slabs() && !numa_topology().numa_aware();
+    return !numa_topology().numa_aware();
   }
 
   // We use size class maximum capacities as configured in sizemap.
