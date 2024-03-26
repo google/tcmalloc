@@ -26,6 +26,9 @@ cc_library(
     features = [
         "-use_header_modules",  # to avoid flags mismatch errors (b/327555681)
         "-thin_lto",  # workaround thin lto crash (b/330654590)
+        "-cfi",  # Requires thin_lto
+        "-cfi_diag",  # Requires thin_lto
+        "-cfi_dbg",  # Requires thin_lto
     ],
     linkstatic = 1,
     visibility = ["//tcmalloc:__subpackages__"],
