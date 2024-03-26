@@ -26,6 +26,8 @@
 #include <unistd.h>
 #include <unwind.h>
 
+#include <utility>
+
 #ifdef __x86_64__
 #include <asm/prctl.h>
 #include <sys/syscall.h>
@@ -42,6 +44,10 @@ uintptr_t __hwasan_shadow_memory_dynamic_address;
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc::tcmalloc_internal::selsan {
+
+// Implemented in tcmalloc.cc.
+ABSL_ATTRIBUTE_WEAK std::pair<void*, size_t> HeapObjectInfo(void* ptr);
+
 namespace {
 
 #if defined(__PIE__) || defined(__PIC__)
@@ -116,6 +122,9 @@ bool EnableTBI() {
 
 void Init() {
   MapShadow();
+  if (HeapObjectInfo == nullptr) {
+    return;  // don't have tcmalloc linked in
+  }
   enabled = EnableTBI();
 }
 
@@ -133,6 +142,15 @@ void PrintTagMismatch(uintptr_t addr, size_t size, bool write) {
           "size:%zu\n",
           write ? "write" : "read", reinterpret_cast<void*>(ptr), ptr_tag,
           mem_tag, size);
+  if (HeapObjectInfo != nullptr) {
+    auto [obj_start, obj_size] = HeapObjectInfo(reinterpret_cast<void*>(ptr));
+    if (obj_start != nullptr) {
+      fprintf(stderr, "Heap object %p-%p (size %zu, offset %zd)\n", obj_start,
+              static_cast<char*>(obj_start) + obj_size, obj_size,
+              ptr - reinterpret_cast<uintptr_t>(obj_start));
+    }
+  }
+  RecordCrash("SelSan", "use-after-free or out-of-bounds access");
 }
 
 }  // namespace
@@ -153,7 +171,7 @@ void PrintPbtxtStats(PbtxtRegion* out) {
   selsan.PrintRaw("status", enabled ? "SELSAN_ENABLED" : "SELSAN_DISABLED");
 }
 
-bool SelsanEnabled() { return enabled; }
+bool IsEnabled() { return enabled; }
 
 #ifdef __x86_64__
 void SelsanTrapHandler(void* info, void* ctx) {

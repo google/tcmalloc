@@ -65,6 +65,7 @@
 #include <new>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/base/attributes.h"
@@ -587,6 +588,31 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
     FreeSmallSlow(ptr, size_class);
   }
 }
+
+namespace selsan {
+// Returns best-effort info (start/size) about a heap object that contains ptr.
+// If a non-heap pointer is passed, returns {} (but must not crash).
+std::pair<void*, size_t> HeapObjectInfo(void* ptr) {
+  PageId page = PageIdContaining(ptr);
+  Span* span = tc_globals.pagemap().GetDescriptor(page);
+  if (span == nullptr) {
+    return {};
+  }
+  size_t size_class = tc_globals.pagemap().sizeclass(page);
+  if (size_class == 0) {
+    return {};
+  }
+  uintptr_t span_start = reinterpret_cast<uintptr_t>(span->start_address());
+  size_t obj_size = tc_globals.sizemap().class_to_size(size_class);
+  uintptr_t obj_start =
+      span_start +
+      (reinterpret_cast<uintptr_t>(ptr) - span_start) / obj_size * obj_size;
+  if (obj_start + obj_size > span_start + span->bytes_in_span()) {
+    obj_start -= obj_size;
+  }
+  return {reinterpret_cast<void*>(obj_start), obj_size};
+}
+}  // namespace selsan
 
 namespace {
 

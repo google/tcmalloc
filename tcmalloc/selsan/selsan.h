@@ -23,11 +23,13 @@ namespace tcmalloc::tcmalloc_internal::selsan {
 
 #ifdef TCMALLOC_INTERNAL_SELSAN
 
+bool IsEnabled();
 void PrintTextStats(Printer* out);
 void PrintPbtxtStats(PbtxtRegion* out);
 
 #else  // #ifdef TCMALLOC_INTERNAL_SELSAN
 
+inline bool IsEnabled() { return false; }
 inline void PrintTextStats(Printer* out) {}
 inline void PrintPbtxtStats(PbtxtRegion* out) {}
 

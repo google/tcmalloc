@@ -15,25 +15,32 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <memory>
+
 #include "gtest/gtest.h"
 #include "absl/base/attributes.h"
 #include "absl/strings/str_format.h"
+#include "tcmalloc/selsan/selsan.h"
 
-namespace tcmalloc::tcmalloc_internal {
-
-ABSL_ATTRIBUTE_WEAK bool SelsanEnabled() { return false; }
-
+namespace tcmalloc::tcmalloc_internal::selsan {
 namespace {
 
-template <typename T>
-T* mistag(void* p, uint8_t tag = 1) {
-  return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(p) | (1ul << 57));
-}
-
-TEST(Report, Format) {
-  if (!SelsanEnabled()) {
-    GTEST_SKIP() << "SelSan is not enabled";
+class Test : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    if (!IsEnabled()) {
+      GTEST_SKIP() << "SelSan is not enabled";
+    }
   }
+
+  template <typename T>
+  T* mistag(void* p) {
+    return reinterpret_cast<T*>((reinterpret_cast<uintptr_t>(p) + (1ul << 57)) &
+                                ~(1ul << 63));
+  }
+};
+
+TEST_F(Test, Format) {
   uint64_t var = 0;
   auto Warning = [&](size_t size, bool write) {
     return absl::StrFormat(
@@ -53,5 +60,23 @@ TEST(Report, Format) {
   EXPECT_DEATH(sink = mistag<uint64_t>(&var)[0], Warning(8, false));
 }
 
+TEST_F(Test, Heap) {
+  auto Warning = [&](size_t size, size_t offset) {
+    return absl::StrFormat(
+        "WARNING: SelSan: write tag-mismatch at addr 0x[0-9a-f]+ ptr/mem "
+        "tag:[0-9]+/[0-9]+ size:1\n"
+        "Heap object 0x[0-9a-f]+-0x[0-9a-f]+ \\(size %zu, offset %zd\\)\n",
+        size, offset);
+  };
+  std::unique_ptr<char[]> obj(new char[16]);
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 0)[0] = 1, Warning(16, 0));
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 1)[0] = 1, Warning(16, 1));
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 15)[0] = 1, Warning(16, 15));
+  obj.reset(new char[60]);
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 0)[0] = 1, Warning(64, 0));
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 10)[0] = 1, Warning(64, 10));
+  EXPECT_DEATH(mistag<uint8_t>(obj.get() + 63)[0] = 1, Warning(64, 63));
+}
+
 }  // namespace
-}  // namespace tcmalloc::tcmalloc_internal
+}  // namespace tcmalloc::tcmalloc_internal::selsan
