@@ -174,6 +174,16 @@ extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 // that the definition may come from a dynamic library and has to use
 // GOT access. When compiler sees even a weak definition, it knows the
 // declaration will be in the current module and can generate direct accesses.
+
+/////////////////////////////////////////////////////////////////////////////////
+// MONGO HACK
+// Remove the weak symbols for the TLS variables from the dynamic builds.
+// This will lead to slightly worse code as described above but avoids problems
+// where the weak definitions for the TLS variables are preferred over the definitions in
+// percpu_rseq_asm.S. We must use the definitions for the TLS variables in
+// percpu_rseq_asm.S due to their layout requirements. There are no issues in non-dynamic builds.
+//
+#ifndef MONGO_TCMALLOC_DYNAMIC_BUILD
 ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_WEAK = {};
 ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
@@ -181,6 +191,7 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
         0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
         {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
+#endif
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 

@@ -54,8 +54,19 @@ extern "C" ABSL_CONST_INIT thread_local Sampler tcmalloc_sampler
 // When it sees the definition, it can emit direct %fs:TPOFF access.
 // So we provide a weak definition here, but the actual definition is in
 // percpu_rseq_asm.S.
+
+/////////////////////////////////////////////////////////////////////////////////
+// MONGO HACK
+// Remove the weak symbols for the TLS variables from the dynamic builds.
+// This will lead to slightly worse code as described above but avoids problems
+// where the weak definitions for the TLS variables are preferred over the definitions in
+// percpu_rseq_asm.S. We must use the definitions for the TLS variables in
+// percpu_rseq_asm.S due to their layout requirements. There are no issues in non-dynamic builds.
+//
+#ifndef MONGO_TCMALLOC_DYNAMIC_BUILD
 ABSL_CONST_INIT ABSL_ATTRIBUTE_WEAK thread_local Sampler tcmalloc_sampler
     ABSL_ATTRIBUTE_INITIAL_EXEC;
+#endif
 
 inline Sampler* GetThreadSampler() {
   static_assert(sizeof(Sampler) == TCMALLOC_SAMPLER_SIZE,
