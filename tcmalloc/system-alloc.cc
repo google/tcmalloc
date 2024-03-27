@@ -688,6 +688,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   }
   const int map_fixed_noreplace_flag = MapFixedNoReplaceFlagAvailable();
   void* hint;
+  // Restore errno if an address is found.
+  ErrnoRestorer errno_restorer;
   for (int i = 0; i < 1000; ++i) {
     hint = reinterpret_cast<void*>(next_addr);
     TC_ASSERT_EQ(GetMemoryTag(hint), tag);
@@ -715,10 +717,6 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       char name[256];
       absl::SNPrintF(name, sizeof(name), "tcmalloc_region_%s",
                      MemoryTagToLabel(tag));
-      // Save the existing errno and restore it after the prctl system call.
-      // Since PR_SET_VMA is a best effort call, we don't want it to overwrite
-      // the existing errno value.
-      ErrnoRestorer errno_restorer;
       prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, result, size, name);
 #endif  // __linux__
       return result;
@@ -730,6 +728,9 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       TC_CHECK_EQ(result, MAP_FAILED);
     } else {
       if (result == MAP_FAILED) {
+        // Override errno with the current value to ensure it is set by the
+        // failing mmap.
+        errno_restorer.Override();
         TC_LOG("mmap(%p, %v) reservation failed (%s)", hint, size,
                strerror(errno));
         return nullptr;
@@ -742,6 +743,9 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
     next_addr = RandomMmapHint(size, alignment, tag);
   }
 
+  // Override errno with the current value to ensure it is set by the
+  // failing mmap.
+  errno_restorer.Override();
   TC_LOG(
       "MmapAligned() failed - unable to allocate with tag (hint=%p, size=%v, "
       "alignment=%v) - is something limiting address placement?",

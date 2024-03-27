@@ -391,6 +391,9 @@ class ErrnoRestorer {
   ErrnoRestorer(const ErrnoRestorer&) = delete;
   ErrnoRestorer& operator=(const ErrnoRestorer&) = delete;
 
+  // Updates the errno value to restore to the current value.
+  void Override() { saved_errno_ = errno; }
+
  private:
   int saved_errno_;
 };
