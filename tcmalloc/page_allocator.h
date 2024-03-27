@@ -137,7 +137,8 @@ class PageAllocator {
 
   size_t active_numa_partitions() const;
 
-  static constexpr size_t kNumHeaps = kNumaPartitions + 2;
+  static constexpr size_t kNumHeaps =
+      kNumaPartitions + 2 + (kSelSanPresent ? 1 : 0);
 
   union Choices {
     Choices() : dummy(0) {}
@@ -148,6 +149,7 @@ class PageAllocator {
   } choices_[kNumHeaps];
   std::array<Interface*, kNumaPartitions> normal_impl_;
   Interface* sampled_impl_;
+  Interface* selsan_impl_ = nullptr;
   Interface* cold_impl_;
   Algorithm alg_;
   bool has_cold_impl_;
@@ -188,6 +190,8 @@ inline PageAllocator::Interface* PageAllocator::impl(MemoryTag tag) const {
       return normal_impl_[1];
     case MemoryTag::kSampled:
       return sampled_impl_;
+    case MemoryTag::kSelSan:
+      return selsan_impl_;
     case MemoryTag::kCold:
       return cold_impl_;
     default:
@@ -218,6 +222,9 @@ inline BackingStats PageAllocator::stats() const {
     ret += normal_impl_[partition]->stats();
   }
   ret += sampled_impl_->stats();
+  if (selsan_impl_) {
+    ret += selsan_impl_->stats();
+  }
   if (has_cold_impl_) {
     ret += cold_impl_->stats();
   }

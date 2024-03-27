@@ -30,6 +30,8 @@ absl::string_view MemoryTagToLabel(MemoryTag tag) {
       return "NORMAL_P1";
     case MemoryTag::kSampled:
       return "SAMPLED";
+    case MemoryTag::kSelSan:
+      return "SELSAN";
     case MemoryTag::kCold:
       return "COLD";
     case MemoryTag::kMetadata:

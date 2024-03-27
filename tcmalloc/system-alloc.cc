@@ -176,6 +176,7 @@ class RegionManager {
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock) {
     std::fill(normal_region_.begin(), normal_region_.end(), nullptr);
     sampled_region_ = nullptr;
+    selsan_region_ = nullptr;
     cold_region_ = nullptr;
     metadata_region_ = nullptr;
   }
@@ -190,6 +191,7 @@ class RegionManager {
 
   std::array<AddressRegion*, kNumaPartitions> normal_region_{{nullptr}};
   AddressRegion* sampled_region_{nullptr};
+  AddressRegion* selsan_region_{nullptr};
   AddressRegion* cold_region_{nullptr};
   AddressRegion* metadata_region_{nullptr};
 };
@@ -271,16 +273,15 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
         return UsageHint::kNormalNumaAwareS0;
       }
       return UsageHint::kNormal;
-      break;
     case MemoryTag::kNormalP1:
       if (tc_globals.numa_topology().numa_aware()) {
         return UsageHint::kNormalNumaAwareS1;
       }
       return UsageHint::kNormal;
-      break;
+    case MemoryTag::kSelSan:
+      return UsageHint::kNormal;
     case MemoryTag::kSampled:
       return UsageHint::kInfrequentAllocation;
-      break;
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;
     case MemoryTag::kMetadata:
@@ -340,6 +341,8 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
         return &normal_region_[1];
       case MemoryTag::kSampled:
         return &sampled_region_;
+      case MemoryTag::kSelSan:
+        return &selsan_region_;
       case MemoryTag::kCold:
         return &cold_region_;
       case MemoryTag::kMetadata:
@@ -650,6 +653,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
   TC_ASSERT_LE(alignment, kTagMask);
 
   static uintptr_t next_sampled_addr = 0;
+  static uintptr_t next_selsan_addr = 0;
   static std::array<uintptr_t, kNumaPartitions> next_normal_addr = {0};
   static uintptr_t next_cold_addr = 0;
   static uintptr_t next_metadata_addr = 0;
@@ -659,6 +663,8 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
     switch (tag) {
       case MemoryTag::kSampled:
         return &next_sampled_addr;
+      case MemoryTag::kSelSan:
+        return &next_selsan_addr;
       case MemoryTag::kNormalP0:
         numa_partition = 0;
         return &next_normal_addr[0];

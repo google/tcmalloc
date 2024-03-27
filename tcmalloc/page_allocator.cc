@@ -19,6 +19,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -28,6 +29,7 @@
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 
@@ -96,20 +98,23 @@ bool want_hpaa() {
 PageAllocator::PageAllocator() {
   const bool kUseHPAA = want_hpaa();
   has_cold_impl_ = ColdFeatureActive();
+  size_t part = 0;
   if (kUseHPAA) {
-    normal_impl_[0] = new (&choices_[0].hpaa) HugePageAwareAllocator(
+    normal_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
         HugePageAwareAllocatorOptions{MemoryTag::kNormal});
     if (tc_globals.numa_topology().numa_aware()) {
-      normal_impl_[1] = new (&choices_[1].hpaa) HugePageAwareAllocator(
+      normal_impl_[1] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
           HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
     }
-    sampled_impl_ =
-        new (&choices_[kNumaPartitions + 0].hpaa) HugePageAwareAllocator(
-            HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+    sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+        HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+    if (selsan::IsEnabled()) {
+      selsan_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+          HugePageAwareAllocatorOptions{MemoryTag::kSelSan});
+    }
     if (has_cold_impl_) {
-      cold_impl_ =
-          new (&choices_[kNumaPartitions + 1].hpaa) HugePageAwareAllocator(
-              HugePageAwareAllocatorOptions{MemoryTag::kCold});
+      cold_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+          HugePageAwareAllocatorOptions{MemoryTag::kCold});
     } else {
       cold_impl_ = normal_impl_[0];
     }
@@ -117,15 +122,17 @@ PageAllocator::PageAllocator() {
   } else {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW) || \
     defined(TCMALLOC_INTERNAL_32K_PAGES)
-    normal_impl_[0] = new (&choices_[0].ph) PageHeap(MemoryTag::kNormal);
+    normal_impl_[0] = new (&choices_[part++].ph) PageHeap(MemoryTag::kNormal);
     if (tc_globals.numa_topology().numa_aware()) {
-      normal_impl_[1] = new (&choices_[1].ph) PageHeap(MemoryTag::kNormalP1);
+      normal_impl_[1] =
+          new (&choices_[part++].ph) PageHeap(MemoryTag::kNormalP1);
     }
-    sampled_impl_ =
-        new (&choices_[kNumaPartitions + 0].ph) PageHeap(MemoryTag::kSampled);
+    sampled_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kSampled);
+    if (selsan::IsEnabled()) {
+      selsan_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kSelSan);
+    }
     if (has_cold_impl_) {
-      cold_impl_ =
-          new (&choices_[kNumaPartitions + 1].ph) PageHeap(MemoryTag::kCold);
+      cold_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kCold);
     } else {
       cold_impl_ = normal_impl_[0];
     }
@@ -134,6 +141,7 @@ PageAllocator::PageAllocator() {
     static_assert(huge_page_allocator_internal::kUnconditionalHPAA);
     TC_BUG("unreachable");
 #endif
+    TC_CHECK_LE(part, ABSL_ARRAYSIZE(choices_));
   }
 }
 
