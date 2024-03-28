@@ -193,7 +193,8 @@ void __hwasan_store4(uintptr_t p) { CheckAccess(p, 4, true); }
 void __hwasan_store8(uintptr_t p) { CheckAccess(p, 8, true); }
 void __hwasan_store16(uintptr_t p) { CheckAccess(p, 16, true); }
 
-void __hwasan_tag_memory() {
+void __hwasan_tag_memory(const volatile void* p, unsigned char tag,
+                         size_t size) {
   // Not implemented yet.
 }
 
