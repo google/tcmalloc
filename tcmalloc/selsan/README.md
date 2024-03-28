@@ -14,7 +14,6 @@ used with Arm MTE (memory tagging extension).
 Reference compiler flags required for `SelSan` are:
 
 ```
--DTCMALLOC_UNDER_SANITIZERS=0
 -DTCMALLOC_INTERNAL_SELSAN=1
 -fsanitize=hwaddress
 -mllvm -hwasan-globals=0

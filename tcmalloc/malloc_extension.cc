@@ -38,14 +38,14 @@
 #include "absl/types/span.h"
 #include "tcmalloc/internal_malloc_extension.h"
 
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
-    defined(ABSL_HAVE_MEMORY_SANITIZER) ||    \
-    defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
-    defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
-    defined(ABSL_HAVE_DATAFLOW_SANITIZER) || defined(ABSL_HAVE_LEAK_SANITIZER)
-#if !defined(TCMALLOC_UNDER_SANITIZERS)
+#if (defined(ABSL_HAVE_ADDRESS_SANITIZER) ||   \
+     defined(ABSL_HAVE_MEMORY_SANITIZER) ||    \
+     defined(ABSL_HAVE_THREAD_SANITIZER) ||    \
+     defined(ABSL_HAVE_HWADDRESS_SANITIZER) || \
+     defined(ABSL_HAVE_DATAFLOW_SANITIZER) ||  \
+     defined(ABSL_HAVE_LEAK_SANITIZER)) &&     \
+    !defined(TCMALLOC_INTERNAL_SELSAN)
 #define TCMALLOC_UNDER_SANITIZERS 1
-#endif
 static constexpr size_t kTerabyte = (size_t)(1ULL << 40);
 
 #include <sanitizer/allocator_interface.h>
