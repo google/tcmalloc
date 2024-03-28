@@ -158,7 +158,8 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
 
   size_t capacity = 0;
   if (size_class != 0) {
-    TC_ASSERT_EQ(size_class, state.pagemap().sizeclass(PageIdContaining(obj)));
+    TC_ASSERT_EQ(size_class,
+                 state.pagemap().sizeclass(PageIdContainingTagged(obj)));
 
     stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
     stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
@@ -292,7 +293,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
   if (SampledAllocation* sampled_allocation = span->Unsample()) {
-    TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContaining(ptr)), 0);
+    TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
 
     void* const proxy = sampled_allocation->sampled_stack.proxy;
     const size_t weight = sampled_allocation->sampled_stack.weight;
@@ -351,7 +352,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
             policy.AccessAsHot().AlignAs(alignment), allocated_size);
       }
       TC_ASSERT_EQ(size_class,
-                   state.pagemap().sizeclass(PageIdContaining(proxy)));
+                   state.pagemap().sizeclass(PageIdContainingTagged(proxy)));
       FreeProxyObject(state, proxy, size_class);
     }
   }

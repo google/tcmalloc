@@ -48,39 +48,9 @@ namespace tcmalloc::tcmalloc_internal::selsan {
 // Implemented in tcmalloc.cc.
 ABSL_ATTRIBUTE_WEAK std::pair<void*, size_t> HeapObjectInfo(void* ptr);
 
-namespace {
-
-#if defined(__PIE__) || defined(__PIC__)
-constexpr uintptr_t kPieBuild = true;
-#else
-constexpr uintptr_t kPieBuild = false;
-#endif
-
-#if defined(__x86_64__)
-// Note: this is not necessary equal to kAddressBits since we need to cover
-// everything kernel can mmap, rather than just the heap.
-constexpr uintptr_t kAddressSpaceBits = 47;
-constexpr uintptr_t kTagShift = 57;
-#elif defined(__aarch64__)
-constexpr uintptr_t kAddressSpaceBits = 48;
-constexpr uintptr_t kTagShift = 56;
-#else
-#error "Unsupported platform."
-#endif
-
-constexpr uintptr_t kShadowShift = 4;
-constexpr uintptr_t kShadowScale = 1 << kShadowShift;
-
-// In pie builds we use 0 shadow offset since it's the most efficient to encode
-// in instructions. In non-pie builds we cannot use 0 since the executable
-// is at 0, instead we use 4GB-2MB because (1) <4GB offsets can be encoded
-// efficiently on x86, (2) we want the smallest offset from 4GB to give as much
-// memory as possible to the executable, and (3) 2MB alignment allows to use
-// huge pages for shadow.
-constexpr uintptr_t kShadowBase = kPieBuild ? 0 : (1ul << 32) - (2ul << 20);
-constexpr uintptr_t kShadowOffset = kPieBuild ? 64 << 10 : 0;
-
 ABSL_CONST_INIT bool enabled = false;
+
+namespace {
 
 void MapShadow() {
   void* const kShadowStart =
@@ -94,7 +64,8 @@ void MapShadow() {
       mmap(kShadowStart, kShadowSize, PROT_READ | PROT_WRITE,
            MAP_FIXED_NOREPLACE | MAP_NORESERVE | MAP_PRIVATE | MAP_ANON, -1,
            0)) {
-    err(1, "tcmalloc: selsan: mmap failed");
+    err(1, "tcmalloc: selsan: mmap(%p, 0x%zx) failed", kShadowStart,
+        kShadowSize);
   }
   __hwasan_shadow_memory_dynamic_address = kShadowBase;
   madvise(kShadowStart, kShadowSize, MADV_DONTDUMP);
@@ -105,6 +76,7 @@ bool EnableTBI() {
 #ifndef ARCH_ENABLE_TAGGED_ADDR
 #define ARCH_ENABLE_TAGGED_ADDR 0x4002
 #endif
+  // Will fail if the CPU or kernel does not support Intel LAM.
   return TEMP_FAILURE_RETRY(syscall(SYS_arch_prctl, ARCH_ENABLE_TAGGED_ADDR,
                                     /*LAM_U57_BITS*/ 6)) == 0;
 #elif defined(__aarch64__)
@@ -114,7 +86,9 @@ bool EnableTBI() {
 #ifndef PR_TAGGED_ADDR_ENABLE
 #define PR_TAGGED_ADDR_ENABLE (1UL << 0)
 #endif
-  return prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0) == 0;
+  TC_CHECK_EQ(0, prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0),
+              "errno=%d", errno);
+  return true;
 #else
   return false;
 #endif
@@ -170,8 +144,6 @@ void PrintPbtxtStats(PbtxtRegion* out) {
   auto selsan = out->CreateSubRegion("selsan");
   selsan.PrintRaw("status", enabled ? "SELSAN_ENABLED" : "SELSAN_DISABLED");
 }
-
-bool IsEnabled() { return enabled; }
 
 #ifdef __x86_64__
 void SelsanTrapHandler(void* info, void* ctx) {

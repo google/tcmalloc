@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/span_stats.h"
 
@@ -280,6 +281,9 @@ inline void CentralFreeList<Forwarder>::Init(
   if (object_size_ == 0) {
     return;
   }
+  if (selsan::IsEnabled()) {
+    object_size_ = selsan::RoundUpObjectSize(object_size_);
+  }
   pages_per_span_ = forwarder_.class_to_pages(size_class);
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
@@ -434,6 +438,13 @@ template <class Forwarder>
 inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   TC_CHECK(!batch.empty());
   TC_CHECK_LE(batch.size(), kMaxObjectsToMove);
+
+  if (selsan::IsEnabled()) {
+    for (auto& ptr : batch) {
+      ptr = selsan::ResetTag(ptr, object_size_);
+    }
+  }
+
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).

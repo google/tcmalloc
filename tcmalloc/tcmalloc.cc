@@ -107,6 +107,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/segv_handler.h"
+#include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
@@ -268,7 +269,7 @@ MallocExtension_Internal_StartLifetimeProfiling() {
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
-  const PageId p = PageIdContaining(ptr);
+  const PageId p = PageIdContainingTagged(ptr);
   return tc_globals.pagemap().GetDescriptor(p)
              ? MallocExtension::Ownership::kOwned
              : MallocExtension::Ownership::kNotOwned;
@@ -528,7 +529,7 @@ inline size_t GetLargeSize(const void* ptr, const PageId p) {
 
 inline size_t GetSize(const void* ptr) {
   if (ptr == nullptr) return 0;
-  const PageId p = PageIdContaining(ptr);
+  const PageId p = PageIdContainingTagged(ptr);
   size_t size_class = tc_globals.pagemap().sizeclass(p);
   if (size_class != 0) {
     return tc_globals.sizemap().class_to_size(size_class);
@@ -573,9 +574,9 @@ FreeSmallSlow(void* ptr, size_t size_class) {
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE void FreeSmall(void* ptr,
                                                           size_t size_class) {
   if (!IsExpandedSizeClass(size_class)) {
-    TC_ASSERT(IsNormalMemory(ptr));
+    TC_ASSERT(IsNormalMemory(ptr) || IsSelSanMemory(ptr), "ptr=%p", ptr);
   } else {
-    TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold);
+    TC_ASSERT_EQ(GetMemoryTag(ptr), MemoryTag::kCold, "ptr=%p", ptr);
   }
 
   // DeallocateFast may fail if:
@@ -690,9 +691,20 @@ static size_t GetSizeClass(void* ptr) {
 // "have_size_class-case" and others are "!have_size_class-case". But we
 // certainly don't have such compiler. See also do_free_with_size below.
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
-  if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
-    return;
+  if (!kSelSanPresent || ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
+    if (ABSL_PREDICT_FALSE(ptr == nullptr)) {
+      return;
+    }
+    if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
+      size_t size_class =
+          tc_globals.pagemap().sizeclass(PageIdContainingTagged(ptr));
+      size_t size = tc_globals.sizemap().class_to_size(size_class);
+      ptr = selsan::UpdateTag(ptr, size);
+      FreeSmall(ptr, size_class);
+      return;
+    }
   }
+  TC_ASSERT_NE(ptr, nullptr);
 
   // ptr must be a result of a previous malloc/memalign/... call, and
   // therefore static initialization must have already occurred.
@@ -750,7 +762,18 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free_with_size(void* ptr,
   // The optimized path doesn't work with non-normal objects (sampled, cold),
   // whose deletions trigger more operations and require to visit metadata.
   if (ABSL_PREDICT_FALSE(!IsNormalMemory(ptr))) {
-    if (ABSL_PREDICT_TRUE(ptr == nullptr)) return;
+    if (ABSL_PREDICT_TRUE(ptr == nullptr)) {
+      return;
+    }
+    if (ABSL_PREDICT_TRUE(IsSelSanMemory(ptr))) {
+      TC_ASSERT(CorrectSize(ptr, size, align));
+      size_t size_class = tc_globals.sizemap().SizeClass(
+          CppPolicy().AlignAs(align.align()).InSameNumaPartitionAs(ptr), size);
+      size = tc_globals.sizemap().class_to_size(size_class);
+      ptr = selsan::UpdateTag(ptr, size);
+      FreeSmall(ptr, size_class);
+      return;
+    }
     // Outline cold path to avoid putting cold size lookup on the fast path.
     SLOW_PATH_BARRIER();
     return free_non_normal(ptr, size, align);

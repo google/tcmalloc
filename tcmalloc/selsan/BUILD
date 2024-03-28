@@ -41,6 +41,15 @@ cc_library(
 )
 
 cc_test(
+    name = "shadow_test",
+    srcs = ["shadow_test.cc"],
+    deps = [
+        ":selsan",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
     name = "report_test",
     srcs = ["report_test.cc"],
     deps = [
