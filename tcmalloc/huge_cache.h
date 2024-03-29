@@ -145,7 +145,6 @@ class HugeCache {
         nanoseconds_per_tick_(absl::ToInt64Nanoseconds(absl::Seconds(1)) /
                               clock_.freq()),
         last_limit_change_(clock.now()),
-        last_regret_update_(clock.now()),
         detailed_tracker_(clock, absl::Minutes(10)),
         usage_tracker_(clock, kCacheTime * 2),
         off_peak_tracker_(clock, kCacheTime * 2),
@@ -168,8 +167,6 @@ class HugeCache {
 
   // Backed memory available.
   HugeLength size() const { return size_; }
-  // Total memory cached (in HugeLength * nanoseconds)
-  uint64_t regret() const { return regret_ * nanoseconds_per_tick_; }
   // Current limit for how much backed memory we'll cache.
   HugeLength limit() const { return limit_; }
   // Sum total of unreleased requests.
@@ -237,8 +234,6 @@ class HugeCache {
   // However, we can go below it if we haven't used that much for 30 seconds.
   HugeLength MinCacheLimit() const { return NHugePages(10); }
 
-  uint64_t regret_{0};  // overflows if we cache 585 hugepages for 1 year
-  int64_t last_regret_update_;
   void UpdateSize(HugeLength size);
 
   MinMaxTracker<600> detailed_tracker_;

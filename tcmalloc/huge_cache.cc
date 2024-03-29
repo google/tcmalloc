@@ -196,14 +196,6 @@ void HugeCache::DecUsage(HugeLength n) {
 
 void HugeCache::UpdateSize(HugeLength size) {
   size_tracker_.Report(size);
-
-  // TODO(b/134691947): moving this inside the MinMaxTracker would save one call
-  // to clock_.now() but all MinMaxTrackers would track regret instead.
-  int64_t now = clock_.now();
-  if (now > last_regret_update_) {
-    regret_ += size.raw_num() * (now - last_regret_update_);
-    last_regret_update_ = now;
-  }
 }
 
 HugeRange HugeCache::Get(HugeLength n, bool* from_released) {
@@ -400,9 +392,6 @@ void HugeCache::Print(Printer* out) {
               total_fast_unbacked_.in_bytes() / 1024 / 1024,
               total_periodic_unbacked_.in_bytes() / 1024 / 1024);
   UpdateSize(size());
-  out->printf(
-      "HugeCache: %zu MiB*s cached since startup\n",
-      NHugePages(regret_).in_mib() / static_cast<size_t>(clock_.freq()));
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(kCacheTime);
@@ -456,9 +445,6 @@ void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
   hpaa->PrintI64("periodic_unbacked_bytes",
                  total_periodic_unbacked_.in_bytes());
   UpdateSize(size());
-  // memory cached since startup (in MiB*s)
-  hpaa->PrintI64("huge_cache_regret", NHugePages(regret_).in_mib() /
-                                          static_cast<size_t>(clock_.freq()));
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(kCacheTime);

@@ -203,23 +203,6 @@ TEST_F(HugeCacheTest, ReleaseFailure) {
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(200)));
 }
 
-TEST_F(HugeCacheTest, Regret) {
-  bool from;
-  HugeRange r = cache_.Get(NHugePages(20), &from);
-  cache_.Release(r);
-  HugeLength cached = cache_.size();
-  absl::Duration d = absl::Seconds(20);
-  Advance(d);
-  char buf[512];
-  Printer out(buf, 512);
-  cache_.Print(&out);  // To update the regret
-  uint64_t expected_regret = absl::ToInt64Nanoseconds(d) * cached.raw_num();
-  // Not exactly accurate since the mock clock advances with real time, and
-  // when we measure regret will be updated.
-  EXPECT_NEAR(cache_.regret(), expected_regret, expected_regret / 100);
-  EXPECT_GE(cache_.regret(), expected_regret);
-}
-
 TEST_F(HugeCacheTest, Stats) {
   bool from;
   HugeRange r = cache_.Get(NHugePages(1 + 1 + 2 + 1 + 3), &from);
