@@ -656,6 +656,7 @@ cc_fuzz_test(
     name = "huge_page_filler_fuzz",
     testonly = 1,
     srcs = ["huge_page_filler_fuzz.cc"],
+    args = ["--fuzztest_stack_limit_kb=2048"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":common_8k_pages",
