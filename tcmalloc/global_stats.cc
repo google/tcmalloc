@@ -60,6 +60,9 @@ static absl::string_view MadviseString() {
 
   if (Parameters::madvise_free()) {
     switch (pref) {
+      case MadvisePreference::kNever:
+        pref = MadvisePreference::kFreeOnly;
+        break;
       case MadvisePreference::kDontNeed:
         pref = MadvisePreference::kFreeAndDontNeed;
         break;
@@ -71,6 +74,8 @@ static absl::string_view MadviseString() {
   }
 
   switch (pref) {
+    case MadvisePreference::kNever:
+      return "MADVISE_NEVER";
     case MadvisePreference::kDontNeed:
       return "MADVISE_DONTNEED";
     case MadvisePreference::kFreeOnly:

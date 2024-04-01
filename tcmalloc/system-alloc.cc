@@ -498,6 +498,7 @@ static bool ReleasePages(void* start, size_t length) {
       case MadvisePreference::kFreeOnly:
         return true;
       case MadvisePreference::kDontNeed:
+      case MadvisePreference::kNever:
         return false;
     }
 
@@ -517,6 +518,7 @@ static bool ReleasePages(void* start, size_t length) {
       case MadvisePreference::kFreeAndDontNeed:
         return true;
       case MadvisePreference::kFreeOnly:
+      case MadvisePreference::kNever:
         return false;
     }
 
@@ -529,11 +531,10 @@ static bool ReleasePages(void* start, size_t length) {
       ret = madvise(start, length, MADV_DONTNEED);
     } while (ret == -1 && errno == EAGAIN);
   }
-
+#endif
   if (ret == 0) {
     return true;
   }
-#endif
 
   return false;
 }

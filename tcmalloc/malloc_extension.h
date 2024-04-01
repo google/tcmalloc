@@ -777,6 +777,7 @@ class ProfileBase {
 };
 
 enum class MadvisePreference {
+  kNever = 0x0,
   kDontNeed = 0x1,
   kFreeAndDontNeed = 0x3,
   kFreeOnly = 0x2,
@@ -784,7 +785,10 @@ enum class MadvisePreference {
 
 inline bool AbslParseFlag(absl::string_view text, MadvisePreference* preference,
                           std::string* /* error */) {
-  if (text == "DONTNEED") {
+  if (text == "NEVER") {
+    *preference = MadvisePreference::kNever;
+    return true;
+  } else if (text == "DONTNEED") {
     *preference = MadvisePreference::kDontNeed;
     return true;
   } else if (text == "FREE_AND_DONTNEED") {
@@ -800,6 +804,8 @@ inline bool AbslParseFlag(absl::string_view text, MadvisePreference* preference,
 
 inline std::string AbslUnparseFlag(MadvisePreference preference) {
   switch (preference) {
+    case MadvisePreference::kNever:
+      return "NEVER";
     case MadvisePreference::kDontNeed:
       return "DONTNEED";
     case MadvisePreference::kFreeAndDontNeed:
