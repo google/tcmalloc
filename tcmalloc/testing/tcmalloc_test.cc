@@ -1270,7 +1270,7 @@ TEST(HotColdTest, NothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (label >= 128) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1316,7 +1316,7 @@ TEST(HotColdTest, AlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (label >= 128) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1367,7 +1367,7 @@ TEST(HotColdTest, ArrayNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    if (label >= 128) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1413,7 +1413,7 @@ TEST(HotColdTest, ArrayAlignedNothrowHotColdNew) {
 
     ptrs.emplace_back(SizedPtr{ptr, size, alignment});
 
-    if (label >= 128) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1464,7 +1464,7 @@ TEST(HotColdTest, SizeReturningHotColdNew) {
         requested, static_cast<hot_cold_t>(label));
     ASSERT_GE(actual, requested);
 
-    if (label >= 128) {
+    if (static_cast<tcmalloc::hot_cold_t>(label) >= kDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << requested << " " << label;
@@ -1502,7 +1502,9 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
     GTEST_SKIP() << "Cold allocations not enabled";
   }
   // Test using a non-default threshold.
-  Parameters::set_min_hot_access_hint(static_cast<tcmalloc::hot_cold_t>(1));
+  constexpr tcmalloc::hot_cold_t kNonDefaultMinHotAccessHint =
+      static_cast<tcmalloc::hot_cold_t>(10);
+  Parameters::set_min_hot_access_hint(kNonDefaultMinHotAccessHint);
 
   constexpr size_t kSmall = 128 << 10;
   constexpr size_t kLarge = 1 << 20;
@@ -1525,8 +1527,10 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
 
     ptrs.emplace_back(SizedPtr{ptr, size});
 
-    // The hotness threshold should have been set to 1 above via SetFlag.
-    if (label >= 1) {
+    // The hotness threshold should have been set to kNonDefaultMinHotAccessHint
+    // above via SetFlag.
+    if (static_cast<tcmalloc::hot_cold_t>(label) >=
+        kNonDefaultMinHotAccessHint) {
       EXPECT_NE(GetMemoryTag(ptr), MemoryTag::kCold);
     } else {
       EXPECT_TRUE(!IsNormalMemory(ptr)) << size << " " << label;
@@ -1542,7 +1546,7 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
   }
 
   // Reset parameter to default.
-  Parameters::set_min_hot_access_hint(static_cast<tcmalloc::hot_cold_t>(128));
+  Parameters::set_min_hot_access_hint(kDefaultMinHotAccessHint);
 }
 
 // Test that when we use size-returning new, we can pass any of the sizes

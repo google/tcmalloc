@@ -56,6 +56,9 @@ namespace tcmalloc {
 // as is.
 using hot_cold_t = __hot_cold_t;
 
+constexpr hot_cold_t kDefaultMinHotAccessHint =
+    static_cast<tcmalloc::hot_cold_t>(1);
+
 }  // namespace tcmalloc
 
 inline bool AbslParseFlag(absl::string_view text, tcmalloc::hot_cold_t* hotness,
