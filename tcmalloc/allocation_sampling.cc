@@ -265,7 +265,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
 }
 
 ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(SampledAllocation& alloc, size_t size,
+static void ReportMismatchedDelete(const SampledAllocation& alloc, size_t size,
                                    size_t requested_size,
                                    std::optional<size_t> allocated_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");

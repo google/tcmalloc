@@ -183,7 +183,7 @@ void CrashWithOOM(size_t alloc_size) {
   Crash("tcmalloc", 0, buf, n, true);
 }
 
-void PrintStackTrace(void** stack_frames, size_t depth) {
+void PrintStackTrace(void* const* stack_frames, size_t depth) {
   for (size_t i = 0; i < depth; ++i) {
     TC_LOG("  @  %p", stack_frames[i]);
   }

@@ -122,7 +122,7 @@ ABSL_ATTRIBUTE_NORETURN ABSL_ATTRIBUTE_NOINLINE void CheckFailed(
   CheckFailed(file, line, buf, std::min<size_t>(n, sizeof(buf) - 1));
 }
 
-void PrintStackTrace(void** stack_frames, size_t depth);
+void PrintStackTrace(void* const* stack_frames, size_t depth);
 void PrintStackTraceFromSignalHandler(void* context);
 
 // Tests can override this function to collect logging messages.
