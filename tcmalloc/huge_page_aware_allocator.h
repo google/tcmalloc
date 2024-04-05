@@ -120,7 +120,6 @@ struct HugePageAwareAllocatorOptions {
           ? HugePageFillerAllocsOption::kSeparateAllocs
           : HugePageFillerAllocsOption::kUnifiedAllocs;
   size_t chunks_per_alloc = Parameters::chunks_per_alloc();
-  absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
 // An implementation of the PageAllocator interface that is hugepage-efficient.
@@ -388,8 +387,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       vm_allocator_(*this),
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
-      cache_(HugeCache{&alloc_, metadata_allocator_, unback_without_lock_,
-                       options.huge_cache_time}) {
+      cache_(HugeCache{&alloc_, metadata_allocator_, unback_without_lock_}) {
   tracker_allocator_.Init(&forwarder_.arena());
   region_allocator_.Init(&forwarder_.arena());
 }

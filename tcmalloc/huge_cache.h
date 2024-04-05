@@ -103,16 +103,14 @@ class HugeCache {
   // For use in production
   HugeCache(HugeAllocator* allocator,
             MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
-            MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-            absl::Duration cache_time)
-      : HugeCache(allocator, meta_allocate, unback, cache_time,
+            MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : HugeCache(allocator, meta_allocate, unback,
                   Clock{.now = absl::base_internal::CycleClock::Now,
                         .freq = absl::base_internal::CycleClock::Frequency}) {}
 
   // For testing with mock clock.
   //
-  // cache_time * 2 (default cache_time = 1s) looks like an arbitrary window; it
-  // mostly is.
+  // 2s (kCacheTime * 2) looks like an arbitrary window; it mostly is.
   //
   // Suffice to say that the below code (see MaybeGrowCacheLimit)
   // tries to make sure the cache is sized to protect a working set
@@ -139,20 +137,19 @@ class HugeCache {
   HugeCache(HugeAllocator* allocator,
             MetadataAllocator& meta_allocate ABSL_ATTRIBUTE_LIFETIME_BOUND,
             MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-            absl::Duration cache_time, Clock clock)
+            Clock clock)
       : allocator_(allocator),
         cache_(meta_allocate),
         clock_(clock),
-        cache_time_ticks_(clock_.freq() * absl::ToDoubleSeconds(cache_time)),
+        cache_time_ticks_(clock_.freq() * absl::ToDoubleSeconds(kCacheTime)),
         nanoseconds_per_tick_(absl::ToInt64Nanoseconds(absl::Seconds(1)) /
                               clock_.freq()),
         last_limit_change_(clock.now()),
         detailed_tracker_(clock, absl::Minutes(10)),
-        usage_tracker_(clock, cache_time * 2),
-        off_peak_tracker_(clock, cache_time * 2),
-        size_tracker_(clock, cache_time * 2),
-        unback_(unback),
-        cache_time_(cache_time) {}
+        usage_tracker_(clock, kCacheTime * 2),
+        off_peak_tracker_(clock, kCacheTime * 2),
+        size_tracker_(clock, kCacheTime * 2),
+        unback_(unback) {}
   // Allocate a usable set of <n> contiguous hugepages.  Try to give out
   // memory that's currently backed from the kernel if we have it available.
   // *from_released is set to false if the return range is already backed;
@@ -210,6 +207,7 @@ class HugeCache {
   HugeLength size_{NHugePages(0)};
 
   HugeLength limit_{NHugePages(10)};
+  const absl::Duration kCacheTime = absl::Seconds(1);
 
   size_t hits_{0};
   size_t misses_{0};
@@ -248,7 +246,6 @@ class HugeCache {
   HugeLength total_periodic_unbacked_{NHugePages(0)};
 
   MemoryModifyFunction& unback_;
-  absl::Duration cache_time_;
 };
 
 }  // namespace tcmalloc_internal

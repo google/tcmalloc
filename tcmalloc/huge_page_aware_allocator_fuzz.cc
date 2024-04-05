@@ -83,8 +83,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //
   // [0] - Memory tag.
   // [1] - HugeRegionsMode.
-  // [2] - HugeCache release time
-  // [3:4] - Reserved.
+  // [2:4] - Reserved.
   // [5] - Determine if we use separate filler allocs based on number of
   // objects per span.
   // [6:12] - Reserved.
@@ -116,8 +115,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       data[5] >= 128 ? HugePageFillerAllocsOption::kUnifiedAllocs
                      : HugePageFillerAllocsOption::kSeparateAllocs;
 
-  const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
-
   // data[6:12] - Reserve additional bytes for any features we might want to add
   // in the future.
   data += 13;
@@ -130,7 +127,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.allocs_for_sparse_and_dense_spans = allocs_option;
-  options.huge_cache_time = absl::Seconds(huge_cache_release_s);
   HugePageAwareAllocator<FakeStaticForwarder>* allocator;
   allocator = new (p) HugePageAwareAllocator<FakeStaticForwarder>(options);
   auto& forwarder = allocator->forwarder();

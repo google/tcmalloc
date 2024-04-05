@@ -162,19 +162,6 @@ bool Parameters::use_all_buckets_for_few_object_spans_in_cfl() {
   return v;
 }
 
-absl::Duration Parameters::huge_cache_release_time() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<int32_t> v{1};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(IsExperimentActive(
-                Experiment::TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S)
-                ? 30
-                : 1,
-            std::memory_order_relaxed);
-  });
-  return absl::Seconds(v.load(std::memory_order_relaxed));
-}
-
 ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
     Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
         0
