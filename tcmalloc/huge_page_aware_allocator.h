@@ -120,8 +120,7 @@ struct HugePageAwareAllocatorOptions {
           ? HugePageFillerAllocsOption::kSeparateAllocs
           : HugePageFillerAllocsOption::kUnifiedAllocs;
   size_t chunks_per_alloc = Parameters::chunks_per_alloc();
-  absl::Duration huge_cache_time =
-      absl::Seconds(Parameters::huge_cache_release_time_s());
+  absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
 // An implementation of the PageAllocator interface that is hugepage-efficient.
