@@ -382,6 +382,19 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    # TODO(b/333390360):  Remove this opt-out.
+    name = "want_disable_few_object_span_prioritization",
+    srcs = ["want_disable_few_object_span_prioritization.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tcmalloc/internal:config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
+    alwayslink = 1,
+)
+
 # Add a dep to this if you want your binary to enable NUMA awareness by
 # default.
 cc_library(

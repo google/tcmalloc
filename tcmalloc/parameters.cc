@@ -149,9 +149,40 @@ void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
 
+bool ABSL_ATTRIBUTE_WEAK default_want_disable_few_object_span_prioritization();
+
+// TODO(b/333390360): remove the function
+// default_want_disable_few_object_span_prioritization() and the
+// env TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION
+// opt-out some time after 2024-05-10.
+static bool want_disable_few_object_span_prioritization() {
+  if (default_want_disable_few_object_span_prioritization != nullptr)
+    return true;
+  const char* e =
+      thread_safe_getenv("TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // TODO(b/309967531): enable this.
+        return true;
+      case '1':
+        return true;
+      default:
+        TC_BUG("bad env var '%s'", e);
+    }
+  }
+  // TODO(b/309967531): enable this.
+  return true;
+}
+
 bool Parameters::use_all_buckets_for_few_object_spans_in_cfl() {
+  ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<bool> v{false};
-  return v;
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(!want_disable_few_object_span_prioritization(),
+            std::memory_order_relaxed);
+  });
+  return v.load(std::memory_order_relaxed);
 }
 
 ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
