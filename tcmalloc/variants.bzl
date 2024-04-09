@@ -153,12 +153,6 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC"},
     },
     {
-        "name": "use_all_buckets_for_few_object_spans",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_USE_ALL_BUCKETS_FOR_FEW_OBJECT_SPANS_IN_CFL"},
-    },
-    {
         "name": "32k_no_hpaa",
         "malloc": "//tcmalloc:tcmalloc_large_pages",
         "deps": [
