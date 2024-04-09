@@ -180,17 +180,30 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
       return buffer;
     }
 
+    int num_enabled_experiments = 0;
+    Experiment experiment_id = Experiment::kMaxExperimentID;
     for (auto config : experiments) {
       if (IsCompilerExperiment(config.id) ||
           HasBrittleTestFailures(config.id)) {
         continue;
       }
       TC_CHECK(!buffer[static_cast<int>(config.id)]);
+      experiment_id = config.id;
+
       // Enabling is specifically based on the experiment name so that it's
       // stable when experiments are added/removed.
-      buffer[static_cast<int>(config.id)] =
+      bool enabled =
           ((target_hash ^ std::hash<std::string_view>{}(config.name)) %
            kEnableOneOf) == 0;
+      buffer[static_cast<int>(config.id)] = enabled;
+      num_enabled_experiments += enabled;
+    }
+    // In case the hash-based selection above did not work out, select the last
+    // experiment.
+    if (num_enabled_experiments == 0 &&
+        experiment_id != Experiment::kMaxExperimentID) {
+      TC_CHECK(!buffer[static_cast<int>(experiment_id)]);
+      buffer[static_cast<int>(experiment_id)] = true;
     }
   }
 
