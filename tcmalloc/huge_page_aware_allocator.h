@@ -235,7 +235,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override {
+    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override
+        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+#ifndef NDEBUG
+      pageheap_lock.AssertHeld();
+#endif  // NDEBUG
       return hpaa_.forwarder_.ReleasePages(start, length);
     }
 
@@ -383,7 +387,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_(*this),
       unback_without_lock_(*this),
       filler_(options.allocs_for_sparse_and_dense_spans,
-              options.chunks_per_alloc, unback_),
+              options.chunks_per_alloc, unback_, unback_without_lock_),
       regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),
       metadata_allocator_(*this),

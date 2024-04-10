@@ -148,7 +148,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      allocs_for_few_and_many_objects_spans,
-                                     chunks_per_alloc, unback);
+                                     chunks_per_alloc, unback, unback);
 
   struct Alloc {
     PageId page;

@@ -687,7 +687,7 @@ class FillerTest : public testing::TestWithParam<
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_sparse_and_dense_spans=*/
                 std::get<0>(GetParam()),
-                /*chunks_per_alloc=*/std::get<1>(GetParam()),
+                /*chunks_per_alloc=*/std::get<1>(GetParam()), blocking_unback_,
                 blocking_unback_) {
     ResetClock();
     // Reset success state
