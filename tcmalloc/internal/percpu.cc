@@ -62,12 +62,9 @@ ABSL_CONST_INIT static std::atomic<bool> using_upstream_fence{false};
 
 extern "C" thread_local char tcmalloc_sampler ABSL_ATTRIBUTE_INITIAL_EXEC;
 
-// Is this thread's __rseq_abi struct currently registered with the kernel?
-static bool ThreadRegistered() { return RseqCpuId() >= kCpuIdInitialized; }
-
 static bool InitThreadPerCpu() {
   // If we're already registered, there's nothing further for us to do.
-  if (ThreadRegistered()) {
+  if (IsFastNoInit()) {
     return true;
   }
 
@@ -76,7 +73,7 @@ static bool InitThreadPerCpu() {
   // signal initializes per-CPU, rseq() here will fail with EBUSY.
   ScopedSigmask mask;
 
-  if (ThreadRegistered()) {
+  if (IsFastNoInit()) {
     return true;
   }
 
