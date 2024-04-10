@@ -74,6 +74,66 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t RoundUpObjectSize(size_t size) {
   return (size + kShadowScale - 1) & ~(kShadowScale - 1);
 }
 
+#if __has_builtin(__builtin_memset_inline)
+template <size_t kBlockSize>
+ABSL_ATTRIBUTE_ALWAYS_INLINE void SetTagTail(unsigned char* p, size_t size,
+                                             unsigned char tag) {
+  __builtin_memset_inline(
+      p + (size + kShadowScale - 1 - kBlockSize * kShadowScale) / kShadowScale,
+      tag, kBlockSize);
+}
+
+template <size_t kBlockSize>
+ABSL_ATTRIBUTE_ALWAYS_INLINE void SetTagPair(unsigned char* p, size_t size,
+                                             unsigned char tag) {
+  __builtin_memset_inline(p, tag, kBlockSize);
+  SetTagTail<kBlockSize>(p, size, tag);
+}
+
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void SetTag(uintptr_t ptr, size_t size,
+                                                unsigned char tag) {
+  TC_ASSERT_NE(size, 0);
+  uintptr_t off = (ptr << (64 - kTagShift)) >> (64 - kTagShift + kShadowShift);
+  auto* p = reinterpret_cast<unsigned char*>(kShadowBase + off);
+  if (size <= 2 * kShadowScale) {
+    SetTagPair<1>(p, size, tag);
+  } else if (size <= 4 * kShadowScale) {
+    SetTagPair<2>(p, size, tag);
+  } else if (size <= 8 * kShadowScale) {
+    SetTagPair<4>(p, size, tag);
+  } else if (size <= 16 * kShadowScale) {
+    SetTagPair<8>(p, size, tag);
+  } else if (size <= 32 * kShadowScale) {
+    SetTagPair<16>(p, size, tag);
+  } else if (size <= 64 * kShadowScale) {
+    SetTagPair<32>(p, size, tag);
+  } else if (size <= 128 * kShadowScale) {
+    // This is affected by clang codegen bug, which leads to duplicate register
+    // initialization, but it's unclear how to nicely work-around it without
+    // resorting to machine-specific intrinsics:
+    // https://github.com/llvm/llvm-project/issues/69895
+    SetTagPair<64>(p, size, tag);
+  } else {
+    const size_t kUnroll = 4;
+    const size_t kBlockSize = 32;
+    size_t i = 0;
+    for (; i < size / kShadowScale - (kUnroll * kBlockSize - 1);
+         i += kUnroll * kBlockSize) {
+      for (size_t j = 0; j < kUnroll; j++) {
+        __builtin_memset_inline(p + i + j * kBlockSize, tag, kBlockSize);
+      }
+      // Work-around clang bug https://github.com/llvm/llvm-project/issues/56876
+      // Without this clang emits memset call for __builtin_memset_inline.
+      asm("");
+    }
+    for (; i < size / kShadowScale - (kBlockSize - 1); i += kBlockSize) {
+      __builtin_memset_inline(p + i, tag, kBlockSize);
+      asm("");
+    }
+    SetTagTail<kBlockSize>(p, size, tag);
+  }
+}
+#else   // #if __has_builtin(__builtin_memset_inline)
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void SetTag(uintptr_t ptr, size_t size,
                                                 unsigned char tag) {
   TC_ASSERT_NE(size, 0);
@@ -83,6 +143,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void SetTag(uintptr_t ptr, size_t size,
     p[i] = tag;
   }
 }
+#endif  // #if __has_builtin(__builtin_memset_inline)
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* RemoveTag(const void* ptr) {
   return reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(ptr) &

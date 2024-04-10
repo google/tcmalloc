@@ -119,6 +119,21 @@ TEST(Unit, UpdateTag) {
 #endif
 }
 
+TEST(Unit, SetTag) {
+  for (size_t size = 1; size < (sizeof(test_shadow) - 2) * kShadowScale;
+       size++) {
+    SCOPED_TRACE(size);
+    memset(test_shadow, 0x55, sizeof(test_shadow));
+    SetTag(0x1800000000000000 + kShadowScale, size, 0x77);
+    size_t n = (size + kShadowScale - 1) / kShadowScale;
+    ASSERT_EQ(test_shadow[0], 0x55);
+    ASSERT_EQ(test_shadow[n + 1], 0x55);
+    for (size_t i = 0; i < n; i++) {
+      ASSERT_EQ(test_shadow[i + 1], 0x77);
+    }
+  }
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal::selsan
 #endif
