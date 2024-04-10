@@ -106,9 +106,8 @@ class StaticForwarder {
   static AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
     return SystemAlloc(bytes, align, tag);
   }
-  // TODO(ckennelly): Accept PageId/Length.
-  static bool ReleasePages(void* ptr, size_t size) {
-    return SystemRelease(ptr, size);
+  static bool ReleasePages(PageId start, Length size) {
+    return SystemRelease(start.start_addr(), size.in_bytes());
   }
 };
 
@@ -235,7 +234,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override
+    ABSL_MUST_USE_RESULT bool operator()(PageId start, Length length) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
@@ -253,7 +252,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(void* start, size_t length) override
+    ABSL_MUST_USE_RESULT bool operator()(PageId start, Length length) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();

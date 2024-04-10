@@ -131,10 +131,10 @@ class FakeStaticForwarder {
     fake_allocation_ += bytes;
     return ret;
   }
-  // TODO(ckennelly): Accept PageId/Length.
-  bool ReleasePages(void* ptr, size_t size) {
-    const uintptr_t start = reinterpret_cast<uintptr_t>(ptr) & ~kTagMask;
-    const uintptr_t end = start + size;
+  bool ReleasePages(PageId begin, Length size) {
+    const uintptr_t start =
+        reinterpret_cast<uintptr_t>(begin.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + size.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
 
     return release_succeeds_;

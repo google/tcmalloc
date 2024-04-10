@@ -61,9 +61,9 @@ class HugeRegionTest : public ::testing::Test {
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
-    MOCK_METHOD(bool, Unback, (void* p, size_t len), ());
+    MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
 
-    bool operator()(void* p, size_t len) override { return Unback(p, len); }
+    bool operator()(PageId p, Length len) override { return Unback(p, len); }
   };
 
   std::unique_ptr<MockBackingInterface> mock_;
@@ -71,9 +71,8 @@ class HugeRegionTest : public ::testing::Test {
   void CheckMock() { testing::Mock::VerifyAndClearExpectations(mock_.get()); }
 
   void ExpectUnback(HugeRange r, bool success = true) {
-    void* ptr = r.start_addr();
-    size_t bytes = r.byte_len();
-    EXPECT_CALL(*mock_, Unback(ptr, bytes)).WillOnce(Return(success));
+    EXPECT_CALL(*mock_, Unback(r.start().first_page(), r.len().in_pages()))
+        .WillOnce(Return(success));
   }
 
   struct Alloc {
@@ -491,7 +490,7 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
 
 class NilUnback final : public MemoryModifyFunction {
  public:
-  bool operator()(void* p, size_t bytes) override { return true; }
+  bool operator()(PageId p, Length bytes) override { return true; }
 };
 
 class HugeRegionSetTest

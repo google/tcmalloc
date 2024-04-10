@@ -76,15 +76,13 @@ absl::flat_hash_set<PageId>& ReleasedPages() {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  ABSL_MUST_USE_RESULT bool operator()(void* start, size_t len) override {
+  ABSL_MUST_USE_RESULT bool operator()(PageId p, Length l) override {
     if (!unback_success) {
       return false;
     }
 
     absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
-    PageId p = PageIdContaining(start);
-    Length l = LengthFromBytes(len);
     PageId end = p + l;
     for (; p != end; ++p) {
       released_set.insert(p);

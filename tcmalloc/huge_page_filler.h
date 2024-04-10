@@ -215,9 +215,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
                                          MemoryModifyFunction& unback) {
-    void* ptr = p.start_addr();
-    size_t byte_len = n.in_bytes();
-    bool success = unback(ptr, byte_len);
+    bool success = unback(p, n);
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;
     }
@@ -827,8 +825,8 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
         // rest of the hugepage.  This simplifies subsequent accounting by
         // allowing us to work with hugepage-granularity, rather than needing to
         // retain pt's state indefinitely.
-        bool success =
-            unback_without_lock_(pt->location().start_addr(), kHugePageSize);
+        bool success = unback_without_lock_(pt->location().first_page(),
+                                            kPagesPerHugePage);
 
         if (ABSL_PREDICT_TRUE(success)) {
           unmapping_unaccounted_ += free_pages - released_pages;

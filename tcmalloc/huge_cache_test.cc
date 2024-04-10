@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_metadata_allocator.h"
 #include "tcmalloc/mock_virtual_allocator.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 namespace tcmalloc {
@@ -63,9 +64,9 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
-    MOCK_METHOD(bool, Unback, (void* p, size_t len), ());
+    MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
 
-    bool operator()(void* p, size_t len) override { return Unback(p, len); }
+    bool operator()(PageId p, Length len) override { return Unback(p, len); }
   };
 
  protected:
@@ -151,13 +152,14 @@ TEST_P(HugeCacheTest, Release) {
   cache_.Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
-  EXPECT_CALL(mock_unback_, Unback(r5.start_addr(), kHugePageSize * 1))
+  EXPECT_CALL(mock_unback_, Unback(r5.start().first_page(), kPagesPerHugePage))
       .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(1), cache_.ReleaseCachedPages(NHugePages(1)));
   cache_.Release(r3);
   cache_.Release(r4);
 
-  EXPECT_CALL(mock_unback_, Unback(r1.start_addr(), 4 * kHugePageSize))
+  EXPECT_CALL(mock_unback_,
+              Unback(r1.start().first_page(), 4 * kPagesPerHugePage))
       .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(4), cache_.ReleaseCachedPages(NHugePages(200)));
 }
@@ -193,13 +195,15 @@ TEST_P(HugeCacheTest, ReleaseFailure) {
   cache_.Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
-  EXPECT_CALL(mock_unback_, Unback(r5.start_addr(), 1 * kHugePageSize))
+  EXPECT_CALL(mock_unback_,
+              Unback(r5.start().first_page(), 1 * kPagesPerHugePage))
       .WillOnce(Return(false));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(1)));
   cache_.Release(r3);
   cache_.Release(r4);
 
-  EXPECT_CALL(mock_unback_, Unback(r1.start_addr(), 5 * kHugePageSize))
+  EXPECT_CALL(mock_unback_,
+              Unback(r1.start().first_page(), 5 * kPagesPerHugePage))
       .WillOnce(Return(false));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(200)));
 }

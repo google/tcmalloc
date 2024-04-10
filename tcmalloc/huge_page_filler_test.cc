@@ -183,7 +183,7 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface final : public MemoryModifyFunction {
    public:
-    ABSL_MUST_USE_RESULT bool operator()(void* p, size_t len) override {
+    ABSL_MUST_USE_RESULT bool operator()(PageId p, Length len) override {
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
       actual_[actual_index_] = {p, len};
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(expected_));
@@ -193,7 +193,7 @@ class PageTrackerTest : public testing::Test {
       return success;
     }
 
-    void Expect(void* p, size_t len, bool success) {
+    void Expect(PageId p, Length len, bool success) {
       TC_CHECK_LT(expected_index_, kMaxCalls);
       expected_[expected_index_] = {p, len, success};
       ++expected_index_;
@@ -212,8 +212,8 @@ class PageTrackerTest : public testing::Test {
 
    private:
     struct CallArgs {
-      void* ptr{nullptr};
-      size_t len{0};
+      PageId ptr;
+      Length len;
       bool success = true;
     };
 
@@ -241,9 +241,7 @@ class PageTrackerTest : public testing::Test {
   PageTracker tracker_;
 
   void ExpectPages(PAlloc a, bool success = true) {
-    void* ptr = a.p.start_addr();
-    size_t bytes = a.n.in_bytes();
-    mock_.Expect(ptr, bytes, success);
+    mock_.Expect(a.p, a.n, success);
   }
 
   PAlloc Get(Length n, SpanAllocInfo span_alloc_info) {
@@ -619,7 +617,7 @@ class BlockingUnback final : public MemoryModifyFunction {
  public:
   constexpr BlockingUnback() = default;
 
-  ABSL_MUST_USE_RESULT bool operator()(void* p, size_t len) override {
+  ABSL_MUST_USE_RESULT bool operator()(PageId p, Length len) override {
     if (!mu_) {
       return success_;
     }

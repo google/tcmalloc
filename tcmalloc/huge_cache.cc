@@ -279,7 +279,8 @@ HugeLength HugeCache::ShrinkCache(HugeLength target) {
     size_ -= r.len();
     // Note, actual unback implementation is temporarily dropping and
     // re-acquiring the page heap lock here.
-    if (ABSL_PREDICT_FALSE(!unback_(r.start_addr(), r.byte_len()))) {
+    if (ABSL_PREDICT_FALSE(
+            !unback_(r.start().first_page(), r.len().in_pages()))) {
       // We failed to release r.  Retain it in the cache instead of returning it
       // to the HugeAllocator.
       size_ += r.len();

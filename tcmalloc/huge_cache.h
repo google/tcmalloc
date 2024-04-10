@@ -43,7 +43,7 @@ class MemoryModifyFunction {
  public:
   virtual ~MemoryModifyFunction() = default;
 
-  ABSL_MUST_USE_RESULT virtual bool operator()(void* start, size_t len) = 0;
+  ABSL_MUST_USE_RESULT virtual bool operator()(PageId start, Length len) = 0;
 };
 
 // Track the extreme values of a HugeLength value over the past
