@@ -73,12 +73,16 @@ void MapShadow() {
 
 bool EnableTBI() {
 #if defined(__x86_64__)
+#ifdef TCMALLOC_INTERNAL_SELSAN_FAKE_MODE
+  return true;
+#else
 #ifndef ARCH_ENABLE_TAGGED_ADDR
 #define ARCH_ENABLE_TAGGED_ADDR 0x4002
 #endif
   // Will fail if the CPU or kernel does not support Intel LAM.
   return TEMP_FAILURE_RETRY(syscall(SYS_arch_prctl, ARCH_ENABLE_TAGGED_ADDR,
                                     /*LAM_U57_BITS*/ 6)) == 0;
+#endif
 #elif defined(__aarch64__)
 #ifndef PR_SET_TAGGED_ADDR_CTRL
 #define PR_SET_TAGGED_ADDR_CTRL 55

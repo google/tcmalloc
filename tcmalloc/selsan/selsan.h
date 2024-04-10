@@ -36,11 +36,23 @@ inline constexpr uintptr_t kPieBuild = false;
 // everything kernel can mmap, rather than just the heap.
 inline constexpr uintptr_t kAddressSpaceBits = 47;
 inline constexpr uintptr_t kTagShift = 57;
-inline constexpr uintptr_t kTagResetMask = 1ul << 63;
+#ifdef TCMALLOC_INTERNAL_SELSAN_FAKE_MODE
+// The fake mode allows to realistically benchmark selsan on x86 w/o LAM.
+// We set kTagUnsetMask to always reset the same tag bit we set during
+// retagging. As the result the top byte is always 0 (so no need for LAM).
+// But the compiler cannot prove the tag increment won't overflow to other bits,
+// so the instruction sequence should be equivalent to the real one, and all
+// of the shadow accesses and instrumentation are exactly the same as well.
+inline constexpr uintptr_t kTagUnsetMask = 2ul << kTagShift;
+#else
+// This mask is unset after incrementing tag on pointers to restore
+// the canonical bit after potential tag overflow into the canonical bit.
+inline constexpr uintptr_t kTagUnsetMask = 1ul << 63;
+#endif
 #elif defined(__aarch64__)
 inline constexpr uintptr_t kAddressSpaceBits = 48;
 inline constexpr uintptr_t kTagShift = 56;
-inline constexpr uintptr_t kTagResetMask = 0;
+inline constexpr uintptr_t kTagUnsetMask = 0;
 #else
 #error "Unsupported platform."
 #endif
@@ -161,7 +173,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* UpdateTag(void* ptr, size_t size) {
   TC_ASSERT(IsEnabled());
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   p += 1ul << (kTagShift + 1);
-  p &= ~kTagResetMask;
+  p &= ~kTagUnsetMask;
   SetTag(reinterpret_cast<uintptr_t>(ptr), size, p >> 56);
   return reinterpret_cast<void*>(p);
 }
