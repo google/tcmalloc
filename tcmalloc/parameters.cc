@@ -156,23 +156,22 @@ bool ABSL_ATTRIBUTE_WEAK default_want_disable_few_object_span_prioritization();
 // env TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION
 // opt-out some time after 2024-05-10.
 static bool want_disable_few_object_span_prioritization() {
-  if (default_want_disable_few_object_span_prioritization != nullptr)
+  if (default_want_disable_few_object_span_prioritization != nullptr) {
     return true;
+  }
   const char* e =
       thread_safe_getenv("TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION");
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/309967531): enable this.
-        return true;
+        return false;
       case '1':
         return true;
       default:
         TC_BUG("bad env var '%s'", e);
     }
   }
-  // TODO(b/309967531): enable this.
-  return true;
+  return false;
 }
 
 bool Parameters::use_all_buckets_for_few_object_spans_in_cfl() {
