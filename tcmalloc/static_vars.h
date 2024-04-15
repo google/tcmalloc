@@ -37,7 +37,6 @@
 #include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
-#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/page_allocator.h"
@@ -49,6 +48,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
+#include "tcmalloc/stats.h"
 #include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -265,6 +265,58 @@ inline void Span::Delete(Span* span) {
 #endif
   Static::span_allocator().Delete(span);
 }
+
+// ConstantRatePageAllocatorReleaser() might release more than the requested
+// bytes because the page heap releases at the span granularity, and spans are
+// of wildly different sizes. This keeps track of the extra bytes bytes released
+// so that the app can periodically call Release() to release memory at a
+// constant rate.
+class ConstantRatePageAllocatorReleaser {
+ public:
+  size_t Release(size_t num_bytes, PageReleaseReason reason) {
+    const PageHeapSpinLockHolder l;
+
+    if (num_bytes <= extra_bytes_released_) {
+      // We released too much on a prior call, so don't release any
+      // more this time.
+      extra_bytes_released_ -= num_bytes;
+      num_bytes = 0;
+    } else {
+      num_bytes -= extra_bytes_released_;
+    }
+
+    const Length num_pages = [&] {
+      if (num_bytes > 0) {
+        // A sub-page size request may round down to zero.  Assume the caller
+        // wants some memory released.
+        const Length num_pages = BytesToLengthCeil(num_bytes);
+        TC_ASSERT_GT(num_pages, Length(0));
+
+        return num_pages;
+      } else {
+        return Length(0);
+      }
+    }();
+
+    const size_t bytes_released = tc_globals.page_allocator()
+                                      .ReleaseAtLeastNPages(num_pages, reason)
+                                      .in_bytes();
+    if (bytes_released > num_bytes) {
+      extra_bytes_released_ = bytes_released - num_bytes;
+
+      return num_bytes;
+    }
+
+    // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
+    // with a big release next time.
+    extra_bytes_released_ = 0;
+
+    return bytes_released;
+  }
+
+ private:
+  size_t extra_bytes_released_ = 0;
+};
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

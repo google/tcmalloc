@@ -224,7 +224,10 @@ void PageAllocator::ShrinkToUsageLimit(Length n) {
 }
 
 bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
-  Length ret = ReleaseAtLeastNPages(pages);
+  const PageReleaseReason release_reason =
+      limit_kind == kHard ? PageReleaseReason::kHardLimitExceeded
+                          : PageReleaseReason::kSoftLimitExceeded;
+  Length ret = ReleaseAtLeastNPages(pages, release_reason);
   if (alg_ == HPAA) {
     if (pages <= ret) {
       // We released target amount.
@@ -247,21 +250,24 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
     }
     if (has_cold_impl_) {
       ret += static_cast<HugePageAwareAllocator*>(cold_impl_)
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
+                                                         release_reason);
       if (ret >= pages) {
         return true;
       }
     }
     for (int partition = 0; partition < active_numa_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
-                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
+                                                         release_reason);
       if (ret >= pages) {
         return true;
       }
     }
 
     ret += static_cast<HugePageAwareAllocator*>(sampled_impl_)
-               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret);
+               ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
+                                                       release_reason);
   }
   // Return "true", if we got back under the limit.
   return (pages <= ret);

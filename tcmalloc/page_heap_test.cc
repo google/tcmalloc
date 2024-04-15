@@ -26,7 +26,9 @@
 #include "absl/memory/memory.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/stats.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -59,7 +61,8 @@ static void Delete(PageHeap* ph, Span* s, size_t objects_per_span)
 
 static Length Release(PageHeap* ph, Length n) {
   PageHeapSpinLockHolder l;
-  return ph->ReleaseAtLeastNPages(n);
+  return ph->ReleaseAtLeastNPages(
+      n, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
 }
 
 class PageHeapTest : public ::testing::Test {

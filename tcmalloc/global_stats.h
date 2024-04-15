@@ -23,6 +23,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -47,6 +48,12 @@ struct TCMallocStats {
   size_t percpu_metadata_bytes;        // included in metadata bytes
   BackingStats pageheap;               // Stats from page heap
   PageAllocator::PeakStats peak_stats;
+
+  Length num_released_total;
+  Length num_released_release_memory_to_system;
+  Length num_released_process_background_actions;
+  Length num_released_soft_limit_exceeded;
+  Length num_released_hard_limit_exceeded;
 
   ArenaStats arena;  // Stats from the metadata Arena
 

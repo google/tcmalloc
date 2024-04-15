@@ -382,7 +382,8 @@ Length PageHeap::ReleaseLastNormalSpan(SpanListPair* slist) {
   return n;
 }
 
-Length PageHeap::ReleaseAtLeastNPages(Length num_pages) {
+Length PageHeap::ReleaseAtLeastNPages(Length num_pages,
+                                      PageReleaseReason reason) {
   Length released_pages;
   Length prev_released_pages = Length::max() + Length(1);
 
@@ -407,8 +408,12 @@ Length PageHeap::ReleaseAtLeastNPages(Length num_pages) {
       }
     }
   }
-  info_.RecordRelease(num_pages, released_pages);
+  info_.RecordRelease(num_pages, released_pages, reason);
   return released_pages;
+}
+
+PageReleaseStats PageHeap::GetReleaseStats() const {
+  return info_.GetRecordedReleases();
 }
 
 void PageHeap::GetSmallSpanStats(SmallSpanStats* result) {

@@ -70,7 +70,13 @@ class PageAllocatorInterface {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  virtual Length ReleaseAtLeastNPages(Length num_pages)
+  virtual Length ReleaseAtLeastNPages(Length num_pages,
+                                      PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
+
+  // Returns the number of pages that have been released from this page
+  // allocator.
+  virtual PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.

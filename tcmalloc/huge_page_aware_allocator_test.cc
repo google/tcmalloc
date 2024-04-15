@@ -21,9 +21,10 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
-#include <new>
+#include <memory>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
 #include <utility>
@@ -33,8 +34,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/base/internal/spinlock.h"
-#include "absl/base/internal/sysinfo.h"
+#include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/flags/flag.h"
 #include "absl/meta/type_traits.h"
@@ -45,21 +47,20 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/barrier.h"
-#include "absl/synchronization/mutex.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
-#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
+#include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/static_vars.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 #include "tcmalloc/testing/thread_manager.h"
@@ -194,14 +195,15 @@ class HugePageAwareAllocatorTest
     return {n, {objects, density}};
   }
 
-  Length ReleasePages(Length k) {
+  Length ReleasePages(Length k, PageReleaseReason reason) {
     PageHeapSpinLockHolder l;
-    return allocator_->ReleaseAtLeastNPages(k);
+    return allocator_->ReleaseAtLeastNPages(k, reason);
   }
 
-  Length ReleaseAtLeastNPagesBreakingHugepages(Length n) {
+  Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
+                                               PageReleaseReason reason) {
     PageHeapSpinLockHolder l;
-    return allocator_->ReleaseAtLeastNPagesBreakingHugepages(n);
+    return allocator_->ReleaseAtLeastNPagesBreakingHugepages(n, reason);
   }
 
   bool UseHugeRegionMoreOften() {
@@ -342,7 +344,9 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLarge) {
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   // Ensure the HugeCache has some free items:
   Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-  ASSERT_LE(kPagesPerHugePage, ReleasePages(kPagesPerHugePage));
+  ASSERT_LE(kPagesPerHugePage,
+            ReleasePages(kPagesPerHugePage,
+                         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem));
 }
 
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
@@ -373,7 +377,9 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(d, kSpanInfo.objects_per_span);
   }
 
-  EXPECT_EQ(kPagesPerHugePage / 2, ReleasePages(Length(1)));
+  EXPECT_EQ(kPagesPerHugePage / 2,
+            ReleasePages(Length(1),
+                         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem));
 
   for (auto l : live) {
     Delete(l, kSpanInfo.objects_per_span);
@@ -402,8 +408,11 @@ TEST_P(HugePageAwareAllocatorTest, HardReleaseSmall) {
 
   // Subrelease shouldn't release any pages by itself, but hard release using
   // ReleaseAtLeastNPagesBreakingHugepages should release all the free pages.
-  EXPECT_EQ(ReleasePages(Length(1)), Length(0));
-  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(Length(1)),
+  EXPECT_EQ(ReleasePages(Length(1),
+                         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            Length(0));
+  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                Length(1), /*reason=*/PageReleaseReason::kSoftLimitExceeded),
             kPagesPerHugePage / 2);
 
   for (auto l : live) {
@@ -540,7 +549,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     Length released;
     {
       PageHeapSpinLockHolder l;
-      released = allocator_->ReleaseAtLeastNPages(Length(1));
+      released = allocator_->ReleaseAtLeastNPages(
+          Length(1), /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
     }
     EXPECT_GT(released.in_bytes(), 0);
     EXPECT_LT(released.in_bytes(), backed_bytes);
@@ -549,7 +559,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
 
     {
       PageHeapSpinLockHolder l;
-      released = allocator_->ReleaseAtLeastNPages(Length(1));
+      released = allocator_->ReleaseAtLeastNPages(
+          Length(1), /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
     }
     EXPECT_GT(released.in_bytes(), 0);
     RefreshStats();
@@ -558,8 +569,8 @@ TEST_P(HugePageAwareAllocatorTest, UseHugeRegion) {
     Length backed_in_pages = LengthFromBytes(backed_bytes);
     {
       PageHeapSpinLockHolder l;
-      released =
-          allocator_->ReleaseAtLeastNPagesBreakingHugepages(backed_in_pages);
+      released = allocator_->ReleaseAtLeastNPagesBreakingHugepages(
+          backed_in_pages, /*reason=*/PageReleaseReason::kSoftLimitExceeded);
     }
     EXPECT_EQ(released, backed_in_pages);
     RefreshStats();
@@ -1376,7 +1387,8 @@ TEST_F(StatTest, Basic) {
     if (absl::Bernoulli(rng, 1.0 / 3)) {
       Length pages(absl::LogUniform<int32_t>(rng, 0, (1 << 10) - 1) + 1);
       PageHeapSpinLockHolder l;
-      alloc_->ReleaseAtLeastNPages(pages);
+      alloc_->ReleaseAtLeastNPages(
+          pages, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
     }
 
     // stats are expensive, don't always check
@@ -1419,7 +1431,8 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
     Metadata& m = metadata[thread_id];
 
     if (thread_id == 0) {
-      ReleasePages(Length(absl::Uniform(m.rng, 1, 1 << 10)));
+      ReleasePages(Length(absl::Uniform(m.rng, 1, 1 << 10)),
+                   /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
       return;
     } else if (thread_id == 1) {
       benchmark::DoNotOptimize(Print());
@@ -1468,6 +1481,299 @@ INSTANTIATE_TEST_SUITE_P(
     All, HugePageAwareAllocatorTest,
     testing::Values(HugeRegionUsageOption::kDefault,
                     HugeRegionUsageOption::kUseForAllLargeAllocs));
+
+// This is set to ensure that .in_bytes() doesn't overflow 64-bit size_t.
+inline constexpr Length kMaxLength =
+    Length(std::numeric_limits<int32_t>::max());
+
+struct SpanDeleter {
+  explicit SpanDeleter(absl::Nonnull<HugePageAwareAllocator*> allocator)
+      : allocator(*allocator) {}
+
+  void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const PageHeapSpinLockHolder l;
+    allocator.Delete(s, /*objects_per_span=*/1);
+  }
+
+  HugePageAwareAllocator& allocator;
+};
+
+using SpanUniquePtr = std::unique_ptr<Span, SpanDeleter>;
+
+class GetReleaseStatsTest : public testing::Test {
+ public:
+  void SetUp() override {
+    // Use SetUp instead of a constructor so that we can make assertions.
+
+    Parameters::set_background_release_rate(MallocExtension::BytesPerSecond{0});
+    TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(false);
+    Parameters::set_hpaa_subrelease(false);
+    Parameters::set_filler_skip_subrelease_interval(absl::ZeroDuration());
+    Parameters::set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
+    Parameters::set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
+
+    MallocExtension::SetRegionFactory(&factory_);
+
+    allocator_ = new (allocator_storage_.data())
+        HugePageAwareAllocator({.tag = MemoryTag::kNormal});
+
+    ASSERT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                  kMaxLength,
+                  /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+              Length(0));
+
+    ASSERT_EQ(GetReleaseStats(), PageReleaseStats{});
+  }
+
+  ~GetReleaseStatsTest() override {
+    ReleaseAtLeastNPagesBreakingHugepages(
+        Length(std::numeric_limits<size_t>::max()),
+        /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
+
+    MallocExtension::SetRegionFactory(previous_factory_);
+
+    Parameters::set_background_release_rate(previous_background_release_rate_);
+    TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
+        previous_release_pages_from_huge_region_);
+    Parameters::set_hpaa_subrelease(previous_hpaa_subrelease_);
+    Parameters::set_filler_skip_subrelease_interval(
+        previous_filler_skip_subrelease_interval_);
+    Parameters::set_filler_skip_subrelease_short_interval(
+        previous_filler_skip_subrelease_short_interval_);
+    Parameters::set_filler_skip_subrelease_long_interval(
+        previous_filler_skip_subrelease_long_interval_);
+  };
+
+  HugePageAwareAllocator& allocator() { return *allocator_; }
+
+  PageReleaseStats GetReleaseStats() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const PageHeapSpinLockHolder l;
+    return allocator().GetReleaseStats();
+  }
+
+  SpanUniquePtr New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return {allocator().New(n, {.objects_per_span = 1,
+                                .density = AccessDensityPrediction::kDense}),
+            SpanDeleter(&allocator())};
+  }
+
+  Length ReleaseAtLeastNPages(Length n, PageReleaseReason reason)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const PageHeapSpinLockHolder l;
+    return allocator().ReleaseAtLeastNPages(n, reason);
+  }
+
+  Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
+                                               PageReleaseReason reason)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    const PageHeapSpinLockHolder l;
+    return allocator().ReleaseAtLeastNPagesBreakingHugepages(n, reason);
+  }
+
+ private:
+  AddressRegionFactory* const previous_factory_ =
+      MallocExtension::GetRegionFactory();
+
+  const MallocExtension::BytesPerSecond previous_background_release_rate_ =
+      Parameters::background_release_rate();
+  const bool previous_release_pages_from_huge_region_ =
+      Parameters::release_pages_from_huge_region();
+  const bool previous_hpaa_subrelease_ = Parameters::hpaa_subrelease();
+  const absl::Duration previous_filler_skip_subrelease_interval_ =
+      Parameters::filler_skip_subrelease_interval();
+  const absl::Duration previous_filler_skip_subrelease_short_interval_ =
+      Parameters::filler_skip_subrelease_short_interval();
+  const absl::Duration previous_filler_skip_subrelease_long_interval_ =
+      Parameters::filler_skip_subrelease_long_interval();
+
+  ExtraRegionFactory factory_{previous_factory_};
+
+  alignas(HugePageAwareAllocator) std::array<
+      unsigned char, sizeof(HugePageAwareAllocator)> allocator_storage_;
+  HugePageAwareAllocator* allocator_;
+};
+
+TEST_F(GetReleaseStatsTest, GetReleaseStats) {
+  SpanUniquePtr huge_page = New(kPagesPerHugePage);
+  ASSERT_TRUE(huge_page != nullptr);
+  EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
+
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            Length(0));
+  EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
+
+  huge_page.reset();
+  EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
+
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage,
+                .release_memory_to_system = kPagesPerHugePage,
+            }));
+}
+
+TEST_F(GetReleaseStatsTest, ReasonsTrackedSeparately) {
+  SpanUniquePtr release_memory_to_system = New(kPagesPerHugePage);
+  ASSERT_TRUE(release_memory_to_system != nullptr);
+
+  SpanUniquePtr process_background_actions = New(kPagesPerHugePage);
+  ASSERT_TRUE(process_background_actions != nullptr);
+
+  SpanUniquePtr soft_limit_exceeded = New(kPagesPerHugePage);
+  ASSERT_TRUE(soft_limit_exceeded != nullptr);
+
+  SpanUniquePtr hard_limit_exceeded = New(kPagesPerHugePage);
+  ASSERT_TRUE(hard_limit_exceeded != nullptr);
+
+  EXPECT_EQ(
+      ReleaseAtLeastNPages(
+          kMaxLength, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+      Length(0));
+
+  release_memory_to_system.reset();
+  EXPECT_EQ(
+      ReleaseAtLeastNPages(
+          kMaxLength, /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+      kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage,
+                .release_memory_to_system = kPagesPerHugePage,
+            }));
+
+  process_background_actions.reset();
+  EXPECT_EQ(
+      ReleaseAtLeastNPages(
+          kMaxLength, /*reason=*/PageReleaseReason::kProcessBackgroundActions),
+      kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage * 2,
+                .release_memory_to_system = kPagesPerHugePage,
+                .process_background_actions = kPagesPerHugePage,
+            }));
+
+  soft_limit_exceeded.reset();
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength, /*reason=*/PageReleaseReason::kSoftLimitExceeded),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage * 3,
+                .release_memory_to_system = kPagesPerHugePage,
+                .process_background_actions = kPagesPerHugePage,
+                .soft_limit_exceeded = kPagesPerHugePage,
+            }));
+
+  hard_limit_exceeded.reset();
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength, /*reason=*/PageReleaseReason::kHardLimitExceeded),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage * 4,
+                .release_memory_to_system = kPagesPerHugePage,
+                .process_background_actions = kPagesPerHugePage,
+                .soft_limit_exceeded = kPagesPerHugePage,
+                .hard_limit_exceeded = kPagesPerHugePage,
+            }));
+}
+
+TEST_F(GetReleaseStatsTest,
+       ReleaseSinglePageAfterBreakingHugepagesRequiresBreakingAgain) {
+  SpanUniquePtr page = New(Length(1));
+  ASSERT_TRUE(page != nullptr);
+  EXPECT_EQ(GetReleaseStats(), PageReleaseStats{});
+
+  // We should have to break a hugepage apart to release the other pages.
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            Length(0));
+  EXPECT_EQ(GetReleaseStats(), (PageReleaseStats{}));
+
+  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kSoftLimitExceeded),
+            kPagesPerHugePage - Length(1));
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage - Length(1),
+                .soft_limit_exceeded = kPagesPerHugePage - Length(1),
+            }));
+
+  page.reset();
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            Length(0));
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage - Length(1),
+                .soft_limit_exceeded = kPagesPerHugePage - Length(1),
+            }));
+
+  EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kHardLimitExceeded),
+            Length(1));
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage,
+                .soft_limit_exceeded = kPagesPerHugePage - Length(1),
+                .hard_limit_exceeded = Length(1),
+            }));
+}
+
+TEST_F(GetReleaseStatsTest,
+       ReleaseAfterNewDeleteSinglePageDoesNotRequireBreakingHugepages) {
+  SpanUniquePtr page = New(Length(1));
+  ASSERT_TRUE(page != nullptr);
+  page.reset();
+
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kProcessBackgroundActions),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage,
+                .process_background_actions = kPagesPerHugePage,
+            }));
+}
+
+TEST_F(GetReleaseStatsTest, ReleaseAfterPartialReleaseContinuesTrackingStats) {
+  SpanUniquePtr two_hugepages = New(kPagesPerHugePage * 2);
+  ASSERT_TRUE(two_hugepages != nullptr);
+  two_hugepages.reset();
+
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kPagesPerHugePage,
+                /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage,
+                .release_memory_to_system = kPagesPerHugePage,
+            }));
+
+  EXPECT_EQ(ReleaseAtLeastNPages(
+                kMaxLength,
+                /*reason=*/PageReleaseReason::kProcessBackgroundActions),
+            kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(),
+            (PageReleaseStats{
+                .total = kPagesPerHugePage * 2,
+                .release_memory_to_system = kPagesPerHugePage,
+                .process_background_actions = kPagesPerHugePage,
+            }));
+}
 
 }  // namespace
 }  // namespace tcmalloc_internal

@@ -19,6 +19,7 @@
 #include <stdint.h>
 
 #include "absl/base/internal/cycleclock.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
@@ -91,6 +92,83 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
 void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
                        const LargeSpanStats& large);
 
+enum class PageReleaseReason {
+  // The application explicitly requested memory be released from
+  // MallocExtension::ReleaseMemoryToSystem().
+  kReleaseMemoryToSystem,
+
+  // MallocExtension::ProcessBackgroundActions() released memory because
+  // Parameters::background_release_rate() is positive.
+  kProcessBackgroundActions,
+
+  // PageAllocator::ShrinkHardBy() released memory because we hit the soft
+  // malloc limit.
+  kSoftLimitExceeded,
+
+  // PageAllocator::ShrinkHardBy() released memory because we hit the hard
+  // malloc limit (and were able to release enough memory to not have to crash
+  // the process).
+  kHardLimitExceeded,
+};
+
+// Counts of how many pages have been released, broken down by
+// PageReleaseReason.
+struct PageReleaseStats {
+  Length total;
+
+  Length release_memory_to_system;
+  Length process_background_actions;
+  Length soft_limit_exceeded;
+  Length hard_limit_exceeded;
+
+  constexpr friend PageReleaseStats operator+(const PageReleaseStats& lhs,
+                                              const PageReleaseStats& rhs) {
+    return {
+        .total = lhs.total + rhs.total,
+
+        .release_memory_to_system =
+            lhs.release_memory_to_system + rhs.release_memory_to_system,
+        .process_background_actions =
+            lhs.process_background_actions + rhs.process_background_actions,
+        .soft_limit_exceeded =
+            lhs.soft_limit_exceeded + rhs.soft_limit_exceeded,
+        .hard_limit_exceeded =
+            lhs.hard_limit_exceeded + rhs.hard_limit_exceeded,
+    };
+  }
+
+  constexpr PageReleaseStats& operator+=(const PageReleaseStats& other) {
+    *this = *this + other;
+
+    return *this;
+  }
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const PageReleaseStats& v) {
+    absl::Format(&sink,
+                 "{total = %v, release_memory_to_system = %v, "
+                 "process_background_actions = %v, soft_limit_exceeded = %v, "
+                 "hard_limit_exceeded = %v}",
+                 v.total, v.release_memory_to_system,
+                 v.process_background_actions, v.soft_limit_exceeded,
+                 v.hard_limit_exceeded);
+  }
+
+  constexpr friend bool operator==(const PageReleaseStats& lhs,
+                                   const PageReleaseStats& rhs) {
+    return lhs.total == rhs.total &&
+           lhs.release_memory_to_system == rhs.release_memory_to_system &&
+           lhs.process_background_actions == rhs.process_background_actions &&
+           lhs.soft_limit_exceeded == rhs.soft_limit_exceeded &&
+           lhs.hard_limit_exceeded == rhs.hard_limit_exceeded;
+  }
+
+  constexpr friend bool operator!=(const PageReleaseStats& lhs,
+                                   const PageReleaseStats& rhs) {
+    return !(lhs == rhs);
+  }
+};
+
 class PageAllocInfo {
  private:
   struct Counts;
@@ -102,7 +180,10 @@ class PageAllocInfo {
   // the relevant actions occur
   void RecordAlloc(PageId p, Length n);
   void RecordFree(PageId p, Length n);
-  void RecordRelease(Length n, Length got);
+  void RecordRelease(Length n, Length got, PageReleaseReason reason);
+
+  PageReleaseStats GetRecordedReleases() const;
+
   // And invoking this in their Print() implementation.
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region, absl::string_view stat_name) const;
@@ -126,6 +207,8 @@ class PageAllocInfo {
   Length total_slack_;
 
   Length largest_seen_;
+
+  PageReleaseStats released_;
 
   // How many alloc/frees have we seen (of some size range?)
   struct Counts {

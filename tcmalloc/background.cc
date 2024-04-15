@@ -25,6 +25,7 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/stats.h"
 
 // Release memory to the system at a constant rate.
 void MallocExtension_Internal_ProcessBackgroundActions() {
@@ -43,6 +44,12 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_transfer_cache_plunder_check = prev_time;
   absl::Time last_transfer_cache_resize_check = prev_time;
 #endif
+
+  // We use a separate release rate smoother from the one used by
+  // ReleaseMemoryToSystem because a) we want to maintain a constant background
+  // release rate, regardless of whether the user is releasing memory; and b) we
+  // want to separately account for pages released by ProcessBackgroundActions.
+  tcmalloc::tcmalloc_internal::ConstantRatePageAllocatorReleaser releaser;
 
   while (tcmalloc::MallocExtension::GetBackgroundProcessActionsEnabled()) {
     const absl::Duration sleep_time =
@@ -142,7 +149,9 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     // ReleaseMemoryToSystem should be able to release those pages to the
     // system even with bytes_to_release = 0.
     if (bytes_to_release > 0 || Parameters::release_pages_from_huge_region()) {
-      tcmalloc::MallocExtension::ReleaseMemoryToSystem(bytes_to_release);
+      releaser.Release(bytes_to_release,
+                       /*reason=*/tcmalloc::tcmalloc_internal::
+                           PageReleaseReason::kProcessBackgroundActions);
     }
 
     prev_time = now;

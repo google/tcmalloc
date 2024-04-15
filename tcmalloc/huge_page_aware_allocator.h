@@ -172,11 +172,15 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  Length ReleaseAtLeastNPages(Length num_pages)
+  Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
-  Length ReleaseAtLeastNPagesBreakingHugepages(Length n)
+  Length ReleaseAtLeastNPagesBreakingHugepages(Length n,
+                                               PageReleaseReason reason)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  PageReleaseStats GetReleaseStats() const
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
   void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
@@ -826,7 +830,7 @@ inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
 // public
 template <class Forwarder>
 inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
-    Length num_pages) {
+    Length num_pages, PageReleaseReason reason) {
   Length released;
   released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
 
@@ -872,7 +876,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
     }
   }
 
-  info_.RecordRelease(num_pages, released);
+  info_.RecordRelease(num_pages, released, reason);
   return released;
 }
 
@@ -1026,7 +1030,7 @@ inline AddressRange HugePageAwareAllocator<Forwarder>::AllocAndReport(
 template <class Forwarder>
 inline Length
 HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
-    Length n) {
+    Length n, PageReleaseReason reason) {
   // We desperately need to release memory, and are willing to
   // compromise on hugepage usage. That means releasing from the region and
   // filler.
@@ -1048,8 +1052,14 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
                                    /*release_partial_alloc_pages=*/false,
                                    /*hit_limit=*/true);
 
-  info_.RecordRelease(n, released);
+  info_.RecordRelease(n, released, reason);
   return released;
+}
+
+template <class Forwarder>
+inline PageReleaseStats HugePageAwareAllocator<Forwarder>::GetReleaseStats()
+    const {
+  return info_.GetRecordedReleases();
 }
 
 template <class Forwarder>

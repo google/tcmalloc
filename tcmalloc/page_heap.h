@@ -80,7 +80,10 @@ class PageHeap final : public PageAllocatorInterface {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  Length ReleaseAtLeastNPages(Length num_pages)
+  Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+
+  PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.

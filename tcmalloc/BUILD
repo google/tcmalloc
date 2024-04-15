@@ -658,9 +658,7 @@ cc_fuzz_test(
     deps = [
         ":common_8k_pages",
         ":mock_huge_page_static_forwarder",
-        "//tcmalloc/internal:allocation_guard",
         "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/time",
     ],
 )
@@ -882,10 +880,12 @@ cc_test(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:page_size",
+        "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/testing:thread_manager",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/meta:type_traits",
@@ -896,7 +896,6 @@ cc_test(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
-        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )

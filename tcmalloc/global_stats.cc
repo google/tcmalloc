@@ -16,7 +16,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <optional>
+#include <utility>
 
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
@@ -29,7 +31,6 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
@@ -38,6 +39,7 @@
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/selsan/selsan.h"
 #include "tcmalloc/span.h"
@@ -147,6 +149,17 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     if (!report_residence) {
       r->metadata_bytes += r->arena.bytes_nonresident;
     }
+
+    const PageReleaseStats release_stats =
+        tc_globals.page_allocator().GetReleaseStats();
+
+    r->num_released_total = release_stats.total;
+    r->num_released_release_memory_to_system =
+        release_stats.release_memory_to_system;
+    r->num_released_process_background_actions =
+        release_stats.process_background_actions;
+    r->num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
+    r->num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
   }
   // We can access the pagemap without holding the pageheap_lock since it
   // is static data, and we are only taking address and size which are
@@ -491,6 +504,31 @@ void DumpStats(Printer* out, int level) {
     out->printf("Number of times memory shrank below hard limit: %lld\n",
                 tc_globals.page_allocator().successful_shrinks_after_limit_hit(
                     PageAllocator::kHard));
+
+    out->printf("Total number of pages released: %llu (%7.1f MiB)\n",
+                stats.num_released_total.in_pages().raw_num(),
+                stats.num_released_total.in_mib());
+    out->printf(
+        "Number of pages released by ReleaseMemoryToSystem: %llu (%7.1f "
+        "MiB)\n",
+        stats.num_released_release_memory_to_system.in_pages().raw_num(),
+        stats.num_released_release_memory_to_system.in_mib());
+    out->printf(
+        "Number of pages released by ProcessBackgroundActions: %llu "
+        "(%7.1f MiB)\n",
+        stats.num_released_process_background_actions.in_pages().raw_num(),
+        stats.num_released_process_background_actions.in_mib());
+    out->printf(
+        "Number of pages released after soft limit hits: %llu (%7.1f "
+        "MiB)\n",
+        stats.num_released_soft_limit_exceeded.in_pages().raw_num(),
+        stats.num_released_soft_limit_exceeded.in_mib());
+    out->printf(
+        "Number of pages released after hard limit hits: %llu (%7.1f "
+        "MiB)\n",
+        stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
+        stats.num_released_hard_limit_exceeded.in_mib());
+
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 Parameters::per_cpu_caches() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
@@ -672,6 +710,20 @@ void DumpStatsInPbtxt(Printer* out, int level) {
       "successful_shrinks_after_hard_limit_hit",
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kHard));
+
+  region.PrintI64("num_released_total_pages",
+                  stats.num_released_total.in_pages().raw_num());
+  region.PrintI64(
+      "num_released_release_memory_to_system_pages",
+      stats.num_released_release_memory_to_system.in_pages().raw_num());
+  region.PrintI64(
+      "num_released_process_background_actions_pages",
+      stats.num_released_process_background_actions.in_pages().raw_num());
+  region.PrintI64("num_released_soft_limit_exceeded_pages",
+                  stats.num_released_soft_limit_exceeded.in_pages().raw_num());
+  region.PrintI64("num_released_hard_limit_exceeded_pages",
+                  stats.num_released_hard_limit_exceeded.in_pages().raw_num());
+
   {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
     tc_globals.guardedpage_allocator().PrintInPbtxt(&gwp_asan);
@@ -915,6 +967,28 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
         PageAllocator::kHard);
     return true;
   }
+
+  for (const auto& [property_name, field] :
+       std::initializer_list<std::pair<absl::string_view /*property_name*/,
+                                       Length PageReleaseStats::* /*field*/>>{
+           {"tcmalloc.num_released_total_pages", &PageReleaseStats::total},
+           {"tcmalloc.num_released_release_memory_to_system_pages",
+            &PageReleaseStats::release_memory_to_system},
+           {"tcmalloc.num_released_process_background_actions_pages",
+            &PageReleaseStats::process_background_actions},
+           {"tcmalloc.num_released_soft_limit_exceeded_pages",
+            &PageReleaseStats::soft_limit_exceeded},
+           {"tcmalloc.num_released_hard_limit_exceeded_pages",
+            &PageReleaseStats::hard_limit_exceeded}}) {
+    if (name == property_name) {
+      const PageHeapSpinLockHolder l;
+      *value = (tc_globals.page_allocator().GetReleaseStats().*field)
+                   .in_pages()
+                   .raw_num();
+      return true;
+    }
+  }
+
   if (name == "tcmalloc.required_bytes") {
     TCMallocStats stats;
     ExtractTCMallocStats(&stats, false);

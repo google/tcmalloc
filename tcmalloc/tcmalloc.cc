@@ -72,6 +72,7 @@
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
+#include "absl/base/thread_annotations.h"
 #include "absl/numeric/bits.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -318,50 +319,19 @@ extern "C" void MallocExtension_Internal_SetRegionFactory(
 
 // ReleaseMemoryToSystem drops the page heap lock while actually calling to
 // kernel to release pages. To avoid confusing ourselves with
-// extra_bytes_released handling, lets do separate lock just for release.
+// releaser handling, lets do separate lock just for release.
 ABSL_CONST_INIT static absl::base_internal::SpinLock release_lock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 extern "C" size_t MallocExtension_Internal_ReleaseMemoryToSystem(
     size_t num_bytes) {
-  // ReleaseMemoryToSystem() might release more than the requested bytes because
-  // the page heap releases at the span granularity, and spans are of wildly
-  // different sizes.  This keeps track of the extra bytes bytes released so
-  // that the app can periodically call ReleaseMemoryToSystem() to release
-  // memory at a constant rate.
-  ABSL_CONST_INIT static size_t extra_bytes_released;
+  ABSL_CONST_INIT static ConstantRatePageAllocatorReleaser releaser
+      ABSL_GUARDED_BY(release_lock);
 
-  AllocationGuardSpinLockHolder rh(&release_lock);
+  const AllocationGuardSpinLockHolder rh(&release_lock);
 
-  PageHeapSpinLockHolder l;
-  if (num_bytes <= extra_bytes_released) {
-    // We released too much on a prior call, so don't release any
-    // more this time.
-    extra_bytes_released = extra_bytes_released - num_bytes;
-    num_bytes = 0;
-  } else {
-    num_bytes = num_bytes - extra_bytes_released;
-  }
-
-  Length num_pages;
-  if (num_bytes > 0) {
-    // A sub-page size request may round down to zero.  Assume the caller wants
-    // some memory released.
-    num_pages = BytesToLengthCeil(num_bytes);
-    TC_ASSERT_GT(num_pages, Length(0));
-  } else {
-    num_pages = Length(0);
-  }
-  size_t bytes_released =
-      tc_globals.page_allocator().ReleaseAtLeastNPages(num_pages).in_bytes();
-  if (bytes_released > num_bytes) {
-    extra_bytes_released = bytes_released - num_bytes;
-    return num_bytes;
-  }
-  // The PageHeap wasn't able to release num_bytes.  Don't try to compensate
-  // with a big release next time.
-  extra_bytes_released = 0;
-  return bytes_released;
+  return releaser.Release(num_bytes,
+                          /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
 }
 
 // nallocx slow path.
@@ -499,6 +469,17 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.successful_shrinks_after_hard_limit_hit"].value =
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kHard);
+
+  (*result)["tcmalloc.num_released_total_pages"].value =
+      stats.num_released_total.in_pages().raw_num();
+  (*result)["tcmalloc.num_released_release_memory_to_system_pages"].value =
+      stats.num_released_release_memory_to_system.in_pages().raw_num();
+  (*result)["tcmalloc.num_released_process_background_actions_pages"].value =
+      stats.num_released_process_background_actions.in_pages().raw_num();
+  (*result)["tcmalloc.num_released_soft_limit_exceeded_pages"].value =
+      stats.num_released_soft_limit_exceeded.in_pages().raw_num();
+  (*result)["tcmalloc.num_released_hard_limit_exceeded_pages"].value =
+      stats.num_released_hard_limit_exceeded.in_pages().raw_num();
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {

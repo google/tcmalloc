@@ -20,14 +20,12 @@
 #include <utility>
 #include <vector>
 
-#include "absl/log/check.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/pages.h"
@@ -36,28 +34,30 @@
 #include "tcmalloc/stats.h"
 
 namespace {
-using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
-using tcmalloc::tcmalloc_internal::BackingStats;
-using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
-using tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
-using tcmalloc::tcmalloc_internal::kMaxSize;
-using tcmalloc::tcmalloc_internal::kMinObjectsToMove;
-using tcmalloc::tcmalloc_internal::kNumaPartitions;
-using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
-using tcmalloc::tcmalloc_internal::kTop;
-using tcmalloc::tcmalloc_internal::Length;
-using tcmalloc::tcmalloc_internal::MemoryTag;
-using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
-using tcmalloc::tcmalloc_internal::PbtxtRegion;
-using tcmalloc::tcmalloc_internal::Printer;
-using tcmalloc::tcmalloc_internal::SizeMap;
-using tcmalloc::tcmalloc_internal::Span;
-using tcmalloc::tcmalloc_internal::SpanAllocInfo;
-using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+using ::tcmalloc::tcmalloc_internal::AccessDensityPrediction;
+using ::tcmalloc::tcmalloc_internal::BackingStats;
+using ::tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
+using ::tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
+using ::tcmalloc::tcmalloc_internal::kMaxSize;
+using ::tcmalloc::tcmalloc_internal::kMinObjectsToMove;
+using ::tcmalloc::tcmalloc_internal::kNumaPartitions;
+using ::tcmalloc::tcmalloc_internal::kPagesPerHugePage;
+using ::tcmalloc::tcmalloc_internal::kTop;
+using ::tcmalloc::tcmalloc_internal::Length;
+using ::tcmalloc::tcmalloc_internal::MemoryTag;
+using ::tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
+using ::tcmalloc::tcmalloc_internal::PageReleaseReason;
+using ::tcmalloc::tcmalloc_internal::PageReleaseStats;
+using ::tcmalloc::tcmalloc_internal::PbtxtRegion;
+using ::tcmalloc::tcmalloc_internal::Printer;
+using ::tcmalloc::tcmalloc_internal::SizeMap;
+using ::tcmalloc::tcmalloc_internal::Span;
+using ::tcmalloc::tcmalloc_internal::SpanAllocInfo;
+using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     FakeStaticForwarder;
-using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocator;
-using tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
+using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
 }  // namespace
 
@@ -141,6 +141,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   };
   std::vector<SpanInfo> allocs;
   Length allocated;
+  PageReleaseStats expected_stats;
 
   for (size_t i = 0; i + 9 <= size; i += 9) {
     const uint16_t op = data[i];
@@ -198,7 +199,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           s = allocator->New(length, alloc_info);
         }
         TC_CHECK_NE(s, nullptr);
-        CHECK_GE(s->num_pages().raw_num(), length.raw_num());
+        TC_CHECK_GE(s->num_pages().raw_num(), length.raw_num());
 
         allocs.push_back(SpanInfo{s, num_objects});
         allocated += s->num_pages();
@@ -227,12 +228,31 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // Release pages.  We divide up our random value by:
         //
         // value[7:0] - Choose number of pages to release.
-        // value[63:8] - Reserved.
+        // value[8] - Choose page release reason. ReleaseMemoryToSystem if zero,
+        //            else ProcessBackgroundActions.
+        // value[63:9] - Reserved.
         Length desired(value & 0x00FF);
+        const PageReleaseReason reason =
+            ((value & (uint64_t{1} << 8)) == 0)
+                ? PageReleaseReason::kReleaseMemoryToSystem
+                : PageReleaseReason::kProcessBackgroundActions;
+        Length released;
+        PageReleaseStats actual_stats;
         {
           PageHeapSpinLockHolder l;
-          allocator->ReleaseAtLeastNPages(desired);
+          released = allocator->ReleaseAtLeastNPages(desired, reason);
+          actual_stats = allocator->GetReleaseStats();
         }
+
+        expected_stats.total += released;
+        if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
+          expected_stats.release_memory_to_system += released;
+        } else {
+          expected_stats.process_background_actions += released;
+        }
+
+        TC_CHECK_EQ(actual_stats, expected_stats);
+
         break;
       }
       case 3: {
@@ -240,25 +260,45 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         // by:
         //
         // value[15:0] - Choose number of pages to release.
-        // value[63:16] - Reserved.
+        // value[16] - Choose page release reason. SoftLimitExceeded if zero,
+        //             HardLimitExceeded otherwise.
+        // value[63:17] - Reserved.
         Length desired(value & 0xFFFF);
+        const PageReleaseReason reason =
+            ((value & (uint64_t{1} << 16)) == 0)
+                ? PageReleaseReason::kSoftLimitExceeded
+                : PageReleaseReason::kHardLimitExceeded;
         Length released;
         size_t releasable_bytes;
+        PageReleaseStats actual_stats;
         {
           PageHeapSpinLockHolder l;
           releasable_bytes = allocator->FillerStats().free_bytes +
                              allocator->RegionsFreeBacked().in_bytes();
-          released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired);
+          released =
+              allocator->ReleaseAtLeastNPagesBreakingHugepages(desired, reason);
+          actual_stats = allocator->GetReleaseStats();
         }
 
         if (forwarder.release_succeeds()) {
-          CHECK_GE(released.in_bytes(),
-                   std::min(desired.in_bytes(), releasable_bytes));
+          const size_t min_released =
+              std::min(desired.in_bytes(), releasable_bytes);
+          TC_CHECK_GE(released.in_bytes(), min_released);
         } else {
           // TODO(b/271282540):  This is not strict equality due to
           // HugePageFiller's unmapping_unaccounted_ state.  Narrow this bound.
-          CHECK_GE(released.in_bytes(), 0);
+          TC_CHECK_GE(released.in_bytes(), 0);
         }
+
+        expected_stats.total += released;
+        if (reason == PageReleaseReason::kSoftLimitExceeded) {
+          expected_stats.soft_limit_exceeded += released;
+        } else {
+          expected_stats.hard_limit_exceeded += released;
+        }
+
+        TC_CHECK_EQ(actual_stats, expected_stats);
+
         break;
       }
       case 4: {
@@ -295,7 +335,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         }
         uint64_t used_bytes =
             stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-        CHECK_EQ(used_bytes, allocated.in_bytes());
+        TC_CHECK_EQ(used_bytes, allocated.in_bytes());
         break;
       }
       case 7: {
@@ -341,12 +381,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // Clean up.
-  for (auto span_info : allocs) {
+  const PageReleaseStats final_stats = [&] {
     PageHeapSpinLockHolder l;
-    allocated -= span_info.span->num_pages();
-    allocator->Delete(span_info.span, span_info.objects_per_span);
-  }
-  CHECK_EQ(allocated.in_bytes(), 0);
+
+    for (auto span_info : allocs) {
+      allocated -= span_info.span->num_pages();
+      allocator->Delete(span_info.span, span_info.objects_per_span);
+    }
+
+    return allocator->GetReleaseStats();
+  }();
+
+  TC_CHECK_EQ(allocated.in_bytes(), 0);
+  TC_CHECK_EQ(final_stats, expected_stats);
+
   free(allocator);
+
   return 0;
 }

@@ -20,10 +20,12 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -78,7 +80,12 @@ class PageAllocator {
   // may also be larger than num_pages since page_heap might decide to
   // release one large range instead of fragmenting it into two
   // smaller released and unreleased ranges.
-  Length ReleaseAtLeastNPages(Length num_pages)
+  Length ReleaseAtLeastNPages(Length num_pages, PageReleaseReason reason)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  // Returns the number of pages that have been released, combined across all
+  // child PageAllocatorInterface implementations.
+  PageReleaseStats GetReleaseStats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
@@ -263,21 +270,37 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
   }
 }
 
-inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages) {
+inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
+                                                  PageReleaseReason reason) {
   Length released;
   // TODO(ckennelly): Refine this policy.  Cold data should be the most
   // resilient to not being on huge pages.
   if (has_cold_impl_) {
-    released = cold_impl_->ReleaseAtLeastNPages(num_pages);
+    released = cold_impl_->ReleaseAtLeastNPages(num_pages, reason);
   }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     released += normal_impl_[partition]->ReleaseAtLeastNPages(
-        num_pages > released ? num_pages - released : Length(0));
+        num_pages > released ? num_pages - released : Length(0), reason);
   }
 
   released += sampled_impl_->ReleaseAtLeastNPages(
-      num_pages > released ? num_pages - released : Length(0));
+      num_pages > released ? num_pages - released : Length(0), reason);
   return released;
+}
+
+inline PageReleaseStats PageAllocator::GetReleaseStats() const {
+  PageReleaseStats stats;
+
+  if (has_cold_impl_) {
+    stats += cold_impl_->GetReleaseStats();
+  }
+  for (int partition = 0; partition < active_numa_partitions(); partition++) {
+    stats += normal_impl_[partition]->GetReleaseStats();
+  }
+
+  stats += sampled_impl_->GetReleaseStats();
+
+  return stats;
 }
 
 inline void PageAllocator::Print(Printer* out, MemoryTag tag) {

@@ -19,12 +19,9 @@
 #include <time.h>
 
 #include <algorithm>
-#include <climits>
 #include <cstdint>
-#include <limits>
 
 #include "absl/base/internal/cycleclock.h"
-#include "absl/base/macros.h"
 #include "absl/numeric/bits.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/common.h"
@@ -204,6 +201,24 @@ void PageAllocInfo::Print(Printer* out) const {
     const Length nmin = nmax / 2 + Length(1);
     print_counts(large_[i], nmin, nmax);
   }
+
+  out->printf("%s: %zu pages (%6.1f MiB) released in total\n", label_,
+              released_.total.raw_num(), released_.total.in_mib());
+  out->printf("%s: %zu pages (%6.1f MiB) released from ReleaseMemoryToSystem\n",
+              label_, released_.release_memory_to_system.raw_num(),
+              released_.release_memory_to_system.in_mib());
+  out->printf(
+      "%s: %zu pages (%6.1f MiB) MiB released from ProcessBackgroundActions\n",
+      label_, released_.process_background_actions.raw_num(),
+      released_.process_background_actions.in_mib());
+  out->printf(
+      "%s: %zu pages (%6.1f MiB) MiB released from soft malloc limit hits\n",
+      label_, released_.soft_limit_exceeded.raw_num(),
+      released_.soft_limit_exceeded.in_mib());
+  out->printf(
+      "%s: %zu pages (%6.1f MiB) MiB released from hard malloc limit hits\n",
+      label_, released_.hard_limit_exceeded.raw_num(),
+      released_.hard_limit_exceeded.in_mib());
 }
 
 void PageAllocInfo::PrintInPbtxt(PbtxtRegion* region,
@@ -244,6 +259,16 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion* region,
     const Length nmin = nmax / 2 + Length(1);
     print_counts(large_[i], nmin, nmax);
   }
+
+  region->PrintI64("num_released_total_pages", released_.total.raw_num());
+  region->PrintI64("num_released_release_memory_to_system_pages",
+                   released_.release_memory_to_system.raw_num());
+  region->PrintI64("num_released_process_background_actions_pages",
+                   released_.process_background_actions.raw_num());
+  region->PrintI64("num_released_soft_limit_exceeded_pages",
+                   released_.soft_limit_exceeded.raw_num());
+  region->PrintI64("num_released_hard_limit_exceeded_pages",
+                   released_.hard_limit_exceeded.raw_num());
 }
 
 static Length RoundUp(Length value, Length alignment) {
@@ -278,7 +303,32 @@ void PageAllocInfo::RecordFree(PageId p, Length n) {
   }
 }
 
-void PageAllocInfo::RecordRelease(Length n, Length got) {}
+void PageAllocInfo::RecordRelease(Length n, Length got,
+                                  PageReleaseReason reason) {
+  released_.total += got;
+
+  switch (reason) {
+    case PageReleaseReason::kReleaseMemoryToSystem:
+      released_.release_memory_to_system += got;
+      break;
+
+    case PageReleaseReason::kProcessBackgroundActions:
+      released_.process_background_actions += got;
+      break;
+
+    case PageReleaseReason::kSoftLimitExceeded:
+      released_.soft_limit_exceeded += got;
+      break;
+
+    case PageReleaseReason::kHardLimitExceeded:
+      released_.hard_limit_exceeded += got;
+      break;
+  }
+}
+
+PageReleaseStats PageAllocInfo::GetRecordedReleases() const {
+  return released_;
+}
 
 const PageAllocInfo::Counts& PageAllocInfo::counts_for(Length n) const {
   if (n <= kMaxPages) {
