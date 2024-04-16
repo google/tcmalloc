@@ -971,20 +971,19 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   for (const auto& [property_name, field] :
        std::initializer_list<std::pair<absl::string_view /*property_name*/,
                                        Length PageReleaseStats::* /*field*/>>{
-           {"tcmalloc.num_released_total_pages", &PageReleaseStats::total},
-           {"tcmalloc.num_released_release_memory_to_system_pages",
+           {"tcmalloc.num_released_total_bytes", &PageReleaseStats::total},
+           {"tcmalloc.num_released_release_memory_to_system_bytes",
             &PageReleaseStats::release_memory_to_system},
-           {"tcmalloc.num_released_process_background_actions_pages",
+           {"tcmalloc.num_released_process_background_actions_bytes",
             &PageReleaseStats::process_background_actions},
-           {"tcmalloc.num_released_soft_limit_exceeded_pages",
+           {"tcmalloc.num_released_soft_limit_exceeded_bytes",
             &PageReleaseStats::soft_limit_exceeded},
-           {"tcmalloc.num_released_hard_limit_exceeded_pages",
+           {"tcmalloc.num_released_hard_limit_exceeded_bytes",
             &PageReleaseStats::hard_limit_exceeded}}) {
     if (name == property_name) {
       const PageHeapSpinLockHolder l;
-      *value = (tc_globals.page_allocator().GetReleaseStats().*field)
-                   .in_pages()
-                   .raw_num();
+      *value =
+          (tc_globals.page_allocator().GetReleaseStats().*field).in_bytes();
       return true;
     }
   }

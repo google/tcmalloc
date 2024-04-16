@@ -470,16 +470,16 @@ extern "C" void MallocExtension_Internal_GetProperties(
       tc_globals.page_allocator().successful_shrinks_after_limit_hit(
           PageAllocator::kHard);
 
-  (*result)["tcmalloc.num_released_total_pages"].value =
-      stats.num_released_total.in_pages().raw_num();
-  (*result)["tcmalloc.num_released_release_memory_to_system_pages"].value =
-      stats.num_released_release_memory_to_system.in_pages().raw_num();
-  (*result)["tcmalloc.num_released_process_background_actions_pages"].value =
-      stats.num_released_process_background_actions.in_pages().raw_num();
-  (*result)["tcmalloc.num_released_soft_limit_exceeded_pages"].value =
-      stats.num_released_soft_limit_exceeded.in_pages().raw_num();
-  (*result)["tcmalloc.num_released_hard_limit_exceeded_pages"].value =
-      stats.num_released_hard_limit_exceeded.in_pages().raw_num();
+  (*result)["tcmalloc.num_released_total_bytes"].value =
+      stats.num_released_total.in_bytes();
+  (*result)["tcmalloc.num_released_release_memory_to_system_bytes"].value =
+      stats.num_released_release_memory_to_system.in_bytes();
+  (*result)["tcmalloc.num_released_process_background_actions_bytes"].value =
+      stats.num_released_process_background_actions.in_bytes();
+  (*result)["tcmalloc.num_released_soft_limit_exceeded_bytes"].value =
+      stats.num_released_soft_limit_exceeded.in_bytes();
+  (*result)["tcmalloc.num_released_hard_limit_exceeded_bytes"].value =
+      stats.num_released_hard_limit_exceeded.in_bytes();
 }
 
 extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
