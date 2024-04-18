@@ -187,6 +187,7 @@ create_tcmalloc_libraries(
         "cpu_cache.h",
         "deallocation_profiler.cc",
         "experimental_pow2_size_class.cc",
+        "fewer_size_classes.cc",
         "global_stats.cc",
         "guarded_allocations.h",
         "guarded_page_allocator.cc",

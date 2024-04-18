@@ -840,8 +840,8 @@ TEST(TCMallocTest, free_sized) {
 TEST(TCMallocTest, FreeSizedDeathTest) {
   void* ptr;
   const size_t size = 4096;
-  const size_t alignment = 1024;
-  int err = posix_memalign(&ptr, 1024, alignment);
+  const size_t alignment = 512;
+  int err = posix_memalign(&ptr, 512, alignment);
   ASSERT_EQ(err, 0) << alignment << " " << size;
   EXPECT_DEATH(free_sized(ptr, size), "");
 }

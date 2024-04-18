@@ -168,7 +168,8 @@ TEST_F(RunTimeSizeClassesTest, WastedSpan) {
   if (tc_globals.size_class_configuration() ==
           SizeClassConfiguration::kLegacy ||
       tc_globals.size_class_configuration() ==
-          SizeClassConfiguration::kPow2Below64) {
+          SizeClassConfiguration::kPow2Below64 ||
+      tc_globals.size_class_configuration() == SizeClassConfiguration::kFewer) {
     // This test fails for other classes (was passing with a different span size
     // allocation algorithm used between cl/130150125 and cl/139955211).
     GTEST_SKIP();

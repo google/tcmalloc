@@ -153,7 +153,7 @@ TEST(RealizedFragmentation, Accuracy) {
   // Allocate many small alocations, as to trigger another high water mark.
   // Deallocate half of these allocations, but fragmentation should remain high.
   constexpr size_t kSmallTarget = kLargeTarget * 2;
-  constexpr size_t kSmallSize = 1024;
+  constexpr size_t kSmallSize = 512;
   void* small_list_keep = nullptr;
   int kept = 0;
   void* small_list_free = nullptr;

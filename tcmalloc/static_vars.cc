@@ -149,6 +149,9 @@ SizeClassConfiguration Static::size_class_configuration() {
   } else if (IsExperimentActive(
                  Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES)) {
     return SizeClassConfiguration::kLowFrag;
+  } else if (IsExperimentActive(
+                 Experiment::TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES)) {
+    return SizeClassConfiguration::kFewer;
   } else {
     return SizeClassConfiguration::kPow2Below64;
   }
