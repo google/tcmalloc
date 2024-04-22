@@ -73,6 +73,13 @@ class FakeStaticForwarder {
   bool release_succeeds() const { return release_succeeds_; }
   void set_release_succeeds(bool v) { release_succeeds_ = v; }
 
+  bool huge_region_demand_based_release() const {
+    return huge_region_demand_based_release_;
+  }
+  void set_huge_region_demand_based_release(bool v) {
+    huge_region_demand_based_release_ = v;
+  }
+
   // Arena state.
   Arena& arena() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) { return arena_; }
 
@@ -155,6 +162,7 @@ class FakeStaticForwarder {
   bool release_partial_alloc_pages_ = false;
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;
+  bool huge_region_demand_based_release_ = false;
   Arena arena_;
 
   uintptr_t fake_allocation_ = 0x1000;

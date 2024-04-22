@@ -373,6 +373,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           case 5:
             forwarder.set_release_succeeds(actual_value & 0x1);
             break;
+          case 6:
+            forwarder.set_huge_region_demand_based_release(actual_value & 0x1);
+            break;
         }
 
         break;

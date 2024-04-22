@@ -75,6 +75,10 @@ class StaticForwarder {
     return Parameters::release_partial_alloc_pages();
   }
 
+  static bool huge_region_demand_based_release() {
+    return Parameters::huge_region_demand_based_release();
+  }
+
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
   // Arena state.
@@ -839,7 +843,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // the experiment is enabled. We can also explore releasing only a desired
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
-    if (Parameters::huge_region_demand_based_release()) {
+    if (forwarder_.huge_region_demand_based_release()) {
       if (released < num_pages) {
         released += regions_.ReleasePagesByPeakDemand(
             num_pages - released,
@@ -1037,7 +1041,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
 
   Length released;
   // We try to release as many free hugepages from HugeRegion as possible.
-  if (Parameters::huge_region_demand_based_release()) {
+  if (forwarder_.huge_region_demand_based_release()) {
     released += regions_.ReleasePagesByPeakDemand(
         n - released, SkipSubreleaseIntervals{}, /*hit_limit=*/true);
   } else {
