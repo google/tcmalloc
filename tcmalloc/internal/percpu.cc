@@ -328,7 +328,7 @@ void FenceCpu(int vcpu) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetVirtualCpu() == vcpu) {
+  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetVirtualCpuUnsafe() == vcpu) {
     return;
   }
 

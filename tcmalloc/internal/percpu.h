@@ -246,33 +246,6 @@ inline int GetVirtualCpuUnsafe() {
   return UsingRseqVirtualCpus() ? RseqVirtualCpuId() : UserVirtualCpuId();
 }
 
-inline int GetVirtualCpu() {
-  // We can't use the unsafe version unless we have the appropriate version of
-  // the rseq extension. This also allows us a convenient escape hatch if the
-  // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int vcpu = GetVirtualCpuUnsafe();
-
-  // We open-code the check for fast-cpu availability since we do not want to
-  // force initialization in the first-call case.  This so done so that we can
-  // use this in places where it may not always be safe to initialize and so
-  // that it may serve in the future as a proxy for callers such as
-  // CPULogicalId() without introducing an implicit dependence on the fast-path
-  // extensions. Initialization is also simply unneeded on some platforms.
-  if (ABSL_PREDICT_TRUE(vcpu >= kCpuIdInitialized)) {
-    return vcpu;
-  }
-
-  // Do not return a real CPU ID when we expect a virtual CPU ID.
-  TC_CHECK(!UsingRseqVirtualCpus());
-
-#ifdef TCMALLOC_HAVE_SCHED_GETCPU
-  vcpu = sched_getcpu();
-  TC_ASSERT_GE(vcpu, 0);
-#endif  // TCMALLOC_HAVE_SCHED_GETCPU
-
-  return vcpu;
-}
-
 bool InitFastPerCpu();
 
 inline bool IsFast() {
