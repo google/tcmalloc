@@ -206,11 +206,16 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 // increase the visibility of functions embedded into the root-namespace (by
 // virtue of C linkage) in the supported case.
 
-// Return whether we are using flat virtual CPUs.
-bool UsingFlatVirtualCpus();
-
 enum class RseqVcpuMode { kNone };
 inline RseqVcpuMode GetRseqVcpuMode() { return RseqVcpuMode::kNone; }
+
+// Return whether we are using flat (kernel) virtual CPUs.
+bool UsingFlatVirtualCpus();
+
+// Return whether we are using any kind of virtual CPUs.
+inline bool UsingVirtualCpus() {
+  return GetRseqVcpuMode() != RseqVcpuMode::kNone;
+}
 
 inline int GetCurrentCpuUnsafe() {
   // Use the rseq mechanism.
@@ -241,8 +246,13 @@ inline int GetCurrentCpu() {
   return cpu;
 }
 
+// Return a user selected virtual CPU with the help of ValueTransaction.
+int VirtualUserCpuId();
+
 inline int GetCurrentVirtualCpuUnsafe(const size_t virtual_cpu_id_offset) {
-  return VirtualRseqCpuId(virtual_cpu_id_offset);
+  return virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id)
+             ? VirtualRseqCpuId(virtual_cpu_id_offset)
+             : VirtualUserCpuId();
 }
 
 inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {

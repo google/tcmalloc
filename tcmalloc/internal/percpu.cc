@@ -26,6 +26,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <limits>
+#include <optional>
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"  // IWYU pragma: keep
@@ -86,6 +87,11 @@ static bool InitThreadPerCpu() {
 
 bool UsingFlatVirtualCpus() {
   return false;
+}
+
+int VirtualUserCpuId() {
+  // Fallback to kernel RSEQ CPU IDs.
+  return RseqCpuId();
 }
 
 static void InitPerCpu() {

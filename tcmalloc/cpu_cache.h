@@ -721,7 +721,7 @@ static cpu_set_t FillActiveCpuMask() {
   }
 
 #ifdef PERCPU_USE_RSEQ
-  const bool real_cpus = !subtle::percpu::UsingFlatVirtualCpus();
+  const bool real_cpus = !subtle::percpu::UsingVirtualCpus();
 #else
   const bool real_cpus = true;
 #endif
