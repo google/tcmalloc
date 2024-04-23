@@ -85,11 +85,11 @@ static bool InitThreadPerCpu() {
   return false;
 }
 
-bool UsingFlatVirtualCpus() {
+bool UsingRseqVirtualCpus() {
   return false;
 }
 
-int VirtualUserCpuId() {
+int UserVirtualCpuId() {
   // Fallback to kernel RSEQ CPU IDs.
   return RseqCpuId();
 }
@@ -320,19 +320,19 @@ static void FenceInterruptCPU(int cpu) {
   SlowFence(cpu);
 }
 
-void FenceCpu(int cpu) {
+void FenceCpu(int vcpu) {
   // Prevent compiler re-ordering of code below. In particular, the call to
-  // GetCurrentCpu must not appear in assembly program order until after any
+  // GetRealCpu must not appear in assembly program order until after any
   // code that comes before FenceCpu in C++ program order.
   CompilerBarrier();
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetCurrentVirtualCpu() == cpu) {
+  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetVirtualCpu() == vcpu) {
     return;
   }
 
-  if (UsingFlatVirtualCpus()) {
+  if (UsingRseqVirtualCpus()) {
     ASSUME(false);
 
     // With virtual CPUs, we cannot identify the true physical core we need to
@@ -341,14 +341,16 @@ void FenceCpu(int cpu) {
     return;
   }
 
+  int real_cpu = vcpu;
+
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   if (using_upstream_fence.load(std::memory_order_relaxed)) {
-    UpstreamRseqFenceCpu(cpu);
+    UpstreamRseqFenceCpu(real_cpu);
     return;
   }
 #endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
-  FenceInterruptCPU(cpu);
+  FenceInterruptCPU(real_cpu);
 }
 
 void FenceAllCpus() {

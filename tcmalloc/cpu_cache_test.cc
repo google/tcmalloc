@@ -408,12 +408,12 @@ TEST(CpuCacheTest, Metadata) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id = subtle::percpu::GetCurrentVirtualCpuUnsafe();
+    allowed_cpu_id = subtle::percpu::GetVirtualCpuUnsafe();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id != subtle::percpu::GetCurrentVirtualCpuUnsafe()) {
+        allowed_cpu_id != subtle::percpu::GetVirtualCpuUnsafe()) {
       return;
     }
   }
@@ -533,12 +533,12 @@ TEST(CpuCacheTest, CacheMissStats) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id = subtle::percpu::GetCurrentVirtualCpuUnsafe();
+    allowed_cpu_id = subtle::percpu::GetVirtualCpuUnsafe();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id != subtle::percpu::GetCurrentVirtualCpuUnsafe()) {
+        allowed_cpu_id != subtle::percpu::GetVirtualCpuUnsafe()) {
       return;
     }
   }

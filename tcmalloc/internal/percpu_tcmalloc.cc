@@ -137,14 +137,14 @@ void TcmallocSlab::InitCpuImpl(void* slabs, Shift shift, int cpu,
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
   TC_ASSERT(!(tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK));
-  int cpu = -1;
+  int vcpu = -1;
   for (;;) {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
-    cpu = GetCurrentVirtualCpuUnsafe();
+    vcpu = GetVirtualCpuUnsafe();
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
-    void* start = CpuMemoryStart(slabs, shift, cpu);
+    void* start = CpuMemoryStart(slabs, shift, vcpu);
     uintptr_t new_val =
         reinterpret_cast<uintptr_t>(start) | TCMALLOC_CACHED_SLABS_MASK;
     if (!StoreCurrentCpu(&tcmalloc_slabs, new_val)) {
@@ -156,7 +156,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
     // the calculation. Coupled with setting of stopped_ and a Fence
     // in ResizeSlabs, this prevents possibility of mismatching shift/slabs.
     CompilerBarrier();
-    if (stopped_[cpu].load(std::memory_order_acquire)) {
+    if (stopped_[vcpu].load(std::memory_order_acquire)) {
       tcmalloc_slabs = 0;
       return {-1, true};
     }
@@ -177,7 +177,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
     if (slabs_and_shift != slabs_and_shift_.load(std::memory_order_relaxed)) {
       continue;
     }
-    return {cpu, true};
+    return {vcpu, true};
   }
 }
 #endif

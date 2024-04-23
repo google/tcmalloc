@@ -44,8 +44,7 @@ static bool AffinityMatches(std::vector<int> expected_affinity) {
 }
 
 TEST(AffinityInternalTest, AllowedCpus) {
-  ASSERT_THAT(AllowedCpus(),
-              testing::Contains(subtle::percpu::GetCurrentCpu()));
+  ASSERT_THAT(AllowedCpus(), testing::Contains(subtle::percpu::GetRealCpu()));
   ASSERT_TRUE(AffinityMatches(AllowedCpus()));
 }
 

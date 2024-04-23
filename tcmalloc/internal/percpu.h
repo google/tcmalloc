@@ -178,11 +178,11 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
-static inline int VirtualRseqCpuId() { return __rseq_abi.vcpu_id; }
+static inline int RseqVirtualCpuId() { return __rseq_abi.vcpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 
-static inline int VirtualRseqCpuId() { return kCpuIdUnsupported; }
+static inline int RseqVirtualCpuId() { return kCpuIdUnsupported; }
 #endif
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
@@ -202,24 +202,24 @@ size_t TcmallocSlab_Internal_PopBatch(size_t size_class, void** batch,
 enum class RseqVcpuMode { kNone };
 inline RseqVcpuMode GetRseqVcpuMode() { return RseqVcpuMode::kNone; }
 
-// Return whether we are using flat (kernel) virtual CPUs.
-bool UsingFlatVirtualCpus();
-
 // Return whether we are using any kind of virtual CPUs.
 inline bool UsingVirtualCpus() {
   return GetRseqVcpuMode() != RseqVcpuMode::kNone;
 }
 
-inline int GetCurrentCpuUnsafe() {
+// Return whether we are using flat virtual CPUs (provided by kernel RSEQ).
+bool UsingRseqVirtualCpus();
+
+inline int GetRealCpuUnsafe() {
   // Use the rseq mechanism.
   return RseqCpuId();
 }
 
-inline int GetCurrentCpu() {
+inline int GetRealCpu() {
   // We can't use the unsafe version unless we have the appropriate version of
   // the rseq extension. This also allows us a convenient escape hatch if the
   // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int cpu = GetCurrentCpuUnsafe();
+  int cpu = GetRealCpuUnsafe();
 
   // We open-code the check for fast-cpu availability since we do not want to
   // force initialization in the first-call case.  This so done so that we can
@@ -240,17 +240,17 @@ inline int GetCurrentCpu() {
 }
 
 // Return a user selected virtual CPU with the help of ValueTransaction.
-int VirtualUserCpuId();
+int UserVirtualCpuId();
 
-inline int GetCurrentVirtualCpuUnsafe() {
-  return UsingFlatVirtualCpus() ? VirtualRseqCpuId() : VirtualUserCpuId();
+inline int GetVirtualCpuUnsafe() {
+  return UsingRseqVirtualCpus() ? RseqVirtualCpuId() : UserVirtualCpuId();
 }
 
-inline int GetCurrentVirtualCpu() {
+inline int GetVirtualCpu() {
   // We can't use the unsafe version unless we have the appropriate version of
   // the rseq extension. This also allows us a convenient escape hatch if the
   // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int cpu = GetCurrentVirtualCpuUnsafe();
+  int vcpu = GetVirtualCpuUnsafe();
 
   // We open-code the check for fast-cpu availability since we do not want to
   // force initialization in the first-call case.  This so done so that we can
@@ -258,19 +258,19 @@ inline int GetCurrentVirtualCpu() {
   // that it may serve in the future as a proxy for callers such as
   // CPULogicalId() without introducing an implicit dependence on the fast-path
   // extensions. Initialization is also simply unneeded on some platforms.
-  if (ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized)) {
-    return cpu;
+  if (ABSL_PREDICT_TRUE(vcpu >= kCpuIdInitialized)) {
+    return vcpu;
   }
 
-  // Do not return a physical CPU ID when we expect a virtual CPU ID.
-  TC_CHECK(!UsingFlatVirtualCpus());
+  // Do not return a real CPU ID when we expect a virtual CPU ID.
+  TC_CHECK(!UsingRseqVirtualCpus());
 
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
-  cpu = sched_getcpu();
-  TC_ASSERT_GE(cpu, 0);
+  vcpu = sched_getcpu();
+  TC_ASSERT_GE(vcpu, 0);
 #endif  // TCMALLOC_HAVE_SCHED_GETCPU
 
-  return cpu;
+  return vcpu;
 }
 
 bool InitFastPerCpu();
@@ -353,7 +353,7 @@ inline void TSANReleaseBatch(void** batch, int n) {
 #endif
 }
 
-void FenceCpu(int cpu);
+void FenceCpu(int vcpu);
 void FenceAllCpus();
 
 }  // namespace percpu

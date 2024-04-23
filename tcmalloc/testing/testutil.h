@@ -239,7 +239,7 @@ class ScopedFakeCpuId {
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
 
-    if (tcmalloc_internal::subtle::percpu::UsingFlatVirtualCpus()) {
+    if (tcmalloc_internal::subtle::percpu::UsingRseqVirtualCpus()) {
       tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
     }
 #endif
@@ -252,7 +252,7 @@ class ScopedFakeCpuId {
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
         tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
 
-    if (tcmalloc_internal::subtle::percpu::UsingFlatVirtualCpus()) {
+    if (tcmalloc_internal::subtle::percpu::UsingRseqVirtualCpus()) {
       tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id =
           tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
     }
