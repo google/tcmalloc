@@ -320,7 +320,7 @@ static void FenceInterruptCPU(int cpu) {
   SlowFence(cpu);
 }
 
-void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
+void FenceCpu(int cpu) {
   // Prevent compiler re-ordering of code below. In particular, the call to
   // GetCurrentCpu must not appear in assembly program order until after any
   // code that comes before FenceCpu in C++ program order.
@@ -328,12 +328,11 @@ void FenceCpu(int cpu, const size_t virtual_cpu_id_offset) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (ABSL_PREDICT_TRUE(IsFastNoInit()) &&
-      GetCurrentVirtualCpu(virtual_cpu_id_offset) == cpu) {
+  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetCurrentVirtualCpu() == cpu) {
     return;
   }
 
-  if (virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id)) {
+  if (UsingFlatVirtualCpus()) {
     ASSUME(false);
 
     // With virtual CPUs, we cannot identify the true physical core we need to

@@ -354,8 +354,6 @@ class TcmallocSlab {
   // We store both a pointer to the array of slabs and the shift value together
   // so that we can atomically update both with a single store.
   std::atomic<SlabsAndShift> slabs_and_shift_{};
-  // This is in units of bytes.
-  size_t virtual_cpu_id_offset_ = offsetof(kernel_rseq, cpu_id);
   // Remote Cpu operation (Resize/Drain/Grow/Shrink) is running so any local
   // operations (Push/Pop) should fail.
   std::atomic<bool>* stopped_ = nullptr;
@@ -929,7 +927,7 @@ inline std::pair<int, bool> TcmallocSlab::CacheCpuSlab() {
   }
   // We already have slab offset cached, so the slab is indeed full/empty.
 #endif
-  int cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset_);
+  int cpu = GetCurrentVirtualCpuUnsafe();
   TC_ASSERT_GE(cpu, 0);
   return {cpu, false};
 }

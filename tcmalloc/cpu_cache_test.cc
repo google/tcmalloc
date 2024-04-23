@@ -398,9 +398,6 @@ TEST(CpuCacheTest, Metadata) {
   int allowed_cpu_id;
   const size_t kSizeClass = 2;
   const size_t num_to_move = cache.forwarder().num_objects_to_move(kSizeClass);
-  const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
-                                           ? offsetof(kernel_rseq, vcpu_id)
-                                           : offsetof(kernel_rseq, cpu_id);
   void* ptr;
   {
     // Restrict this thread to a single core while allocating and processing the
@@ -411,14 +408,12 @@ TEST(CpuCacheTest, Metadata) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id =
-        subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
+    allowed_cpu_id = subtle::percpu::GetCurrentVirtualCpuUnsafe();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id !=
-            subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset)) {
+        allowed_cpu_id != subtle::percpu::GetCurrentVirtualCpuUnsafe()) {
       return;
     }
   }
@@ -528,9 +523,6 @@ TEST(CpuCacheTest, CacheMissStats) {
 
   int allowed_cpu_id;
   const size_t kSizeClass = 2;
-  const size_t virtual_cpu_id_offset = subtle::percpu::UsingFlatVirtualCpus()
-                                           ? offsetof(kernel_rseq, vcpu_id)
-                                           : offsetof(kernel_rseq, cpu_id);
   void* ptr;
   {
     // Restrict this thread to a single core while allocating and processing the
@@ -541,14 +533,12 @@ TEST(CpuCacheTest, CacheMissStats) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id =
-        subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
+    allowed_cpu_id = subtle::percpu::GetCurrentVirtualCpuUnsafe();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id !=
-            subtle::percpu::GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset)) {
+        allowed_cpu_id != subtle::percpu::GetCurrentVirtualCpuUnsafe()) {
       return;
     }
   }

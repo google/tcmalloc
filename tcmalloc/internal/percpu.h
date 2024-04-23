@@ -178,18 +178,11 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
 
 static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
 
-static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-  TC_ASSERT(virtual_cpu_id_offset == offsetof(kernel_rseq, cpu_id) ||
-            virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id));
-  return *reinterpret_cast<short*>(reinterpret_cast<uintptr_t>(&__rseq_abi) +
-                                   virtual_cpu_id_offset);
-}
+static inline int VirtualRseqCpuId() { return __rseq_abi.vcpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 static inline int RseqCpuId() { return kCpuIdUnsupported; }
 
-static inline int VirtualRseqCpuId(const size_t virtual_cpu_id_offset) {
-  return kCpuIdUnsupported;
-}
+static inline int VirtualRseqCpuId() { return kCpuIdUnsupported; }
 #endif
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
@@ -249,17 +242,15 @@ inline int GetCurrentCpu() {
 // Return a user selected virtual CPU with the help of ValueTransaction.
 int VirtualUserCpuId();
 
-inline int GetCurrentVirtualCpuUnsafe(const size_t virtual_cpu_id_offset) {
-  return virtual_cpu_id_offset == offsetof(kernel_rseq, vcpu_id)
-             ? VirtualRseqCpuId(virtual_cpu_id_offset)
-             : VirtualUserCpuId();
+inline int GetCurrentVirtualCpuUnsafe() {
+  return UsingFlatVirtualCpus() ? VirtualRseqCpuId() : VirtualUserCpuId();
 }
 
-inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
+inline int GetCurrentVirtualCpu() {
   // We can't use the unsafe version unless we have the appropriate version of
   // the rseq extension. This also allows us a convenient escape hatch if the
   // kernel changes the way it uses special-purpose registers for CPU IDs.
-  int cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset);
+  int cpu = GetCurrentVirtualCpuUnsafe();
 
   // We open-code the check for fast-cpu availability since we do not want to
   // force initialization in the first-call case.  This so done so that we can
@@ -272,7 +263,7 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
   }
 
   // Do not return a physical CPU ID when we expect a virtual CPU ID.
-  TC_CHECK_NE(virtual_cpu_id_offset, offsetof(kernel_rseq, vcpu_id));
+  TC_CHECK(!UsingFlatVirtualCpus());
 
 #ifdef TCMALLOC_HAVE_SCHED_GETCPU
   cpu = sched_getcpu();
@@ -280,12 +271,6 @@ inline int GetCurrentVirtualCpu(const size_t virtual_cpu_id_offset) {
 #endif  // TCMALLOC_HAVE_SCHED_GETCPU
 
   return cpu;
-}
-
-inline int GetCurrentVirtualCpuUnsafe() {
-  const size_t offset = UsingFlatVirtualCpus() ? offsetof(kernel_rseq, vcpu_id)
-                                               : offsetof(kernel_rseq, cpu_id);
-  return GetCurrentVirtualCpuUnsafe(offset);
 }
 
 bool InitFastPerCpu();
@@ -368,7 +353,7 @@ inline void TSANReleaseBatch(void** batch, int n) {
 #endif
 }
 
-void FenceCpu(int cpu, const size_t virtual_cpu_id_offset);
+void FenceCpu(int cpu);
 void FenceAllCpus();
 
 }  // namespace percpu

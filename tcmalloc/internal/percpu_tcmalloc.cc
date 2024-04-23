@@ -43,9 +43,6 @@ void TcmallocSlab::Init(
     absl::FunctionRef<size_t(size_t)> capacity, Shift shift) {
   TC_ASSERT(num_classes_ == 0 && num_classes != 0);
   num_classes_ = num_classes;
-  if (UsingFlatVirtualCpus()) {
-    virtual_cpu_id_offset_ = offsetof(kernel_rseq, vcpu_id);
-  }
   stopped_ = new (alloc(sizeof(stopped_[0]) * NumCPUs(),
                         std::align_val_t{ABSL_CACHELINE_SIZE}))
       std::atomic<bool>[NumCPUs()];
@@ -144,7 +141,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
   for (;;) {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
-    cpu = GetCurrentVirtualCpuUnsafe(virtual_cpu_id_offset_);
+    cpu = GetCurrentVirtualCpuUnsafe();
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, cpu);
@@ -312,7 +309,7 @@ void TcmallocSlab::StopCpu(int cpu) {
   TC_ASSERT(cpu >= 0 && cpu < NumCPUs(), "cpu=%d", cpu);
   TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
   stopped_[cpu].store(true, std::memory_order_relaxed);
-  FenceCpu(cpu, virtual_cpu_id_offset_);
+  FenceCpu(cpu);
 }
 
 void TcmallocSlab::StartCpu(int cpu) {
