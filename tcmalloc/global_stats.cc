@@ -554,10 +554,6 @@ void DumpStats(Printer* out, int level) {
                 Parameters::huge_region_demand_based_release() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_release_pages_from_huge_region %d\n",
                 Parameters::release_pages_from_huge_region() ? 1 : 0);
-    out->printf("PARAMETER flat vcpus %d\n",
-                subtle::percpu::UsingFlatVirtualCpus() ? 1 : 0);
-    out->printf("PARAMETER vcpus %d\n",
-                subtle::percpu::UsingVirtualCpus() ? 1 : 0);
     out->printf(
         "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
         "%d\n",
