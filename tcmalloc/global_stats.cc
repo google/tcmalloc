@@ -373,7 +373,7 @@ void DumpStats(Printer* out, int level) {
       virtual_memory_used, virtual_memory_used / MiB,
       uint64_t(stats.span_stats.in_use),
       uint64_t(stats.span_stats.total),
-      (stats.span_stats.total * sizeof(Span)) / MiB,
+      (stats.span_stats.total * Span::CalcSizeOf(Parameters::max_span_cache_size())) / MiB,
       uint64_t(stats.tc_stats.in_use),
       uint64_t(stats.tc_stats.total),
       (stats.tc_stats.total * sizeof(ThreadCache)) / MiB,

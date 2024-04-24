@@ -62,6 +62,7 @@ void SizeMap::CheckAssumptions() {
     failed = true;
   }
   if (a.span_size != sizeof(Span)) {
+    // TODO(b/304135905):  Complete experiments.
     fprintf(stderr, "sizeof(Span): assumed %zu, actual %zu\n", a.span_size,
             sizeof(Span));
     failed = true;
