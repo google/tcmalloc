@@ -150,7 +150,6 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // Is this hugepage backed?
   bool backed_[kNumHugePages];
   HugeLength nbacked_;
-  int64_t last_touched_[kNumHugePages];
   HugeLength total_unbacked_{NHugePages(0)};
 
   MemoryModifyFunction& unback_;
@@ -330,9 +329,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
       backed_{},
       nbacked_(NHugePages(0)),
       unback_(unback) {
-  int64_t now = absl::base_internal::CycleClock::Now();
   for (int i = 0; i < kNumHugePages; ++i) {
-    last_touched_[i] = now;
     // These are already 0 but for clarity...
     pages_used_[i] = Length(0);
     backed_[i] = false;
@@ -396,11 +393,9 @@ inline void HugeRegion::AddSpanStats(SmallSpanStats* small,
     size_t i = (hp - location_.start()) / NHugePages(1);
     const bool backed = backed_[i];
     Length truncated;
-    int64_t when = 0;
     while (n > 0 && backed_[i] == backed) {
       const PageId lim = (location_.start() + NHugePages(i + 1)).first_page();
       Length here = std::min(Length(n), lim - p);
-      when = AverageWhens(truncated, when, here, last_touched_[i]);
       truncated += here;
       n -= here.raw_num();
       p += here;
@@ -494,7 +489,6 @@ inline BackingStats HugeRegion::stats() const {
 
 inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
   bool should_back = false;
-  const int64_t now = absl::base_internal::CycleClock::Now();
   while (n > Length(0)) {
     const HugePage hp = HugePageContaining(p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
@@ -504,7 +498,6 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
       backed_[i] = true;
       should_back = true;
       ++nbacked_;
-      last_touched_[i] = now;
     }
     pages_used_[i] += here;
     TC_ASSERT_LE(pages_used_[i], kPagesPerHugePage);
@@ -515,7 +508,6 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
 }
 
 inline void HugeRegion::Dec(PageId p, Length n, bool release) {
-  const int64_t now = absl::base_internal::CycleClock::Now();
   bool should_unback[kNumHugePages] = {};
   while (n > Length(0)) {
     const HugePage hp = HugePageContaining(p);
@@ -525,8 +517,6 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
     TC_ASSERT_GT(here, Length(0));
     TC_ASSERT_GE(pages_used_[i], here);
     TC_ASSERT(backed_[i]);
-    last_touched_[i] = AverageWhens(
-        here, now, kPagesPerHugePage - pages_used_[i], last_touched_[i]);
     pages_used_[i] -= here;
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
@@ -541,7 +531,6 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
 
 inline HugeLength HugeRegion::UnbackHugepages(
     bool should_unback[kNumHugePages]) {
-  const int64_t now = absl::base_internal::CycleClock::Now();
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
@@ -563,7 +552,6 @@ inline HugeLength HugeRegion::UnbackHugepages(
       for (size_t k = i; k < j; k++) {
         TC_ASSERT(should_unback[k]);
         backed_[k] = false;
-        last_touched_[k] = now;
       }
 
       released += hl;
