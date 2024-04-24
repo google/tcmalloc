@@ -141,7 +141,7 @@ std::pair<int, bool> TcmallocSlab::CacheCpuSlabSlow() {
   for (;;) {
     tcmalloc_slabs = TCMALLOC_CACHED_SLABS_MASK;
     CompilerBarrier();
-    vcpu = GetVirtualCpuUnsafe();
+    vcpu = VirtualCpu::Synchronize();
     auto slabs_and_shift = slabs_and_shift_.load(std::memory_order_relaxed);
     const auto [slabs, shift] = slabs_and_shift.Get();
     void* start = CpuMemoryStart(slabs, shift, vcpu);

@@ -85,7 +85,7 @@ namespace percpu {
 
 inline constexpr int kRseqUnregister = 1;
 
-// Internal state used for tracking initialization of RseqCpuId()
+// Internal state used for tracking initialization of GetRealCpuUnsafe()
 inline constexpr int kCpuIdUnsupported = -2;
 inline constexpr int kCpuIdUninitialized = -1;
 inline constexpr int kCpuIdInitialized = 0;
@@ -161,6 +161,8 @@ extern "C" ABSL_CONST_INIT thread_local volatile uintptr_t tcmalloc_slabs
     ABSL_ATTRIBUTE_INITIAL_EXEC;
 extern "C" ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
     ABSL_ATTRIBUTE_INITIAL_EXEC;
+extern "C" ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
+    ABSL_ATTRIBUTE_INITIAL_EXEC;
 
 // Provide weak definitions here to enable more efficient codegen.
 // If compiler sees only extern declaration when generating accesses,
@@ -175,14 +177,12 @@ ABSL_CONST_INIT thread_local volatile kernel_rseq __rseq_abi
         0,      static_cast<unsigned>(kCpuIdUninitialized),   0, 0,
         {0, 0}, {{kCpuIdUninitialized, kCpuIdUninitialized}},
 };
+ABSL_CONST_INIT thread_local volatile int tcmalloc_cached_vcpu
+    ABSL_ATTRIBUTE_WEAK = kCpuIdUninitialized;
 
-static inline int RseqCpuId() { return __rseq_abi.cpu_id; }
-
-static inline int RseqVirtualCpuId() { return __rseq_abi.vcpu_id; }
+inline int GetRealCpuUnsafe() { return __rseq_abi.cpu_id; }
 #else  // !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
-static inline int RseqCpuId() { return kCpuIdUnsupported; }
-
-static inline int RseqVirtualCpuId() { return kCpuIdUnsupported; }
+inline int GetRealCpuUnsafe() { return kCpuIdUnsupported; }
 #endif
 
 // Functions below are implemented in the architecture-specific percpu_rseq_*.S
@@ -210,23 +210,14 @@ inline bool UsingVirtualCpus() {
 // Return whether we are using flat virtual CPUs (provided by kernel RSEQ).
 bool UsingRseqVirtualCpus();
 
-inline int GetRealCpuUnsafe() {
-  // Use the rseq mechanism.
-  return RseqCpuId();
-}
-
 inline int GetRealCpu() {
-  // We can't use the unsafe version unless we have the appropriate version of
-  // the rseq extension. This also allows us a convenient escape hatch if the
-  // kernel changes the way it uses special-purpose registers for CPU IDs.
+  // The "unsafe" variant strongly depends on RSEQ.
   int cpu = GetRealCpuUnsafe();
 
   // We open-code the check for fast-cpu availability since we do not want to
-  // force initialization in the first-call case.  This so done so that we can
-  // use this in places where it may not always be safe to initialize and so
-  // that it may serve in the future as a proxy for callers such as
-  // CPULogicalId() without introducing an implicit dependence on the fast-path
-  // extensions. Initialization is also simply unneeded on some platforms.
+  // force initialization in the first-call case.  This is done so that we can
+  // use this in places where it may not always be safe to initialize.
+  // Initialization is also simply unneeded on some platforms.
   if (ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized)) {
     return cpu;
   }
@@ -239,12 +230,51 @@ inline int GetRealCpu() {
   return cpu;
 }
 
-// Return a user selected virtual CPU with the help of ValueTransaction.
-int UserVirtualCpuId();
+// Static accessors functions for any kind of vCPU IDs, which transparently
+// choose the right vCPU source based on the initialized mode. Wrapping it into
+// a class helps to restrict access and avoid accidental misuse.
+class VirtualCpu {
+ public:
+  // Returns the last vCPU ID since the last synchronization point. This may be
+  // used where the vCPU ID is not used to derive RSEQ-validated state. Returns
+  // kCpuIdUninitialized if this thread has never synchronized with a vCPU ID,
+  // or kCpuIdUnsupported if RSEQ is not used.
+  //
+  // This is safe, because without a RSEQ critical section to detect thread
+  // preemption, a thread may be preempted at any point and the virtual (or
+  // real) CPU may change.
+  static int get() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    return tcmalloc_cached_vcpu;
+#else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+    return kCpuIdUnsupported;
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  }
 
-inline int GetVirtualCpuUnsafe() {
-  return UsingRseqVirtualCpus() ? RseqVirtualCpuId() : UserVirtualCpuId();
-}
+  // Returns the last vCPU ID since the last synchronization point.
+  // REQUIRES: Synchronize() has been called by this thread
+  static int GetAfterSynchronize() {
+    const int ret = get();
+    TC_ASSERT_GE(ret, kCpuIdInitialized);
+    return ret;
+  }
+
+ private:
+  // Returns the current vCPU ID. Use to synchronize RSEQ-validated state that
+  // depends on the (per-CPU mutually exclusive) vCPU ID with the current vCPU
+  // ID after a thread preemption was detected. This function may be expensive,
+  // so it should only be called on slow paths.
+  static int Synchronize();
+
+  // Allow-list for Synchronize(), with brief reason.
+  //
+  // Recomputes RSEQ-validated slab pointer.
+  friend class TcmallocSlab;
+  // If current CPU maps to vCPU, then "fence" can be elided.
+  friend void FenceCpu(int vcpu);
+  // Some tests want to "prefetch" the vCPU.
+  friend class TcmallocTest;
+};
 
 bool InitFastPerCpu();
 
@@ -253,7 +283,7 @@ inline bool IsFast() {
     return false;
   }
 
-  int cpu = RseqCpuId();
+  int cpu = GetRealCpuUnsafe();
 
   if (ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized)) {
     return true;
@@ -272,7 +302,7 @@ inline bool IsFastNoInit() {
   if (!TCMALLOC_INTERNAL_PERCPU_USE_RSEQ) {
     return false;
   }
-  int cpu = RseqCpuId();
+  int cpu = GetRealCpuUnsafe();
   return ABSL_PREDICT_TRUE(cpu >= kCpuIdInitialized);
 }
 

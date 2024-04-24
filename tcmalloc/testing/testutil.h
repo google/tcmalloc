@@ -219,7 +219,7 @@ class ScopedUnregisterRseq {
     UnregisterRseq();
 
     // Unregistering stores kCpuIdUninitialized to the cpu_id field.
-    TC_CHECK_EQ(tcmalloc_internal::subtle::percpu::RseqCpuId(),
+    TC_CHECK_EQ(tcmalloc_internal::subtle::percpu::GetRealCpuUnsafe(),
                 tcmalloc_internal::subtle::percpu::kCpuIdUninitialized);
   }
 

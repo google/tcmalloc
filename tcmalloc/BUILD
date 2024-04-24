@@ -1291,6 +1291,7 @@ cc_test(
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:optimization",
+        "//tcmalloc/internal:percpu",
         "//tcmalloc/internal:percpu_tcmalloc",
         "//tcmalloc/internal:sysinfo",
         "//tcmalloc/testing:testutil",

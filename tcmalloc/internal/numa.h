@@ -48,8 +48,8 @@ enum class NumaBindMode {
   kStrict,
 };
 
-// We use the result of RseqCpuId() in GetCurrentPartition() to avoid branching
-// in the fast path, but this means that the CPU number we look up in
+// We use the result of GetRealCpuUnsafe() in GetCurrentPartition() to avoid
+// branching in the fast path, but this means that the CPU number we look up in
 // cpu_to_scaled_partition_ might equal kCpuIdUninitialized or
 // kCpuIdUnsupported. We add this fudge factor to the value to compensate,
 // ensuring that our accesses to the cpu_to_scaled_partition_ array are always
@@ -233,7 +233,7 @@ template <size_t NumPartitions, size_t ScaleBy>
 inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentPartition()
     const {
   if constexpr (NumPartitions == 1) return 0;
-  const int cpu = subtle::percpu::RseqCpuId();
+  const int cpu = subtle::percpu::GetRealCpuUnsafe();
   return gated_cpu_to_scaled_partition_[cpu + kNumaCpuFudge] / ScaleBy;
 }
 
@@ -241,7 +241,7 @@ template <size_t NumPartitions, size_t ScaleBy>
 inline size_t NumaTopology<NumPartitions, ScaleBy>::GetCurrentScaledPartition()
     const {
   if constexpr (NumPartitions == 1) return 0;
-  const int cpu = subtle::percpu::RseqCpuId();
+  const int cpu = subtle::percpu::GetRealCpuUnsafe();
   return gated_cpu_to_scaled_partition_[cpu + kNumaCpuFudge];
 }
 

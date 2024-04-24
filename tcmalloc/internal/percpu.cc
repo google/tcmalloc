@@ -89,9 +89,29 @@ bool UsingRseqVirtualCpus() {
   return false;
 }
 
-int UserVirtualCpuId() {
-  // Fallback to kernel RSEQ CPU IDs.
-  return RseqCpuId();
+static int UserVirtualCpuId() {
+  TC_BUG("initialized unsupported vCPU mode");
+}
+
+int VirtualCpu::Synchronize() {
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  int vcpu = kCpuIdUninitialized;
+
+  if (UsingVirtualCpus()) {
+    if (UsingRseqVirtualCpus())
+      vcpu = __rseq_abi.vcpu_id;
+    else
+      vcpu = UserVirtualCpuId();
+  } else {
+    vcpu = GetRealCpuUnsafe();
+  }
+
+  TC_CHECK_GE(vcpu, kCpuIdInitialized);
+  tcmalloc_cached_vcpu = vcpu;
+  return vcpu;
+#else   // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  TC_BUG("unsupported without rseq");
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 }
 
 static void InitPerCpu() {
@@ -165,7 +185,7 @@ bool InitFastPerCpu() {
 
   // Once we've decided fast-cpu support is available, initialization for all
   // subsequent threads must succeed for consistency.
-  if (init_status == kFastMode && RseqCpuId() == kCpuIdUninitialized) {
+  if (init_status == kFastMode && GetRealCpuUnsafe() == kCpuIdUninitialized) {
     TC_CHECK(InitThreadPerCpu());
   }
 
@@ -328,7 +348,7 @@ void FenceCpu(int vcpu) {
 
   // A useful fast path: nothing needs doing at all to order us with respect
   // to our own CPU.
-  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && GetVirtualCpuUnsafe() == vcpu) {
+  if (ABSL_PREDICT_TRUE(IsFastNoInit()) && VirtualCpu::Synchronize() == vcpu) {
     return;
   }
 

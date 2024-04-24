@@ -101,7 +101,7 @@ class ShardedStaticForwarder : public StaticForwarder {
 class ProdCpuLayout {
  public:
   static unsigned NumShards() { return CacheTopology::Instance().l3_count(); }
-  static int CurrentCpu() { return subtle::percpu::RseqCpuId(); }
+  static int CurrentCpu() { return subtle::percpu::GetRealCpuUnsafe(); }
   static unsigned CpuShard(int cpu) {
     return CacheTopology::Instance().GetL3FromCpuId(cpu);
   }

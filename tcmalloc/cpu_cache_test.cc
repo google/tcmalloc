@@ -41,6 +41,7 @@
 #include "tcmalloc/internal/affinity.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
@@ -54,6 +55,13 @@
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
+namespace subtle::percpu {
+class TcmallocTest {
+ public:
+  static int VirtualCpuSynchronize() { return VirtualCpu::Synchronize(); }
+};
+}  // namespace subtle::percpu
+
 class CpuCachePeer {
  public:
   template <typename CpuCache>
@@ -408,12 +416,13 @@ TEST(CpuCacheTest, Metadata) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id = subtle::percpu::GetVirtualCpuUnsafe();
+    allowed_cpu_id = subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id != subtle::percpu::GetVirtualCpuUnsafe()) {
+        allowed_cpu_id !=
+            subtle::percpu::TcmallocTest::VirtualCpuSynchronize()) {
       return;
     }
   }
@@ -533,12 +542,13 @@ TEST(CpuCacheTest, CacheMissStats) {
     // pages to be faulted for those cores, leading to test flakiness.
     tcmalloc_internal::ScopedAffinityMask mask(
         tcmalloc_internal::AllowedCpus()[0]);
-    allowed_cpu_id = subtle::percpu::GetVirtualCpuUnsafe();
+    allowed_cpu_id = subtle::percpu::TcmallocTest::VirtualCpuSynchronize();
 
     ptr = cache.Allocate(kSizeClass);
 
     if (mask.Tampered() ||
-        allowed_cpu_id != subtle::percpu::GetVirtualCpuUnsafe()) {
+        allowed_cpu_id !=
+            subtle::percpu::TcmallocTest::VirtualCpuSynchronize()) {
       return;
     }
   }

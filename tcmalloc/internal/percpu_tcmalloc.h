@@ -927,9 +927,7 @@ inline std::pair<int, bool> TcmallocSlab::CacheCpuSlab() {
   }
   // We already have slab offset cached, so the slab is indeed full/empty.
 #endif
-  int vcpu = GetVirtualCpuUnsafe();
-  TC_ASSERT_GE(vcpu, 0);
-  return {vcpu, false};
+  return {VirtualCpu::GetAfterSynchronize(), false};
 }
 
 inline void TcmallocSlab::UncacheCpuSlab() {
