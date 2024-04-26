@@ -382,7 +382,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  Span* Finalize(Length n, SpanAllocInfo span_alloc_info, PageId page);
+  Span* Finalize(Length n, PageId page);
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -459,8 +459,7 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Finalize(
-    Length n, SpanAllocInfo span_alloc_info, PageId page)
+inline Span* HugePageAwareAllocator<Forwarder>::Finalize(Length n, PageId page)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(page, PageId{0});
   Span* ret = forwarder_.NewSpan(page, n);
@@ -479,14 +478,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
   auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    return Finalize(n, span_alloc_info, page);
+    return Finalize(n, page);
   }
 
   page = RefillFiller(n, span_alloc_info, from_released);
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return nullptr;
   }
-  return Finalize(n, span_alloc_info, page);
+  return Finalize(n, page);
 }
 
 template <class Forwarder>
@@ -504,14 +503,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
     auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-      return Finalize(n, span_alloc_info, page);
+      return Finalize(n, page);
     }
   }
 
   // If we're using regions in this binary (see below comment), is
   // there currently available space there?
   if (regions_.MaybeGet(n, &page, from_released)) {
-    return Finalize(n, span_alloc_info, page);
+    return Finalize(n, page);
   }
 
   // We have two choices here: allocate a new region or go to
@@ -550,7 +549,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   }
 
   TC_CHECK(regions_.MaybeGet(n, &page, from_released));
-  return Finalize(n, span_alloc_info, page);
+  return Finalize(n, page);
 }
 
 template <class Forwarder>
@@ -578,7 +577,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
     SetTracker(last, nullptr);
-    return Finalize(total, span_alloc_info, r.start().first_page());
+    return Finalize(total, r.start().first_page());
   }
 
   ++donated_huge_pages_;
@@ -586,7 +585,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
-  Span* span = Finalize(n, span_alloc_info, r.start().first_page());
+  Span* span = Finalize(n, r.start().first_page());
   span->set_donated(/*value=*/true);
   return span;
 }
