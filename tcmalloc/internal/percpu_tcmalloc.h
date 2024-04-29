@@ -684,8 +684,10 @@ static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
         [cached_slabs_mask] "r"(TCMALLOC_CACHED_SLABS_MASK),
 #endif
         [size_class_lsl2] "r"(size_class << 2), [item] "r"(item)
-      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+        ,
+        "cc"
       : overflow_label
 #endif
   );
