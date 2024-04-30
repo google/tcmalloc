@@ -22,6 +22,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,8 @@
 #include "gtest/gtest.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/synchronization/notification.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
@@ -56,8 +59,6 @@ class HugeRegionTest : public ::testing::Test {
     // we usually don't care about backing calls, unless testing that
     // specifically.
   }
-
-  ~HugeRegionTest() override { mock_.reset(nullptr); }
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
@@ -316,6 +317,79 @@ TEST_F(HugeRegionTest, Reback) {
     DeleteUnback(allocs[3]);
     CheckMock();
   }
+}
+
+class BlockingRelease final : public MemoryModifyFunction {
+ public:
+  BlockingRelease(absl::Mutex* mu, absl::Notification* notify)
+      : mu_(mu), notify_(notify) {}
+
+  bool operator()(PageId p, Length len) override {
+    if (notify_) {
+      notify_->Notify();
+      notify_ = nullptr;
+    }
+
+    mu_->Lock();
+    mu_->Unlock();
+
+    regions_.emplace_back(p, len);
+
+    return true;
+  }
+
+  std::vector<std::pair<PageId, Length>> regions() const { return regions_; }
+
+ private:
+  absl::Mutex* mu_;
+  absl::Notification* notify_;
+  std::vector<std::pair<PageId, Length>> regions_;
+};
+
+TEST_F(HugeRegionTest, ParallelRelease) {
+  absl::Mutex mu;
+  absl::Notification notify;
+
+  BlockingRelease blocking(&mu, &notify);
+  region_.~HugeRegion();
+  new (&region_) HugeRegion({p_, region_.size()}, blocking);
+
+  auto a1 = Allocate(5 * kPagesPerHugePage / 2);
+  auto a2 = Allocate(5 * kPagesPerHugePage / 2);
+  auto a3 = Allocate(3 * kPagesPerHugePage);
+  auto a4 = Allocate((region_.size() - NHugePages(8)).in_pages());
+
+  Delete(a2);
+  Delete(a4);
+
+  mu.Lock();
+
+  HugeLength released;
+  std::thread t(
+      [&]() { released = region_.Release(region_.size().in_pages()); });
+
+  notify.WaitForNotification();
+
+  // Release has started.  We shouldn't intersect with what is released.
+  auto a5 = Allocate(kPagesPerHugePage);
+
+  // Allow release to procede and finish.
+  mu.Unlock();
+  t.join();
+
+  // a1 rounded up (3), a3 (3), and in-flight alloc a5 (1) are not released.
+  EXPECT_EQ(released, region_.size() - NHugePages(7));
+
+  // Check for intersection.
+  auto regions = blocking.regions();
+  for (const auto& region : regions) {
+    EXPECT_TRUE(a5.p + a5.n <= region.first ||
+                region.first + region.second <= a5.p);
+  }
+
+  Delete(a1);
+  Delete(a3);
+  Delete(a5);
 }
 
 TEST_F(HugeRegionTest, Stats) {
