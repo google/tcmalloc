@@ -911,7 +911,6 @@ cc_test(
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
-        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_googletest//:gtest_main",
     ],

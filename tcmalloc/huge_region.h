@@ -534,29 +534,17 @@ inline HugeLength HugeRegion::UnbackHugepages(
   HugeLength released = NHugePages(0);
   size_t i = 0;
   while (i < kNumHugePages) {
-    if (!should_unback[i] || pages_used_[i] > Length(0)) {
+    if (!should_unback[i]) {
       i++;
       continue;
     }
     size_t j = i;
-    while (j < kNumHugePages && should_unback[j] &&
-           pages_used_[j] == Length(0)) {
-      // We toggle the pages as in-use via tracker_, but in debug builds, we
-      // also mark the pages as used too.
-#ifndef NDEBUG
-      pages_used_[j] = kPagesPerHugePage;
-#endif  // !NDEBUG
+    while (j < kNumHugePages && should_unback[j]) {
       j++;
     }
 
     HugeLength hl = NHugePages(j - i);
     HugePage p = location_.start() + NHugePages(i);
-
-    // Toggle the range as in-use, since we will be releasing the page heap
-    // lock.  Marking the pages as used keeps us from allocating them while we
-    // are releasing them.
-    tracker_.Mark(NHugePages(i).in_pages().raw_num(), hl.in_pages().raw_num());
-
     if (ABSL_PREDICT_TRUE(unback_(p.first_page(), hl.in_pages()))) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
@@ -568,15 +556,6 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
       released += hl;
     }
-
-    tracker_.Unmark(NHugePages(i).in_pages().raw_num(),
-                    hl.in_pages().raw_num());
-#ifndef NDEBUG
-    for (size_t k = i; k < j; ++k) {
-      pages_used_[k] = Length(0);
-    }
-#endif  // !NDEBUG
-
     i = j;
   }
 

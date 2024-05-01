@@ -683,7 +683,7 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   HugeRange r = alloc_.Get(HugeRegion::size());
   if (!r.valid()) return false;
   HugeRegion* region = region_allocator_.New();
-  new (region) HugeRegion(r, unback_without_lock_);
+  new (region) HugeRegion(r, unback_);
   regions_.Contribute(region);
   return true;
 }
