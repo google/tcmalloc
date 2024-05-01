@@ -665,6 +665,22 @@ cc_fuzz_test(
 )
 
 cc_fuzz_test(
+    name = "huge_region_fuzz",
+    testonly = 1,
+    srcs = ["huge_region_fuzz.cc"],
+    args = ["--fuzztest_stack_limit_kb=2048"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
+    deps = [
+        ":common_8k_pages",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/log:check",
+    ],
+)
+
+cc_fuzz_test(
     name = "huge_page_filler_fuzz",
     testonly = 1,
     srcs = ["huge_page_filler_fuzz.cc"],
