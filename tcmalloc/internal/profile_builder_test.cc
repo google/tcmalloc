@@ -56,9 +56,11 @@ namespace {
 
 using ::testing::AnyOf;
 using ::testing::Each;
+using ::testing::IsSupersetOf;
 using ::testing::Key;
 using ::testing::Not;
 using ::testing::Pair;
+using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
 // Returns the fully resolved path of this program.
@@ -270,7 +272,7 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
   std::vector<Profile::Sample> samples;
 
   {  // We have three samples here that will be merged. The second sample has
-    // `span_start_address` as nullptr, so `sampled_resident_size` in the
+    // `span_start_address` as nullptr, so `resident_space` in the
     // profile is contributed by the other two samples.
     Profile::Sample sample;
 
@@ -347,7 +349,7 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
   }
 
   {
-    // This sample does not set `span_start_address`, so `sampled_resident_size`
+    // This sample does not set `span_start_address`, so `resident_space`
     // is 0.
     auto& sample = samples.emplace_back();
 
@@ -475,21 +477,28 @@ TEST(ProfileConverterTest, HeapProfile) {
   // Require that the default_sample_type appeared in sample_type.
   EXPECT_THAT(sample_types, testing::Contains(converted.default_sample_type()));
 
-  EXPECT_THAT(extracted_sample_type,
-              UnorderedElementsAre(
-                  Pair("objects", "count"), Pair("space", "bytes"),
-                  Pair("resident_space", "bytes"),
-                  Pair("stale_space", "bytes"), Pair("locked_space", "bytes"),
-                  Pair("swapped_space", "bytes")));
+  constexpr int kNumSamples = 6;
+  // This is slightly redundant with the next line, but we need to loop over
+  // each of the samples later.
+  EXPECT_THAT(extracted_sample_type, SizeIs(kNumSamples));
+  EXPECT_THAT(
+      extracted_sample_type,
+      UnorderedElementsAre(
+          Pair("objects", "count"), Pair("space", "bytes"),
+          Pair("resident_space", "bytes"), Pair("stale_space", "bytes"),
+          Pair("locked_space", "bytes"), Pair("swapped_space", "bytes")));
 
-  SampleLabels extracted;
+  SampleLabels extracted_labels;
   {
     SCOPED_TRACE("Profile");
-    ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
+    ASSERT_NO_FATAL_FAILURE(
+        CheckAndExtractSampleLabels(converted, extracted_labels));
   }
 
   absl::flat_hash_map<std::string, std::string> label_to_units;
+  std::vector<absl::flat_hash_map<std::string, int>> extracted_samples;
   for (const auto& s : converted.sample()) {
+    extracted_samples.emplace_back();
     for (const auto& l : s.label()) {
       if (l.num_unit() != 0) {
         const std::string unit = converted.string_table(l.num_unit());
@@ -499,58 +508,102 @@ TEST(ProfileConverterTest, HeapProfile) {
         EXPECT_EQ(it->second, unit);
       }
     }
+    ASSERT_EQ(s.value_size(), converted.sample_type_size());
+    for (int i = 0; i < s.value_size(); ++i) {
+      extracted_samples.back().emplace(
+          converted.string_table(converted.sample_type(i).type()), s.value(i));
+    }
   }
+
+  EXPECT_THAT(label_to_units,
+              IsSupersetOf({Pair("bytes", "bytes"), Pair("request", "bytes"),
+                            Pair("alignment", "bytes"),
+                            Pair("access_hint", "access_hint")}));
 
   EXPECT_THAT(
       label_to_units,
-      testing::IsSupersetOf({Pair("bytes", "bytes"), Pair("request", "bytes"),
-                             Pair("alignment", "bytes"),
-                             Pair("sampled_resident_bytes", "bytes"),
-                             Pair("swapped_bytes", "bytes"),
-                             Pair("access_hint", "access_hint")}));
+      Each(Key(Not(AnyOf("sampled_resident_bytes",
+                         "swapped_bytes")))));
 
   EXPECT_THAT(
-      extracted,
+      extracted_labels,
       UnorderedElementsAre(
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 64), Pair("swapped_bytes", 0),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
-          UnorderedElementsAre(
-              Pair("bytes", 8), Pair("request", 4),
-              Pair("sampled_resident_bytes", 40), Pair("swapped_bytes", 0),
-              Pair("access_hint", 1), Pair("access_allocated", "hot"),
-              Pair("guarded_status", "Unknown")),
+          UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+                               Pair("access_hint", 1),
+                               Pair("access_allocated", "hot"),
+                               Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 16),
-              Pair("sampled_resident_bytes", 0), Pair("swapped_bytes", 0),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "RateLimited")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Filtered")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
-              Pair("sampled_resident_bytes", 32), Pair("swapped_bytes", 0),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Guarded"))));
 
-  ASSERT_GE(converted.sample().size(), 3);
+  EXPECT_THAT(extracted_samples,
+              UnorderedElementsAre(IsSupersetOf({
+                                       Pair("resident_space", 64),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 3702),
+                                       Pair("objects", 6),
+                                   }),
+                                   IsSupersetOf({
+                                       Pair("resident_space", 40),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 4690),
+                                       Pair("objects", 10),
+                                   }),
+                                   IsSupersetOf({
+                                       Pair("resident_space", 0),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 2345),
+                                       Pair("objects", 8),
+                                   }),
+                                   IsSupersetOf({
+                                       Pair("resident_space", 32),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 1235),
+                                       Pair("objects", 2),
+                                   }),
+                                   IsSupersetOf({
+                                       Pair("resident_space", 32),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 1235),
+                                       Pair("objects", 2),
+                                   }),
+                                   IsSupersetOf({
+                                       Pair("resident_space", 32),
+                                       Pair("swapped_space", 0),
+                                       Pair("space", 1235),
+                                       Pair("objects", 2),
+                                   })));
+
+  ASSERT_EQ(converted.sample().size(), kNumSamples);
   // The addresses for the samples at stack[0], stack[1] should match.
-  ASSERT_GE(converted.sample(0).location_id().size(), 2);
-  ASSERT_GE(converted.sample(1).location_id().size(), 2);
-  EXPECT_EQ(converted.sample(0).location_id(0),
-            converted.sample(1).location_id(0));
-  EXPECT_EQ(converted.sample(0).location_id(1),
-            converted.sample(1).location_id(1));
+  for (int i = 0; i < kNumSamples; ++i) {
+    ASSERT_GE(converted.sample(i).location_id().size(), 2) << i;
+    if (i > 0) {
+      EXPECT_EQ(converted.sample(i - 1).location_id(0),
+                converted.sample(i).location_id(0))
+          << i;
+      EXPECT_EQ(converted.sample(i - 1).location_id(1),
+                converted.sample(i).location_id(1))
+          << i;
+    }
+  }
 
   EXPECT_THAT(converted.string_table(converted.drop_frames()),
               testing::HasSubstr("TCMallocInternalNew"));

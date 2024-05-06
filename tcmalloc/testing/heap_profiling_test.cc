@@ -181,20 +181,31 @@ TEST(HeapProfilingTest, CheckResidency) {
 
   // Look for "sampled_resident_bytes" string in string table.
   std::optional<int> sampled_resident_bytes_id;
+  std::optional<int> resident_space_id;
   for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
     if (converted.string_table(i) == "sampled_resident_bytes") {
       sampled_resident_bytes_id = i;
     }
+    if (converted.string_table(i) == "resident_space") {
+      resident_space_id = i;
+    }
   }
-  ASSERT_TRUE(sampled_resident_bytes_id.has_value());
+  EXPECT_FALSE(sampled_resident_bytes_id.has_value());
+  ASSERT_TRUE(resident_space_id.has_value());
+
+  std::optional<int> resident_value_index;
+  for (int i = 0; i < converted.sample_type_size(); ++i) {
+    if (converted.sample_type(i).type() == resident_space_id) {
+      resident_value_index = i;
+      break;
+    }
+  }
+
+  ASSERT_TRUE(resident_value_index.has_value());
 
   size_t resident_size = 0;
   for (const auto& sample : converted.sample()) {
-    for (const auto& label : sample.label()) {
-      if (label.key() == sampled_resident_bytes_id) {
-        resident_size += label.num();
-      }
-    }
+    resident_size += sample.value(*resident_value_index);
   }
 
   EXPECT_GE(resident_size, num_allocations * requested_size);

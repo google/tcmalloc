@@ -656,15 +656,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int cold_id = builder.InternString("cold");
   const int hot_id = builder.InternString("hot");
 
-  // NOTE: Do not rely on these string constants. They will be removed!
-  // TODO(b/259585789): Remove all of these tags when sample type rollout
-  // and collection hits close to 100%; certainly by Q3 2023, but could consider
-  // earlier.
-  const int sampled_resident_id =
-      builder.InternString("sampled_resident_bytes");
-  const int swapped_id = builder.InternString("swapped_bytes");
-  const int stale_id = builder.InternString("stale_bytes");
-
   perftools::profiles::Profile& converted = builder.profile();
 
   perftools::profiles::ValueType& period_type =
@@ -765,15 +756,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
     add_positive_label(size_returning_id, 0, entry.requested_size_returning);
-    // TODO(b/259585789): Remove all of these when sample type rollout is
-    // complete.
-    if (data.resident_size.has_value()) {
-      add_label(sampled_resident_id, bytes_id, data.resident_size.value());
-      add_label(swapped_id, bytes_id, data.swapped_size.value());
-    }
-    if (data.stale_size.has_value()) {
-      add_label(stale_id, bytes_id, data.stale_size.value());
-    }
 
     auto add_access_label = [&](int key,
                                 tcmalloc::Profile::Sample::Access access) {
