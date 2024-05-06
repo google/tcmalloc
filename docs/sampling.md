@@ -104,13 +104,21 @@ allocations and removed from the list when it is claimed.
 
 ## How Do We Handle Lifetime Profiling
 
-Lifetime profiling reports a list of object lifetimes as pairs of allocation and
-deallocation records. Profiling is initiated by calling
+Lifetime profiling reports two types of measurements: observed lifetime and
+partially observed lifetime. Having observed lifetime means that the object was
+deallocated during a profiling session, and having partially observed lifetime
+means that the object was still alive when the session stopped (i.e., its
+lifetime was right censored). The profiler reports the two types of measurements
+for allocation sampled either before or after the current profiling session
+started. Profiling is initiated by calling
 [MallocExtension::StartLifetimeProfiling()](https://github.com/google/tcmalloc/blob/master/tcmalloc/malloc_extension.h).
-Profiling continues until `Stop` is invoked on the token. Lifetimes are only
-reported for objects where allocation *and* deallocation are observed while
-profiling is active. A description of the sampling based lifetime profiler can
-be found in Section 4 of
+Profiling continues until `Stop` is invoked on the token.
+
+The mechanism extended the initial version of the
+lifetime profiler to include objects sampled before the current session started,
+as well as adding measurements to handle right censorship. A description of the
+initial version of the sampling based lifetime profiler can be found in Section
+4 of
 ["Learning-based Memory Allocation for C++ Server Workloads, ASPLOS 2020"](https://research.google/pubs/pub49008/).
 
 ## Appendix
