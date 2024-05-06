@@ -754,6 +754,8 @@ create_tcmalloc_testsuite(
     timeout = "moderate",
     srcs = ["arena_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    tags = [
+    ],
     deps = [
         "@com_google_absl//absl/base",
         "@com_google_googletest//:gtest_main",
