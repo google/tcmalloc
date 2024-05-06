@@ -1214,14 +1214,18 @@ class UsageInfo {
 
   UsageInfo() {
     size_t i;
-    for (i = 0; i <= 4 && i < kPagesPerHugePage.raw_num(); ++i) {
+    for (i = 0; i <= kBucketsAtBounds && i < kPagesPerHugePage.raw_num(); ++i) {
       bucket_bounds_[buckets_size_] = i;
       buckets_size_++;
     }
-    if (i < kPagesPerHugePage.raw_num() - 4) {
+    // Histograms should have kBucketsAtBounds buckets at the start and at the
+    // end. Additionally kPagesPerHugePage - kBucketsAtBounds must not
+    // underflow. Hence the assert below.
+    static_assert(kPagesPerHugePage.raw_num() >= kBucketsAtBounds);
+    if (i < kPagesPerHugePage.raw_num() - kBucketsAtBounds) {
       // Because kPagesPerHugePage is a power of two, it must be at least 16
-      // to get inside this "if" - either i=5 and kPagesPerHugePage=8 and
-      // the test fails, or kPagesPerHugePage <= 4 and the test fails.
+      // to get inside this "if".  The test fails if either (i=5 and
+      // kPagesPerHugePage=8), or kPagesPerHugePage <= kBucketsAtBounds.
       TC_ASSERT_GE(kPagesPerHugePage, Length(16));
       constexpr int step = kPagesPerHugePage.raw_num() / 16;
       // We want to move in "step"-sized increments, aligned every "step".
@@ -1229,11 +1233,11 @@ class UsageInfo {
       // logic takes advantage of step being a power of two, so step-1 is
       // all ones in the low-order bits.
       i = ((i - 1) | (step - 1)) + 1;
-      for (; i < kPagesPerHugePage.raw_num() - 4; i += step) {
+      for (; i < kPagesPerHugePage.raw_num() - kBucketsAtBounds; i += step) {
         bucket_bounds_[buckets_size_] = i;
         buckets_size_++;
       }
-      i = kPagesPerHugePage.raw_num() - 4;
+      i = kPagesPerHugePage.raw_num() - kBucketsAtBounds;
     }
     for (; i < kPagesPerHugePage.raw_num(); ++i) {
       bucket_bounds_[buckets_size_] = i;
@@ -1294,7 +1298,9 @@ class UsageInfo {
 
  private:
   // Maximum of 4 buckets at the start and end, and 16 in the middle.
-  static constexpr size_t kBucketCapacity = 4 + 16 + 4;
+  static constexpr size_t kBucketsAtBounds = 4;
+  static constexpr size_t kBucketCapacity =
+      kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
 
   int BucketNum(size_t page) {
