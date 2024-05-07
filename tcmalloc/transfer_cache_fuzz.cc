@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/mock_central_freelist.h"
@@ -23,18 +24,19 @@
 #include "tcmalloc/transfer_cache_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
-namespace tcmalloc {
+namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-using TransferCache = tcmalloc_internal::internal_transfer_cache::TransferCache<
-    tcmalloc_internal::MockCentralFreeList,
-    tcmalloc_internal::FakeTransferCacheManager>;
-using TransferCacheEnv =
-    tcmalloc_internal::FakeTransferCacheEnvironment<TransferCache>;
+using TransferCache =
+    internal_transfer_cache::TransferCache<MockCentralFreeList,
+                                           FakeTransferCacheManager>;
+using TransferCacheEnv = FakeTransferCacheEnvironment<TransferCache>;
 
-template <typename Env>
-int RunFuzzer(const uint8_t* data, size_t size) {
-  Env env;
+void FuzzTransferCache(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
+
+  TransferCacheEnv env;
   // TODO(b/271282540): We should also add a capability to fuzz-test multiple
   // size classes.
   constexpr int kBatchSize = TransferCache::Manager::num_objects_to_move(1);
@@ -76,14 +78,11 @@ int RunFuzzer(const uint8_t* data, size_t size) {
         break;
     }
   }
-  return 0;
 }
+
+FUZZ_TEST(TransferCacheTest, FuzzTransferCache)
+    ;
 
 }  // namespace
-}  // namespace tcmalloc
+}  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
-
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  tcmalloc::RunFuzzer<tcmalloc::TransferCacheEnv>(data, size);
-  return 0;
-}

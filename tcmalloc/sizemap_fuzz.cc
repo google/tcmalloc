@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
@@ -22,21 +23,22 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/tcmalloc_policy.h"
 
-using tcmalloc::tcmalloc_internal::CppPolicy;
-using tcmalloc::tcmalloc_internal::kMaxSize;
-using tcmalloc::tcmalloc_internal::kNumClasses;
-using tcmalloc::tcmalloc_internal::SizeClassInfo;
-using tcmalloc::tcmalloc_internal::SizeMap;
+namespace tcmalloc::tcmalloc_internal {
+namespace {
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  if (size == 0) {
-    return 0;
+void FuzzSizeMap(const std::string& s) {
+  if (s.empty()) {
+    return;
   }
+
+  // TODO(b/271282540): Strongly type input to fuzzer.
+  const char* data = s.data();
+  const size_t size = s.size();
 
   SizeMap m;
   const SizeClassInfo* info = reinterpret_cast<const SizeClassInfo*>(data);
   if (!m.Init(absl::MakeSpan(info, size / sizeof(*info)))) {
-    return 0;
+    return;
   }
 
   // Validate that every size on [0, kMaxSize] maps to a size class that is
@@ -54,6 +56,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     CHECK_LE(last_size_class, size_class);
     last_size_class = size_class;
   }
-
-  return 0;
 }
+
+FUZZ_TEST(SizeMapTest, FuzzSizeMap)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 #include <vector>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
@@ -25,19 +27,8 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
+namespace tcmalloc::tcmalloc_internal {
 namespace {
-
-using tcmalloc::tcmalloc_internal::HugeLength;
-using tcmalloc::tcmalloc_internal::HugePage;
-using tcmalloc::tcmalloc_internal::HugePageContaining;
-using tcmalloc::tcmalloc_internal::HugeRegion;
-using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
-using tcmalloc::tcmalloc_internal::LargeSpanStats;
-using tcmalloc::tcmalloc_internal::Length;
-using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
-using tcmalloc::tcmalloc_internal::NHugePages;
-using tcmalloc::tcmalloc_internal::PageId;
-using tcmalloc::tcmalloc_internal::SmallSpanStats;
 
 class MockUnback final : public MemoryModifyFunction {
  public:
@@ -58,13 +49,15 @@ class MockUnback final : public MemoryModifyFunction {
   bool unback_success_ = true;
 };
 
-}  // namespace
-
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+void FuzzRegion(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
   if (size < 4) {
-    return 0;
+    return;
   }
   // Reserve data[0...3] for future use for parameters to HugeRegion.
+  //
+  // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
   data += 4;
   size -= 4;
 
@@ -174,6 +167,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   for (const auto& alloc : allocs) {
     region.Put(alloc.first, alloc.second, false);
   }
-
-  return 0;
 }
+
+FUZZ_TEST(HugeRegionTest, FuzzRegion)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

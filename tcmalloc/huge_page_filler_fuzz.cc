@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -36,27 +37,8 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+namespace tcmalloc::tcmalloc_internal {
 namespace {
-
-using tcmalloc::tcmalloc_internal::AccessDensityPrediction;
-using tcmalloc::tcmalloc_internal::Clock;
-using tcmalloc::tcmalloc_internal::HugePage;
-using tcmalloc::tcmalloc_internal::HugePageFiller;
-using tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
-using tcmalloc::tcmalloc_internal::kPagesPerHugePage;
-using tcmalloc::tcmalloc_internal::kTop;
-using tcmalloc::tcmalloc_internal::LargeSpanStats;
-using tcmalloc::tcmalloc_internal::Length;
-using tcmalloc::tcmalloc_internal::MemoryModifyFunction;
-using tcmalloc::tcmalloc_internal::NHugePages;
-using tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
-using tcmalloc::tcmalloc_internal::PageId;
-using tcmalloc::tcmalloc_internal::PageTracker;
-using tcmalloc::tcmalloc_internal::PbtxtRegion;
-using tcmalloc::tcmalloc_internal::Printer;
-using tcmalloc::tcmalloc_internal::SkipSubreleaseIntervals;
-using tcmalloc::tcmalloc_internal::SmallSpanStats;
-using tcmalloc::tcmalloc_internal::SpanAllocInfo;
 
 // As we read the fuzzer input, we update these variables to control global
 // state.
@@ -90,9 +72,11 @@ class MockUnback final : public MemoryModifyFunction {
   }
 };
 
-}  // namespace
+void FuzzFiller(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+  // TODO(b/271282540):  Strongly type these parameters from fuzztest.
   constexpr int kInitBytes = 3;
   if (size <= kInitBytes || size > 100000) {
     // size <= kInitBytes for needing some entropy to initialize the filler
@@ -100,7 +84,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     //
     // size > 100000 for avoiding overly large inputs given we do extra
     // checking.
-    return 0;
+    return;
   }
 
   // Reset global state.
@@ -135,8 +119,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   //                  deallocate.
 
   const HugePageFillerAllocsOption allocs_for_few_and_many_objects_spans =
-      data[1] >= 128 ? HugePageFillerAllocsOption::kSeparateAllocs
-                     : HugePageFillerAllocsOption::kUnifiedAllocs;
+      static_cast<uint8_t>(data[1]) >= 128
+          ? HugePageFillerAllocsOption::kSeparateAllocs
+          : HugePageFillerAllocsOption::kUnifiedAllocs;
   // Up to 16 chunks since that's the limit we assert in the implementation.
   const size_t chunks_per_alloc = 1 + (data[2] & 15);
   data += kInitBytes;
@@ -463,5 +448,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   CHECK(filler.size() == NHugePages(0));
-  return 0;
 }
+
+FUZZ_TEST(HugePageFillerTest, FuzzFiller)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

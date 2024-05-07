@@ -21,6 +21,8 @@
 #include <utility>
 #include <vector>
 
+#include "gtest/gtest.h"
+#include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
@@ -35,33 +37,11 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 
+namespace tcmalloc::tcmalloc_internal {
 namespace {
-using ::tcmalloc::tcmalloc_internal::AccessDensityPrediction;
-using ::tcmalloc::tcmalloc_internal::BackingStats;
-using ::tcmalloc::tcmalloc_internal::HugePageFillerAllocsOption;
-using ::tcmalloc::tcmalloc_internal::HugeRegionUsageOption;
-using ::tcmalloc::tcmalloc_internal::kMaxSize;
-using ::tcmalloc::tcmalloc_internal::kMinObjectsToMove;
-using ::tcmalloc::tcmalloc_internal::kNumaPartitions;
-using ::tcmalloc::tcmalloc_internal::kPagesPerHugePage;
-using ::tcmalloc::tcmalloc_internal::kTop;
-using ::tcmalloc::tcmalloc_internal::Length;
-using ::tcmalloc::tcmalloc_internal::MemoryTag;
-using ::tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
-using ::tcmalloc::tcmalloc_internal::PageId;
-using ::tcmalloc::tcmalloc_internal::PageReleaseReason;
-using ::tcmalloc::tcmalloc_internal::PageReleaseStats;
-using ::tcmalloc::tcmalloc_internal::PbtxtRegion;
-using ::tcmalloc::tcmalloc_internal::Printer;
-using ::tcmalloc::tcmalloc_internal::SizeMap;
-using ::tcmalloc::tcmalloc_internal::Span;
-using ::tcmalloc::tcmalloc_internal::SpanAllocInfo;
-using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
-    FakeStaticForwarder;
-using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
-    HugePageAwareAllocator;
-using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
-    HugePageAwareAllocatorOptions;
+using huge_page_allocator_internal::FakeStaticForwarder;
+using huge_page_allocator_internal::HugePageAwareAllocator;
+using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
@@ -77,22 +57,23 @@ class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
   std::function<void()> release_callback_;
 };
 
-}  // namespace
+void FuzzHPAA(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (size < 13 || size > 100000) {
     // size < 13 for needing some entropy to initialize huge page aware
     // allocator.
     //
     // size > 100000 for avoiding overly large inputs given we do extra
     // checking.
-    return 0;
+    return;
   }
 
 #if ABSL_HAVE_ADDRESS_SANITIZER
   // Since asan introduces runtime overhead, limit size of fuzz targets further.
   if (size > 10000) {
-    return 0;
+    return;
   }
 #endif
 
@@ -107,6 +88,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // objects per span.
   // [6:12] - Reserved.
   //
+  // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
+  //
   // Afterwards, we read 9 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the allocator
   // [i + 1, i + 8] - Specifies an integer. We use this as a source of
@@ -120,19 +103,21 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       MemoryTag::kNormal, MemoryTag::kCold};
   constexpr int kTagSize = sizeof(kTagOptions) / sizeof(MemoryTag);
   static_assert(kTagSize > 0);
-  MemoryTag tag = kTagOptions[data[0] % kTagSize];
+  MemoryTag tag = kTagOptions[static_cast<uint8_t>(data[0]) % kTagSize];
   // Use kNormalP1 memory tag only if we have more than one NUMA partitions.
   tag = (kNumaPartitions == 1 && tag == MemoryTag::kNormalP1)
             ? MemoryTag::kNormalP0
             : tag;
 
   const HugeRegionUsageOption huge_region_option =
-      data[1] >= 128 ? HugeRegionUsageOption::kDefault
-                     : HugeRegionUsageOption::kUseForAllLargeAllocs;
+      static_cast<uint8_t>(data[1]) >= 128
+          ? HugeRegionUsageOption::kDefault
+          : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
   const HugePageFillerAllocsOption allocs_option =
-      data[5] >= 128 ? HugePageFillerAllocsOption::kUnifiedAllocs
-                     : HugePageFillerAllocsOption::kSeparateAllocs;
+      static_cast<uint8_t>(data[5]) >= 128
+          ? HugePageFillerAllocsOption::kUnifiedAllocs
+          : HugePageFillerAllocsOption::kSeparateAllocs;
 
   const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
 
@@ -163,11 +148,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   Length allocated;
   PageReleaseStats expected_stats;
 
-  std::vector<std::pair<const uint8_t*, size_t>> reentrant;
+  std::vector<std::pair<const char*, size_t>> reentrant;
   std::string output;
   output.resize(1 << 20);
 
-  auto run_dsl = [&](const uint8_t* data, size_t size) {
+  auto run_dsl = [&](const char* data, size_t size) {
     for (size_t i = 0; i + 9 <= size; i += 9) {
       const uint16_t op = data[i];
       uint64_t value;
@@ -474,6 +459,22 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   TC_CHECK_EQ(final_stats, expected_stats);
 
   free(allocator);
-
-  return 0;
 }
+
+FUZZ_TEST(HugePageAwareAllocatorTest, FuzzHPAA)
+    ;
+
+TEST(HugePageAwareAllocatorTest, FuzzHPAARegression) {
+  FuzzHPAA(
+      "\370n,,,\3708\304\320\327\311["
+      "PXG\"Y\037\216\366\366b\216\340\375\332\362");
+}
+
+TEST(HugePageAwareAllocatorTest, FuzzHPAARegression2) {
+  FuzzHPAA(
+      "\376\006\366>\354{{{{{\347\242\2048:\204\177{{"
+      "9\376d\027\224\312\257\276\252\026?\013\010\010");
+}
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

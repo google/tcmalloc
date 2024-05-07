@@ -15,7 +15,6 @@
 # Internal libraries used for the implementation and testing of TCMalloc.
 
 load("@rules_cc//cc:defs.bzl", "cc_proto_library")
-load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark")
@@ -755,13 +754,16 @@ cc_library(
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "profile_builder_fuzz",
-    testonly = 1,
     srcs = ["profile_builder_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/profile_builder_fuzz/*"]),
     deps = [
         ":profile_builder",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -952,13 +954,16 @@ cc_library(
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "sysinfo_fuzz",
-    testonly = 1,
     srcs = ["sysinfo_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/sysinfo_fuzz/*"]),
     deps = [
         ":sysinfo",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 

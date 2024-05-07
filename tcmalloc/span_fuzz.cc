@@ -20,25 +20,24 @@
 #include <new>
 #include <vector>
 
+#include "fuzztest/fuzztest.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 
-using tcmalloc::tcmalloc_internal::kMaxObjectsToMove;
-using tcmalloc::tcmalloc_internal::kPageSize;
-using tcmalloc::tcmalloc_internal::Length;
-using tcmalloc::tcmalloc_internal::PageIdContaining;
-using tcmalloc::tcmalloc_internal::SizeMap;
-using tcmalloc::tcmalloc_internal::Span;
+namespace tcmalloc::tcmalloc_internal {
+namespace {
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+void FuzzSpan(const std::string& s) {
   // Extract fuzz input into 3 integers.
+  //
+  // TODO(b/271282540): Strongly type input.
   size_t state[4];
-  if (size != sizeof(state)) {
-    return 0;
+  if (s.size() != sizeof(state)) {
+    return;
   }
-  memcpy(state, data, size);
+  memcpy(state, s.data(), sizeof(state));
 
   const size_t object_size = state[0];
   const size_t num_pages = state[1];
@@ -48,7 +47,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
-    return 0;
+    return;
   }
 
   const auto pages = Length(num_pages);
@@ -101,6 +100,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   free(mem);
   ::operator delete(buf, std::align_val_t(alignof(Span)));
-
-  return 0;
 }
+
+FUZZ_TEST(SpanTest, FuzzSpan)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

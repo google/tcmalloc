@@ -18,11 +18,18 @@
 #include <cstring>
 #include <optional>
 
+#include "fuzztest/fuzztest.h"
 #include "tcmalloc/internal/sysinfo.h"
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  std::optional<cpu_set_t> r = tcmalloc::tcmalloc_internal::ParseCpulist(
-      [&](char* buf, size_t count) -> ssize_t {
+namespace tcmalloc::tcmalloc_internal {
+namespace {
+
+void ParseInput(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
+
+  std::optional<cpu_set_t> r =
+      ParseCpulist([&](char* buf, size_t count) -> ssize_t {
         size_t to_read = std::min(size, count);
         if (to_read > 0) {
           memcpy(buf, data, to_read);
@@ -32,5 +39,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         return to_read;
       });
   (void)r;
-  return 0;
 }
+
+FUZZ_TEST(SysinfoTest, ParseInput)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

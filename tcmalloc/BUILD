@@ -18,7 +18,6 @@
 # https://github.com/google/tcmalloc/tree/master/docs/design.md for a high-level description of
 # how this malloc works.
 
-load("@rules_fuzzing//fuzzing:cc_defs.bzl", "cc_fuzz_test")
 load("//tcmalloc:copts.bzl", "TCMALLOC_DEFAULT_COPTS")
 load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark", "create_tcmalloc_libraries", "create_tcmalloc_testsuite")
 
@@ -651,42 +650,46 @@ cc_library(
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "huge_page_aware_allocator_fuzz",
-    testonly = 1,
     srcs = ["huge_page_aware_allocator_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/huge_page_aware_allocator_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":mock_huge_page_static_forwarder",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "huge_region_fuzz",
-    testonly = 1,
     srcs = ["huge_region_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-    ],
+    data = glob(["testdata/huge_region_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "huge_page_filler_fuzz",
-    testonly = 1,
     srcs = ["huge_page_filler_fuzz.cc"],
     args = ["--fuzztest_stack_limit_kb=2048"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/huge_page_filler_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:allocation_guard",
@@ -697,56 +700,71 @@ cc_fuzz_test(
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/time",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "span_fuzz",
-    testonly = 1,
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/span_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "sizemap_fuzz",
-    testonly = 1,
     srcs = ["sizemap_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/sizemap_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":size_class_info",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/types:span",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "central_freelist_fuzz",
-    testonly = 1,
     srcs = ["central_freelist_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/central_freelist_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":mock_static_forwarder",
         "@com_google_absl//absl/log:check",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "transfer_cache_fuzz",
-    testonly = 1,
     srcs = ["transfer_cache_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/transfer_cache_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
         ":mock_transfer_cache",
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/log:check",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -1013,14 +1031,17 @@ create_tcmalloc_testsuite(
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "malloc_extension_fuzz",
-    testonly = 1,
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    data = glob(["testdata/malloc_extension_fuzz/*"]),
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/types:optional",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 
@@ -1283,14 +1304,16 @@ cc_test(
     ],
 )
 
-cc_fuzz_test(
+cc_test(
     name = "experiment_fuzz",
-    testonly = 1,
     srcs = ["experiment_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":experiment",
         "@com_google_absl//absl/strings",
+        "@com_google_fuzztest//fuzztest",
+        "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
+        "@com_google_googletest//:gtest",
     ],
 )
 

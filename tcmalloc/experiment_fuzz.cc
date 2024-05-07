@@ -16,33 +16,26 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/experiment.h"
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* d, size_t size) {
-  if (size == 0) {
-    return 0;
+namespace tcmalloc::tcmalloc_internal {
+namespace {
+
+void FuzzSelectExperiments(absl::string_view test_target,
+                           absl::string_view active, absl::string_view disabled,
+                           bool unset) {
+  if (unset && !test_target.empty() && (!active.empty() || !disabled.empty())) {
+    return;
   }
-  const char* data = reinterpret_cast<const char*>(d);
 
   bool buffer[tcmalloc::tcmalloc_internal::kNumExperiments];
-  absl::string_view test_target, active, disabled;
-  bool unset = false;
 
-  if (size != 0 && data[--size] == 0) {
-    test_target = absl::string_view(data, size);
-    unset = true;
-  } else {
-    const char* split = static_cast<const char*>(memchr(data, ';', size));
-    if (split == nullptr) {
-      active = absl::string_view(data, size);
-    } else {
-      active = absl::string_view(data, split - data);
-      disabled = absl::string_view(split + 1, size - (split - data + 1));
-    }
-  }
-
-  tcmalloc::tcmalloc_internal::SelectExperiments(buffer, test_target, active,
-                                                 disabled, unset);
-  return 0;
+  SelectExperiments(buffer, test_target, active, disabled, unset);
 }
+
+FUZZ_TEST(ExperimentTest, FuzzSelectExperiments);
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

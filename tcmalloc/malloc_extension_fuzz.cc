@@ -19,20 +19,21 @@
 #include <optional>
 #include <string>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/malloc_extension.h"
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* d, size_t size) {
-  using tcmalloc::MallocExtension;
+namespace tcmalloc {
+namespace {
 
-  const std::string property(reinterpret_cast<const char*>(d), size);
+void FuzzGetProperty(const std::string& property) {
   std::optional<size_t> val = MallocExtension::GetNumericProperty(property);
   if (!val.has_value()) {
     // Rather than inspect the result of MallocExtension::GetProperties, we
     // defer to the test in
     // //tcmalloc/testing/malloc_extension_test.cc to ensure that
     // every key in GetProperties has a value returned by GetNumericProperty.
-    return 0;
+    return;
   }
 
   std::map<std::string, MallocExtension::Property> properties =
@@ -40,5 +41,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* d, size_t size) {
   if (properties.find(property) == properties.end()) {
     __builtin_trap();
   }
-  return 0;
 }
+
+FUZZ_TEST(MallocExtensionTest, FuzzGetProperty)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc

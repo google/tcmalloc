@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cstddef>
-#include <cstdint>
-
 #include "tcmalloc/internal/profile_builder.h"
 
 #if defined(__linux__)
@@ -22,7 +19,16 @@
 #include <link.h>
 #endif  // defined(__linux__)
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
+#include <cstddef>
+
+#include "fuzztest/fuzztest.h"
+
+namespace tcmalloc::tcmalloc_internal {
+namespace {
+
+void ParseBuildID(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
 #if defined(__linux__)
   ElfW(Phdr) note;
   note.p_type = PT_NOTE;
@@ -37,7 +43,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   info.dlpi_phdr = &note;
   info.dlpi_phnum = 1;
 
-  tcmalloc::tcmalloc_internal::GetBuildId(&info);
+  GetBuildId(&info);
 #endif  // defined(__linux__)
-  return 0;
 }
+
+FUZZ_TEST(ProfileBuilderTest, ParseBuildID)
+    ;
+
+}  // namespace
+}  // namespace tcmalloc::tcmalloc_internal

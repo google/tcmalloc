@@ -16,8 +16,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
+#include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
@@ -26,25 +28,26 @@
 #include "tcmalloc/span_stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
-namespace tcmalloc {
+namespace tcmalloc::tcmalloc_internal {
 namespace {
 
-using CentralFreeList =
-    tcmalloc_internal::central_freelist_internal::CentralFreeList<
-        tcmalloc_internal::MockStaticForwarder>;
-using CentralFreelistEnv =
-    tcmalloc_internal::FakeCentralFreeListEnvironment<CentralFreeList>;
-using tcmalloc_internal::kMaxObjectsToMove;
+using CentralFreeList = central_freelist_internal::CentralFreeList<
+    tcmalloc_internal::MockStaticForwarder>;
+using CentralFreelistEnv = FakeCentralFreeListEnvironment<CentralFreeList>;
 
-template <typename Env>
-int RunFuzzer(const uint8_t* data, size_t size) {
+void FuzzCFL(const std::string& s) {
+  const char* data = s.data();
+  size_t size = s.size();
+
   if (size < 11 || size > 100000) {
     // size < 11 for bare minimum fuzz test for a single operation.
     // Avoid overly large inputs as we perform some shuffling and checking.
-    return 0;
+    return;
   }
   // object_size can be at most kMaxSize.  The current maximum value of kMaxSize
   // is 2^18.  So we use the first 24 bits to set object_size.
+  //
+  // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
   const size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
@@ -52,12 +55,11 @@ int RunFuzzer(const uint8_t* data, size_t size) {
   const bool use_large_spans = data[5] & 0x2;
   data += 6;
   size -= 6;
-  if (!tcmalloc_internal::SizeMap::IsValidSizeClass(object_size, num_pages,
-                                                    num_objects_to_move)) {
-    return 0;
+  if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_objects_to_move)) {
+    return;
   }
-  Env env(object_size, num_pages, num_objects_to_move,
-          use_all_buckets_for_few_object_spans, use_large_spans);
+  CentralFreelistEnv env(object_size, num_pages, num_objects_to_move,
+                         use_all_buckets_for_few_object_spans, use_large_spans);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {
@@ -135,14 +137,11 @@ int RunFuzzer(const uint8_t* data, size_t size) {
     env.central_freelist().InsertRange({&objects[returned], to_return});
     returned += to_return;
   }
-  return 0;
 }
+
+FUZZ_TEST(CentralFreeListTest, FuzzCFL)
+    ;
 
 }  // namespace
-}  // namespace tcmalloc
+}  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
-
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  tcmalloc::RunFuzzer<tcmalloc::CentralFreelistEnv>(data, size);
-  return 0;
-}
