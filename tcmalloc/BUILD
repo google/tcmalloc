@@ -660,6 +660,7 @@ cc_fuzz_test(
         ":common_8k_pages",
         ":mock_huge_page_static_forwarder",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/time",
     ],
 )

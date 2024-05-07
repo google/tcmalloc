@@ -16,10 +16,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -46,6 +48,7 @@ using ::tcmalloc::tcmalloc_internal::kTop;
 using ::tcmalloc::tcmalloc_internal::Length;
 using ::tcmalloc::tcmalloc_internal::MemoryTag;
 using ::tcmalloc::tcmalloc_internal::PageHeapSpinLockHolder;
+using ::tcmalloc::tcmalloc_internal::PageId;
 using ::tcmalloc::tcmalloc_internal::PageReleaseReason;
 using ::tcmalloc::tcmalloc_internal::PageReleaseStats;
 using ::tcmalloc::tcmalloc_internal::PbtxtRegion;
@@ -59,6 +62,21 @@ using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocator;
 using ::tcmalloc::tcmalloc_internal::huge_page_allocator_internal::
     HugePageAwareAllocatorOptions;
+
+class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
+ public:
+  bool ReleasePages(PageId begin, Length size) {
+    pending_release_ += size;
+    release_callback_();
+    pending_release_ -= size;
+
+    return FakeStaticForwarder::ReleasePages(begin, size);
+  }
+
+  Length pending_release_;
+  std::function<void()> release_callback_;
+};
+
 }  // namespace
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
@@ -125,14 +143,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
   // to one and construct in place.
-  void* p = malloc(sizeof(HugePageAwareAllocator<FakeStaticForwarder>));
+  void* p =
+      malloc(sizeof(HugePageAwareAllocator<FakeStaticForwarderWithUnback>));
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.allocs_for_sparse_and_dense_spans = allocs_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
-  HugePageAwareAllocator<FakeStaticForwarder>* allocator;
-  allocator = new (p) HugePageAwareAllocator<FakeStaticForwarder>(options);
+  HugePageAwareAllocator<FakeStaticForwarderWithUnback>* allocator;
+  allocator =
+      new (p) HugePageAwareAllocator<FakeStaticForwarderWithUnback>(options);
   auto& forwarder = allocator->forwarder();
 
   struct SpanInfo {
@@ -143,253 +163,308 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   Length allocated;
   PageReleaseStats expected_stats;
 
-  for (size_t i = 0; i + 9 <= size; i += 9) {
-    const uint16_t op = data[i];
-    uint64_t value;
-    memcpy(&value, &data[i + 1], sizeof(value));
+  std::vector<std::pair<const uint8_t*, size_t>> reentrant;
+  std::string output;
+  output.resize(1 << 20);
 
-    switch (op & 0x7) {
-      case 0: {
-        // Aligned allocate.  We divide up our random value by:
-        //
-        // value[0:15]  - We choose a Length to allocate.
-        // value[16:31] - We select num_to_objects, i.e. the number of objects
-        // to allocate.
-        // value[32:47] - Alignment.
-        // value[48] - Should we use aligned allocate?
-        // value[49] - Is the span sparsely- or densely-accessed?
-        // value[63:50] - Reserved.
-        const Length length(std::clamp<size_t>(
-            value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
-        size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
-        size_t object_size = length.in_bytes() / num_objects;
-        const bool use_aligned = ((value >> 48) & 0x1) == 0;
-        const Length align(
-            use_aligned ? std::clamp<size_t>((value >> 32) & 0xFFFF, 1,
-                                             kPagesPerHugePage.raw_num() - 1)
-                        : 1);
+  auto run_dsl = [&](const uint8_t* data, size_t size) {
+    for (size_t i = 0; i + 9 <= size; i += 9) {
+      const uint16_t op = data[i];
+      uint64_t value;
+      memcpy(&value, &data[i + 1], sizeof(value));
 
-        AccessDensityPrediction density = ((value >> 49) & 0x1) == 0
-                                              ? AccessDensityPrediction::kSparse
-                                              : AccessDensityPrediction::kDense;
-        if (object_size > kMaxSize || align > Length(1)) {
-          // Truncate to a single object.
-          num_objects = 1;
-          // TODO(b/283843066): Revisit this once we have fluid partitioning.
-          density = AccessDensityPrediction::kSparse;
-        } else if (!SizeMap::IsValidSizeClass(object_size, length.raw_num(),
-                                              kMinObjectsToMove)) {
-          // This is an invalid size class, so skip it.
+      switch (op & 0x7) {
+        case 0: {
+          // Aligned allocate.  We divide up our random value by:
+          //
+          // value[0:15]  - We choose a Length to allocate.
+          // value[16:31] - We select num_to_objects, i.e. the number of
+          //                objects to allocate.
+          // value[32:47] - Alignment.
+          // value[48]    - Should we use aligned allocate?
+          // value[49]    - Is the span sparsely- or densely-accessed?
+          // value[63:50] - Reserved.
+          const Length length(std::clamp<size_t>(
+              value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
+          size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
+          size_t object_size = length.in_bytes() / num_objects;
+          const bool use_aligned = ((value >> 48) & 0x1) == 0;
+          const Length align(
+              use_aligned ? std::clamp<size_t>((value >> 32) & 0xFFFF, 1,
+                                               kPagesPerHugePage.raw_num() - 1)
+                          : 1);
+
+          AccessDensityPrediction density =
+              ((value >> 49) & 0x1) == 0 ? AccessDensityPrediction::kSparse
+                                         : AccessDensityPrediction::kDense;
+          if (object_size > kMaxSize || align > Length(1)) {
+            // Truncate to a single object.
+            num_objects = 1;
+            // TODO(b/283843066): Revisit this once we have fluid
+            // partitioning.
+            density = AccessDensityPrediction::kSparse;
+          } else if (!SizeMap::IsValidSizeClass(object_size, length.raw_num(),
+                                                kMinObjectsToMove)) {
+            // This is an invalid size class, so skip it.
+            break;
+          }
+
+          // Allocation is too big for filler if we try to allocate >
+          // kPagesPerHugePage / 2 run of pages. The allocations may go to
+          // HugeRegion and that might lead to donations with kSparse
+          // density.
+          if (length > kPagesPerHugePage / 2) {
+            density = AccessDensityPrediction::kSparse;
+          }
+
+          Span* s;
+          SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
+                                      .density = density};
+          if (use_aligned) {
+            s = allocator->NewAligned(length, align, alloc_info);
+          } else {
+            s = allocator->New(length, alloc_info);
+          }
+          TC_CHECK_NE(s, nullptr);
+          TC_CHECK_GE(s->num_pages().raw_num(), length.raw_num());
+
+          allocs.push_back(SpanInfo{s, num_objects});
+
+          allocated += s->num_pages();
           break;
         }
+        case 1: {
+          // Deallocate.  We divide up our random value by:
+          //
+          // value - We choose index in allocs to deallocate a span.
 
-        // Allocation is too big for filler if we try to allocate >
-        // kPagesPerHugePage / 2 run of pages. The allocations may go to
-        // HugeRegion and that might lead to donations with kSparse density.
-        if (length > kPagesPerHugePage / 2) {
-          density = AccessDensityPrediction::kSparse;
+          if (allocs.empty()) break;
+
+          const size_t pos = value % allocs.size();
+          std::swap(allocs[pos], allocs[allocs.size() - 1]);
+
+          SpanInfo span_info = allocs[allocs.size() - 1];
+          allocs.resize(allocs.size() - 1);
+          allocated -= span_info.span->num_pages();
+
+          {
+            PageHeapSpinLockHolder l;
+            allocator->Delete(span_info.span, span_info.objects_per_span);
+          }
+          break;
         }
+        case 2: {
+          // Release pages.  We divide up our random value by:
+          //
+          // value[7:0]  - Choose number of pages to release.
+          // value[8]    - Choose page release reason. ReleaseMemoryToSystem if
+          //               zero, else ProcessBackgroundActions.
+          // value[63:9] - Reserved.
+          Length desired(value & 0x00FF);
+          const PageReleaseReason reason =
+              ((value & (uint64_t{1} << 8)) == 0)
+                  ? PageReleaseReason::kReleaseMemoryToSystem
+                  : PageReleaseReason::kProcessBackgroundActions;
+          Length released;
+          PageReleaseStats actual_stats;
+          {
+            PageHeapSpinLockHolder l;
+            released = allocator->ReleaseAtLeastNPages(desired, reason);
+            actual_stats = allocator->GetReleaseStats();
+          }
 
-        Span* s;
-        SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
-                                    .density = density};
-        if (use_aligned) {
-          s = allocator->NewAligned(length, align, alloc_info);
-        } else {
-          s = allocator->New(length, alloc_info);
+          expected_stats.total += released;
+          if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
+            expected_stats.release_memory_to_system += released;
+          } else {
+            expected_stats.process_background_actions += released;
+          }
+
+          TC_CHECK_EQ(actual_stats, expected_stats);
+
+          break;
         }
-        TC_CHECK_NE(s, nullptr);
-        TC_CHECK_GE(s->num_pages().raw_num(), length.raw_num());
+        case 3: {
+          // Release pages by breaking hugepages.  We divide up our random
+          // value by:
+          //
+          // value[15:0]  - Choose number of pages to release.
+          // value[16]    - Choose page release reason. SoftLimitExceeded if
+          //                zero, HardLimitExceeded otherwise.
+          // value[63:17] - Reserved.
+          Length desired(value & 0xFFFF);
+          const PageReleaseReason reason =
+              ((value & (uint64_t{1} << 16)) == 0)
+                  ? PageReleaseReason::kSoftLimitExceeded
+                  : PageReleaseReason::kHardLimitExceeded;
+          Length released;
+          size_t releasable_bytes;
+          PageReleaseStats actual_stats;
+          {
+            PageHeapSpinLockHolder l;
+            releasable_bytes = allocator->FillerStats().free_bytes +
+                               allocator->RegionsFreeBacked().in_bytes();
+            released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired,
+                                                                        reason);
+            actual_stats = allocator->GetReleaseStats();
+          }
 
-        allocs.push_back(SpanInfo{s, num_objects});
-        allocated += s->num_pages();
-        break;
-      }
-      case 1: {
-        // Deallocate.  We divide up our random value by:
-        //
-        // value - We choose index in allocs to deallocate a span.
+          if (forwarder.release_succeeds()) {
+            const size_t min_released =
+                std::min(desired.in_bytes(), releasable_bytes);
+            TC_CHECK_GE(released.in_bytes(), min_released);
+          } else {
+            // TODO(b/271282540):  This is not strict equality due to
+            // HugePageFiller's unmapping_unaccounted_ state.  Narrow this
+            // bound.
+            TC_CHECK_GE(released.in_bytes(), 0);
+          }
 
-        if (allocs.empty()) break;
+          expected_stats.total += released;
+          if (reason == PageReleaseReason::kSoftLimitExceeded) {
+            expected_stats.soft_limit_exceeded += released;
+          } else {
+            expected_stats.hard_limit_exceeded += released;
+          }
 
-        const size_t pos = value % allocs.size();
-        std::swap(allocs[pos], allocs[allocs.size() - 1]);
+          TC_CHECK_EQ(actual_stats, expected_stats);
 
-        SpanInfo span_info = allocs[allocs.size() - 1];
-        allocs.resize(allocs.size() - 1);
-        allocated -= span_info.span->num_pages();
-        {
-          PageHeapSpinLockHolder l;
-          allocator->Delete(span_info.span, span_info.objects_per_span);
+          break;
         }
-        break;
-      }
-      case 2: {
-        // Release pages.  We divide up our random value by:
-        //
-        // value[7:0] - Choose number of pages to release.
-        // value[8] - Choose page release reason. ReleaseMemoryToSystem if zero,
-        //            else ProcessBackgroundActions.
-        // value[63:9] - Reserved.
-        Length desired(value & 0x00FF);
-        const PageReleaseReason reason =
-            ((value & (uint64_t{1} << 8)) == 0)
-                ? PageReleaseReason::kReleaseMemoryToSystem
-                : PageReleaseReason::kProcessBackgroundActions;
-        Length released;
-        PageReleaseStats actual_stats;
-        {
-          PageHeapSpinLockHolder l;
-          released = allocator->ReleaseAtLeastNPages(desired, reason);
-          actual_stats = allocator->GetReleaseStats();
+        case 4: {
+          // Gather stats in pbtxt format.
+          //
+          // value is unused.
+          Printer p(&output[0], output.size());
+          PbtxtRegion region(&p, kTop);
+          allocator->PrintInPbtxt(&region);
+          break;
         }
-
-        expected_stats.total += released;
-        if (reason == PageReleaseReason::kReleaseMemoryToSystem) {
-          expected_stats.release_memory_to_system += released;
-        } else {
-          expected_stats.process_background_actions += released;
+        case 5: {
+          // Print stats.
+          //
+          // value[0]: Choose if we print everything.
+          // value[63:1]: Reserved.
+          Printer p(&output[0], output.size());
+          bool everything = (value % 2 == 0);
+          allocator->Print(&p, everything);
+          break;
         }
-
-        TC_CHECK_EQ(actual_stats, expected_stats);
-
-        break;
-      }
-      case 3: {
-        // Release pages by breaking hugepages.  We divide up our random value
-        // by:
-        //
-        // value[15:0] - Choose number of pages to release.
-        // value[16] - Choose page release reason. SoftLimitExceeded if zero,
-        //             HardLimitExceeded otherwise.
-        // value[63:17] - Reserved.
-        Length desired(value & 0xFFFF);
-        const PageReleaseReason reason =
-            ((value & (uint64_t{1} << 16)) == 0)
-                ? PageReleaseReason::kSoftLimitExceeded
-                : PageReleaseReason::kHardLimitExceeded;
-        Length released;
-        size_t releasable_bytes;
-        PageReleaseStats actual_stats;
-        {
-          PageHeapSpinLockHolder l;
-          releasable_bytes = allocator->FillerStats().free_bytes +
-                             allocator->RegionsFreeBacked().in_bytes();
-          released =
-              allocator->ReleaseAtLeastNPagesBreakingHugepages(desired, reason);
-          actual_stats = allocator->GetReleaseStats();
+        case 6: {
+          // Gather and check stats.
+          //
+          // value is unused.
+          BackingStats stats;
+          {
+            PageHeapSpinLockHolder l;
+            stats = allocator->stats();
+          }
+          uint64_t used_bytes =
+              stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
+          TC_CHECK_EQ(used_bytes, allocated.in_bytes() +
+                                      forwarder.pending_release_.in_bytes());
+          break;
         }
+        case 7: {
+          // Change a runtime parameter.
+          //
+          // value[0:2] - Select parameter
+          // value[3:7] - Reserved
+          // value[8:63] - The value
+          const uint64_t actual_value = value >> 8;
+          switch (value & 0x7) {
+            case 0:
+              forwarder.set_filler_skip_subrelease_interval(
+                  absl::Nanoseconds(actual_value));
+              forwarder.set_filler_skip_subrelease_short_interval(
+                  absl::ZeroDuration());
+              forwarder.set_filler_skip_subrelease_long_interval(
+                  absl::ZeroDuration());
+              break;
+            case 1:
+              forwarder.set_filler_skip_subrelease_interval(
+                  absl::ZeroDuration());
+              forwarder.set_filler_skip_subrelease_short_interval(
+                  absl::Nanoseconds(actual_value));
+              break;
+            case 2:
+              forwarder.set_filler_skip_subrelease_interval(
+                  absl::ZeroDuration());
+              forwarder.set_filler_skip_subrelease_long_interval(
+                  absl::Nanoseconds(actual_value));
+              break;
+            case 3:
+              forwarder.set_release_partial_alloc_pages(actual_value & 0x1);
+              break;
+            case 4:
+              forwarder.set_hpaa_subrelease(actual_value & 0x1);
+              break;
+            case 5:
+              forwarder.set_release_succeeds(actual_value & 0x1);
+              break;
+            case 6:
+              forwarder.set_huge_region_demand_based_release(actual_value &
+                                                             0x1);
+              break;
+            case 7: {
+              // Not quite a runtime parameter:  Interpret actual_value as a
+              // subprogram in our dsl.
+              size_t subprogram = std::min(size - i - 9, actual_value);
+              reentrant.emplace_back(data + i + 9, subprogram);
+              i += size;
+            }
+          }
 
-        if (forwarder.release_succeeds()) {
-          const size_t min_released =
-              std::min(desired.in_bytes(), releasable_bytes);
-          TC_CHECK_GE(released.in_bytes(), min_released);
-        } else {
-          // TODO(b/271282540):  This is not strict equality due to
-          // HugePageFiller's unmapping_unaccounted_ state.  Narrow this bound.
-          TC_CHECK_GE(released.in_bytes(), 0);
+          break;
         }
-
-        expected_stats.total += released;
-        if (reason == PageReleaseReason::kSoftLimitExceeded) {
-          expected_stats.soft_limit_exceeded += released;
-        } else {
-          expected_stats.hard_limit_exceeded += released;
-        }
-
-        TC_CHECK_EQ(actual_stats, expected_stats);
-
-        break;
-      }
-      case 4: {
-        // Gather stats in pbtxt format.
-        //
-        // value is unused.
-        std::string s;
-        s.resize(1 << 20);
-        Printer p(&s[0], s.size());
-        PbtxtRegion region(&p, kTop);
-        allocator->PrintInPbtxt(&region);
-        break;
-      }
-      case 5: {
-        // Print stats.
-        //
-        // value[0]: Choose if we print everything.
-        // value[63:1]: Reserved.
-        std::string s;
-        s.resize(1 << 20);
-        Printer p(&s[0], s.size());
-        bool everything = (value % 2 == 0);
-        allocator->Print(&p, everything);
-        break;
-      }
-      case 6: {
-        // Gather and check stats.
-        //
-        // value is unused.
-        BackingStats stats;
-        {
-          PageHeapSpinLockHolder l;
-          stats = allocator->stats();
-        }
-        uint64_t used_bytes =
-            stats.system_bytes - stats.free_bytes - stats.unmapped_bytes;
-        TC_CHECK_EQ(used_bytes, allocated.in_bytes());
-        break;
-      }
-      case 7: {
-        // Change a runtime parameter.
-        //
-        // value[0:2] - Select parameter
-        // value[3:7] - Reserved
-        // value[8:63] - The value
-        const uint64_t actual_value = value >> 8;
-        switch (value & 0x7) {
-          case 0:
-            forwarder.set_filler_skip_subrelease_interval(
-                absl::Nanoseconds(actual_value));
-            forwarder.set_filler_skip_subrelease_short_interval(
-                absl::ZeroDuration());
-            forwarder.set_filler_skip_subrelease_long_interval(
-                absl::ZeroDuration());
-            break;
-          case 1:
-            forwarder.set_filler_skip_subrelease_interval(absl::ZeroDuration());
-            forwarder.set_filler_skip_subrelease_short_interval(
-                absl::Nanoseconds(actual_value));
-            break;
-          case 2:
-            forwarder.set_filler_skip_subrelease_interval(absl::ZeroDuration());
-            forwarder.set_filler_skip_subrelease_long_interval(
-                absl::Nanoseconds(actual_value));
-            break;
-          case 3:
-            forwarder.set_release_partial_alloc_pages(actual_value & 0x1);
-            break;
-          case 4:
-            forwarder.set_hpaa_subrelease(actual_value & 0x1);
-            break;
-          case 5:
-            forwarder.set_release_succeeds(actual_value & 0x1);
-            break;
-          case 6:
-            forwarder.set_huge_region_demand_based_release(actual_value & 0x1);
-            break;
-        }
-
-        break;
       }
     }
-  }
+  };
+
+  forwarder.release_callback_ = [&]() {
+    if (tcmalloc::tcmalloc_internal::pageheap_lock.IsHeld()) {
+      // This permits a slight degree of nondeterminism when linked against
+      // TCMalloc for the real memory allocator, as a background thread could
+      // also be holding the lock.  Nevertheless, HPAA doesn't make it clear
+      // when we are releasing with/without the pageheap_lock.
+      //
+      // TODO(b/73749855): When all release paths unconditionally release the
+      // lock, remove this check and take the lock for an instant to ensure it
+      // can be taken.
+      return;
+    }
+
+    if (reentrant.empty()) {
+      return;
+    }
+
+    ABSL_CONST_INIT static int depth = 0;
+    if (depth >= 5) {
+      return;
+    }
+
+    auto [data, size] = reentrant.back();
+    reentrant.pop_back();
+
+    depth++;
+    run_dsl(data, size);
+    depth--;
+  };
+
+  run_dsl(data, size);
+
+  // Stop recursing, since allocator->Delete below might cause us to "release"
+  // more pages to the system.
+  reentrant.clear();
 
   // Clean up.
   const PageReleaseStats final_stats = [&] {
     PageHeapSpinLockHolder l;
 
     for (auto span_info : allocs) {
-      allocated -= span_info.span->num_pages();
-      allocator->Delete(span_info.span, span_info.objects_per_span);
+      Span* span = span_info.span;
+      allocated -= span->num_pages();
+      allocator->Delete(span, span_info.objects_per_span);
     }
 
     return allocator->GetReleaseStats();
