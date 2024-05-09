@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
@@ -84,7 +85,7 @@ void FuzzRegion(const std::string& s) {
         // Allocate.
         //
         // value[0:17] - Length to allocate
-        const Length n = Length(value & ((1 << 18) - 1));
+        const Length n = Length(std::max<size_t>(value & ((1 << 18) - 1), 1));
         PageId p;
         bool from_released;
         if (!region.MaybeGet(n, &p, &from_released)) {
@@ -171,6 +172,18 @@ void FuzzRegion(const std::string& s) {
 
 FUZZ_TEST(HugeRegionTest, FuzzRegion)
     ;
+
+TEST(HugeRegionTest, b339521569) {
+  FuzzRegion(std::string(
+      "L\220\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+      "\000\000\000\000\000\301\233",
+      115));
+}
 
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

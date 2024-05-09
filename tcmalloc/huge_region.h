@@ -338,6 +338,7 @@ inline HugeRegion::HugeRegion(HugeRange r, MemoryModifyFunction& unback)
 
 inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
   if (n > longest_free()) return false;
+  TC_ASSERT_GT(n, Length(0));
   auto index = Length(tracker_.FindAndMark(n.raw_num()));
 
   PageId page = location_.start().first_page() + index;
