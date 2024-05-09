@@ -448,7 +448,7 @@ class CpuCache {
   friend struct DrainHandler<CpuCache>;
   friend class ::tcmalloc::tcmalloc_internal::CpuCachePeer;
 
-  using Freelist = subtle::percpu::TcmallocSlab;
+  using Freelist = subtle::percpu::TcmallocSlab<kNumClasses>;
 
   struct PerClassMissCounts {
     std::atomic<size_t>
@@ -948,7 +948,7 @@ inline void CpuCache<Forwarder>::Activate() {
                         ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift))
           .first;
   freelist_.Init(
-      kNumClasses, &forwarder_.Alloc, slabs,
+      &forwarder_.Alloc, slabs,
       GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
       subtle::percpu::ToShiftType(per_cpu_shift));
 }
@@ -1336,7 +1336,7 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
   size_t num_resizes = 0;
   {
     AllocationGuardSpinLockHolder h(&resize_[cpu].lock);
-    subtle::percpu::ScopedSlabCpuStop cpu_stop(freelist_, cpu);
+    subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, cpu);
     const auto max_capacity = GetMaxCapacityFunctor(freelist_.GetShift());
     size_t size_classes_to_resize = 5;
     TC_ASSERT_LT(size_classes_to_resize, kNumClasses);
@@ -1539,7 +1539,7 @@ inline void CpuCache<Forwarder>::StealFromOtherCache(
     }
 
     AllocationGuardSpinLockHolder h(&resize_[src_cpu].lock);
-    subtle::percpu::ScopedSlabCpuStop cpu_stop(freelist_, src_cpu);
+    subtle::percpu::ScopedSlabCpuStop<kNumClasses> cpu_stop(freelist_, src_cpu);
     size_t source_size_class = resize_[src_cpu].next_steal;
     for (size_t i = 1; i < kNumClasses; ++i, ++source_size_class) {
       if (source_size_class >= kNumClasses) {

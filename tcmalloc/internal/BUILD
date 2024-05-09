@@ -638,7 +638,6 @@ cc_test(
 
 cc_library(
     name = "percpu_tcmalloc",
-    srcs = ["percpu_tcmalloc.cc"],
     hdrs = ["percpu_tcmalloc.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [

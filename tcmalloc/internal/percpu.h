@@ -259,21 +259,11 @@ class VirtualCpu {
     return ret;
   }
 
- private:
   // Returns the current vCPU ID. Use to synchronize RSEQ-validated state that
   // depends on the (per-CPU mutually exclusive) vCPU ID with the current vCPU
   // ID after a thread preemption was detected. This function may be expensive,
   // so it should only be called on slow paths.
   static int Synchronize();
-
-  // Allow-list for Synchronize(), with brief reason.
-  //
-  // Recomputes RSEQ-validated slab pointer.
-  friend class TcmallocSlab;
-  // If current CPU maps to vCPU, then "fence" can be elided.
-  friend void FenceCpu(int vcpu);
-  // Some tests want to "prefetch" the vCPU.
-  friend class TcmallocTest;
 };
 
 bool InitFastPerCpu();

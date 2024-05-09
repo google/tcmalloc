@@ -81,6 +81,7 @@ constexpr size_t kStressSlabs = 5;
 constexpr size_t kStressCapacity = 4;
 
 constexpr size_t kShift = 18;
+typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
 
 void* AllocSlabs(absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
                  size_t raw_shift) {
@@ -93,7 +94,7 @@ void InitSlab(TcmallocSlab& slab,
               absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
               absl::FunctionRef<size_t(size_t)> capacity, size_t raw_shift) {
   void* slabs = AllocSlabs(alloc, raw_shift);
-  slab.Init(kStressSlabs, alloc, slabs, capacity, ToShiftType(raw_shift));
+  slab.Init(alloc, slabs, capacity, ToShiftType(raw_shift));
 }
 
 class TcmallocSlabTest : public testing::Test {
