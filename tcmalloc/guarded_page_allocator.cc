@@ -351,7 +351,6 @@ void GuardedPageAllocator::MapPages() {
   // Align first page to page_size_.
   first_page_addr_ = GetPageAddr(pages_base_addr_ + page_size_);
 
-  std::fill_n(free_pages_, total_pages_, true);
   initialized_ = true;
 }
 
@@ -367,8 +366,8 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
 
   size_t num_free_pages = total_pages_ - num_alloced_pages_;
   size_t slot = GetIthFreeSlot(Rand(num_free_pages));
-  TC_ASSERT(free_pages_[slot]);
-  free_pages_[slot] = false;
+  TC_ASSERT(!used_pages_.GetBit(slot));
+  used_pages_.SetBit(slot);
   num_alloced_pages_++;
   num_alloced_pages_max_ = std::max(num_alloced_pages_, num_alloced_pages_max_);
   return slot;
@@ -383,7 +382,7 @@ size_t GuardedPageAllocator::Rand(size_t max) {
 size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
   TC_ASSERT_LT(ith_free_slot, total_pages_ - num_alloced_pages_);
   for (size_t free_slot_count = 0, j = 0;; j++) {
-    if (free_pages_[j]) {
+    if (!used_pages_.GetBit(j)) {
       if (free_slot_count == ith_free_slot) return j;
       free_slot_count++;
     }
@@ -392,8 +391,8 @@ size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
 
 void GuardedPageAllocator::FreeSlot(size_t slot) {
   TC_ASSERT_LT(slot, total_pages_);
-  TC_ASSERT(!free_pages_[slot]);
-  free_pages_[slot] = true;
+  TC_ASSERT(used_pages_.GetBit(slot));
+  used_pages_.ClearBit(slot);
   num_alloced_pages_--;
 }
 
@@ -425,7 +424,7 @@ size_t GuardedPageAllocator::GetNearestSlot(uintptr_t addr) const {
 }
 
 bool GuardedPageAllocator::IsFreed(size_t slot) const {
-  return free_pages_[slot];
+  return !used_pages_.GetBit(slot);
 }
 
 bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {

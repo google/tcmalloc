@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/stacktrace_filter.h"
 #include "tcmalloc/pages.h"
 
@@ -75,7 +76,6 @@ class GuardedPageAllocator {
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::kConstInit,
                            absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        free_pages_{},
         num_alloced_pages_(0),
         num_alloced_pages_max_(0),
         data_(nullptr),
@@ -215,11 +215,11 @@ class GuardedPageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Reserves and returns a slot randomly selected from the free slots in
-  // free_pages_.  Returns -1 if no slots available, or if AllowAllocations()
+  // used_pages_.  Returns -1 if no slots available, or if AllowAllocations()
   // hasn't been called yet.
   ssize_t ReserveFreeSlot() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
-  // Returns the i-th free slot of free_pages_.  i must be in the range [0,
+  // Returns the i-th free slot of used_pages_.  i must be in the range [0,
   // total_pages_ - num_alloced_pages_).
   size_t GetIthFreeSlot(size_t i)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
@@ -273,8 +273,8 @@ class GuardedPageAllocator {
   absl::base_internal::SpinLock guarded_page_lock_;
 
   // Maps each bool to one page.
-  // true: Free.  false: Reserved.
-  bool free_pages_[kGpaMaxPages] ABSL_GUARDED_BY(guarded_page_lock_);
+  // true: reserved. false: freed.
+  Bitmap<kGpaMaxPages> used_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
 
   // Number of currently-allocated pages.
   size_t num_alloced_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
