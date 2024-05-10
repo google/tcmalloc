@@ -35,6 +35,7 @@
 #include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_heap.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 

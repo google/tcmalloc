@@ -81,6 +81,10 @@ class StaticForwarder {
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
+  static bool hpaa_cold_subrelease() {
+    return Parameters::hpaa_cold_subrelease();
+  }
+
   // Arena state.
   static Arena& arena();
 
@@ -383,6 +387,10 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
   Span* Finalize(Length n, PageId page);
+
+  // Whether this HPAA should use subrelease. This delegates to the appropriate
+  // parameter depending whether this is for the cold heap or another heap.
+  bool hpaa_subrelease() const;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
@@ -864,7 +872,7 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // THP coverage. It is however very useful to have the ability to turn this on
   // for testing.
   // TODO(b/134690769): make this work, remove the flag guard.
-  if (forwarder_.hpaa_subrelease()) {
+  if (hpaa_subrelease()) {
     if (released < num_pages) {
       released += filler_.ReleasePages(
           num_pages - released,
@@ -967,8 +975,7 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
 
   out->printf("PARAMETER use_huge_region_more_often %d\n",
               regions_.UseHugeRegionMoreOften() ? 1 : 0);
-  out->printf("PARAMETER hpaa_subrelease %d\n",
-              forwarder_.hpaa_subrelease() ? 1 : 0);
+  out->printf("PARAMETER hpaa_subrelease %d\n", hpaa_subrelease() ? 1 : 0);
 }
 
 template <class Forwarder>
@@ -982,7 +989,7 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
   {
     auto hpaa = region->CreateSubRegion("huge_page_allocator");
     hpaa.PrintBool("using_hpaa", true);
-    hpaa.PrintBool("using_hpaa_subrelease", forwarder_.hpaa_subrelease());
+    hpaa.PrintBool("using_hpaa_subrelease", hpaa_subrelease());
     hpaa.PrintBool("use_huge_region_more_often",
                    regions_.UseHugeRegionMoreOften());
 
@@ -1075,6 +1082,18 @@ bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
     return false;
   }
   return true;
+}
+
+template <class Forwarder>
+inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
+  if (tag_ == MemoryTag::kCold) {
+    // Allow the overall hpaa_subrelease flag to take precedence if it's enabled
+    // (there is no sense in enabling subrelease for the hot heap but not the
+    // cold heap).
+    return forwarder_.hpaa_subrelease() || forwarder_.hpaa_cold_subrelease();
+  } else {
+    return forwarder_.hpaa_subrelease();
+  }
 }
 
 }  // namespace huge_page_allocator_internal
