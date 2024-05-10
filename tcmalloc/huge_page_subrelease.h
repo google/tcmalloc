@@ -19,31 +19,17 @@
 #include <stdint.h>
 
 #include <algorithm>
-#include <array>
-#include <limits>
 
-#include "absl/algorithm/container.h"
-#include "absl/base/attributes.h"
-#include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
-#include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
-#include "absl/types/span.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/hinted_tracker_lists.h"
-#include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/internal/optimization.h"
-#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/span.h"
-#include "tcmalloc/stats.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
