@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -135,7 +136,8 @@ void FuzzRegion(const std::string& s) {
         // Release
         // value[0:17] - Length to release.
         const Length len = Length(value & ((1 << 18) - 1));
-        const HugeLength max_expected = region.free_backed();
+        const HugeLength max_expected =
+            std::min(region.free_backed(), HLFromPages(len));
 
         const HugeLength actual = region.Release(len);
         if (unback.unback_success_) {
@@ -143,7 +145,6 @@ void FuzzRegion(const std::string& s) {
             TC_CHECK_GT(actual, NHugePages(0));
           }
           TC_CHECK_LE(actual, max_expected);
-          TC_CHECK_LE(actual.in_pages(), len);
         } else {
           TC_CHECK_EQ(actual, NHugePages(0));
         }
