@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstring>
@@ -344,6 +345,9 @@ class TcmallocSlab {
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
   static void LockHeader(void* slabs, Shift shift, int cpu, size_t size_class);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
+  void DrainOldSlabs(void* slabs, Shift shift, int cpu,
+                     const std::array<uint16_t, NumClasses>& old_begins,
+                     DrainHandler drain_handler);
 
   // Implementation of InitCpu() allowing for reuse in ResizeSlabs().
   void InitCpuImpl(void* slabs, Shift shift, int cpu,
@@ -1183,15 +1187,46 @@ void TcmallocSlab<NumClasses>::DrainCpu(void* slabs, Shift shift, int cpu,
 }
 
 template <size_t NumClasses>
+void TcmallocSlab<NumClasses>::DrainOldSlabs(
+    void* slabs, Shift shift, int cpu,
+    const std::array<uint16_t, NumClasses>& old_begins,
+    DrainHandler drain_handler) {
+  for (size_t size_class = 1; size_class < NumClasses; ++size_class) {
+    uint16_t begin = old_begins[size_class];
+    auto* hdrp = GetHeader(slabs, shift, cpu, size_class);
+    Header hdr = LoadHeader(hdrp);
+    if (hdr.current == 0) {
+      continue;
+    }
+    const size_t size = hdr.current - begin;
+    const size_t cap = hdr.end - begin;
+
+    void** batch =
+        reinterpret_cast<void**>(CpuMemoryStart(slabs, shift, cpu)) + begin;
+    TSANAcquireBatch(batch, size);
+    drain_handler(cpu, size_class, batch, size, cap);
+    hdr.current = begin;
+    hdr.end = begin;
+    StoreHeader(hdrp, hdr);
+  }
+}
+
+template <size_t NumClasses>
 auto TcmallocSlab<NumClasses>::ResizeSlabs(
     Shift new_shift, void* new_slabs,
     absl::FunctionRef<size_t(size_t)> capacity,
     absl::FunctionRef<bool(size_t)> populated,
     DrainHandler drain_handler) -> ResizeSlabsInfo {
-  // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
-  // already been populated in the old slab.
+  // Phase 1: Collect begins, stop all CPUs and initialize any CPUs in the new
+  // slab that have already been populated in the old slab.
   const auto [old_slabs, old_shift] =
       GetSlabsAndShift(std::memory_order_relaxed);
+  std::array<uint16_t, NumClasses> old_begins;
+  for (int size_class = 1; size_class < NumClasses; ++size_class) {
+    old_begins[size_class] =
+        begins_[size_class].load(std::memory_order_relaxed);
+  }
+
   TC_ASSERT_NE(new_shift, old_shift);
   const int num_cpus = NumCPUs();
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
@@ -1203,18 +1238,18 @@ auto TcmallocSlab<NumClasses>::ResizeSlabs(
   }
   FenceAllCpus();
 
-  // Phase 2: Return pointers from the old slab to the TransferCache.
-  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
-    if (!populated(cpu)) continue;
-    DrainCpu(old_slabs, old_shift, cpu, drain_handler);
-  }
-
-  // Phase 3: Atomically update slabs and shift.
+  // Phase 2: Atomically update slabs and shift.
   InitSlabs(new_slabs, new_shift, capacity);
 
-  // Phase 4: Re-start all CPUs.
+  // Phase 3: Re-start all CPUs.
   for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
     stopped_[cpu].store(false, std::memory_order_release);
+  }
+
+  // Phase 4: Return pointers from the old slab to the TransferCache.
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    DrainOldSlabs(old_slabs, old_shift, cpu, old_begins, drain_handler);
   }
 
   return {old_slabs, GetSlabsAllocSize(old_shift, num_cpus)};
