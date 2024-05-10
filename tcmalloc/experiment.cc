@@ -49,7 +49,7 @@ constexpr absl::string_view kDisableAll = "all";
 
 // Experiments that have known issues with brittle tests, are not enabled
 // involuntarily in tests, and shouldn't be enabled widely.
-bool HasBrittleTestFailures(Experiment exp) {
+bool HasBrittleTestFailures(Experiment exp, absl::string_view test_target) {
 
   if (exp == Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS) {
     return true;
@@ -188,7 +188,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
     Experiment experiment_id = Experiment::kMaxExperimentID;
     for (auto config : experiments) {
       if (IsCompilerExperiment(config.id) ||
-          HasBrittleTestFailures(config.id)) {
+          HasBrittleTestFailures(config.id, test_target)) {
         continue;
       }
       TC_CHECK(!buffer[static_cast<int>(config.id)]);
