@@ -1324,6 +1324,7 @@ class UsageInfo {
 
   void PrintHisto(PbtxtRegion* hpaa, Histo h, const char key[], size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
+      if (h[i] == 0) continue;
       auto hist = hpaa->CreateSubRegion(key);
       hist.PrintI64("lower_bound", bucket_bounds_[i] + offset);
       hist.PrintI64("upper_bound",
