@@ -490,10 +490,14 @@ void DumpStats(Printer* out, int level) {
     tc_globals.guardedpage_allocator().Print(out);
     selsan::PrintTextStats(out);
 
+    out->printf("------------------------------------------------\n");
+    out->printf("Configured limits and related statistics\n");
+    out->printf("------------------------------------------------\n");
     uint64_t soft_limit_bytes =
         tc_globals.page_allocator().limit(PageAllocator::kSoft);
     uint64_t hard_limit_bytes =
         tc_globals.page_allocator().limit(PageAllocator::kHard);
+
     out->printf("PARAMETER desired_usage_limit_bytes %u\n", soft_limit_bytes);
     out->printf("PARAMETER hard_usage_limit_bytes %u\n", hard_limit_bytes);
     out->printf("Number of times soft limit was hit: %lld\n",
@@ -531,6 +535,9 @@ void DumpStats(Printer* out, int level) {
         stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
         stats.num_released_hard_limit_exceeded.in_mib());
 
+    out->printf("------------------------------------------------\n");
+    out->printf("Parameters\n");
+    out->printf("------------------------------------------------\n");
     out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
                 Parameters::per_cpu_caches() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
