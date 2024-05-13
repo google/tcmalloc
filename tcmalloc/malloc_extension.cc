@@ -331,21 +331,6 @@ size_t MallocExtension::GetMemoryLimit(LimitKind limit_kind) {
   return 0;
 }
 
-ABSL_INTERNAL_DISABLE_DEPRECATED_DECLARATION_WARNING
-MallocExtension::MemoryLimit MallocExtension::GetMemoryLimit() {
-  MemoryLimit result;
-  const size_t hard_limit = GetMemoryLimit(LimitKind::kHard);
-  if (hard_limit != 0 && hard_limit != std::numeric_limits<size_t>::max()) {
-    result.limit = hard_limit;
-    result.hard = true;
-  } else {
-    result.limit = GetMemoryLimit(LimitKind::kSoft);
-    result.hard = false;
-  }
-  return result;
-}
-ABSL_INTERNAL_RESTORE_DEPRECATED_DECLARATION_WARNING
-
 void MallocExtension::SetMemoryLimit(const size_t limit, LimitKind limit_kind) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (&MallocExtension_Internal_SetMemoryLimit != nullptr) {
