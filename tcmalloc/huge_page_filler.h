@@ -1297,8 +1297,9 @@ class UsageInfo {
   }
 
  private:
-  // Maximum of 4 buckets at the start and end, and 16 in the middle.
-  static constexpr size_t kBucketsAtBounds = 4;
+  // Maximum number of buckets at the start and end.
+  static constexpr size_t kBucketsAtBounds = 8;
+  // 16 buckets in the middle.
   static constexpr size_t kBucketCapacity =
       kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
