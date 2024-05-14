@@ -358,11 +358,13 @@ inline void HugeRegion::Put(PageId p, Length n, bool release) {
 }
 
 // Release hugepages that are unused but backed.
-// TODO(b/199203282): We release up to <desired> pages from free but backed
-// hugepages from the region. We can explore a more sophisticated mechanism
-// similar to Filler/Cache, that accounts for a recent peak while releasing
-// pages.
+// TODO(b/199203282): We release <desired> pages, rounded up to a hugepage, from
+// free but backed hugepages from the region. We can explore a more
+// sophisticated mechanism similar to Filler/Cache, that accounts for a recent
+// peak while releasing pages.
 inline HugeLength HugeRegion::Release(Length desired) {
+  if (desired == Length(0)) return NHugePages(0);
+
   const Length free_yet_backed = free_backed().in_pages();
   const Length to_release = std::min(desired, free_yet_backed);
 
