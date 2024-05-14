@@ -38,6 +38,7 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
   absl::Time last_reclaim = prev_time;
   absl::Time last_shuffle = prev_time;
   absl::Time last_size_class_resize = prev_time;
+  absl::Time last_size_class_max_capacity_resize = prev_time;
   absl::Time last_slab_resize_check = prev_time;
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -68,6 +69,8 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
     const absl::Duration cpu_cache_shuffle_period = 5 * sleep_time;
 
     const absl::Duration size_class_resize_period = 2 * sleep_time;
+    const absl::Duration size_class_max_capacity_resize_period =
+        29 * sleep_time;
 
     // See if we should resize the slab once per cpu_cache_slab_resize_period.
     // This period is coprime to cpu_cache_shuffle_period and
@@ -110,6 +113,13 @@ void MallocExtension_Internal_ProcessBackgroundActions() {
       if (now - last_size_class_resize >= size_class_resize_period) {
         tc_globals.cpu_cache().ResizeSizeClasses();
         last_size_class_resize = now;
+      }
+
+      if (Parameters::resize_size_class_max_capacity() &&
+          now - last_size_class_max_capacity_resize >=
+              size_class_max_capacity_resize_period) {
+        tc_globals.cpu_cache().ResizeSizeClassMaxCapacities();
+        last_size_class_max_capacity_resize = now;
       }
 
       // See if we need to grow the slab once every kCpuCacheSlabResizePeriod

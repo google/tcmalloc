@@ -51,6 +51,11 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+struct PerSizeClassMaxCapacity {
+  size_t size_class;
+  size_t max_capacity;
+};
+
 struct PerCPUMetadataState {
   size_t virtual_size;
   size_t resident_size;
@@ -137,6 +142,22 @@ class TcmallocSlab {
   // Prior to InitCpu being called on a particular `cpu`, non-const operations
   // other than Push/Pop/PushBatch/PopBatch are invalid.
   void InitCpu(int cpu, absl::FunctionRef<size_t(size_t)> capacity);
+
+  // Update maximum capacities allocated to each size class.
+  // Build and initialize <new_slabs> so as to use new maximum capacities
+  // provided by <capacity> callback for the <size_class>.
+  // <update_capacity> updates capacities for the <size_class> with the new
+  // <cap> once the slabs are initialized.
+  // <new_max_capacity> provides an array of new maximum capacities to be
+  // updated for size classes.
+  // <classes_to_resize> provides the number of size classes for which the
+  // capacity needs to be updated.
+  // <drain_handler> callback drains the old slab.
+  ABSL_MUST_USE_RESULT ResizeSlabsInfo UpdateMaxCapacities(
+      void* new_slabs, absl::FunctionRef<size_t(size_t)> capacity,
+      absl::FunctionRef<void(int, uint16_t)> update_capacity,
+      absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
+      PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize);
 
   // Grows or shrinks the size of the slabs to use the <new_shift> value. First
   // we initialize <new_slabs>, then lock all headers on the old slabs,
@@ -1209,6 +1230,55 @@ void TcmallocSlab<NumClasses>::DrainOldSlabs(
     hdr.end = begin;
     StoreHeader(hdrp, hdr);
   }
+}
+
+template <size_t NumClasses>
+ResizeSlabsInfo TcmallocSlab<NumClasses>::UpdateMaxCapacities(
+    void* new_slabs, absl::FunctionRef<size_t(size_t)> capacity,
+    absl::FunctionRef<void(int, uint16_t)> update_capacity,
+    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
+    PerSizeClassMaxCapacity* new_max_capacity, int classes_to_resize) {
+  // Phase 1: Stop all CPUs and initialize any CPUs in the new slab that have
+  // already been populated in the old slab.
+  const auto [old_slabs, shift] = GetSlabsAndShift(std::memory_order_relaxed);
+  std::array<uint16_t, NumClasses> old_begins;
+  for (int size_class = 1; size_class < NumClasses; ++size_class) {
+    old_begins[size_class] =
+        begins_[size_class].load(std::memory_order_relaxed);
+  }
+
+  const int num_cpus = NumCPUs();
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    TC_CHECK(!stopped_[cpu].load(std::memory_order_relaxed));
+    stopped_[cpu].store(true, std::memory_order_relaxed);
+  }
+  FenceAllCpus();
+
+  // Phase 2: Update max capacity of the size classes.
+  for (int i = 0; i < classes_to_resize; ++i) {
+    size_t size_class = new_max_capacity[i].size_class;
+    size_t cap = new_max_capacity[i].max_capacity;
+    update_capacity(size_class, cap);
+  }
+
+  // Phase 3: Initialize slabs.
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    InitCpuImpl(new_slabs, shift, cpu, capacity);
+  }
+  InitSlabs(new_slabs, shift, capacity);
+
+  // Phase 4: Re-start all CPUs.
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    stopped_[cpu].store(false, std::memory_order_release);
+  }
+
+  // Phase 5: Return pointers from the old slab to the TransferCache.
+  for (size_t cpu = 0; cpu < num_cpus; ++cpu) {
+    if (!populated(cpu)) continue;
+    DrainOldSlabs(old_slabs, shift, cpu, old_begins, drain_handler);
+  }
+  return {old_slabs, GetSlabsAllocSize(shift, num_cpus)};
 }
 
 template <size_t NumClasses>

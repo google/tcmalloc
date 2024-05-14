@@ -583,6 +583,8 @@ void DumpStats(Printer* out, int level) {
     out->printf("PARAMETER max_span_cache_size %d\n",
                 Parameters::max_span_cache_size());
     out->printf("PARAMETER madvise %s\n", MadviseString());
+    out->printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
+                Parameters::resize_size_class_max_capacity() ? 1 : 0);
   }
 }
 
@@ -780,6 +782,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
       "size_class_config",
       SizeClassConfigurationString(tc_globals.size_class_configuration()));
   region.PrintRaw("madvise", MadviseString());
+  region.PrintBool("tcmalloc_resize_size_class_max_capacity",
+                   Parameters::resize_size_class_max_capacity());
 }
 
 bool GetNumericProperty(const char* name_data, size_t name_size,

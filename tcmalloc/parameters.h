@@ -126,6 +126,10 @@ class Parameters {
     return release_pages_from_huge_region_.load(std::memory_order_relaxed);
   }
 
+  static bool resize_size_class_max_capacity() {
+    return resize_size_class_max_capacity_.load(std::memory_order_relaxed);
+  }
+
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
   }
@@ -214,6 +218,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
@@ -249,6 +254,7 @@ class Parameters {
   static std::atomic<bool> release_partial_alloc_pages_;
   static std::atomic<bool> huge_region_demand_based_release_;
   static std::atomic<bool> release_pages_from_huge_region_;
+  static std::atomic<bool> resize_size_class_max_capacity_;
   static std::atomic<int64_t> profile_sampling_rate_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<MadvisePreference> madvise_;

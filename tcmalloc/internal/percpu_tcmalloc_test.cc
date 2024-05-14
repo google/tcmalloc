@@ -79,6 +79,7 @@ using testing::UnorderedElementsAreArray;
 
 constexpr size_t kStressSlabs = 5;
 constexpr size_t kStressCapacity = 4;
+constexpr size_t kMaxStressCapacity = kStressCapacity * 2;
 
 constexpr size_t kShift = 18;
 typedef class TcmallocSlab<kStressSlabs> TcmallocSlab;
@@ -96,6 +97,15 @@ void InitSlab(TcmallocSlab& slab,
   void* slabs = AllocSlabs(alloc, raw_shift);
   slab.Init(alloc, slabs, capacity, ToShiftType(raw_shift));
 }
+
+struct GetMaxCapacity {
+  size_t operator()(size_t size_class) const {
+    if (size_class >= kStressSlabs) return 0;
+    return max_capacities[size_class].load(std::memory_order_relaxed);
+  }
+
+  const std::atomic<size_t>* max_capacities;
+};
 
 class TcmallocSlabTest : public testing::Test {
  public:
@@ -126,6 +136,7 @@ class TcmallocSlabTest : public testing::Test {
 
   TcmallocSlab slab_;
   static constexpr size_t kCapacity = 10;
+  size_t max_capacity_[kStressSlabs] = {kCapacity};
   size_t metadata_bytes_ = 0;
 };
 
@@ -408,6 +419,92 @@ TEST_F(TcmallocSlabTest, Unit) {
   }
 }
 
+void* allocator(size_t bytes, std::align_val_t alignment) {
+  void* ptr = ::operator new(bytes, alignment);
+  memset(ptr, 0, bytes);
+  return ptr;
+}
+
+TEST_F(TcmallocSlabTest, ResizeMaxCapacities) {
+  if (MallocExtension::PerCpuCachesActive()) {
+    // This test unregisters rseq temporarily, as to decrease flakiness.
+    GTEST_SKIP() << "per-CPU TCMalloc is incompatible with unregistering rseq";
+  }
+
+  if (!IsFast()) {
+    GTEST_SKIP() << "Need fast percpu. Skipping.";
+    return;
+  }
+  constexpr int kCpu = 1;
+  constexpr int kSizeClassToGrow = 1;
+  constexpr int kSizeClassToShrink = 2;
+  ASSERT_LT(kSizeClassToShrink, kStressSlabs);
+  ASSERT_LT(kSizeClassToGrow, kStressSlabs);
+
+  ScopedFakeCpuId fake_cpu_id(kCpu);
+  slab_.InitCpu(kCpu, [](size_t size_class) { return kCapacity; });
+  {
+    auto [got_cpu, cached] = slab_.CacheCpuSlab();
+    ASSERT_TRUE(cached);
+    ASSERT_EQ(got_cpu, kCpu);
+  }
+
+  size_t max_capacity[kStressSlabs] = {0};
+  max_capacity[kSizeClassToShrink] = kCapacity;
+  max_capacity[kSizeClassToGrow] = kCapacity;
+
+  // Make sure that the slab may grow the available maximum capacity.
+  EXPECT_EQ(slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
+                       [&](uint8_t) { return max_capacity[kSizeClassToGrow]; }),
+            max_capacity[kSizeClassToGrow]);
+  EXPECT_EQ(
+      slab_.Grow(kCpu, kSizeClassToShrink, max_capacity[kSizeClassToShrink],
+                 [&](uint8_t) { return max_capacity[kSizeClassToShrink]; }),
+      max_capacity[kSizeClassToShrink]);
+
+  for (int i = 0; i < kCapacity; ++i) {
+    PerSizeClassMaxCapacity new_max_capacity[2];
+    new_max_capacity[0] = PerSizeClassMaxCapacity{
+        .size_class = kSizeClassToGrow,
+        .max_capacity = max_capacity[kSizeClassToGrow] + 1};
+    new_max_capacity[1] = PerSizeClassMaxCapacity{
+        .size_class = kSizeClassToShrink,
+        .max_capacity = max_capacity[kSizeClassToShrink] - 1};
+    void* slabs = AllocSlabs(allocator, kShift);
+    const auto [old_slabs, old_slabs_size] = slab_.UpdateMaxCapacities(
+        slabs, [&](size_t size_class) { return max_capacity[size_class]; },
+        [&](int size, uint16_t cap) { max_capacity[size] = cap; },
+        [](int cpu) { return cpu == kCpu; },
+        [&](int cpu, size_t size_class, void** batch, size_t size, size_t cap) {
+          EXPECT_EQ(size, 0);
+        },
+        new_max_capacity,
+        /*classes_to_resize=*/2);
+    ASSERT_NE(old_slabs, nullptr);
+    mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
+    sized_aligned_delete(old_slabs, old_slabs_size,
+                         std::align_val_t{EXEC_PAGESIZE});
+
+    // Make sure that the capacity is zero as UpdateMaxCapacity should
+    // initialize slabs.
+    EXPECT_EQ(slab_.Capacity(kCpu, kSizeClassToGrow), 0);
+    EXPECT_EQ(slab_.Capacity(kCpu, kSizeClassToShrink), 0);
+
+    // Make sure that the slab may grow the available maximum capacity.
+    EXPECT_EQ(
+        slab_.Grow(kCpu, kSizeClassToGrow, max_capacity[kSizeClassToGrow],
+                   [&](uint8_t) { return max_capacity[kSizeClassToGrow]; }),
+        max_capacity[kSizeClassToGrow]);
+    EXPECT_EQ(
+        slab_.Grow(kCpu, kSizeClassToShrink, max_capacity[kSizeClassToShrink],
+                   [&](uint8_t) { return max_capacity[kSizeClassToShrink]; }),
+        max_capacity[kSizeClassToShrink]);
+  }
+
+  EXPECT_EQ(max_capacity[kSizeClassToShrink], 0);
+  EXPECT_EQ(max_capacity[kSizeClassToGrow], 2 * kCapacity);
+}
+
 TEST_F(TcmallocSlabTest, ShrinkEmptyCache) {
   if (MallocExtension::PerCpuCachesActive()) {
     // This test unregisters rseq temporarily, as to decrease flakiness.
@@ -466,10 +563,6 @@ TEST_F(TcmallocSlabTest, SimulatedMadviseFailure) {
   trigger_resize(kShift);
 }
 
-size_t get_capacity(size_t size_class) {
-  return size_class < kStressSlabs ? kStressCapacity : 0;
-}
-
 struct Context {
   TcmallocSlab* slab;
   std::vector<std::vector<void*>>* blocks;
@@ -478,6 +571,9 @@ struct Context {
   std::atomic<bool>* stop;
   absl::Span<absl::once_flag> init;
   absl::Span<std::atomic<bool>> has_init;
+  std::atomic<size_t>* max_capacity;
+
+  GetMaxCapacity GetMaxCapacityFunctor() const { return {max_capacity}; }
 };
 
 void InitCpuOnce(Context& ctx, int cpu) {
@@ -489,14 +585,36 @@ void InitCpuOnce(Context& ctx, int cpu) {
   }
   absl::base_internal::LowLevelCallOnce(&ctx.init[cpu], [&]() {
     absl::MutexLock lock(&ctx.mutexes[cpu]);
-    ctx.slab->InitCpu(cpu, get_capacity);
+    ctx.slab->InitCpu(cpu, ctx.GetMaxCapacityFunctor());
     ctx.has_init[cpu].store(true, std::memory_order_relaxed);
   });
 }
 
+int GetResizedMaxCapacities(Context& ctx,
+                            PerSizeClassMaxCapacity* new_max_capacity) {
+  std::atomic<size_t>* max_capacity = ctx.max_capacity;
+  absl::BitGen rnd;
+  size_t to_shrink = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
+  size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressSlabs);
+  if (to_shrink == to_grow || max_capacity[to_shrink] == 0 ||
+      max_capacity[to_grow].load(std::memory_order_relaxed) ==
+          kMaxStressCapacity - 1)
+    return 0;
+  new_max_capacity[0] = PerSizeClassMaxCapacity{
+      .size_class = to_shrink,
+      .max_capacity =
+          max_capacity[to_shrink].load(std::memory_order_relaxed) - 1};
+  new_max_capacity[1] = PerSizeClassMaxCapacity{
+      .size_class = to_grow,
+      .max_capacity =
+          max_capacity[to_grow].load(std::memory_order_relaxed) + 1};
+  return 2;
+}
+
 // TODO(b/213923453): move to an environment style of test, as in
 // FakeTransferCacheEnvironment.
-void StressThread(size_t thread_id, Context& ctx) {
+void StressThread(size_t thread_id,
+                  Context& ctx) ABSL_NO_THREAD_SAFETY_ANALYSIS {
   EXPECT_TRUE(IsFast());
 
   std::vector<void*>& block = (*ctx.blocks)[thread_id];
@@ -567,21 +685,22 @@ void StressThread(size_t thread_id, Context& ctx) {
           // an initialized core.
           InitCpuOnce(ctx, cpu);
 
-          res = ctx.slab->Grow(cpu, size_class, n,
-                               [](uint8_t shift) { return kStressCapacity; });
+          res = ctx.slab->Grow(cpu, size_class, n, [&](uint8_t shift) {
+            return ctx.GetMaxCapacityFunctor()(size_class);
+          });
           EXPECT_LE(res, n);
         }
         ctx.capacity->fetch_add(n - res);
       }
     } else if (what < 60) {
-      size_t len = ctx.slab->Length(absl::Uniform<int32_t>(rnd, 0, num_cpus),
-                                    size_class);
-      EXPECT_LE(len, kStressCapacity);
+      int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
+      absl::MutexLock lock(&ctx.mutexes[cpu]);
+      size_t len = ctx.slab->Length(cpu, size_class);
+      EXPECT_LE(len, kMaxStressCapacity);
+      size_t cap = ctx.slab->Capacity(cpu, size_class);
+      EXPECT_LE(cap, kMaxStressCapacity);
+      EXPECT_LE(len, cap);
     } else if (what < 70) {
-      size_t cap = ctx.slab->Capacity(absl::Uniform<int32_t>(rnd, 0, num_cpus),
-                                      size_class);
-      EXPECT_LE(cap, kStressCapacity);
-    } else if (what < 80) {
       int cpu = absl::Uniform<int32_t>(rnd, 0, num_cpus);
 
       // ShrinkOtherCache mutates the header array and must be operating on an
@@ -606,7 +725,7 @@ void StressThread(size_t thread_id, Context& ctx) {
       EXPECT_LE(total_shrunk, to_shrink);
       EXPECT_LE(0, total_shrunk);
       ctx.capacity->fetch_add(total_shrunk);
-    } else if (what < 90) {
+    } else if (what < 80) {
       size_t to_grow = absl::Uniform<int32_t>(rnd, 0, kStressCapacity) + 1;
       for (;;) {
         size_t c = ctx.capacity->load();
@@ -629,7 +748,7 @@ void StressThread(size_t thread_id, Context& ctx) {
         ctx.slab->StopCpu(cpu);
         size_t grown = ctx.slab->GrowOtherCache(
             cpu, size_class, to_grow,
-            [](uint8_t shift) { return kStressCapacity; });
+            [&](uint8_t) { return ctx.GetMaxCapacityFunctor()(size_class); });
         ctx.slab->StartCpu(cpu);
         EXPECT_LE(grown, to_grow);
         EXPECT_GE(grown, 0);
@@ -657,8 +776,8 @@ void StressThread(size_t thread_id, Context& ctx) {
                                      void** batch, size_t size, size_t cap) {
               EXPECT_EQ(cpu, cpu_arg);
               EXPECT_LT(size_class, kStressSlabs);
-              EXPECT_LE(size, kStressCapacity);
-              EXPECT_LE(cap, kStressCapacity);
+              EXPECT_LE(size, kMaxStressCapacity);
+              EXPECT_LE(cap, kMaxStressCapacity);
               for (size_t i = 0; i < size; ++i) {
                 EXPECT_NE(batch[i], nullptr);
                 block.push_back(batch[i]);
@@ -673,10 +792,89 @@ void StressThread(size_t thread_id, Context& ctx) {
   }
 }
 
-void* allocator(size_t bytes, std::align_val_t alignment) {
-  void* ptr = ::operator new(bytes, alignment);
-  memset(ptr, 0, bytes);
-  return ptr;
+void ResizeMaxCapacitiesThread(
+    Context& ctx, TcmallocSlab::DrainHandler drain_handler,
+    absl::Span<std::pair<void*, size_t>> old_slabs_span)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  absl::BitGen rnd;
+  const size_t num_cpus = NumCPUs();
+
+  while (!*ctx.stop) {
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
+    PerSizeClassMaxCapacity new_max_capacity[2];
+    int to_resize = GetResizedMaxCapacities(ctx, new_max_capacity);
+    size_t old_slabs_idx = 0;
+
+    uint8_t shift = ctx.slab->GetShift();
+    void* slabs = AllocSlabs(allocator, shift);
+    const auto [old_slabs, old_slabs_size] = ctx.slab->UpdateMaxCapacities(
+        slabs, ctx.GetMaxCapacityFunctor(),
+        [&](int size, uint16_t cap) {
+          ctx.max_capacity[size].store(cap, std::memory_order_relaxed);
+        },
+        [&](size_t cpu) {
+          return ctx.has_init[cpu].load(std::memory_order_relaxed);
+        },
+        drain_handler, new_max_capacity, to_resize);
+    for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Unlock();
+    ASSERT_NE(old_slabs, nullptr);
+    // We sometimes don't madvise away the old slabs in order to simulate
+    // madvise failing.
+    const bool simulate_madvise_failure = absl::Bernoulli(rnd, 0.1);
+    if (!simulate_madvise_failure) {
+      // Verify that we do not write to an old slab, as this may indicate a bug.
+      mprotect(old_slabs, old_slabs_size, PROT_READ);
+      // It's important that we do this here in order to uncover any potential
+      // correctness issues due to madvising away the old slabs.
+      // TODO(b/214241843): we should be able to just do one MADV_DONTNEED once
+      // the kernel enables huge zero pages.
+      madvise(old_slabs, old_slabs_size, MADV_NOHUGEPAGE);
+      madvise(old_slabs, old_slabs_size, MADV_DONTNEED);
+
+      // Verify that old_slabs is now non-resident.
+      const int fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
+      if (fd < 0) continue;
+
+      // /proc/self/pageflags is an array. Each entry is a bitvector of size 64.
+      // To index the array, divide the virtual address by the pagesize. The
+      // 64b word has bit fields set.
+      const uintptr_t start_addr = reinterpret_cast<uintptr_t>(old_slabs);
+      constexpr size_t kPhysicalPageSize = EXEC_PAGESIZE;
+      for (uintptr_t addr = start_addr; addr < start_addr + old_slabs_size;
+           addr += kPhysicalPageSize) {
+        ASSERT_EQ(addr % kPhysicalPageSize, 0);
+        // Offset in /proc/self/pageflags.
+        const off64_t offset = addr / kPhysicalPageSize * 8;
+        uint64_t entry = 0;
+        // Ignore false-positive warning in GCC.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattribute-warning"
+#endif
+        const int64_t bytes_read = pread(fd, &entry, sizeof(entry), offset);
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+        ASSERT_EQ(bytes_read, sizeof(entry));
+        constexpr uint64_t kExpectedBits =
+            (uint64_t{1} << KPF_ZERO_PAGE) | (uint64_t{1} << KPF_NOPAGE);
+        ASSERT_NE(entry & kExpectedBits, 0)
+            << entry << " " << addr << " " << start_addr;
+      }
+      signal_safe_close(fd);
+    }
+
+    // Delete the old slab from 100 iterations ago.
+    if (old_slabs_span[old_slabs_idx].first != nullptr) {
+      auto [old_slabs, old_slabs_size] = old_slabs_span[old_slabs_idx];
+
+      mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
+      sized_aligned_delete(old_slabs, old_slabs_size,
+                           std::align_val_t{EXEC_PAGESIZE});
+    }
+    old_slabs_span[old_slabs_idx] = {old_slabs, old_slabs_size};
+    if (++old_slabs_idx == old_slabs_span.size()) old_slabs_idx = 0;
+  }
 }
 
 constexpr size_t kResizeInitialShift = 14;
@@ -705,7 +903,7 @@ void ResizeSlabsThread(Context& ctx, TcmallocSlab::DrainHandler drain_handler,
     for (size_t cpu = 0; cpu < num_cpus; ++cpu) ctx.mutexes[cpu].Lock();
     void* slabs = AllocSlabs(allocator, shift);
     const auto [old_slabs, old_slabs_size] = ctx.slab->ResizeSlabs(
-        ToShiftType(shift), slabs, get_capacity,
+        ToShiftType(shift), slabs, ctx.GetMaxCapacityFunctor(),
         [&](size_t cpu) {
           return ctx.has_init[cpu].load(std::memory_order_relaxed);
         },
@@ -790,11 +988,15 @@ TEST_P(StressThreadTest, Stress) {
 
   TcmallocSlab slab;
   size_t shift = resize ? kResizeInitialShift : kShift;
-  InitSlab(slab, allocator, get_capacity, shift);
   std::vector<std::thread> threads;
   const size_t num_cpus = NumCPUs();
   const size_t n_stress_threads = 2 * num_cpus;
   const size_t n_threads = n_stress_threads + resize;
+  std::atomic<size_t> max_capacity[kStressSlabs];
+
+  for (size_t size_class = 0; size_class < kStressSlabs; ++size_class) {
+    max_capacity[size_class].store(kStressCapacity, std::memory_order_relaxed);
+  }
 
   // once_flag's protect InitCpu on a CPU.
   std::vector<absl::once_flag> init(num_cpus);
@@ -821,7 +1023,9 @@ TEST_P(StressThreadTest, Stress) {
                  &capacity,
                  &stop,
                  absl::MakeSpan(init),
-                 absl::MakeSpan(has_init)};
+                 absl::MakeSpan(has_init),
+                 &max_capacity[0]};
+  InitSlab(slab, allocator, ctx.GetMaxCapacityFunctor(), shift);
   // Create threads and let them work for 5 seconds while we may or not also be
   // resizing the slab.
   threads.reserve(n_threads);
@@ -838,6 +1042,12 @@ TEST_P(StressThreadTest, Stress) {
     }
     ctx.capacity->fetch_add(cap);
   };
+
+  std::array<std::pair<void*, size_t>, 100> max_cap_slabs_array{};
+  threads.push_back(std::thread(ResizeMaxCapacitiesThread, std::ref(ctx),
+                                std::ref(drain_handler),
+                                absl::MakeSpan(max_cap_slabs_array)));
+
   // Keep track of old slabs so we can free the memory. We technically could
   // have a sleeping StressThread access any of the old slabs, but it's very
   // inefficient to keep all the old slabs around so we just keep 100.
@@ -877,6 +1087,15 @@ TEST_P(StressThreadTest, Stress) {
   EXPECT_EQ(objects.size(), blocks.size() * kStressCapacity);
   EXPECT_EQ(capacity.load(), kTotalCapacity);
   void* deleted_slabs = slab.Destroy(sized_aligned_delete);
+
+  for (const auto& [old_slabs, old_slabs_size] : max_cap_slabs_array) {
+    if (old_slabs == nullptr || old_slabs == deleted_slabs) continue;
+
+    mprotect(old_slabs, old_slabs_size, PROT_READ | PROT_WRITE);
+    sized_aligned_delete(old_slabs, old_slabs_size,
+                         std::align_val_t{EXEC_PAGESIZE});
+  }
+
   for (const auto& [old_slabs, old_slabs_size] : old_slabs_arr) {
     if (old_slabs == nullptr || old_slabs == deleted_slabs) continue;
 

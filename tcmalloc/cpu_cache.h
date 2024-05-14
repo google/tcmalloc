@@ -80,6 +80,9 @@ constexpr inline uint8_t kMaxBasePerCpuShift = 18;
 constexpr inline uint8_t kNumPossiblePerCpuShifts =
     kMaxBasePerCpuShift - kInitialBasePerCpuShift + 1;
 
+constexpr inline uint8_t kResizeSlabCopies = 2;
+constexpr inline uint8_t kTotalPossibleSlabs =
+    kNumPossiblePerCpuShifts * kResizeSlabCopies;
 // StaticForwarder provides access to the SizeMap and transfer caches.
 //
 // This is a class, rather than namespaced globals, so that it can be mocked for
@@ -200,8 +203,10 @@ struct GetShiftMaxCapacity {
   size_t operator()(size_t size_class) const {
     TC_ASSERT_GE(shift_bounds.max_shift, shift);
     const uint8_t relative_shift = shift_bounds.max_shift - shift;
-    if (relative_shift == 0) return max_capacities[size_class];
-    int mc = max_capacities[size_class] >> relative_shift;
+    if (relative_shift == 0)
+      return max_capacities[size_class].load(std::memory_order_relaxed);
+    int mc = max_capacities[size_class].load(std::memory_order_relaxed) >>
+             relative_shift;
     // We decrement by 3 because of (1) cost of per-size-class header, (2) cost
     // of per-size-class padding pointer, (3) there are a lot of empty size
     // classes that have headers and whose max capacities can't be decremented.
@@ -213,7 +218,7 @@ struct GetShiftMaxCapacity {
     return mc;
   }
 
-  const uint16_t* max_capacities;
+  const std::atomic<uint16_t>* max_capacities;
   uint8_t shift;
   SlabShiftBounds shift_bounds;
 };
@@ -239,11 +244,16 @@ class CpuCache {
   };
 
   enum class PerClassMissType {
-    // Tracks total number of misses.
-    kTotal = 0,
+    // Tracks total number of capacity misses.
+    kCapacityTotal = 0,
     // Tracks number of misses recorded as of the end of the last per-class
     // resize interval.
-    kResize,
+    kCapacityResize,
+    // Tracks total number of misses due to insufficient max_capacity.
+    kMaxCapacityTotal,
+    // Tracks number of misses recorded as of the end of the last per-class
+    // max capacity resize interval.
+    kMaxCapacityResize,
     kNumTypes,
   };
 
@@ -267,6 +277,7 @@ class CpuCache {
     size_t min_capacity = 0;
     double avg_capacity = 0;
     size_t max_capacity = 0;
+    size_t max_capacity_misses = 0;
     absl::Duration min_last_underflow = absl::InfiniteDuration();
     absl::Duration max_last_underflow;
     absl::Duration min_last_overflow = absl::InfiniteDuration();
@@ -373,6 +384,34 @@ class CpuCache {
   // size classes for up to kNumCpuCachesToResize number of per-cpu caches.
   void ResizeSizeClasses();
 
+  // Gets the max capacity for the size class using the current per-cpu shift.
+  uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
+
+  // Gets the current capacity for the <size_class> in a <cpu> cache.
+  size_t GetCapacityOfSizeClass(int cpu, int size_class) const;
+
+  // Computes maximum capacities that we want to update the size classes to. It
+  // fetches number of capacity misses obvserved for the size classes, and
+  // computes increases to the maximum capacities for the size classes with the
+  // highest misses. It computes maximum capacities for kNumBaseClasses number
+  // of size classes, starting with <start_size_class>. It records the resized
+  // size classes and capacities in <max_capacity> starting from index
+  // <valid_entries>.
+  // Returns total number of valid size classes recorded in <max_capacity>
+  // array.
+  int GetUpdatedMaxCapacities(int start_size_class,
+                              PerSizeClassMaxCapacity* max_capacity,
+                              int valid_entries);
+
+  // Resizes maximum capacities for the size classes. First, it computes
+  // candidates to resize using GetUpdatedMaxCapacities(...), and then updates
+  // maximum capacities for size classes for all per-cpu caches. Resizing is a
+  // global operation. It stops all per-cpu caches, drains them, updates maximum
+  // capacities and begin, current and end indices for the slabs and then
+  // restarts the per-cpu caches. Because it's a global operation that involves
+  // stopping all per-cpu caches, this mechanism should be used sparingly.
+  void ResizeSizeClassMaxCapacities();
+
   // Empty out the cache on <cpu>; move all objects to the central
   // cache.  (If other threads run concurrently on that cpu, we can't
   // guarantee it will be fully empty on return, but if the cpu is
@@ -422,9 +461,11 @@ class CpuCache {
   SizeClassCapacityStats GetSizeClassCapacityStats(size_t size_class) const;
 
   // Reports the number of misses encountered by a <size_class> that were
-  // recorded during the previous interval for the miss <type>.
+  // recorded during the previous interval between <total_type> and
+  // <interval_type> kinds of misses.
   size_t GetIntervalSizeClassMisses(int cpu, size_t size_class,
-                                    PerClassMissType type);
+                                    PerClassMissType total_type,
+                                    PerClassMissType interval_type);
 
   // Reports if we should use a wider 512KiB slab.
   bool UseWiderSlabs() const;
@@ -471,21 +512,27 @@ class CpuCache {
     bool Update(bool overflow, bool grow, uint32_t* successive);
     uint32_t Tick();
 
-    // Records a miss. A miss occurs when size class attempts to grow it's
-    // capacity on underflow/overflow, but we are already at the maximum
-    // configured per-cpu cache capacity limit.
-    void RecordMiss();
+    // Records a miss for a provided <type>. A miss occurs when size class
+    // attempts to grow it's capacity on underflow/overflow, but we are already
+    // at the maximum configured per-cpu cache capacity limit.
+    void RecordMiss(PerClassMissType type);
 
     // Reports total number of misses recorded for this size class.
-    size_t GetTotalMisses();
+    size_t GetTotalMisses(PerClassMissType type);
+
+    size_t GetAndUpdateIntervalMisses(PerClassMissType total_type,
+                                      PerClassMissType interval_type);
 
     // Reports the number of misses encountered by this size class that
-    // were recorded during the previous interval for the miss <type>.
-    size_t GetIntervalMisses(PerClassMissType type);
+    // were recorded during the previous interval between misses <total_type>
+    // and <interval_type>.
+    size_t GetIntervalMisses(PerClassMissType total_type,
+                             PerClassMissType interval_type);
 
-    // Records current misses encountered by this size class for the miss
-    // <type>.
-    void UpdateIntervalMisses(PerClassMissType type);
+    // Copies total misses of type <total_type> encountered by the size class to
+    // the type <interval_type>.
+    void UpdateIntervalMisses(PerClassMissType total_type,
+                              PerClassMissType interval_type);
 
    private:
     std::atomic<int32_t> state_;
@@ -553,8 +600,8 @@ class CpuCache {
   // class sizes.
   size_t MaxCapacity(size_t size_class) const;
 
-  // Gets the max capacity for the size class using the current per-cpu shift.
-  uint16_t GetMaxCapacity(int size_class, uint8_t shift) const;
+  // Updates maximum capacity for the <size_class> to <cap>.
+  void UpdateMaxCapacity(int size_class, uint16_t cap);
 
   GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
@@ -642,7 +689,8 @@ class CpuCache {
   // Returns the allocated slabs and the number of reused bytes.
   ABSL_MUST_USE_RESULT std::pair<void*, size_t> AllocOrReuseSlabs(
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-      subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset);
+      subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset,
+      uint8_t resize_offset);
 
   Freelist freelist_;
 
@@ -653,7 +701,7 @@ class CpuCache {
   SlabShiftBounds shift_bounds_{};
 
   // The maximum capacity of each size class within the slab.
-  uint16_t max_capacity_[kNumClasses] = {0};
+  std::atomic<uint16_t> max_capacity_[kNumClasses] = {0};
 
   // Provides a hint to StealFromOtherCache() so that we can steal from the
   // caches in a round-robin fashion.
@@ -663,6 +711,12 @@ class CpuCache {
   // we resized size classes. We use this to resize size classes for CPUs in a
   // round-robin fashion.
   std::atomic<int> last_cpu_size_class_resize_ = 0;
+
+  // Records the slab copy currently in use. We maintain kResizeSlabCopies
+  // sets of kNumPossiblePerCpuShifts slabs. While resizing maximum size class
+  // capacity, we choose a new slab from one of the copies. resize_slab_offset_
+  // is an index into the copy currently in use.
+  std::atomic<int> resize_slab_offset_ = 0;
 
   // Per-core cache limit in bytes.
   std::atomic<uint64_t> max_per_cpu_cache_size_{kMaxCpuCacheSize};
@@ -674,7 +728,7 @@ class CpuCache {
   // Pointers to allocations for slabs of each shift value for use in
   // ResizeSlabs. This memory is allocated on the arena, and it is nonresident
   // while not in use.
-  void* slabs_by_shift_[kNumPossiblePerCpuShifts] = {nullptr};
+  void* slabs_by_shift_[kTotalPossibleSlabs] = {nullptr};
 };
 
 template <class Forwarder>
@@ -855,9 +909,21 @@ inline uint16_t CpuCache<Forwarder>::GetMaxCapacity(int size_class,
 }
 
 template <class Forwarder>
+inline size_t CpuCache<Forwarder>::GetCapacityOfSizeClass(
+    int cpu, int size_class) const {
+  return freelist_.Capacity(cpu, size_class);
+}
+
+template <class Forwarder>
 inline GetShiftMaxCapacity CpuCache<Forwarder>::GetMaxCapacityFunctor(
     uint8_t shift) const {
   return {max_capacity_, shift, shift_bounds_};
+}
+
+template <class Forwarder>
+inline void CpuCache<Forwarder>::UpdateMaxCapacity(int size_class,
+                                                   uint16_t cap) {
+  max_capacity_[size_class].store(cap, std::memory_order_relaxed);
 }
 
 template <class Forwarder>
@@ -905,13 +971,15 @@ inline void CpuCache<Forwarder>::Activate() {
   for (int size_class = 0;
        size_class < topology.active_partitions() * kNumBaseClasses;
        ++size_class) {
-    max_capacity_[size_class] = MaxCapacity(size_class);
+    max_capacity_[size_class].store(MaxCapacity(size_class),
+                                    std::memory_order_relaxed);
   }
 
   // Deal with expanded size classes.
   for (int size_class = kExpandedClassesStart; size_class < kNumClasses;
        ++size_class) {
-    max_capacity_[size_class] = MaxCapacity(size_class);
+    max_capacity_[size_class].store(MaxCapacity(size_class),
+                                    std::memory_order_relaxed);
   }
 
   // Verify that all the possible shifts will have valid max capacities.
@@ -945,7 +1013,8 @@ inline void CpuCache<Forwarder>::Activate() {
   void* slabs =
       AllocOrReuseSlabs(&forwarder_.Alloc,
                         subtle::percpu::ToShiftType(per_cpu_shift), num_cpus,
-                        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift))
+                        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
+                        /*resize_offset=*/0)
           .first;
   freelist_.Init(
       &forwarder_.Alloc, slabs,
@@ -1164,6 +1233,13 @@ inline size_t CpuCache<Forwarder>::UpdateCapacity(int cpu, size_t size_class,
     Grow(cpu, size_class, increase);
     capacity = freelist_.Capacity(cpu, size_class);
   }
+  // We hit the maximum capacity limit when the size class capacity is equal to
+  // its maximum allowed capacity. Record a miss due to that so that we can
+  // potentially grow the max capacity for this size class later.
+  if (capacity == max_capacity) {
+    resize_[cpu].per_class[size_class].RecordMiss(
+        PerClassMissType::kMaxCapacityTotal);
+  }
   return TargetOverflowRefillCount(capacity, batch_length, successive);
 }
 
@@ -1210,7 +1286,8 @@ inline void CpuCache<Forwarder>::Grow(int cpu, size_t size_class,
   size_t acquired_bytes =
       subtract_at_least(&resize_[cpu].available, size, desired_bytes);
   if (acquired_bytes < desired_bytes) {
-    resize_[cpu].per_class[size_class].RecordMiss();
+    resize_[cpu].per_class[size_class].RecordMiss(
+        PerClassMissType::kCapacityTotal);
   }
   if (acquired_bytes == 0) {
     return;
@@ -1266,6 +1343,225 @@ inline void CpuCache<Forwarder>::TryReclaimingCaches() {
 }
 
 template <class Forwarder>
+int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
+    int start_size_class, PerSizeClassMaxCapacity* max_capacity,
+    int valid_entries) {
+  TC_ASSERT_LT(valid_entries, kNumClasses);
+  // Collect miss stats incurred during the current resize interval for all the
+  // size classes.
+  const int num_cpus = NumCPUs();
+  absl::FixedArray<size_t> total_misses(kNumBaseClasses, 0);
+  int index = 0;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) {
+    index = 0;
+    if (!HasPopulated(cpu)) continue;
+    for (size_t size_class = start_size_class;
+         size_class < start_size_class + kNumBaseClasses; ++size_class) {
+      total_misses[index] +=
+          resize_[cpu].per_class[size_class].GetAndUpdateIntervalMisses(
+              PerClassMissType::kMaxCapacityTotal,
+              PerClassMissType::kMaxCapacityResize);
+
+      ++index;
+    }
+  }
+
+  absl::FixedArray<SizeClassMissStat> miss_stats(kNumBaseClasses);
+  index = 0;
+  for (size_t size_class = start_size_class;
+       size_class < start_size_class + kNumBaseClasses; ++size_class) {
+    miss_stats[index] = SizeClassMissStat{.size_class = size_class,
+                                          .misses = total_misses[index]};
+    ++index;
+  }
+
+  // Sort the collected stats to record size classes with largest number of
+  // misses in the last interval.
+  std::sort(miss_stats.begin(), miss_stats.end(),
+            [](SizeClassMissStat a, SizeClassMissStat b) {
+              // In case of a conflict, prefer growing smaller size classes.
+              if (a.misses == b.misses) {
+                return a.size_class < b.size_class;
+              }
+              return a.misses > b.misses;
+            });
+
+  // Computing number of size classes to resize is a light-weight operation, but
+  // resizing size classes involves stopping all per-cpu caches, and hence is a
+  // heavy-weight operation. So, we try to be aggressive in the number of size
+  // classes we would like to resize when we can, but perform resizing operation
+  // sparingly.
+  constexpr int kMaxCapacitiesToGrow = kNumBaseClasses / 2;
+
+  int grown = 0;
+  int max_capacity_index = valid_entries;
+
+  // We try to grow size class max capacities by batch_size times the growth
+  // factor. The growth factor starts with 5 times the batch size for the size
+  // class that suffers the highest misses, and then gradually shrinks to 1 for
+  // the size class with fifth-highest misses and onwards. There is nothing
+  // interesting about this factor; it may be tuned in the future to increase or
+  // decrease the aggresiveness of the growth.
+  int growth_factor = 5;
+  // Indices in miss_stats corresponding to the size classes we aim to grow
+  // and shrink.
+  int shrink_index = kNumBaseClasses - 1;
+  for (int grow_index = 0; grow_index < kNumBaseClasses; ++grow_index) {
+    // If a size class with largest misses is zero, break. Other size classes
+    // should also have suffered zero misses as well.
+    if (miss_stats[grow_index].misses == 0) break;
+
+    // We grow a size class by its batch_size, while trying to shrink max
+    // capacities of other size classes by the same amount. We shrink each
+    // size classes' max capacity by its batch size too.
+    const size_t size_class_to_grow = miss_stats[grow_index].size_class;
+    const int to_grow = forwarder_.num_objects_to_move(size_class_to_grow);
+
+    // max_capacity_index keeps track of number of entries in max_capacity
+    // that are valid. If we do not find enough size classes to shrink, we
+    // give up and return early. So, we only `commit` index in max_capacity
+    // once we find enough size classes to shrink max capacities equal to the
+    // target. next_capacity_index records a temporary index in max_capacity.
+    int next_capacity_index = max_capacity_index;
+    int target = to_grow * growth_factor;
+    int shrunk = 0;
+
+    // Loop until we found enough capacity from other size classes, or if we run
+    // out of size classes to shrink.
+    while (shrink_index > grow_index && target > 0) {
+      size_t size_class_to_shrink = miss_stats[shrink_index].size_class;
+      int batch_size = forwarder_.num_objects_to_move(size_class_to_shrink);
+      size_t cap =
+          max_capacity_[size_class_to_shrink].load(std::memory_order_relaxed);
+      --shrink_index;
+
+      // We retain at least batch_size amount of max capacity for a size
+      // class.
+      if (cap <= batch_size) continue;
+
+      int to_shrink = std::min(target, batch_size);
+      // Do not shrink such that max capacity falls below batch_size.
+      to_shrink = std::min<size_t>(to_shrink, cap - batch_size);
+      if (to_shrink == 0) continue;
+
+      max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
+          .size_class = size_class_to_shrink, .max_capacity = cap - to_shrink};
+      ++next_capacity_index;
+      target -= to_shrink;
+      shrunk += to_shrink;
+    }
+
+    // We didn't find any size classes that may be shrunk. Break.
+    if (shrunk == 0) break;
+
+    // Update maximum capacity for the size class we intend to grow by the
+    // amount we shrunk from other size classes.
+    size_t cap =
+        max_capacity_[size_class_to_grow].load(std::memory_order_relaxed);
+    max_capacity[next_capacity_index] = PerSizeClassMaxCapacity{
+        .size_class = size_class_to_grow, .max_capacity = cap + shrunk};
+    ++next_capacity_index;
+    max_capacity_index = next_capacity_index;
+
+    ++grown;
+    growth_factor = std::max(growth_factor - 1, 1);
+    // We have enough candidates to grow. Break.
+    if (grown == kMaxCapacitiesToGrow) break;
+  }
+
+  return max_capacity_index;
+}
+
+template <class Forwarder>
+void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  const int num_cpus = NumCPUs();
+  const auto& topology = forwarder_.numa_topology();
+
+  PerSizeClassMaxCapacity new_max_capacities[kNumClasses];
+  size_t start_size_class = 0;
+  int to_update = 0;
+
+  // Obtain candidates to resize for size classes within each NUMA domain. We do
+  // not resize across NUMA domains.
+  for (int i = 0; i < topology.active_partitions(); ++i) {
+    to_update = GetUpdatedMaxCapacities(start_size_class, new_max_capacities,
+                                        to_update);
+    start_size_class += kNumBaseClasses;
+  }
+
+  // Obtain candidates to resize within expanded size classes.
+  if (kHasExpandedClasses) {
+    to_update = GetUpdatedMaxCapacities(start_size_class, new_max_capacities,
+                                        to_update);
+  }
+
+  // Nothing to update.
+  if (to_update == 0) return;
+
+  uint8_t per_cpu_shift = freelist_.GetShift();
+  const auto shift = subtle::percpu::ToShiftType(per_cpu_shift);
+  const int64_t new_slabs_size =
+      subtle::percpu::GetSlabsAllocSize(shift, num_cpus);
+  // Account for impending allocation/reusing of new slab so that we can avoid
+  // going over memory limit.
+  forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
+  forwarder_.ShrinkToUsageLimit();
+
+  int64_t reused_bytes;
+  ResizeSlabsInfo info;
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
+  uint8_t new_resize_slab_offset =
+      resize_slab_offset_.load(std::memory_order_relaxed) + 1;
+  if (new_resize_slab_offset >= kResizeSlabCopies) {
+    new_resize_slab_offset = 0;
+  }
+  resize_slab_offset_.store(new_resize_slab_offset, std::memory_order_relaxed);
+
+  {
+    // We can't allocate while holding the per-cpu spinlocks.
+    AllocationGuard enforce_no_alloc;
+    void* new_slabs;
+    std::tie(new_slabs, reused_bytes) = AllocOrReuseSlabs(
+        [&](size_t size, std::align_val_t align) {
+          return forwarder_.AllocReportedImpending(size, align);
+        },
+        shift, num_cpus,
+        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift),
+        new_resize_slab_offset);
+
+    info = freelist_.UpdateMaxCapacities(
+        new_slabs,
+        GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
+        [this](int size_class, uint16_t cap) {
+          UpdateMaxCapacity(size_class, cap);
+        },
+        [this](int cpu) { return HasPopulated(cpu); },
+        DrainHandler<CpuCache>{*this, nullptr}, new_max_capacities, to_update);
+  }
+  for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
+
+  // madvise away the old slabs memory.  It is important that we do not
+  // MADV_REMOVE the memory, since file-backed pages may SIGSEGV/SIGBUS if
+  // another thread sees the previous slab after this point and reads it.
+  //
+  // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
+  // kernel enables huge zero pages.
+  // Note: we use bitwise OR to avoid short-circuiting.
+  ErrnoRestorer errno_restorer;
+  const bool madvise_failed =
+      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
+      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
+  if (madvise_failed) {
+    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
+        info.old_slabs_size, std::memory_order_relaxed);
+  }
+  const int64_t old_slabs_size = info.old_slabs_size;
+  forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
+                                                old_slabs_size - reused_bytes);
+}
+
+template <class Forwarder>
 inline void CpuCache<Forwarder>::ResizeSizeClasses() {
   const int num_cpus = NumCPUs();
   // Start resizing from where we left off the last time, and resize size class
@@ -1293,7 +1589,7 @@ inline void CpuCache<Forwarder>::ResizeSizeClasses() {
     // stats per interval.
     for (size_t size_class = 1; size_class < kNumClasses; ++size_class) {
       resize_[cpu].per_class[size_class].UpdateIntervalMisses(
-          PerClassMissType::kResize);
+          PerClassMissType::kCapacityTotal, PerClassMissType::kCapacityResize);
     }
 
     if (++num_cpus_resized >= kNumCpuCachesToResize) break;
@@ -1317,7 +1613,8 @@ void CpuCache<Forwarder>::ResizeCpuSizeClasses(int cpu) {
     miss_stats[size_class - 1] = SizeClassMissStat{
         .size_class = size_class,
         .misses = resize_[cpu].per_class[size_class].GetIntervalMisses(
-            PerClassMissType::kResize)};
+            PerClassMissType::kCapacityTotal,
+            PerClassMissType::kCapacityResize)};
   }
 
   // Sort the collected stats to record size classes with largest number of
@@ -1867,8 +2164,13 @@ inline uint64_t CpuCache<Forwarder>::GetNumReclaims() const {
 template <class Forwarder>
 inline std::pair<void*, size_t> CpuCache<Forwarder>::AllocOrReuseSlabs(
     absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
-    subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset) {
-  void*& reused_slabs = slabs_by_shift_[shift_offset];
+    subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset,
+    uint8_t resize_offset) {
+  TC_ASSERT_LT(resize_offset, kResizeSlabCopies);
+  TC_ASSERT_LT(shift_offset, kNumPossiblePerCpuShifts);
+  int slab_offset = kNumPossiblePerCpuShifts * resize_offset + shift_offset;
+  TC_ASSERT_LT(slab_offset, kTotalPossibleSlabs);
+  void*& reused_slabs = slabs_by_shift_[slab_offset];
   const size_t size = GetSlabsAllocSize(shift, num_cpus);
   const bool can_reuse = reused_slabs != nullptr;
   if (can_reuse) {
@@ -1962,6 +2264,8 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
   ResizeSlabsInfo info;
+  const uint8_t resize_offset =
+      resize_slab_offset_.load(std::memory_order_relaxed);
   int64_t reused_bytes;
   {
     // We can't allocate while holding the per-cpu spinlocks.
@@ -1973,7 +2277,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
           return forwarder_.AllocReportedImpending(size, align);
         },
         new_shift, num_cpus,
-        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift));
+        ShiftOffset(per_cpu_shift, shift_bounds_.initial_shift), resize_offset);
     info = freelist_.ResizeSlabs(
         new_shift, new_slabs,
         GetShiftMaxCapacity{max_capacity_, per_cpu_shift, shift_bounds_},
@@ -2076,10 +2380,11 @@ CpuCache<Forwarder>::GetAndUpdateIntervalCacheMissStats(int cpu,
 }
 
 template <class Forwarder>
-size_t CpuCache<Forwarder>::GetIntervalSizeClassMisses(int cpu,
-                                                       size_t size_class,
-                                                       PerClassMissType type) {
-  return resize_[cpu].per_class[size_class].GetIntervalMisses(type);
+size_t CpuCache<Forwarder>::GetIntervalSizeClassMisses(
+    int cpu, size_t size_class, PerClassMissType total_type,
+    PerClassMissType interval_type) {
+  return resize_[cpu].per_class[size_class].GetIntervalMisses(total_type,
+                                                              interval_type);
 }
 
 template <class Forwarder>
@@ -2153,6 +2458,10 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
       stats.max_last_underflow = last_underflow;
       stats.max_last_underflow_cpu_id = cpu;
     }
+    stats.max_capacity_misses +=
+        resize_[cpu].per_class[size_class].GetIntervalMisses(
+            PerClassMissType::kMaxCapacityTotal,
+            PerClassMissType::kMaxCapacityResize);
   }
   if (num_populated > 0) {
     stats.avg_capacity /= num_populated;
@@ -2194,12 +2503,15 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
     out->printf(
         "class %3d [ %8zu bytes ] : "
-        "%6zu (minimum), %7.1f (average), %6zu (maximum), %6zu maximum allowed "
-        "capacity (underflow: [%d us CPU %d, %d us CPU %d]; "
+        "%6zu (minimum), %7.1f (average), %6zu (maximum), %6zu maximum "
+        "allowed capacity, "
+        "maximum capacity misses %8zu, "
+        "(underflow: [%d us CPU %d, %d us CPU %d]; "
         "overflow [%d us CPU %d, %d us CPU %d]\n",
         size_class, forwarder_.class_to_size(size_class), stats.min_capacity,
         stats.avg_capacity, stats.max_capacity,
         GetMaxCapacity(size_class, freelist_.GetShift()),
+        stats.max_capacity_misses,
         absl::ToInt64Microseconds(stats.min_last_underflow),
         stats.min_last_underflow_cpu_id,
         absl::ToInt64Microseconds(stats.max_last_underflow),
@@ -2292,6 +2604,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
                    absl::ToInt64Nanoseconds(stats.min_last_overflow));
     entry.PrintI64("max_last_overflow_ns",
                    absl::ToInt64Nanoseconds(stats.max_last_overflow));
+    entry.PrintI64("max_capacity_misses", stats.max_capacity_misses);
   }
 
   // Record dynamic slab statistics.
@@ -2345,39 +2658,58 @@ inline uint32_t CpuCache<Forwarder>::PerClassResizeInfo::Tick() {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::PerClassResizeInfo::RecordMiss() {
-  auto& c = misses_[PerClassMissType::kTotal];
+inline void CpuCache<Forwarder>::PerClassResizeInfo::RecordMiss(
+    PerClassMissType type) {
+  auto& c = misses_[type];
   c.store(c.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 }
 
 template <class Forwarder>
-inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetTotalMisses() {
-  return misses_[PerClassMissType::kTotal].load(std::memory_order_relaxed);
+inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetTotalMisses(
+    PerClassMissType type) {
+  return misses_[type].load(std::memory_order_relaxed);
+}
+
+template <class Forwarder>
+inline size_t
+CpuCache<Forwarder>::PerClassResizeInfo::GetAndUpdateIntervalMisses(
+    PerClassMissType total_type, PerClassMissType interval_type) {
+  TC_ASSERT_LT(total_type, PerClassMissType::kNumTypes);
+  TC_ASSERT_LT(interval_type, PerClassMissType::kNumTypes);
+
+  const size_t total_misses =
+      misses_[total_type].load(std::memory_order_relaxed);
+  const size_t interval_misses =
+      misses_[interval_type].load(std::memory_order_relaxed);
+  misses_[interval_type].store(total_misses, std::memory_order_relaxed);
+  // In case of a size_t overflow, we wrap around to 0.
+  return total_misses > interval_misses ? total_misses - interval_misses : 0;
 }
 
 template <class Forwarder>
 inline size_t CpuCache<Forwarder>::PerClassResizeInfo::GetIntervalMisses(
-    PerClassMissType type) {
-  TC_ASSERT_NE(type, PerClassMissType::kTotal);
-  TC_ASSERT_LT(type, PerClassMissType::kNumTypes);
+    PerClassMissType total_type, PerClassMissType interval_type) {
+  TC_ASSERT_LT(total_type, PerClassMissType::kNumTypes);
+  TC_ASSERT_LT(interval_type, PerClassMissType::kNumTypes);
 
   const size_t total_misses =
-      misses_[PerClassMissType::kTotal].load(std::memory_order_relaxed);
-  const size_t interval_misses = misses_[type].load(std::memory_order_relaxed);
+      misses_[total_type].load(std::memory_order_relaxed);
+  const size_t interval_misses =
+      misses_[interval_type].load(std::memory_order_relaxed);
   // In case of a size_t overflow, we wrap around to 0.
   return total_misses > interval_misses ? total_misses - interval_misses : 0;
 }
 
 template <class Forwarder>
 void CpuCache<Forwarder>::PerClassResizeInfo::UpdateIntervalMisses(
-    PerClassMissType type) {
-  const size_t total_misses = GetTotalMisses();
+    PerClassMissType total_type, PerClassMissType interval_type) {
+  const size_t total_misses = GetTotalMisses(total_type);
   // Takes a snapshot of misses at the end of this interval so that we can
   // calculate the misses that occurred in the next interval.
   //
   // Interval updates occur on a single thread so relaxed stores to interval
   // miss stats are safe.
-  misses_[type].store(total_misses, std::memory_order_relaxed);
+  misses_[interval_type].store(total_misses, std::memory_order_relaxed);
 }
 
 }  // namespace cpu_cache_internal
