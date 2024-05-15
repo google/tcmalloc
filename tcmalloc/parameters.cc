@@ -232,7 +232,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
     MadvisePreference::kDontNeed);
-ABSL_CONST_INIT std::atomic<bool> Parameters::madvise_free_(false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::hpaa_cold_subrelease_(false);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
@@ -632,12 +631,6 @@ tcmalloc::tcmalloc_internal::MadvisePreference TCMalloc_Internal_GetMadvise() {
 void TCMalloc_Internal_SetMadvise(
     tcmalloc::tcmalloc_internal::MadvisePreference v) {
   Parameters::madvise_.store(v, std::memory_order_relaxed);
-}
-
-bool TCMalloc_Internal_GetMadviseFree() { return Parameters::madvise_free(); }
-
-void TCMalloc_Internal_SetMadviseFree(bool v) {
-  Parameters::madvise_free_.store(v, std::memory_order_relaxed);
 }
 
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {

@@ -60,21 +60,6 @@ using subtle::percpu::RseqVcpuMode;
 static absl::string_view MadviseString() {
   MadvisePreference pref = Parameters::madvise();
 
-  if (Parameters::madvise_free()) {
-    switch (pref) {
-      case MadvisePreference::kNever:
-        pref = MadvisePreference::kFreeOnly;
-        break;
-      case MadvisePreference::kDontNeed:
-        pref = MadvisePreference::kFreeAndDontNeed;
-        break;
-      case MadvisePreference::kFreeOnly:
-        break;
-      case MadvisePreference::kFreeAndDontNeed:
-        break;
-    }
-  }
-
   switch (pref) {
     case MadvisePreference::kNever:
       return "MADVISE_NEVER";

@@ -489,10 +489,6 @@ static bool ReleasePages(void* start, size_t length) {
 
 #ifdef MADV_FREE
   const bool do_madvfree = []() {
-    if (Parameters::madvise_free()) {
-      return true;
-    }
-
     switch (Parameters::madvise()) {
       case MadvisePreference::kFreeAndDontNeed:
       case MadvisePreference::kFreeOnly:
