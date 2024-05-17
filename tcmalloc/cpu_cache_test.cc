@@ -199,8 +199,6 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
-  bool UseWiderSlabs() const { return true; }
-
   bool ConfigureSizeClassMaxCapacity() const {
     return configure_size_class_max_capacity_;
   }
