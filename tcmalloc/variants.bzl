@@ -159,13 +159,13 @@ test_variants = [
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S"},
     },
     {
-        "name": "32k_no_hpaa",
-        "malloc": "//tcmalloc:tcmalloc_large_pages",
+        "name": "small_but_slow_no_hpaa",
+        "malloc": "//tcmalloc:tcmalloc_small_but_slow",
         "deps": [
-            "//tcmalloc:common_large_pages",
+            "//tcmalloc:common_small_but_slow",
             "//tcmalloc:want_no_hpaa",
         ],
-        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
+        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
     },
     {
         "name": "hpaa",
