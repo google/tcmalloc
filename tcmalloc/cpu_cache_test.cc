@@ -199,7 +199,7 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
-  bool UseWiderSlabs() const { return wider_slabs_enabled_; }
+  bool UseWiderSlabs() const { return true; }
 
   bool ConfigureSizeClassMaxCapacity() const {
     return configure_size_class_max_capacity_;
@@ -237,7 +237,6 @@ class TestStaticForwarder {
   bool dynamic_slab_enabled_ = false;
   double dynamic_slab_grow_threshold_ = -1;
   double dynamic_slab_shrink_threshold_ = -1;
-  bool wider_slabs_enabled_ = false;
   bool configure_size_class_max_capacity_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
@@ -456,10 +455,10 @@ TEST(CpuCacheTest, Metadata) {
   // calculated by MADV_NOHUGEPAGE'ing the memory used for the slab and
   // measuring the resident size.
   switch (shift_bounds.max_shift) {
-    case 12:
+    case 13:
       EXPECT_GE(r.resident_size, 4096);
       break;
-    case 18:
+    case 19:
       EXPECT_GE(r.resident_size, 8192);
       break;
     default:
@@ -1058,11 +1057,16 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
       PerClassMissType::kCapacityResize);
   EXPECT_EQ(interval_misses, 0);
 
+  EXPECT_EQ(cache.Unallocated(kCpuId), 0);
+  EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
+
   AllocateThenDeallocate(cache, kCpuId, kSmallClass, batch_size_small);
   interval_misses = cache.GetIntervalSizeClassMisses(
       kCpuId, kSmallClass, PerClassMissType::kCapacityTotal,
       PerClassMissType::kCapacityResize);
-  EXPECT_EQ(interval_misses, 0);
+  // Given all objects are allocated, cpu cache will still try to grow the
+  // capacity on an underflow and record one miss.
+  EXPECT_EQ(interval_misses, 1);
 
   EXPECT_EQ(cache.Unallocated(kCpuId), 0);
   EXPECT_EQ(cache.Allocated(kCpuId), max_cpu_cache_size);
@@ -1113,17 +1117,13 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
   cache.Reclaim(cpu_id);
 }
 
-class DynamicWideSlabTest
-    : public testing::TestWithParam<
-          std::tuple<bool /* use_wider_slab */,
-                     bool /* configure_size_class_max_capacity */>> {
+class DynamicWideSlabTest : public testing::TestWithParam<bool> {
  public:
-  bool use_wider_slab() { return std::get<0>(GetParam()); }
-  bool configure_size_class_max_capacity() { return std::get<1>(GetParam()); }
+  bool configure_size_class_max_capacity() { return GetParam(); }
 };
 
 INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
-                         testing::Combine(testing::Bool(), testing::Bool()));
+                         testing::Bool());
 
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the
@@ -1138,7 +1138,6 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   TestStaticForwarder& forwarder = cache.forwarder();
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
-  forwarder.wider_slabs_enabled_ = use_wider_slab();
   SizeMap size_map;
   size_map.Init(kSizeClasses.classes);
   forwarder.size_map_ = size_map;
@@ -1179,16 +1178,7 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
   EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
   cache.ResizeSlabIfNeeded();
 
-  // If wider slabs is enabled, we must use overflows and underflows of
-  // individual cpu caches to decide whether to grow the slab. Hence, the
-  // slab should have grown. If wider slabs is disabled, slab shift should
-  // stay the same as total miss ratio is lower than
-  // kDynamicSlabGrowThreshold.
-  if (use_wider_slab()) {
-    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
-  } else {
-    EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift);
-  }
+  EXPECT_EQ(CpuCachePeer::GetSlabShift(cache), shift + 1);
 }
 
 // Test that when dynamic slab parameters change, things still work.
@@ -1211,7 +1201,6 @@ TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
       TestStaticForwarder& forwarder = cache.forwarder();
       forwarder.dynamic_slab_enabled_ = initially_enabled;
       forwarder.dynamic_slab_ = initial_dynamic_slab;
-      forwarder.wider_slabs_enabled_ = use_wider_slab();
       forwarder.size_map_ = size_map;
 
       cache.Activate();

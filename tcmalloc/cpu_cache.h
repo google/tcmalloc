@@ -2199,8 +2199,11 @@ CpuCache<Forwarder>::ShouldResizeSlab() {
         GetAndUpdateIntervalCacheMissStats(cpu, MissCount::kSlabResize);
     total_misses += misses;
 
-    if (misses.overflows >
-        misses.underflows *
+    // If overflows to underflows ratio exceeds the threshold, grow the slab.
+    // Increase counts by 1 during comparison so that we can still compare the
+    // ratio to the threshold when underflows is zero.
+    if (misses.overflows + 1 >
+        (misses.underflows + 1) *
             forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
       resize = DynamicSlabResize::kGrow;
     }
@@ -2218,8 +2221,8 @@ CpuCache<Forwarder>::ShouldResizeSlab() {
   // If the slab size was infinite, we would expect 0 overflows. If the slab
   // size was 0, we would expect approximately equal numbers of underflows and
   // overflows.
-  if (total_misses.overflows >
-      total_misses.underflows *
+  if (total_misses.overflows + 1 >
+      (total_misses.underflows + 1) *
           forwarder_.per_cpu_caches_dynamic_slab_grow_threshold()) {
     return DynamicSlabResize::kGrow;
   } else if (total_misses.overflows <
