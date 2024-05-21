@@ -294,7 +294,7 @@ TEST(PageFlagsTest, Locked) {
       LOG(INFO) << "Got " << res->bytes_locked
                 << " bytes locked, pointer is at " << p;
 
-      if (res->bytes_locked == kNumPages * kPageSize / 2) {
+      if (res->bytes_locked == kNumPages * kPageSize) {
         break;
       }
     }
