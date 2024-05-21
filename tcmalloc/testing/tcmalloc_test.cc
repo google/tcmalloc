@@ -1618,5 +1618,9 @@ TEST(Check, CustomTypes) {
   EXPECT_DEATH(TC_CHECK_EQ(dur1, dur2), "dur1 == dur2 \\(1s == 2s\\)");
 }
 
+TEST(TCMalloc, MallocUsableSizeNullptr) {
+  EXPECT_EQ(malloc_usable_size(nullptr), 0);
+}
+
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

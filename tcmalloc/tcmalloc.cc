@@ -1506,6 +1506,10 @@ extern "C" int TCMallocInternalMallocInfo(int opts ABSL_ATTRIBUTE_UNUSED,
 }
 
 extern "C" size_t TCMallocInternalMallocSize(void* ptr) noexcept {
+  if (ptr == nullptr) {
+    return 0;
+  }
+
   TC_ASSERT(GetOwnership(ptr) !=
             tcmalloc::MallocExtension::Ownership::kNotOwned);
   return GetSize(ptr);
