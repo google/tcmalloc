@@ -710,7 +710,6 @@ cc_test(
     name = "span_fuzz",
     srcs = ["span_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/span_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
@@ -724,7 +723,6 @@ cc_test(
     name = "sizemap_fuzz",
     srcs = ["sizemap_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/sizemap_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":size_class_info",
@@ -755,7 +753,6 @@ cc_test(
     name = "transfer_cache_fuzz",
     srcs = ["transfer_cache_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/transfer_cache_fuzz/*"]),
     deps = [
         ":common_8k_pages",
         ":mock_central_freelist",
@@ -1035,7 +1032,6 @@ cc_test(
     name = "malloc_extension_fuzz",
     srcs = ["malloc_extension_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/malloc_extension_fuzz/*"]),
     deps = [
         ":malloc_extension",
         "@com_google_absl//absl/types:optional",

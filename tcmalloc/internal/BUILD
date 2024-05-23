@@ -957,7 +957,6 @@ cc_test(
     name = "sysinfo_fuzz",
     srcs = ["sysinfo_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/sysinfo_fuzz/*"]),
     deps = [
         ":sysinfo",
         "@com_google_fuzztest//fuzztest",
