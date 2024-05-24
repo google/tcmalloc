@@ -42,6 +42,7 @@
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
@@ -194,8 +195,8 @@ TEST(PageFlagsTest, Stale) {
       auto res = s.Get(p, kPageSize * kNumPages);
       ASSERT_TRUE(res.has_value());
       if (res->bytes_stale > kNumPages * kPageSize / 2) {
-        ABSL_RAW_LOG(INFO, "Got %ld bytes stale, pointer is at %p",
-                     res->bytes_stale, p);
+        LOG(INFO) << absl::StrFormat("Got %ld bytes stale, pointer is at %p",
+                                     res->bytes_stale, p);
         ok = true;
         break;
       }
