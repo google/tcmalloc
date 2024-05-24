@@ -25,8 +25,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstring>
 #include <initializer_list>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -46,6 +48,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/util.h"
 
 ABSL_FLAG(bool, check_staleness, false,
@@ -56,11 +59,23 @@ namespace tcmalloc_internal {
 
 class PageFlagsFriend {
  public:
-  explicit PageFlagsFriend(const char* const filename) : r_(filename) {}
+  explicit PageFlagsFriend() = default;
+  explicit PageFlagsFriend(absl::string_view filename) : r_(filename.data()) {}
 
   template <typename... Args>
   decltype(auto) Get(Args&&... args) {
     return r_.Get(std::forward<Args>(args)...);
+  }
+
+  decltype(auto) MaybeReadStaleScanSeconds(absl::string_view filename) {
+    return r_.MaybeReadStaleScanSeconds(filename.data());
+  }
+
+  decltype(auto) CachedScanSeconds() { return r_.cached_scan_seconds_; }
+
+  void SetCachedScanSeconds(
+      decltype(PageFlags::cached_scan_seconds_) scan_seconds) {
+    r_.cached_scan_seconds_ = scan_seconds;
   }
 
  private:
@@ -69,7 +84,7 @@ class PageFlagsFriend {
 
 std::ostream& operator<<(std::ostream& os, const PageFlags::PageStats& s) {
   return os << "{ stale = " << s.bytes_stale << ", locked = " << s.bytes_locked
-            << "}";
+            << ", stale_scan_seconds = " << s.stale_scan_seconds << "}";
 }
 
 namespace {
@@ -86,6 +101,17 @@ constexpr uint64_t kPageStale = (1UL << 44);
 constexpr size_t kPagemapEntrySize = 8;
 constexpr size_t kHugePageSize = 2 << 20;
 constexpr size_t kHugePageMask = ~(kHugePageSize - 1);
+
+// Write the given content into the given filename. Suitable only for tests.
+void SetContents(absl::string_view filename, absl::string_view content) {
+  int fd =
+      signal_safe_open(filename.data(), O_CREAT | O_WRONLY | O_TRUNC, 0644);
+  CHECK_NE(fd, -1) << errno << " while writing to " << filename;
+  int written =
+      signal_safe_write(fd, content.data(), content.length(), nullptr);
+  CHECK_EQ(written, content.length()) << errno;
+  CHECK_EQ(signal_safe_close(fd), 0) << errno;
+}
 
 TEST(PageFlagsTest, Smoke) {
   GTEST_SKIP() << "pageflags not commonly available";
@@ -126,6 +152,12 @@ TEST(PageFlagsTest, Alignment) {
   }
 }
 
+// Write an alternate "pageflags" file comprising all stale pages at the path
+// indicated by `filename`. The actual pageflags are copied from the pages that
+// obj spans, but we add KPF_STALE. The alternate pageflags file starts at 0, so
+// we return a pointer to `obj` in the alternate virtual memory space. If `obj`
+// is page-aligned, this is a zero pointer (not to be confused with a null
+// pointer).
 void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
   const size_t kPageSize = getpagesize();
 
@@ -135,9 +167,11 @@ void* GenerateAllStaleTest(absl::string_view filename, void* obj, size_t size) {
 
   off_t file_read_offset = pages_start / kPageSize * kPagemapEntrySize;
   int read_fd = signal_safe_open("/proc/self/pageflags", O_RDONLY);
-  CHECK_NE(read_fd, -1);
+  CHECK_NE(read_fd, -1)
+      << strerror(errno)
+      << " while reading pageflags; does your kernel support it?";
   int write_fd = signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR);
-  CHECK_NE(write_fd, -1);
+  CHECK_NE(write_fd, -1) << errno;
 
   CHECK_EQ(::lseek(read_fd, file_read_offset, SEEK_SET), file_read_offset);
   std::array<uint64_t, kHugePageSize / sizeof(uint64_t)> buf;
@@ -209,34 +243,51 @@ TEST(PageFlagsTest, Stale) {
         absl::StrCat(testing::TempDir(), "/fake_pageflags");
     void* fake_p =
         GenerateAllStaleTest(fake_pageflags, p, kNumPages * kPageSize);
-    PageFlagsFriend mocks(fake_pageflags.c_str());
+    // fake_p is likely already aligned, but might as well make sure. This is
+    // likely a zero pointer (not to be confused with nullptr).
+    void* base_p = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(fake_p) &
+                                           ~(kPageSize - 1));
+    PageFlagsFriend mocks(fake_pageflags);
+    constexpr uint64_t kSetScanSeconds = 63;
+    mocks.SetCachedScanSeconds(kSetScanSeconds);
     for (int num_pages = 0; num_pages < kNumPages; ++num_pages) {
       for (int offset = -1; offset <= 1; ++offset) {
         if (num_pages == 0 && offset == -1) continue;
+        // Messing around with scan_seconds is kind of confusing here but not as
+        // much overhead as adding a custom matcher. But if you add yet another
+        // field here it's time to write one.
+        uint64_t scan_seconds = kSetScanSeconds;
+        if (num_pages * kPageSize + offset == 0) scan_seconds = 0;
         // CAUTION: If you think this test is very flaky, it's possible it's
         // only passing when the machine you get scheduled on is out of
         // hugepages.
-        EXPECT_THAT(mocks.Get(nullptr, num_pages * kPageSize + offset),
-                    Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
+        EXPECT_THAT(mocks.Get(base_p, num_pages * kPageSize + offset),
+                    Optional(FieldsAre(num_pages * kPageSize + offset, 0,
+                                       scan_seconds)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(
             mocks.Get((char*)fake_p - offset, num_pages * kPageSize + offset),
-            Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
+            Optional(
+                FieldsAre(num_pages * kPageSize + offset, 0, scan_seconds)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(mocks.Get(fake_p, num_pages * kPageSize + offset),
-                    Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
+                    Optional(FieldsAre(num_pages * kPageSize + offset, 0,
+                                       scan_seconds)))
             << num_pages << "," << offset;
 
         EXPECT_THAT(
             mocks.Get((char*)fake_p + offset, num_pages * kPageSize + offset),
-            Optional(FieldsAre(num_pages * kPageSize + offset, 0)))
+            Optional(
+                FieldsAre(num_pages * kPageSize + offset, 0, scan_seconds)))
             << num_pages << "," << offset;
 
+        scan_seconds = kSetScanSeconds;
+        if (num_pages == 0) scan_seconds = 0;
         EXPECT_THAT(
             mocks.Get((char*)kHugePageSize + offset, num_pages * kPageSize),
-            Optional(FieldsAre(num_pages * kPageSize, 0)))
+            Optional(FieldsAre(num_pages * kPageSize, 0, scan_seconds)))
             << num_pages << "," << offset;
       }
     }
@@ -244,7 +295,7 @@ TEST(PageFlagsTest, Stale) {
     EXPECT_THAT(mocks.Get(reinterpret_cast<char*>(2 * kHugePageSize +
                                                   16 * kPageSize + 2),
                           kHugePageSize * 3),
-                Optional(FieldsAre(kHugePageSize * 3, 0)));
+                Optional(FieldsAre(kHugePageSize * 3, 0, kSetScanSeconds)));
   }
 
   ASSERT_EQ(munmap(p, kNumPages * kPageSize), 0) << errno;
@@ -293,7 +344,7 @@ TEST(PageFlagsTest, Locked) {
     ASSERT_TRUE(res.has_value());
     if (res->bytes_locked > kNumPages * kPageSize / 2) {
       LOG(INFO) << "Got " << res->bytes_locked
-                << " bytes locked, pointer is at " << p;
+                << " bytes locked, pointer is at " << (uintptr_t)p;
 
       if (res->bytes_locked == kNumPages * kPageSize) {
         break;
@@ -327,7 +378,7 @@ TEST(PageFlagsTest, OnlyTails) {
       << errno;
   ASSERT_EQ(close(write_fd), 0) << errno;
 
-  PageFlagsFriend s(file_path.c_str());
+  PageFlagsFriend s(file_path);
   ASSERT_EQ(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
             std::nullopt);
 }
@@ -354,7 +405,7 @@ TEST(PageFlagsTest, TooManyTails) {
       << errno;
   ASSERT_EQ(close(write_fd), 0) << errno;
 
-  PageFlagsFriend s(file_path.c_str());
+  PageFlagsFriend s(file_path);
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
               Optional(PageStats{}));
   EXPECT_THAT(s.Get(reinterpret_cast<char*>(kHugePageSize), 3 * kHugePageSize),
@@ -387,7 +438,7 @@ TEST(PageFlagsTest, NotThp) {
       << errno;
   ASSERT_EQ(close(write_fd), 0) << errno;
 
-  PageFlagsFriend s(file_path.c_str());
+  PageFlagsFriend s(file_path);
   EXPECT_THAT(s.Get(nullptr, kHugePageSize), std::nullopt);
 }
 
@@ -404,6 +455,73 @@ TEST(PageFlagsTest, CannotRead) {
 TEST(PageFlagsTest, CannotSeek) {
   PageFlagsFriend s("/dev/null");
   EXPECT_FALSE(s.Get(&s, 1).has_value());
+}
+
+// For this and the following tests, the EXPECT_* macros allocate memory so
+// that's why we have a strange dance with resetting the AllocationGuard.
+TEST(StaleSeconds, Read) {
+  GTEST_SKIP() << "pageflags not commonly available";
+  // Allocate at least a couple hugepages or pageflags might have a short read.
+  auto alloc = std::make_unique<std::array<char, (1 << 22)>>();
+
+  std::string fake_pageflags =
+      absl::StrCat(testing::TempDir(), "/fake_pageflags2");
+  void* fake_p = GenerateAllStaleTest(fake_pageflags, &*alloc, 1);
+  std::string fake_stale_seconds =
+      absl::StrCat(testing::TempDir(), "/fake_stale_seconds");
+  SetContents(fake_stale_seconds, "123");
+
+  std::optional<AllocationGuard> g;
+  g.emplace();
+  PageFlagsFriend s(fake_pageflags);
+  auto read_seconds = s.MaybeReadStaleScanSeconds(fake_stale_seconds);
+  auto result = s.Get(fake_p, 1);
+  g.reset();
+
+  EXPECT_THAT(read_seconds, 123);
+  EXPECT_THAT(result, Optional(FieldsAre(1, 0, 123)));
+}
+
+void ExpectStaleSecondsFailedReadFrom(absl::string_view filename) {
+  std::optional<AllocationGuard> g;
+  g.emplace();
+  PageFlagsFriend s;
+  auto read_seconds = s.MaybeReadStaleScanSeconds(filename);
+  auto cached_seconds = s.CachedScanSeconds();
+  g.reset();
+
+  EXPECT_EQ(read_seconds, cached_seconds);
+  EXPECT_EQ(cached_seconds, 0);
+}
+
+TEST(StaleSeconds, NotFound) {
+  ExpectStaleSecondsFailedReadFrom(absl::StrCat(
+      testing::TempDir(), "/nonexistent-f52a3d06-ee84-42c1-a298-a93a4b164ff0"));
+}
+
+TEST(StaleSeconds, Bad) {
+  std::string fake_stale_seconds =
+      absl::StrCat(testing::TempDir(), "/fake_stale_seconds2");
+  SetContents(fake_stale_seconds, "[always]");
+
+  ExpectStaleSecondsFailedReadFrom(fake_stale_seconds);
+}
+
+TEST(StaleSeconds, IntOutOfBounds) {
+  std::string fake_stale_seconds =
+      absl::StrCat(testing::TempDir(), "/fake_stale_seconds3");
+  SetContents(fake_stale_seconds, "-1");
+
+  ExpectStaleSecondsFailedReadFrom(fake_stale_seconds);
+}
+
+TEST(StaleSeconds, TextOverflow) {
+  std::string fake_stale_seconds =
+      absl::StrCat(testing::TempDir(), "/fake_stale_seconds4");
+  std::string contents(1 << 22, '9');
+  SetContents(fake_stale_seconds, contents);
+
+  ExpectStaleSecondsFailedReadFrom(fake_stale_seconds);
 }
 
 }  // namespace

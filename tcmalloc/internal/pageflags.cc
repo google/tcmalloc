@@ -27,7 +27,9 @@
 #include <optional>
 
 #include "absl/base/optimization.h"
+#include "absl/cleanup/cleanup.h"
 #include "absl/status/status.h"
+#include "absl/strings/numbers.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
@@ -209,6 +211,9 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
       return std::nullopt;
     }
     MaybeAddToStats(ret, result_flags, size);
+    if (ret.bytes_stale > 0) {
+      ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
+    }
     return ret;
   }
 
@@ -243,6 +248,10 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
       // This hugepage represents every single page that this object is on;
       // we're done.
       MaybeAddToStats(ret, result_flags, size);
+
+      if (ret.bytes_stale > 0) {
+        ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
+      }
       return ret;
     }
 
@@ -278,7 +287,40 @@ std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
     return std::nullopt;
   }
   MaybeAddToStats(ret, result_flags, lastPageSize);
+
+  if (ret.bytes_stale > 0) {
+    ret.stale_scan_seconds = MaybeReadStaleScanSeconds();
+  }
   return ret;
+}
+
+uint64_t PageFlags::MaybeReadStaleScanSeconds(const char* filename) {
+  if (cached_scan_seconds_ != 0) return cached_scan_seconds_;
+
+  int fd = signal_safe_open(filename, O_RDONLY);
+  if (fd == -1) {
+    TC_LOG("could not open %s (errno %d)", filename, errno);
+    return 0;
+  }
+  absl::Cleanup closer([fd] { signal_safe_close(fd); });
+  char buf[32];
+  int read = signal_safe_read(fd, buf, 32, /*bytes_read=*/nullptr);
+  if (read == -1) {
+    TC_LOG("could not read %s (errno %d)", filename, errno);
+    return 0;
+  }
+  if (read >= 32) {
+    buf[31] = '\0';
+    TC_LOG("read nonsense from %s (%s)", filename, buf);
+    return 0;
+  }
+  buf[read] = '\0';
+  if (!absl::SimpleAtoi(buf, &cached_scan_seconds_)) {
+    TC_LOG("read nonsense from %s (%s)", filename, buf);
+    cached_scan_seconds_ = 0;
+  }
+
+  return cached_scan_seconds_;
 }
 
 }  // namespace tcmalloc_internal

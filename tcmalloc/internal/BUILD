@@ -376,7 +376,9 @@ cc_library(
         ":page_size",
         ":util",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -388,6 +390,7 @@ cc_test(
     tags = [
     ],
     deps = [
+        ":allocation_guard",
         ":pageflags",
         ":util",
         "@com_github_google_benchmark//:benchmark",

@@ -52,11 +52,22 @@ class PageFlags {
   struct PageStats {
     size_t bytes_stale = 0;
     size_t bytes_locked = 0;
+    // The number of seconds that must elapse (at minimum) for a page to be
+    // considered "stale". 0 indicates that kstaled is disabled or we weren't
+    // able to read from the scan_seconds sysfs control. (See b/111239799
+    // regarding machines that disable kstaled).
+    //
+    // This isn't set if bytes_stale is zero because there are no bytes
+    // that it would refer to, and Get(nullptr, 0) will return an all-zero
+    // object as expected.
+    uint64_t stale_scan_seconds = 0;
 
     // This is currently used only by tests. It'll be good to convert this to
     // C++20 "= default" when we increase the baseline compiler requirement.
     bool operator==(const PageStats& rhs) const {
-      return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked;
+      return bytes_stale == rhs.bytes_stale &&
+             bytes_locked == rhs.bytes_locked &&
+             stale_scan_seconds == rhs.stale_scan_seconds;
     }
 
     bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
@@ -88,6 +99,11 @@ class PageFlags {
   // last Seek() or last Read operation.
   absl::StatusCode ReadMany(int64_t num_pages, PageStats& output);
 
+  static constexpr const char* kKstaledScanSeconds =
+      "/sys/kernel/mm/kstaled/scan_seconds";
+  uint64_t MaybeReadStaleScanSeconds(
+      const char* filename = kKstaledScanSeconds);
+
   // For testing.
   friend class PageFlagsFriend;
   explicit PageFlags(const char* alternate_filename);
@@ -110,6 +126,8 @@ class PageFlags {
   // pages, we use the information from this page to determine staleness of the
   // tail page.
   uint64_t last_head_read_ = -1;
+  // Scan seconds. If zero, unknown / disabled.
+  uint64_t cached_scan_seconds_ = 0;
   const int fd_;
 };
 
