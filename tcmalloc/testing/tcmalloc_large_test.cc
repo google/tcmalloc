@@ -198,7 +198,19 @@ TEST_F(LargeAllocationTest, NearMaxAddressBits) {
   // For -1 <= i < 5, we expect all allocations to fail.  For -6 <= i < -1, the
   // allocation might succeed but create so much pagemap metadata that we exceed
   // test memory limits and OOM.  So we skip that range.
+#ifdef MEMORY_SANITIZER
+  for (int i = -7; i < -6; ++i) {
+    // Prior to cl/635999531
+    // (https://github.com/llvm/llvm-project/commit/511077df763752fd2c187e4ca1a3ada335b77804),
+    // MSan's allocation limit was 8GB, which meant these
+    // allocations would quickly be declined. After cl/635999531, the limit is
+    // 1 << 40, which means MSan will happily try to allocate, say,
+    // 1 << (48 + -10) == 256GB; due to inefficiency in MSan, this will OOM on
+    // many systems.
+    // For i == -7, the allocation will be declined by MSan.
+#else
   for (int i = -10; i < -6; ++i) {
+#endif
     TryAllocMightFail(size_t{1} << (kAddressBits + i));
   }
   for (int i = -1; i < 5; ++i) {
