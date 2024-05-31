@@ -40,8 +40,10 @@
 #include <string.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <functional>
+#include <initializer_list>
 #include <limits>
 #include <new>
 #include <optional>
@@ -1547,6 +1549,50 @@ TEST(HotColdTest, HotColdNewMinHotFlag) {
 
   // Reset parameter to default.
   Parameters::set_min_hot_access_hint(kDefaultMinHotAccessHint);
+}
+
+TEST(HotColdTest, SampleHasRuntimeHint) {
+  const bool expectColdTags = tcmalloc_internal::ColdFeatureActive();
+  if (!expectColdTags) {
+    GTEST_SKIP() << "Cold allocations not enabled";
+  }
+
+  constexpr size_t kSmall = 128 << 10;
+  constexpr size_t kLarge = 1 << 20;
+
+  std::array<void*, 6> ptrs;
+  ScopedAlwaysSample always_sample;
+  auto token = MallocExtension::StartAllocationProfiling();
+  {
+    ptrs[0] = operator new(kLarge, static_cast<hot_cold_t>(1));
+    ptrs[1] = operator new(kSmall, static_cast<hot_cold_t>(2));
+    ptrs[2] = operator new(kLarge, std::nothrow, static_cast<hot_cold_t>(3));
+    ptrs[3] = operator new(kSmall, std::nothrow, static_cast<hot_cold_t>(4));
+    ptrs[4] = operator new(kLarge, std::align_val_t{8}, std::nothrow,
+                           static_cast<hot_cold_t>(5));
+    ptrs[5] = operator new(kSmall, std::align_val_t{8}, std::nothrow,
+                           static_cast<hot_cold_t>(6));
+  }
+  auto profile = std::move(token).Stop();
+
+  for (auto* ptr : ptrs) {
+    ::operator delete(ptr);
+  }
+
+  std::vector<hot_cold_t> hints;
+  profile.Iterate([&](const Profile::Sample& sample) {
+    hints.push_back(sample.access_hint);
+  });
+
+  ASSERT_THAT(hints, testing::SizeIs(ptrs.size()));
+  EXPECT_THAT(hints, testing::UnorderedElementsAreArray({
+                         static_cast<hot_cold_t>(1),
+                         static_cast<hot_cold_t>(2),
+                         static_cast<hot_cold_t>(3),
+                         static_cast<hot_cold_t>(4),
+                         static_cast<hot_cold_t>(5),
+                         static_cast<hot_cold_t>(6),
+                     }));
 }
 
 // Test that when we use size-returning new, we can pass any of the sizes

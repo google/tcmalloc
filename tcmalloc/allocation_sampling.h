@@ -101,19 +101,19 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
 template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
-                                         Span* span) {
+                                         Span* span, hot_cold_t hint) {
   return SampleifyAllocation(state, requested_size, policy.align(), weight, 0,
-                             policy.access(), policy.size_returning(), nullptr,
-                             span);
+                             hint, policy.size_returning(), nullptr, span);
 }
 
 template <typename Policy>
 static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
-                                         size_t size_class, sized_ptr_t res) {
+                                         size_t size_class, sized_ptr_t res,
+                                         hot_cold_t hint) {
   return SampleifyAllocation(state, requested_size, policy.align(), weight,
-                             size_class, policy.access(),
-                             policy.size_returning(), res.p, nullptr);
+                             size_class, hint, policy.size_returning(), res.p,
+                             nullptr);
 }
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END
