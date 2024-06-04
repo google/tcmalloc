@@ -505,7 +505,6 @@ class HugeRegionSetTest
   static void Advance(absl::Duration d) {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
   }
-  static void ResetClock() { clock_ = 1234; }
 
   HugeRegionSetTest()
       : set_(/*use_huge_region_more_often=*/GetParam(),
