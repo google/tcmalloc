@@ -16,7 +16,11 @@
 #define TCMALLOC_INTERNAL_LINUX_SYSCALL_SUPPORT_H_
 
 #ifdef __linux__
+#ifdef __has_include
+#if __has_include(<linux/kernel-page-flags.h>)
 #include <linux/kernel-page-flags.h>
+#endif  // __has_include(<linux/kernel-page-flags.h>)
+#endif  // __has_include
 #endif  // __linux__
 
 /* include/uapi/linux/rseq.h                                                 */
