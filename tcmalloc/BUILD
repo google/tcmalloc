@@ -1459,11 +1459,30 @@ cc_test(
     name = "want_legacy_size_classes_test",
     srcs = ["want_legacy_size_classes_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    env = {"BORG_DISABLE_EXPERIMENTS": "all"},
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
+        ":experiment",
         ":want_legacy_size_classes",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/types:span",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "want_legacy_size_classes_ignore_test",
+    srcs = ["want_legacy_size_classes_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    env = {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY"},
+    malloc = "//tcmalloc",
+    deps = [
+        ":common_8k_pages",
+        ":experiment",
+        ":want_legacy_size_classes",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )

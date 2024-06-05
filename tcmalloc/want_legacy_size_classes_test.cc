@@ -16,7 +16,10 @@
 
 #include "gtest/gtest.h"
 #include "absl/base/macros.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 
@@ -32,10 +35,18 @@ TEST(SizeClassesTest, SmallClasses) {
     GTEST_SKIP() << "Unexpected default new alignment.";
 
   const size_t kExpectedClasses[] = {0, 8, 16, 24, 32, 40, 48, 56, 64};
-  const size_t kExpectedClassesSize = ABSL_ARRAYSIZE(kExpectedClasses);
-  ASSERT_LE(kExpectedClassesSize, kNumClasses);
-  for (int c = 0; c < kExpectedClassesSize; ++c) {
-    EXPECT_EQ(Static::sizemap().class_to_size(c), kExpectedClasses[c]) << c;
+  const size_t kOrdinaryClasses[] = {0, 8, 16, 32, 64};
+
+  absl::Span<const size_t> classes;
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY)) {
+    classes = absl::MakeSpan(kOrdinaryClasses);
+  } else {
+    classes = absl::MakeSpan(kExpectedClasses);
+  }
+
+  ASSERT_LE(classes.size(), kNumClasses);
+  for (int c = 0; c < classes.size(); ++c) {
+    EXPECT_EQ(Static::sizemap().class_to_size(c), classes[c]) << c;
   }
 }
 

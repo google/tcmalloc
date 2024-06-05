@@ -30,6 +30,7 @@ enum class Experiment : int {
   TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES,  // TODO(b/294132292): Complete experiment.
   TEST_ONLY_TCMALLOC_BIG_SPAN,  // TODO(b/304135905): Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
+  TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY,  // TODO(b/338963740): Complete experiment.
   kMaxExperimentID,
   // clang-format on
 };
@@ -49,6 +50,7 @@ inline constexpr ExperimentConfig experiments[] = {
     {Experiment::TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES, "TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES"},
     {Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN, "TEST_ONLY_TCMALLOC_BIG_SPAN"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
+    {Experiment::TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY, "TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY"},
 };
 // clang-format on
 
