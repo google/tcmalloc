@@ -644,6 +644,48 @@ TEST_P(HugeRegionSetTest, ReleaseZero) {
             Length(0));
 }
 
+// Tests that HugeRegions releases fraction of hugepages when desired pages is
+// set to zero. Because HugeRegion releases complete hugepages, for cases when
+// malloc release rate is set to zero, this ensures that we still release a
+// fraction of free hugepages.
+TEST_P(HugeRegionSetTest, ReleaseZeroPages) {
+  absl::BitGen rng;
+  PageId p;
+  constexpr Length kSize = kPagesPerHugePage + Length(1);
+  bool from_released;
+  ASSERT_FALSE(set_.MaybeGet(Length(1), &p, &from_released));
+  auto r1 = GetRegion();
+  set_.Contribute(r1.get());
+
+  std::vector<Alloc> allocs;
+
+  while (set_.MaybeGet(kSize, &p, &from_released)) {
+    allocs.push_back({p, kSize});
+  }
+  BackingStats stats = set_.stats();
+  EXPECT_EQ(stats.unmapped_bytes, 0);
+
+  for (auto a : allocs) {
+    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+  }
+
+  stats = set_.stats();
+  EXPECT_EQ(stats.unmapped_bytes,
+            UseHugeRegionMoreOften() ? 0 : stats.system_bytes);
+  // All the huge pages in the region would be free, but backed, when
+  // huge-region-more-often feature is enabled.
+  EXPECT_EQ(r1->free_backed().raw_num(),
+            UseHugeRegionMoreOften() ? Region::size().raw_num() : 0);
+  HugeLength expected =
+      UseHugeRegionMoreOften()
+          ? HugeLength(kFractionToReleaseFromRegion * Region::size().raw_num())
+          : NHugePages(0);
+  Length released = ReleasePagesByPeakDemand(Length(0));
+  stats = set_.stats();
+  EXPECT_EQ(released.in_bytes(),
+            UseHugeRegionMoreOften() ? expected.in_bytes() : 0);
+}
+
 // Tests the number of pages that are released for different skip subrelease
 // intervals.
 TEST_P(HugeRegionSetTest, SkipSubrelease) {

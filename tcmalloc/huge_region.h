@@ -38,6 +38,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+constexpr double kFractionToReleaseFromRegion = 0.1;
 enum class HugeRegionUsageOption : bool {
   // This is a default behavior. We use slack to determine when to use
   // HugeRegion. When slack is greater than 64MB (to ignore small binaries), and
@@ -683,6 +684,16 @@ inline void HugeRegionSet<Region>::Contribute(Region* region) {
 template <typename Region>
 inline Length HugeRegionSet<Region>::ReleasePagesByPeakDemand(
     Length desired, SkipSubreleaseIntervals intervals, bool hit_limit) {
+  // Because we are releasing fully-freed hugepages, in cases when malloc
+  // release rate is set to zero, we would still want to release some pages,
+  // provided it is allowed by the demand-based release strategy. We try to
+  // release up to 10% of the free and backed hugepages.
+  if (!hit_limit && desired == Length(0)) {
+    size_t new_desired =
+        kFractionToReleaseFromRegion * free_backed().in_pages().raw_num();
+    desired = Length(new_desired);
+  }
+
   // Only reduce desired if skip subrelease is on.
   //
   // Additionally, if we hit the limit, we should not be applying skip

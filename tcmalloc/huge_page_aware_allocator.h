@@ -850,20 +850,18 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // number of pages.
   if (regions_.UseHugeRegionMoreOften()) {
     if (forwarder_.huge_region_demand_based_release()) {
-      if (released < num_pages) {
-        released += regions_.ReleasePagesByPeakDemand(
-            num_pages - released,
-            SkipSubreleaseIntervals{
-                .peak_interval = forwarder_.filler_skip_subrelease_interval(),
-                .short_interval =
-                    forwarder_.filler_skip_subrelease_short_interval(),
-                .long_interval =
-                    forwarder_.filler_skip_subrelease_long_interval()},
-            /*hit_limit*/ false);
-      }
+      Length desired = released > num_pages ? Length(0) : num_pages - released;
+      released += regions_.ReleasePagesByPeakDemand(
+          desired,
+          SkipSubreleaseIntervals{
+              .peak_interval = forwarder_.filler_skip_subrelease_interval(),
+              .short_interval =
+                  forwarder_.filler_skip_subrelease_short_interval(),
+              .long_interval =
+                  forwarder_.filler_skip_subrelease_long_interval()},
+          /*hit_limit*/ false);
     } else {
-      constexpr double kFractionPagesToRelease = 0.1;
-      released += regions_.ReleasePages(kFractionPagesToRelease);
+      released += regions_.ReleasePages(kFractionToReleaseFromRegion);
     }
   }
 
