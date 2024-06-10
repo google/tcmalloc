@@ -46,8 +46,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-const size_t GuardedPageAllocator::kMagicSize;  // NOLINT
-
 void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
   TC_CHECK_GT(max_alloced_pages, 0);
   TC_CHECK_LE(max_alloced_pages, total_pages);

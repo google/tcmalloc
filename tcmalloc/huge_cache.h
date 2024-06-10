@@ -95,9 +95,6 @@ class MinMaxTracker {
 extern template class MinMaxTracker<>;
 extern template class MinMaxTracker<600>;
 
-template <size_t kEpochs>
-constexpr HugeLength MinMaxTracker<kEpochs>::kMaxVal;
-
 class HugeCache {
  public:
   // For use in production
