@@ -148,7 +148,7 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   TC_ASSERT(alignment == 0 || absl::has_single_bit(alignment));
   void* result = reinterpret_cast<void*>(SlotToAddr(free_slot));
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
-    TC_ASSERT(false && "mprotect failed");
+    TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
     AllocationGuardSpinLockHolder h(&guarded_page_lock_);
     num_failed_allocations_.LossyAdd(1);
     num_successful_allocations_.LossyAdd(-1);
@@ -312,7 +312,7 @@ void GuardedPageAllocator::MapPages() {
   const PageId page = PageIdContaining(reinterpret_cast<void*>(base_addr));
   const Length page_len = BytesToLengthFloor(len);
   if (!tc_globals.pagemap().Ensure(page, page_len)) {
-    TC_ASSERT(false && "Failed to notify page map of page-guarded memory.");
+    TC_ASSERT(false, "Failed to notify page map of page-guarded memory.");
     return;
   }
 
