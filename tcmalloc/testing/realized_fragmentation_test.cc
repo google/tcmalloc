@@ -157,7 +157,6 @@ TEST(RealizedFragmentation, Accuracy) {
   void* small_list_keep = nullptr;
   int kept = 0;
   void* small_list_free = nullptr;
-  int freed = 0;
 
   for (size_t total = 0; total < kSmallTarget; total += kSmallSize) {
     void* object = ::operator new(kSmallSize);
@@ -166,7 +165,6 @@ TEST(RealizedFragmentation, Accuracy) {
       kept++;
     } else {
       SLL_Push(&small_list_free, object);
-      freed++;
     }
   }
 

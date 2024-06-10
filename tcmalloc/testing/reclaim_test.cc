@@ -154,9 +154,7 @@ TEST(ReclaimTest, ReclaimStable) {
         TC_CHECK(!tcmalloc_internal::subtle::percpu::IsFastNoInit());
       }
 
-      int iter = 0;
       while (!sync->load(std::memory_order_acquire)) {
-        iter++;
         for (int i = 0, num_cpus = tcmalloc_internal::NumCPUs(); i < num_cpus;
              ++i) {
           MallocExtension::ReleaseCpuMemory(i);
