@@ -137,7 +137,8 @@ class GuardedPageAllocator {
   //
   // Precondition:  size and alignment <= page_size_
   // Precondition:  alignment is 0 or a power of 2
-  GuardedAllocWithStatus Allocate(size_t size, size_t alignment)
+  GuardedAllocWithStatus Allocate(size_t size, size_t alignment,
+                                  const StackTrace& stack_trace)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Deallocates memory pointed to by ptr.  ptr must have been previously
@@ -186,9 +187,8 @@ class GuardedPageAllocator {
 
   // Returns the number of pages available for allocation, based on how many are
   // currently in use.  (Should only be used in testing.)
-  size_t GetNumAvailablePages() ABSL_LOCKS_EXCLUDED(guarded_page_lock_) {
-    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    return max_alloced_pages_ - num_alloced_pages_;
+  size_t GetNumAvailablePages() const {
+    return max_alloced_pages_ - num_alloced_pages();
   }
 
   size_t SuccessfulAllocations() { return num_successful_allocations_.value(); }
@@ -268,7 +268,18 @@ class GuardedPageAllocator {
   // Returns a random number in range [0, max).
   size_t Rand(size_t max);
 
-  StackTraceFilter stacktrace_filter_;
+  size_t num_alloced_pages() const {
+    return num_alloced_pages_.load(std::memory_order_relaxed);
+  }
+
+  // DecayingStackTraceFilter instance to limit allocations already covered by a
+  // current or recent allocation.
+  //
+  // With the chosen configuration, assuming 90% unique allocations in a fully
+  // utilized pool (in the worst case), the CBF will have a false positive
+  // probability of 20%. In more moderate scenarios with unique allocations of
+  // 80% or below, the probability of false positives will be below 10%.
+  DecayingStackTraceFilter<kGpaMaxPages * 3, 2, 32> stacktrace_filter_;
 
   absl::base_internal::SpinLock guarded_page_lock_;
 
@@ -276,8 +287,9 @@ class GuardedPageAllocator {
   // true: reserved. false: freed.
   Bitmap<kGpaMaxPages> used_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
 
-  // Number of currently-allocated pages.
-  size_t num_alloced_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
+  // Number of currently-allocated pages. Atomic so it may be accessed outside
+  // the guarded_page_lock_ to calculate heuristics based on pool utilization.
+  std::atomic<size_t> num_alloced_pages_;
 
   // The high-water mark for num_alloced_pages_.
   size_t num_alloced_pages_max_ ABSL_GUARDED_BY(guarded_page_lock_);

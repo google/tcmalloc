@@ -82,7 +82,6 @@ void GuardedPageAllocator::Reset() {
   // guarded sampling for a prolonged time due to accumulated stats.
   tc_globals.total_sampled_count_.Add(-tc_globals.total_sampled_count_.value());
   num_successful_allocations_.Add(-num_successful_allocations_.value());
-  stacktrace_filter_.Reset();
 }
 
 GuardedAllocWithStatus GuardedPageAllocator::TrySample(
@@ -113,31 +112,17 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
     }
 
-    switch (stacktrace_filter_.Count(stack_trace)) {
-      case 0:
-        // Fall through to allocation below.
-        break;
-      case 1:
-        /* 25% */
-        if (Rand(/*max=*/4) != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      case 2:
-        /* 12.5% */
-        if (Rand(/*max=*/8) != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      case 3:
-        /* ~1% */
-        if (Rand(/*max=*/128) != 0) {
-          return {nullptr, Profile::Sample::GuardedStatus::Filtered};
-        }
-        break;
-      default:
-        // Reached max per stack.
+    if (stacktrace_filter_.Contains({stack_trace.stack, stack_trace.depth})) {
+      // The probability that we skip a currently covered allocation scales
+      // proportional to pool utilization, with pool utilization of 50% or more
+      // resulting in always filtering currently covered allocations.
+      const size_t usage_pct = (num_alloced_pages() * 100) / max_alloced_pages_;
+      if (Rand(50) <= usage_pct) {
+        // Decay even if the current allocation is filtered, so that we keep
+        // sampling even if we only see the same allocations over and over.
+        stacktrace_filter_.Decay();
         return {nullptr, Profile::Sample::GuardedStatus::Filtered};
+      }
     }
   }
   // The num_pages == 1 constraint ensures that size <= kPageSize.  And
@@ -146,15 +131,11 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
   //
   // In all cases kPageSize <= GPA::page_size_, so Allocate's preconditions
   // are met.
-  auto alloc_with_status = Allocate(size, alignment);
-  if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
-    stacktrace_filter_.Add(stack_trace);
-  }
-  return alloc_with_status;
+  return Allocate(size, alignment, stack_trace);
 }
 
-GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
-                                                      size_t alignment) {
+GuardedAllocWithStatus GuardedPageAllocator::Allocate(
+    size_t size, size_t alignment, const StackTrace& stack_trace) {
   if (size == 0) {
     return {nullptr, Profile::Sample::GuardedStatus::TooSmall};
   }
@@ -191,14 +172,18 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(size_t size,
           num_successful_allocations_.value();
     }
   }
-  d.dealloc_trace.depth = 0;
-  d.alloc_trace.depth = absl::GetStackTrace(d.alloc_trace.stack, kMaxStackDepth,
-                                            /*skip_count=*/3);
+
+  static_assert(sizeof(d.alloc_trace.stack) == sizeof(stack_trace.stack));
+  memcpy(d.alloc_trace.stack, stack_trace.stack,
+         stack_trace.depth * sizeof(stack_trace.stack[0]));
+  d.alloc_trace.depth = stack_trace.depth;
   d.alloc_trace.thread_id = absl::base_internal::GetTID();
+  d.dealloc_trace.depth = 0;
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
-
   TC_ASSERT(!alignment || d.allocation_start % alignment == 0);
+
+  stacktrace_filter_.Add({stack_trace.stack, stack_trace.depth}, 1);
   return {result, Profile::Sample::GuardedStatus::Guarded};
 }
 
@@ -226,11 +211,14 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
 
   // Record stack trace.
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-  GuardedAllocationsStackTrace& trace = data_[slot].dealloc_trace;
-  trace.depth = absl::GetStackTrace(trace.stack, kMaxStackDepth,
-                                    /*skip_count=*/2);
-  trace.thread_id = absl::base_internal::GetTID();
+  SlotMetadata& d = data_[slot];
+  d.dealloc_trace.depth =
+      absl::GetStackTrace(d.dealloc_trace.stack, kMaxStackDepth,
+                          /*skip_count=*/2);
+  d.dealloc_trace.thread_id = absl::base_internal::GetTID();
 
+  // Remove allocation (based on allocation stack trace) from filter.
+  stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
   FreeSlot(slot);
 }
 
@@ -284,17 +272,13 @@ void GuardedPageAllocator::Print(Printer* out) {
       "Slots Currently Allocated: %zu\n"
       "Slots Currently Quarantined: %zu\n"
       "Maximum Slots Allocated: %zu / %zu\n"
-      "StackTraceFilter Max Slots Used: %zu\n"
-      "StackTraceFilter Replacement Inserts: %zu\n"
       "Total Slots Used Once: %zu / %zu\n"
       "Allocation Count When All Slots Used Once: %zu\n"
       "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
       num_successful_allocations_.value(), num_failed_allocations_.value(),
-      num_alloced_pages_, total_pages_ - num_alloced_pages_,
-      num_alloced_pages_max_, max_alloced_pages_,
-      stacktrace_filter_.max_slots_used(),
-      stacktrace_filter_.replacement_inserts(), total_pages_used_, total_pages_,
-      alloced_page_count_when_all_used_once_, GetChainedRate());
+      num_alloced_pages(), total_pages_ - num_alloced_pages(),
+      num_alloced_pages_max_, max_alloced_pages_, total_pages_used_,
+      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
@@ -302,15 +286,11 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("successful_allocations",
                      num_successful_allocations_.value());
   gwp_asan->PrintI64("failed_allocations", num_failed_allocations_.value());
-  gwp_asan->PrintI64("current_slots_allocated", num_alloced_pages_);
+  gwp_asan->PrintI64("current_slots_allocated", num_alloced_pages());
   gwp_asan->PrintI64("current_slots_quarantined",
-                     total_pages_ - num_alloced_pages_);
+                     total_pages_ - num_alloced_pages());
   gwp_asan->PrintI64("max_slots_allocated", num_alloced_pages_max_);
   gwp_asan->PrintI64("allocated_slot_limit", max_alloced_pages_);
-  gwp_asan->PrintI64("stack_trace_filter_max_slots_used",
-                     stacktrace_filter_.max_slots_used());
-  gwp_asan->PrintI64("stack_trace_filter_replacement_inserts",
-                     stacktrace_filter_.replacement_inserts());
   gwp_asan->PrintI64("total_pages_used", total_pages_used_);
   gwp_asan->PrintI64("total_pages", total_pages_);
   gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
@@ -358,18 +338,19 @@ void GuardedPageAllocator::MapPages() {
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
-  if (num_alloced_pages_ == max_alloced_pages_) {
+  if (GetNumAvailablePages() == 0) {
     num_failed_allocations_.LossyAdd(1);
     return -1;
   }
   num_successful_allocations_.LossyAdd(1);
 
-  size_t num_free_pages = total_pages_ - num_alloced_pages_;
+  size_t num_free_pages = total_pages_ - num_alloced_pages();
   size_t slot = GetIthFreeSlot(Rand(num_free_pages));
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
-  num_alloced_pages_++;
-  num_alloced_pages_max_ = std::max(num_alloced_pages_, num_alloced_pages_max_);
+  num_alloced_pages_.fetch_add(1, std::memory_order_relaxed);
+  num_alloced_pages_max_ =
+      std::max(num_alloced_pages(), num_alloced_pages_max_);
   return slot;
 }
 
@@ -380,7 +361,7 @@ size_t GuardedPageAllocator::Rand(size_t max) {
 }
 
 size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
-  TC_ASSERT_LT(ith_free_slot, total_pages_ - num_alloced_pages_);
+  TC_ASSERT_LT(ith_free_slot, total_pages_ - num_alloced_pages());
   for (size_t free_slot_count = 0, j = 0;; j++) {
     if (!used_pages_.GetBit(j)) {
       if (free_slot_count == ith_free_slot) return j;
@@ -393,7 +374,7 @@ void GuardedPageAllocator::FreeSlot(size_t slot) {
   TC_ASSERT_LT(slot, total_pages_);
   TC_ASSERT(used_pages_.GetBit(slot));
   used_pages_.ClearBit(slot);
-  num_alloced_pages_--;
+  num_alloced_pages_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 uintptr_t GuardedPageAllocator::GetPageAddr(uintptr_t addr) const {

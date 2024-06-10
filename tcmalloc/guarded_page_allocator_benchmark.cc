@@ -78,7 +78,8 @@ void BM_AllocDealloc(benchmark::State& state) {
   const size_t alloc_size = state.range(0);
   auto gpa = GetGuardedPageAllocator();
   for (auto _ : state) {
-    char* ptr = reinterpret_cast<char*>(gpa->Allocate(alloc_size, 0).alloc);
+    char* ptr = reinterpret_cast<char*>(
+        gpa->Allocate(alloc_size, 0, GetStackTrace(0)).alloc);
     TC_CHECK_NE(ptr, nullptr);
     ptr[0] = 'X';               // Page fault first page.
     ptr[alloc_size - 1] = 'X';  // Page fault last page.

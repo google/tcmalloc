@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -33,8 +32,6 @@
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// By placing this class in the tcmalloc_internal namespace, it may call the
-// private method StackTraceFilter::Reset as a friend.
 class GuardedPageAllocatorProfileTest : public testing::Test {
  public:
   struct NextSteps {
@@ -95,8 +92,6 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
     });
     EXPECT_THAT(found_statuses, ::testing::Contains(sought_status));
   }
-
-  void ResetStackTraceFilter() { tc_globals.guardedpage_allocator().Reset(); }
 };
 
 namespace {
@@ -106,7 +101,6 @@ TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
-  ResetStackTraceFilter();
   AllocateGuardableUntil(1051, [&](void* alloc) -> NextSteps {
     return {true, true};
   });
@@ -186,7 +180,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
     if (!IsNormalMemory(alloc)) {
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
         guarded_found = true;
-        ResetStackTraceFilter();
+        tc_globals.guardedpage_allocator().Reset();
       } else {
         unguarded_found = true;
       }
@@ -256,7 +250,6 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
     if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
       allocs.emplace_back(alloc,
                           static_cast<void (*)(void*)>(::operator delete));
-      ResetStackTraceFilter();
       return {Static::guardedpage_allocator().GetNumAvailablePages() == 0,
               false};
     }
@@ -294,7 +287,7 @@ TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
   int guarded_count = 0;
   AllocateGuardableUntil(1058, [&](void* alloc) -> NextSteps {
     guarded_count += Static::guardedpage_allocator().PointerIsMine(alloc);
-    return {guarded_count == 4, true};
+    return {guarded_count == 1000, true};
   });
 
   auto profile = std::move(token).Stop();
@@ -319,10 +312,10 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
       }
       ++sampled_count;
     }
-    return {sampled_count > 1000, true};
+    return {guarded_count == 1000, true};
   });
 
-  EXPECT_GT(guarded_count, 0);
+  EXPECT_GT(sampled_count, guarded_count);
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Filtered);
@@ -340,7 +333,6 @@ TEST_F(GuardedPageAllocatorProfileTest, DynamicParamChange) {
     AllocateGuardableUntil(1063, [&](void* alloc) -> NextSteps {
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
         ++guarded_count;
-        ResetStackTraceFilter();
       }
       return {guarded_count > 1, true};
     });

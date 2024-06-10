@@ -125,8 +125,6 @@ class TcMallocTest : public testing::Test {
     // Prevent SEGV handler from writing XML properties in death tests.
     unsetenv("XML_OUTPUT_FILE");
   }
-
-  void ResetStackTraceFilter() { tc_globals.guardedpage_allocator().Reset(); }
 };
 
 namespace {
@@ -150,7 +148,6 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
           volatile char sink = buf[-1];
           benchmark::DoNotOptimize(sink);
         }
-        ResetStackTraceFilter();
       }
     }
   };
@@ -182,7 +179,6 @@ TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
           volatile char sink = buf[kPageSize / 2];
           benchmark::DoNotOptimize(sink);
         }
-        ResetStackTraceFilter();
       }
     }
   };
@@ -259,9 +255,6 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
       benchmark::DoNotOptimize(sink_buf);
       sink_buf[kSize] = '\0';
       benchmark::DoNotOptimize(sink_buf[kSize]);
-      if (tc_globals.guardedpage_allocator().PointerIsMine(sink_buf.get())) {
-        ResetStackTraceFilter();
-      }
     }
   };
   std::string expected_output = absl::StrCat(
@@ -291,7 +284,6 @@ TEST_F(TcMallocTest, OffsetAndLength) {
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf)) {
         volatile char sink = static_cast<char*>(buf)[access_offset];
         benchmark::DoNotOptimize(sink);
-        ResetStackTraceFilter();
       }
     }
   };
@@ -370,7 +362,6 @@ TEST_F(TcMallocTest, ReallocLarger) {
             ptr = static_cast<char*>(realloc(ptr, size + 1));
             ptr[size + 2] = 'A';
             free(ptr);
-            ResetStackTraceFilter();
           }
         },
         "SIGSEGV");
@@ -391,7 +382,6 @@ TEST_F(TcMallocTest, ReallocSmaller) {
             ptr = static_cast<char*>(realloc(ptr, size - 1));
             ptr[size - 1] = 'A';
             free(ptr);
-            ResetStackTraceFilter();
           }
         },
         "SIGSEGV");

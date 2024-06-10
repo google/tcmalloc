@@ -917,7 +917,6 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        ":logging",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/types:span",
     ],
@@ -930,10 +929,8 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":stacktrace_filter",
-        "//tcmalloc/testing:thread_manager",
-        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )

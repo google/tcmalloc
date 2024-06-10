@@ -17,7 +17,10 @@
 #include <sys/mman.h>
 #include <sys/syscall.h>
 
+#include <cstddef>
+
 #include "gtest/gtest.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
 
@@ -31,7 +34,13 @@ TEST(SegvHandlerTest, SignalHandlerStackConsumption) {
   // the numbers may need to be updated. Reducing stack usage is always good,
   // increasing may indicate a problem. Avoid setting too high slack,
   // since it will prevent detection of usage changes in future.
-  auto ptr = tc_globals.guardedpage_allocator().Allocate(1, 0);
+
+self:
+  StackTrace stack_trace;
+  stack_trace.stack[0] = reinterpret_cast<void*>(&&self);
+  stack_trace.depth = 1;
+
+  auto ptr = tc_globals.guardedpage_allocator().Allocate(1, 0, stack_trace);
   if (ptr.status != Profile::Sample::GuardedStatus::Guarded) {
     GTEST_SKIP() << "did not get a guarded allocation";
   }
