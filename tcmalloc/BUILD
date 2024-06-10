@@ -960,7 +960,7 @@ create_tcmalloc_benchmark(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
-        "//tcmalloc/internal:allocation_guard",
+        ":malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:page_size",
