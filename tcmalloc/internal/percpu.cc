@@ -32,6 +32,7 @@
 #include "absl/base/call_once.h"  // IWYU pragma: keep
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/linux_syscall_support.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
@@ -206,10 +207,10 @@ bool InitFastPerCpu() {
 // ----------------------------------------------------------------------------
 
 static bool SetAffinityOneCpu(int cpu) {
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  CPU_SET(cpu, &set);
-  if (0 == sched_setaffinity(0, sizeof(cpu_set_t), &set)) {
+  CpuSet set;
+  set.Zero();
+  set.Set(cpu);
+  if (0 == set.SetAffinity(0)) {
     return true;
   }
   TC_CHECK_EQ(errno, EINVAL);
@@ -228,9 +229,9 @@ static void SlowFence(int target) {
   std::atomic_thread_fence(std::memory_order_seq_cst);
 
   // First, save our cpumask (the user may want it back.)
-  cpu_set_t old;
-  CPU_ZERO(&old);
-  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(cpu_set_t), &old));
+  CpuSet old;
+  old.Zero();
+  TC_CHECK_EQ(0, old.GetAffinity(0));
 
   // Here's the basic idea: if we run on every CPU, then every thread
   // that runs after us has certainly seen every store we've made up
@@ -298,18 +299,18 @@ static void SlowFence(int target) {
   TC_CHECK_EQ(0, signal_safe_close(fd));
 
   // Try to go back to what we originally had before Fence.
-  if (0 != sched_setaffinity(0, sizeof(cpu_set_t), &old)) {
+  if (0 != old.SetAffinity(0)) {
     TC_CHECK_EQ(EINVAL, errno);
     // The original set is no longer valid, which should only happen if
     // cpuset.cpus was changed at some point in Fence.  If that happened and we
     // didn't fence, our control plane would have rewritten our affinity mask to
     // everything in cpuset.cpus, so do that.
-    cpu_set_t set;
-    CPU_ZERO(&set);
+    CpuSet set;
+    set.Zero();
     for (int i = 0, n = NumCPUs(); i < n; ++i) {
-      CPU_SET(i, &set);
+      set.Set(i);
     }
-    TC_CHECK_EQ(0, sched_setaffinity(0, sizeof(cpu_set_t), &set));
+    TC_CHECK_EQ(0, set.SetAffinity(0));
   }
 }
 

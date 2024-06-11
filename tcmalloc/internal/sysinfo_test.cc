@@ -32,6 +32,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/cpu_utils.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -40,7 +41,7 @@ namespace {
 TEST(ParseCpulistTest, Empty) {
   absl::string_view empty("\n");
 
-  const absl::optional<cpu_set_t> parsed =
+  const absl::optional<CpuSet> parsed =
       ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
         // Calculate how much data we have left to provide.
         const size_t to_copy = std::min(count, empty.size());
@@ -55,13 +56,34 @@ TEST(ParseCpulistTest, Empty) {
 
   // No CPUs should be active on this NUMA node.
   ASSERT_THAT(parsed, testing::Ne(std::nullopt));
-  EXPECT_EQ(CPU_COUNT(&*parsed), 0);
+  EXPECT_EQ(parsed->Count(), 0);
+}
+
+TEST(ParseCpulistTest, AtBounds) {
+  std::string cpulist = absl::StrCat("0-", kMaxCpus - 1);
+
+  const absl::optional<CpuSet> parsed =
+      ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
+        // Calculate how much data we have left to provide.
+        const size_t to_copy = std::min(count, cpulist.size());
+
+        // If none, we have no choice but to provide nothing.
+        if (to_copy == 0) return 0;
+
+        memcpy(buf, cpulist.data(), to_copy);
+        cpulist.erase(0, to_copy);
+        return to_copy;
+      });
+
+  // All CPUs should be active on this NUMA node.
+  ASSERT_THAT(parsed, testing::Ne(std::nullopt));
+  EXPECT_EQ(parsed->Count(), kMaxCpus);
 }
 
 TEST(ParseCpulistTest, NotInBounds) {
-  std::string cpulist = absl::StrCat("0-", CPU_SETSIZE);
+  std::string cpulist = absl::StrCat("0-", kMaxCpus);
 
-  const absl::optional<cpu_set_t> parsed =
+  const absl::optional<CpuSet> parsed =
       ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
         // Calculate how much data we have left to provide.
         const size_t to_copy = std::min(count, cpulist.size());
@@ -83,25 +105,25 @@ TEST(ParseCpulistTest, Random) {
 
   static constexpr int kIterations = 100;
   for (int i = 0; i < kIterations; i++) {
-    cpu_set_t reference;
-    CPU_ZERO(&reference);
+    CpuSet reference;
+    reference.Zero();
 
     // Set a random number of CPUs within the reference set.
     const double density = absl::Uniform(gen, 0.0, 1.0);
-    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
+    for (int cpu = 0; cpu < kMaxCpus; cpu++) {
       if (absl::Bernoulli(gen, density)) {
-        CPU_SET(cpu, &reference);
+        reference.Set(cpu);
       }
     }
 
     // Serialize the reference set into a cpulist-style string.
     std::vector<std::string> components;
-    for (int cpu = 0; cpu < CPU_SETSIZE; cpu++) {
-      if (!CPU_ISSET(cpu, &reference)) continue;
+    for (int cpu = 0; cpu < kMaxCpus; cpu++) {
+      if (!reference.IsSet(cpu)) continue;
 
       const int start = cpu;
       int next = cpu + 1;
-      while (next < CPU_SETSIZE && CPU_ISSET(next, &reference)) {
+      while (next < kMaxCpus && reference.IsSet(next)) {
         cpu = next;
         next = cpu + 1;
       }
@@ -117,7 +139,7 @@ TEST(ParseCpulistTest, Random) {
     // Now parse that string using our ParseCpulist function, randomizing the
     // amount of data we provide to it from each read.
     absl::string_view remaining(serialized);
-    const absl::optional<cpu_set_t> parsed =
+    const absl::optional<CpuSet> parsed =
         ParseCpulist([&](char* const buf, const size_t count) -> ssize_t {
           // Calculate how much data we have left to provide.
           const size_t max = std::min(count, remaining.size());
@@ -135,7 +157,7 @@ TEST(ParseCpulistTest, Random) {
 
     // We ought to have parsed the same set of CPUs that we serialized.
     ASSERT_THAT(parsed, testing::Ne(std::nullopt));
-    EXPECT_TRUE(CPU_EQUAL(&*parsed, &reference));
+    EXPECT_TRUE(CPU_EQUAL_S(kCpuSetBytes, parsed->data(), reference.data()));
   }
 }
 

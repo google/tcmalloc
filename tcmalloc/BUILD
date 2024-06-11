@@ -297,6 +297,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:cache_topology",
         "//tcmalloc/internal:clock",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:cpu_utils",
         "//tcmalloc/internal:environment",
         "//tcmalloc/internal:explicitly_constructed",
         "//tcmalloc/internal:exponential_biased",

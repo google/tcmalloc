@@ -14,11 +14,11 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <optional>
 
 #include "fuzztest/fuzztest.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/sysinfo.h"
 
 namespace tcmalloc::tcmalloc_internal {
@@ -28,7 +28,7 @@ void ParseInput(const std::string& s) {
   const char* data = s.data();
   size_t size = s.size();
 
-  std::optional<cpu_set_t> r =
+  std::optional<CpuSet> r =
       ParseCpulist([&](char* buf, size_t count) -> ssize_t {
         size_t to_read = std::min(size, count);
         if (to_read > 0) {

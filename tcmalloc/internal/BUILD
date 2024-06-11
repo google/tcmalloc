@@ -495,6 +495,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":cpu_utils",
         ":environment",
         ":logging",
         ":percpu",
@@ -599,8 +600,8 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
-        ":atomic_danger",
         ":config",
+        ":cpu_utils",
         ":linux_syscall_support",
         ":logging",
         ":optimization",
@@ -945,6 +946,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":cpu_utils",
         ":logging",
         ":util",
         "@com_google_absl//absl/base",
@@ -960,6 +962,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     data = glob(["testdata/sysinfo_fuzz/*"]),
     deps = [
+        ":cpu_utils",
         ":sysinfo",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
@@ -973,6 +976,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":allocation_guard",
+        ":cpu_utils",
         ":sysinfo",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/random",
@@ -1036,4 +1040,14 @@ cc_library(
         ":logging",
         "@com_google_absl//absl/time",
     ],
+)
+
+cc_library(
+    name = "cpu_utils",
+    hdrs = ["cpu_utils.h"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [":config"],
 )

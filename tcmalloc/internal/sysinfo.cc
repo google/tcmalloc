@@ -28,6 +28,7 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 
@@ -37,13 +38,13 @@ namespace tcmalloc_internal {
 
 #if __linux__
 namespace {
-bool IsInBounds(int cpu) { return 0 <= cpu && cpu < CPU_SETSIZE; }
+bool IsInBounds(int cpu) { return 0 <= cpu && cpu < kMaxCpus; }
 }  // namespace
 
-std::optional<cpu_set_t> ParseCpulist(
+std::optional<CpuSet> ParseCpulist(
     absl::FunctionRef<ssize_t(char*, size_t)> read) {
-  cpu_set_t set;
-  CPU_ZERO(&set);
+  CpuSet set;
+  set.Zero();
 
   std::array<char, 16> buf;
   size_t carry_over = 0;
@@ -88,11 +89,11 @@ std::optional<cpu_set_t> ParseCpulist(
       }
       if (cpu_from != -1) {
         for (int c = cpu_from; c <= cpu; c++) {
-          CPU_SET(c, &set);
+          set.Set(c);
         }
         cpu_from = -1;
       } else {
-        CPU_SET(cpu, &set);
+        set.Set(cpu);
       }
     } else {
       consumed = 0;
@@ -113,7 +114,7 @@ int NumPossibleCPUsNoCache() {
 
   // This is slightly more state than we actually need, but it lets us reuse
   // an already fuzz tested implementation detail.
-  std::optional<cpu_set_t> cpus =
+  std::optional<CpuSet> cpus =
       ParseCpulist([&](char* const buf, const size_t count) {
         return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
       });
@@ -122,8 +123,8 @@ int NumPossibleCPUsNoCache() {
 
   TC_CHECK(cpus.has_value());
   std::optional<int> max_so_far;
-  for (int i = 0; i < CPU_SETSIZE; ++i) {
-    if (CPU_ISSET(i, &*cpus)) {
+  for (int i = 0; i < kMaxCpus; ++i) {
+    if (cpus->IsSet(i)) {
       max_so_far = std::max(i, max_so_far.value_or(-1));
     }
   }

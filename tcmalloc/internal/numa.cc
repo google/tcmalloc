@@ -28,6 +28,7 @@
 #include "absl/base/attributes.h"
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
@@ -135,7 +136,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     }
 
     // Parse the cpulist file to determine which CPUs are local to this node.
-    const std::optional<cpu_set_t> node_cpus =
+    const std::optional<CpuSet> node_cpus =
         ParseCpulist([&](char* const buf, const size_t count) {
           return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
         });
@@ -146,14 +147,14 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
 
     // Assign local CPUs to the appropriate partition.
     for (size_t cpu = 0; cpu < CPU_SETSIZE; cpu++) {
-      if (CPU_ISSET(cpu, &*node_cpus)) {
+      if (node_cpus->IsSet(cpu)) {
         cpu_to_scaled_partition[cpu + kNumaCpuFudge] = partition * scale_by;
       }
     }
 
     // If we observed any CPUs for this node then we've now got CPUs assigned
     // to a non-zero partition; report that we're NUMA aware.
-    if (CPU_COUNT(&*node_cpus) != 0) {
+    if (node_cpus->Count() != 0) {
       numa_aware = true;
     }
 
