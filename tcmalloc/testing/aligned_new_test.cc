@@ -124,7 +124,7 @@ TYPED_TEST_P(AlignedNew, SizeCheckSampling) {
 
   // Allocate enough objects to ensure we sample one.
   const int allocations =
-      32 * MallocExtension::GetProfileSamplingRate() / sizeof(TypeParam);
+      32 * MallocExtension::GetProfileSamplingInterval() / sizeof(TypeParam);
 
   for (int i = 0; i < allocations; i++) {
     this->ptrs.emplace_back(new TypeParam());
@@ -162,7 +162,7 @@ TYPED_TEST_P(AlignedNew, ArraySizeCheckSampling) {
 
   // Allocate enough objects to ensure we sample one.
   const int allocations =
-      32 * MallocExtension::GetProfileSamplingRate() / sizeof(TypeParam);
+      32 * MallocExtension::GetProfileSamplingInterval() / sizeof(TypeParam);
 
   std::vector<std::unique_ptr<NonTrivial[]>> objects;
   for (int i = 0; i < allocations; i++) {

@@ -526,7 +526,7 @@ TEST(LifetimeProfiler, BasicCounterValues) {
   const absl::Duration duration = absl::Microseconds(100);
 
   // Avoid unsample-related behavior
-  tcmalloc::ScopedProfileSamplingRate test_sample_rate(1);
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
 
   void *ptr = nullptr;
 
@@ -640,7 +640,7 @@ TEST(LifetimeProfiler, RecordLiveAllocations) {
   }
 
   // Avoid unsample-related behavior
-  tcmalloc::ScopedProfileSamplingRate test_sample_rate(1);
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
   constexpr int64_t kMallocSize = 4 * 1024 * 1024;
   constexpr int kAllocFrames = 2, kDeallocFrames = 3;
   constexpr absl::Duration kDuration = absl::Milliseconds(100);
@@ -697,7 +697,7 @@ TEST(LifetimeProfiler, RecordCensoredAllocations) {
   }
 
   // Avoid unsample-related behavior
-  tcmalloc::ScopedProfileSamplingRate test_sample_rate(1);
+  tcmalloc::ScopedProfileSamplingInterval test_sample_interval(1);
   constexpr int64_t kMallocSize1 = 4 * 1024, kMallocSize2 = 2 * 1024;
   constexpr int kAllocFrames = 2;
   constexpr absl::Duration kDuration = absl::Milliseconds(100);

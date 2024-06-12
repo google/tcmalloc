@@ -88,21 +88,21 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
   if (num_pages != Length(1)) {
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
-  const int64_t guarded_sampling_rate =
-      tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_rate();
-  if (guarded_sampling_rate < 0) {
+  const int64_t guarded_sampling_interval =
+      tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_interval();
+  if (guarded_sampling_interval < 0) {
     return {nullptr, Profile::Sample::GuardedStatus::Disabled};
   }
   // TODO(b/273954799): Possible optimization: only calculate this when
-  // guarded_sampling_rate or profile_sampling_rate change.  Likewise for
-  // margin_multiplier below.
-  const int64_t profile_sampling_rate =
-      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate();
-  // If guarded_sampling_rate == 0, then attempt to guard, as usual.
-  if (guarded_sampling_rate > 0) {
+  // guarded_sampling_interval or profile_sampling_interval change.  Likewise
+  // for margin_multiplier below.
+  const int64_t profile_sampling_interval =
+      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval();
+  // If guarded_sampling_interval == 0, then attempt to guard, as usual.
+  if (guarded_sampling_interval > 0) {
     const double target_ratio =
-        profile_sampling_rate > 0
-            ? std::ceil(guarded_sampling_rate / profile_sampling_rate)
+        profile_sampling_interval > 0
+            ? std::ceil(guarded_sampling_interval / profile_sampling_interval)
             : 1.0;
     const double current_ratio = 1.0 * tc_globals.total_sampled_count_.value() /
                                  (std::max(SuccessfulAllocations(), 1UL));
@@ -247,14 +247,14 @@ GuardedAllocationsErrorType GuardedPageAllocator::GetStackTraces(
 
 // We take guarded samples during periodic profiling samples.  Computes the
 // mean number of profiled samples made for every guarded sample.
-static int GetChainedRate() {
-  auto guarded_rate = Parameters::guarded_sampling_rate();
-  auto sample_rate = Parameters::profile_sampling_rate();
-  if (guarded_rate < 0 || sample_rate <= 0) {
-    return guarded_rate;
+static int GetChainedInterval() {
+  auto guarded_interval = Parameters::guarded_sampling_interval();
+  auto sample_interval = Parameters::profile_sampling_interval();
+  if (guarded_interval < 0 || sample_interval <= 0) {
+    return guarded_interval;
   } else {
-    return std::ceil(static_cast<double>(guarded_rate) /
-                     static_cast<double>(sample_rate));
+    return std::ceil(static_cast<double>(guarded_interval) /
+                     static_cast<double>(sample_interval));
   }
 }
 
@@ -276,7 +276,8 @@ void GuardedPageAllocator::Print(Printer* out) {
       num_successful_allocations_.value(), num_failed_allocations_.value(),
       num_alloced_pages(), total_pages_ - num_alloced_pages(),
       num_alloced_pages_max_, max_alloced_pages_, total_pages_used_,
-      total_pages_, alloced_page_count_when_all_used_once_, GetChainedRate());
+      total_pages_, alloced_page_count_when_all_used_once_,
+      GetChainedInterval());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
@@ -293,7 +294,7 @@ void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("total_pages", total_pages_);
   gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
                      alloced_page_count_when_all_used_once_);
-  gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedRate());
+  gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
 
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages

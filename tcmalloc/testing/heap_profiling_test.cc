@@ -56,7 +56,7 @@ class HeapProfilingTest : public ::testing::TestWithParam<int64_t> {};
 // allocations/deallocations can happen on the same thread or the object is
 // allocated in one thread, transferred to another thread and deleted there.
 TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
-  ScopedProfileSamplingRate s(GetParam());
+  ScopedProfileSamplingInterval s(GetParam());
   const int kThreads = 10;
   ThreadManager manager;
   AllocatorHarness harness(kThreads);
@@ -95,7 +95,7 @@ TEST_P(HeapProfilingTest, GetHeapProfileWhileAllocAndDealloc) {
 // probabilities. This is stress testing and attempts to expose potential
 // failure modes when we only have sampled allocations and when we have a mix of
 // sampled/unsampled allocations.
-INSTANTIATE_TEST_SUITE_P(SamplingRates, HeapProfilingTest,
+INSTANTIATE_TEST_SUITE_P(SamplingIntervals, HeapProfilingTest,
                          testing::Values(1, 1 << 7, 1 << 14, 1 << 21),
                          testing::PrintToStringParamName());
 
@@ -149,7 +149,7 @@ TEST(HeapProfilingTest, AllocateDifferentSizes) {
 }
 
 TEST(HeapProfilingTest, CheckResidency) {
-  ScopedProfileSamplingRate s(1);
+  ScopedProfileSamplingInterval s(1);
   const int num_allocations = 1000;
   const size_t requested_size = (1 << 19) + 1;
 
@@ -233,7 +233,7 @@ TEST(HeapProfilingTest, CheckResidency) {
 // deadlock. At the current state, making copies over sampled allocations and
 // iterate over those copies would not deadlock and the test case below passes.
 TEST(HeapProfilingTest, AllocateWhileIterating) {
-  ScopedProfileSamplingRate s(1);
+  ScopedProfileSamplingInterval s(1);
   absl::flat_hash_set<void*> set;
   // This fills up the slots in hashtable and so there is a good chance it would
   // call `resize()` when inserting new entries later. This makes it easier for

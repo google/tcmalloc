@@ -60,12 +60,12 @@ class Parameters {
 
   static absl::Duration huge_cache_release_time();
 
-  static int64_t guarded_sampling_rate() {
-    return guarded_sampling_rate_.load(std::memory_order_relaxed);
+  static int64_t guarded_sampling_interval() {
+    return guarded_sampling_interval_.load(std::memory_order_relaxed);
   }
 
-  static void set_guarded_sampling_rate(int64_t value) {
-    TCMalloc_Internal_SetGuardedSamplingRate(value);
+  static void set_guarded_sampling_interval(int64_t value) {
+    TCMalloc_Internal_SetGuardedSamplingInterval(value);
   }
 
   static int32_t max_per_cpu_cache_size();
@@ -145,12 +145,12 @@ class Parameters {
     max_span_cache_size_.store(v, std::memory_order_relaxed);
   }
 
-  static int64_t profile_sampling_rate() {
-    return profile_sampling_rate_.load(std::memory_order_relaxed);
+  static int64_t profile_sampling_interval() {
+    return profile_sampling_interval_.load(std::memory_order_relaxed);
   }
 
-  static void set_profile_sampling_rate(int64_t value) {
-    TCMalloc_Internal_SetProfileSamplingRate(value);
+  static void set_profile_sampling_interval(int64_t value) {
+    TCMalloc_Internal_SetProfileSamplingInterval(value);
   }
 
   static void set_filler_skip_subrelease_interval(absl::Duration value) {
@@ -202,7 +202,7 @@ class Parameters {
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
-  friend void ::TCMalloc_Internal_SetGuardedSamplingRate(int64_t v);
+  friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
   friend void ::TCMalloc_Internal_SetHPAAColdSubrelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
@@ -213,7 +213,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetProfileSamplingRate(int64_t v);
+  friend void ::TCMalloc_Internal_SetProfileSamplingInterval(int64_t v);
 
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
       absl::Duration v);
@@ -234,7 +234,7 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
   static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
-  static std::atomic<int64_t> guarded_sampling_rate_;
+  static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<uint32_t> max_span_cache_size_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
@@ -243,7 +243,7 @@ class Parameters {
   static std::atomic<bool> release_partial_alloc_pages_;
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<bool> resize_size_class_max_capacity_;
-  static std::atomic<int64_t> profile_sampling_rate_;
+  static std::atomic<int64_t> profile_sampling_interval_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<MadvisePreference> madvise_;
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;

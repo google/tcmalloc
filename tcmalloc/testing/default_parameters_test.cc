@@ -24,15 +24,15 @@
 namespace tcmalloc {
 namespace {
 
-constexpr int64_t kDefaultProfileSamplingRate =
+constexpr int64_t kDefaultProfileSamplingInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
     512 << 10
 #else
     2 << 20
 #endif
     ;
-constexpr int64_t kDefaultGuardedSamplingRate =
-    50 * kDefaultProfileSamplingRate;
+constexpr int64_t kDefaultGuardedSamplingInterval =
+    50 * kDefaultProfileSamplingInterval;
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
 constexpr MallocExtension::BytesPerSecond kDefaultBackgroundReleaseRate{
     0
@@ -53,24 +53,24 @@ constexpr absl::Duration kDefaultSkipSubreleaseLongInterval =
 #endif
     ;
 
-bool TestProfileSamplingRate() {
+bool TestProfileSamplingInterval() {
 
-  auto extension_value = MallocExtension::GetProfileSamplingRate();
-  if (extension_value != kDefaultProfileSamplingRate) {
-    absl::FPrintF(stderr, "ProfileSamplingRate: got %d, want %d\n",
-                  extension_value, kDefaultProfileSamplingRate);
+  auto extension_value = MallocExtension::GetProfileSamplingInterval();
+  if (extension_value != kDefaultProfileSamplingInterval) {
+    absl::FPrintF(stderr, "ProfileSamplingInterval: got %d, want %d\n",
+                  extension_value, kDefaultProfileSamplingInterval);
     return false;
   }
 
   return true;
 }
 
-bool TestGuardedSamplingRate() {
+bool TestGuardedSamplingInterval() {
 
-  auto extension_value = MallocExtension::GetGuardedSamplingRate();
-  if (extension_value != kDefaultGuardedSamplingRate) {
-    absl::FPrintF(stderr, "GuardedSamplingRate: got %d, want %d\n",
-                  extension_value, kDefaultGuardedSamplingRate);
+  auto extension_value = MallocExtension::GetGuardedSamplingInterval();
+  if (extension_value != kDefaultGuardedSamplingInterval) {
+    absl::FPrintF(stderr, "GuardedSamplingInterval: got %d, want %d\n",
+                  extension_value, kDefaultGuardedSamplingInterval);
     return false;
   }
 
@@ -125,8 +125,8 @@ int main() {
   // This test has minimal dependencies, to avoid perturbing the initial
   // parameters for TCMalloc.
   bool success = true;
-  success = success & tcmalloc::TestProfileSamplingRate();
-  success = success & tcmalloc::TestGuardedSamplingRate();
+  success = success & tcmalloc::TestProfileSamplingInterval();
+  success = success & tcmalloc::TestGuardedSamplingInterval();
   success = success & tcmalloc::TestBackgroundReleaseRate();
   success = success & tcmalloc::TestSkipSubreleaseIntervals();
 

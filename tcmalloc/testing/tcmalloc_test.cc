@@ -788,7 +788,7 @@ static void check_global_nallocx() { TC_CHECK_GE(nallocx(99, 0), 99); }
 TEST(TCMallocTest, nallocx) {
   // Guarded allocations may have a smaller allocated size than nallocx
   // predicts.  So we disable guarded allocations.
-  ScopedGuardedSamplingRate gs(-1);
+  ScopedGuardedSamplingInterval gs(-1);
 
   for (size_t size = 0; size <= kMaxTestAllocSize; size += 11) {
     size_t rounded = nallocx(size, 0);
@@ -802,7 +802,7 @@ TEST(TCMallocTest, nallocx) {
 TEST(TCMallocTest, nallocx_alignment) {
   // Guarded allocations may have a smaller allocated size than nallocx
   // predicts.  So we disable guarded allocations.
-  ScopedGuardedSamplingRate gs(-1);
+  ScopedGuardedSamplingInterval gs(-1);
 
   for (size_t size = 0; size <= kMaxTestAllocSize; size += 17) {
 #ifndef __riscv
@@ -1083,7 +1083,7 @@ TEST_P(TcmallocSizedNewTest, SizedOperatorNewReturnsExtraCapacity) {
   //
   // This is not interesting for this test.  Other tests confirm that we get at
   // least requested bytes back.
-  ScopedGuardedSamplingRate gs(-1);
+  ScopedGuardedSamplingInterval gs(-1);
 
   // For release / no sanitizer builds, tcmalloc does return
   // the next available class size, which we know is always at least
@@ -1118,8 +1118,8 @@ TEST_P(TcmallocSizedNewTest, InvalidSizedOperatorNew) {
 
 TEST_P(TcmallocSizedNewTest, SizedOperatorNewMatchesMallocExtensionValue) {
   // Set reasonable sampling and guarded sampling probabilities.
-  ScopedProfileSamplingRate s(2000);
-  ScopedGuardedSamplingRate gs(20);
+  ScopedProfileSamplingInterval s(2000);
+  ScopedGuardedSamplingInterval gs(20);
 
   auto test = [&](size_t size) {
     sized_ptr_t r = New(size);
@@ -1607,7 +1607,7 @@ TEST(MallocExtension, SizeReturningNewAndSizedDelete) {
   // when we do sample and guard.
   //
   // This is not interesting for testing operator delete with a different size.
-  ScopedGuardedSamplingRate gs(-1);
+  ScopedGuardedSamplingInterval gs(-1);
 
   for (int i = 0; i < 100; ++i) {
     tcmalloc::sized_ptr_t sized_ptr = tcmalloc_size_returning_operator_new(i);

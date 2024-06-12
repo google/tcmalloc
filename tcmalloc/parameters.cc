@@ -218,8 +218,8 @@ ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
         0
     });
 
-ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_rate_(
-    50 * kDefaultProfileSamplingRate);
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
+    50 * kDefaultProfileSamplingInterval);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
@@ -252,8 +252,8 @@ ABSL_CONST_INIT std::atomic<double>
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.4);
 
-ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_rate_(
-    kDefaultProfileSamplingRate);
+ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
+    kDefaultProfileSamplingInterval);
 // TODO.  Start with 0 to make it clear if we have read this before it is
 // populated during Init.
 ABSL_CONST_INIT std::atomic<uint32_t> Parameters::max_span_cache_size_(0);
@@ -359,20 +359,20 @@ using tcmalloc::tcmalloc_internal::tc_globals;
 
 extern "C" {
 
-int64_t MallocExtension_Internal_GetProfileSamplingRate() {
-  return Parameters::profile_sampling_rate();
+int64_t MallocExtension_Internal_GetProfileSamplingInterval() {
+  return Parameters::profile_sampling_interval();
 }
 
-void MallocExtension_Internal_SetProfileSamplingRate(int64_t value) {
-  Parameters::set_profile_sampling_rate(value);
+void MallocExtension_Internal_SetProfileSamplingInterval(int64_t value) {
+  Parameters::set_profile_sampling_interval(value);
 }
 
-int64_t MallocExtension_Internal_GetGuardedSamplingRate() {
-  return Parameters::guarded_sampling_rate();
+int64_t MallocExtension_Internal_GetGuardedSamplingInterval() {
+  return Parameters::guarded_sampling_interval();
 }
 
-void MallocExtension_Internal_SetGuardedSamplingRate(int64_t value) {
-  Parameters::set_guarded_sampling_rate(value);
+void MallocExtension_Internal_SetGuardedSamplingInterval(int64_t value) {
+  Parameters::set_guarded_sampling_interval(value);
 }
 
 int64_t MallocExtension_Internal_GetMaxTotalThreadCacheBytes() {
@@ -482,8 +482,8 @@ bool TCMalloc_Internal_GetPerCpuCachesEnabled() {
   return Parameters::per_cpu_caches();
 }
 
-void TCMalloc_Internal_SetGuardedSamplingRate(int64_t v) {
-  Parameters::guarded_sampling_rate_.store(v, std::memory_order_relaxed);
+void TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v) {
+  Parameters::guarded_sampling_interval_.store(v, std::memory_order_relaxed);
 }
 
 // update_lock guards changes via SetHeapSizeHardLimit.
@@ -565,8 +565,8 @@ void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
   Parameters::per_cpu_caches_enabled_.store(v, std::memory_order_relaxed);
 }
 
-void TCMalloc_Internal_SetProfileSamplingRate(int64_t v) {
-  Parameters::profile_sampling_rate_.store(v, std::memory_order_relaxed);
+void TCMalloc_Internal_SetProfileSamplingInterval(int64_t v) {
+  Parameters::profile_sampling_interval_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_GetHugePageFillerSkipSubreleaseInterval(

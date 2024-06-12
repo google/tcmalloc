@@ -748,7 +748,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                    Parameters::huge_region_demand_based_release());
   region.PrintBool("tcmalloc_release_pages_from_huge_region",
                    Parameters::release_pages_from_huge_region());
-  region.PrintI64("profile_sampling_rate", Parameters::profile_sampling_rate());
+  region.PrintI64("profile_sampling_interval",
+                  Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintI64("separate_allocs_for_few_and_many_objects_spans",

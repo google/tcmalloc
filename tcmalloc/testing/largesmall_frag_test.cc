@@ -51,7 +51,7 @@ TEST(LargeSmallFrag, Test) {
   // Force a small sample to initialize tagged page allocator.
   constexpr int64_t kAlloc = 8192;
   const int64_t num_allocs =
-      32 * MallocExtension::GetProfileSamplingRate() / kAlloc;
+      32 * MallocExtension::GetProfileSamplingInterval() / kAlloc;
   for (int64_t i = 0; i < num_allocs; ++i) {
     void* ptr = ::operator new(kAlloc);
     sized_delete(ptr, kAlloc);

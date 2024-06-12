@@ -42,7 +42,7 @@ namespace {
 // code passing the test is ~(1 - 10 ^ -kSigmas).
 static const double kSigmas = 6;
 static const size_t kSamplingInterval =
-    MallocExtension::GetProfileSamplingRate();
+    MallocExtension::GetProfileSamplingInterval();
 static const size_t kGuardedSamplingInterval = 100 * kSamplingInterval;
 
 // Tests that GetSamplePeriod returns the expected value
@@ -50,9 +50,8 @@ static const size_t kGuardedSamplingInterval = 100 * kSamplingInterval;
 TEST(Sampler, TestGetSamplePeriod) {
   Sampler sampler;
   SamplerTest::Init(&sampler, 1);
-  uint64_t sample_period;
-  sample_period = sampler.GetSamplePeriod();
-  EXPECT_GT(sample_period, 0);
+  const uint64_t sample_interval = sampler.GetSampleInterval();
+  EXPECT_GT(sample_interval, 0);
 }
 
 void TestSampleAndersonDarling(int sample_period,
@@ -76,7 +75,7 @@ void TestSampleAndersonDarling(int sample_period,
       << n << " p = " << geom_ad_pvalue;
 }
 
-// Tests that PickNextSamplePeriod generates
+// Tests that PickNextSamplingPoint generates
 // geometrically distributed random numbers.
 // First converts to uniforms then applied the
 // Anderson-Darling test for uniformity.
@@ -84,7 +83,7 @@ void TestPickNextSample(int n) {
   Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   std::vector<uint64_t> int_random_sample(n);
-  int sample_period = sampler.GetSamplePeriod();
+  int sample_period = sampler.GetSampleInterval();
   int ones_count = 0;
   for (int i = 0; i < n; i++) {
     int_random_sample[i] = sampler.PickNextSamplingPoint();
@@ -161,19 +160,19 @@ TEST(Sampler, IsMeanRight) {
               [&sampler]() { return sampler.PickNextSamplingPoint(); });
 }
 
-// This checks that the stated maximum value for the sampling rate never
+// This checks that the stated maximum value for the sampling interval never
 // overflows bytes_until_sample_
 TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
   Sampler sampler;
   SamplerTest::Init(&sampler, 1);
   uint64_t one = 1;
-  // sample_rate = 0;  // To test the edge case
-  uint64_t sample_rate_array[4] = {0, 1, one << 19, one << 58};
+  // sample_interval = 0;  // To test the edge case
+  uint64_t sample_interval_array[4] = {0, 1, one << 19, one << 58};
   for (int i = 0; i < 4; i++) {
-    uint64_t sample_rate = sample_rate_array[i];
-    SCOPED_TRACE(sample_rate);
+    uint64_t sample_interval = sample_interval_array[i];
+    SCOPED_TRACE(sample_interval);
 
-    double sample_scaling = -std::log(2.0) * sample_rate;
+    double sample_scaling = -std::log(2.0) * sample_interval;
     // Take the top 26 bits as the random number
     // (This plus the 1<<26 sampling bound give a max step possible of
     // 1209424308 bytes.)
@@ -185,7 +184,7 @@ TEST(Sampler, bytes_until_sample_Overflow_Underflow) {
     uint64_t smallest_sample_step =
         1 + static_cast<uint64_t>((std::log2(q) - 26) * sample_scaling);
     uint64_t cutoff =
-        static_cast<uint64_t>(10) * (sample_rate / (one << 24) + 1);
+        static_cast<uint64_t>(10) * (sample_interval / (one << 24) + 1);
     // This checks that the answer is "small" and positive
     ASSERT_LE(smallest_sample_step, cutoff);
 
@@ -259,7 +258,7 @@ TEST(Sampler, weight_distribution) {
 
     static constexpr int kSamples = 10000;
     double expected =
-        (size + 1) / (1.0 - exp(-1.0 * (size + 1) / s.GetSamplePeriod()));
+        (size + 1) / (1.0 - exp(-1.0 * (size + 1) / s.GetSampleInterval()));
     // Since each sample requires ~2MiB / size iterations, using fewer samples
     // for the small sizes makes this test run in ~2s vs. ~90s on Forge in 2019.
     DoCheckMean(expected, size < 256 ? 100 : kSamples, [size, &s]() {

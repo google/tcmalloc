@@ -91,8 +91,8 @@ TEST_F(GetStatsTest, Pbtxt) {
 
   EXPECT_THAT(buf, HasSubstr("desired_usage_limit_bytes: -1"));
   EXPECT_THAT(buf,
-              HasSubstr(absl::StrCat("profile_sampling_rate: ",
-                                     Parameters::profile_sampling_rate())));
+              HasSubstr(absl::StrCat("profile_sampling_interval: ",
+                                     Parameters::profile_sampling_interval())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
@@ -123,7 +123,7 @@ TEST_F(GetStatsTest, Pbtxt) {
 
 TEST_F(GetStatsTest, Parameters) {
   Parameters::set_hpaa_subrelease(false);
-  Parameters::set_guarded_sampling_rate(-1);
+  Parameters::set_guarded_sampling_interval(-1);
 #ifdef TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_per_cpu_caches(false);
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
@@ -200,8 +200,8 @@ TEST_F(GetStatsTest, Parameters) {
   }
 
   Parameters::set_hpaa_subrelease(true);
-  Parameters::set_guarded_sampling_rate(50 *
-                                        Parameters::profile_sampling_rate());
+  Parameters::set_guarded_sampling_interval(
+      50 * Parameters::profile_sampling_interval());
   Parameters::set_per_cpu_caches(true);
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);

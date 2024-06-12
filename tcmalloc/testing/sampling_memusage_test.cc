@@ -37,9 +37,7 @@ using tcmalloc_internal::ScopedAffinityMask;
 
 class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
  protected:
-  SamplingMemoryTest() {
-    MallocExtension::SetGuardedSamplingRate(-1);
-  }
+  SamplingMemoryTest() { MallocExtension::SetGuardedSamplingInterval(-1); }
 
   size_t Property(absl::string_view name) {
     std::optional<size_t> result = MallocExtension::GetNumericProperty(name);
@@ -48,7 +46,7 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
   }
 
   void SetSamplingInterval(int64_t val) {
-    MallocExtension::SetProfileSamplingRate(val);
+    MallocExtension::SetProfileSamplingInterval(val);
     // We do this to reset the per-thread sampler - it may have a
     // very large gap put in here if sampling had been disabled.
     void* ptr = ::operator new(1024 * 1024 * 1024);
@@ -127,7 +125,7 @@ class SamplingMemoryTest : public ::testing::TestWithParam<size_t> {
 // specified allocation pattern is not too large.
 TEST_P(SamplingMemoryTest, Overhead) {
   const size_t size = GetParam();
-  int64_t original = MallocExtension::GetProfileSamplingRate();
+  int64_t original = MallocExtension::GetProfileSamplingInterval();
   SetSamplingInterval(0);
   const ssize_t baseline = HeapGrowth(size);
 

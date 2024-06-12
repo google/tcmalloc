@@ -41,8 +41,8 @@ namespace tcmalloc_internal {
 // counter value and then add it back when we calculate the sample weight.
 constexpr ssize_t kIntervalOffset = 1;
 
-ssize_t Sampler::GetSamplePeriod() {
-  return Parameters::profile_sampling_rate();
+ssize_t Sampler::GetSampleInterval() {
+  return Parameters::profile_sampling_interval();
 }
 
 // Run this before using your sampler
@@ -64,8 +64,8 @@ ABSL_ATTRIBUTE_NOINLINE void Sampler::Init(uint64_t seed) {
 }
 
 ssize_t Sampler::PickNextSamplingPoint() {
-  sample_period_ = GetSamplePeriod();
-  if (sample_period_ <= 0) {
+  sample_interval_ = GetSampleInterval();
+  if (sample_interval_ <= 0) {
     // In this case, we don't want to sample ever, and the larger a
     // value we put here, the longer until we hit the slow path
     // again. However, we have to support the flag changing at
@@ -74,13 +74,13 @@ ssize_t Sampler::PickNextSamplingPoint() {
     // again.
     return 128 << 20;
   }
-  if (ABSL_PREDICT_FALSE(sample_period_ == 1)) {
+  if (ABSL_PREDICT_FALSE(sample_interval_ == 1)) {
     // A sample period of 1, generally used only in tests due to its exorbitant
     // cost, is a request for *every* allocation to be sampled.
     return 0;
   }
   return std::max<ssize_t>(
-      0, GetGeometricVariable(sample_period_) - kIntervalOffset);
+      0, GetGeometricVariable(sample_interval_) - kIntervalOffset);
 }
 
 // Generates a geometric variable with the specified mean.
@@ -138,16 +138,16 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // sample in expectation).
   //
   // Let k be the size of the allocation, T be the sample period
-  // (sample_period_), and f the number of bytes after which we decided to
+  // (sample_interval_), and f the number of bytes after which we decided to
   // sample (bytes_until_sample_). On average, if we were to continue taking
   // samples every T bytes, we would take (k - f) / T additional samples in
   // this allocation, plus the one we are taking now, for 1 + (k - f) / T
   // total samples. Multiplying by T, the mean number of bytes between samples,
   // gives us a weight of T + k - f.
   //
-  size_t weight = sample_period_ - bytes_until_sample_ - kIntervalOffset;
+  size_t weight = sample_interval_ - bytes_until_sample_ - kIntervalOffset;
   bytes_until_sample_ = PickNextSamplingPoint();
-  return GetSamplePeriod() <= 0 ? 0 : weight;
+  return GetSampleInterval() <= 0 ? 0 : weight;
 }
 
 double AllocatedBytes(const StackTrace& stack) {

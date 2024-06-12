@@ -89,10 +89,10 @@ TEST_P(SamplingTest, ParamChange) {
   std::vector<void*> allocs;
   allocs.reserve(kIters * 2);
 
-  ScopedGuardedSamplingRate gs(-1);
+  ScopedGuardedSamplingInterval gs(-1);
   size_t bytes;
   {
-    ScopedProfileSamplingRate s(GetParam());
+    ScopedProfileSamplingInterval s(GetParam());
     for (int i = 0; i < kIters; ++i) {
       // Sample a mix of aligned and unaligned
       allocs.push_back(AllocateAllocate(i % 20 == 0));
@@ -109,10 +109,10 @@ TEST_P(SamplingTest, ParamChange) {
     }
   }
 
-  // We change back the samping parameter (~ScopedProfileSamplingRate above) and
-  // allocate more, *without* deleting the old allocs--we should sample at the
-  // new rate, and reweighting should correctly blend samples from before and
-  // after the change.
+  // We change back the samping parameter (~ScopedProfileSamplingInterval above)
+  // and allocate more, *without* deleting the old allocs--we should sample at
+  // the new rate, and reweighting should correctly blend samples from before
+  // and after the change.
   for (int i = 0; i < kIters; ++i) {
     allocs.push_back(AllocateAllocate(i % 20 == 0));
   }
@@ -144,8 +144,8 @@ ABSL_ATTRIBUTE_NOINLINE static void* AllocateZeroByte() {
 }
 
 TEST(Sampling, AlwaysSampling) {
-  ScopedGuardedSamplingRate gs(-1);
-  ScopedProfileSamplingRate s(1);
+  ScopedGuardedSamplingInterval gs(-1);
+  ScopedProfileSamplingInterval s(1);
 
   static const size_t kIters = 80 * 1000;
   std::vector<void*> allocs;
@@ -180,8 +180,8 @@ GetHeapSnapshotNoinline() {
 }
 
 TEST(Sampling, InternalFragmentation) {
-  ScopedGuardedSamplingRate gs(-1);
-  ScopedProfileSamplingRate s(1);
+  ScopedGuardedSamplingInterval gs(-1);
+  ScopedProfileSamplingInterval s(1);
 
   static constexpr size_t kBytes = 1 << 30;
   // A power of 2 is very likely a size class, but we will check this.

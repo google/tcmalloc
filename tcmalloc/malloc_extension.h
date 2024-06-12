@@ -34,6 +34,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/macros.h"
 #include "absl/functional/function_ref.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
@@ -41,6 +42,12 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+
+// Not all versions of Abseil provide this macro.
+// TODO(b/323943471): Remove on upgrading to version that provides the macro.
+#ifndef ABSL_DEPRECATE_AND_INLINE
+#define ABSL_DEPRECATE_AND_INLINE()
+#endif
 
 // Indicates how frequently accessed the allocation is expected to be.
 // 0   - The allocation is rarely accessed.
@@ -433,22 +440,41 @@ class MallocExtension final {
   static size_t GetMemoryLimit(LimitKind limit_kind);
   static void SetMemoryLimit(size_t limit, LimitKind limit_kind);
 
-  // Gets the sampling rate.  Returns a value < 0 if unknown.
-  static int64_t GetProfileSamplingRate();
-  // Sets the sampling rate for heap profiles.  TCMalloc samples approximately
-  // every rate bytes allocated.
-  static void SetProfileSamplingRate(int64_t rate);
+  // Gets the sampling interval.  Returns a value < 0 if unknown.
+  static int64_t GetProfileSamplingInterval();
+  // Sets the sampling interval for heap profiles.  TCMalloc samples
+  // approximately every interval bytes allocated.
+  static void SetProfileSamplingInterval(int64_t interval);
 
   // Gets the guarded sampling rate.  Returns a value < 0 if unknown.
-  static int64_t GetGuardedSamplingRate();
-  // Sets the guarded sampling rate for sampled allocations.  TCMalloc samples
-  // approximately every rate bytes allocated, subject to implementation
-  // limitations in GWP-ASan.
+  static int64_t GetGuardedSamplingInterval();
+  // Sets the guarded sampling interval for sampled allocations.  TCMalloc
+  // samples approximately every interval bytes allocated, subject to
+  // implementation limitations in GWP-ASan.
   //
   // Guarded samples provide probabilistic protections against buffer underflow,
   // overflow, and use-after-free when GWP-ASan is active (via calling
   // ActivateGuardedSampling).
-  static void SetGuardedSamplingRate(int64_t rate);
+  static void SetGuardedSamplingInterval(int64_t interval);
+
+  // The old names to get and set profile sampling intervals used "rate" to
+  // refer to intervals. Use of the below is deprecated to avoid confusion.
+  ABSL_DEPRECATE_AND_INLINE()
+  static int64_t GetProfileSamplingRate() {
+    return GetProfileSamplingInterval();
+  }
+  ABSL_DEPRECATE_AND_INLINE()
+  static void SetProfileSamplingRate(int64_t rate) {
+    SetProfileSamplingInterval(rate);
+  }
+  ABSL_DEPRECATE_AND_INLINE()
+  static int64_t GetGuardedSamplingRate() {
+    return GetGuardedSamplingInterval();
+  }
+  ABSL_DEPRECATE_AND_INLINE()
+  static void SetGuardedSamplingRate(int64_t rate) {
+    SetGuardedSamplingInterval(rate);
+  }
 
   // Switches TCMalloc to guard sampled allocations for underflow, overflow, and
   // use-after-free according to the guarded sample parameter value.

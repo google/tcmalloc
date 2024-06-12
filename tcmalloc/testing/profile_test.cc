@@ -46,12 +46,12 @@ TEST(ProfileTest, HeapProfile) {
   GTEST_SKIP() << "Skipping heap profile test under sanitizers.";
 #endif
 
-  constexpr int64_t kSamplingRate = 1024 * 1024;
-  ScopedProfileSamplingRate s(kSamplingRate);
+  constexpr int64_t kSamplingInterval = 1024 * 1024;
+  ScopedProfileSamplingInterval s(kSamplingInterval);
 
   // Tweak alloc_size to make it more likely we can distinguish it from others.
   constexpr int kAllocs = 32;
-  const size_t alloc_size = 64 * kSamplingRate + 123;
+  const size_t alloc_size = 64 * kSamplingInterval + 123;
 
   auto deleter = [](void* ptr) { ::operator delete(ptr); };
   std::vector<std::unique_ptr<void, decltype(deleter)>> allocs;

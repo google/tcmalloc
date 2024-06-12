@@ -119,8 +119,8 @@ class TcMallocTest : public testing::Test {
   TcMallocTest() {
     // Start with clean state to avoid hash collisions.
     tc_globals.guardedpage_allocator().Reset();
-    MallocExtension::SetGuardedSamplingRate(
-        10 * MallocExtension::GetProfileSamplingRate());
+    MallocExtension::SetGuardedSamplingInterval(
+        10 * MallocExtension::GetProfileSamplingInterval());
 
     // Prevent SEGV handler from writing XML properties in death tests.
     unsetenv("XML_OUTPUT_FILE");
@@ -336,8 +336,8 @@ TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
 }
 
 TEST_F(TcMallocTest, DoubleFree) {
-  ScopedGuardedSamplingRate gs(-1);
-  ScopedProfileSamplingRate s(1);
+  ScopedGuardedSamplingInterval gs(-1);
+  ScopedProfileSamplingInterval s(1);
   auto DoubleFree = []() {
     void* buf = ::operator new(42);
     ::operator delete(buf);

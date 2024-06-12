@@ -88,6 +88,7 @@ static_assert(sizeof(void*) == 8);
 //   kStealAmount - The number of bytes one ThreadCache will steal from another
 //     when the first ThreadCache is forced to Scavenge(), delaying the next
 //     call to Scavenge for this thread.
+//   kDefaultProfileSamplingInterval - Bytes between sampled allocations.
 
 // Older configurations had their own customized macros.  Convert them into
 // a page-shift parameter that is checked below.
@@ -125,7 +126,7 @@ inline constexpr size_t kMaxThreadCacheSize = 64 * 1024;
 inline constexpr size_t kMaxCpuCacheSize = 10 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize = kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = kMinThreadCacheSize;
-inline constexpr size_t kDefaultProfileSamplingRate = 1 << 19;
+inline constexpr size_t kDefaultProfileSamplingInterval = 1 << 19;
 #elif TCMALLOC_PAGE_SHIFT == 15
 inline constexpr size_t kPageShift = 15;
 inline constexpr size_t kNumBaseClasses = 78;
@@ -137,7 +138,7 @@ inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
-inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
+inline constexpr size_t kDefaultProfileSamplingInterval = 1 << 21;
 #elif TCMALLOC_PAGE_SHIFT == 18
 inline constexpr size_t kPageShift = 18;
 inline constexpr size_t kNumBaseClasses = 89;
@@ -149,7 +150,7 @@ inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
-inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
+inline constexpr size_t kDefaultProfileSamplingInterval = 1 << 21;
 #elif TCMALLOC_PAGE_SHIFT == 13
 inline constexpr size_t kPageShift = 13;
 inline constexpr size_t kNumBaseClasses = 86;
@@ -161,7 +162,7 @@ inline constexpr size_t kMaxCpuCacheSize = 1.5 * 1024 * 1024;
 inline constexpr size_t kDefaultOverallThreadCacheSize =
     8u * kMaxThreadCacheSize;
 inline constexpr size_t kStealAmount = 1 << 16;
-inline constexpr size_t kDefaultProfileSamplingRate = 1 << 21;
+inline constexpr size_t kDefaultProfileSamplingInterval = 1 << 21;
 #else
 #error "Unsupported TCMALLOC_PAGE_SHIFT value!"
 #endif

@@ -59,8 +59,8 @@ GetGuardedPageAllocator() {
     gpa->Init(kMaxGpaPages, kMaxGpaPages);
     gpa->AllowAllocations();
     // Benchmark should always sample.
-    MallocExtension::SetProfileSamplingRate(1);
-    MallocExtension::SetGuardedSamplingRate(1);
+    MallocExtension::SetProfileSamplingInterval(1);
+    MallocExtension::SetGuardedSamplingInterval(1);
     return gpa;
   }();
   return {gpa, +[](GuardedPageAllocator* gpa) {

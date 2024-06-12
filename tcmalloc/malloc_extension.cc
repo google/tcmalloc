@@ -342,45 +342,45 @@ void MallocExtension::SetMemoryLimit(const size_t limit, LimitKind limit_kind) {
 #endif
 }
 
-int64_t MallocExtension::GetProfileSamplingRate() {
+int64_t MallocExtension::GetProfileSamplingInterval() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_Internal_GetProfileSamplingRate != nullptr) {
-    return MallocExtension_Internal_GetProfileSamplingRate();
+  if (&MallocExtension_Internal_GetProfileSamplingInterval != nullptr) {
+    return MallocExtension_Internal_GetProfileSamplingInterval();
   }
 #endif
   return -1;
 }
 
-void MallocExtension::SetProfileSamplingRate(int64_t rate) {
+void MallocExtension::SetProfileSamplingInterval(int64_t interval) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (&MallocExtension_Internal_SetProfileSamplingRate != nullptr) {
-    MallocExtension_Internal_SetProfileSamplingRate(rate);
+  if (&MallocExtension_Internal_SetProfileSamplingInterval != nullptr) {
+    MallocExtension_Internal_SetProfileSamplingInterval(interval);
   }
 #endif
-  (void)rate;
+  (void)interval;
 }
 
-int64_t MallocExtension::GetGuardedSamplingRate() {
+int64_t MallocExtension::GetGuardedSamplingInterval() {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_GetGuardedSamplingRate == nullptr) {
+  if (MallocExtension_Internal_GetGuardedSamplingInterval == nullptr) {
     return -1;
   }
 
-  return MallocExtension_Internal_GetGuardedSamplingRate();
+  return MallocExtension_Internal_GetGuardedSamplingInterval();
 #else
   return -1;
 #endif
 }
 
-void MallocExtension::SetGuardedSamplingRate(int64_t rate) {
+void MallocExtension::SetGuardedSamplingInterval(int64_t interval) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
-  if (MallocExtension_Internal_SetGuardedSamplingRate == nullptr) {
+  if (MallocExtension_Internal_SetGuardedSamplingInterval == nullptr) {
     return;
   }
 
-  MallocExtension_Internal_SetGuardedSamplingRate(rate);
+  MallocExtension_Internal_SetGuardedSamplingInterval(interval);
 #else
-  (void)rate;
+  (void)interval;
 #endif
 }
 

@@ -51,7 +51,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -146,7 +146,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -233,7 +233,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -331,7 +331,7 @@ static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = false,
   .span_size = 48,
-  .sampling_rate = 524288,
+  .sampling_interval = 524288,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -390,7 +390,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -488,7 +488,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -578,7 +578,7 @@ static_assert(kMaxSize == 262144, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = true,
   .span_size = 48,
-  .sampling_rate = 2097152,
+  .sampling_interval = 2097152,
   .large_size = 1024,
   .large_size_alignment = 128,
 };
@@ -679,7 +679,7 @@ static_assert(kMaxSize == 8192, "kMaxSize mismatch");
 static constexpr SizeClassAssumptions Assumptions{
   .has_expanded_classes = false,
   .span_size = 48,
-  .sampling_rate = 524288,
+  .sampling_interval = 524288,
   .large_size = 1024,
   .large_size_alignment = 128,
 };

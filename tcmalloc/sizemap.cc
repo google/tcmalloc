@@ -67,9 +67,10 @@ void SizeMap::CheckAssumptions() {
             sizeof(Span));
     failed = true;
   }
-  if (a.sampling_rate != kDefaultProfileSamplingRate) {
-    fprintf(stderr, "kDefaultProfileSamplingRate: assumed %zu, actual %zu\n",
-            a.sampling_rate, kDefaultProfileSamplingRate);
+  if (a.sampling_interval != kDefaultProfileSamplingInterval) {
+    fprintf(stderr,
+            "kDefaultProfileSamplingInterval: assumed %zu, actual %zu\n",
+            a.sampling_interval, kDefaultProfileSamplingInterval);
     failed = true;
   }
   if (a.large_size != SizeMap::kLargeSize) {

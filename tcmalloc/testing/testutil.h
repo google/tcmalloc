@@ -79,11 +79,11 @@ std::string GetStatsInPbTxt();
 extern "C" ABSL_ATTRIBUTE_WEAK int MallocExtension_Internal_GetStatsInPbtxt(
     char* buffer, int buffer_length);
 
-class ScopedProfileSamplingRate {
+class ScopedProfileSamplingInterval {
  public:
-  explicit ScopedProfileSamplingRate(int64_t temporary_value)
-      : previous_(MallocExtension::GetProfileSamplingRate()) {
-    MallocExtension::SetProfileSamplingRate(temporary_value);
+  explicit ScopedProfileSamplingInterval(int64_t temporary_value)
+      : previous_(MallocExtension::GetProfileSamplingInterval()) {
+    MallocExtension::SetProfileSamplingInterval(temporary_value);
     // Reset the per-thread sampler.  It may have a very large gap if sampling
     // had been disabled.
     void* ptr = ::operator new(256 * 1024 * 1024);
@@ -93,8 +93,8 @@ class ScopedProfileSamplingRate {
     ::operator delete(ptr);
   }
 
-  ~ScopedProfileSamplingRate() {
-    MallocExtension::SetProfileSamplingRate(previous_);
+  ~ScopedProfileSamplingInterval() {
+    MallocExtension::SetProfileSamplingInterval(previous_);
     void* ptr = ::operator new(256 * 1024 * 1024);
     // TODO(b/183453911): Remove workaround for GCC 10.x deleting operator new,
     // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
@@ -158,15 +158,15 @@ class ScopedResourceLimit {
   size_t previous_;
 };
 
-class ScopedGuardedSamplingRate {
+class ScopedGuardedSamplingInterval {
  public:
-  explicit ScopedGuardedSamplingRate(int64_t temporary_value)
-      : previous_(MallocExtension::GetGuardedSamplingRate()) {
-    MallocExtension::SetGuardedSamplingRate(temporary_value);
+  explicit ScopedGuardedSamplingInterval(int64_t temporary_value)
+      : previous_(MallocExtension::GetGuardedSamplingInterval()) {
+    MallocExtension::SetGuardedSamplingInterval(temporary_value);
   }
 
-  ~ScopedGuardedSamplingRate() {
-    MallocExtension::SetGuardedSamplingRate(previous_);
+  ~ScopedGuardedSamplingInterval() {
+    MallocExtension::SetGuardedSamplingInterval(previous_);
   }
 
  private:
@@ -176,24 +176,26 @@ class ScopedGuardedSamplingRate {
 // Disables both guarded sampling and profile sampling while in scope.
 class ScopedNeverSample {
  public:
-  ScopedNeverSample() : guarded_sampling_rate_(-1), profile_sampling_rate_(0) {}
+  ScopedNeverSample()
+      : guarded_sampling_interval_(-1), profile_sampling_interval_(0) {}
 
  private:
-  ScopedGuardedSamplingRate guarded_sampling_rate_;
-  ScopedProfileSamplingRate profile_sampling_rate_;
+  ScopedGuardedSamplingInterval guarded_sampling_interval_;
+  ScopedProfileSamplingInterval profile_sampling_interval_;
 };
 
 // Enables both guarded sampling and profile sampling for all allocations while
 // in scope.
 class ScopedAlwaysSample {
  public:
-  // See b/201336703: guarded_sampling_rate==0 means every sampled allocation
-  // is guarded.
-  ScopedAlwaysSample() : guarded_sampling_rate_(0), profile_sampling_rate_(1) {}
+  // See b/201336703: guarded_sampling_interval==0 means every sampled
+  // allocation is guarded.
+  ScopedAlwaysSample()
+      : guarded_sampling_interval_(0), profile_sampling_interval_(1) {}
 
  private:
-  ScopedGuardedSamplingRate guarded_sampling_rate_;
-  ScopedProfileSamplingRate profile_sampling_rate_;
+  ScopedGuardedSamplingInterval guarded_sampling_interval_;
+  ScopedProfileSamplingInterval profile_sampling_interval_;
 };
 
 inline void UnregisterRseq() {

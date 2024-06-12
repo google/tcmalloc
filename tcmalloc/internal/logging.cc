@@ -144,8 +144,8 @@ static void Crash(const char* filename, int line, const char* msg,
   // We're substantially less likely to try to take those locks
   // (and thus deadlock until the alarm timer fires) if we disable sampling.
 #ifndef __APPLE__
-  if (&TCMalloc_Internal_SetProfileSamplingRate != nullptr) {
-    TCMalloc_Internal_SetProfileSamplingRate(0);
+  if (&TCMalloc_Internal_SetProfileSamplingInterval != nullptr) {
+    TCMalloc_Internal_SetProfileSamplingInterval(0);
   }
 #endif  // __APPLE__
 

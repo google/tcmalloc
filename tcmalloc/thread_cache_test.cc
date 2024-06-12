@@ -69,7 +69,7 @@ class ThreadCacheTest : public ::testing::Test {
     // Explicitly disable guarded allocations for this test.  For aggressive
     // sample rates on PPC (with 64KB pages), RSS grows quickly due to
     // page-sized allocations that we don't release.
-    MallocExtension::SetGuardedSamplingRate(-1);
+    MallocExtension::SetGuardedSamplingInterval(-1);
   }
 };
 
@@ -82,7 +82,7 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   // Force a small sample to initialize tagged page allocator.
   constexpr int64_t kAlloc = 8192;
   const int64_t num_allocs =
-      32 * MallocExtension::GetProfileSamplingRate() / kAlloc;
+      32 * MallocExtension::GetProfileSamplingInterval() / kAlloc;
   for (int64_t i = 0; i < num_allocs; ++i) {
     ::operator delete(::operator new(kAlloc));
   }

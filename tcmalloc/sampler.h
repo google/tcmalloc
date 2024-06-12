@@ -59,12 +59,12 @@ namespace tcmalloc_internal {
 // marked and if an allocation includes a marked byte then it is
 // sampled. Bytes are marked according to a Poisson point process
 // with each byte being marked independently with probability
-// p = 1/profile_sampling_rate.  This makes the probability
+// p = 1/profile_sampling_interval. This makes the probability
 // of sampling an allocation of X bytes equal to the CDF of
-// a geometric with mean profile_sampling_rate. (ie. the
+// a geometric with mean profile_sampling_interval. (ie. the
 // probability that at least one byte in the range is marked). This
 // is accurately given by the CDF of the corresponding exponential
-// distribution : 1 - e^(-X/profile_sampling_rate)
+// distribution : 1 - e^(-X/profile_sampling_interval)
 // Independence of the byte marking ensures independence of
 // the sampling of each allocation.
 //
@@ -110,15 +110,15 @@ class Sampler {
   // without changing the internal state.
   bool WillRecordAllocation(size_t k);
 
-  // Generate a geometric with mean profile_sampling_rate.
+  // Generate a geometric with mean profile_sampling_interval.
   //
-  // Remembers the value of sample_rate for use in reweighing the sample
+  // Remembers the value of sample_interval for use in reweighing the sample
   // later (so that if the flag value changes before the next sample is taken,
   // the next sample is still weighed properly).
   ssize_t PickNextSamplingPoint();
 
-  // Returns the current sample period
-  static ssize_t GetSamplePeriod();
+  // Returns the current sample interval.
+  static ssize_t GetSampleInterval();
 
   // The following are public for the purposes of testing
 
@@ -129,16 +129,16 @@ class Sampler {
   }
 
   constexpr Sampler()
-      : sample_period_(0),
+      : sample_interval_(0),
         rnd_(0),
         initialized_(false),
         bytes_until_sample_(0) {}
 
  private:
-  // Saved copy of the sampling period from when we actually set
+  // Saved copy of the sampling interval from when we actually set
   // bytes_until_sample_. This allows us to properly calculate the sample
-  // weight of the first sample after the sampling period is changed.
-  ssize_t sample_period_;
+  // weight of the first sample after the sampling interval is changed.
+  ssize_t sample_interval_;
 
   uint64_t rnd_;  // Cheap random number generator
   bool initialized_;

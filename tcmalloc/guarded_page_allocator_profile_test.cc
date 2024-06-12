@@ -110,7 +110,7 @@ TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
-  ScopedProfileSamplingRate profile_sampling_rate(4096);
+  ScopedProfileSamplingInterval profile_sampling_interval(4096);
   auto token = MallocExtension::StartAllocationProfiling();
 
   constexpr size_t alloc_size = 2 * 1024 * 1024;
@@ -155,8 +155,8 @@ TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
-  ScopedGuardedSamplingRate guarded_sampling_rate(-1);
-  ScopedProfileSamplingRate profile_sampling_rate(1);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(-1);
+  ScopedProfileSamplingInterval profile_sampling_interval(1);
   auto token = MallocExtension::StartAllocationProfiling();
 
   AllocateGuardableUntil(1024, [&](void* alloc) -> NextSteps {
@@ -168,8 +168,8 @@ TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
-  ScopedGuardedSamplingRate guarded_sampling_rate(1);
-  ScopedProfileSamplingRate profile_sampling_rate(1);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(1);
+  ScopedProfileSamplingInterval profile_sampling_interval(1);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // Keep allocating until something is sampled
@@ -267,7 +267,7 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
-  ScopedProfileSamplingRate profile_sampling_rate(0);
+  ScopedProfileSamplingInterval profile_sampling_interval(0);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // This will not succeed in guarding anything.
@@ -296,8 +296,8 @@ TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
 
 TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   // Have to have a rate that is less than every single one.
-  ScopedGuardedSamplingRate scoped_guarded_sampling_rate(
-      2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate());
+  ScopedGuardedSamplingInterval scoped_guarded_sampling_interval(
+      2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval());
   AllocateUntilGuarded();
 
   auto token = MallocExtension::StartAllocationProfiling();
@@ -322,8 +322,8 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, DynamicParamChange) {
-  ScopedGuardedSamplingRate scoped_guarded_sampling_rate(
-      2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_rate());
+  ScopedGuardedSamplingInterval scoped_guarded_sampling_interval(
+      2 * tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval());
   for (int loop_count = 0; loop_count < 10; ++loop_count) {
     AllocateUntilGuarded();
 
