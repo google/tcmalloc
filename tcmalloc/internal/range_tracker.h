@@ -117,6 +117,9 @@ class RangeTracker {
   // best fit.
   size_t FindAndMark(size_t n);
 
+  // REQUIRES: the range [index, index + n) is fully unmarked.
+  void Mark(size_t index, size_t n);
+
   // REQUIRES: the range [index, index + n) is fully marked, and
   // was the returned value from a call to FindAndMark.
   // Unmarks it.
@@ -235,6 +238,31 @@ inline size_t RangeTracker<N>::FindAndMark(size_t n) {
   nused_ += n;
   nallocs_++;
   return best_index;
+}
+
+// REQUIRES: the range [index, index + n) is fully unmarked.
+// Marks it.
+template <size_t N>
+inline void RangeTracker<N>::Mark(size_t index, size_t n) {
+  TC_ASSERT_GE(bits_.FindSet(index), index + n);
+  bits_.SetRange(index, n);
+  nused_ += n;
+  nallocs_++;
+
+  size_t longest_len = 0;
+  size_t scan_index = 0, scan_len;
+
+  // We just marked a range as used. This might change the longest free range
+  // recorded in longest_free_. Recompute.
+  while (bits_.NextFreeRange(scan_index, &scan_index, &scan_len)) {
+    if (scan_len > longest_len) {
+      longest_len = scan_len;
+    }
+
+    scan_index += scan_len;
+  }
+
+  longest_free_ = longest_len;
 }
 
 // REQUIRES: the range [index, index + n) is fully marked.

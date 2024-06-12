@@ -289,6 +289,17 @@ TEST_F(RangeTrackerTest, Trivial) {
   EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 300)));
 }
 
+TEST_F(RangeTrackerTest, Mark) {
+  EXPECT_EQ(range_.longest_free(), kBits);
+  range_.Mark(100, 100);
+  EXPECT_EQ(range_.used(), 100);
+  EXPECT_EQ(range_.longest_free(), kBits - 200);
+  EXPECT_THAT(FreeRanges(), ElementsAre(Pair(0, 100), Pair(200, kBits - 200)));
+  range_.Unmark(100, 100);
+  EXPECT_EQ(range_.used(), 0);
+  EXPECT_EQ(range_.longest_free(), kBits);
+}
+
 }  // namespace
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
