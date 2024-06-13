@@ -220,7 +220,7 @@ class SizeMap {
       ABSL_ANNOTATE_MEMORY_IS_UNINITIALIZED(size_class, sizeof(*size_class));
       return false;
     }
-    if (kHasExpandedClasses && IsColdHint(policy.access())) {
+    if (kHasExpandedClasses && policy.is_cold()) {
       *size_class = class_array_[idx + kClassArraySize];
     } else {
       *size_class = class_array_[idx] + policy.scaled_numa_partition();

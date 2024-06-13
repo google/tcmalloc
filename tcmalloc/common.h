@@ -319,10 +319,6 @@ enum class AllocationAccess {
   kCold,
 };
 
-inline bool IsColdHint(hot_cold_t hint) {
-  return static_cast<uint8_t>(hint) < uint8_t{128};
-}
-
 inline AllocationAccess AccessFromPointer(void* ptr) {
   if (!kHasExpandedClasses) {
     TC_ASSERT_NE(GetMemoryTag(ptr), MemoryTag::kCold);

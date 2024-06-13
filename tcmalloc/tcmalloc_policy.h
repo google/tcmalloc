@@ -92,6 +92,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 
@@ -162,6 +163,8 @@ class AllocationAccessAsPolicy {
 
   constexpr hot_cold_t access() const { return value_; }
 
+  bool is_cold() const { return value_ < Parameters::min_hot_access_hint(); }
+
  private:
   hot_cold_t value_;
 };
@@ -171,10 +174,14 @@ struct AllocationAccessHotPolicy {
   // to be constant propagated.  This allows allocations without a hot/cold hint
   // to use the normal fast path.
   static constexpr hot_cold_t access() { return hot_cold_t{255}; }
+
+  static bool is_cold() { return false; }
 };
 
 struct AllocationAccessColdPolicy {
   static constexpr hot_cold_t access() { return hot_cold_t{0}; }
+
+  static bool is_cold() { return true; }
 };
 
 using DefaultAllocationAccessPolicy = AllocationAccessHotPolicy;
@@ -261,7 +268,7 @@ class TCMallocPolicy {
   constexpr TCMallocPolicy() = default;
   explicit constexpr TCMallocPolicy(AlignPolicy align, NumaPolicy numa)
       : align_(align), numa_(numa) {}
-  explicit constexpr TCMallocPolicy(AlignPolicy align, hot_cold_t access,
+  explicit constexpr TCMallocPolicy(AlignPolicy align, AccessPolicy access,
                                     NumaPolicy numa)
       : align_(align), access_(access), numa_(numa) {}
 
@@ -282,6 +289,8 @@ class TCMallocPolicy {
   }
 
   constexpr hot_cold_t access() const { return access_.access(); }
+
+  bool is_cold() const { return access_.is_cold(); }
 
   // Hooks policy
   static constexpr bool invoke_hooks() { return HooksPolicy::invoke_hooks(); }
@@ -307,6 +316,14 @@ class TCMallocPolicy {
                                                            numa_);
   }
 
+  constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                           HooksPolicy, SizeReturningPolicy, NumaPolicy>
+  AccessAs(hot_cold_t hot_cold) const {
+    return TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessAsPolicy,
+                          HooksPolicy, SizeReturningPolicy, NumaPolicy>(
+        align_, AllocationAccessAsPolicy{hot_cold}, numa_);
+  }
+
   // Returns this policy for frequent access
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AllocationAccessHotPolicy,
                            HooksPolicy, SizeReturningPolicy, NumaPolicy>
@@ -330,7 +347,8 @@ class TCMallocPolicy {
                            HooksPolicy, SizeReturningPolicy, NumaPolicy>
   Nothrow() const {
     return TCMallocPolicy<NullOomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          SizeReturningPolicy, NumaPolicy>(align_, numa_);
+                          SizeReturningPolicy, NumaPolicy>(align_, access_,
+                                                           numa_);
   }
 
   // Returns this policy with NewAllocHook invocations disabled.
@@ -338,14 +356,16 @@ class TCMallocPolicy {
                            SizeReturningPolicy, NumaPolicy>
   WithoutHooks() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, NoHooksPolicy,
-                          SizeReturningPolicy, NumaPolicy>(align_, numa_);
+                          SizeReturningPolicy, NumaPolicy>(align_, access_,
+                                                           numa_);
   }
 
   constexpr TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
                            IsSizeReturningPolicy, NumaPolicy>
   SizeReturning() const {
     return TCMallocPolicy<OomPolicy, AlignPolicy, AccessPolicy, HooksPolicy,
-                          IsSizeReturningPolicy, NumaPolicy>(align_, numa_);
+                          IsSizeReturningPolicy, NumaPolicy>(align_, access_,
+                                                             numa_);
   }
 
   // Returns this policy with a fixed NUMA partition.
