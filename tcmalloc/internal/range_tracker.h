@@ -103,8 +103,6 @@ class RangeTracker {
   size_t size() const;
   // Number of bits marked
   size_t used() const;
-  // Number of bits clear
-  size_t total_free() const;
   // Longest contiguous range of clear bits.
   size_t longest_free() const;
   // Count of live allocations.
@@ -177,11 +175,6 @@ inline size_t RangeTracker<N>::size() const {
 template <size_t N>
 inline size_t RangeTracker<N>::used() const {
   return nused_;
-}
-
-template <size_t N>
-inline size_t RangeTracker<N>::total_free() const {
-  return N - used();
 }
 
 template <size_t N>
