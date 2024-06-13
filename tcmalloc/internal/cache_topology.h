@@ -20,6 +20,7 @@
 #include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -48,7 +49,7 @@ class CacheTopology {
  private:
   unsigned cpu_count_ = 0;
   unsigned l3_count_ = 0;
-  uint8_t l3_cache_index_[CPU_SETSIZE] = {};
+  uint8_t l3_cache_index_[kMaxCpus] = {};
 };
 
 // Helper function exposed to permit testing it.

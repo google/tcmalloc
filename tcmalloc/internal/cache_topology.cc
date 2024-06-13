@@ -23,6 +23,7 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/internal/util.h"
@@ -49,7 +50,7 @@ int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current) {
 
   int first_cpu;
   TC_CHECK(absl::SimpleAtoi(current, &first_cpu));
-  TC_CHECK_LT(first_cpu, CPU_SETSIZE);
+  TC_CHECK_LT(first_cpu, kMaxCpus);
   return first_cpu;
 }
 
@@ -84,7 +85,7 @@ void CacheTopology::Init() {
 
     const int first_cpu =
         BuildCpuToL3CacheMap_FindFirstNumberInBuf({buf, bytes_read});
-    TC_CHECK_LT(first_cpu, CPU_SETSIZE);
+    TC_CHECK_LT(first_cpu, kMaxCpus);
     TC_CHECK_LE(first_cpu, cpu);
     if (cpu == first_cpu) {
       l3_cache_index_[cpu] = l3_count_++;

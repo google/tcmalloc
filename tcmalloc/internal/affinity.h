@@ -21,6 +21,7 @@
 
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -59,7 +60,7 @@ class ScopedAffinityMask {
   bool Tampered();
 
  private:
-  cpu_set_t original_cpus_, specified_cpus_;
+  CpuSet original_cpus_, specified_cpus_;
 };
 
 }  // namespace tcmalloc_internal

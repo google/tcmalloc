@@ -24,6 +24,7 @@
 
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/percpu.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -163,7 +164,7 @@ class NumaTopology {
   // * If NUMA support is not enabled at runtime, gated_cpu_to_scaled_partition_
   //   is left zero initialized.
 
-  static constexpr size_t kCpuMapSize = CPU_SETSIZE + kNumaCpuFudge;
+  static constexpr size_t kCpuMapSize = kMaxCpus + kNumaCpuFudge;
   std::array<size_t, kCpuMapSize> cpu_to_scaled_partition_ = {};
   // Maps from CPU number (plus kNumaCpuFudge) to NUMA partition.
   // If NUMA awareness is not enabled, allocate array of 0 size to not waste
@@ -171,7 +172,7 @@ class NumaTopology {
   // warns about any unintentional accesses. This is checked by the
   // static_assert in Init.
   static constexpr size_t kGatedCpuMapSize =
-      NumPartitions > 1 ? CPU_SETSIZE + kNumaCpuFudge : 0;
+      NumPartitions > 1 ? kMaxCpus + kNumaCpuFudge : 0;
   std::array<size_t, kGatedCpuMapSize> gated_cpu_to_scaled_partition_ = {};
 };
 
@@ -189,7 +190,7 @@ int OpenSysfsCpulist(size_t node);
 //
 // Returns true if we're actually NUMA aware; i.e. if we have CPUs mapped to
 // multiple partitions.
-bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
+bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
                       uint64_t* partition_to_nodes, NumaBindMode* bind_mode,
                       size_t num_partitions, size_t scale_by,
                       absl::FunctionRef<int(size_t)> open_node_cpulist);

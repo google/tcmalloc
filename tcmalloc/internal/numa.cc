@@ -51,7 +51,7 @@ int OpenSysfsCpulist(size_t node) {
   return signal_safe_open(path, O_RDONLY | O_CLOEXEC);
 }
 
-bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
+bool InitNumaTopology(size_t cpu_to_scaled_partition[kMaxCpus],
                       uint64_t* const partition_to_nodes,
                       NumaBindMode* const bind_mode,
                       const size_t num_partitions, const size_t scale_by,
@@ -101,11 +101,11 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
 
   // The cpu_to_scaled_partition array has a fixed size so that we can
   // statically allocate it & avoid the need to check whether it has been
-  // allocated prior to lookups. It has CPU_SETSIZE entries which ought to be
+  // allocated prior to lookups. It has kMaxCpus entries which ought to be
   // sufficient, but sanity check that indexing it by CPU number shouldn't
   // exceed its bounds.
   int num_cpus = NumCPUs();
-  TC_CHECK_LE(num_cpus, CPU_SETSIZE);
+  TC_CHECK_LE(num_cpus, kMaxCpus);
 
   // We could just always report that we're NUMA aware, but if a NUMA-aware
   // binary runs on a system that doesn't include multiple NUMA nodes then our
@@ -146,7 +146,7 @@ bool InitNumaTopology(size_t cpu_to_scaled_partition[CPU_SETSIZE],
     TC_CHECK(node_cpus.has_value());
 
     // Assign local CPUs to the appropriate partition.
-    for (size_t cpu = 0; cpu < CPU_SETSIZE; cpu++) {
+    for (size_t cpu = 0; cpu < kMaxCpus; cpu++) {
       if (node_cpus->IsSet(cpu)) {
         cpu_to_scaled_partition[cpu + kNumaCpuFudge] = partition * scale_by;
       }

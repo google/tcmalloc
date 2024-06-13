@@ -21,6 +21,7 @@
 
 #include "absl/types/span.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -30,13 +31,13 @@ namespace tcmalloc_internal {
 std::vector<int> AllowedCpus() {
   // We have no need for dynamically sized sets (currently >1024 CPUs for glibc)
   // at the present time.  We could change this in the future.
-  cpu_set_t allowed_cpus;
-  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus));
-  int n = CPU_COUNT(&allowed_cpus), c = 0;
+  CpuSet allowed_cpus;
+  TC_CHECK(allowed_cpus.GetAffinity(0));
+  int n = allowed_cpus.Count(), c = 0;
 
   std::vector<int> result(n);
-  for (int i = 0; i < CPU_SETSIZE && n; i++) {
-    if (CPU_ISSET(i, &allowed_cpus)) {
+  for (int i = 0; i < kMaxCpus && n; i++) {
+    if (allowed_cpus.IsSet(i)) {
       result[c++] = i;
       n--;
     }
@@ -46,11 +47,11 @@ std::vector<int> AllowedCpus() {
   return result;
 }
 
-static cpu_set_t SpanToCpuSetT(absl::Span<int> mask) {
-  cpu_set_t result;
-  CPU_ZERO(&result);
+static CpuSet SpanToCpuSetT(absl::Span<int> mask) {
+  CpuSet result;
+  result.Zero();
   for (int cpu : mask) {
-    CPU_SET(cpu, &result);
+    result.Set(cpu);
   }
   return result;
 }
@@ -58,21 +59,21 @@ static cpu_set_t SpanToCpuSetT(absl::Span<int> mask) {
 ScopedAffinityMask::ScopedAffinityMask(absl::Span<int> allowed_cpus) {
   specified_cpus_ = SpanToCpuSetT(allowed_cpus);
   // getaffinity should never fail.
-  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(original_cpus_), &original_cpus_));
+  TC_CHECK(original_cpus_.GetAffinity(0));
   // See destructor comments on setaffinity interactions.  Tampered() will
   // necessarily be true in this case.
-  sched_setaffinity(0, sizeof(specified_cpus_), &specified_cpus_);
+  TC_CHECK(specified_cpus_.SetAffinity(0));
 }
 
 ScopedAffinityMask::ScopedAffinityMask(int allowed_cpu) {
-  CPU_ZERO(&specified_cpus_);
-  CPU_SET(allowed_cpu, &specified_cpus_);
+  specified_cpus_.Zero();
+  specified_cpus_.Set(allowed_cpu);
 
   // getaffinity should never fail.
-  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(original_cpus_), &original_cpus_));
+  TC_CHECK(original_cpus_.GetAffinity(0));
   // See destructor comments on setaffinity interactions.  Tampered() will
   // necessarily be true in this case.
-  sched_setaffinity(0, sizeof(specified_cpus_), &specified_cpus_);
+  TC_CHECK(specified_cpus_.SetAffinity(0));
 }
 
 ScopedAffinityMask::~ScopedAffinityMask() {
@@ -82,14 +83,15 @@ ScopedAffinityMask::~ScopedAffinityMask() {
   if (!Tampered()) {
     // Note:  We do not assert success here, conflicts may restrict us from all
     // 'original_cpus_'.
-    sched_setaffinity(0, sizeof(original_cpus_), &original_cpus_);
+    (void)original_cpus_.SetAffinity(0);
   }
 }
 
 bool ScopedAffinityMask::Tampered() {
-  cpu_set_t current_cpus;
-  TC_CHECK_EQ(0, sched_getaffinity(0, sizeof(current_cpus), &current_cpus));
-  return !CPU_EQUAL(&current_cpus, &specified_cpus_);  // Mismatch => modified.
+  CpuSet current_cpus;
+  TC_CHECK(current_cpus.GetAffinity(0));
+  return !CPU_EQUAL_S(kCpuSetBytes, &current_cpus,
+                      &specified_cpus_);  // Mismatch => modified.
 }
 
 }  // namespace tcmalloc_internal

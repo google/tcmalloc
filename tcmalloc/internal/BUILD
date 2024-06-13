@@ -34,6 +34,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":cpu_utils",
         ":logging",
         "@com_google_absl//absl/types:span",
     ],
@@ -45,6 +46,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":affinity",
+        ":cpu_utils",
         ":percpu",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
@@ -465,6 +467,7 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":cpu_utils",
         ":logging",
         ":sysinfo",
         ":util",
@@ -675,6 +678,7 @@ cc_test(
     deps = [
         ":affinity",
         ":config",
+        ":cpu_utils",
         ":logging",
         ":page_size",
         ":percpu",
@@ -1049,5 +1053,8 @@ cc_library(
     visibility = [
         "//tcmalloc:__subpackages__",
     ],
-    deps = [":config"],
+    deps = [
+        ":config",
+        "@com_google_absl//absl/base:core_headers",
+    ],
 )

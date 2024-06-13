@@ -17,12 +17,12 @@
 #include <errno.h>
 #include <sched.h>
 
-#include <string>
 #include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/percpu.h"
 
 namespace tcmalloc {
@@ -30,17 +30,16 @@ namespace tcmalloc_internal {
 namespace {
 
 static bool AffinityMatches(std::vector<int> expected_affinity) {
-  cpu_set_t allowed_cpus;
-  EXPECT_EQ(sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus), 0)
-      << errno;
+  CpuSet allowed_cpus;
+  EXPECT_TRUE(allowed_cpus.GetAffinity(0)) << errno;
   for (int cpu : expected_affinity) {
-    if (!CPU_ISSET(cpu, &allowed_cpus)) return false;
+    if (!allowed_cpus.IsSet(cpu)) return false;
 
-    CPU_CLR(cpu, &allowed_cpus);
+    allowed_cpus.CLR(cpu);
   }
 
   // All cpus should now be accounted for.
-  return CPU_COUNT(&allowed_cpus) == 0;
+  return allowed_cpus.Count() == 0;
 }
 
 TEST(AffinityInternalTest, AllowedCpus) {
@@ -52,16 +51,15 @@ TEST(AffinityInternalTest, ScopedAffinityTamper) {
   // It would be convenient to use a ScopedAffinityMask here also, however, the
   // tamper logic disables the destructor (this is intentional so as to leave us
   // with the most consistent masks).
-  cpu_set_t original_cpus;
+  CpuSet original_cpus;
 restart:
-  EXPECT_EQ(sched_getaffinity(0, sizeof(original_cpus), &original_cpus), 0)
-      << errno;
+  EXPECT_TRUE(original_cpus.GetAffinity(0)) << errno;
 
   // We require at least 2 cpus to run this test.
-  if (CPU_COUNT(&original_cpus) == 1) return;
+  if (original_cpus.Count() == 1) return;
 
-  for (int i = 0; i < CPU_SETSIZE; i++) {
-    if (CPU_ISSET(i, &original_cpus)) {
+  for (int i = 0; i < kMaxCpus; i++) {
+    if (original_cpus.IsSet(i)) {
       ScopedAffinityMask mask(i);
 
       // Progressing past this point _requires_ a successful false return.
@@ -70,7 +68,7 @@ restart:
       EXPECT_FALSE(mask.Tampered());
       // Manually tamper.  Note that the only way this can fail (external
       // restriction away from "i", must in itself trigger tampering.
-      sched_setaffinity(0, sizeof(original_cpus), &original_cpus);
+      ASSERT_TRUE(original_cpus.SetAffinity(0));
       ASSERT_TRUE(mask.Tampered());
       break;
     }

@@ -19,6 +19,7 @@
 
 #include <array>
 
+#include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -37,14 +38,21 @@ class CpuSet {
   bool IsSet(int cpu) const {
     return CPU_ISSET_S(cpu, kCpuSetBytes, cpu_set_.data());
   }
+  bool CLR(int cpu) { return CPU_CLR_S(cpu, kCpuSetBytes, cpu_set_.data()); }
   int Count() const { return CPU_COUNT_S(kCpuSetBytes, cpu_set_.data()); }
 
-  int SetAffinity(pid_t pid) {
-    return sched_setaffinity(pid, kCpuSetBytes, cpu_set_.data());
+  // Sets the CPU affinity of the process with the given pid. Returns true if
+  // successful. If returns false, please check the global 'errno' variable to
+  // determine the specific error that occurred.
+  ABSL_MUST_USE_RESULT bool SetAffinity(pid_t pid) {
+    return sched_setaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
   }
 
-  int GetAffinity(pid_t pid) {
-    return sched_getaffinity(pid, kCpuSetBytes, cpu_set_.data());
+  // Gets the CPU affinity of the process with the given pid. Return trues if
+  // successful. If returns false, please check the global 'errno' variable to
+  // determine the specific error that occurred.
+  ABSL_MUST_USE_RESULT bool GetAffinity(pid_t pid) {
+    return sched_getaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
   }
 
   const cpu_set_t* data() const { return cpu_set_.data(); }

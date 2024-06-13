@@ -32,6 +32,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/memory_stats.h"
 #include "tcmalloc/internal/optimization.h"
@@ -240,12 +241,12 @@ size_t SlackBytes(const BackingStats& stats) {
 }
 
 static int CountAllowedCpus() {
-  cpu_set_t allowed_cpus;
-  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
+  CpuSet allowed_cpus;
+  if (!allowed_cpus.GetAffinity(0)) {
     return 0;
   }
 
-  return CPU_COUNT(&allowed_cpus);
+  return allowed_cpus.Count();
 }
 
 static absl::string_view SizeClassConfigurationString(

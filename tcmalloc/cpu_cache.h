@@ -43,6 +43,7 @@
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/numa.h"
@@ -762,10 +763,10 @@ void CpuCache<Forwarder>::MaybeForceSlowPath() {
   }
 }
 
-static cpu_set_t FillActiveCpuMask() {
-  cpu_set_t allowed_cpus;
-  if (sched_getaffinity(0, sizeof(allowed_cpus), &allowed_cpus) != 0) {
-    CPU_ZERO(&allowed_cpus);
+static CpuSet FillActiveCpuMask() {
+  CpuSet allowed_cpus;
+  if (!allowed_cpus.GetAffinity(0)) {
+    allowed_cpus.Zero();
   }
 
 #ifdef PERCPU_USE_RSEQ
@@ -778,10 +779,10 @@ static cpu_set_t FillActiveCpuMask() {
     return allowed_cpus;
   }
 
-  const int virtual_cpu_count = CPU_COUNT(&allowed_cpus);
-  CPU_ZERO(&allowed_cpus);
+  const int virtual_cpu_count = allowed_cpus.Count();
+  allowed_cpus.Zero();
   for (int cpu = 0; cpu < virtual_cpu_count; ++cpu) {
-    CPU_SET(cpu, &allowed_cpus);
+    allowed_cpus.Set(cpu);
   }
   return allowed_cpus;
 }
@@ -2476,7 +2477,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
               CacheLimit());
   out->printf("------------------------------------------------\n");
 
-  const cpu_set_t allowed_cpus = FillActiveCpuMask();
+  const CpuSet allowed_cpus = FillActiveCpuMask();
   const int num_cpus = NumCPUs();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
@@ -2490,7 +2491,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
         " bytes (%7.1f MiB) with"
         "%12u bytes unallocated %s%s\n",
         cpu, rbytes, rbytes / MiB, unallocated,
-        CPU_ISSET(cpu, &allowed_cpus) ? " active" : "",
+        allowed_cpus.IsSet(cpu) ? " active" : "",
         populated ? " populated" : "");
   }
 
@@ -2563,7 +2564,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
 
 template <class Forwarder>
 inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
-  const cpu_set_t allowed_cpus = FillActiveCpuMask();
+  const CpuSet allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
     PbtxtRegion entry = region->CreateSubRegion("cpu_cache");
@@ -2576,7 +2577,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
     entry.PrintI64("cpu", cpu);
     entry.PrintI64("used", rbytes);
     entry.PrintI64("unused", unallocated);
-    entry.PrintBool("active", CPU_ISSET(cpu, &allowed_cpus));
+    entry.PrintBool("active", allowed_cpus.IsSet(cpu));
     entry.PrintBool("populated", populated);
     entry.PrintI64("underflows", miss_stats.underflows);
     entry.PrintI64("overflows", miss_stats.overflows);

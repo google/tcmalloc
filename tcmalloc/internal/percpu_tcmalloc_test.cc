@@ -25,6 +25,7 @@
 #include <cstring>
 
 #include "absl/functional/function_ref.h"
+#include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/percpu.h"
 
 #if defined(__linux__)
@@ -1060,10 +1061,10 @@ TEST_P(StressThreadTest, Stress) {
   if (pin_cpu) {
     // Regression test for a livelock when a thread keeps running on cpu 0.
     absl::SleepFor(absl::Seconds(1));
-    cpu_set_t cpus;
-    CPU_ZERO(&cpus);
-    CPU_SET(0, &cpus);
-    sched_setaffinity(0, sizeof(cpus), &cpus);
+    CpuSet cpus;
+    cpus.Zero();
+    cpus.Set(0);
+    (void)cpus.SetAffinity(0);
     absl::SleepFor(absl::Seconds(1));
   } else {
     absl::SleepFor(absl::Seconds(5));

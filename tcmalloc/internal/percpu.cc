@@ -210,7 +210,7 @@ static bool SetAffinityOneCpu(int cpu) {
   CpuSet set;
   set.Zero();
   set.Set(cpu);
-  if (0 == set.SetAffinity(0)) {
+  if (set.SetAffinity(0)) {
     return true;
   }
   TC_CHECK_EQ(errno, EINVAL);
@@ -231,7 +231,7 @@ static void SlowFence(int target) {
   // First, save our cpumask (the user may want it back.)
   CpuSet old;
   old.Zero();
-  TC_CHECK_EQ(0, old.GetAffinity(0));
+  TC_CHECK(old.GetAffinity(0));
 
   // Here's the basic idea: if we run on every CPU, then every thread
   // that runs after us has certainly seen every store we've made up
@@ -299,7 +299,7 @@ static void SlowFence(int target) {
   TC_CHECK_EQ(0, signal_safe_close(fd));
 
   // Try to go back to what we originally had before Fence.
-  if (0 != old.SetAffinity(0)) {
+  if (!old.SetAffinity(0)) {
     TC_CHECK_EQ(EINVAL, errno);
     // The original set is no longer valid, which should only happen if
     // cpuset.cpus was changed at some point in Fence.  If that happened and we
@@ -310,7 +310,7 @@ static void SlowFence(int target) {
     for (int i = 0, n = NumCPUs(); i < n; ++i) {
       set.Set(i);
     }
-    TC_CHECK_EQ(0, set.SetAffinity(0));
+    TC_CHECK(set.SetAffinity(0));
   }
 }
 
