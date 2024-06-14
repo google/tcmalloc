@@ -9,8 +9,8 @@ allocation.
 
 We chose to sample an allocation every N bytes where N is a random value using
 [Sampler::PickNextSamplingPoint()](https://github.com/google/tcmalloc/blob/master/tcmalloc/sampler.cc)
-with a mean set by the profile sample rate using
-[MallocExtension::SetProfileSamplingRate()](https://github.com/google/tcmalloc/blob/master/tcmalloc/malloc_extension.h).
+with a mean set by the profile sample interval using
+[MallocExtension::SetProfileSamplingInterval()](https://github.com/google/tcmalloc/blob/master/tcmalloc/malloc_extension.h).
 
 By default this is every 2MiB, and can be overridden in code. Note that this is
 an *statistical expectation* and it's not the case that every 2 MiB block of
