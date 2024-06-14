@@ -19,6 +19,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -27,9 +28,14 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/thread_annotations.h"
+#include "absl/container/fixed_array.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_subrelease.h"
@@ -38,6 +44,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/testing/thread_manager.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -316,6 +323,143 @@ TEST_F(HugeRegionTest, Reback) {
     DeleteUnback(allocs[3]);
     CheckMock();
   }
+}
+
+class MemorySimulation final : public MemoryModifyFunction {
+ public:
+  MemorySimulation(absl::Mutex& mu, PageId base,
+                   absl::Span<std::atomic<char>> bytes)
+      : mu_(mu), base_(base), bytes_(bytes) {}
+
+  bool operator()(PageId p,
+                  Length len) override ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    // TODO(b/73749855): Simulate with unlocking.
+    mu_.AssertHeld();
+
+    size_t index = (p - base_).raw_num();
+    for (size_t i = 0, n = len.raw_num(); i < n; ++i) {
+      bytes_[index + i].store(0, std::memory_order_release);
+    }
+
+    return true;
+  }
+
+ private:
+  absl::Mutex& mu_;
+  PageId base_;
+  absl::Span<std::atomic<char>> bytes_;
+};
+
+TEST_F(HugeRegionTest, ReleaseFuzz) {
+  absl::Mutex mu;
+  absl::FixedArray<std::atomic<char>> bytes(
+      region_.size().in_pages().raw_num());
+
+  MemorySimulation simulation(mu, p_.first_page(), absl::MakeSpan(bytes));
+
+  region_.~HugeRegion();
+  new (&region_) HugeRegion({p_, region_.size()}, simulation);
+
+  const int kThreads = 10;
+  std::vector<absl::BitGen> rngs(kThreads);
+
+  absl::Mutex state_mu;
+  struct FuzzAlloc {
+    int tid;
+    PageId start;
+    Length len;
+  };
+  std::vector<FuzzAlloc> allocs;
+
+  ThreadManager threads;
+  threads.Start(kThreads, [&](int tid) {
+    switch (absl::Uniform(rngs[tid], 0, 4)) {
+      case 0: {
+        const size_t n =
+            absl::Uniform(rngs[tid], 1u, region_.size().in_pages().raw_num());
+
+        FuzzAlloc f;
+        f.tid = tid;
+        f.len = Length(n);
+        bool from_released;
+        {
+          absl::MutexLock l(&mu);
+          if (!region_.MaybeGet(f.len, &f.start, &from_released)) {
+            break;
+          }
+        }
+
+        const size_t base = (f.start - p_.first_page()).raw_num();
+        for (size_t i = 0; i < n; ++i) {
+          const int old_val =
+              bytes[base + i].exchange(tid, std::memory_order_acq_rel);
+          TC_CHECK_EQ(old_val, 0);
+        }
+
+        {
+          absl::MutexLock l(&state_mu);
+          allocs.push_back(f);
+        }
+        break;
+      }
+      case 1: {
+        FuzzAlloc f;
+
+        {
+          absl::MutexLock l(&state_mu);
+          if (allocs.empty()) {
+            break;
+          }
+
+          const size_t index = absl::Uniform(rngs[tid], 0u, allocs.size());
+          f = allocs[index];
+          std::swap(allocs[index], allocs.back());
+          allocs.resize(allocs.size() - 1);
+        }
+
+        const size_t base = (f.start - p_.first_page()).raw_num();
+        for (size_t i = 0; i < f.len.raw_num(); ++i) {
+          const int old_val =
+              bytes[base + i].exchange(0, std::memory_order_acq_rel);
+          TC_CHECK_EQ(old_val, f.tid);
+        }
+
+        absl::MutexLock l(&mu);
+        region_.Put(f.start, f.len, false);
+        break;
+      }
+      case 2: {
+        absl::MutexLock l(&state_mu);
+        if (allocs.empty()) {
+          break;
+        }
+
+        const size_t index = absl::Uniform(rngs[tid], 0u, allocs.size());
+        FuzzAlloc f = allocs[index];
+
+        const size_t base = (f.start - p_.first_page()).raw_num();
+        for (size_t i = 0; i < f.len.raw_num(); ++i) {
+          const int val = bytes[base + i].load(std::memory_order_acquire);
+          TC_CHECK_EQ(val, f.tid);
+        }
+
+        break;
+      }
+      case 3: {
+        const Length to_release = Length(
+            absl::Uniform(rngs[tid], 0u, region_.size().in_pages().raw_num()));
+
+        absl::MutexLock l(&mu);
+        region_.Release(to_release);
+
+        break;
+      }
+    }
+  });
+
+  absl::SleepFor(absl::Seconds(1));
+
+  threads.Stop();
 }
 
 TEST_F(HugeRegionTest, Stats) {
