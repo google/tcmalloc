@@ -27,7 +27,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 // The maximum number of CPUs supported by TCMalloc.
-static constexpr int kMaxCpus = 1024;
+static constexpr int kMaxCpus = 2048;
 // The size of the CPU set in bytes.
 static constexpr int kCpuSetBytes = CPU_ALLOC_SIZE(kMaxCpus);
 
