@@ -1505,6 +1505,7 @@ class GetReleaseStatsTest : public testing::Test {
   void SetUp() override {
     // Use SetUp instead of a constructor so that we can make assertions.
 
+    // TODO(b/242550501): Mock these paramters.
     Parameters::set_background_release_rate(MallocExtension::BytesPerSecond{0});
     TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(false);
     Parameters::set_hpaa_subrelease(false);
@@ -1551,9 +1552,10 @@ class GetReleaseStatsTest : public testing::Test {
     return allocator().GetReleaseStats();
   }
 
-  SpanUniquePtr New(Length n) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    return {allocator().New(n, {.objects_per_span = 1,
-                                .density = AccessDensityPrediction::kDense}),
+  SpanUniquePtr New(Length n, AccessDensityPrediction density =
+                                  AccessDensityPrediction::kDense)
+      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+    return {allocator().New(n, {.objects_per_span = 1, .density = density}),
             SpanDeleter(&allocator())};
   }
 
@@ -1570,7 +1572,7 @@ class GetReleaseStatsTest : public testing::Test {
     return allocator().ReleaseAtLeastNPagesBreakingHugepages(n, reason);
   }
 
- private:
+ protected:
   AddressRegionFactory* const previous_factory_ =
       MallocExtension::GetRegionFactory();
 
@@ -1773,6 +1775,47 @@ TEST_F(GetReleaseStatsTest, ReleaseAfterPartialReleaseContinuesTrackingStats) {
                 .release_memory_to_system = kPagesPerHugePage,
                 .process_background_actions = kPagesPerHugePage,
             }));
+}
+
+TEST_F(GetReleaseStatsTest, b339535705) {
+  std::vector<SpanUniquePtr> v;
+  size_t system_bytes;
+  do {
+    // Allocate until we trigger the huge regions.
+    v.push_back(New(kPagesPerHugePage * 2 + Length(1),
+                    AccessDensityPrediction::kSparse));
+
+    PageHeapSpinLockHolder l;
+    system_bytes = allocator_->RegionsStats().system_bytes;
+  } while (system_bytes < kHugePageSize);
+
+  EXPECT_FALSE(v.empty());
+
+  v.push_back(
+      New(kPagesPerHugePage * 2 + Length(1), AccessDensityPrediction::kSparse));
+  v.push_back(
+      New(kPagesPerHugePage * 2 + Length(1), AccessDensityPrediction::kSparse));
+
+  v.pop_back();
+  v.pop_back();
+
+  BackingStats stats;
+  {
+    PageHeapSpinLockHolder l;
+    stats = allocator_->RegionsStats();
+  }
+
+  EXPECT_GE(stats.system_bytes, kHugePageSize);
+  EXPECT_GE(stats.free_bytes, kHugePageSize);
+
+  Length released = ReleaseAtLeastNPagesBreakingHugepages(
+      kPagesPerHugePage, /*reason=*/PageReleaseReason::kSoftLimitExceeded);
+  EXPECT_GE(released, kPagesPerHugePage);
+  EXPECT_EQ(GetReleaseStats(), (PageReleaseStats{
+                                   .total = released,
+                                   .soft_limit_exceeded = released,
+                                   .hard_limit_exceeded = Length(0),
+                               }));
 }
 
 }  // namespace

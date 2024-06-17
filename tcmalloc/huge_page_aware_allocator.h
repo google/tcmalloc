@@ -1052,6 +1052,7 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   }
 
   if (released >= n) {
+    info_.RecordRelease(n, released, reason);
     return released;
   }
 
