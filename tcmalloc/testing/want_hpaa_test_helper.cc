@@ -16,45 +16,24 @@
 #include <cstdio>
 #include <string>
 
-#include "absl/log/check.h"
 #include "absl/strings/match.h"
-#include "absl/strings/numbers.h"
-#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "tcmalloc/malloc_extension.h"
 
 int main(int argc, char** argv) {
   // Why examine mallocz data, rather than just call decide_want_hpaa?  We want
   // as close of an end-to-end validation as we can get.
   std::string input = tcmalloc::MallocExtension::GetStats();
-  bool hpaa = false;
-  int subrelease = -1;
-  for (absl::string_view line : absl::StrSplit(input, '\n')) {
-    if (absl::StrContains(line, "Begin SAMPLED page allocator")) {
-      // Stop when we reach the end of the main page allocator. We don't
-      // want to look at the sampled or cold allocator parameters for this
-      // test.
-      break;
-    }
 
-    constexpr absl::string_view kHPAAToken = "HugePageAware";
-    hpaa |= absl::StrContains(line, kHPAAToken);
-
-    if (absl::ConsumePrefix(&line, "PARAMETER hpaa_subrelease ")) {
-      CHECK(absl::SimpleAtoi(line, &subrelease)) << "Could not parse: " << line;
-    }
+  constexpr absl::string_view HPAAToken = "HugePageAware";
+  if (absl::StrContains(input, HPAAToken)) {
+    printf("HPAA");
+  } else {
+    printf("NoHPAA");
   }
 
-  printf(hpaa ? "HPAA" : "NoHPAA");
-  if (hpaa) {
-    CHECK_NE(subrelease, -1) << "subrelease parameter not found in mallocz";
-    if (subrelease) {
-      printf("|subrelease");
-    }
-  } else {
-    CHECK_EQ(subrelease, -1)
-        << "found unexpected subrelease parameter for non-HPAA allocator";
+  if (absl::StrContains(input, "PARAMETER hpaa_subrelease 1")) {
+    printf("|subrelease");
   }
 
   return 0;

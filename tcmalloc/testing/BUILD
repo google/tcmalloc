@@ -435,7 +435,6 @@ cc_binary(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -448,7 +447,6 @@ cc_binary(
     malloc = "//tcmalloc:tcmalloc_large_pages",
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -462,7 +460,6 @@ cc_binary(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -475,7 +472,6 @@ cc_binary(
     malloc = "//tcmalloc:tcmalloc_256k_pages",
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -489,7 +485,6 @@ cc_binary(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -502,7 +497,6 @@ cc_binary(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_hpaa",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -515,7 +509,6 @@ cc_binary(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -528,7 +521,6 @@ cc_binary(
     malloc = "//tcmalloc:tcmalloc_small_but_slow",
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
@@ -542,7 +534,6 @@ cc_binary(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
 )
