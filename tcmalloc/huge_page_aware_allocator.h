@@ -80,10 +80,6 @@ class StaticForwarder {
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
 
-  static bool hpaa_cold_subrelease() {
-    return Parameters::hpaa_cold_subrelease();
-  }
-
   // Arena state.
   static Arena& arena();
 
@@ -387,8 +383,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Finish an allocation request - give it a span and mark it in the pagemap.
   Span* Finalize(Length n, PageId page);
 
-  // Whether this HPAA should use subrelease. This delegates to the appropriate
-  // parameter depending whether this is for the cold heap or another heap.
+  // Whether this HPAA should use subrelease. For the "cold" heap, this is
+  // always enabled; otherwise, controlled by the user's configuration.
   bool hpaa_subrelease() const;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
@@ -1085,10 +1081,8 @@ bool HugePageAwareAllocator<Forwarder>::IsValidSizeClass(size_t size,
 template <class Forwarder>
 inline bool HugePageAwareAllocator<Forwarder>::hpaa_subrelease() const {
   if (tag_ == MemoryTag::kCold) {
-    // Allow the overall hpaa_subrelease flag to take precedence if it's enabled
-    // (there is no sense in enabling subrelease for the hot heap but not the
-    // cold heap).
-    return forwarder_.hpaa_subrelease() || forwarder_.hpaa_cold_subrelease();
+    // Always subrelease for cold memory, since cold memory uses 4KiB pages.
+    return true;
   } else {
     return forwarder_.hpaa_subrelease();
   }

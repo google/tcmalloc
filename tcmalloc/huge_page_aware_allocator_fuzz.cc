@@ -383,7 +383,6 @@ void FuzzHPAA(const std::string& s) {
               break;
             case 4:
               forwarder.set_hpaa_subrelease(actual_value & 0x1);
-              forwarder.set_hpaa_cold_subrelease(actual_value & 0x1);
               break;
             case 5:
               forwarder.set_release_succeeds(actual_value & 0x1);
