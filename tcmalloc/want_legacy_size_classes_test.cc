@@ -15,7 +15,6 @@
 #include <stddef.h>
 
 #include "gtest/gtest.h"
-#include "absl/base/macros.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
