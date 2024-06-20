@@ -902,7 +902,6 @@ using tcmalloc::tcmalloc_internal::do_malloc_trim;
 using tcmalloc::tcmalloc_internal::do_mallopt;
 using tcmalloc::tcmalloc_internal::GetThreadSampler;
 using tcmalloc::tcmalloc_internal::MallocPolicy;
-using tcmalloc::tcmalloc_internal::Parameters;
 using tcmalloc::tcmalloc_internal::tc_globals;
 using tcmalloc::tcmalloc_internal::UsePerCpuCache;
 
