@@ -1115,18 +1115,10 @@ static void HotCacheOperations(CpuCache& cache, int cpu_id) {
   cache.Reclaim(cpu_id);
 }
 
-class DynamicWideSlabTest : public testing::TestWithParam<bool> {
- public:
-  bool configure_size_class_max_capacity() { return GetParam(); }
-};
-
-INSTANTIATE_TEST_SUITE_P(TestDynamicWideSlab, DynamicWideSlabTest,
-                         testing::Bool());
-
 // Test that we are complying with the threshold when we grow the slab.
 // When wider slab is enabled, we check if overflow/underflow ratio is above the
 // threshold for individual cpu caches.
-TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
+TEST(CpuCacheTest, DynamicSlabThreshold) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
@@ -1180,7 +1172,7 @@ TEST_P(DynamicWideSlabTest, DynamicSlabThreshold) {
 }
 
 // Test that when dynamic slab parameters change, things still work.
-TEST_P(DynamicWideSlabTest, DynamicSlabParamsChange) {
+TEST(CpuCacheTest, DynamicSlabParamsChange) {
   if (!subtle::percpu::IsFast()) {
     return;
   }
