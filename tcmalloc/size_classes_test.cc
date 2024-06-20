@@ -19,7 +19,10 @@
 #include "absl/base/attributes.h"
 #include "absl/random/random.h"
 #include "absl/types/span.h"
+#include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
@@ -216,6 +219,32 @@ TEST_F(RunTimeSizeClassesTest, NumToMove) {
       continue;
     }
     EXPECT_GT(m_.num_objects_to_move(c), 0) << max_size_in_class;
+  }
+}
+
+TEST_F(RunTimeSizeClassesTest, DenseSpansAreOnePage) {
+  // TODO(b/348043731):  We do not currently rely on this invariant, but we may
+  // be able to simplify the HugePageFiller's logic for many-object spans if it
+  // is true.
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES)) {
+    GTEST_SKIP()
+        << "low fragmentation size classes currently violate this invariant.";
+  }
+
+  for (int c = 1; c < kNumClasses; c++) {
+    const Length in_pages = Length(m_.class_to_pages(c));
+    const size_t span_size = in_pages.in_bytes();
+    const size_t max_size_in_class = m_.class_to_size(c);
+    if (max_size_in_class == 0) {
+      continue;
+    }
+
+    const size_t n_objects = span_size / max_size_in_class;
+    if (n_objects <= central_freelist_internal::kFewObjectsAllocMaxLimit) {
+      continue;
+    }
+
+    EXPECT_EQ(in_pages, Length(1)) << max_size_in_class;
   }
 }
 
