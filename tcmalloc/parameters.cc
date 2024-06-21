@@ -168,25 +168,7 @@ void Parameters::set_hpaa_subrelease(bool value) {
 bool ABSL_ATTRIBUTE_WEAK default_want_disable_few_object_span_prioritization();
 
 // TODO(b/333390360): remove the function
-// default_want_disable_few_object_span_prioritization() and the
-// env TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION
-// opt-out some time after 2024-05-10.
 static bool want_disable_few_object_span_prioritization() {
-  if (default_want_disable_few_object_span_prioritization != nullptr) {
-    return true;
-  }
-  const char* e =
-      thread_safe_getenv("TCMALLOC_DISABLE_FEW_OBJECT_SPAN_PRIORITIZATION");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return false;
-      case '1':
-        return true;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
   return false;
 }
 
