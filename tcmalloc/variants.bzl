@@ -58,6 +58,7 @@ test_variants = [
         "malloc": "//tcmalloc:tcmalloc_large_pages",
         "deps": ["//tcmalloc:common_large_pages"],
         "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_pages",
@@ -66,12 +67,14 @@ test_variants = [
         "copts": [
             "-DTCMALLOC_INTERNAL_256K_PAGES",
         ],
+        "tags": ["noubsan"],
     },
     {
         "name": "small_but_slow",
         "malloc": "//tcmalloc:tcmalloc_small_but_slow",
         "deps": ["//tcmalloc:common_small_but_slow"],
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_pages_pow2",
@@ -81,6 +84,7 @@ test_variants = [
         ],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS"},
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_pages_sharded_transfer_cache",
@@ -90,6 +94,7 @@ test_variants = [
         ],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
+        "tags": ["noubsan"],
     },
     {
         "name": "numa_aware",
@@ -99,6 +104,7 @@ test_variants = [
             "//tcmalloc:want_numa_aware",
         ],
         "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+        "tags": ["noubsan"],
     },
     {
         "name": "numa_aware_enabled_runtime",
@@ -108,6 +114,7 @@ test_variants = [
         ],
         "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
         "env": {"TCMALLOC_NUMA_AWARE": "1"},
+        "tags": ["noubsan"],
     },
     {
         "name": "numa_aware_disabled",
@@ -118,6 +125,7 @@ test_variants = [
         ],
         "copts": ["-DTCMALLOC_INTERNAL_NUMA_AWARE"],
         "env": {"TCMALLOC_NUMA_AWARE": "0"},
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_pages_numa_aware",
@@ -127,6 +135,7 @@ test_variants = [
             "//tcmalloc:want_numa_aware",
         ],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_pages_pow2_sharded_transfer_cache",
@@ -136,6 +145,7 @@ test_variants = [
         ],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_POW2_SIZECLASS,TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE"},
+        "tags": ["noubsan"],
     },
     {
         "name": "legacy_size_classes",
@@ -166,6 +176,7 @@ test_variants = [
             "//tcmalloc:want_no_hpaa",
         ],
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
+        "tags": ["noubsan"],
     },
     {
         "name": "hpaa",
@@ -182,6 +193,7 @@ test_variants = [
         "deps": [
             "//tcmalloc:common_deprecated_perthread",
         ],
+        "tags": ["noubsan"],
     },
     {
         "name": "8k_lowfrag_sizeclasses",
@@ -195,6 +207,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_large_pages"],
         "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_lowfrag_sizeclasses",
@@ -202,6 +215,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_256k_pages"],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "small_but_slow_lowfrag_sizeclasses",
@@ -209,6 +223,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_small_but_slow"],
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "8k_fewer_size_classes",
@@ -222,6 +237,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_large_pages"],
         "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "256k_fewer_size_classes",
@@ -229,6 +245,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_256k_pages"],
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "small_but_slow_fewer_size_classes",
@@ -236,6 +253,7 @@ test_variants = [
         "deps": ["//tcmalloc:common_small_but_slow"],
         "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
         "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES"},
+        "tags": ["noubsan"],
     },
     {
         "name": "flat_cpu_caches",
@@ -295,6 +313,7 @@ def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
     linkopts = kwargs.pop("linkopts", [])
+    tags = kwargs.pop("tags", [])
 
     variant_targets = []
     for variant in build_variants:
@@ -306,6 +325,7 @@ def create_tcmalloc_build_variant_targets(create_one, name, srcs, **kwargs):
             linkopts = linkopts + variant.get("linkopts", []),
             srcs = srcs,
             deps = deps + variant.get("deps", []),
+            tags = tags + variant.get("tags", []),
             **kwargs
         )
 
@@ -336,6 +356,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
     copts = kwargs.pop("copts", [])
     deps = kwargs.pop("deps", [])
     linkopts = kwargs.pop("linkopts", [])
+    tags = kwargs.pop("tags", [])
 
     env0 = kwargs.pop("env", {})
 
@@ -353,6 +374,7 @@ def create_tcmalloc_test_variant_targets(create_one, name, srcs, **kwargs):
             srcs = srcs,
             deps = deps + variant.get("deps", []),
             env = env,
+            tags = tags + variant.get("tags", []),
             **kwargs
         )
 
