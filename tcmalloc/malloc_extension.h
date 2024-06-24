@@ -268,6 +268,7 @@ class AddressRegionFactory {
                             // frequently than normal regions.
     kInfrequent ABSL_DEPRECATED("Use kInfrequentAllocation") =
         kInfrequentAllocation,
+    kMetadata,          // Metadata for TCMalloc not returned via new/malloc.
     kInfrequentAccess,  // TCMalloc places cold allocations in these regions.
     // Usage of the below implies numa_aware is enabled. tcmalloc will mbind the
     // address region to the hinted socket, but also passes the hint in case
