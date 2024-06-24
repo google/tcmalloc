@@ -165,23 +165,6 @@ void Parameters::set_hpaa_subrelease(bool value) {
   TCMalloc_Internal_SetHPAASubrelease(value);
 }
 
-bool ABSL_ATTRIBUTE_WEAK default_want_disable_few_object_span_prioritization();
-
-// TODO(b/333390360): remove the function
-static bool want_disable_few_object_span_prioritization() {
-  return false;
-}
-
-bool Parameters::use_all_buckets_for_few_object_spans_in_cfl() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(!want_disable_few_object_span_prioritization(),
-            std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
-}
-
 absl::Duration Parameters::huge_cache_release_time() {
   ABSL_CONST_INIT static absl::once_flag flag;
   ABSL_CONST_INIT static std::atomic<int32_t> v{1};

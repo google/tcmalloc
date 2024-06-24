@@ -83,18 +83,15 @@ class TransferCache {
   using Manager = TransferCacheManager;
   using FreeList = CentralFreeList;
 
-  TransferCache(Manager *owner, int size_class,
-                bool use_all_buckets_for_few_object_spans)
-      : TransferCache(owner, size_class, CapacityNeeded(size_class),
-                      use_all_buckets_for_few_object_spans) {}
+  TransferCache(Manager *owner, int size_class)
+      : TransferCache(owner, size_class, CapacityNeeded(size_class)) {}
 
   struct Capacity {
     int capacity;
     int max_capacity;
   };
 
-  TransferCache(Manager *owner, int size_class, Capacity capacity,
-                bool use_all_buckets_for_few_object_spans)
+  TransferCache(Manager *owner, int size_class, Capacity capacity)
       : lock_(absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY),
         low_water_mark_(0),
         slot_info_(SizeInfo({0, capacity.capacity})),
@@ -102,7 +99,7 @@ class TransferCache {
         freelist_do_not_access_directly_(),
         owner_(owner),
         max_capacity_(capacity.max_capacity) {
-    freelist().Init(size_class, use_all_buckets_for_few_object_spans);
+    freelist().Init(size_class);
     slots_ = max_capacity_ != 0 ? reinterpret_cast<void **>(owner_->Alloc(
                                       max_capacity_ * sizeof(void *)))
                                 : nullptr;

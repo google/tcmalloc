@@ -46,10 +46,7 @@ void BM_CrossThread(benchmark::State& state) {
   void* batch[kMaxObjectsToMove];
 
   struct CrossThreadState {
-    CrossThreadState()
-        : m{},
-          c{Cache(&m, 1, /*use_all_buckets_for_few_object_spans=*/false),
-            Cache(&m, 1, /*use_all_buckets_for_few_object_spans=*/false)} {}
+    CrossThreadState() : m{}, c{Cache(&m, 1), Cache(&m, 1)} {}
     FakeTransferCacheManager m;
     Cache c[2];
   };

@@ -54,8 +54,6 @@ class Parameters {
     TCMalloc_Internal_SetHPAAColdSubrelease(value);
   }
 
-  static bool use_all_buckets_for_few_object_spans_in_cfl();
-
   static absl::Duration huge_cache_release_time();
 
   static int64_t guarded_sampling_interval() {

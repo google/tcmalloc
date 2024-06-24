@@ -51,7 +51,7 @@ void FuzzCFL(const std::string& s) {
   const size_t object_size = data[0] | (data[1] << 8) | (data[2] << 16);
   const size_t num_pages = data[3];
   const size_t num_objects_to_move = data[4];
-  const bool use_all_buckets_for_few_object_spans = (data[5] & 0x1);
+  // data[5] & 0x1: reserved
   const bool use_large_spans = data[5] & 0x2;
   data += 6;
   size -= 6;
@@ -59,7 +59,7 @@ void FuzzCFL(const std::string& s) {
     return;
   }
   CentralFreelistEnv env(object_size, num_pages, num_objects_to_move,
-                         use_all_buckets_for_few_object_spans, use_large_spans);
+                         use_large_spans);
   std::vector<void*> objects;
 
   for (int i = 0; i + 5 < size; i += 5) {

@@ -93,8 +93,7 @@ class CentralFreeList {
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
 
-  void Init(size_t size_class, bool use_all_buckets_for_few_object_spans)
-      ABSL_LOCKS_EXCLUDED(lock_);
+  void Init(size_t size_class) ABSL_LOCKS_EXCLUDED(lock_);
 
   // These methods all do internal locking.
 
@@ -273,9 +272,8 @@ class CentralFreeList {
 
 // Like a constructor and hence we disable thread safety analysis.
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::Init(
-    size_t size_class,
-    bool use_all_buckets_for_few_object_spans) ABSL_NO_THREAD_SAFETY_ANALYSIS {
+inline void CentralFreeList<Forwarder>::Init(size_t size_class)
+    ABSL_NO_THREAD_SAFETY_ANALYSIS {
   size_class_ = size_class;
   object_size_ = forwarder_.class_to_size(size_class);
   if (object_size_ == 0) {
@@ -289,7 +287,6 @@ inline void CentralFreeList<Forwarder>::Init(
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
   size_reciprocal_ = Span::CalcReciprocal(object_size_);
   use_all_buckets_for_few_object_spans_ =
-      use_all_buckets_for_few_object_spans &&
       objects_per_span_ <= 2 * kNumLists;
 
   // Records nonempty_ list index associated with the span with
