@@ -342,6 +342,10 @@ class PbtxtRegion {
   // Prints 'key subregion'. Return the created subregion.
   PbtxtRegion CreateSubRegion(absl::string_view key);
 
+#ifndef NDEBUG
+  static void InjectValues(int64_t* i64, double* d, bool* b);
+#endif
+
  private:
   Printer* out_;
   PbtxtRegionType type_;

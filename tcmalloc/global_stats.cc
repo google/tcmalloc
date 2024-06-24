@@ -750,12 +750,13 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                   Parameters::profile_sampling_interval());
   region.PrintRaw("percpu_vcpu_type",
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
-  region.PrintI64("separate_allocs_for_few_and_many_objects_spans",
-                  Parameters::separate_allocs_for_few_and_many_objects_spans());
+  region.PrintBool(
+      "separate_allocs_for_few_and_many_objects_spans",
+      Parameters::separate_allocs_for_few_and_many_objects_spans());
   region.PrintI64("tcmalloc_filler_chunks_per_alloc",
                   Parameters::chunks_per_alloc());
-  region.PrintI64("tcmalloc_use_wider_slabs",
-                  tc_globals.cpu_cache().UseWiderSlabs());
+  region.PrintBool("tcmalloc_use_wider_slabs",
+                   tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintBool("tcmalloc_configure_size_class_max_capacity",
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());

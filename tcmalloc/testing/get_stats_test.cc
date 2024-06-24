@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,6 +31,7 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/testutil.h"

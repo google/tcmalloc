@@ -218,21 +218,56 @@ PbtxtRegion::~PbtxtRegion() {
   }
 }
 
+#ifndef NDEBUG
+static std::atomic<int64_t*> injected_i64;
+static std::atomic<double*> injected_d;
+static std::atomic<bool*> injected_b;
+#endif  // NDEBUG
+
 void PbtxtRegion::PrintI64(absl::string_view key, int64_t value) {
+#ifndef NDEBUG
+  int64_t* ptr = injected_i64.load(std::memory_order_acquire);
+  if (ptr) {
+    value = *ptr;
+  }
+#endif
+
   out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintDouble(absl::string_view key, double value) {
+#ifndef NDEBUG
+  double* ptr = injected_d.load(std::memory_order_acquire);
+  if (ptr) {
+    value = *ptr;
+  }
+#endif
+
   out_->Append(" ", key, ": ", value);
 }
 
 void PbtxtRegion::PrintBool(absl::string_view key, bool value) {
+#ifndef NDEBUG
+  bool* ptr = injected_b.load(std::memory_order_acquire);
+  if (ptr) {
+    value = *ptr;
+  }
+#endif
+
   out_->Append(" ", key, value ? ": true" : ": false");
 }
 
 void PbtxtRegion::PrintRaw(absl::string_view key, absl::string_view value) {
   out_->Append(" ", key, ": ", value);
 }
+
+#ifndef NDEBUG
+void PbtxtRegion::InjectValues(int64_t* i64, double* d, bool* b) {
+  injected_i64.store(i64, std::memory_order_release);
+  injected_d.store(d, std::memory_order_release);
+  injected_b.store(b, std::memory_order_release);
+}
+#endif  // NDEBUG
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   out_->Append(" ", key, " ");
