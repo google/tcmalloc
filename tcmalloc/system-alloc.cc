@@ -279,6 +279,9 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
       }
       return UsageHint::kNormal;
     case MemoryTag::kSelSan:
+      if (tc_globals.numa_topology().numa_aware()) {
+        return UsageHint::kNormalNumaAwareS0;
+      }
       return UsageHint::kNormal;
     case MemoryTag::kSampled:
       return UsageHint::kInfrequentAllocation;
