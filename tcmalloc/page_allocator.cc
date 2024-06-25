@@ -255,6 +255,14 @@ bool PageAllocator::ShrinkHardBy(Length pages, LimitKind limit_kind) {
         return true;
       }
     }
+    if (selsan_impl_) {
+      ret += static_cast<HugePageAwareAllocator*>(selsan_impl_)
+                 ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,
+                                                         release_reason);
+      if (ret >= pages) {
+        return true;
+      }
+    }
     for (int partition = 0; partition < active_numa_partitions(); partition++) {
       ret += static_cast<HugePageAwareAllocator*>(normal_impl_[partition])
                  ->ReleaseAtLeastNPagesBreakingHugepages(pages - ret,

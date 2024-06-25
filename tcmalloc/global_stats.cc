@@ -473,6 +473,9 @@ void DumpStats(Printer* out, int level) {
     }
     tc_globals.page_allocator().Print(out, MemoryTag::kSampled);
     tc_globals.page_allocator().Print(out, MemoryTag::kCold);
+    if (selsan::IsEnabled()) {
+      tc_globals.page_allocator().Print(out, MemoryTag::kSelSan);
+    }
     tc_globals.guardedpage_allocator().Print(out);
     selsan::PrintTextStats(out);
 
@@ -681,6 +684,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   }
   tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
   tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
+  if (selsan::IsEnabled()) {
+    tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kSelSan);
+  }
   // We do not collect tracking information in pbtxt.
 
   size_t soft_limit_bytes =

@@ -253,6 +253,11 @@ inline void PageAllocator::GetSmallSpanStats(SmallSpanStats* result) {
     cold_impl_->GetSmallSpanStats(&cold);
     *result += cold;
   }
+  if (selsan_impl_) {
+    SmallSpanStats selsan;
+    selsan_impl_->GetSmallSpanStats(&selsan);
+    *result += selsan;
+  }
 }
 
 inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
@@ -269,6 +274,11 @@ inline void PageAllocator::GetLargeSpanStats(LargeSpanStats* result) {
     cold_impl_->GetLargeSpanStats(&cold);
     *result = *result + cold;
   }
+  if (selsan_impl_) {
+    LargeSpanStats selsan;
+    selsan_impl_->GetLargeSpanStats(&selsan);
+    *result = *result + selsan;
+  }
 }
 
 inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
@@ -278,6 +288,10 @@ inline Length PageAllocator::ReleaseAtLeastNPages(Length num_pages,
   // resilient to not being on huge pages.
   if (has_cold_impl_) {
     released = cold_impl_->ReleaseAtLeastNPages(num_pages, reason);
+  }
+  if (selsan_impl_) {
+    released += selsan_impl_->ReleaseAtLeastNPages(
+        num_pages > released ? num_pages - released : Length(0), reason);
   }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     released += normal_impl_[partition]->ReleaseAtLeastNPages(
@@ -295,6 +309,9 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   if (has_cold_impl_) {
     stats += cold_impl_->GetReleaseStats();
   }
+  if (selsan_impl_) {
+    stats += selsan_impl_->GetReleaseStats();
+  }
   for (int partition = 0; partition < active_numa_partitions(); partition++) {
     stats += normal_impl_[partition]->GetReleaseStats();
   }
@@ -306,6 +323,9 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
 
 inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
+    return;
+  }
+  if (tag == MemoryTag::kSelSan && !selsan_impl_) {
     return;
   }
 
@@ -321,6 +341,9 @@ inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
 
 inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
+    return;
+  }
+  if (tag == MemoryTag::kSelSan && !selsan_impl_) {
     return;
   }
 
