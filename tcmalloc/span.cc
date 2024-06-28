@@ -182,7 +182,6 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
 
     ObjIdx* const host = IdxToPtr(freelist_, size, span_start);
     uint16_t embed_count = embed_count_;
-    ObjIdx current = host[embed_count];
 
     size_t iter = embed_count;
     if (result + embed_count > N) {
@@ -195,9 +194,6 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
     embed_count -= iter;
     result += iter;
 
-    // Update current for next cycle.
-    current = host[embed_count];
-
     if (result == N) {
       embed_count_ = embed_count;
       break;
@@ -209,7 +205,7 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
     batch[result] = host;
     result++;
 
-    freelist_ = current;
+    freelist_ = host[0];
     embed_count_ = size / sizeof(ObjIdx) - 1;
   }
   allocated_.store(allocated_.load(std::memory_order_relaxed) + result,
