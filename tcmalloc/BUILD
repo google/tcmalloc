@@ -1143,7 +1143,6 @@ create_tcmalloc_testsuite(
     srcs = ["size_classes_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        ":experiment",
         ":size_class_info",
         "//tcmalloc/internal:config",
         "@com_google_absl//absl/base:core_headers",

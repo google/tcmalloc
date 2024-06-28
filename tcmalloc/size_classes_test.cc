@@ -21,8 +21,6 @@
 #include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
@@ -226,11 +224,6 @@ TEST_F(RunTimeSizeClassesTest, DenseSpansAreOnePage) {
   // TODO(b/348043731):  We do not currently rely on this invariant, but we may
   // be able to simplify the HugePageFiller's logic for many-object spans if it
   // is true.
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES)) {
-    GTEST_SKIP()
-        << "low fragmentation size classes currently violate this invariant.";
-  }
-
   for (int c = 1; c < kNumClasses; c++) {
     const Length in_pages = Length(m_.class_to_pages(c));
     const size_t span_size = in_pages.in_bytes();
