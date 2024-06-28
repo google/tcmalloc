@@ -49,6 +49,16 @@ static MemoryTag MemoryTagFromSizeClass(size_t size_class) {
   return NumaNormalTag(size_class / kNumBaseClasses);
 }
 
+static AccessDensityPrediction AccessDensity(int objects_per_span) {
+  // Use number of objects per span as a proxy for estimating access density of
+  // the span. If number of objects per span is higher than
+  // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
+  // long-lived.
+  return objects_per_span > kFewObjectsAllocMaxLimit
+             ? AccessDensityPrediction::kDense
+             : AccessDensityPrediction::kSparse;
+}
+
 size_t StaticForwarder::class_to_size(int size_class) {
   return tc_globals.sizemap().class_to_size(size_class);
 }
@@ -68,10 +78,16 @@ void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
   }
 }
 
-Span* StaticForwarder::AllocateSpan(int size_class,
-                                    SpanAllocInfo span_alloc_info,
+Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
                                     Length pages_per_span) {
   const MemoryTag tag = MemoryTagFromSizeClass(size_class);
+  const AccessDensityPrediction density = AccessDensity(objects_per_span);
+
+  SpanAllocInfo span_alloc_info = {.objects_per_span = objects_per_span,
+                                   .density = density};
+  TC_ASSERT(density == AccessDensityPrediction::kSparse ||
+            (density == AccessDensityPrediction::kDense &&
+             pages_per_span == Length(1)));
   Span* span =
       tc_globals.page_allocator().New(pages_per_span, span_alloc_info, tag);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {

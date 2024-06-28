@@ -68,8 +68,7 @@ class FakeStaticForwarder {
     return nullptr;
   }
 
-  Span* AllocateSpan(int, SpanAllocInfo span_alloc_info,
-                     Length pages_per_span) {
+  Span* AllocateSpan(int, size_t objects_per_span, Length pages_per_span) {
     void* backing =
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);
@@ -83,6 +82,9 @@ class FakeStaticForwarder {
     absl::MutexLock l(&mu_);
     SpanInfo info;
     info.span = span;
+    SpanAllocInfo span_alloc_info = {
+        .objects_per_span = objects_per_span,
+        .density = AccessDensityPrediction::kSparse};
     info.span_alloc_info = span_alloc_info;
     map_.emplace(page, info);
     return span;
@@ -148,9 +150,9 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
           return FakeStaticForwarder::MapObjectsToSpans(batch, spans);
         });
     ON_CALL(*this, AllocateSpan)
-        .WillByDefault([this](int size_class, SpanAllocInfo span_alloc_info,
+        .WillByDefault([this](int size_class, size_t objects_per_span,
                               Length pages_per_span) {
-          return FakeStaticForwarder::AllocateSpan(size_class, span_alloc_info,
+          return FakeStaticForwarder::AllocateSpan(size_class, objects_per_span,
                                                    pages_per_span);
         });
     ON_CALL(*this, DeallocateSpans)
@@ -169,8 +171,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
                bool use_large_spans));
   MOCK_METHOD(void, MapObjectsToSpans, (absl::Span<void*> batch, Span** spans));
   MOCK_METHOD(Span*, AllocateSpan,
-              (int size_class, SpanAllocInfo span_alloc_info,
-               Length pages_per_span));
+              (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,
               (int size_class, size_t object_per_span,
                absl::Span<Span*> free_spans));

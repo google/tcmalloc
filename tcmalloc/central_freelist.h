@@ -59,7 +59,7 @@ class StaticForwarder {
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
   static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans);
-  static Span* AllocateSpan(int size_class, SpanAllocInfo span_alloc_info,
+  static Span* AllocateSpan(int size_class, size_t objects_per_span,
                             Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void DeallocateSpans(int size_class, size_t objects_per_span,
@@ -601,18 +601,8 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 
 template <class Forwarder>
 Span* CentralFreeList<Forwarder>::AllocateSpan() {
-  // Use number of objects per span as a proxy for estimating access density of
-  // the span. If number of objects per span is higher than
-  // kFewObjectsAllocMaxLimit threshold, we assume that the span would be
-  // long-lived.
-  const AccessDensityPrediction density =
-      objects_per_span_ > kFewObjectsAllocMaxLimit
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
-
-  SpanAllocInfo info = {.objects_per_span = objects_per_span_,
-                        .density = density};
-  Span* span = forwarder_.AllocateSpan(size_class_, info, pages_per_span_);
+  Span* span =
+      forwarder_.AllocateSpan(size_class_, objects_per_span_, pages_per_span_);
   if (ABSL_PREDICT_FALSE(span == nullptr)) {
     TC_LOG("tcmalloc: allocation failed %v", pages_per_span_);
   }
