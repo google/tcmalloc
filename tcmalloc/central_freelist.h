@@ -62,7 +62,7 @@ class StaticForwarder {
   static Span* AllocateSpan(int size_class, size_t objects_per_span,
                             Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  static void DeallocateSpans(int size_class, size_t objects_per_span,
+  static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 };
@@ -148,6 +148,9 @@ class CentralFreeList {
 
   // Allocate a span from the forwarder.
   Span* AllocateSpan();
+
+  // Deallocate spans to the forwarder.
+  void DeallocateSpans(absl::Span<Span*> spans);
 
   // Parses nonempty_ lists and returns span from the list with the lowest
   // possible index.
@@ -449,8 +452,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   if (objects_per_span_ == 1) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
-    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
-                               {spans, batch.size()});
+    DeallocateSpans({spans, batch.size()});
     return;
   }
 
@@ -481,8 +483,31 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
 
   // Then, release all free spans into page heap under its mutex.
   if (ABSL_PREDICT_FALSE(free_count)) {
-    forwarder_.DeallocateSpans(size_class_, objects_per_span_,
-                               absl::MakeSpan(free_spans, free_count));
+    DeallocateSpans(absl::MakeSpan(free_spans, free_count));
+  }
+}
+
+template <class Forwarder>
+void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
+  if (ABSL_PREDICT_TRUE(!selsan::IsEnabled())) {
+    return forwarder_.DeallocateSpans(objects_per_span_, spans);
+  }
+  Span* selsan_spans[kMaxObjectsToMove];
+  size_t selsan_count = 0;
+  size_t normal_count = 0;
+  for (Span* span : spans) {
+    if (IsSelSanMemory(span->start_address())) {
+      selsan_spans[selsan_count++] = span;
+    } else {
+      spans[normal_count++] = span;
+    }
+  }
+
+  if (normal_count) {
+    forwarder_.DeallocateSpans(objects_per_span_, {spans.data(), normal_count});
+  }
+  if (selsan_count) {
+    forwarder_.DeallocateSpans(objects_per_span_, {selsan_spans, selsan_count});
   }
 }
 

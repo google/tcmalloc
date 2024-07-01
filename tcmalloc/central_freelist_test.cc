@@ -122,8 +122,7 @@ TEST_P(StaticForwarderTest, Simple) {
                        max_span_cache_size);
   }
 
-  StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
-                                   absl::MakeSpan(&span, 1));
+  StaticForwarder::DeallocateSpans(objects_per_span_, absl::MakeSpan(&span, 1));
 }
 
 class StaticForwarderEnvironment {
@@ -187,7 +186,7 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+    StaticForwarder::DeallocateSpans(objects_per_span_,
                                      absl::MakeSpan(free_spans));
   }
 
@@ -251,7 +250,7 @@ class StaticForwarderEnvironment {
       free_spans.push_back(data->span);
     }
 
-    StaticForwarder::DeallocateSpans(size_class_, objects_per_span_,
+    StaticForwarder::DeallocateSpans(objects_per_span_,
                                      absl::MakeSpan(free_spans));
   }
 
@@ -771,6 +770,31 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
     EXPECT_EQ(e.central_freelist().NumSpansWith(i), 0);
   }
   EXPECT_EQ(stats.obj_capacity, 0);
+}
+
+TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+  ASSERT_GE(e.objects_per_span(), 1);
+  auto test_function = [&](size_t num_objects,
+                           AccessDensityPrediction density) {
+    std::vector<void*> objects(e.objects_per_span());
+    EXPECT_CALL(e.forwarder(), AllocateSpan(testing::_, testing::_, testing::_))
+        .Times(1);
+    const size_t to_fetch = std::min(e.objects_per_span(), e.batch_size());
+    const size_t fetched =
+        e.central_freelist().RemoveRange(&objects[0], to_fetch);
+    size_t returned = 0;
+    while (returned < fetched) {
+      EXPECT_CALL(e.forwarder(), DeallocateSpans(testing::_, testing::_))
+          .Times(1);
+      const size_t to_return = std::min(fetched - returned, e.batch_size());
+      e.central_freelist().InsertRange({&objects[returned], to_return});
+      returned += to_return;
+    }
+  };
+  test_function(1, AccessDensityPrediction::kDense);
+  test_function(e.objects_per_span(), AccessDensityPrediction::kDense);
 }
 
 TEST_P(CentralFreeListTest, SpanFragmentation) {

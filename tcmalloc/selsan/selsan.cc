@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <unwind.h>
 
+#include <atomic>
 #include <utility>
 
 #ifdef __x86_64__
@@ -37,6 +38,7 @@
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 
 // This is used by the compiler instrumentation.
@@ -51,6 +53,15 @@ ABSL_ATTRIBUTE_WEAK std::pair<void*, size_t> HeapObjectInfo(void* ptr);
 ABSL_CONST_INIT bool enabled = false;
 
 namespace {
+
+ABSL_CONST_INIT std::atomic<int> sampling_percent = 100;
+ABSL_CONST_INIT std::atomic<uint64_t> rnd;
+
+uint32_t Rand() {
+  auto x = ExponentialBiased::NextRandom(rnd.load(std::memory_order_relaxed));
+  rnd.store(x, std::memory_order_relaxed);
+  return ExponentialBiased::GetRandom(x);
+}
 
 void MapShadow() {
   void* const kShadowStart =
@@ -103,6 +114,7 @@ void Init() {
   if (HeapObjectInfo == nullptr) {
     return;  // don't have tcmalloc linked in
   }
+  rnd = getpid();
   enabled = EnableTBI();
 }
 
@@ -133,15 +145,35 @@ void PrintTagMismatch(uintptr_t addr, size_t size, bool write) {
 
 }  // namespace
 
+int SamplingPercent() {
+  return sampling_percent.load(std::memory_order_relaxed);
+}
+
+void SetSamplingPercent(int v) {
+  sampling_percent.store(v, std::memory_order_relaxed);
+}
+
+bool ShouldSample() {
+  const int percent = SamplingPercent();
+  if (!enabled || percent <= 0) {
+    return false;
+  }
+  if (percent >= 100) {
+    return true;
+  }
+  return (Rand() % 100) < percent;
+}
+
 void PrintTextStats(Printer* out) {
   out->printf(R"(
 ------------------------------------------------
 SelSan Status
 ------------------------------------------------
 Enabled: %d
+Sampling percent: %d%%
 
 )",
-              enabled);
+              enabled, SamplingPercent());
 }
 
 void PrintPbtxtStats(PbtxtRegion* out) {

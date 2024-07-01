@@ -110,10 +110,13 @@ static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
   }
 }
 
-void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
+void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                       absl::Span<Span*> free_spans) {
+  TC_ASSERT_NE(free_spans.size(), 0);
+  const MemoryTag tag = GetMemoryTag(free_spans[0]->start_address());
   // Unregister size class doesn't require holding any locks.
   for (Span* const free_span : free_spans) {
+    TC_ASSERT_EQ(GetMemoryTag(free_span->start_address()), tag);
     TC_ASSERT_NE(GetMemoryTag(free_span->start_address()), MemoryTag::kSampled);
     tc_globals.pagemap().UnregisterSizeClass(free_span);
 
@@ -131,7 +134,6 @@ void StaticForwarder::DeallocateSpans(int size_class, size_t objects_per_span,
                                       ABSL_CACHELINE_SIZE));
   }
 
-  const MemoryTag tag = MemoryTagFromSizeClass(size_class);
   ReturnSpansToPageHeap(tag, free_spans, objects_per_span);
 }
 

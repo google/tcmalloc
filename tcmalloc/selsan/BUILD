@@ -34,6 +34,7 @@ cc_library(
     visibility = ["//tcmalloc:__subpackages__"],
     deps = [
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:exponential_biased",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:core_headers",
     ],

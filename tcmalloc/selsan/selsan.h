@@ -81,6 +81,12 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool IsEnabled() {
   return enabled;
 }
 
+// Says if a given span allocation should be allocation from selsan page heap.
+bool ShouldSample();
+
+int SamplingPercent();
+void SetSamplingPercent(int v);
+
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE size_t RoundUpObjectSize(size_t size) {
   TC_ASSERT(IsEnabled());
   return (size + kShadowScale - 1) & ~(kShadowScale - 1);
@@ -188,6 +194,9 @@ inline void* ResetTag(void* ptr, size_t size) { return ptr; }
 inline void* UpdateTag(void* ptr, size_t size) { return ptr; }
 inline void* RemoveTag(const void* ptr) { return const_cast<void*>(ptr); }
 inline bool IsEnabled() { return false; }
+inline bool ShouldSample() { return false; }
+inline int SamplingPercent() { return 0; }
+inline void SetSamplingPercent(int v) {}
 inline void PrintTextStats(Printer* out) {}
 inline void PrintPbtxtStats(PbtxtRegion* out) {}
 

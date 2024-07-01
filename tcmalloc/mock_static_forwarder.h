@@ -90,7 +90,7 @@ class FakeStaticForwarder {
     return span;
   }
 
-  void DeallocateSpans(int, size_t, absl::Span<Span*> free_spans) {
+  void DeallocateSpans(size_t, absl::Span<Span*> free_spans) {
     {
       absl::MutexLock l(&mu_);
       for (Span* span : free_spans) {
@@ -156,10 +156,9 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
                                                    pages_per_span);
         });
     ON_CALL(*this, DeallocateSpans)
-        .WillByDefault([this](int size_class, size_t objects_per_span,
+        .WillByDefault([this](size_t objects_per_span,
                               absl::Span<Span*> free_spans) {
-          FakeStaticForwarder::DeallocateSpans(size_class, objects_per_span,
-                                               free_spans);
+          FakeStaticForwarder::DeallocateSpans(objects_per_span, free_spans);
         });
   }
 
@@ -173,8 +172,7 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,
-              (int size_class, size_t object_per_span,
-               absl::Span<Span*> free_spans));
+              (size_t object_per_span, absl::Span<Span*> free_spans));
 };
 
 using MockStaticForwarder = testing::NiceMock<RawMockStaticForwarder>;
