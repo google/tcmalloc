@@ -221,6 +221,8 @@ TEST(Sampling, InternalFragmentation) {
     return fragmentation;
   };
 
+  const size_t starting_profiled_fragmentation = ProfiledFragmentation();
+
   for (int i = 0; i < kNumLow; i++) {
     low.push_back(::operator new(kLowFragmentationSize));
   }
@@ -259,6 +261,8 @@ TEST(Sampling, InternalFragmentation) {
   // directly and asking GetNumericProperty) are within a kTolerance fraction of
   // each other.
   static constexpr double kTolerance = 0.02;
+  EXPECT_NEAR(*starting_fragmentation, starting_profiled_fragmentation,
+              starting_profiled_fragmentation * kTolerance);
   EXPECT_NEAR(*ending_fragmentation, ending_profiled_fragmentation,
               ending_profiled_fragmentation * kTolerance);
 
