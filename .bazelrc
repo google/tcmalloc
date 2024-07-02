@@ -14,6 +14,10 @@
 
 build --cxxopt='-std=c++17'
 
+# Flip incompatible_disallow_empty_glob to avoid breaking forward compatibility, see
+# https://github.com/bazelbuild/bazel/pull/15327 for details.
+build --incompatible_disallow_empty_glob
+
 # Define the --config=asan-libfuzzer configuration.
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer

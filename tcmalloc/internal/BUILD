@@ -964,7 +964,6 @@ cc_test(
     name = "sysinfo_fuzz",
     srcs = ["sysinfo_fuzz.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    data = glob(["testdata/sysinfo_fuzz/*"]),
     deps = [
         ":cpu_utils",
         ":sysinfo",
