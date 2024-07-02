@@ -14,8 +14,14 @@
 
 #include "tcmalloc/sampler.h"
 
+#ifdef __linux__
+#include <time.h>
+#endif  // __linux__
+
 #include <algorithm>
+#ifndef __linux__
 #include <atomic>
+#endif  // !__linux__
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -120,12 +126,19 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
 }
 
 size_t Sampler::RecordAllocationSlow(size_t k) {
-  static std::atomic<uint64_t> global_randomness;
-
   if (ABSL_PREDICT_FALSE(!initialized_)) {
     initialized_ = true;
+#ifdef __linux__
+    // clock_gettime is async safe and provides some more randomness
+    // beyond the bit pattern of 'this' and a deterministic counter.
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t global_seed = ts.tv_sec + ts.tv_nsec;
+#else   // __linux__
+    static std::atomic<uint64_t> global_randomness;
     uint64_t global_seed =
         global_randomness.fetch_add(1, std::memory_order_relaxed);
+#endif  // __linux__
     Init(reinterpret_cast<uintptr_t>(this) ^ global_seed);
     // Avoid missampling 0.
     bytes_until_sample_ -= k + 1;
