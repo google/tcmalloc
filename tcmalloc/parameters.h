@@ -46,13 +46,7 @@ class Parameters {
   static bool hpaa_subrelease();
   static void set_hpaa_subrelease(bool value);
 
-  static bool hpaa_cold_subrelease() {
-    return hpaa_cold_subrelease_.load(std::memory_order_relaxed);
-  }
-
-  static void set_hpaa_cold_subrelease(bool value) {
-    TCMalloc_Internal_SetHPAAColdSubrelease(value);
-  }
+  static bool use_all_buckets_for_few_object_spans_in_cfl();
 
   static absl::Duration huge_cache_release_time();
 
@@ -200,7 +194,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);
   friend void ::TCMalloc_Internal_SetGuardedSamplingInterval(int64_t v);
   friend void ::TCMalloc_Internal_SetHPAASubrelease(bool v);
-  friend void ::TCMalloc_Internal_SetHPAAColdSubrelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
@@ -244,7 +237,6 @@ class Parameters {
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;
-  static std::atomic<bool> hpaa_cold_subrelease_;
 };
 
 }  // namespace tcmalloc_internal

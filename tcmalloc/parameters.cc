@@ -223,7 +223,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
     MadvisePreference::kDontNeed);
-ABSL_CONST_INIT std::atomic<bool> Parameters::hpaa_cold_subrelease_(true);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
 ABSL_CONST_INIT std::atomic<double>
@@ -434,10 +433,6 @@ bool TCMalloc_Internal_GetHPAASubrelease() {
   return Parameters::hpaa_subrelease();
 }
 
-bool TCMalloc_Internal_GetHPAAColdSubrelease() {
-  return Parameters::hpaa_cold_subrelease();
-}
-
 bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
@@ -498,10 +493,6 @@ void TCMalloc_Internal_SetHeapSizeHardLimit(uint64_t value) {
 void TCMalloc_Internal_SetHPAASubrelease(bool v) {
   tcmalloc::tcmalloc_internal::hpaa_subrelease_ptr().store(
       v, std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetHPAAColdSubrelease(bool v) {
-  Parameters::hpaa_cold_subrelease_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
