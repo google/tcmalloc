@@ -419,13 +419,8 @@ class HugePageFiller {
   PageTrackerLists<kPagesPerHugePage.raw_num()> donated_alloc_;
   // Partially released ones that we are trying to release.
   //
-  // When FillerPartialRerelease == Return:
-  //   regular_alloc_partial_released_ is empty and n_used_partial_released_ is
-  //   0.
-  //
-  // When FillerPartialRerelease == Retain:
-  //   regular_alloc_partial_released_ contains huge pages that are partially
-  //   allocated, partially free, and partially returned to the OS.
+  // regular_alloc_partial_released_ contains huge pages that are partially
+  // allocated, partially free, and partially returned to the OS.
   //
   // regular_alloc_released_:  This list contains huge pages whose pages are
   // either allocated or returned to the OS.  There are no pages that are free,
