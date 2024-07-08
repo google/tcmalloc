@@ -235,6 +235,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
     MadvisePreference::kDontNeed);
+ABSL_CONST_INIT std::atomic<bool> Parameters::tag_metadata_separately_(true);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
 ABSL_CONST_INIT std::atomic<double>
@@ -462,6 +463,10 @@ bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
   return Parameters::release_pages_from_huge_region();
 }
 
+bool TCMalloc_Internal_GetTagMetadataSeparatelyEnabled() {
+  return Parameters::tag_metadata_separately();
+}
+
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
@@ -524,6 +529,10 @@ void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
 void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {
   Parameters::release_pages_from_huge_region_.store(v,
                                                     std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(bool v) {
+  Parameters::tag_metadata_separately_.store(v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {

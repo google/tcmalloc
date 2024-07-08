@@ -32,6 +32,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/parameters.h"
 
 #ifndef PR_SET_VMA
 #define PR_SET_VMA 0x53564d41
@@ -153,10 +154,35 @@ class SimpleRegionFactory : public AddressRegionFactory {
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     void* region_space = MallocInternal(sizeof(SimpleRegion));
     TC_CHECK_NE(region_space, nullptr);
+    usage_hint_ = hint;
     return new (region_space)
         SimpleRegion(reinterpret_cast<uintptr_t>(start), size);
   }
+
+  // Used to verify that the correct usage hint was passed to Create().
+  UsageHint usage_hint_;
 };
+
+const char* hintToString(AddressRegionFactory::UsageHint usage_hint) {
+  using UsageHint = AddressRegionFactory::UsageHint;
+  switch (usage_hint) {
+    case UsageHint::kNormal:
+      return "kNormal";
+    case UsageHint::kInfrequentAllocation:
+      return "kInfrequentAllocation";
+    case UsageHint::kMetadata:
+      return "kMetadata";
+    case UsageHint::kInfrequentAccess:
+      return "kInfrequentAccess";
+    case UsageHint::kNormalNumaAwareS0:
+      return "kNormalNumaAwareS0";
+    case UsageHint::kNormalNumaAwareS1:
+      return "kNormalNumaAware";
+    default:
+      return "unknown";
+  }
+}
+
 SimpleRegionFactory f;
 
 TEST(Basic, InvokedTest) {
@@ -196,6 +222,33 @@ TEST(Basic, RetryFailTest) {
   void* q = malloc(1024);
   ASSERT_NE(q, nullptr);
   free(q);
+}
+
+// Default behavior defaults to kMetadata. The flag tag metadata separately
+// currently defaults to true. This test verifies that the default behavior
+// assigns the kMetadata usage hint.
+TEST(UsageHint, VerifyUsageHintkMetadataTest) {
+  MallocExtension::SetRegionFactory(&f);
+  void* ptr = ::operator new(kMinMmapAlloc);
+
+  EXPECT_EQ(f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
+      << "Usage hint is " << hintToString(f.usage_hint_);
+  ::operator delete(ptr);
+}
+
+// Verify that when tag_metadata_separately is false, the usage hint is
+// kInfrequentAllocation.
+TEST(UsageHint, WhenNotTaggingMetadataSeparately) {
+  Parameters::set_tag_metadata_separately(false);
+  MallocExtension::SetRegionFactory(&f);
+  // Need a large enough size to trigger the system allocator,
+  //  1.5 is an arbitrary number. Else it would continue to use the previous
+  //  hugepage region and a new usage hint wouldn't be assigned
+  void* ptr = ::operator new(kMinMmapAlloc * 1.5);
+  ASSERT_TRUE(f.usage_hint_ ==
+              AddressRegionFactory::UsageHint::kInfrequentAllocation)
+      << "Usage hint is " << hintToString(f.usage_hint_);
+  ::operator delete(ptr);
 }
 
 }  // namespace

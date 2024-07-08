@@ -288,6 +288,9 @@ static AddressRegionFactory::UsageHint TagToHint(MemoryTag tag) {
     case MemoryTag::kCold:
       return UsageHint::kInfrequentAccess;
     case MemoryTag::kMetadata:
+      if (Parameters::tag_metadata_separately()) {
+        return UsageHint::kMetadata;
+      }
       return UsageHint::kInfrequentAllocation;
   }
 

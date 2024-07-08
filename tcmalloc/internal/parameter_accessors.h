@@ -40,6 +40,7 @@ ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetHugeRegionDemandBasedRelease();
 ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled();
+ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetTagMetadataSeparatelyEnabled();
 ABSL_ATTRIBUTE_WEAK bool
 TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled();
 ABSL_ATTRIBUTE_WEAK bool TCMalloc_Internal_GetPrioritizeSpansEnabled();
@@ -59,6 +60,8 @@ ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
+    bool v);
+ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(
     bool v);
 ABSL_ATTRIBUTE_WEAK void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(
     bool v);
