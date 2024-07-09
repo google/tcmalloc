@@ -206,7 +206,8 @@ struct IsSizeReturningPolicy {
     return {ptr, capacity};
   }
 
-  static pointer_type to_pointer(void* ptr, size_t size_class) {
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE inline pointer_type to_pointer(
+      void* ptr, size_t size_class) {
     return {ptr, tc_globals.sizemap().class_to_size(size_class)};
   }
 };
@@ -219,7 +220,10 @@ struct NonSizeReturningPolicy {
 
   static constexpr pointer_type as_pointer(void* ptr, size_t) { return ptr; }
 
-  static pointer_type to_pointer(void* ptr, size_t) { return ptr; }
+  static ABSL_ATTRIBUTE_ALWAYS_INLINE inline pointer_type to_pointer(void* ptr,
+                                                                     size_t) {
+    return ptr;
+  }
 };
 
 // Use a fixed NUMA partition.
