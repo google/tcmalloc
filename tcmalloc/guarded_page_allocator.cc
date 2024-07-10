@@ -24,6 +24,7 @@
 #include <cstring>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/debugging/stacktrace.h"
@@ -179,37 +180,37 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   d.dealloc_trace.depth = 0;
   d.requested_size = size;
   d.allocation_start = reinterpret_cast<uintptr_t>(result);
+  d.dealloc_count.store(0, std::memory_order_relaxed);
+  TC_ASSERT(!d.write_overflow_detected);
   TC_ASSERT(!alignment || d.allocation_start % alignment == 0);
 
   stacktrace_filter_.Add({stack_trace.stack, stack_trace.depth}, 1);
   return {result, Profile::Sample::GuardedStatus::Guarded};
 }
 
+// To trigger SEGV handler.
+static ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NORETURN void ForceTouchPage(
+    void* ptr) {
+  // Spin, in case this thread is waiting for concurrent mprotect() to finish.
+  for (;;) {
+    *reinterpret_cast<volatile char*>(ptr) = 'X';
+  }
+}
+
 void GuardedPageAllocator::Deallocate(void* ptr) {
   TC_ASSERT(PointerIsMine(ptr));
   const uintptr_t page_addr = GetPageAddr(reinterpret_cast<uintptr_t>(ptr));
-  size_t slot = AddrToSlot(page_addr);
-
-  {
-    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    if (IsFreed(slot)) {
-      double_free_detected_ = true;
-    } else if (WriteOverflowOccurred(slot)) {
-      write_overflow_detected_ = true;
-    }
-
-    TC_CHECK_EQ(
-        0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
-  }
-
-  if (write_overflow_detected_ || double_free_detected_) {
-    *reinterpret_cast<char*>(ptr) = 'X';  // Trigger SEGV handler.
-    TC_BUG("unreachable");
-  }
-
-  // Record stack trace.
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
+  const size_t slot = AddrToSlot(page_addr);
   SlotMetadata& d = data_[slot];
+
+  // On double-free, do not overwrite the original deallocation metadata, so
+  // that the report produced shows the original deallocation stack trace.
+  if (d.dealloc_count.fetch_add(1, std::memory_order_relaxed) != 0) {
+    ForceTouchPage(ptr);
+  }
+
+  // Record stack trace. Unwinding the stack is expensive, and holding the
+  // guarded_page_lock_ should be avoided here.
   d.dealloc_trace.depth =
       absl::GetStackTrace(d.dealloc_trace.stack, kMaxStackDepth,
                           /*skip_count=*/2);
@@ -217,6 +218,23 @@ void GuardedPageAllocator::Deallocate(void* ptr) {
 
   // Remove allocation (based on allocation stack trace) from filter.
   stacktrace_filter_.Add({d.alloc_trace.stack, d.alloc_trace.depth}, -1);
+
+  // Needs to be done before mprotect() because it accesses the object page to
+  // check canary bytes.
+  if (WriteOverflowOccurred(slot)) {
+    d.write_overflow_detected = true;
+  }
+
+  // Calling mprotect() should also be done outside the guarded_page_lock_
+  // critical section, since mprotect() can have relatively large latency.
+  TC_CHECK_EQ(
+      0, mprotect(reinterpret_cast<void*>(page_addr), page_size_, PROT_NONE));
+
+  if (d.write_overflow_detected) {
+    ForceTouchPage(ptr);
+  }
+
+  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   FreeSlot(slot);
 }
 
@@ -403,10 +421,6 @@ size_t GuardedPageAllocator::GetNearestSlot(uintptr_t addr) const {
   return AddrToSlot(GetPageAddr(GetNearestValidPage(addr)));
 }
 
-bool GuardedPageAllocator::IsFreed(size_t slot) const {
-  return !used_pages_.GetBit(slot);
-}
-
 bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
   if (!ShouldRightAlign(slot)) return false;
   uint8_t magic = GetWriteOverflowMagic(slot);
@@ -423,8 +437,9 @@ bool GuardedPageAllocator::WriteOverflowOccurred(size_t slot) const {
 GuardedAllocationsErrorType GuardedPageAllocator::GetErrorType(
     uintptr_t addr, const SlotMetadata& d) const {
   if (!d.allocation_start) return GuardedAllocationsErrorType::kUnknown;
-  if (double_free_detected_) return GuardedAllocationsErrorType::kDoubleFree;
-  if (write_overflow_detected_)
+  if (d.dealloc_count.load(std::memory_order_relaxed) >= 2)
+    return GuardedAllocationsErrorType::kDoubleFree;
+  if (d.write_overflow_detected)
     return GuardedAllocationsErrorType::kBufferOverflowOnDealloc;
   if (d.dealloc_trace.depth > 0) {
     return GuardedAllocationsErrorType::kUseAfterFree;

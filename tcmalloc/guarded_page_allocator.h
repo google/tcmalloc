@@ -89,9 +89,7 @@ class GuardedPageAllocator {
         page_size_(0),
         rand_(0),
         initialized_(false),
-        allow_allocations_(false),
-        double_free_detected_(false),
-        write_overflow_detected_(false) {}
+        allow_allocations_(false) {}
 
   GuardedPageAllocator(const GuardedPageAllocator&) = delete;
   GuardedPageAllocator& operator=(const GuardedPageAllocator&) = delete;
@@ -203,8 +201,10 @@ class GuardedPageAllocator {
   struct SlotMetadata {
     GuardedAllocationsStackTrace alloc_trace;
     GuardedAllocationsStackTrace dealloc_trace;
-    size_t requested_size = 0;
-    uintptr_t allocation_start = 0;
+    size_t requested_size = 0;             // requested allocaton size
+    uintptr_t allocation_start = 0;        // allocation start address
+    std::atomic<int> dealloc_count = 0;    // deallocation counter
+    bool write_overflow_detected = false;  // write overflow detected
   };
 
   // Max number of magic bytes we use to detect write-overflows at deallocation.
@@ -235,10 +235,6 @@ class GuardedPageAllocator {
 
   // Returns the slot number for the page nearest to addr.
   size_t GetNearestSlot(uintptr_t addr) const;
-
-  // Returns true if the specified slot has already been freed.
-  bool IsFreed(size_t slot) const
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
 
   // Returns true if magic bytes for slot were overwritten.
   bool WriteOverflowOccurred(size_t slot) const;
@@ -324,12 +320,6 @@ class GuardedPageAllocator {
 
   // Flag to control whether we can return allocations or not.
   bool allow_allocations_ ABSL_GUARDED_BY(guarded_page_lock_);
-
-  // Set to true if a double free has occurred.
-  bool double_free_detected_;
-
-  // Set to true if a write overflow was detected on deallocation.
-  bool write_overflow_detected_;
 };
 
 }  // namespace tcmalloc_internal
