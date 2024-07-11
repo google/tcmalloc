@@ -62,8 +62,8 @@ bool GetMemoryStats(MemoryStats* stats) {
   char buf[1024];
   ssize_t rc = signal_safe_read(fd.fd, buf, sizeof(buf), nullptr);
   TC_ASSERT_GE(rc, 0);
-  TC_ASSERT_LT(rc, sizeof(buf));
-  if (rc < 0 || rc >= sizeof(buf)) {
+  TC_ASSERT_LT(rc, static_cast<ssize_t>(sizeof(buf)));
+  if (rc < 0 || rc >= static_cast<ssize_t>(sizeof(buf))) {
     return false;
   }
   buf[rc] = '\0';
