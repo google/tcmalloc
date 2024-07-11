@@ -27,6 +27,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
+#include "absl/base/optimization.h"
 #include "absl/debugging/stacktrace.h"
 #include "absl/numeric/bits.h"
 #include "tcmalloc/common.h"
@@ -163,13 +164,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   // Record stack trace.
   SlotMetadata& d = data_[free_slot];
   // Count the number of pages that have been used at least once.
-  if (d.allocation_start == 0) {
-    AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    ++total_pages_used_;
-    if (total_pages_used_ == total_pages_) {
-      alloced_page_count_when_all_used_once_ =
-          num_successful_allocations_.value();
-    }
+  if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
+    total_pages_used_.fetch_add(1, std::memory_order_relaxed);
   }
 
   static_assert(sizeof(d.alloc_trace.stack) == sizeof(stack_trace.stack));
@@ -277,7 +273,6 @@ static int GetChainedInterval() {
 }
 
 void GuardedPageAllocator::Print(Printer* out) {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   out->printf(
       "\n"
       "------------------------------------------------\n"
@@ -289,29 +284,27 @@ void GuardedPageAllocator::Print(Printer* out) {
       "Slots Currently Quarantined: %zu\n"
       "Maximum Slots Allocated: %zu / %zu\n"
       "Total Slots Used Once: %zu / %zu\n"
-      "Allocation Count When All Slots Used Once: %zu\n"
       "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
       num_successful_allocations_.value(), num_failed_allocations_.value(),
       num_alloced_pages(), total_pages_ - num_alloced_pages(),
-      num_alloced_pages_max_, max_alloced_pages_, total_pages_used_,
-      total_pages_, alloced_page_count_when_all_used_once_,
-      GetChainedInterval());
+      num_alloced_pages_max_.load(std::memory_order_relaxed),
+      max_alloced_pages_, total_pages_used_.load(std::memory_order_relaxed),
+      total_pages_, GetChainedInterval());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
-  AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   gwp_asan->PrintI64("successful_allocations",
                      num_successful_allocations_.value());
   gwp_asan->PrintI64("failed_allocations", num_failed_allocations_.value());
   gwp_asan->PrintI64("current_slots_allocated", num_alloced_pages());
   gwp_asan->PrintI64("current_slots_quarantined",
                      total_pages_ - num_alloced_pages());
-  gwp_asan->PrintI64("max_slots_allocated", num_alloced_pages_max_);
+  gwp_asan->PrintI64("max_slots_allocated",
+                     num_alloced_pages_max_.load(std::memory_order_relaxed));
   gwp_asan->PrintI64("allocated_slot_limit", max_alloced_pages_);
-  gwp_asan->PrintI64("total_pages_used", total_pages_used_);
+  gwp_asan->PrintI64("total_pages_used",
+                     total_pages_used_.load(std::memory_order_relaxed));
   gwp_asan->PrintI64("total_pages", total_pages_);
-  gwp_asan->PrintI64("alloced_page_count_when_all_used_once",
-                     alloced_page_count_when_all_used_once_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
 
@@ -364,9 +357,18 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   const size_t slot = GetFreeSlot();
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
-  num_alloced_pages_.fetch_add(1, std::memory_order_relaxed);
-  num_alloced_pages_max_ =
-      std::max(num_alloced_pages(), num_alloced_pages_max_);
+
+  // Both writes to num_alloced_pages_ happen under the guarded_page_lock_, so
+  // we do not have to use an atomic fetch_add(), which is more expensive due to
+  // typically imposing a full memory barrier when lowered on e.g. x86. Recent
+  // compiler optimizations will also turn the store(load(relaxed) + N, relaxed)
+  // into a simple add instruction.
+  const size_t nalloced =
+      num_alloced_pages_.load(std::memory_order_relaxed) + 1;
+  num_alloced_pages_.store(nalloced, std::memory_order_relaxed);
+  if (nalloced > num_alloced_pages_max_.load(std::memory_order_relaxed)) {
+    num_alloced_pages_max_.store(nalloced, std::memory_order_relaxed);
+  }
   return slot;
 }
 
@@ -390,7 +392,10 @@ void GuardedPageAllocator::FreeSlot(size_t slot) {
   TC_ASSERT_LT(slot, total_pages_);
   TC_ASSERT(used_pages_.GetBit(slot));
   used_pages_.ClearBit(slot);
-  num_alloced_pages_.fetch_sub(1, std::memory_order_relaxed);
+  // Cheaper decrement - see above.
+  num_alloced_pages_.store(
+      num_alloced_pages_.load(std::memory_order_relaxed) - 1,
+      std::memory_order_relaxed);
 }
 
 uintptr_t GuardedPageAllocator::GetPageAddr(uintptr_t addr) const {
