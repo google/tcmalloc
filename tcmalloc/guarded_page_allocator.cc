@@ -351,7 +351,7 @@ void GuardedPageAllocator::MapPages() {
   initialized_ = true;
 }
 
-// Selects a random slot in O(total_pages_) time.
+// Selects a random slot in O(1) time.
 ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
@@ -361,8 +361,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   }
   num_successful_allocations_.LossyAdd(1);
 
-  size_t num_free_pages = total_pages_ - num_alloced_pages();
-  size_t slot = GetIthFreeSlot(Rand(num_free_pages));
+  const size_t slot = GetFreeSlot();
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
   num_alloced_pages_.fetch_add(1, std::memory_order_relaxed);
@@ -377,14 +376,14 @@ size_t GuardedPageAllocator::Rand(size_t max) {
   return ExponentialBiased::GetRandom(x) % max;
 }
 
-size_t GuardedPageAllocator::GetIthFreeSlot(size_t ith_free_slot) {
-  TC_ASSERT_LT(ith_free_slot, total_pages_ - num_alloced_pages());
-  for (size_t free_slot_count = 0, j = 0;; j++) {
-    if (!used_pages_.GetBit(j)) {
-      if (free_slot_count == ith_free_slot) return j;
-      free_slot_count++;
-    }
-  }
+size_t GuardedPageAllocator::GetFreeSlot() {
+  const size_t idx = Rand(total_pages_);
+  // Find the closest adjacent free slot to the random index.
+  ssize_t slot = used_pages_.FindClearBackwards(idx);
+  if (slot >= 0) return slot;
+  slot = used_pages_.FindClear(idx);
+  TC_ASSERT_LT(slot, total_pages_);
+  return slot;
 }
 
 void GuardedPageAllocator::FreeSlot(size_t slot) {

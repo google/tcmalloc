@@ -219,10 +219,8 @@ class GuardedPageAllocator {
   // hasn't been called yet.
   ssize_t ReserveFreeSlot() ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
-  // Returns the i-th free slot of used_pages_.  i must be in the range [0,
-  // total_pages_ - num_alloced_pages_).
-  size_t GetIthFreeSlot(size_t i)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
+  // Returns a random free slot in used_pages_.
+  size_t GetFreeSlot() ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
 
   // Marks the specified slot as unreserved.
   void FreeSlot(size_t slot) ABSL_EXCLUSIVE_LOCKS_REQUIRED(guarded_page_lock_);
