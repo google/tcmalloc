@@ -224,10 +224,9 @@ TEST(Basic, RetryFailTest) {
   free(q);
 }
 
-// Default behavior defaults to kMetadata. The flag tag metadata separately
-// currently defaults to true. This test verifies that the default behavior
-// assigns the kMetadata usage hint.
+// Verify when tag_metadata_separately is true, the usage hint is kMetadata.
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
+  Parameters::set_tag_metadata_separately(true);
   MallocExtension::SetRegionFactory(&f);
   void* ptr = ::operator new(kMinMmapAlloc);
 

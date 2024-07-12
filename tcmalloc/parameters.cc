@@ -235,7 +235,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
     MadvisePreference::kDontNeed);
-ABSL_CONST_INIT std::atomic<bool> Parameters::tag_metadata_separately_(true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::tag_metadata_separately_(false);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
 ABSL_CONST_INIT std::atomic<double>
