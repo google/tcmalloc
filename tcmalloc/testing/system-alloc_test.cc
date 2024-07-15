@@ -228,7 +228,10 @@ TEST(Basic, RetryFailTest) {
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   Parameters::set_tag_metadata_separately(true);
   MallocExtension::SetRegionFactory(&f);
-  void* ptr = ::operator new(kMinMmapAlloc);
+  // Need a large enough size to trigger the system allocator,
+  //  2.0 is an arbitrary number. Else it would continue to use the previous
+  //  hugepage region and a new usage hint wouldn't be assigned
+  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
 
   EXPECT_EQ(f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
       << "Usage hint is " << hintToString(f.usage_hint_);
@@ -241,11 +244,11 @@ TEST(UsageHint, WhenNotTaggingMetadataSeparately) {
   Parameters::set_tag_metadata_separately(false);
   MallocExtension::SetRegionFactory(&f);
   // Need a large enough size to trigger the system allocator,
-  //  1.5 is an arbitrary number. Else it would continue to use the previous
+  //  2.0 is an arbitrary number. Else it would continue to use the previous
   //  hugepage region and a new usage hint wouldn't be assigned
-  void* ptr = ::operator new(kMinMmapAlloc * 1.5);
-  ASSERT_TRUE(f.usage_hint_ ==
-              AddressRegionFactory::UsageHint::kInfrequentAllocation)
+  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
+  EXPECT_EQ(f.usage_hint_,
+            AddressRegionFactory::UsageHint::kInfrequentAllocation)
       << "Usage hint is " << hintToString(f.usage_hint_);
   ::operator delete(ptr);
 }
