@@ -39,7 +39,7 @@ class StackTraceFilterTest : public testing::Test {
         // Checking for wrap around (unique stack trace never found)
         ASSERT_NE(pc, 0);
         val = reinterpret_cast<void*>(pc);
-        auto hash = DefaultFilter::GetFirstHash({&val, 1});
+        size_t hash = DefaultFilter::GetFirstHash({&val, 1});
         size_t hash_base = GetFirstIndex({&val, 1});
         if (!hash_bases.contains(hash_base) && !hashes.contains(hash)) {
           hashes.insert(hash);
@@ -158,20 +158,6 @@ TEST_F(StackTraceFilterTest, AddRemove) {
   EXPECT_FALSE(filter.Contains(stack_trace1_));
 }
 
-TEST_F(StackTraceFilterTest, Reset) {
-  DefaultFilter filter;
-  filter.Add(stack_trace1_, 1);
-  filter.Add(stack_trace2_, 2);
-  filter.Add(stack_trace3_, 3);
-  EXPECT_TRUE(filter.Contains(stack_trace1_));
-  EXPECT_TRUE(filter.Contains(stack_trace2_));
-  EXPECT_TRUE(filter.Contains(stack_trace3_));
-  filter.Reset();
-  EXPECT_FALSE(filter.Contains(stack_trace1_));
-  EXPECT_FALSE(filter.Contains(stack_trace2_));
-  EXPECT_FALSE(filter.Contains(stack_trace3_));
-}
-
 TEST_F(StackTraceFilterTest, CollisionFalsePositive) {
   InitializeColliderStackTrace();
   // False positive because of collision ...
@@ -193,7 +179,7 @@ TEST_F(StackTraceFilterTest, CollisionMultiHash) {
   InitializeColliderStackTrace();
   // ... but with additional hash functions the probability of collision
   // decreases.
-  StackTraceFilter<256, 3> filter;
+  StackTraceFilter<256, 10> filter;
   filter.Add(stack_trace1_, 1);
   EXPECT_TRUE(filter.Contains(stack_trace1_));
   EXPECT_FALSE(filter.Contains(collider_stack_trace_));
@@ -224,7 +210,7 @@ TEST_F(StackTraceFilterTest, IntegerWrapAround) {
 class DecayingStackTraceFilterTest : public StackTraceFilterTest {
  protected:
   static constexpr size_t kDecaySteps = 3;
-  using DefaultFilter = DecayingStackTraceFilter<256, 2, kDecaySteps>;
+  using DefaultFilter = DecayingStackTraceFilter<256, 10, kDecaySteps>;
 };
 
 TEST_F(DecayingStackTraceFilterTest, AddAndDecay) {
@@ -262,14 +248,12 @@ TEST_F(DecayingStackTraceFilterTest, AddAndAdd) {
   }
 }
 
-TEST_F(DecayingStackTraceFilterTest, Reset) {
+TEST_F(DecayingStackTraceFilterTest, DecayAll) {
   DefaultFilter filter;
   filter.Add(stack_trace1_, 1);
+  filter.Add(stack_trace1_, -1);
   EXPECT_TRUE(filter.Contains(stack_trace1_));
-  filter.Reset();
-  EXPECT_FALSE(filter.Contains(stack_trace1_));
-  // Nothing to decay after reset.
-  for (int i = 0; i < kDecaySteps; ++i) filter.Decay();
+  filter.DecayAll();
   EXPECT_FALSE(filter.Contains(stack_trace1_));
 }
 

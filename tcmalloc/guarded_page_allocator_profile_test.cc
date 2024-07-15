@@ -44,6 +44,10 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
   // Return the number of allocations
   int AllocateUntil(size_t size,
                     absl::FunctionRef<NextSteps(void*)> evaluate_alloc) {
+    // The test harness may allocate, so move Reset() close to where we do the
+    // allocations we want to test.
+    tc_globals.guardedpage_allocator().Reset();
+
     int alloc_count = 0;
     while (true) {
       void* alloc = ::operator new(size);
@@ -168,23 +172,24 @@ TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
-  ScopedGuardedSamplingInterval guarded_sampling_interval(1);
+  // For every 2 sampled allocations, have just 1 guarded allocation.
   ScopedProfileSamplingInterval profile_sampling_interval(1);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(2);
   auto token = MallocExtension::StartAllocationProfiling();
 
   // Keep allocating until something is sampled
-  constexpr size_t alloc_size = 1033;
-  bool guarded_found = false;
-  bool unguarded_found = false;
-  AllocateGuardableUntil(alloc_size, [&](void* alloc) -> NextSteps {
+  constexpr size_t kAllocSize = 1033;
+  size_t num_guarded = 0;
+  size_t num_sampled = 0;
+  AllocateGuardableUntil(kAllocSize, [&](void* alloc) -> NextSteps {
     if (!IsNormalMemory(alloc)) {
+      num_sampled++;
       if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
-        guarded_found = true;
-        tc_globals.guardedpage_allocator().Reset();
-      } else {
-        unguarded_found = true;
+        num_guarded++;
       }
-      return {guarded_found && unguarded_found, true};
+      // The expectation is that as soon as there are more sampled allocations
+      // than guarded, at least once the rate limiter kicked in.
+      return {num_guarded > 0 && num_sampled > num_guarded, true};
     }
     return {false, true};
   });
@@ -195,9 +200,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::RateLimited,
                  [&](const Profile::Sample& s) {
-                   if (s.requested_size != alloc_size) {
-                     return;
-                   }
+                   if (s.requested_size != kAllocSize) return;
                    switch (s.guarded_status) {
                      case Profile::Sample::GuardedStatus::Guarded:
                        success_found = true;
@@ -211,6 +214,32 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
                  });
   EXPECT_TRUE(success_found);
   EXPECT_TRUE(ratelimited_found);
+}
+
+TEST_F(GuardedPageAllocatorProfileTest, DISABLED_NeverRateLimited) {
+  ScopedProfileSamplingInterval profile_sampling_interval(42);
+  ScopedGuardedSamplingInterval guarded_sampling_interval(42);
+  ASSERT_EQ(MallocExtension::GetGuardedSamplingInterval(),
+            MallocExtension::GetProfileSamplingInterval());
+  auto token = MallocExtension::StartAllocationProfiling();
+
+  constexpr size_t kAllocSize = 1033;
+  size_t num_guarded = 0;
+  AllocateGuardableUntil(kAllocSize, [&](void* alloc) -> NextSteps {
+    if (!IsNormalMemory(alloc)) {
+      // Stack trace filter may still filter.
+      if (Static::guardedpage_allocator().PointerIsMine(alloc)) num_guarded++;
+      return {num_guarded > 100, true};
+    }
+    return {false, true};
+  });
+  auto profile = std::move(token).Stop();
+  ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded,
+                 [&](const Profile::Sample& s) {
+                   if (s.requested_size != kAllocSize) return;
+                   EXPECT_NE(s.guarded_status,
+                             Profile::Sample::GuardedStatus::RateLimited);
+                 });
 }
 
 TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {

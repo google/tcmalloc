@@ -76,12 +76,17 @@ void GuardedPageAllocator::Destroy() {
   }
 }
 
+// Reset is used by tests to ensure that subsequent allocations will be sampled.
 void GuardedPageAllocator::Reset() {
-  // Reset is used by tests to ensure that subsequent allocations will be
-  // sampled. Reset sampled/guarded counters so that that we don't skip
-  // guarded sampling for a prolonged time due to accumulated stats.
+  // Reset sampled/guarded counters so that that we don't skip guarded sampling
+  // for a prolonged time due to accumulated stats.
   tc_globals.total_sampled_count_.Add(-tc_globals.total_sampled_count_.value());
   num_successful_allocations_.Add(-num_successful_allocations_.value());
+  // Allow allocations that are not currently covered by an existing allocation.
+  // Fully resetting the stack trace filter is a bad idea, because the pool may
+  // not be empty: a later deallocation would try to remove a non-existent entry
+  // from the filter.
+  stacktrace_filter_.DecayAll();
 }
 
 GuardedAllocWithStatus GuardedPageAllocator::TrySample(

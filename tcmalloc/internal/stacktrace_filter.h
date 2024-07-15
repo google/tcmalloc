@@ -73,11 +73,6 @@ class StackTraceFilter {
     Add(GetFirstHash(stack_trace), val);
   }
 
-  // Reset the filter to the initial state (no entries).
-  void Reset() {
-    for (auto& count : counts_) count.store(0, std::memory_order_relaxed);
-  }
-
  protected:
   static size_t GetFirstHash(absl::Span<void* const> s) {
     return absl::HashOf(s);
@@ -132,10 +127,11 @@ class DecayingStackTraceFilter : public StackTraceFilter<kSize, kHashNum> {
   // Decays a previously added stack trace.
   void Decay() { Decay(0); }
 
-  // Reset the filter to the initial state (no entries).
-  void Reset() {
-    for (auto& entry : ring_) entry.store(0, std::memory_order_relaxed);
-    Base::Reset();
+  // Force decay all previously added stack traces.
+  void DecayAll() {
+    for (int i = 0; i < kDecaySteps; ++i) {
+      Decay();
+    }
   }
 
  private:
