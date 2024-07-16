@@ -216,7 +216,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   EXPECT_TRUE(ratelimited_found);
 }
 
-TEST_F(GuardedPageAllocatorProfileTest, DISABLED_NeverRateLimited) {
+TEST_F(GuardedPageAllocatorProfileTest, NeverRateLimited) {
   ScopedProfileSamplingInterval profile_sampling_interval(42);
   ScopedGuardedSamplingInterval guarded_sampling_interval(42);
   ASSERT_EQ(MallocExtension::GetGuardedSamplingInterval(),

@@ -95,25 +95,42 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
   if (num_pages != Length(1)) {
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
+
   const int64_t guarded_sampling_interval =
       tcmalloc::tcmalloc_internal::Parameters::guarded_sampling_interval();
+  // Guarded sampling is disabled if guarded_sampling_interval is negative.
   if (guarded_sampling_interval < 0) {
     return {nullptr, Profile::Sample::GuardedStatus::Disabled};
   }
-  // TODO(b/273954799): Possible optimization: only calculate this when
-  // guarded_sampling_interval or profile_sampling_interval change.  Likewise
-  // for margin_multiplier below.
-  const int64_t profile_sampling_interval =
-      tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval();
-  // If guarded_sampling_interval == 0, then attempt to guard, as usual.
-  if (guarded_sampling_interval > 0) {
-    const double target_ratio =
-        profile_sampling_interval > 0
-            ? std::ceil(guarded_sampling_interval / profile_sampling_interval)
-            : 1.0;
-    const double current_ratio = 1.0 * tc_globals.total_sampled_count_.value() /
-                                 (std::max(SuccessfulAllocations(), 1UL));
-    if (current_ratio <= target_ratio) {
+  // Never filter if guarded_sampling_interval == 0, or no samples yet.
+  const size_t num_guarded = SuccessfulAllocations();
+  if (guarded_sampling_interval > 0 && num_guarded > 0) {
+    // The guarded page allocator should not exceed the desired sampling rate.
+    // To do so, we need to filter allocations while this condition holds:
+    //
+    //  num_guarded * guarded_interval > num_sampled * profile_interval
+    //
+    // I.e. if the next guarded allocation should occur at total bytes allocated
+    // later than the next sampled allocation. Recall that sampled allocations
+    // are a superset of guarded sampled allocations, and num_sampled is always
+    // incremented _after_ num_guarded.
+    //
+    // Assuming that the number of total samples (num_sampled) must always be
+    // larger or equal to the guarded samples (num_guarded), and allow for a
+    // target num_sampled:num_guarded ratio with up to 1 decimal place, the
+    // above can be rewritten as:
+    //
+    //  guarded_interval * 10 >
+    //     ((num_sampled * 10) / num_guarded) * profile_interval
+    //
+    // This avoids possible overflow if num_sampled or num_guarded grows larger,
+    // when individually multiplied by the intervals. We can avoid floating
+    // point math as well.
+    const int64_t profile_sampling_interval =
+        tcmalloc::tcmalloc_internal::Parameters::profile_sampling_interval();
+    const int64_t num_sampled = tc_globals.total_sampled_count_.value();
+    const int64_t ratio = (num_sampled * 10) / num_guarded;
+    if (guarded_sampling_interval * 10 > ratio * profile_sampling_interval) {
       return {nullptr, Profile::Sample::GuardedStatus::RateLimited};
     }
 
