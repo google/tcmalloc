@@ -35,6 +35,8 @@ namespace {
 class MockUnback final : public MemoryModifyFunction {
  public:
   ABSL_MUST_USE_RESULT bool operator()(PageId p, Length l) override {
+    release_callback_();
+
     if (!unback_success_) {
       return false;
     }
@@ -49,6 +51,7 @@ class MockUnback final : public MemoryModifyFunction {
 
   absl::flat_hash_set<PageId> released_;
   bool unback_success_ = true;
+  std::function<void()> release_callback_;
 };
 
 void FuzzRegion(const std::string& s) {
@@ -57,9 +60,12 @@ void FuzzRegion(const std::string& s) {
   if (size < 4) {
     return;
   }
-  // Reserve data[0...3] for future use for parameters to HugeRegion.
+  // data[0][0]  - Simulate reentrancy from release.
+  // data[1...3] - Reserved
   //
   // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
+  const bool reentrant_release = data[0] & 0x1;
+
   data += 4;
   size -= 4;
 
@@ -75,96 +81,137 @@ void FuzzRegion(const std::string& s) {
   }
 
   std::vector<std::pair<PageId, Length>> allocs;
+  std::vector<std::pair<const char*, size_t>> reentrant;
 
-  for (size_t i = 0; i + 9 <= size; i += 9) {
-    const uint8_t op = data[i];
-    uint64_t value;
-    memcpy(&value, &data[i + 1], sizeof(value));
+  auto run_dsl = [&](const char* data, size_t size) {
+    for (size_t i = 0; i + 9 <= size; i += 9) {
+      const uint8_t op = data[i];
+      uint64_t value;
+      memcpy(&value, &data[i + 1], sizeof(value));
 
-    switch (op & 0x7) {
-      case 0: {
-        // Allocate.
-        //
-        // value[0:17] - Length to allocate
-        const Length n = Length(std::max<size_t>(value & ((1 << 18) - 1), 1));
-        PageId p;
-        bool from_released;
-        if (!region.MaybeGet(n, &p, &from_released)) {
-          continue;
-        }
+      switch (op & 0x7) {
+        case 0: {
+          // Allocate.
+          //
+          // value[0:17] - Length to allocate
+          const Length n = Length(std::max<size_t>(value & ((1 << 18) - 1), 1));
+          PageId p;
+          bool from_released;
+          if (!region.MaybeGet(n, &p, &from_released)) {
+            continue;
+          }
 
-        allocs.emplace_back(p, n);
+          allocs.emplace_back(p, n);
 
-        if (from_released) {
-          bool did_release = false;
+          if (from_released) {
+            bool did_release = false;
 
-          for (PageId q = p, end = p + n; q != end; ++q) {
-            auto it = unback.released_.find(q);
-            if (it != unback.released_.end()) {
-              unback.released_.erase(it);
-              did_release = true;
+            for (PageId q = p, end = p + n; q != end; ++q) {
+              auto it = unback.released_.find(q);
+              if (it != unback.released_.end()) {
+                unback.released_.erase(it);
+                did_release = true;
+              }
             }
+
+            CHECK(did_release);
           }
 
-          CHECK(did_release);
+          break;
         }
-
-        break;
-      }
-      case 1: {
-        // Deallocate.
-        //
-        // value[0:17] - Index of allocs to remove.
-        // value[18] - Release
-        if (allocs.empty()) {
-          continue;
-        }
-
-        int index = value & ((1 << 18) - 1);
-        const bool release = (value >> 18) & 0x1;
-        index %= allocs.size();
-
-        auto alloc = allocs[index];
-        using std::swap;
-        swap(allocs[index], allocs.back());
-        allocs.resize(allocs.size() - 1);
-
-        region.Put(alloc.first, alloc.second, release);
-        break;
-      }
-      case 2: {
-        // Release
-        // value[0:17] - Length to release.
-        const Length len = Length(value & ((1 << 18) - 1));
-        const HugeLength max_expected =
-            std::min(region.free_backed(), HLFromPages(len));
-
-        const HugeLength actual = region.Release(len);
-        if (unback.unback_success_) {
-          if (max_expected > NHugePages(0) && len > Length(0)) {
-            TC_CHECK_GT(actual, NHugePages(0));
+        case 1: {
+          // Deallocate.
+          //
+          // value[0:17] - Index of allocs to remove.
+          // value[18] - Release
+          if (allocs.empty()) {
+            continue;
           }
-          TC_CHECK_LE(actual, max_expected);
-        } else {
-          TC_CHECK_EQ(actual, NHugePages(0));
+
+          int index = value & ((1 << 18) - 1);
+          const bool release = (value >> 18) & 0x1;
+          index %= allocs.size();
+
+          auto alloc = allocs[index];
+          using std::swap;
+          swap(allocs[index], allocs.back());
+          allocs.resize(allocs.size() - 1);
+
+          region.Put(alloc.first, alloc.second, release);
+          break;
         }
-        break;
-      }
-      case 3: {
-        // Stats
-        region.stats();
-        SmallSpanStats small;
-        LargeSpanStats large;
-        region.AddSpanStats(&small, &large);
-        break;
-      }
-      case 4: {
-        // Toggle
-        unback.unback_success_ = !unback.unback_success_;
-        break;
+        case 2: {
+          // Release
+          // value[0:17] - Length to release.
+          const Length len = Length(value & ((1 << 18) - 1));
+          const HugeLength max_expected =
+              std::min(region.free_backed(), HLFromPages(len));
+
+          const HugeLength actual = region.Release(len);
+          if (unback.unback_success_) {
+            if (max_expected > NHugePages(0) && len > Length(0)) {
+              TC_CHECK_GT(actual, NHugePages(0));
+            }
+            TC_CHECK_LE(actual, max_expected);
+          } else {
+            TC_CHECK_EQ(actual, NHugePages(0));
+          }
+          break;
+        }
+        case 3: {
+          // Stats
+          region.stats();
+          SmallSpanStats small;
+          LargeSpanStats large;
+          region.AddSpanStats(&small, &large);
+          break;
+        }
+        case 4: {
+          // Toggle
+          unback.unback_success_ = !unback.unback_success_;
+          break;
+        }
+        case 5: {
+          // Not quite a runtime parameter:  Interpret value as a subprogram
+          // in our dsl.
+          size_t subprogram = std::min(size - i - 9, value);
+          if (subprogram < 9) {
+            break;
+          }
+          reentrant.emplace_back(data + i + 9, subprogram);
+          i += size;
+        }
       }
     }
-  }
+  };
+
+  unback.release_callback_ = [&]() {
+    if (!reentrant_release) {
+      return;
+    }
+
+    if (reentrant.empty()) {
+      return;
+    }
+
+    ABSL_CONST_INIT static int depth = 0;
+    if (depth >= 5) {
+      return;
+    }
+
+    auto [data, size] = reentrant.back();
+    reentrant.pop_back();
+
+    depth++;
+    run_dsl(data, size);
+    depth--;
+  };
+
+  run_dsl(data, size);
+
+  // Stop recursing, since region.Put below might cause us to "release"
+  // more pages to the system.
+  reentrant.clear();
 
   for (const auto& alloc : allocs) {
     region.Put(alloc.first, alloc.second, false);
