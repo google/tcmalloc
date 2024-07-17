@@ -194,7 +194,6 @@ class Parameters {
   }
 
   static bool separate_allocs_for_few_and_many_objects_spans();
-  static size_t chunks_per_alloc();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);

@@ -640,8 +640,8 @@ class BlockingUnback final : public MemoryModifyFunction {
 
 thread_local absl::Mutex* BlockingUnback::mu_ = nullptr;
 
-class FillerTest : public testing::TestWithParam<
-                       std::tuple<HugePageFillerAllocsOption, size_t>> {
+class FillerTest
+    : public testing::TestWithParam<std::tuple<HugePageFillerAllocsOption>> {
  protected:
   // Allow tests to modify the clock used by the cache.
   static int64_t FakeClock() { return clock_; }
@@ -684,9 +684,7 @@ class FillerTest : public testing::TestWithParam<
   FillerTest()
       : filler_(Clock{.now = FakeClock, .freq = GetFakeClockFrequency},
                 /*separate_allocs_for_sparse_and_dense_spans=*/
-                std::get<0>(GetParam()),
-                /*chunks_per_alloc=*/std::get<1>(GetParam()), blocking_unback_,
-                blocking_unback_) {
+                std::get<0>(GetParam()), blocking_unback_, blocking_unback_) {
     ResetClock();
     // Reset success state
     blocking_unback_.success_ = true;
@@ -3006,12 +3004,10 @@ TEST_P(FillerTest, ReleasedPagesStatistics) {
   Delete(a1);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    All, FillerTest,
-    testing::Combine(
-        testing::Values(HugePageFillerAllocsOption::kUnifiedAllocs,
-                        HugePageFillerAllocsOption::kSeparateAllocs),
-        testing::Values(8, 12, 16)));
+INSTANTIATE_TEST_SUITE_P(All, FillerTest,
+                         testing::Combine(testing::Values(
+                             HugePageFillerAllocsOption::kUnifiedAllocs,
+                             HugePageFillerAllocsOption::kSeparateAllocs)));
 
 TEST(SkipSubreleaseIntervalsTest, EmptyIsNotEnabled) {
   // When we have a limit hit, we pass SkipSubreleaseIntervals{} to the

@@ -121,7 +121,6 @@ struct HugePageAwareAllocatorOptions {
       Parameters::separate_allocs_for_few_and_many_objects_spans()
           ? HugePageFillerAllocsOption::kSeparateAllocs
           : HugePageFillerAllocsOption::kUnifiedAllocs;
-  size_t chunks_per_alloc = Parameters::chunks_per_alloc();
   absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
@@ -396,8 +395,8 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     : PageAllocatorInterface("HugePageAware", options.tag),
       unback_(*this),
       unback_without_lock_(*this),
-      filler_(options.allocs_for_sparse_and_dense_spans,
-              options.chunks_per_alloc, unback_, unback_without_lock_),
+      filler_(options.allocs_for_sparse_and_dense_spans, unback_,
+              unback_without_lock_),
       regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),
       metadata_allocator_(*this),

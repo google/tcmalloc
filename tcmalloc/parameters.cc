@@ -320,19 +320,6 @@ bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
   return v.load(std::memory_order_relaxed);
 }
 
-// TODO(b/282993806):  Remove this parameter.
-size_t Parameters::chunks_per_alloc() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<size_t> v{8};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_FILLER_CHUNKS_PER_ALLOC)) {
-      v.store(16, std::memory_order_relaxed);
-    }
-  });
-  return v.load(std::memory_order_relaxed);
-}
-
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }

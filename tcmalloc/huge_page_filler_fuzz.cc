@@ -106,8 +106,7 @@ void FuzzFiller(const std::string& s) {
   //
   // [0] - (available)
   // [1] - We choose the separate_allocs_for_few_and_many_objects_spans
-  // [2] - choose the number of chunks for each alloc
-  // parameter.
+  // [2] - (available)
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
   // [i + 0]        - Specifies an operation to perform on the filler (allocate,
@@ -122,14 +121,12 @@ void FuzzFiller(const std::string& s) {
       static_cast<uint8_t>(data[1]) >= 128
           ? HugePageFillerAllocsOption::kSeparateAllocs
           : HugePageFillerAllocsOption::kUnifiedAllocs;
-  // Up to 16 chunks since that's the limit we assert in the implementation.
-  const size_t chunks_per_alloc = 1 + (data[2] & 15);
   data += kInitBytes;
   size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      allocs_for_few_and_many_objects_spans,
-                                     chunks_per_alloc, unback, unback);
+                                     unback, unback);
 
   struct Alloc {
     PageId page;

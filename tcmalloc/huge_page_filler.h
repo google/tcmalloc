@@ -256,11 +256,10 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(
-      HugePageFillerAllocsOption allocs_option, size_t chunks_per_alloc,
+      HugePageFillerAllocsOption allocs_option,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
   HugePageFiller(Clock clock, HugePageFillerAllocsOption allocs_options,
-                 size_t chunks_per_alloc,
                  MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
                  MemoryModifyFunction& unback_without_lock
                      ABSL_ATTRIBUTE_LIFETIME_BOUND);
@@ -401,17 +400,16 @@ class HugePageFiller {
   SubreleaseStats subrelease_stats_;
 
   // We group hugepages first by longest-free (as a measure of fragmentation),
-  // then into chunks_per_alloc_ chunks inside there by desirability of
+  // then into kChunks chunks inside there by desirability of
   // allocation.
-  static constexpr size_t kChunks = 16;
+  static constexpr size_t kChunks = 8;
   // Which chunk should this hugepage be in?
-  // This returns the largest possible value chunks_per_alloc_ - 1 iff
+  // This returns the largest possible value kChunks - 1 iff
   // pt has a single allocation.
   size_t IndexFor(TrackerType* pt) const;
   // Returns index for regular_alloc_.
   size_t ListFor(Length longest, size_t chunk) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
-  const size_t chunks_per_alloc_;
 
   // List of hugepages from which no pages have been released to the OS.
   PageTrackerLists<kNumLists>
@@ -630,27 +628,22 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    HugePageFillerAllocsOption allocs_option, size_t chunks_per_alloc,
-    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
+    HugePageFillerAllocsOption allocs_option, MemoryModifyFunction& unback,
+    MemoryModifyFunction& unback_without_lock)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     allocs_option, chunks_per_alloc, unback,
-                     unback_without_lock) {}
+                     allocs_option, unback, unback_without_lock) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
     Clock clock, HugePageFillerAllocsOption allocs_option,
-    size_t chunks_per_alloc, MemoryModifyFunction& unback,
-    MemoryModifyFunction& unback_without_lock)
-    : chunks_per_alloc_(chunks_per_alloc),
-      allocs_for_sparse_and_dense_spans_(allocs_option),
+    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
+    : allocs_for_sparse_and_dense_spans_(allocs_option),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       unback_(unback),
-      unback_without_lock_(unback_without_lock) {
-  TC_ASSERT(chunks_per_alloc_ > 0 && chunks_per_alloc_ <= kChunks);
-}
+      unback_without_lock_(unback_without_lock) {}
 
 template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
@@ -1108,7 +1101,7 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
 
   while (total_released < desired) {
     CandidateArray candidates;
-    // We can skip the first chunks_per_alloc_ lists as they are known
+    // We can skip the first kChunks lists as they are known
     // to be 100% full. (Those lists are likely to be long.)
     //
     // We do not examine the regular_alloc_released_ lists, as only contain
@@ -1116,11 +1109,11 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     int n_candidates = SelectCandidates(
         absl::MakeSpan(candidates), 0,
         regular_alloc_partial_released_[AccessDensityPrediction::kSparse],
-        chunks_per_alloc_);
+        kChunks);
     n_candidates = SelectCandidates(
         absl::MakeSpan(candidates), n_candidates,
         regular_alloc_partial_released_[AccessDensityPrediction::kDense],
-        chunks_per_alloc_);
+        kChunks);
 
     Length released =
         ReleaseCandidates(absl::MakeSpan(candidates.data(), n_candidates),
@@ -1144,10 +1137,10 @@ inline Length HugePageFiller<TrackerType>::ReleasePages(
     // allocs.
     int n_candidates = SelectCandidates(
         absl::MakeSpan(candidates), /*current_candidates=*/0,
-        regular_alloc_[AccessDensityPrediction::kSparse], chunks_per_alloc_);
+        regular_alloc_[AccessDensityPrediction::kSparse], kChunks);
     n_candidates = SelectCandidates(
         absl::MakeSpan(candidates), n_candidates,
-        regular_alloc_[AccessDensityPrediction::kDense], chunks_per_alloc_);
+        regular_alloc_[AccessDensityPrediction::kDense], kChunks);
     // TODO(b/138864853): Perhaps remove donated_alloc_ from here, it's not a
     // great candidate for partial release.
     n_candidates = SelectCandidates(absl::MakeSpan(candidates), n_candidates,
@@ -1169,12 +1162,12 @@ template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddSpanStats(
     SmallSpanStats* small, LargeSpanStats* large) const {
   auto loop = [&](const TrackerType* pt) { pt->AddSpanStats(small, large); };
-  // We can skip the first chunks_per_tracker_list lists as they are known to be
+  // We can skip the first kChunks lists as they are known to be
   // 100% full.
   donated_alloc_.Iter(loop, 0);
   for (const AccessDensityPrediction type :
        {AccessDensityPrediction::kDense, AccessDensityPrediction::kSparse}) {
-    regular_alloc_[type].Iter(loop, chunks_per_alloc_);
+    regular_alloc_[type].Iter(loop, kChunks);
     regular_alloc_partial_released_[type].Iter(loop, 0);
     regular_alloc_released_[type].Iter(loop, 0);
   }
@@ -1444,9 +1437,8 @@ template <class TrackerType>
 inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
   HugePageFillerStats stats;
 
-  // note chunks_per_alloc_, not kNumLists here--we're iterating *full*
-  // lists.
-  for (size_t chunk = 0; chunk < chunks_per_alloc_; ++chunk) {
+  // note kChunks, not kNumLists here--we're iterating *full* lists.
+  for (size_t chunk = 0; chunk < kChunks; ++chunk) {
     stats.n_full[AccessDensityPrediction::kSparse] +=
         NHugePages(regular_alloc_[AccessDensityPrediction::kSparse]
                                  [ListFor(/*longest=*/Length(0), chunk)]
@@ -1783,12 +1775,11 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
   const size_t neg_ceil_log = __builtin_clzl(2 * na - 1);
 
   // We want the same spread as neg_ceil_log, but spread over [0,
-  // chunks_per_alloc_) (clamped at the left edge) instead of [0, 64). So
+  // kChunks) (clamped at the left edge) instead of [0, 64). So
   // subtract off the difference (computed by forcing na=1 to
-  // chunks_per_alloc_ - 1.)
-  const size_t kOffset = __builtin_clzl(1) - (chunks_per_alloc_ - 1);
+  // kChunks - 1.)
+  const size_t kOffset = __builtin_clzl(1) - (kChunks - 1);
   const size_t i = std::max(neg_ceil_log, kOffset) - kOffset;
-  TC_ASSERT_LT(i, chunks_per_alloc_);
   TC_ASSERT_LT(i, kChunks);
   return i;
 }
@@ -1797,9 +1788,8 @@ template <class TrackerType>
 inline size_t HugePageFiller<TrackerType>::ListFor(const Length longest,
                                                    const size_t chunk) const {
   TC_ASSERT_LT(chunk, kChunks);
-  TC_ASSERT_LT(chunk, chunks_per_alloc_);
   TC_ASSERT_LT(longest, kPagesPerHugePage);
-  return longest.raw_num() * chunks_per_alloc_ + chunk;
+  return longest.raw_num() * kChunks + chunk;
 }
 
 template <class TrackerType>

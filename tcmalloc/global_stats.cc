@@ -554,8 +554,6 @@ void DumpStats(Printer* out, int level) {
         "PARAMETER tcmalloc_separate_allocs_for_few_and_many_objects_spans "
         "%d\n",
         Parameters::separate_allocs_for_few_and_many_objects_spans());
-    out->printf("PARAMETER tcmalloc_filler_chunks_per_alloc %d\n",
-                Parameters::chunks_per_alloc());
     out->printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                 tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_configure_size_class_max_capacity %d\n",
@@ -759,8 +757,6 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintBool(
       "separate_allocs_for_few_and_many_objects_spans",
       Parameters::separate_allocs_for_few_and_many_objects_spans());
-  region.PrintI64("tcmalloc_filler_chunks_per_alloc",
-                  Parameters::chunks_per_alloc());
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
   region.PrintBool("tcmalloc_configure_size_class_max_capacity",
