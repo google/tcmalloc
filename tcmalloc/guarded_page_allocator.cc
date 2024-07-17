@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/internal/sysinfo.h"
 #include "absl/base/optimization.h"
@@ -61,7 +62,8 @@ void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
   page_size_ = std::max(kPageSize, static_cast<size_t>(GetPageSize()));
   TC_ASSERT_EQ(page_size_ % kPageSize, 0);
 
-  rand_ = reinterpret_cast<uint64_t>(this);  // Initialize RNG seed.
+  rand_ = static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
+          reinterpret_cast<uintptr_t>(this);
   MapPages();
 }
 
