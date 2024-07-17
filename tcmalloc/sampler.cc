@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "absl/base/attributes.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/exponential_biased.h"
@@ -120,13 +121,10 @@ ssize_t Sampler::GetGeometricVariable(ssize_t mean) {
 }
 
 size_t Sampler::RecordAllocationSlow(size_t k) {
-  static std::atomic<uint64_t> global_randomness;
-
   if (ABSL_PREDICT_FALSE(!initialized_)) {
     initialized_ = true;
-    uint64_t global_seed =
-        global_randomness.fetch_add(1, std::memory_order_relaxed);
-    Init(reinterpret_cast<uintptr_t>(this) ^ global_seed);
+    Init(static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
+         reinterpret_cast<uintptr_t>(this));
     // Avoid missampling 0.
     bytes_until_sample_ -= k + 1;
     if (ABSL_PREDICT_TRUE(bytes_until_sample_ >= 0)) {

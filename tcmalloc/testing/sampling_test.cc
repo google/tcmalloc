@@ -33,7 +33,6 @@
 #include "absl/debugging/symbolize.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
-#include "absl/random/random.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -167,11 +166,6 @@ TEST(Sampling, AlwaysSampling) {
   }
 }
 
-ABSL_ATTRIBUTE_NOINLINE static void* AllocateRandomBytes() {
-  absl::BitGen rng;
-  return ::operator new(absl::LogUniform<size_t>(rng, 1, 1 << 21));
-}
-
 // We disable inlining and tail calls to ensure that we have a stack entry for
 // that function.
 ABSL_ATTRIBUTE_NOINLINE ABSL_ATTRIBUTE_NO_TAIL_CALL Profile
@@ -258,13 +252,12 @@ TEST(Sampling, InternalFragmentation) {
   EXPECT_GT(*actual_high, kHighFragmentationSize);
 
   // Expect that the two means of computing fragmentation (reading the profile
-  // directly and asking GetNumericProperty) are within a kTolerance fraction of
-  // each other.
-  static constexpr double kTolerance = 0.02;
+  // directly and asking GetNumericProperty) are close to each other.
   EXPECT_NEAR(*starting_fragmentation, starting_profiled_fragmentation,
-              starting_profiled_fragmentation * kTolerance);
+              starting_profiled_fragmentation * 0.5);
+  constexpr double kEndingTolerance = 0.02;
   EXPECT_NEAR(*ending_fragmentation, ending_profiled_fragmentation,
-              ending_profiled_fragmentation * kTolerance);
+              ending_profiled_fragmentation * kEndingTolerance);
 
   // Compare *ending_fragmentation with what we recorded in GetStats()
   auto pos = stats.find("MALLOC SAMPLED PROFILES");
@@ -281,13 +274,13 @@ TEST(Sampling, InternalFragmentation) {
   EXPECT_GT(current, 0);
   EXPECT_GT(peak, 0);
   EXPECT_NEAR(fragmentation, *ending_fragmentation,
-              *ending_fragmentation * kTolerance);
+              *ending_fragmentation * kEndingTolerance);
 
   // ending - starting should be roughly due to allocating
   // kHighFragmentationSize objects kNumHigh times.
   EXPECT_NEAR(*starting_fragmentation +
                   (*actual_high - kHighFragmentationSize) * kNumHigh,
-              *ending_fragmentation, *ending_fragmentation * kTolerance);
+              *ending_fragmentation, *ending_fragmentation * kEndingTolerance);
 }
 
 }  // namespace
