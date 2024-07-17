@@ -125,7 +125,7 @@ class HugeAddressMap {
   // Note that we always use the same seed, currently; this isn't very random.
   // In practice we're not worried about adversarial input and this works well
   // enough.
-  unsigned int seed_{0};
+  uint64_t seed_{0};
 };
 
 inline constexpr HugeAddressMap::HugeAddressMap(MetadataAllocator& meta)

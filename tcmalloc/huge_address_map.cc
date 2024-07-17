@@ -14,14 +14,14 @@
 
 #include "tcmalloc/huge_address_map.h"
 
-#include <stdlib.h>
-
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 
 #include "absl/base/internal/cycleclock.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -355,7 +355,8 @@ void HugeAddressMap::Put(Node* n) {
 HugeAddressMap::Node* HugeAddressMap::Get(HugeRange r) {
   TC_CHECK_EQ(freelist_ == nullptr, freelist_size_ == 0);
   used_nodes_++;
-  int prio = rand_r(&seed_);
+  seed_ = ExponentialBiased::NextRandom(seed_);
+  int prio = ExponentialBiased::GetRandom(seed_);
   if (freelist_size_ == 0) {
     total_nodes_++;
     Node* ret = reinterpret_cast<Node*>(meta_(sizeof(Node)));
