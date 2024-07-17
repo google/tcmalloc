@@ -760,7 +760,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
       break;
     }
 
-    return {nullptr, PageId{0}};
+    return {nullptr, PageId{0}, false};
   } while (false);
   ASSUME(pt != nullptr);
   TC_ASSERT_GE(pt->longest_free_range(), n);
