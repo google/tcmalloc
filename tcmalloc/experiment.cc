@@ -26,6 +26,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
 #include "absl/functional/function_ref.h"
+#include "absl/hash/hash.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -176,7 +177,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
     TC_CHECK(active.empty() && disabled.empty());
-    const size_t target_hash = std::hash<std::string_view>{}(test_target);
+    const size_t target_hash = absl::HashOf(test_target);
     constexpr size_t kVanillaOneOf = 10;
     constexpr size_t kEnableOneOf = 3;
     if ((target_hash % kVanillaOneOf) == 0) {
@@ -196,8 +197,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
       // Enabling is specifically based on the experiment name so that it's
       // stable when experiments are added/removed.
       bool enabled =
-          ((target_hash ^ std::hash<std::string_view>{}(config.name)) %
-           kEnableOneOf) == 0;
+          ((target_hash ^ absl::HashOf(config.name)) % kEnableOneOf) == 0;
       buffer[static_cast<int>(config.id)] = enabled;
       num_enabled_experiments += enabled;
     }
