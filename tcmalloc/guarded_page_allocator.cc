@@ -35,7 +35,6 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
@@ -62,8 +61,8 @@ void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
   page_size_ = std::max(kPageSize, static_cast<size_t>(GetPageSize()));
   TC_ASSERT_EQ(page_size_ % kPageSize, 0);
 
-  rand_ = static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
-          reinterpret_cast<uintptr_t>(this);
+  rand_.Reset(static_cast<uint64_t>(absl::base_internal::CycleClock::Now()) +
+              reinterpret_cast<uintptr_t>(this));
   MapPages();
 }
 
@@ -141,7 +140,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       // proportional to pool utilization, with pool utilization of 50% or more
       // resulting in always filtering currently covered allocations.
       const size_t usage_pct = (num_alloced_pages() * 100) / max_alloced_pages_;
-      if (Rand(50) <= usage_pct) {
+      if (rand_.Next() % 50 <= usage_pct) {
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
         stacktrace_filter_.Decay();
@@ -396,14 +395,8 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   return slot;
 }
 
-size_t GuardedPageAllocator::Rand(size_t max) {
-  auto x = ExponentialBiased::NextRandom(rand_.load(std::memory_order_relaxed));
-  rand_.store(x, std::memory_order_relaxed);
-  return ExponentialBiased::GetRandom(x) % max;
-}
-
 size_t GuardedPageAllocator::GetFreeSlot() {
-  const size_t idx = Rand(total_pages_);
+  const size_t idx = rand_.Next() % total_pages_;
   // Find the closest adjacent free slot to the random index.
   ssize_t slot = used_pages_.FindClearBackwards(idx);
   if (slot >= 0) return slot;

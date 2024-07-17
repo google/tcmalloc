@@ -55,13 +55,7 @@ ABSL_CONST_INIT bool enabled = false;
 namespace {
 
 ABSL_CONST_INIT std::atomic<int> sampling_percent = 100;
-ABSL_CONST_INIT std::atomic<uint64_t> rnd;
-
-uint32_t Rand() {
-  auto x = ExponentialBiased::NextRandom(rnd.load(std::memory_order_relaxed));
-  rnd.store(x, std::memory_order_relaxed);
-  return ExponentialBiased::GetRandom(x);
-}
+ABSL_CONST_INIT Random rand{0};
 
 void MapShadow() {
   void* const kShadowStart =
@@ -114,7 +108,7 @@ void Init() {
   if (HeapObjectInfo == nullptr) {
     return;  // don't have tcmalloc linked in
   }
-  rnd = getpid();
+  rand.Reset(getpid());
   enabled = EnableTBI();
 }
 
@@ -161,7 +155,7 @@ bool ShouldSample() {
   if (percent >= 100) {
     return true;
   }
-  return (Rand() % 100) < percent;
+  return (rand.Next() % 100) < percent;
 }
 
 void PrintTextStats(Printer* out) {

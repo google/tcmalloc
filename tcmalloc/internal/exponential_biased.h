@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_EXPONENTIAL_BIASED_H_
 #define TCMALLOC_INTERNAL_EXPONENTIAL_BIASED_H_
 
+#include <atomic>
 #include <cstdint>
 
 namespace tcmalloc {
@@ -42,6 +43,33 @@ inline uint64_t ExponentialBiased::NextRandom(uint64_t rnd) {
 // The raw value returned from NextRandom has poor randomness low bits
 // and is not directly suitable for things like 'if (rnd % 2)'.
 inline uint32_t ExponentialBiased::GetRandom(uint64_t rnd) { return rnd >> 16; }
+
+// Convenience wrapper to initialize a seed and return a sequence of
+// pseudo-random values. Thread-safety: thread safe.
+class Random {
+ public:
+  constexpr explicit Random(uint64_t seed) : state_(seed) {}
+
+  // Return the next pseudo-random value.
+  uint32_t Next();
+
+  // Reset internal state with provided seed.
+  void Reset(uint64_t seed);
+
+ private:
+  std::atomic<uint64_t> state_;
+};
+
+inline uint32_t Random::Next() {
+  uint64_t r = state_.load(std::memory_order_relaxed);
+  r = ExponentialBiased::NextRandom(r);
+  state_.store(r, std::memory_order_relaxed);
+  return ExponentialBiased::GetRandom(r);
+}
+
+inline void Random::Reset(uint64_t seed) {
+  state_.store(seed, std::memory_order_relaxed);
+}
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

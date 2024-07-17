@@ -28,6 +28,7 @@
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/stacktrace_filter.h"
@@ -258,9 +259,6 @@ class GuardedPageAllocator {
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
 
-  // Returns a random number in range [0, max).
-  size_t Rand(size_t max);
-
   size_t num_alloced_pages() const {
     return num_alloced_pages_.load(std::memory_order_relaxed);
   }
@@ -306,7 +304,7 @@ class GuardedPageAllocator {
   // Number of pages allocated at least once from page pool.
   std::atomic<size_t> total_pages_used_;
   size_t page_size_;           // Size of pages we allocate.
-  std::atomic<uint64_t> rand_;  // RNG seed.
+  Random rand_;
 
   // True if this object has been fully initialized.
   bool initialized_ ABSL_GUARDED_BY(guarded_page_lock_);
