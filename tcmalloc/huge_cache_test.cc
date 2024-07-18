@@ -28,11 +28,9 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/base/internal/cycleclock.h"
 #include "absl/memory/memory.h"
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
-#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
@@ -52,15 +50,15 @@ using testing::Return;
 class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
  private:
   // Allow tests to modify the clock used by the cache.
-  static int64_t clock_offset_;
-  static double GetClockFrequency() {
-    return absl::base_internal::CycleClock::Frequency();
+  static int64_t clock_;
+
+  static int64_t FakeClock() { return clock_; }
+
+  static double GetFakeClockFrequency() {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
   }
-  static int64_t GetClock() {
-    return absl::base_internal::CycleClock::Now() +
-           clock_offset_ * GetClockFrequency() /
-               absl::ToDoubleNanoseconds(absl::Seconds(1));
-  }
+
+  static void ResetClock() { clock_ = 1234; }
 
   class MockBackingInterface : public MemoryModifyFunction {
    public:
@@ -76,14 +74,11 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
     // We don't use the first few bytes, because things might get weird
     // given zero pointers.
     vm_allocator_.backing_.resize(1024);
+    ResetClock();
   }
 
-  ~HugeCacheTest() override {
-    clock_offset_ = 0;
-  }
-
-  void Advance(absl::Duration d) {
-    clock_offset_ += absl::ToInt64Nanoseconds(d);
+  static void Advance(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
   }
 
   FakeVirtualAllocator vm_allocator_;
@@ -91,10 +86,10 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
   HugeAllocator alloc_{vm_allocator_, metadata_allocator_};
   HugeCache cache_{&alloc_, metadata_allocator_, mock_unback_,
                    /*cache_time=*/GetParam(),
-                   Clock{.now = GetClock, .freq = GetClockFrequency}};
+                   Clock{.now = FakeClock, .freq = GetFakeClockFrequency}};
 };
 
-int64_t HugeCacheTest::clock_offset_ = 0;
+int64_t HugeCacheTest::clock_{1234};
 
 TEST_P(HugeCacheTest, Basic) {
   bool from;
