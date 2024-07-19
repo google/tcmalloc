@@ -424,6 +424,8 @@ TEST_P(HugeCacheTest, DipsCached) {
 // Suppose in a previous era of behavior we needed a giant cache,
 // but now we don't.  Do we figure this out promptly?
 TEST_P(HugeCacheTest, Shrink) {
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
   absl::Duration cache_time = GetParam();
@@ -442,8 +444,10 @@ TEST_P(HugeCacheTest, Shrink) {
   ASSERT_LE(NHugePages(10000), cache_.size());
 
   for (int i = 0; i < 30; ++i) {
-    // New working set <= 20 pages.
-    Advance(cache_time);
+    // New working set <= 20 pages, arranging the allocation rounds happen in
+    // different cache limit updating windows (> cache_time * 2) so we can
+    // shrink the cache gradually in each round.
+    Advance(cache_time * 3);
 
     // And do some work.
     for (int j = 0; j < 100; ++j) {
@@ -454,7 +458,8 @@ TEST_P(HugeCacheTest, Shrink) {
       cache_.Release(r2);
     }
   }
-
+  // The cache should have shrunk to the working set size.
+  ASSERT_GE(NHugePages(25), cache_.size());
   ASSERT_GE(NHugePages(25), cache_.limit());
 }
 
