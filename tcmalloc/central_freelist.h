@@ -260,14 +260,7 @@ class CentralFreeList {
   // the kNumLists nonempty_ lists based on their allocated objects. If span
   // prioritization is disabled, we add spans to the nonempty_[kNumlists-1]
   // list, leaving other lists unused.
-  //
-  // We do not enable multiple nonempty lists for small-but-slow yet due to
-  // performance issues. See b/227362263.
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  SpanList nonempty_ ABSL_GUARDED_BY(lock_);
-#else
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
-#endif
   bool use_all_buckets_for_few_object_spans_;
 
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
@@ -311,25 +304,11 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     void* object, Span* span, size_t object_size, uint32_t size_reciprocal,
     uint32_t max_span_cache_size) {
   if (ABSL_PREDICT_FALSE(span->FreelistEmpty(object_size))) {
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    nonempty_.prepend(span);
-#else
     const uint8_t index = GetFirstNonEmptyIndex();
     nonempty_.Add(span, index);
     span->set_nonempty_index(index);
-#endif
   }
 
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  // We maintain a single nonempty list for small-but-slow. Also, we do not
-  // collect histogram stats due to performance issues.
-  if (ABSL_PREDICT_TRUE(span->FreelistPush(object, object_size, size_reciprocal,
-                                           max_span_cache_size))) {
-    return nullptr;
-  }
-  nonempty_.remove(span);
-  return span;
-#else
   const uint8_t prev_index = span->nonempty_index();
   const uint16_t prev_allocated = span->Allocated();
   const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
@@ -361,7 +340,6 @@ inline Span* CentralFreeList<Forwarder>::ReleaseToSpans(
     span->set_nonempty_index(cur_index);
   }
   return nullptr;
-#endif
 }
 
 template <class Forwarder>
@@ -369,14 +347,7 @@ inline Span* CentralFreeList<Forwarder>::FirstNonEmptySpan() {
   // Scan nonempty_ lists in the range [first_nonempty_index_, kNumLists) and
   // return the span from a non-empty list if one exists. If all the lists are
   // empty, return nullptr.
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  if (ABSL_PREDICT_FALSE(nonempty_.empty())) {
-    return nullptr;
-  }
-  return nonempty_.first();
-#else
   return nonempty_.PeekLeast(GetFirstNonEmptyIndex());
-#endif
 }
 
 template <class Forwarder>
@@ -427,11 +398,7 @@ inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
   ASSUME(n < kNumLists);
   absl::base_internal::SpinLockHolder h(&lock_);
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  return nonempty_.length();
-#else
   return nonempty_.SizeOfList(n);
-#endif
 }
 
 template <class Forwarder>
@@ -537,14 +504,6 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
       break;
     }
 
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    // We do not collect histogram stats for small-but-slow.
-    int here = span->FreelistPopBatch(batch + result, N - result, object_size);
-    TC_ASSERT_GT(here, 0);
-    if (span->FreelistEmpty(object_size)) {
-      nonempty_.remove(span);
-    }
-#else
     const uint16_t prev_allocated = span->Allocated();
     const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
     const uint8_t prev_index = span->nonempty_index();
@@ -573,7 +532,6 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
         span->set_nonempty_index(cur_index);
       }
     }
-#endif
     result += here;
   } while (result < N);
   UpdateObjectCounts(-result);
@@ -602,13 +560,6 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 
   lock_.Lock();
 
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  // We do not collect histogram stats for small-but-slow. Moreover, we maintain
-  // a single nonempty list to which we prepend the span.
-  if (!span_empty) {
-    nonempty_.prepend(span);
-  }
-#else
   // Update the histogram once we populate the span.
   const uint16_t allocated = result;
   TC_ASSERT_EQ(allocated, span->Allocated());
@@ -619,7 +570,6 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
     nonempty_.Add(span, index);
     span->set_nonempty_index(index);
   }
-#endif
   RecordSpanAllocated();
   return result;
 }
