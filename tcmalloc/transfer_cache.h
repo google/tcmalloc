@@ -158,8 +158,8 @@ class ShardedTransferCacheManagerBase {
       // cache domains, the traditional LIFO transfer cache should suffice.
       int min_size = UseGenericCache() ? 0 : 4096;
       bool use_sharded_cache =
-          UseCacheForLargeClassesOnly() ||
-          (UseGenericCache() && (num_shards_ >= kMinShardsAllowed));
+          (num_shards_ >= kMinShardsAllowed) &&
+          (UseCacheForLargeClassesOnly() || UseGenericCache());
       active_for_class_[size_class] =
           use_sharded_cache && size_per_object >= min_size;
     }
