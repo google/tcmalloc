@@ -178,7 +178,7 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   if (unset && !test_target.empty()) {
     TC_CHECK(active.empty() && disabled.empty());
     const size_t target_hash = absl::HashOf(test_target);
-    constexpr size_t kVanillaOneOf = 10;
+    constexpr size_t kVanillaOneOf = 11;
     constexpr size_t kEnableOneOf = 3;
     if ((target_hash % kVanillaOneOf) == 0) {
       return buffer;
