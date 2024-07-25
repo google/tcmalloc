@@ -117,6 +117,8 @@ TEST_F(GetStatsTest, Pbtxt) {
     EXPECT_THAT(buf,
                 HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
   }
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
   EXPECT_THAT(buf, ContainsRegex("(tcmalloc_filler_chunks_per_alloc: 8|(16))"));
 
@@ -167,6 +169,9 @@ TEST_F(GetStatsTest, Parameters) {
 
     EXPECT_THAT(
         buf, HasSubstr(R"(PARAMETER tcmalloc_release_partial_alloc_pages 1)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
     if (Parameters::huge_region_demand_based_release()) {
       EXPECT_THAT(
           buf, HasSubstr(
@@ -212,6 +217,7 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
+  Parameters::set_huge_cache_demand_based_release(true);
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -220,6 +226,9 @@ TEST_F(GetStatsTest, Parameters) {
     if (using_hpaa(buf)) {
       EXPECT_THAT(buf, HasSubstr(R"(PARAMETER hpaa_subrelease 1)"));
     }
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 1)"));
     EXPECT_THAT(buf,
                 HasSubstr(R"(PARAMETER tcmalloc_guarded_sample_parameter 50)"));
     EXPECT_THAT(

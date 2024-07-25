@@ -217,6 +217,8 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
+ABSL_CONST_INIT std::atomic<bool> Parameters::huge_cache_demand_based_release_(
+    false);
 // TODO(b/199203282):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_pages_from_huge_region_(
     true);
@@ -442,6 +444,10 @@ bool TCMalloc_Internal_GetReleasePartialAllocPagesEnabled() {
   return Parameters::release_partial_alloc_pages();
 }
 
+bool TCMalloc_Internal_GetHugeCacheDemandBasedRelease() {
+  return Parameters::huge_cache_demand_based_release();
+}
+
 bool TCMalloc_Internal_GetHugeRegionDemandBasedRelease() {
   return Parameters::huge_region_demand_based_release();
 }
@@ -506,6 +512,11 @@ void TCMalloc_Internal_SetHPAASubrelease(bool v) {
 
 void TCMalloc_Internal_SetReleasePartialAllocPagesEnabled(bool v) {
   Parameters::release_partial_alloc_pages_.store(v, std::memory_order_relaxed);
+}
+
+void TCMalloc_Internal_SetHugeCacheDemandBasedRelease(bool v) {
+  Parameters::huge_cache_demand_based_release_.store(v,
+                                                     std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {

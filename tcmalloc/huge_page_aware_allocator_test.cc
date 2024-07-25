@@ -340,13 +340,54 @@ TEST_P(HugePageAwareAllocatorTest, Multithreaded) {
   }
 }
 
-TEST_P(HugePageAwareAllocatorTest, ReleasingLarge) {
+TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForUserRequestedRelease) {
+  // Tests that we can release when requested by the user, irrespective of
+  // whether the demand-based release is enabled or not. We do this by
+  // alternating the state of the demand-based release flag.
+  bool enabled = Parameters::huge_cache_demand_based_release();
+  constexpr int kNumIterations = 100;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
-  // Ensure the HugeCache has some free items:
-  Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
-  ASSERT_LE(kPagesPerHugePage,
-            ReleasePages(kPagesPerHugePage,
-                         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem));
+  for (int i = 0; i < kNumIterations; ++i) {
+    // Ensure the HugeCache has some free items:
+    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
+    EXPECT_EQ(
+        ReleasePages(kPagesPerHugePage,
+                     /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
+        kPagesPerHugePage);
+    enabled = !enabled;
+    Parameters::set_huge_cache_demand_based_release(enabled);
+  }
+}
+
+TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
+  // Tests that the background release will be impacted by the demand-based
+  // release: when enabled, it will not release any pages due to the recent
+  // demand.
+  bool enabled = Parameters::huge_cache_demand_based_release();
+  constexpr int kNumIterations = 100;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  for (int i = 0; i < kNumIterations; ++i) {
+    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
+    // Demand-based release would think releasing is not a good idea, hence we
+    // need to force a release later.
+    EXPECT_EQ(
+        ReleasePages(kPagesPerHugePage,
+                     /*reason=*/PageReleaseReason::kProcessBackgroundActions),
+        enabled ? Length(0) : kPagesPerHugePage);
+    if (enabled) {
+      EXPECT_EQ(ReleasePages(Length(1),
+                             /*reason=*/PageReleaseReason::kSoftLimitExceeded),
+                kPagesPerHugePage);
+    }
+    enabled = !enabled;
+    Parameters::set_huge_cache_demand_based_release(enabled);
+  }
+}
+
+TEST_P(HugePageAwareAllocatorTest, SettingDemandBasedReleaseFlags) {
+  // Checks if we can set the demand-based release flags.
+  Parameters::set_huge_cache_demand_based_release(false);
+  EXPECT_EQ(Parameters::huge_cache_demand_based_release(), false);
 }
 
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {

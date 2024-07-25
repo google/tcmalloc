@@ -80,6 +80,13 @@ class FakeStaticForwarder {
     huge_region_demand_based_release_ = v;
   }
 
+  bool huge_cache_demand_based_release() const {
+    return huge_cache_demand_based_release_;
+  }
+  void set_huge_cache_demand_based_release(bool v) {
+    huge_cache_demand_based_release_ = v;
+  }
+
   // Arena state.
   Arena& arena() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) { return arena_; }
 
@@ -163,6 +170,7 @@ class FakeStaticForwarder {
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;
   bool huge_region_demand_based_release_ = false;
+  bool huge_cache_demand_based_release_ = false;
   Arena arena_;
 
   uintptr_t fake_allocation_ = 0x1000;

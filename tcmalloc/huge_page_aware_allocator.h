@@ -28,6 +28,7 @@
 #include "tcmalloc/huge_allocator.h"
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_page_filler.h"
+#include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -76,6 +77,10 @@ class StaticForwarder {
 
   static bool huge_region_demand_based_release() {
     return Parameters::huge_region_demand_based_release();
+  }
+
+  static bool huge_cache_demand_based_release() {
+    return Parameters::huge_cache_demand_based_release();
   }
 
   static bool hpaa_subrelease() { return Parameters::hpaa_subrelease(); }
@@ -768,7 +773,11 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
       }
     }
   }
-  cache_.Release({hp, hl});
+  // We release in the background task instead (i.e., ReleaseAtLeastNPages()) if
+  // the demand-based release is enabled.
+  cache_.Release(
+      {hp, hl},
+      /*demand_based_unback=*/forwarder_.huge_cache_demand_based_release());
 }
 
 template <class Forwarder>
@@ -781,7 +790,11 @@ inline void HugePageAwareAllocator<Forwarder>::ReleaseHugepage(
   if (pt->released()) {
     cache_.ReleaseUnbacked(r);
   } else {
-    cache_.Release(r);
+    // We release in the background task instead (i.e., ReleaseAtLeastNPages())
+    // if the demand-based release is enabled.
+    cache_.Release(
+        r,
+        /*demand_based_unback=*/forwarder_.huge_cache_demand_based_release());
   }
 
   tracker_allocator_.Delete(pt);
@@ -836,8 +849,27 @@ inline void HugePageAwareAllocator<Forwarder>::GetSpanStats(
 template <class Forwarder>
 inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
     Length num_pages, PageReleaseReason reason) {
+  // We use demand-based release for the background release but not for the
+  // other cases (e.g., limit hit). We achieve this by configuring the intervals
+  // and hit_limit accordingly.
+  SkipSubreleaseIntervals intervals;
+  if (reason == PageReleaseReason::kProcessBackgroundActions) {
+    intervals.peak_interval = forwarder_.filler_skip_subrelease_interval();
+    intervals.short_interval =
+        forwarder_.filler_skip_subrelease_short_interval();
+    intervals.long_interval = forwarder_.filler_skip_subrelease_long_interval();
+  }
+  bool hit_limit = (reason == PageReleaseReason::kSoftLimitExceeded ||
+                    reason == PageReleaseReason::kHardLimitExceeded);
   Length released;
-  released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
+  if (forwarder_.huge_cache_demand_based_release()) {
+    released += cache_
+                    .ReleaseCachedPagesByDemand(HLFromPages(num_pages),
+                                                intervals, hit_limit)
+                    .in_pages();
+  } else {
+    released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
+  }
 
   // Release all backed-but-free hugepages from HugeRegion.
   // TODO(b/199203282): We release all the free hugepages from HugeRegions when

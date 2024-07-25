@@ -19,6 +19,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 #include <random>
 #include <string>
@@ -32,6 +33,7 @@
 #include "absl/random/random.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "tcmalloc/huge_page_subrelease.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/internal/clock.h"
 #include "tcmalloc/internal/config.h"
@@ -47,7 +49,8 @@ namespace {
 
 using testing::Return;
 
-class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
+class HugeCacheTest
+    : public testing::TestWithParam<std::tuple<absl::Duration, bool>> {
  private:
   // Allow tests to modify the clock used by the cache.
   static int64_t clock_;
@@ -81,11 +84,14 @@ class HugeCacheTest : public testing::TestWithParam<absl::Duration> {
     clock_ += absl::ToDoubleSeconds(d) * GetFakeClockFrequency();
   }
 
+  absl::Duration GetCacheTime() { return std::get<0>(GetParam()); }
+  bool GetDemandBasedRelease() { return std::get<1>(GetParam()); }
+  void Release(HugeRange r) { cache_.Release(r, GetDemandBasedRelease()); }
+
   FakeVirtualAllocator vm_allocator_;
   FakeMetadataAllocator metadata_allocator_;
   HugeAllocator alloc_{vm_allocator_, metadata_allocator_};
-  HugeCache cache_{&alloc_, metadata_allocator_, mock_unback_,
-                   /*cache_time=*/GetParam(),
+  HugeCache cache_{&alloc_, metadata_allocator_, mock_unback_, GetCacheTime(),
                    Clock{.now = FakeClock, .freq = GetFakeClockFrequency}};
 };
 
@@ -94,13 +100,13 @@ int64_t HugeCacheTest::clock_{1234};
 TEST_P(HugeCacheTest, Basic) {
   bool from;
   for (int i = 0; i < 100 * 1000; ++i) {
-    cache_.Release(cache_.Get(NHugePages(1), &from));
+    Release(cache_.Get(NHugePages(1), &from));
   }
 }
 
 TEST_P(HugeCacheTest, Backing) {
   bool from;
-  cache_.Release(cache_.Get(NHugePages(4), &from));
+  Release(cache_.Get(NHugePages(4), &from));
   EXPECT_TRUE(from);
   // We should be able to split up a large range...
   HugeRange r1 = cache_.Get(NHugePages(3), &from);
@@ -109,28 +115,28 @@ TEST_P(HugeCacheTest, Backing) {
   EXPECT_FALSE(from);
 
   // and then merge it back.
-  cache_.Release(r1);
-  cache_.Release(r2);
+  Release(r1);
+  Release(r2);
   HugeRange r = cache_.Get(NHugePages(4), &from);
   EXPECT_FALSE(from);
-  cache_.Release(r);
+  Release(r);
 }
 
 TEST_P(HugeCacheTest, Release) {
   bool from;
   const HugeLength one = NHugePages(1);
-  cache_.Release(cache_.Get(NHugePages(5), &from));
+  Release(cache_.Get(NHugePages(5), &from));
   HugeRange r1, r2, r3, r4, r5;
   r1 = cache_.Get(one, &from);
   r2 = cache_.Get(one, &from);
   r3 = cache_.Get(one, &from);
   r4 = cache_.Get(one, &from);
   r5 = cache_.Get(one, &from);
-  cache_.Release(r1);
-  cache_.Release(r2);
-  cache_.Release(r3);
-  cache_.Release(r4);
-  cache_.Release(r5);
+  Release(r1);
+  Release(r2);
+  Release(r3);
+  Release(r4);
+  Release(r5);
 
   r1 = cache_.Get(one, &from);
   ASSERT_EQ(false, from);
@@ -142,16 +148,16 @@ TEST_P(HugeCacheTest, Release) {
   ASSERT_EQ(false, from);
   r5 = cache_.Get(one, &from);
   ASSERT_EQ(false, from);
-  cache_.Release(r1);
-  cache_.Release(r2);
-  cache_.Release(r5);
+  Release(r1);
+  Release(r2);
+  Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
   EXPECT_CALL(mock_unback_, Unback(r5.start().first_page(), kPagesPerHugePage))
       .WillOnce(Return(true));
   EXPECT_EQ(NHugePages(1), cache_.ReleaseCachedPages(NHugePages(1)));
-  cache_.Release(r3);
-  cache_.Release(r4);
+  Release(r3);
+  Release(r4);
 
   EXPECT_CALL(mock_unback_,
               Unback(r1.start().first_page(), 4 * kPagesPerHugePage))
@@ -162,18 +168,18 @@ TEST_P(HugeCacheTest, Release) {
 TEST_P(HugeCacheTest, ReleaseFailure) {
   bool from;
   const HugeLength one = NHugePages(1);
-  cache_.Release(cache_.Get(NHugePages(5), &from));
+  Release(cache_.Get(NHugePages(5), &from));
   HugeRange r1, r2, r3, r4, r5;
   r1 = cache_.Get(one, &from);
   r2 = cache_.Get(one, &from);
   r3 = cache_.Get(one, &from);
   r4 = cache_.Get(one, &from);
   r5 = cache_.Get(one, &from);
-  cache_.Release(r1);
-  cache_.Release(r2);
-  cache_.Release(r3);
-  cache_.Release(r4);
-  cache_.Release(r5);
+  Release(r1);
+  Release(r2);
+  Release(r3);
+  Release(r4);
+  Release(r5);
 
   r1 = cache_.Get(one, &from);
   ASSERT_EQ(false, from);
@@ -185,17 +191,17 @@ TEST_P(HugeCacheTest, ReleaseFailure) {
   ASSERT_EQ(false, from);
   r5 = cache_.Get(one, &from);
   ASSERT_EQ(false, from);
-  cache_.Release(r1);
-  cache_.Release(r2);
-  cache_.Release(r5);
+  Release(r1);
+  Release(r2);
+  Release(r5);
 
   ASSERT_EQ(NHugePages(3), cache_.size());
   EXPECT_CALL(mock_unback_,
               Unback(r5.start().first_page(), 1 * kPagesPerHugePage))
       .WillOnce(Return(false));
   EXPECT_EQ(NHugePages(0), cache_.ReleaseCachedPages(NHugePages(1)));
-  cache_.Release(r3);
-  cache_.Release(r4);
+  Release(r3);
+  Release(r4);
 
   EXPECT_CALL(mock_unback_,
               Unback(r1.start().first_page(), 5 * kPagesPerHugePage))
@@ -211,9 +217,9 @@ TEST_P(HugeCacheTest, Stats) {
   std::tie(spacer1, r2) = Split(spacer1, NHugePages(1));
   std::tie(r2, spacer2) = Split(r2, NHugePages(2));
   std::tie(spacer2, r3) = Split(spacer2, NHugePages(1));
-  cache_.Release(r1);
-  cache_.Release(r2);
-  cache_.Release(r3);
+  Release(r1);
+  Release(r2);
+  Release(r3);
 
   ASSERT_EQ(NHugePages(6), cache_.size());
   r1 = cache_.Get(NHugePages(1), &from);
@@ -239,19 +245,19 @@ TEST_P(HugeCacheTest, Stats) {
   Length pages_backed;
   Length pages_unbacked;
 
-  cache_.Release(r1);
+  Release(r1);
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(1, spans);
   EXPECT_EQ(NHugePages(1).in_pages(), pages_backed);
 
-  cache_.Release(r2);
+  Release(r2);
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(2, spans);
   EXPECT_EQ(NHugePages(3).in_pages(), pages_backed);
 
-  cache_.Release(r3);
+  Release(r3);
   Helper::Stat(cache_, &spans, &pages_backed, &pages_unbacked);
   EXPECT_EQ(Length(0), pages_unbacked);
   EXPECT_EQ(3, spans);
@@ -262,6 +268,10 @@ static double Frac(HugeLength num, HugeLength denom) {
   return static_cast<double>(num.raw_num()) / denom.raw_num();
 }
 
+// Tests that the cache can grow to fit a working set. The two cache shrinking
+// mechanisms, demand-based release and limit-based release, use two different
+// paths to shrink the cache (ReleaseCachedPagesByDemand vs. Release). We
+// test both paths here.
 TEST_P(HugeCacheTest, Growth) {
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
@@ -279,13 +289,20 @@ TEST_P(HugeCacheTest, Growth) {
   }
 
   for (auto r : drop) {
-    cache_.Release(r);
+    Release(r);
   }
 
   // See the TODO in HugeCache::MaybeGrowCache; without this delay,
   // the above fragmentation plays merry havoc with our instrumentation.
   Advance(absl::Seconds(30));
-
+  // Requests a best-effort demand-based release to shrink the cache.
+  if (GetDemandBasedRelease()) {
+    cache_.ReleaseCachedPagesByDemand(
+        NHugePages(0),
+        SkipSubreleaseIntervals{.short_interval = absl::Seconds(10),
+                                .long_interval = absl::Seconds(10)},
+        /*hit_limit=*/false);
+  }
   // Test that our cache can grow to fit a working set.
   HugeLength hot_set_sizes[] = {NHugePages(5), NHugePages(10), NHugePages(100),
                                 NHugePages(10000)};
@@ -307,7 +324,16 @@ TEST_P(HugeCacheTest, Growth) {
         if (released) needed_backing += l;
       }
       for (auto r : items) {
-        cache_.Release(r);
+        Release(r);
+      }
+      // Requests a best-effort demand-based release. The cache should shrink
+      // to the working set size, avoiding fragmentation.
+      if (GetDemandBasedRelease()) {
+        cache_.ReleaseCachedPagesByDemand(
+            NHugePages(0),
+            SkipSubreleaseIntervals{.short_interval = absl::Seconds(1),
+                                    .long_interval = absl::Seconds(1)},
+            /*hit_limit=*/false);
       }
       return {needed_backing, got};
     };
@@ -343,10 +369,14 @@ TEST_P(HugeCacheTest, Growth) {
 // If we repeatedly grow and shrink, but do so very slowly, we should *not*
 // cache the large variation.
 TEST_P(HugeCacheTest, SlowGrowthUncached) {
+  // This test expects the cache to stay small when using unbacking with
+  // Release(). Hence we skip it when demand-based release is enabled.
+  if (GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
-
-  absl::Duration cache_time = GetParam();
+  absl::Duration cache_time = GetCacheTime();
 
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
@@ -360,7 +390,7 @@ TEST_P(HugeCacheTest, SlowGrowthUncached) {
     HugeLength max_cached = NHugePages(0);
     for (auto r : rs) {
       Advance(cache_time);
-      cache_.Release(r);
+      Release(r);
       max_cached = std::max(max_cached, cache_.size());
     }
     EXPECT_GE(NHugePages(10), max_cached);
@@ -369,10 +399,14 @@ TEST_P(HugeCacheTest, SlowGrowthUncached) {
 
 // If very rarely we have a huge increase in usage, it shouldn't be cached.
 TEST_P(HugeCacheTest, SpikesUncached) {
+  // This test expects the cache to stay small when using unbacking with
+  // Release(). Hence we skip it when demand-based release is enabled.
+  if (GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
-
-  absl::Duration cache_time = GetParam();
+  absl::Duration cache_time = GetCacheTime();
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
   for (int i = 0; i < 20; ++i) {
@@ -383,10 +417,41 @@ TEST_P(HugeCacheTest, SpikesUncached) {
     }
     HugeLength max_cached = NHugePages(0);
     for (auto r : rs) {
-      cache_.Release(r);
+      Release(r);
       max_cached = std::max(max_cached, cache_.size());
     }
     EXPECT_GE(NHugePages(10), max_cached);
+    Advance(10 * cache_time);
+  }
+}
+
+// If we allocate a spike occasionally but having demand-based release enabled,
+// all freed hugepages will be cached even though the cache limit is low. This
+// is because the cache shrinking mechanism in Release() is bypassed when
+// demand-based release is enabled.
+TEST_P(HugeCacheTest, SpikesCachedNoUnback) {
+  // This test expects no cache shirking in Release(). Hence we skip it when
+  // demand-based release is disabled.
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  absl::Duration cache_time = GetCacheTime();
+  for (int i = 0; i < 20; ++i) {
+    std::vector<HugeRange> rs;
+    for (int j = 0; j < 200; ++j) {
+      bool released;
+      rs.push_back(cache_.Get(NHugePages(5), &released));
+    }
+    HugeLength max_cached = NHugePages(0);
+    for (auto r : rs) {
+      Release(r);
+      max_cached = std::max(max_cached, cache_.size());
+    }
+    EXPECT_EQ(max_cached, NHugePages(1000));
+    // The limit never changed as the growth mechanism sees no value in
+    // preparing for occasional peaks (i.e., shrink and grow in cache_time
+    // are not balanced).
+    EXPECT_EQ(cache_.limit(), NHugePages(10));
     Advance(10 * cache_time);
   }
 }
@@ -395,7 +460,7 @@ TEST_P(HugeCacheTest, SpikesUncached) {
 TEST_P(HugeCacheTest, DipsCached) {
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
-  absl::Duration cache_time = GetParam();
+  absl::Duration cache_time = GetCacheTime();
   for (int i = 0; i < 20; ++i) {
     std::vector<HugeRange> rs;
     HugeLength got = NHugePages(0);
@@ -411,7 +476,7 @@ TEST_P(HugeCacheTest, DipsCached) {
     Advance(10 * cache_time);
     // Now immediately release and reallocate.
     for (auto r : rs) {
-      cache_.Release(r);
+      Release(r);
     }
 
     // warmup
@@ -424,11 +489,16 @@ TEST_P(HugeCacheTest, DipsCached) {
 // Suppose in a previous era of behavior we needed a giant cache,
 // but now we don't.  Do we figure this out promptly?
 TEST_P(HugeCacheTest, Shrink) {
+  // This test expects the cache to shrink in Release() after the working set
+  // size is reduced. Hence we skip it when demand-based release is enabled.
+  if (GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
   EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
       .WillRepeatedly(Return(true));
   absl::BitGen rng;
   std::uniform_int_distribution<size_t> sizes(1, 10);
-  absl::Duration cache_time = GetParam();
+  absl::Duration cache_time = GetCacheTime();
   for (int i = 0; i < 20; ++i) {
     std::vector<HugeRange> rs;
     for (int j = 0; j < 2000; ++j) {
@@ -437,7 +507,7 @@ TEST_P(HugeCacheTest, Shrink) {
       rs.push_back(cache_.Get(n, &released));
     }
     for (auto r : rs) {
-      cache_.Release(r);
+      Release(r);
     }
   }
 
@@ -454,13 +524,400 @@ TEST_P(HugeCacheTest, Shrink) {
       bool released;
       HugeRange r1 = cache_.Get(NHugePages(sizes(rng)), &released);
       HugeRange r2 = cache_.Get(NHugePages(sizes(rng)), &released);
-      cache_.Release(r1);
-      cache_.Release(r2);
+      Release(r1);
+      Release(r2);
     }
   }
   // The cache should have shrunk to the working set size.
   ASSERT_GE(NHugePages(25), cache_.size());
   ASSERT_GE(NHugePages(25), cache_.limit());
+}
+
+// In demand-based release, we want to release as much as possible when the
+// hit_limit is set.
+TEST_P(HugeCacheTest, ReleaseByDemandHardRelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (!GetDemandBasedRelease() || (kPagesPerHugePage != Length(256))) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+  bool released;
+  HugeRange r = cache_.Get(NHugePages(1000), &released);
+  Release(r);
+  ASSERT_EQ(cache_.size(), NHugePages(1000));
+  // Releases half of the cache with hit_limit set.
+  HugeLength unbacked_1 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(500), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  EXPECT_EQ(unbacked_1, NHugePages(500));
+  //  Releases the remaining using invalid intervals.
+  HugeLength unbacked_2 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(1000), SkipSubreleaseIntervals{}, /*hit_limit=*/false);
+  EXPECT_EQ(unbacked_2, NHugePages(500));
+  std::string buffer(1024 * 1024, '\0');
+  {
+    Printer printer(&*buffer.begin(), buffer.size());
+    cache_.Print(&printer);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugeCache: 0 MiB fast unbacked, 2000 MiB periodic
+)"));
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugeCache: Since startup, 1000 hugepages released, (500 hugepages due to reaching tcmalloc limit)
+)"));
+  // The skip-subrelease mechanism is bypassed for both requests.
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugeCache: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugeCache: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
+HugeCache: Subrelease stats last 10 min: total 256000 pages subreleased (0 pages from partial allocs), 0 hugepages broken
+)"));
+}
+
+// Tests the best effort release -- releasing as much as the past demand allows
+// even though the release target is zero.
+TEST_P(HugeCacheTest, ReleaseByDemandBestEffort) {
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+  bool released;
+  // (Current - 3 min) Max: 60 hps, Min: 50 hps.
+  HugeRange peak_1a = cache_.Get(NHugePages(50), &released);
+  HugeRange peak_1b = cache_.Get(NHugePages(10), &released);
+  Advance(absl::Minutes(1));
+
+  // (Current - 2 min) Max: 170 hps, Min: 70 hps.
+  HugeRange peak_2a = cache_.Get(NHugePages(100), &released);
+  HugeRange peak_2b = cache_.Get(NHugePages(10), &released);
+  Release(peak_2a);
+  Advance(absl::Minutes(1));
+
+  // (Current - 1 minute) Max: 20 hps, Min: 10 hps.
+  Release(peak_1a);
+  Release(peak_2b);
+  Advance(absl::Minutes(1));
+
+  // (Current) Max: 0 hps, Min: 0 hps.
+  Release(peak_1b);
+  EXPECT_EQ(cache_.size(), NHugePages(170));
+  EXPECT_EQ(cache_.usage(), NHugePages(0));
+
+  // The past demand is 80 hps (short 10 hps + long 70 hps), and we can unback
+  // 90 hps.
+  HugeLength unbacked_1 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(0),
+      SkipSubreleaseIntervals{.short_interval = absl::Seconds(120),
+                              .long_interval = absl::Seconds(180)},
+      /*hit_limit=*/false);
+  EXPECT_EQ(unbacked_1, NHugePages(90));
+  // The past peak demand is 170 hps, and we can unback zero.
+  HugeLength unbacked_2 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(0),
+      SkipSubreleaseIntervals{.peak_interval = absl::Seconds(130)},
+      /*hit_limit=*/false);
+  EXPECT_EQ(unbacked_2, NHugePages(0));
+
+  // We do not release anything if the size is at the minimum (10hps).
+  // First, force the cache to be at the minimum.
+  HugeLength unbacked_3 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(70), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  EXPECT_EQ(unbacked_3, NHugePages(70));
+  EXPECT_EQ(cache_.size(), NHugePages(10));
+  // Then, ask for release again. There has been no demand in the past 10s so
+  // there would be no reduction if a release target is proposed.
+  HugeLength unbacked_4 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(0),
+      SkipSubreleaseIntervals{.peak_interval = absl::Seconds(10)},
+      /*hit_limit=*/false);
+  EXPECT_EQ(unbacked_4, NHugePages(0));
+  EXPECT_EQ(cache_.size(), NHugePages(10));
+  // Releases the rest.
+  HugeLength unbacked_5 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(10), SkipSubreleaseIntervals{}, /*hit_limit=*/false);
+  EXPECT_EQ(unbacked_5, NHugePages(10));
+}
+
+// Tests releasing zero pages when the cache size and demand are both zero.
+TEST_P(HugeCacheTest, ReleaseByDemandReleaseZero) {
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(0),
+                SkipSubreleaseIntervals{.short_interval = absl::Seconds(1),
+                                        .long_interval = absl::Seconds(1)},
+                /*hit_limit=*/false),
+            NHugePages(0));
+}
+
+// Tests that releasing target is not affected if the demand history is empty.
+TEST_P(HugeCacheTest, ReleaseByDemandNoHistory) {
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+  // First we make sure that the cache is not empty.
+  bool released;
+  Release(cache_.Get(NHugePages(10), &released));
+  EXPECT_EQ(cache_.size(), NHugePages(10));
+  // Then we advance the time to make sure that the demand history is empty.
+  Advance(absl::Minutes(30));
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(10),
+                SkipSubreleaseIntervals{.short_interval = absl::Seconds(1),
+                                        .long_interval = absl::Seconds(1)},
+                /*hit_limit=*/false),
+            NHugePages(10));
+}
+
+// Tests demand-based skip release. The test is a modified version of the
+// FillerTest.SkipSubrelease test by removing parts designed particularly for
+// subrelease.
+TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (!GetDemandBasedRelease() || (kPagesPerHugePage != Length(256))) {
+    GTEST_SKIP();
+  }
+
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+  // First it generates a peak (the long-term demand peak) and waits for
+  // time_interval(a). Then, it generates a higher peak that contains the
+  // short-term fluctuation peak, and waits for time_interval(b). It then
+  // generates a trough in demand and asks to release. Finally, it waits for
+  // time_interval(c) to generate the highest peak which is used for evaluating
+  // release correctness.
+  const auto demand_pattern =
+      [&](absl::Duration a, absl::Duration b, absl::Duration c,
+          SkipSubreleaseIntervals intervals, bool expected_release) {
+        bool released;
+        // First peak: min_demand 10 hps , max_demand 15 hps, diff 10 hps.
+        HugeRange peak_1a = cache_.Get(NHugePages(10), &released);
+        HugeRange peak_1b = cache_.Get(NHugePages(5), &released);
+        Advance(a);
+        // Second peak: min_demand 0 hps, max_demand 20 hps, diff 20 hps.
+        Release(peak_1a);
+        Release(peak_1b);
+        HugeRange peak_2a = cache_.Get(NHugePages(15), &released);
+        HugeRange peak_2b = cache_.Get(NHugePages(5), &released);
+        EXPECT_EQ(cache_.usage(), NHugePages(20));
+        EXPECT_EQ(cache_.size(), NHugePages(0));
+        Advance(b);
+        // Trough: min_demand 5 hps, max_demand 5 hps, diff 0 hps.
+        Release(peak_2a);
+        EXPECT_EQ(cache_.usage(), NHugePages(5));
+        EXPECT_EQ(cache_.size(), NHugePages(15));
+        // Release is capped by the cache size.
+        EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100), intervals,
+                                                    /*hit_limit=*/false),
+                  expected_release ? NHugePages(15) : NHugePages(0));
+        Advance(c);
+        // Third peak: min_demand 25 hps, max_demand 30 hps, diff 5 hps.
+        // Note, skip-subrelease evaluates the correctness of skipped releases
+        // using the first demand update recorded in an epoch (25 hps for this
+        // case).
+        HugeRange peak_3a = cache_.Get(NHugePages(20), &released);
+        HugeRange peak_3b = cache_.Get(NHugePages(5), &released);
+        EXPECT_EQ(cache_.usage(), NHugePages(30));
+        Release(peak_2b);
+        Release(peak_3a);
+        Release(peak_3b);
+        // If the previous release is skipped, the cache size is larger due to
+        // fragmentation.
+        EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
+                                                    SkipSubreleaseIntervals{},
+                                                    /*hit_limit=*/false),
+                  expected_release ? NHugePages(30) : NHugePages(40));
+        Advance(absl::Minutes(30));
+      };
+  {
+    // Uses peak interval (demand 20 hps), correctly skipped 15 hps.
+    SCOPED_TRACE("demand_pattern 1");
+    demand_pattern(absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                   /*expected_release=*/false);
+  }
+  {
+    // Repeats the "demand_pattern 1" test with additional short-term and
+    // long-term intervals, to show that skip-subrelease prioritizes using
+    // peak_interval.
+    SCOPED_TRACE("demand_pattern 2");
+    demand_pattern(
+        absl::Minutes(2), absl::Minutes(1), absl::Minutes(3),
+        SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3),
+                                .short_interval = absl::Milliseconds(10),
+                                .long_interval = absl::Milliseconds(20)},
+        /*expected_release=*/false);
+  }
+  {
+    // Uses peak interval (demand 5 hps), released all free hps. Note, the
+    // short-term interval is not used, as we prioritize using demand peak.
+    SCOPED_TRACE("demand_pattern 3");
+    demand_pattern(absl::Minutes(6), absl::Minutes(3), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2),
+                                           .short_interval = absl::Minutes(5)},
+                   /*expected_release=*/true);
+  }
+  {
+    // Skip release feature is disabled if all intervals are zero.
+    SCOPED_TRACE("demand_pattern 4");
+    demand_pattern(absl::Minutes(1), absl::Minutes(1), absl::Minutes(4),
+                   SkipSubreleaseIntervals{}, /*expected_release=*/true);
+  }
+  {
+    // Uses short-term and long-term intervals (combined demand is 30 hps but
+    // capped by maximum demand in 10 mins, 20 hps), incorrectly skipped 15 hps.
+    SCOPED_TRACE("demand_pattern 5");
+    demand_pattern(absl::Minutes(3), absl::Minutes(2), absl::Minutes(7),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3),
+                                           .long_interval = absl::Minutes(6)},
+                   /*expected_release=*/false);
+  }
+  {
+    // Uses short-term and long-term intervals (combined demand 5 hps), released
+    // all free hps.
+    SCOPED_TRACE("demand_pattern 6");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   /*expected_release=*/true);
+  }
+  {
+    // Uses only short-term interval (demand 20 hps), correctly skipped 15 hps.
+    SCOPED_TRACE("demand_pattern 7");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(3)},
+                   /*expected_release=*/false);
+  }
+  {
+    // Uses only long-term interval (demand 5 hps), released all free pages.
+    SCOPED_TRACE("demand_pattern 8");
+    demand_pattern(absl::Minutes(4), absl::Minutes(2), absl::Minutes(3),
+                   SkipSubreleaseIntervals{.long_interval = absl::Minutes(2)},
+                   /*expected_release=*/true);
+  }
+  // This captures a corner case: If we hit another peak immediately after a
+  // release decision (recorded in the same epoch), do not count this as
+  // a correct release decision.
+  {
+    SCOPED_TRACE("demand_pattern 9");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.peak_interval = absl::Minutes(2)},
+                   /*expected_release=*/false);
+  }
+  // Repeats the "demand_pattern 9" test using short-term and long-term
+  // intervals, to show that release decisions are evaluated independently.
+  {
+    SCOPED_TRACE("demand_pattern 10");
+    demand_pattern(absl::Milliseconds(10), absl::Milliseconds(10),
+                   absl::Milliseconds(10),
+                   SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                           .long_interval = absl::Minutes(2)},
+                   /*expected_release=*/false);
+  }
+  // Ensure that the tracker is updated.
+  bool released;
+  HugeRange tiny = cache_.Get(NHugePages(1), &released);
+  Release(tiny);
+  std::string buffer(1024 * 1024, '\0');
+  {
+    Printer printer(&*buffer.begin(), buffer.size());
+    cache_.Print(&printer);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugeCache: Since the start of the execution, 6 subreleases (23040 pages) were skipped due to either recent (120s) peaks, or the sum of short-term (60s) fluctuations and long-term (120s) trends.
+HugeCache: 50.0000% of decisions confirmed correct, 0 pending (50.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+HugeCache: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
+)"));
+}
+
+// Tests the skipping decisions are reported correctly, particularly for the
+// demand peaks used in correctness evaluation.
+TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
+  // This test is sensitive to the number of pages per hugepage, as we are
+  // printing raw stats.
+  if (!GetDemandBasedRelease() || (kPagesPerHugePage != Length(256))) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+
+  // Reports skip release using the recent demand peak (23 hps): it is
+  // smaller than the current capacity (33 hps) when 8 hps are skipped.
+  // The skipping is correct as the future demand is 25 hps.
+  bool released;
+  HugeRange peak_1a = cache_.Get(NHugePages(10), &released);
+  HugeRange peak_1b = cache_.Get(NHugePages(8), &released);
+  Advance(absl::Minutes(2));
+  Release(peak_1a);
+  HugeRange peak_2a = cache_.Get(NHugePages(15), &released);
+  Release(peak_1b);
+  EXPECT_EQ(cache_.usage(), NHugePages(15));
+  EXPECT_EQ(cache_.size(), NHugePages(18));
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(30),
+                SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                /*hit_limit=*/false),
+            NHugePages(10));
+  Advance(absl::Minutes(3));
+  HugeRange peak_3a = cache_.Get(NHugePages(10), &released);
+  Release(peak_2a);
+  Release(peak_3a);
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
+                                              SkipSubreleaseIntervals{},
+                                              /*hit_limit=*/false),
+            NHugePages(33));
+  Advance(absl::Minutes(30));
+
+  // Reports skip release using the current capacity (15 hps): it
+  // is smaller than the recent peak (20 hps) when 10 hps are skipped. They are
+  // correctly skipped as the future demand is 18 hps.
+  HugeRange peak_4a = cache_.Get(NHugePages(10), &released);
+  HugeRange peak_4b = cache_.Get(NHugePages(10), &released);
+  Release(peak_4a);
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(10),
+                                              SkipSubreleaseIntervals{}, false),
+            NHugePages(10));
+  Advance(absl::Minutes(2));
+  HugeRange peak_5a = cache_.Get(NHugePages(5), &released);
+  Release(peak_4b);
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(10),
+                SkipSubreleaseIntervals{.peak_interval = absl::Minutes(3)},
+                /*hit_limit=*/false),
+            NHugePages(0));
+  Advance(absl::Minutes(3));
+  HugeRange peak_6a = cache_.Get(NHugePages(10), &released);
+  HugeRange peak_6b = cache_.Get(NHugePages(3), &released);
+  Release(peak_5a);
+  Release(peak_6a);
+  Release(peak_6b);
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
+                                              SkipSubreleaseIntervals{},
+                                              /*hit_limit=*/false),
+            NHugePages(18));
+  Advance(absl::Minutes(30));
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    Printer printer(&*buffer.begin(), buffer.size());
+    cache_.Print(&printer);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+
+  EXPECT_THAT(buffer, testing::HasSubstr(R"(
+HugeCache: Since the start of the execution, 2 subreleases (4608 pages) were skipped due to either recent (180s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
+HugeCache: 100.0000% of decisions confirmed correct, 0 pending (100.0000% of pages, 0 pending), as per anticipated 300s realized fragmentation.
+)"));
 }
 
 TEST_P(HugeCacheTest, Usage) {
@@ -472,7 +929,7 @@ TEST_P(HugeCacheTest, Usage) {
   auto r2 = cache_.Get(NHugePages(100), &released);
   EXPECT_EQ(NHugePages(110), cache_.usage());
 
-  cache_.Release(r1);
+  Release(r1);
   EXPECT_EQ(NHugePages(100), cache_.usage());
 
   // Pretend we unbacked this.
@@ -547,8 +1004,15 @@ TEST_F(MinMaxTrackerTest, Works) {
   EXPECT_EQ(NHugePages(1), tracker.MinOverTime(kDuration));
 }
 
-INSTANTIATE_TEST_SUITE_P(All, HugeCacheTest,
-                         testing::Values(absl::Seconds(1), absl::Seconds(30)));
+INSTANTIATE_TEST_SUITE_P(
+    All, HugeCacheTest,
+    testing::Combine(testing::Values(absl::Seconds(1), absl::Seconds(30)),
+                     testing::Bool()),
+    [](const testing::TestParamInfo<HugeCacheTest::ParamType> info) {
+      return "Cachetime_" + absl::FormatDuration(std::get<0>(info.param)) +
+             "DemandBasedRelease_" +
+             (std::get<1>(info.param) ? "Enabled" : "Disabled");
+    });
 
 }  // namespace
 }  // namespace tcmalloc_internal
