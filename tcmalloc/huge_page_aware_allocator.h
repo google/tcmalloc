@@ -432,7 +432,8 @@ inline PageId HugePageAwareAllocator<Forwarder>::AllocAndContribute(
     HugePage p, Length n, SpanAllocInfo span_alloc_info, bool donated) {
   TC_CHECK_NE(p.start_addr(), nullptr);
   FillerType::Tracker* pt = tracker_allocator_.New();
-  new (pt) FillerType::Tracker(p, donated);
+  new (pt)
+      FillerType::Tracker(p, donated, absl::base_internal::CycleClock::Now());
   TC_ASSERT_GE(pt->longest_free_range(), n);
   TC_ASSERT_EQ(pt->was_donated(), donated);
   // if the page was donated, we track its size so that we can potentially

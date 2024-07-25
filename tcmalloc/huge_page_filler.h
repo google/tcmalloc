@@ -62,7 +62,7 @@ inline bool IsDenseSpan(AccessDensityPrediction density) {
 // to support unlocking the page heap lock in a dynamic annotation-friendly way.
 class PageTracker : public TList<PageTracker>::Elem {
  public:
-  PageTracker(HugePage p, bool was_donated)
+  PageTracker(HugePage p, bool was_donated, uint64_t now)
       : location_(p),
         released_count_(0),
         abandoned_count_(0),
@@ -71,6 +71,7 @@ class PageTracker : public TList<PageTracker>::Elem {
         was_released_(false),
         abandoned_(false),
         unbroken_(true),
+        alloctime_(now),
         free_{} {
 #ifndef __ppc64__
 #if defined(__GNUC__)
@@ -96,6 +97,10 @@ class PageTracker : public TList<PageTracker>::Elem {
     static_assert(
         offsetof(PageTracker, free_) + sizeof(free_) <= 2 * ABSL_CACHELINE_SIZE,
         "free_ should fall within the first two cachelines of PageTracker.");
+    static_assert(offsetof(PageTracker, alloctime_) + sizeof(alloctime_) <=
+                      2 * ABSL_CACHELINE_SIZE,
+                  "alloctime_ should fall within the first two cachelines of "
+                  "PageTracker.");
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
@@ -157,6 +162,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   size_t nallocs() const { return free_.allocs(); }
   Length used_pages() const { return Length(free_.used()); }
   Length released_pages() const { return Length(released_count_); }
+  double alloctime() const { return alloctime_; }
   Length free_pages() const;
   bool empty() const;
 
@@ -192,6 +198,7 @@ class PageTracker : public TList<PageTracker>::Elem {
   // reset it once we measure those pages in abandoned_count_.
   bool abandoned_;
   bool unbroken_;
+  double alloctime_;
 
   RangeTracker<kPagesPerHugePage.raw_num()> free_;
   // Bitmap of pages based on them being released to the OS.
@@ -495,6 +502,7 @@ class HugePageFiller {
   void UpdateFillerStatsTracker();
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType fillerstats_tracker_;
+  Clock clock_;
   // TODO(b/73749855):  Remove remaining uses of unback_.
   MemoryModifyFunction& unback_;
   MemoryModifyFunction& unback_without_lock_;
@@ -642,6 +650,7 @@ inline HugePageFiller<TrackerType>::HugePageFiller(
     : allocs_for_sparse_and_dense_spans_(allocs_option),
       size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
+      clock_(clock),
       unback_(unback),
       unback_without_lock_(unback_without_lock) {}
 
@@ -1231,11 +1240,18 @@ class UsageInfo {
       bucket_bounds_[buckets_size_] = i;
       buckets_size_++;
     }
+
+    lifetime_bucket_bounds_[0] = 0;
+    lifetime_bucket_bounds_[1] = 1;
+    for (int i = 2; i <= kLifetimeBuckets; ++i) {
+      lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
+    }
     TC_CHECK_LE(buckets_size_, kBucketCapacity);
   }
 
   template <class TrackerType>
-  void Record(const TrackerType* pt, Type which) {
+  void Record(const TrackerType* pt, Type which, double clock_now,
+              double clock_frequency) {
     TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt->used_pages();
     const Length lf = pt->longest_free_range();
@@ -1245,6 +1261,20 @@ class UsageInfo {
     free_page_histo_[which][BucketNum(free.raw_num())]++;
     longest_free_histo_[which][BucketNum(lf.raw_num())]++;
     nalloc_histo_[which][BucketNum(nalloc - 1)]++;
+
+    const double elapsed = std::max<double>(clock_now - pt->alloctime(), 0);
+    const absl::Duration lifetime =
+        absl::Milliseconds(elapsed * 1000 / clock_frequency);
+    ++lifetime_histo_[which][LifetimeBucketNum(lifetime)];
+
+    if (lifetime >= kLongLivedLifetime) {
+      ++long_lived_hps_histo_[which][BucketNum(nalloc - 1)];
+    }
+
+    if (free >= kLowOccupancyNumFreePages) {
+      ++low_occupancy_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
+    }
+
     if (which == kSparseRegular) {
       nalloc_free_page_histo_[BucketNum(nalloc - 1)]
                              [BucketNum(free.raw_num())]++;
@@ -1289,6 +1319,30 @@ class UsageInfo {
       PrintHisto(out, nalloc_free_page_histo_[j], kSparseRegular,
                  "hps with a<= # of free pages <b", 0);
     }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintLifetimeHisto(out, lifetime_histo_[type], type,
+                         "hps with lifetime a <= # hps < b");
+    }
+
+    out->printf(
+        "\nHugePageFiller: # of hps with >= %3zu free pages, with different "
+        "lifetimes.",
+        kLowOccupancyNumFreePages.raw_num());
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintLifetimeHisto(out, low_occupancy_lifetime_histo_[type], type,
+                         "hps with lifetime a <= # hps < b");
+    }
+
+    out->printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
+                absl::ToInt64Milliseconds(kLongLivedLifetime));
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      PrintHisto(out, long_lived_hps_histo_[type], type,
+                 "hps with a <= # of allocations < b", 0);
+    }
   }
 
   void Print(PbtxtRegion* hpaa) {
@@ -1301,6 +1355,11 @@ class UsageInfo {
       PrintHisto(&scoped, longest_free_histo_[i],
                  "longest_free_range_histogram", 0);
       PrintHisto(&scoped, nalloc_histo_[i], "allocations_histogram", 1);
+      PrintLifetimeHisto(&scoped, lifetime_histo_[i], "lifetime_histogram");
+      PrintLifetimeHisto(&scoped, low_occupancy_lifetime_histo_[i],
+                         "low_occupancy_lifetime_histogram");
+      PrintHisto(&scoped, long_lived_hps_histo_[i],
+                 "long_lived_hugepages_histogram", 0);
       if (type == kSparseRegular) {
         for (int j = 0; j < buckets_size_; ++j) {
           if (nalloc_histo_[i][j] == 0) continue;
@@ -1320,16 +1379,35 @@ class UsageInfo {
  private:
   // Maximum number of buckets at the start and end.
   static constexpr size_t kBucketsAtBounds = 8;
+  static constexpr size_t kLifetimeBuckets = 8;
+  // Threshold for a page to be long-lived, as a lifetime in milliseconds, for
+  // telemetry purposes only.
+  static constexpr absl::Duration kLongLivedLifetime =
+      absl::Milliseconds(100000);
+  // Threshold for a hugepage considered to have a low occupancy, for logging
+  // lifetime telemetry only.
+  static constexpr Length kLowOccupancyNumFreePages =
+      Length(kPagesPerHugePage.raw_num() - (kPagesPerHugePage.raw_num() >> 3));
   // 16 buckets in the middle.
   static constexpr size_t kBucketCapacity =
       kBucketsAtBounds + 16 + kBucketsAtBounds;
   using Histo = size_t[kBucketCapacity];
+  using LifetimeHisto = size_t[kLifetimeBuckets];
 
   int BucketNum(size_t page) {
     auto it =
         std::upper_bound(bucket_bounds_, bucket_bounds_ + buckets_size_, page);
     TC_CHECK_NE(it, bucket_bounds_);
     return it - bucket_bounds_ - 1;
+  }
+
+  int LifetimeBucketNum(absl::Duration duration) {
+    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    auto it = std::upper_bound(lifetime_bucket_bounds_,
+                               lifetime_bucket_bounds_ + kLifetimeBuckets,
+                               duration_ms);
+    TC_CHECK_NE(it, lifetime_bucket_bounds_);
+    return it - lifetime_bucket_bounds_ - 1;
   }
 
   void PrintHisto(Printer* out, Histo h, Type type, const char blurb[],
@@ -1344,6 +1422,18 @@ class UsageInfo {
     out->printf("\n");
   }
 
+  void PrintLifetimeHisto(Printer* out, Histo h, Type type,
+                          const char blurb[]) {
+    out->printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+      if (i % 6 == 0) {
+        out->printf("\nHugePageFiller:");
+      }
+      out->printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+    }
+    out->printf("\n");
+  }
+
   void PrintHisto(PbtxtRegion* hpaa, Histo h, const char key[], size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (h[i] == 0) continue;
@@ -1353,6 +1443,18 @@ class UsageInfo {
                     (i == buckets_size_ - 1 ? bucket_bounds_[i]
                                             : bucket_bounds_[i + 1] - 1) +
                         offset);
+      hist.PrintI64("value", h[i]);
+    }
+  }
+
+  void PrintLifetimeHisto(PbtxtRegion* hpaa, Histo h, const char key[]) {
+    for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+      if (h[i] == 0) continue;
+      auto hist = hpaa->CreateSubRegion(key);
+      hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+      hist.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
+                                        ? lifetime_bucket_bounds_[i]
+                                        : lifetime_bucket_bounds_[i + 1]));
       hist.PrintI64("value", h[i]);
     }
   }
@@ -1419,6 +1521,9 @@ class UsageInfo {
   Histo free_page_histo_[kNumTypes]{};
   Histo longest_free_histo_[kNumTypes]{};
   Histo nalloc_histo_[kNumTypes]{};
+  LifetimeHisto lifetime_histo_[kNumTypes]{};
+  Histo long_lived_hps_histo_[kNumTypes]{};
+  LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
   // TODO(b/282993806): drop nalloc_free_page_histo_ after experiment is done.
   // Two dimensional histogram.  The outer histogram is indexed using the number
   // of allocations.  The nested histogram is indexed using the number of free
@@ -1429,6 +1534,7 @@ class UsageInfo {
   // being done to reduce the amount of space required.
   Histo nalloc_free_page_histo_[kBucketCapacity]{};
   size_t bucket_bounds_[kBucketCapacity];
+  size_t lifetime_bucket_bounds_[kBucketCapacity];
   int buckets_size_ = 0;
 };
 }  // namespace huge_page_filler_internal
@@ -1572,36 +1678,41 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
+  const double now = clock_.now();
+  const double frequency = clock_.freq();
   donated_alloc_.Iter(
-      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kDonated, now, frequency);
+      },
+      0);
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseRegular);
+        usage.Record(pt, UsageInfo::kSparseRegular, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseRegular);
+        usage.Record(pt, UsageInfo::kDenseRegular, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparsePartialReleased);
+        usage.Record(pt, UsageInfo::kSparsePartialReleased, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDensePartialReleased);
+        usage.Record(pt, UsageInfo::kDensePartialReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseReleased);
+        usage.Record(pt, UsageInfo::kSparseReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseReleased);
+        usage.Record(pt, UsageInfo::kDenseReleased, now, frequency);
       },
       0);
 
@@ -1695,36 +1806,41 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   // Compute some histograms of fullness.
   using huge_page_filler_internal::UsageInfo;
   UsageInfo usage;
+  const double now = clock_.now();
+  const double frequency = clock_.freq();
   donated_alloc_.Iter(
-      [&](const TrackerType* pt) { usage.Record(pt, UsageInfo::kDonated); }, 0);
+      [&](const TrackerType* pt) {
+        usage.Record(pt, UsageInfo::kDonated, now, frequency);
+      },
+      0);
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseRegular);
+        usage.Record(pt, UsageInfo::kSparseRegular, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseRegular);
+        usage.Record(pt, UsageInfo::kDenseRegular, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparsePartialReleased);
+        usage.Record(pt, UsageInfo::kSparsePartialReleased, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDensePartialReleased);
+        usage.Record(pt, UsageInfo::kDensePartialReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseReleased);
+        usage.Record(pt, UsageInfo::kSparseReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseReleased);
+        usage.Record(pt, UsageInfo::kDenseReleased, now, frequency);
       },
       0);
 

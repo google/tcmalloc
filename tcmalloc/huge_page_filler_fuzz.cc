@@ -193,7 +193,8 @@ void FuzzFiller(const std::string& s) {
           // Since small objects are likely to be found, we model those tail
           // donations separately.
           const bool donated = n > kPagesPerHugePage / 2;
-          result.pt = new PageTracker(HugePage{.pn = next_hugepage}, donated);
+          result.pt = new PageTracker(HugePage{.pn = next_hugepage}, donated,
+                                      fake_clock);
           next_hugepage++;
           {
             PageHeapSpinLockHolder l;
@@ -360,7 +361,7 @@ void FuzzFiller(const std::string& s) {
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
         auto* pt = new PageTracker(HugePage{.pn = next_hugepage},
-                                   /*was_donated=*/true);
+                                   /*was_donated=*/true, fake_clock);
         next_hugepage++;
         PageId start;
         {
