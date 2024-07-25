@@ -91,6 +91,7 @@ std::string GetStatsInPbTxt() {
   buf.resize(buffer_length);
   int actual_size =
       MallocExtension_Internal_GetStatsInPbtxt(&buf[0], buffer_length);
+  TC_CHECK_LE(actual_size, buffer_length);
   buf.resize(actual_size);
   return buf;
 }
