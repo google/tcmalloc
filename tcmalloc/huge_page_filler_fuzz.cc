@@ -412,9 +412,14 @@ void FuzzFiller(const std::string& s) {
         std::string s;
         s.resize(1 << 20);
         Printer p(&s[0], s.size());
-        PbtxtRegion region(&p, kTop);
-        PageHeapSpinLockHolder l;
-        filler.PrintInPbtxt(&region);
+        {
+          PbtxtRegion region(&p, kTop);
+          PageHeapSpinLockHolder l;
+          filler.PrintInPbtxt(&region);
+        }
+
+        CHECK_LE(p.SpaceRequired(), s.size());
+        s.resize(p.SpaceRequired());
         break;
       }
       case 9: {
