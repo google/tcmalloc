@@ -24,6 +24,7 @@
 #include "gtest/gtest.h"
 #include "fuzztest/fuzztest.h"
 #include "absl/base/attributes.h"
+#include "absl/log/check.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
@@ -338,8 +339,11 @@ void FuzzHPAA(const std::string& s) {
           //
           // value is unused.
           Printer p(&output[0], output.size());
-          PbtxtRegion region(&p, kTop);
-          allocator->PrintInPbtxt(&region);
+          {
+            PbtxtRegion region(&p, kTop);
+            allocator->PrintInPbtxt(&region);
+          }
+          CHECK_LE(p.SpaceRequired(), output.size());
           break;
         }
         case 5: {

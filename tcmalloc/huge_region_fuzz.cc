@@ -26,6 +26,7 @@
 #include "tcmalloc/huge_cache.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 
@@ -82,6 +83,9 @@ void FuzzRegion(const std::string& s) {
 
   std::vector<std::pair<PageId, Length>> allocs;
   std::vector<std::pair<const char*, size_t>> reentrant;
+
+  std::string output;
+  output.resize(1 << 20);
 
   auto run_dsl = [&](const char* data, size_t size) {
     for (size_t i = 0; i + 9 <= size; i += 9) {
@@ -180,6 +184,27 @@ void FuzzRegion(const std::string& s) {
           }
           reentrant.emplace_back(data + i + 9, subprogram);
           i += size;
+          break;
+        }
+        case 6: {
+          // Gather stats in pbtxt format.
+          //
+          // value is unused.
+          Printer p(&output[0], output.size());
+          {
+            PbtxtRegion r(&p, kTop);
+            region.PrintInPbtxt(&r);
+          }
+          CHECK_LE(p.SpaceRequired(), output.size());
+          break;
+        }
+        case 7: {
+          // Print stats.
+          //
+          // value is unused.
+          Printer p(&output[0], output.size());
+          region.Print(&p);
+          break;
         }
       }
     }
