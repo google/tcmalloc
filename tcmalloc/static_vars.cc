@@ -143,9 +143,7 @@ SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
   } else if (default_want_legacy_size_classes != nullptr &&
-             default_want_legacy_size_classes() > 0 &&
-             !IsExperimentActive(
-                 Experiment::TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY)) {
+             default_want_legacy_size_classes() > 0) {
     // TODO(b/242710633): remove this opt out.
     return SizeClassConfiguration::kLegacy;
   } else if (IsExperimentActive(

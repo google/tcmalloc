@@ -34,14 +34,8 @@ TEST(SizeClassesTest, SmallClasses) {
     GTEST_SKIP() << "Unexpected default new alignment.";
 
   const size_t kExpectedClasses[] = {0, 8, 16, 24, 32, 40, 48, 56, 64};
-  const size_t kOrdinaryClasses[] = {0, 8, 16, 32, 64};
 
-  absl::Span<const size_t> classes;
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_IGNORE_WANT_LEGACY)) {
-    classes = absl::MakeSpan(kOrdinaryClasses);
-  } else {
-    classes = absl::MakeSpan(kExpectedClasses);
-  }
+  absl::Span<const size_t> classes = absl::MakeSpan(kExpectedClasses);
 
   ASSERT_LE(classes.size(), kNumClasses);
   for (int c = 0; c < classes.size(); ++c) {
