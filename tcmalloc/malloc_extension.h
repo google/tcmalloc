@@ -659,17 +659,18 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept;
 // uses the size to improve deallocation performance.
 extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
-namespace tcmalloc {
-
-// sized_ptr_t constains pointer / capacity information as returned
-// by `tcmalloc_size_returning_operator_new()`.
-// See `tcmalloc_size_returning_operator_new()` for more information.
-
-struct sized_ptr_t {
+// Define __sized_ptr_t in the global namespace so that it can be named by the
+// __size_returning_new implementations defined in tcmalloc.cc.
+struct __sized_ptr_t {
   void* p;
   size_t n;
 };
 
+namespace tcmalloc {
+// sized_ptr_t constains pointer / capacity information as returned
+// by `tcmalloc_size_returning_operator_new()`.
+// See `tcmalloc_size_returning_operator_new()` for more information.
+using sized_ptr_t = __sized_ptr_t;
 }  // namespace tcmalloc
 
 // Allocates memory of at least the requested size.
@@ -701,26 +702,47 @@ struct sized_ptr_t {
 // new" proposal:
 // http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2019/p0901r5.html
 extern "C" {
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new(size_t size);
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
+// The following declarations provide an alternative spelling which should be
+// used so that the compiler can identify these as allocator functions.
+ABSL_ATTRIBUTE_WEAK __sized_ptr_t __size_returning_new(size_t size);
+ABSL_ATTRIBUTE_WEAK __sized_ptr_t __size_returning_new_hot_cold(size_t,
+                                                                __hot_cold_t);
+ABSL_ATTRIBUTE_WEAK __sized_ptr_t
+__size_returning_new_aligned(size_t, std::align_val_t);
+ABSL_ATTRIBUTE_WEAK __sized_ptr_t
+__size_returning_new_aligned_hot_cold(size_t, std::align_val_t, __hot_cold_t);
+
+ABSL_DEPRECATE_AND_INLINE()
+inline __sized_ptr_t tcmalloc_size_returning_operator_new(size_t size) {
+  return __size_returning_new(size);
+}
+__sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
     size_t size) noexcept;
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
-    size_t size, tcmalloc::hot_cold_t hot_cold);
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+ABSL_DEPRECATE_AND_INLINE()
+inline __sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
+    size_t size, tcmalloc::hot_cold_t hot_cold) {
+  return __size_returning_new_hot_cold(size, hot_cold);
+}
+__sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
     size_t size, tcmalloc::hot_cold_t hot_cold) noexcept;
 
 #if defined(__cpp_aligned_new)
 
 // Identical to `tcmalloc_size_returning_operator_new` except that the returned
 // memory is aligned according to the `alignment` argument.
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned(
-    size_t size, std::align_val_t alignment);
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
+ABSL_DEPRECATE_AND_INLINE()
+inline __sized_ptr_t tcmalloc_size_returning_operator_new_aligned(
+    size_t size, std::align_val_t alignment) {
+  return __size_returning_new_aligned(size, alignment);
+}
+__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
     size_t size, std::align_val_t alignment) noexcept;
-tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold);
-tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+ABSL_DEPRECATE_AND_INLINE()
+inline __sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold(
+    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t hot_cold) {
+  return __size_returning_new_aligned_hot_cold(size, alignment, hot_cold);
+}
+__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
     size_t size, std::align_val_t alignment,
     tcmalloc::hot_cold_t hot_cold) noexcept;
 

@@ -760,13 +760,12 @@ ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void sdallocx(void* ptr, size_t,
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new(size_t size) {
+__size_returning_new(size_t size) {
   return {::operator new(size), size};
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new_hot_cold(size_t size,
-                                              tcmalloc::hot_cold_t) {
+__size_returning_new_hot_cold(size_t size, __hot_cold_t) {
   return {::operator new(size), size};
 }
 
@@ -777,8 +776,8 @@ tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept {
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new_hot_cold_nothrow(
-    size_t size, tcmalloc::hot_cold_t) noexcept {
+tcmalloc_size_returning_operator_new_hot_cold_nothrow(size_t size,
+                                                      __hot_cold_t) noexcept {
   void* p = ::operator new(size, std::nothrow);
   return {p, p ? size : 0};
 }
@@ -786,8 +785,7 @@ tcmalloc_size_returning_operator_new_hot_cold_nothrow(
 #if defined(_LIBCPP_VERSION) && defined(__cpp_aligned_new)
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new_aligned(size_t size,
-                                             std::align_val_t alignment) {
+__size_returning_new_aligned(size_t size, std::align_val_t alignment) {
   return {::operator new(size, alignment), size};
 }
 
@@ -799,14 +797,14 @@ tcmalloc_size_returning_operator_new_aligned_nothrow(
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
-tcmalloc_size_returning_operator_new_aligned_hot_cold(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t) {
+__size_returning_new_aligned_hot_cold(size_t size, std::align_val_t alignment,
+                                      __hot_cold_t) {
   return {::operator new(size, alignment), size};
 }
 
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
-    size_t size, std::align_val_t alignment, tcmalloc::hot_cold_t) noexcept {
+    size_t size, std::align_val_t alignment, __hot_cold_t) noexcept {
   void* p = ::operator new(size, alignment, std::nothrow);
   return {p, p ? size : 0};
 }

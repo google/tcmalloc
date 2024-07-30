@@ -929,8 +929,7 @@ alloc_small_sampled_hooks_or_perthread(size_t size, size_t size_class,
     }
     if (ABSL_PREDICT_FALSE(res == nullptr)) return policy.handle_oom(size);
   }
-  tcmalloc::sized_ptr_t ptr = {res,
-                               tc_globals.sizemap().class_to_size(size_class)};
+  __sized_ptr_t ptr = {res, tc_globals.sizemap().class_to_size(size_class)};
   if (ABSL_PREDICT_FALSE(weight != 0)) {
     ptr = SampleSmallAllocation(tc_globals, policy, size, weight, size_class,
                                 ptr);
@@ -970,7 +969,7 @@ template <typename Policy>
 ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type slow_alloc_large(
     size_t size, Policy policy) {
   size_t weight = GetThreadSampler()->RecordAllocation(size);
-  tcmalloc::sized_ptr_t res = do_malloc_pages(size, weight, policy);
+  __sized_ptr_t res = do_malloc_pages(size, weight, policy);
   if (ABSL_PREDICT_FALSE(res.p == nullptr)) return policy.handle_oom(size);
 
   if (Policy::invoke_hooks()) {
@@ -1109,29 +1108,35 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
 }
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
+// Below we provide 'strong' implementations for size returning operator new
+// operations. This is an early implementation of P0901. In the future:
+// - libc++ implements a customized `__allocate_at_least()` which calls
+//   `__size_returning_new(...)`
+// - libc++ provides a weak default `__size_returning_new(...)` which is
+//   implemented in terms of `{::operator new(...), n}`
+// - tcmalloc provides strong implementations of `__size_returning_new`
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-    tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new(size_t size) {
+__sized_ptr_t __size_returning_new(size_t size) {
   return fast_alloc(size, CppPolicy().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc) tcmalloc::sized_ptr_t
-    tcmalloc_size_returning_operator_new_aligned(size_t size,
-                                                 std::align_val_t alignment) {
+extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+__sized_ptr_t __size_returning_new_aligned(size_t size,
+                                           std::align_val_t alignment) {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
   return fast_alloc(size, CppPolicy().AlignAs(alignment).SizeReturning());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-    tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold(
-        size_t size, tcmalloc::hot_cold_t hot_cold) {
+__sized_ptr_t __size_returning_new_hot_cold(size_t size,
+                                            __hot_cold_t hot_cold) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold).SizeReturning());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-    tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold(
-        size_t size, std::align_val_t alignment,
-        tcmalloc::hot_cold_t hot_cold) {
+__sized_ptr_t __size_returning_new_aligned_hot_cold(size_t size,
+                                                    std::align_val_t alignment,
+                                                    __hot_cold_t hot_cold) {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
   return fast_alloc(
       size, CppPolicy().AlignAs(alignment).AccessAs(hot_cold).SizeReturning());
@@ -1269,32 +1274,30 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalReallocArray(
   return do_realloc(ptr, size);
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc) tcmalloc::sized_ptr_t
-    tcmalloc_size_returning_operator_new_nothrow(size_t size) noexcept {
+extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+__sized_ptr_t tcmalloc_size_returning_operator_new_nothrow(
+    size_t size) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().SizeReturning());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-    tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
-        size_t size, std::align_val_t alignment) noexcept {
+__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_nothrow(
+    size_t size, std::align_val_t alignment) noexcept {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
   return fast_alloc(size,
                     CppPolicy().AlignAs(alignment).Nothrow().SizeReturning());
 }
 
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
-    tcmalloc::sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
-        size_t size, tcmalloc::hot_cold_t hot_cold) noexcept {
+__sized_ptr_t tcmalloc_size_returning_operator_new_hot_cold_nothrow(
+    size_t size, __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size,
                     CppPolicy().AccessAs(hot_cold).Nothrow().SizeReturning());
 }
 
-extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(
-    google_malloc) tcmalloc::sized_ptr_t
-    tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
-        size_t size, std::align_val_t alignment,
-        tcmalloc::hot_cold_t hot_cold) noexcept {
+extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
+__sized_ptr_t tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
+    size_t size, std::align_val_t alignment, __hot_cold_t hot_cold) noexcept {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(alignment)));
   return fast_alloc(size, CppPolicy()
                               .AlignAs(alignment)
@@ -1527,52 +1530,50 @@ GOOGLE_MALLOC_SECTION_END
 
 #ifndef TCMALLOC_INTERNAL_METHODS_ONLY
 ABSL_CACHELINE_ALIGNED void* operator new(
-    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+    size_t size, __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new(
-    size_t size, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_CACHELINE_ALIGNED void* operator new(size_t size, const std::nothrow_t&,
+                                          __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().AccessAs(hot_cold));
 }
 
 ABSL_CACHELINE_ALIGNED void* operator new(
     size_t size, std::align_val_t align,
-    tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+    __hot_cold_t hot_cold) noexcept(false) {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
   return fast_alloc(size, CppPolicy().AlignAs(align).AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new(
-    size_t size, std::align_val_t align, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_CACHELINE_ALIGNED void* operator new(size_t size, std::align_val_t align,
+                                          const std::nothrow_t&,
+                                          __hot_cold_t hot_cold) noexcept {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
   return fast_alloc(size,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
 }
 
 ABSL_CACHELINE_ALIGNED void* operator new[](
-    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+    size_t size, __hot_cold_t hot_cold) noexcept(false) {
   return fast_alloc(size, CppPolicy().AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](
-    size_t size, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, const std::nothrow_t&,
+                                            __hot_cold_t hot_cold) noexcept {
   return fast_alloc(size, CppPolicy().Nothrow().AccessAs(hot_cold));
 }
 
 ABSL_CACHELINE_ALIGNED void* operator new[](
     size_t size, std::align_val_t align,
-    tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+    __hot_cold_t hot_cold) noexcept(false) {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
   return fast_alloc(size, CppPolicy().AlignAs(align).AccessAs(hot_cold));
 }
 
-ABSL_CACHELINE_ALIGNED void* operator new[](
-    size_t size, std::align_val_t align, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_CACHELINE_ALIGNED void* operator new[](size_t size, std::align_val_t align,
+                                            const std::nothrow_t&,
+                                            __hot_cold_t hot_cold) noexcept {
   TC_ASSERT(absl::has_single_bit(static_cast<size_t>(align)));
   return fast_alloc(size,
                     CppPolicy().Nothrow().AlignAs(align).AccessAs(hot_cold));
