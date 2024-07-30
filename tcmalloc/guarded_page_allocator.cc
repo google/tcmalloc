@@ -48,11 +48,12 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void GuardedPageAllocator::Init(size_t max_alloced_pages, size_t total_pages) {
-  TC_CHECK_GT(max_alloced_pages, 0);
-  TC_CHECK_LE(max_alloced_pages, total_pages);
+void GuardedPageAllocator::Init(size_t max_allocated_pages,
+                                size_t total_pages) {
+  TC_CHECK_GT(max_allocated_pages, 0);
+  TC_CHECK_LE(max_allocated_pages, total_pages);
   TC_CHECK_LE(total_pages, kGpaMaxPages);
-  max_alloced_pages_ = max_alloced_pages;
+  max_allocated_pages_ = max_allocated_pages;
   total_pages_ = total_pages;
 
   // If the system page size is larger than kPageSize, we need to use the
@@ -82,7 +83,7 @@ void GuardedPageAllocator::Reset() {
   // Reset sampled/guarded counters so that that we don't skip guarded sampling
   // for a prolonged time due to accumulated stats.
   tc_globals.total_sampled_count_.Add(-tc_globals.total_sampled_count_.value());
-  num_successful_allocations_.Add(-num_successful_allocations_.value());
+  successful_allocations_.Add(-successful_allocations_.value());
   // Allow allocations that are not currently covered by an existing allocation.
   // Fully resetting the stack trace filter is a bad idea, because the pool may
   // not be empty: a later deallocation would try to remove a non-existent entry
@@ -104,7 +105,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     return {nullptr, Profile::Sample::GuardedStatus::Disabled};
   }
   // Never filter if guarded_sampling_interval == 0, or no samples yet.
-  const size_t num_guarded = SuccessfulAllocations();
+  const size_t num_guarded = successful_allocations();
   if (guarded_sampling_interval > 0 && num_guarded > 0) {
     // The guarded page allocator should not exceed the desired sampling rate.
     // To do so, we need to filter allocations while this condition holds:
@@ -139,7 +140,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
       // The probability that we skip a currently covered allocation scales
       // proportional to pool utilization, with pool utilization of 50% or more
       // resulting in always filtering currently covered allocations.
-      const size_t usage_pct = (num_alloced_pages() * 100) / max_alloced_pages_;
+      const size_t usage_pct = (allocated_pages() * 100) / max_allocated_pages_;
       if (rand_.Next() % 50 <= usage_pct) {
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
@@ -175,8 +176,8 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   if (mprotect(result, page_size_, PROT_READ | PROT_WRITE) == -1) {
     TC_ASSERT(false, "mprotect(.., PROT_READ|PROT_WRITE) failed");
     AllocationGuardSpinLockHolder h(&guarded_page_lock_);
-    num_failed_allocations_.LossyAdd(1);
-    num_successful_allocations_.LossyAdd(-1);
+    failed_allocations_.LossyAdd(1);
+    successful_allocations_.LossyAdd(-1);
     FreeSlot(free_slot);
     return {nullptr, Profile::Sample::GuardedStatus::MProtectFailed};
   }
@@ -188,7 +189,7 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   SlotMetadata& d = data_[free_slot];
   // Count the number of pages that have been used at least once.
   if (ABSL_PREDICT_FALSE(d.allocation_start == 0)) {
-    total_pages_used_.fetch_add(1, std::memory_order_relaxed);
+    pages_touched_.Add(1);
   }
 
   static_assert(sizeof(d.alloc_trace.stack) == sizeof(stack_trace.stack));
@@ -303,30 +304,37 @@ void GuardedPageAllocator::Print(Printer* out) {
       "------------------------------------------------\n"
       "Successful Allocations: %zu\n"
       "Failed Allocations: %zu\n"
-      "Slots Currently Allocated: %zu\n"
-      "Slots Currently Quarantined: %zu\n"
-      "Maximum Slots Allocated: %zu / %zu\n"
-      "Total Slots Used Once: %zu / %zu\n"
+      "Currently Allocated: %zu / %zu\n"
+      "Allocated High-Watermark: %zu / %zu\n"
+      "Object Pages Touched: %zu / %zu\n"
+      "Currently Quarantined: %zu\n"
       "PARAMETER tcmalloc_guarded_sample_parameter %d\n",
-      num_successful_allocations_.value(), num_failed_allocations_.value(),
-      num_alloced_pages(), total_pages_ - num_alloced_pages(),
-      num_alloced_pages_max_.load(std::memory_order_relaxed),
-      max_alloced_pages_, total_pages_used_.load(std::memory_order_relaxed),
-      total_pages_, GetChainedInterval());
+      // Successful Allocations
+      successful_allocations_.value(),
+      // Failed Allocations
+      failed_allocations_.value(),
+      // Currently Allocated
+      allocated_pages(), max_allocated_pages_,
+      // Allocated High-Watermark
+      high_allocated_pages_.load(std::memory_order_relaxed),
+      max_allocated_pages_,
+      // Object Pages Touched
+      pages_touched_.value(), total_pages_,
+      // Currently Quarantined
+      total_pages_ - allocated_pages(),
+      // PARAMETER
+      GetChainedInterval());
 }
 
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
-  gwp_asan->PrintI64("successful_allocations",
-                     num_successful_allocations_.value());
-  gwp_asan->PrintI64("failed_allocations", num_failed_allocations_.value());
-  gwp_asan->PrintI64("current_slots_allocated", num_alloced_pages());
-  gwp_asan->PrintI64("current_slots_quarantined",
-                     total_pages_ - num_alloced_pages());
-  gwp_asan->PrintI64("max_slots_allocated",
-                     num_alloced_pages_max_.load(std::memory_order_relaxed));
-  gwp_asan->PrintI64("allocated_slot_limit", max_alloced_pages_);
-  gwp_asan->PrintI64("total_pages_used",
-                     total_pages_used_.load(std::memory_order_relaxed));
+  gwp_asan->PrintI64("successful_allocations", successful_allocations_.value());
+  gwp_asan->PrintI64("failed_allocations", failed_allocations_.value());
+  gwp_asan->PrintI64("allocated_pages", allocated_pages());
+  gwp_asan->PrintI64("quarantine_pages", total_pages_ - allocated_pages());
+  gwp_asan->PrintI64("high_allocated_pages",
+                     high_allocated_pages_.load(std::memory_order_relaxed));
+  gwp_asan->PrintI64("max_allocated_pages", max_allocated_pages_);
+  gwp_asan->PrintI64("pages_touched", pages_touched_.value());
   gwp_asan->PrintI64("total_pages", total_pages_);
   gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
@@ -372,25 +380,24 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
   if (GetNumAvailablePages() == 0) {
-    num_failed_allocations_.LossyAdd(1);
+    failed_allocations_.LossyAdd(1);
     return -1;
   }
-  num_successful_allocations_.LossyAdd(1);
+  successful_allocations_.LossyAdd(1);
 
   const size_t slot = GetFreeSlot();
   TC_ASSERT(!used_pages_.GetBit(slot));
   used_pages_.SetBit(slot);
 
-  // Both writes to num_alloced_pages_ happen under the guarded_page_lock_, so
+  // Both writes to allocated_pages_ happen under the guarded_page_lock_, so
   // we do not have to use an atomic fetch_add(), which is more expensive due to
   // typically imposing a full memory barrier when lowered on e.g. x86. Recent
   // compiler optimizations will also turn the store(load(relaxed) + N, relaxed)
   // into a simple add instruction.
-  const size_t nalloced =
-      num_alloced_pages_.load(std::memory_order_relaxed) + 1;
-  num_alloced_pages_.store(nalloced, std::memory_order_relaxed);
-  if (nalloced > num_alloced_pages_max_.load(std::memory_order_relaxed)) {
-    num_alloced_pages_max_.store(nalloced, std::memory_order_relaxed);
+  const size_t nalloced = allocated_pages_.load(std::memory_order_relaxed) + 1;
+  allocated_pages_.store(nalloced, std::memory_order_relaxed);
+  if (nalloced > high_allocated_pages_.load(std::memory_order_relaxed)) {
+    high_allocated_pages_.store(nalloced, std::memory_order_relaxed);
   }
   return slot;
 }
@@ -410,9 +417,8 @@ void GuardedPageAllocator::FreeSlot(size_t slot) {
   TC_ASSERT(used_pages_.GetBit(slot));
   used_pages_.ClearBit(slot);
   // Cheaper decrement - see above.
-  num_alloced_pages_.store(
-      num_alloced_pages_.load(std::memory_order_relaxed) - 1,
-      std::memory_order_relaxed);
+  allocated_pages_.store(allocated_pages_.load(std::memory_order_relaxed) - 1,
+                         std::memory_order_relaxed);
 }
 
 uintptr_t GuardedPageAllocator::GetPageAddr(uintptr_t addr) const {

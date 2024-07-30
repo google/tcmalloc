@@ -77,15 +77,14 @@ class GuardedPageAllocator {
   constexpr GuardedPageAllocator()
       : guarded_page_lock_(absl::kConstInit,
                            absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        num_alloced_pages_(0),
-        num_alloced_pages_max_(0),
+        allocated_pages_(0),
+        high_allocated_pages_(0),
         data_(nullptr),
         pages_base_addr_(0),
         pages_end_addr_(0),
         first_page_addr_(0),
-        max_alloced_pages_(0),
+        max_allocated_pages_(0),
         total_pages_(0),
-        total_pages_used_(0),
         page_size_(0),
         rand_(0),
         initialized_(false),
@@ -96,15 +95,15 @@ class GuardedPageAllocator {
 
   ~GuardedPageAllocator() = default;
 
-  // Configures this allocator to allocate up to max_alloced_pages pages at a
+  // Configures this allocator to allocate up to max_allocated_pages pages at a
   // time from a pool of total_pages pages, where:
-  //   1 <= max_alloced_pages <= total_pages <= kGpaMaxPages
+  //   1 <= max_allocated_pages <= total_pages <= kGpaMaxPages
   //
   // This method should be called non-concurrently and only once to complete
   // initialization.  Dynamic initialization is deliberately done here and not
   // in the constructor, thereby allowing the constructor to be constexpr and
   // avoiding static initialization order issues.
-  void Init(size_t max_alloced_pages, size_t total_pages)
+  void Init(size_t max_allocated_pages, size_t total_pages)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Unmaps memory allocated by this class.
@@ -186,15 +185,16 @@ class GuardedPageAllocator {
   // Returns the number of pages available for allocation, based on how many are
   // currently in use.  (Should only be used in testing.)
   size_t GetNumAvailablePages() const {
-    return max_alloced_pages_ - num_alloced_pages();
+    return max_allocated_pages_ - allocated_pages();
   }
-
-  size_t SuccessfulAllocations() { return num_successful_allocations_.value(); }
 
   // Resets sampling state.
   void Reset();
 
   size_t page_size() const { return page_size_; }
+  size_t successful_allocations() const {
+    return successful_allocations_.value();
+  }
 
  private:
   // Structure for storing data about a slot.
@@ -259,8 +259,8 @@ class GuardedPageAllocator {
   uintptr_t SlotToAddr(size_t slot) const;
   size_t AddrToSlot(uintptr_t addr) const;
 
-  size_t num_alloced_pages() const {
-    return num_alloced_pages_.load(std::memory_order_relaxed);
+  size_t allocated_pages() const {
+    return allocated_pages_.load(std::memory_order_relaxed);
   }
 
   // DecayingStackTraceFilter instance to limit allocations already covered by a
@@ -278,18 +278,18 @@ class GuardedPageAllocator {
   // true: reserved. false: freed.
   Bitmap<kGpaMaxPages> used_pages_ ABSL_GUARDED_BY(guarded_page_lock_);
 
-  // Number of currently-allocated pages. Atomic so it may be accessed outside
+  // Number of currently allocated pages. Atomic so it may be accessed outside
   // the guarded_page_lock_ to calculate heuristics based on pool utilization.
-  std::atomic<size_t> num_alloced_pages_;
-
-  // The high-water mark for num_alloced_pages_.
-  std::atomic<size_t> num_alloced_pages_max_;
+  std::atomic<size_t> allocated_pages_;
+  // The high-water mark for allocated_pages_.
+  std::atomic<size_t> high_allocated_pages_;
 
   // Number of successful allocations (calls to Allocate - failed).
-  tcmalloc_internal::StatsCounter num_successful_allocations_;
-
+  tcmalloc_internal::StatsCounter successful_allocations_;
   // Number of times Allocate has failed.
-  tcmalloc_internal::StatsCounter num_failed_allocations_;
+  tcmalloc_internal::StatsCounter failed_allocations_;
+  // Number of pages allocated at least once from page pool.
+  tcmalloc_internal::StatsCounter pages_touched_;
 
   // A dynamically-allocated array of stack trace data captured when each page
   // is allocated/deallocated.  Printed by the SEGV handler when a memory error
@@ -299,10 +299,8 @@ class GuardedPageAllocator {
   uintptr_t pages_base_addr_;  // Points to start of mapped region.
   uintptr_t pages_end_addr_;   // Points to the end of mapped region.
   uintptr_t first_page_addr_;  // Points to first page returnable by Allocate.
-  size_t max_alloced_pages_;   // Max number of pages to allocate at once.
+  size_t max_allocated_pages_;  // Max number of pages to allocate at once.
   size_t total_pages_;         // Size of the page pool to allocate from.
-  // Number of pages allocated at least once from page pool.
-  std::atomic<size_t> total_pages_used_;
   size_t page_size_;           // Size of pages we allocate.
   Random rand_;
 
