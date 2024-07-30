@@ -704,13 +704,11 @@ using sized_ptr_t = __sized_ptr_t;
 extern "C" {
 // The following declarations provide an alternative spelling which should be
 // used so that the compiler can identify these as allocator functions.
-ABSL_ATTRIBUTE_WEAK __sized_ptr_t __size_returning_new(size_t size);
-ABSL_ATTRIBUTE_WEAK __sized_ptr_t __size_returning_new_hot_cold(size_t,
-                                                                __hot_cold_t);
-ABSL_ATTRIBUTE_WEAK __sized_ptr_t
-__size_returning_new_aligned(size_t, std::align_val_t);
-ABSL_ATTRIBUTE_WEAK __sized_ptr_t
-__size_returning_new_aligned_hot_cold(size_t, std::align_val_t, __hot_cold_t);
+__sized_ptr_t __size_returning_new(size_t size);
+__sized_ptr_t __size_returning_new_hot_cold(size_t, __hot_cold_t);
+__sized_ptr_t __size_returning_new_aligned(size_t, std::align_val_t);
+__sized_ptr_t __size_returning_new_aligned_hot_cold(size_t, std::align_val_t,
+                                                    __hot_cold_t);
 
 ABSL_DEPRECATE_AND_INLINE()
 inline __sized_ptr_t tcmalloc_size_returning_operator_new(size_t size) {
