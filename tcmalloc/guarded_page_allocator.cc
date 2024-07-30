@@ -95,6 +95,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
     size_t size, size_t alignment, Length num_pages,
     const StackTrace& stack_trace) {
   if (num_pages != Length(1)) {
+    skipped_allocations_toolarge_.Add(1);
     return {nullptr, Profile::Sample::GuardedStatus::LargerThanOnePage};
   }
 
@@ -145,6 +146,7 @@ GuardedAllocWithStatus GuardedPageAllocator::TrySample(
         // Decay even if the current allocation is filtered, so that we keep
         // sampling even if we only see the same allocations over and over.
         stacktrace_filter_.Decay();
+        skipped_allocations_filtered_.Add(1);
         return {nullptr, Profile::Sample::GuardedStatus::Filtered};
       }
     }
@@ -163,9 +165,9 @@ GuardedAllocWithStatus GuardedPageAllocator::Allocate(
   if (size == 0) {
     return {nullptr, Profile::Sample::GuardedStatus::TooSmall};
   }
-  ssize_t free_slot = ReserveFreeSlot();
-  // All slots are reserved.
+  const ssize_t free_slot = ReserveFreeSlot();
   if (free_slot == -1) {
+    // All slots are reserved.
     return {nullptr, Profile::Sample::GuardedStatus::NoAvailableSlots};
   }
 
@@ -304,6 +306,9 @@ void GuardedPageAllocator::Print(Printer* out) {
       "------------------------------------------------\n"
       "Successful Allocations: %zu\n"
       "Failed Allocations: %zu\n"
+      "Skipped Allocations (No Slots): %zu\n"
+      "Skipped Allocations (Filtered): %zu\n"
+      "Skipped Allocations (Too Large): %zu\n"
       "Currently Allocated: %zu / %zu\n"
       "Allocated High-Watermark: %zu / %zu\n"
       "Object Pages Touched: %zu / %zu\n"
@@ -313,6 +318,12 @@ void GuardedPageAllocator::Print(Printer* out) {
       successful_allocations_.value(),
       // Failed Allocations
       failed_allocations_.value(),
+      // Skipped Allocations (No Slots)
+      skipped_allocations_noslots_.value(),
+      // Skipped Allocations (Filtered)
+      skipped_allocations_filtered_.value(),
+      // Skipped Allocations (Too Large)
+      skipped_allocations_toolarge_.value(),
       // Currently Allocated
       allocated_pages(), max_allocated_pages_,
       // Allocated High-Watermark
@@ -329,6 +340,12 @@ void GuardedPageAllocator::Print(Printer* out) {
 void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
   gwp_asan->PrintI64("successful_allocations", successful_allocations_.value());
   gwp_asan->PrintI64("failed_allocations", failed_allocations_.value());
+  gwp_asan->PrintI64("skipped_allocations_noslots",
+                     skipped_allocations_noslots_.value());
+  gwp_asan->PrintI64("skipped_allocations_filtered",
+                     skipped_allocations_filtered_.value());
+  gwp_asan->PrintI64("skipped_allocations_toolarge",
+                     skipped_allocations_toolarge_.value());
   gwp_asan->PrintI64("allocated_pages", allocated_pages());
   gwp_asan->PrintI64("quarantine_pages", total_pages_ - allocated_pages());
   gwp_asan->PrintI64("high_allocated_pages",
@@ -380,7 +397,7 @@ ssize_t GuardedPageAllocator::ReserveFreeSlot() {
   AllocationGuardSpinLockHolder h(&guarded_page_lock_);
   if (!initialized_ || !allow_allocations_) return -1;
   if (GetNumAvailablePages() == 0) {
-    failed_allocations_.LossyAdd(1);
+    skipped_allocations_noslots_.Add(1);
     return -1;
   }
   successful_allocations_.LossyAdd(1);

@@ -284,10 +284,16 @@ class GuardedPageAllocator {
   // The high-water mark for allocated_pages_.
   std::atomic<size_t> high_allocated_pages_;
 
-  // Number of successful allocations (calls to Allocate - failed).
+  // Number of successful allocations.
   tcmalloc_internal::StatsCounter successful_allocations_;
-  // Number of times Allocate has failed.
+  // Number of times an allocation failed due to an internal error.
   tcmalloc_internal::StatsCounter failed_allocations_;
+  // Number of times an allocation was skipped (no available slots).
+  tcmalloc_internal::StatsCounter skipped_allocations_noslots_;
+  // Number of times an allocation was skipped (filtered).
+  tcmalloc_internal::StatsCounter skipped_allocations_filtered_;
+  // Number of times an allocation was skipped (too large).
+  tcmalloc_internal::StatsCounter skipped_allocations_toolarge_;
   // Number of pages allocated at least once from page pool.
   tcmalloc_internal::StatsCounter pages_touched_;
 
