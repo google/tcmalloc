@@ -917,8 +917,10 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* TcmallocSlab<NumClasses>::Pop(
 #endif
         [begin_mark_mask] "n"(kBeginMark), [size_class] "r"(size_class),
         [size_class_lsl2] "r"(size_class << 2)
-      : TCMALLOC_RSEQ_CLOBBER, "cc", "memory"
+      : TCMALLOC_RSEQ_CLOBBER, "memory"
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ_ASM_GOTO_OUTPUT
+        ,
+        "cc"
       : underflow_path
 #endif
   );
