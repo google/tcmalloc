@@ -137,7 +137,6 @@ class TcmallocSlabTest : public testing::Test {
 
   TcmallocSlab slab_;
   static constexpr size_t kCapacity = 10;
-  size_t max_capacity_[kStressSlabs] = {kCapacity};
   size_t metadata_bytes_ = 0;
 };
 
