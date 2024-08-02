@@ -128,13 +128,6 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   HugeRange location_;
 
-  static int64_t AverageWhens(Length a, int64_t a_when, Length b,
-                              int64_t b_when) {
-    const double aw = static_cast<double>(a.raw_num()) * a_when;
-    const double bw = static_cast<double>(b.raw_num()) * b_when;
-    return static_cast<int64_t>((aw + bw) / (a.raw_num() + b.raw_num()));
-  }
-
   Length longest_free() const { return Length(tracker_.longest_free()); }
 
   // Adjust counts of allocs-per-hugepage for [p, p + n) being added/removed.
