@@ -33,9 +33,13 @@ constexpr int64_t kDefaultProfileSamplingInterval =
     2 << 20
 #endif
     ;
-constexpr int64_t kDefaultGuardedSamplingInterval =
-    50 * kDefaultProfileSamplingInterval;
+#ifdef NDEBUG
 constexpr int64_t kDefaultGuardedSampleParameter = 50;
+#else
+constexpr int64_t kDefaultGuardedSampleParameter = 5;
+#endif
+constexpr int64_t kDefaultGuardedSamplingInterval =
+    kDefaultGuardedSampleParameter * kDefaultProfileSamplingInterval;
 constexpr absl::Duration kDefaultSkipSubreleaseInterval = absl::ZeroDuration();
 constexpr absl::Duration kDefaultSkipSubreleaseShortInterval =
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)

@@ -43,6 +43,15 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+template <typename T>
+static constexpr T DefaultOrDebugValue(T default_val, T debug_val) {
+#ifdef NDEBUG
+  return default_val;
+#else
+  return debug_val;
+#endif
+}
+
 // As decide_subrelease() is determined at runtime, we cannot require constant
 // initialization for the atomic.  This avoids an initialization order fiasco.
 static std::atomic<bool>& hpaa_subrelease_ptr() {
@@ -213,7 +222,8 @@ MallocExtension::BytesPerSecond Parameters::background_release_rate() {
 }
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
-    50 * kDefaultProfileSamplingInterval);
+    DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
+    kDefaultProfileSamplingInterval);
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
