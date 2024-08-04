@@ -32,11 +32,6 @@ config_setting(
     flag_values = {
         "@bazel_tools//tools/cpp:compiler": "clang",
     },
-    visibility = [
-        "//tcmalloc/internal:__subpackages__",
-        "//tcmalloc/selsan:__subpackages__",
-        "//tcmalloc/testing:__subpackages__",
-    ],
 )
 
 cc_library(
@@ -583,7 +578,6 @@ cc_library(
     ],
     hdrs = ["page_allocator_test_util.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [":tcmalloc_tests"],
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
