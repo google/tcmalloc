@@ -17,8 +17,6 @@
 #include "gtest/gtest.h"
 #include "absl/types/span.h"
 #include "tcmalloc/common.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 

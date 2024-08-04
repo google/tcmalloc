@@ -1461,7 +1461,6 @@ cc_test(
     malloc = "//tcmalloc",
     deps = [
         ":common_8k_pages",
-        ":experiment",
         ":want_legacy_size_classes",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
