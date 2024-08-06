@@ -82,7 +82,7 @@ class PageFlagsFriend {
   PageFlags r_;
 };
 
-std::ostream& operator<<(std::ostream& os, const PageFlags::PageStats& s) {
+std::ostream& operator<<(std::ostream& os, const PageStats& s) {
   return os << "{ stale = " << s.bytes_stale << ", locked = " << s.bytes_locked
             << ", stale_scan_seconds = " << s.stale_scan_seconds << "}";
 }
@@ -91,7 +91,6 @@ namespace {
 
 using ::testing::FieldsAre;
 using ::testing::Optional;
-using PageStats = PageFlags::PageStats;
 
 constexpr uint64_t kPageHead = (1UL << 15);
 constexpr uint64_t kPageTail = (1UL << 16);

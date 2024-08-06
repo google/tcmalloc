@@ -136,7 +136,7 @@ using SampleMergedMap =
                         SampleHashWithSubFields, SampleEqWithSubFields>;
 
 SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
-    const tcmalloc::Profile& profile, PageFlags* pageflags,
+    const tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
   SampleMergedMap map;
 
@@ -165,11 +165,6 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
       }
     }
 
-    // TODO(b/266739315): This is "tested" by the fact that it is a clone of the
-    // above logic. But that's not sufficient -- we need to refactor this code
-    // to actually allow pageflags to return a non-zero number. Until then, be
-    // very careful while changing the below -- it needs to match entirely the
-    // form above.
     if (pageflags) {
       auto page_stats =
           pageflags->Get(entry.span_start_address, entry.allocated_size);
@@ -634,7 +629,7 @@ std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
 }
 
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
-    const ::tcmalloc::Profile& profile, PageFlags* pageflags,
+    const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
   ProfileBuilder builder;
   builder.AddCurrentMappings();

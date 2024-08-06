@@ -33,6 +33,41 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+struct PageStats {
+  size_t bytes_stale = 0;
+  size_t bytes_locked = 0;
+  // The number of seconds that must elapse (at minimum) for a page to be
+  // considered "stale". 0 indicates that kstaled is disabled or we weren't
+  // able to read from the scan_seconds sysfs control. (See b/111239799
+  // regarding machines that disable kstaled).
+  //
+  // This isn't set if bytes_stale is zero because there are no bytes
+  // that it would refer to, and Get(nullptr, 0) will return an all-zero
+  // object as expected.
+  uint64_t stale_scan_seconds = 0;
+
+  // This is currently used only by tests. It'll be good to convert this to
+  // C++20 "= default" when we increase the baseline compiler requirement.
+  bool operator==(const PageStats& rhs) const {
+    return bytes_stale == rhs.bytes_stale && bytes_locked == rhs.bytes_locked &&
+           stale_scan_seconds == rhs.stale_scan_seconds;
+  }
+
+  bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
+};
+
+// Base pageflags class that may be mocked for testing.
+class PageFlagsBase {
+ public:
+  PageFlagsBase() = default;
+  virtual ~PageFlagsBase() = default;
+  PageFlagsBase(const PageFlagsBase&) = delete;
+  PageFlagsBase(PageFlagsBase&&) = delete;
+  PageFlagsBase& operator=(const PageFlagsBase&) = delete;
+  PageFlagsBase& operator=(PageFlagsBase&&) = delete;
+  virtual std::optional<PageStats> Get(const void* addr, size_t size) = 0;
+};
+
 // PageFlags offers a look at kernel page flags to identify pieces of memory as
 // stale. This class is very similar to Residency but has some substantial
 // differences to be hugepage aware.
@@ -42,37 +77,12 @@ namespace tcmalloc_internal {
 // encountering tail pages, we must rewind to find the head page to get the
 // information related to them. Native pages have KPF_STALE set as normal; no
 // special handling needs to be done for them.
-class PageFlags {
+class PageFlags final : public PageFlagsBase {
  public:
   // This class keeps an open file handle to procfs. Destroy the object to
   // reclaim it.
   PageFlags();
   ~PageFlags();
-
-  struct PageStats {
-    size_t bytes_stale = 0;
-    size_t bytes_locked = 0;
-    // The number of seconds that must elapse (at minimum) for a page to be
-    // considered "stale". 0 indicates that kstaled is disabled or we weren't
-    // able to read from the scan_seconds sysfs control. (See b/111239799
-    // regarding machines that disable kstaled).
-    //
-    // This isn't set if bytes_stale is zero because there are no bytes
-    // that it would refer to, and Get(nullptr, 0) will return an all-zero
-    // object as expected.
-    uint64_t stale_scan_seconds = 0;
-
-    // This is currently used only by tests. It'll be good to convert this to
-    // C++20 "= default" when we increase the baseline compiler requirement.
-    bool operator==(const PageStats& rhs) const {
-      return bytes_stale == rhs.bytes_stale &&
-             bytes_locked == rhs.bytes_locked &&
-             stale_scan_seconds == rhs.stale_scan_seconds;
-    }
-
-    bool operator!=(const PageStats& rhs) const { return !(*this == rhs); }
-  };
-
   // Query a span of memory starting from `addr` for `size` bytes. The memory
   // span must consist of only native-size pages and THP hugepages; the behavior
   // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
@@ -83,7 +93,7 @@ class PageFlags {
   // dynamic memory allocation would happen.  In contrast, absl::StatusOr may
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
-  std::optional<PageStats> Get(const void* addr, size_t size);
+  std::optional<PageStats> Get(const void* addr, size_t size) override;
 
  private:
   // This helper seeks the internal file to the correct location for the given

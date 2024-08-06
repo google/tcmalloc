@@ -72,7 +72,7 @@ constexpr bool PageLocked(uint64_t flags) {
   constexpr uint64_t kPageUnevictable = (1UL << KPF_UNEVICTABLE);
   return (flags & (kPageMlocked | kPageUnevictable)) != 0;
 }
-void MaybeAddToStats(PageFlags::PageStats& stats, const uint64_t flags,
+void MaybeAddToStats(PageStats& stats, const uint64_t flags,
                      const size_t delta) {
   if (PageStale(flags)) stats.bytes_stale += delta;
   if (PageLocked(flags)) stats.bytes_locked += delta;
@@ -182,8 +182,8 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
   return absl::StatusCode::kOk;
 }
 
-std::optional<PageFlags::PageStats> PageFlags::Get(const void* const addr,
-                                                   const size_t size) {
+std::optional<PageStats> PageFlags::Get(const void* const addr,
+                                        const size_t size) {
   if (fd_ < 0) {
     return std::nullopt;
   }

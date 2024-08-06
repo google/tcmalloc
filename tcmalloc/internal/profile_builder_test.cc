@@ -47,6 +47,8 @@
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/pageflags.h"
+#include "tcmalloc/internal/residency.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -62,6 +64,37 @@ using ::testing::Not;
 using ::testing::Pair;
 using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
+
+class StubPageFlags final : public PageFlagsBase {
+ public:
+  StubPageFlags() = default;
+  ~StubPageFlags() override = default;
+  std::optional<PageStats> Get(const void* addr, size_t size) override {
+    PageStats ret;
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    if (stale_bytes_.find(uaddr) != stale_bytes_.end()) {
+      ret.bytes_stale = stale_bytes_[uaddr];
+    }
+    if (locked_bytes_.find(uaddr) != locked_bytes_.end()) {
+      ret.bytes_locked = locked_bytes_[uaddr];
+    }
+    return ret;
+  }
+
+  void set_bytes_stale(const void* addr, int stale) {
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    stale_bytes_[uaddr] = stale;
+  }
+
+  void set_bytes_locked(const void* addr, int locked) {
+    uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+    locked_bytes_[uaddr] = locked;
+  }
+
+ private:
+  absl::flat_hash_map<uintptr_t, int> stale_bytes_;
+  absl::flat_hash_map<uintptr_t, int> locked_bytes_;
+};
 
 // Returns the fully resolved path of this program.
 std::string RealPath() {
@@ -270,6 +303,14 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
 perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
                                              const ProfileType profile_type) {
   std::vector<Profile::Sample> samples;
+  StubPageFlags* p = nullptr;
+  Residency* r = nullptr;
+  std::optional<StubPageFlags> pageflags;
+  std::optional<Residency> residency;
+  if (profile_type == ProfileType::kHeap) {
+    p = &pageflags.emplace();
+    r = &residency.emplace();
+  }
 
   {  // We have three samples here that will be merged. The second sample has
     // `span_start_address` as nullptr, so `resident_space` in the
@@ -341,6 +382,13 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    if (profile_type == ProfileType::kHeap) {
+      // Total stale bytes for this sample = 5 * 17 = 85.
+      // Total locked bytes for this sample = 5 * 11 = 55.
+      p->set_bytes_stale(sample.span_start_address, /*stale=*/17);
+      p->set_bytes_locked(sample.span_start_address, /*locked=*/11);
+    }
+
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
@@ -412,7 +460,7 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
   fake_profile->SetDuration(duration);
   fake_profile->SetSamples(std::move(samples));
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
-  auto converted_or = MakeProfileProto(profile);
+  auto converted_or = MakeProfileProto(profile, p, r);
   CHECK_OK(converted_or.status());
   return **converted_or;
 }

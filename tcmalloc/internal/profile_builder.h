@@ -82,12 +82,13 @@ extern const absl::string_view kProfileDropFrames;
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile);
 
+class PageFlagsBase;
 class PageFlags;
 class Residency;
 
 // Exposed to facilitate testing.
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
-    const ::tcmalloc::Profile& profile, PageFlags* pageflags,
+    const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency);
 
 }  // namespace tcmalloc_internal
