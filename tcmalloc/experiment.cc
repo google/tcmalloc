@@ -59,10 +59,6 @@ bool HasBrittleTestFailures(Experiment exp) {
     return true;
   }
 
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_FEWER_SIZE_CLASSES) {
-    return true;
-  }
-
   if (exp == Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE) {
     return true;
   }

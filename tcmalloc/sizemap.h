@@ -37,7 +37,6 @@ namespace tcmalloc_internal {
 extern const SizeClasses kSizeClasses;
 
 // Experimental size classes:
-extern const SizeClasses kFewerSizeClasses;
 extern const SizeClasses kExperimentalPow2SizeClasses;
 extern const SizeClasses kLegacySizeClasses;
 extern const SizeClasses kLowFragSizeClasses;

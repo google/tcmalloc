@@ -42,8 +42,6 @@ const SizeClasses& SizeMap::CurrentClasses() {
       return kSizeClasses;
     case SizeClassConfiguration::kPow2Only:
       return kExperimentalPow2SizeClasses;
-    case SizeClassConfiguration::kFewer:
-      return kFewerSizeClasses;
     case SizeClassConfiguration::kLowFrag:
       return kLowFragSizeClasses;
     case SizeClassConfiguration::kLegacy:
