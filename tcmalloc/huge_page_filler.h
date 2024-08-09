@@ -1,4 +1,3 @@
-
 // Copyright 2019 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -392,6 +391,10 @@ class HugePageFiller {
   HugePageFillerStats GetStats() const;
   void Print(Printer* out, bool everything) const;
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
+
+  template <typename F>
+  void ForEachHugePage(const F& func)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
  private:
   // This class wraps an array of N TrackerLists and a Bitmap storing which
@@ -1999,6 +2002,20 @@ inline double HugePageFiller<TrackerType>::hugepage_frac() const {
   TC_ASSERT_GE(ret, 0);
   TC_ASSERT_LE(ret, 1);
   return std::clamp<double>(ret, 0, 1);
+}
+
+template <class TrackerType>
+template <typename F>
+void HugePageFiller<TrackerType>::ForEachHugePage(const F& func) {
+  donated_alloc_.Iter(func, 0);
+  regular_alloc_[AccessDensityPrediction::kSparse].Iter(func, 0);
+  regular_alloc_[AccessDensityPrediction::kDense].Iter(func, 0);
+  regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(func,
+                                                                         0);
+  regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(func,
+                                                                        0);
+  regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(func, 0);
+  regular_alloc_released_[AccessDensityPrediction::kDense].Iter(func, 0);
 }
 
 // Helper for stat functions.

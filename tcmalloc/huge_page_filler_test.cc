@@ -3052,6 +3052,31 @@ HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were s
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
 HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pages from partial allocs), 5 hugepages broken
 )"));
+
+  absl::flat_hash_set<PageTracker*> expected_pts, actual_pts;
+  for (const auto& alloc : allocs) {
+    expected_pts.insert(alloc.pt);
+  }
+  actual_pts.reserve(expected_pts.size());
+
+  bool dupe_seen = false;
+  {
+    PageHeapSpinLockHolder l;
+    filler_.ForEachHugePage([&](PageTracker* pt) {
+      // We are holding the page heap lock, so refrain from allocating
+      // (including using Google Test helpers).
+      dupe_seen = dupe_seen || actual_pts.contains(pt);
+
+      if (actual_pts.size() == actual_pts.capacity()) {
+        return;
+      }
+
+      TC_CHECK(actual_pts.insert(pt).second);
+    });
+  }
+  EXPECT_FALSE(dupe_seen);
+  EXPECT_THAT(actual_pts, Eq(expected_pts));
+
   for (const auto& alloc : allocs) {
     Delete(alloc);
   }
