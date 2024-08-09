@@ -190,36 +190,6 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
-        "name": "8k_lowfrag_sizeclasses",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
-    },
-    {
-        "name": "32k_lowfrag_sizeclasses",
-        "malloc": "//tcmalloc:tcmalloc_large_pages",
-        "deps": ["//tcmalloc:common_large_pages"],
-        "copts": ["-DTCMALLOC_INTERNAL_32K_PAGES"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
-        "tags": ["noubsan"],
-    },
-    {
-        "name": "256k_lowfrag_sizeclasses",
-        "malloc": "//tcmalloc:tcmalloc_256k_pages",
-        "deps": ["//tcmalloc:common_256k_pages"],
-        "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
-        "tags": ["noubsan"],
-    },
-    {
-        "name": "small_but_slow_lowfrag_sizeclasses",
-        "malloc": "//tcmalloc:tcmalloc_small_but_slow",
-        "deps": ["//tcmalloc:common_small_but_slow"],
-        "copts": ["-DTCMALLOC_INTERNAL_SMALL_BUT_SLOW"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES"},
-        "tags": ["noubsan"],
-    },
-    {
         "name": "flat_cpu_caches",
         "malloc": "//tcmalloc",
         "deps": [

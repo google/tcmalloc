@@ -256,8 +256,6 @@ static absl::string_view SizeClassConfigurationString(
       return "SIZE_CLASS_POW2_BELOW_64";
     case SizeClassConfiguration::kPow2Only:
       return "SIZE_CLASS_POW2_ONLY";
-    case SizeClassConfiguration::kLowFrag:
-      return "SIZE_CLASS_LOW_FRAG";
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
       return "SIZE_CLASS_LEGACY";

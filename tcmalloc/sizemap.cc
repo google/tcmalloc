@@ -42,8 +42,6 @@ const SizeClasses& SizeMap::CurrentClasses() {
       return kSizeClasses;
     case SizeClassConfiguration::kPow2Only:
       return kExperimentalPow2SizeClasses;
-    case SizeClassConfiguration::kLowFrag:
-      return kLowFragSizeClasses;
     case SizeClassConfiguration::kLegacy:
       // TODO(b/242710633): remove this opt out.
       return kLegacySizeClasses;

@@ -146,9 +146,6 @@ SizeClassConfiguration Static::size_class_configuration() {
              default_want_legacy_size_classes() > 0) {
     // TODO(b/242710633): remove this opt out.
     return SizeClassConfiguration::kLegacy;
-  } else if (IsExperimentActive(
-                 Experiment::TEST_ONLY_TCMALLOC_LOWFRAG_SIZECLASSES)) {
-    return SizeClassConfiguration::kLowFrag;
   } else {
     return SizeClassConfiguration::kPow2Below64;
   }

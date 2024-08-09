@@ -55,8 +55,7 @@ size_t Alignment(size_t size) {
   if (size >= 1024) {
     // SizeMap::ClassIndexMaybe requires 128-byte alignment for sizes >=1024.
     ret = 128;
-  } else if (size >= 512 && tc_globals.size_class_configuration() !=
-                                SizeClassConfiguration::kLowFrag) {
+  } else if (size >= 512) {
     // This alignment is not required for tcmalloc operation anymore,
     // but we keep it for classes were created when this requirement was active
     // to prevent unintentional performance regressions.
