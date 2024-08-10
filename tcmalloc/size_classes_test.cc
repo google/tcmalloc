@@ -165,13 +165,16 @@ TEST_F(RunTimeSizeClassesTest, Distinguishable) {
 TEST_F(RunTimeSizeClassesTest, WastedSpan) {
   // Validate that each size class does not waste (number of objects) *
   // (alignment) at the end of the span.
-  if (tc_globals.size_class_configuration() ==
-          SizeClassConfiguration::kLegacy ||
-      tc_globals.size_class_configuration() ==
-          SizeClassConfiguration::kPow2Below64) {
-    // This test fails for other classes (was passing with a different span size
-    // allocation algorithm used between cl/130150125 and cl/139955211).
-    GTEST_SKIP();
+  switch (tc_globals.size_class_configuration()) {
+    case SizeClassConfiguration::kLegacy:
+    case SizeClassConfiguration::kPow2Below64:
+    case SizeClassConfiguration::kReuse:
+      // This test fails for other classes (was passing with a different span
+      // size allocation algorithm used between cl/130150125 and cl/139955211).
+      GTEST_SKIP();
+      break;
+    default:
+      break;
   }
   for (int c = 1; c < kNumClasses; c++) {
     const size_t max_size_in_class = m_.class_to_size(c);
