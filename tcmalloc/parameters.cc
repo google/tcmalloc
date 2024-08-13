@@ -296,10 +296,6 @@ bool Parameters::resize_size_class_max_capacity() {
       std::memory_order_relaxed);
 }
 
-bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
-  return true;
-}
-
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }

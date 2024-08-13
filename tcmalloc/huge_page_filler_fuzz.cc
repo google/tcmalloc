@@ -105,7 +105,7 @@ void FuzzFiller(const std::string& s) {
   // HugePageFiller.
   //
   // [0] - (available)
-  // [1] - We choose the separate_allocs_for_few_and_many_objects_spans
+  // [1] - (available)
   // [2] - (available)
   //
   // Afterwards, we read 5 bytes at a time until the buffer is exhausted.
@@ -116,16 +116,10 @@ void FuzzFiller(const std::string& s) {
   //                  For example, this input can provide a Length to
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
-
-  const HugePageFillerAllocsOption allocs_for_few_and_many_objects_spans =
-      static_cast<uint8_t>(data[1]) >= 128
-          ? HugePageFillerAllocsOption::kSeparateAllocs
-          : HugePageFillerAllocsOption::kUnifiedAllocs;
   data += kInitBytes;
   size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     allocs_for_few_and_many_objects_spans,
                                      unback, unback);
 
   struct Alloc {

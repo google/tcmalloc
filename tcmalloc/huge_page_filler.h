@@ -262,13 +262,11 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(
-      HugePageFillerAllocsOption allocs_option,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  HugePageFiller(Clock clock, HugePageFillerAllocsOption allocs_options,
-                 MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-                 MemoryModifyFunction& unback_without_lock
-                     ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  HugePageFiller(
+      Clock clock, MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -446,8 +444,6 @@ class HugePageFiller {
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
-  const HugePageFillerAllocsOption allocs_for_sparse_and_dense_spans_ =
-      HugePageFillerAllocsOption::kUnifiedAllocs;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -639,19 +635,17 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    HugePageFillerAllocsOption allocs_option, MemoryModifyFunction& unback,
-    MemoryModifyFunction& unback_without_lock)
+    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     allocs_option, unback, unback_without_lock) {}
+                     unback, unback_without_lock) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    Clock clock, HugePageFillerAllocsOption allocs_option,
-    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
-    : allocs_for_sparse_and_dense_spans_(allocs_option),
-      size_(NHugePages(0)),
+    Clock clock, MemoryModifyFunction& unback,
+    MemoryModifyFunction& unback_without_lock)
+    : size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
       unback_(unback),
@@ -731,8 +725,6 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
 
   bool was_released = false;
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
-                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -858,8 +850,6 @@ inline void HugePageFiller<TrackerType>::Contribute(
   TC_ASSERT_EQ(pt->released_pages(), Length(0));
 
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
-                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               IsDenseSpan(span_alloc_info.density)
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -1924,8 +1914,6 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
   size_t chunk = IndexFor(pt);
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
-                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
@@ -1957,8 +1945,6 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
 
   size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
-      ABSL_PREDICT_TRUE(allocs_for_sparse_and_dense_spans_ ==
-                        HugePageFillerAllocsOption::kSeparateAllocs) &&
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;

@@ -85,8 +85,7 @@ void FuzzHPAA(const std::string& s) {
   // [1] - HugeRegionsMode.
   // [2] - HugeCache release time
   // [3:4] - Reserved.
-  // [5] - Determine if we use separate filler allocs based on number of
-  // objects per span.
+  // [5] - (available)
   // [6:12] - Reserved.
   //
   // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
@@ -115,11 +114,6 @@ void FuzzHPAA(const std::string& s) {
           ? HugeRegionUsageOption::kDefault
           : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
-  const HugePageFillerAllocsOption allocs_option =
-      static_cast<uint8_t>(data[5]) >= 128
-          ? HugePageFillerAllocsOption::kUnifiedAllocs
-          : HugePageFillerAllocsOption::kSeparateAllocs;
-
   const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
 
   // data[6:12] - Reserve additional bytes for any features we might want to add
@@ -134,7 +128,6 @@ void FuzzHPAA(const std::string& s) {
   HugePageAwareAllocatorOptions options;
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
-  options.allocs_for_sparse_and_dense_spans = allocs_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
   HugePageAwareAllocator<FakeStaticForwarderWithUnback>* allocator;
   allocator =
