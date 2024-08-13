@@ -82,7 +82,7 @@ class PageFlags final : public PageFlagsBase {
   // This class keeps an open file handle to procfs. Destroy the object to
   // reclaim it.
   PageFlags();
-  ~PageFlags();
+  ~PageFlags() override;
   // Query a span of memory starting from `addr` for `size` bytes. The memory
   // span must consist of only native-size pages and THP hugepages; the behavior
   // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
