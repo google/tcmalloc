@@ -50,10 +50,6 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-inline bool IsDenseSpan(AccessDensityPrediction density) {
-  return density == AccessDensityPrediction::kDense;
-}
-
 // PageTracker keeps track of the allocation status of every page in a HugePage.
 // It allows allocation and deallocation of a contiguous run of pages.
 //
@@ -724,10 +720,7 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TrackerType* pt;
 
   bool was_released = false;
-  const AccessDensityPrediction type =
-              IsDenseSpan(span_alloc_info.density)
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
+  const AccessDensityPrediction type = span_alloc_info.density;
   do {
     pt = regular_alloc_[type].GetLeast(ListFor(n, 0));
     if (pt) {
@@ -849,10 +842,7 @@ inline void HugePageFiller<TrackerType>::Contribute(
   // A contributed huge page should not yet be subreleased.
   TC_ASSERT_EQ(pt->released_pages(), Length(0));
 
-  const AccessDensityPrediction type =
-              IsDenseSpan(span_alloc_info.density)
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
+  const AccessDensityPrediction type = span_alloc_info.density;
 
   pages_allocated_[type] += pt->used_pages();
   TC_ASSERT(!(type == AccessDensityPrediction::kDense && donated));
