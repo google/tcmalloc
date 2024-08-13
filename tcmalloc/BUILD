@@ -1476,18 +1476,6 @@ create_tcmalloc_testsuite(
     ],
 )
 
-# TODO(b/295252832): Remove this.
-cc_library(
-    name = "want_disable_separate_allocs_for_few_and_many_objects_spans",
-    srcs = ["want_disable_separate_allocs_for_few_and_many_objects_spans.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc/testing:__pkg__",
-    ],
-    deps = ["@com_google_absl//absl/base:core_headers"],
-    alwayslink = 1,
-)
-
 create_tcmalloc_testsuite(
     name = "pages_test",
     srcs = ["pages_test.cc"],

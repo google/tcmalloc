@@ -296,40 +296,8 @@ bool Parameters::resize_size_class_max_capacity() {
       std::memory_order_relaxed);
 }
 
-int ABSL_ATTRIBUTE_WEAK
-default_want_disable_separate_allocs_for_few_and_many_objects_spans();
-
-// TODO(b/295252832): remove the
-// default_want_disable_separate_allocs_for_few_and_many_objects_spans and the
-// env TCMALLOC_DISABLE_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS
-// opt-out some time after 2023-12-01.
-static bool want_disable_separate_allocs_for_few_and_many_objects_spans() {
-  if (default_want_disable_separate_allocs_for_few_and_many_objects_spans !=
-      nullptr)
-    return true;
-  const char* e = thread_safe_getenv(
-      "TCMALLOC_DISABLE_SEPARATE_ALLOCS_FOR_FEW_AND_MANY_OBJECTS_SPANS");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        return false;
-      case '1':
-        return true;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
-  return false;
-}
-
 bool Parameters::separate_allocs_for_few_and_many_objects_spans() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{true};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(!want_disable_separate_allocs_for_few_and_many_objects_spans(),
-            std::memory_order_relaxed);
-  });
-  return v.load(std::memory_order_relaxed);
+  return true;
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {
