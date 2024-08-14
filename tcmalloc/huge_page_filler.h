@@ -244,13 +244,6 @@ struct HugePageFillerStats {
   HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
-enum class HugePageFillerAllocsOption : bool {
-  // Same allocs for sparse and dense spans
-  kUnifiedAllocs,
-  // Separate allocs for sparse and dense spans
-  kSeparateAllocs,
-};
-
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
