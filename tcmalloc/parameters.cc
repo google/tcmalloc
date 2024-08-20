@@ -121,6 +121,19 @@ static std::atomic<bool>& huge_region_demand_based_release_enabled() {
   return v;
 }
 
+// As set_metadata_hugepage is determined at runtime, we cannot require constant
+// initialization for the atomic.  This avoids an initialization order fiasco.
+static std::atomic<bool>& tag_metadata_hugepage_enabled() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{true};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    if (IsExperimentActive(Experiment::TCMALLOC_METADATA_HUGEPAGE)) {
+      v.store(false, std::memory_order_relaxed);
+    }
+  });
+  return v;
+}
+
 // As resize_size_class_max_capacity_enabled() is determined at runtime, we
 // cannot require constant initialization for the atomic.  This avoids an
 // initialization order fiasco.
@@ -289,6 +302,10 @@ absl::Duration Parameters::filler_skip_subrelease_long_interval() {
 bool Parameters::huge_region_demand_based_release() {
   return huge_region_demand_based_release_enabled().load(
       std::memory_order_relaxed);
+}
+
+bool Parameters::tag_metadata_separately() {
+  return tag_metadata_hugepage_enabled().load(std::memory_order_relaxed);
 }
 
 bool Parameters::resize_size_class_max_capacity() {
@@ -504,7 +521,8 @@ void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(bool v) {
-  Parameters::tag_metadata_separately_.store(v, std::memory_order_relaxed);
+  tcmalloc::tcmalloc_internal::tag_metadata_hugepage_enabled().store(
+      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {

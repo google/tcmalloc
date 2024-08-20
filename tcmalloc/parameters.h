@@ -114,9 +114,7 @@ class Parameters {
     return release_pages_from_huge_region_.load(std::memory_order_relaxed);
   }
 
-  static bool tag_metadata_separately() {
-    return tag_metadata_separately_.load(std::memory_order_relaxed);
-  }
+  static bool tag_metadata_separately();
 
   static void set_tag_metadata_separately(bool value) {
     TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(value);
