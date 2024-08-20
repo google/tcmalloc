@@ -659,6 +659,14 @@ extern "C" size_t nallocx(size_t size, int flags) noexcept;
 // uses the size to improve deallocation performance.
 extern "C" void sdallocx(void* ptr, size_t size, int flags) noexcept;
 
+// Frees ptr allocated with malloc(size).
+extern "C" void free_sized(void* ptr, size_t size) noexcept;
+
+// Frees ptr allocated with aligned_alloc/posix_memalign with the specified size
+// and alignment.
+extern "C" void free_aligned_sized(void* ptr, size_t alignment,
+                                   size_t size) noexcept;
+
 // Define __sized_ptr_t in the global namespace so that it can be named by the
 // __size_returning_new implementations defined in tcmalloc.cc.
 struct __sized_ptr_t {

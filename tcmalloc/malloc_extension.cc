@@ -759,6 +759,16 @@ ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void sdallocx(void* ptr, size_t,
   free(ptr);
 }
 
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_sized(void* ptr,
+                                                            size_t) noexcept {
+  free(ptr);
+}
+
+ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE void free_aligned_sized(
+    void* ptr, size_t, size_t) noexcept {
+  free(ptr);
+}
+
 ABSL_ATTRIBUTE_WEAK ABSL_ATTRIBUTE_NOINLINE tcmalloc::sized_ptr_t
 __size_returning_new(size_t size) {
   return {::operator new(size), size};
