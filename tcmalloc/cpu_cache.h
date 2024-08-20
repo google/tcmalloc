@@ -824,13 +824,11 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   const uint16_t kSmallObjectDepth =
       (ConfigureSizeClassMaxCapacity()
            ? tc_globals.sizemap().max_capacity(size_class)
-           : 2048) *
-      kWiderSlabMultiplier;
+           : 2048 * kWiderSlabMultiplier);
   const uint16_t kLargeObjectDepth =
       (ConfigureSizeClassMaxCapacity()
            ? tc_globals.sizemap().max_capacity(size_class)
-           : 152) *
-      kWiderSlabMultiplier;
+           : 152 * kWiderSlabMultiplier);
 #endif
   if (size_class == 0 || size_class >= kNumClasses) {
     return 0;
@@ -858,8 +856,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
     const uint16_t kLargeUninterestingObjectDepth =
         (ConfigureSizeClassMaxCapacity()
              ? tc_globals.sizemap().max_capacity(size_class)
-             : 133) *
-        kWiderSlabMultiplier;
+             : 133 * kWiderSlabMultiplier);
     const uint16_t kLargeInterestingObjectDepth = 53 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();

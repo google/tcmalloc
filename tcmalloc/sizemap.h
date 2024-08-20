@@ -289,9 +289,7 @@ class SizeMap {
     return num_objects_to_move_[size_class];
   }
 
-  // Max per-CPU slab capacity for the default 256KB slab size.
-  //
-  // TODO(b/271598304): Revise this when 512KB slabs are available.
+  // Max per-CPU slab capacity for the default 512KB slab size.
   ABSL_ATTRIBUTE_ALWAYS_INLINE size_t max_capacity(size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return max_capacity_[size_class];
