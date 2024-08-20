@@ -73,7 +73,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_sized_delete_array(void* ptr,
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_new_cold(size_t size) {
-  return operator new[](size, tcmalloc::hot_cold_t(0));
+  return operator new(size, tcmalloc::hot_cold_t(0));
 }
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* wrap_new_array_aligned_cold_nothrow(
@@ -90,6 +90,15 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_delete_aligned(void* ptr,
                                                              size_t size) {
 #ifdef __cpp_sized_deallocation
   operator delete(ptr, size, std::align_val_t(64));
+#else
+  operator delete(ptr);
+#endif
+}
+
+inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_delete_aligned_array(
+    void* ptr, size_t size) {
+#ifdef __cpp_sized_deallocation
+  operator delete[](ptr, size, std::align_val_t(64));
 #else
   operator delete[](ptr);
 #endif
@@ -247,7 +256,7 @@ void profile_test_top_func() {
   test<operator new[], wrap_sized_delete_array>();
   test<operator new[], wrap_delete_array>();
   test<wrap_new_cold, wrap_sized_delete>();
-  test<wrap_new_array_aligned_cold_nothrow, wrap_delete_aligned>();
+  test<wrap_new_array_aligned_cold_nothrow, wrap_delete_aligned_array>();
   test<wrap_new_aligned, wrap_delete_aligned>();
   test<wrap_new_nothrow, wrap_delete_nothrow>();
   test<wrap_size_returning_operator_new, wrap_sized_delete>();
