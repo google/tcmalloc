@@ -198,6 +198,7 @@ class Parameters {
   static void set_per_cpu_caches_dynamic_slab_shrink_threshold(double value) {
     TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(value);
   }
+  static bool dense_trackers_sorted_on_spans_allocated();
 
  private:
   friend void ::TCMalloc_Internal_SetBackgroundReleaseRate(size_t v);

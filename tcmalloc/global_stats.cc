@@ -565,6 +565,9 @@ void DumpStats(Printer* out, int level) {
     out->printf("PARAMETER madvise %s\n", MadviseString());
     out->printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                 Parameters::resize_size_class_max_capacity() ? 1 : 0);
+    out->printf(
+        "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated %d\n",
+        Parameters::dense_trackers_sorted_on_spans_allocated() ? 1 : 0);
   }
 }
 
@@ -757,6 +760,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintBool("tcmalloc_configure_size_class_max_capacity",
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());
+  region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
+                   Parameters::dense_trackers_sorted_on_spans_allocated());
 
   region.PrintRaw(
       "size_class_config",

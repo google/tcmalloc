@@ -28,6 +28,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/huge_page_aware_allocator.h"
+#include "tcmalloc/huge_page_filler.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/logging.h"
@@ -84,7 +85,7 @@ void FuzzHPAA(const std::string& s) {
   // [1] - HugeRegionsMode.
   // [2] - HugeCache release time
   // [3:4] - Reserved.
-  // [5] - (available)
+  // [5] - Dense tracker type
   // [6:12] - Reserved.
   //
   // TODO(b/271282540): Convert these to strongly typed fuzztest parameters.
@@ -113,6 +114,11 @@ void FuzzHPAA(const std::string& s) {
           ? HugeRegionUsageOption::kDefault
           : HugeRegionUsageOption::kUseForAllLargeAllocs;
 
+  const HugePageFillerDenseTrackerType dense_tracker_type =
+      static_cast<uint8_t>(data[5]) >= 128
+          ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
+          : HugePageFillerDenseTrackerType::kSpansAllocated;
+
   const int32_t huge_cache_release_s = std::max<int32_t>(data[2], 1);
 
   // data[6:12] - Reserve additional bytes for any features we might want to add
@@ -128,6 +134,7 @@ void FuzzHPAA(const std::string& s) {
   options.tag = tag;
   options.use_huge_region_more_often = huge_region_option;
   options.huge_cache_time = absl::Seconds(huge_cache_release_s);
+  options.dense_tracker_type = dense_tracker_type;
   HugePageAwareAllocator<FakeStaticForwarderWithUnback>* allocator;
   allocator =
       new (p) HugePageAwareAllocator<FakeStaticForwarderWithUnback>(options);
@@ -162,8 +169,8 @@ void FuzzHPAA(const std::string& s) {
           // value[48]    - Should we use aligned allocate?
           // value[49]    - Is the span sparsely- or densely-accessed?
           // value[63:50] - Reserved.
-          const Length length(std::clamp<size_t>(
-              value & 0xFFFF, 1, kPagesPerHugePage.raw_num() - 1));
+          Length length(std::clamp<size_t>(value & 0xFFFF, 1,
+                                           kPagesPerHugePage.raw_num() - 1));
           size_t num_objects = std::max<size_t>((value >> 16) & 0xFFFF, 1);
           size_t object_size = length.in_bytes() / num_objects;
           const bool use_aligned = ((value >> 48) & 0x1) == 0;
@@ -186,6 +193,11 @@ void FuzzHPAA(const std::string& s) {
             // This is an invalid size class, so skip it.
             break;
           }
+          if (dense_tracker_type ==
+                  HugePageFillerDenseTrackerType::kSpansAllocated &&
+              density == AccessDensityPrediction::kDense) {
+            length = Length(1);
+          }
 
           // Allocation is too big for filler if we try to allocate >
           // kPagesPerHugePage / 2 run of pages. The allocations may go to
@@ -198,6 +210,11 @@ void FuzzHPAA(const std::string& s) {
           Span* s;
           SpanAllocInfo alloc_info = {.objects_per_span = num_objects,
                                       .density = density};
+          TC_CHECK(
+              dense_tracker_type ==
+                  HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks ||
+              density == AccessDensityPrediction::kSparse ||
+              length == Length(1));
           if (use_aligned) {
             s = allocator->NewAligned(length, align, alloc_info);
           } else {

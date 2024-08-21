@@ -122,6 +122,10 @@ class StaticForwarder {
 struct HugePageAwareAllocatorOptions {
   MemoryTag tag;
   HugeRegionUsageOption use_huge_region_more_often = huge_region_option();
+  HugePageFillerDenseTrackerType dense_tracker_type =
+      Parameters::dense_trackers_sorted_on_spans_allocated()
+          ? HugePageFillerDenseTrackerType::kSpansAllocated
+          : HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks;
   absl::Duration huge_cache_time = Parameters::huge_cache_release_time();
 };
 
@@ -396,7 +400,7 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
     : PageAllocatorInterface("HugePageAware", options.tag),
       unback_(*this),
       unback_without_lock_(*this),
-      filler_(unback_, unback_without_lock_),
+      filler_(options.dense_tracker_type, unback_, unback_without_lock_),
       regions_(options.use_huge_region_more_often),
       vm_allocator_(*this),
       metadata_allocator_(*this),

@@ -244,6 +244,16 @@ struct HugePageFillerStats {
   HugeLength n_partial[AccessDensityPrediction::kPredictionCounts + 1];
 };
 
+enum class HugePageFillerDenseTrackerType : bool {
+  // Hugepages sorted on longest free range and chunk index. This is currently
+  // the default.
+  kLongestFreeRangeAndChunks,
+  // Hugepages sorted only on number of spans allocated. As we allocate
+  // single-page many-object spans, we do not sort hugepages on longest free
+  // range when this configuration is used.
+  kSpansAllocated,
+};
+
 // This tracks a set of unfilled hugepages, and fulfills allocations
 // with a goal of filling some hugepages as tightly as possible and emptying
 // out the remainder.
@@ -251,11 +261,13 @@ template <class TrackerType>
 class HugePageFiller {
  public:
   explicit HugePageFiller(
+      HugePageFillerDenseTrackerType dense_tracker_type,
       MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
       MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  HugePageFiller(
-      Clock clock, MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      MemoryModifyFunction& unback_without_lock ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  HugePageFiller(Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
+                 MemoryModifyFunction& unback ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                 MemoryModifyFunction& unback_without_lock
+                     ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   typedef TrackerType Tracker;
 
@@ -405,7 +417,8 @@ class HugePageFiller {
   // pt has a single allocation.
   size_t IndexFor(TrackerType* pt) const;
   // Returns index for regular_alloc_.
-  size_t ListFor(Length longest, size_t chunk) const;
+  size_t ListFor(Length longest, size_t chunk, AccessDensityPrediction density,
+                 size_t nallocs) const;
   static constexpr size_t kNumLists = kPagesPerHugePage.raw_num() * kChunks;
 
   // List of hugepages from which no pages have been released to the OS.
@@ -433,6 +446,7 @@ class HugePageFiller {
   // n_used_partial_released_ is the number of pages which have been allocated
   // from the hugepages in the set regular_alloc_partial_released.
   Length n_used_partial_released_[AccessDensityPrediction::kPredictionCounts];
+  const HugePageFillerDenseTrackerType dense_tracker_type_;
 
   // RemoveFromFillerList pt from the appropriate PageTrackerList.
   void RemoveFromFillerList(TrackerType* pt);
@@ -624,17 +638,19 @@ inline Length PageTracker::free_pages() const {
 
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
+    HugePageFillerDenseTrackerType dense_tracker_type,
     MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
     : HugePageFiller(Clock{.now = absl::base_internal::CycleClock::Now,
                            .freq = absl::base_internal::CycleClock::Frequency},
-                     unback, unback_without_lock) {}
+                     dense_tracker_type, unback, unback_without_lock) {}
 
 // For testing with mock clock
 template <class TrackerType>
 inline HugePageFiller<TrackerType>::HugePageFiller(
-    Clock clock, MemoryModifyFunction& unback,
-    MemoryModifyFunction& unback_without_lock)
-    : size_(NHugePages(0)),
+    Clock clock, HugePageFillerDenseTrackerType dense_tracker_type,
+    MemoryModifyFunction& unback, MemoryModifyFunction& unback_without_lock)
+    : dense_tracker_type_(dense_tracker_type),
+      size_(NHugePages(0)),
       fillerstats_tracker_(clock, absl::Minutes(10), absl::Minutes(5)),
       clock_(clock),
       unback_(unback),
@@ -644,6 +660,10 @@ template <class TrackerType>
 inline typename HugePageFiller<TrackerType>::TryGetResult
 HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   TC_ASSERT_GT(n, Length(0));
+  TC_ASSERT(dense_tracker_type_ ==
+                HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks ||
+            span_alloc_info.density == AccessDensityPrediction::kSparse ||
+            n == Length(1));
 
   // How do we choose which hugepage to allocate from (among those with
   // a free range of at least n?) Our goal is to be as space-efficient
@@ -715,7 +735,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   bool was_released = false;
   const AccessDensityPrediction type = span_alloc_info.density;
   do {
-    pt = regular_alloc_[type].GetLeast(ListFor(n, 0));
+    pt = regular_alloc_[type].GetLeast(
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
     if (pt) {
       TC_ASSERT(!pt->donated());
       break;
@@ -726,7 +747,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
         break;
       }
     }
-    pt = regular_alloc_partial_released_[type].GetLeast(ListFor(n, 0));
+    pt = regular_alloc_partial_released_[type].GetLeast(
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
     if (pt) {
       TC_ASSERT(!pt->donated());
       was_released = true;
@@ -734,7 +756,8 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
       n_used_partial_released_[type] -= pt->used_pages();
       break;
     }
-    pt = regular_alloc_released_[type].GetLeast(ListFor(n, 0));
+    pt = regular_alloc_released_[type].GetLeast(
+        ListFor(n, 0, type, kPagesPerHugePage.raw_num() - 1));
     if (pt) {
       TC_ASSERT(!pt->donated());
       was_released = true;
@@ -1518,16 +1541,18 @@ class UsageInfo {
 template <class TrackerType>
 inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
   HugePageFillerStats stats;
-
-  // note kChunks, not kNumLists here--we're iterating *full* lists.
+  // Note kChunks, not kNumLists here--we're iterating *full* lists.
   for (size_t chunk = 0; chunk < kChunks; ++chunk) {
-    stats.n_full[AccessDensityPrediction::kSparse] +=
-        NHugePages(regular_alloc_[AccessDensityPrediction::kSparse]
-                                 [ListFor(/*longest=*/Length(0), chunk)]
-                                     .length());
+    stats.n_full[AccessDensityPrediction::kSparse] += NHugePages(
+        regular_alloc_[AccessDensityPrediction::kSparse]
+                      [ListFor(/*longest=*/Length(0), chunk,
+                               AccessDensityPrediction::kSparse, /*nallocs=*/0)]
+                          .length());
     stats.n_full[AccessDensityPrediction::kDense] +=
         NHugePages(regular_alloc_[AccessDensityPrediction::kDense]
-                                 [ListFor(/*longest=*/Length(0), chunk)]
+                                 [ListFor(/*longest=*/Length(0), chunk,
+                                          AccessDensityPrediction::kDense,
+                                          kPagesPerHugePage.raw_num())]
                                      .length());
   }
   stats.n_full[AccessDensityPrediction::kPredictionCounts] =
@@ -1821,7 +1846,6 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       0);
 
   usage.Print(hpaa);
-
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");
   fillerstats_tracker_.PrintTimeseriesStatsInPbtxt(hpaa,
@@ -1877,11 +1901,25 @@ inline size_t HugePageFiller<TrackerType>::IndexFor(TrackerType* pt) const {
 }
 
 template <class TrackerType>
-inline size_t HugePageFiller<TrackerType>::ListFor(const Length longest,
-                                                   const size_t chunk) const {
+inline size_t HugePageFiller<TrackerType>::ListFor(
+    const Length longest, const size_t chunk,
+    const AccessDensityPrediction density, size_t nallocs) const {
   TC_ASSERT_LT(chunk, kChunks);
-  TC_ASSERT_LT(longest, kPagesPerHugePage);
-  return longest.raw_num() * kChunks + chunk;
+  if (ABSL_PREDICT_TRUE(
+          density == AccessDensityPrediction::kSparse ||
+          dense_tracker_type_ ==
+              HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks)) {
+    TC_ASSERT_LT(longest, kPagesPerHugePage);
+    return longest.raw_num() * kChunks + chunk;
+  }
+  TC_ASSERT(density == AccessDensityPrediction::kDense);
+  TC_ASSERT(dense_tracker_type_ ==
+            HugePageFillerDenseTrackerType::kSpansAllocated);
+  TC_ASSERT_LE(nallocs, kPagesPerHugePage.raw_num());
+  // For the dense tracker with hugepages sorted on allocs, the hugepages are
+  // placed only in lists that are multiples of kChunks.  The in-between lists
+  // are empty.
+  return (kPagesPerHugePage.raw_num() - nallocs) * kChunks + chunk;
 }
 
 template <class TrackerType>
@@ -1894,12 +1932,11 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     return;
   }
 
-  size_t chunk = IndexFor(pt);
-  size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
+  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
 
   if (!pt->released()) {
     regular_alloc_[type].Remove(pt, i);
@@ -1916,7 +1953,6 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
-  size_t chunk = IndexFor(pt);
   Length longest = pt->longest_free_range();
   TC_ASSERT_LT(longest, kPagesPerHugePage);
 
@@ -1926,11 +1962,11 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   // donated allocs.
   pt->set_donated(false);
 
-  size_t i = ListFor(longest, chunk);
   const AccessDensityPrediction type =
               pt->HasDenseSpans()
           ? AccessDensityPrediction::kDense
           : AccessDensityPrediction::kSparse;
+  size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
 
   if (!pt->released()) {
     regular_alloc_[type].Add(pt, i);

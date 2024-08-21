@@ -104,7 +104,7 @@ void FuzzFiller(const std::string& s) {
   // We interpret data as a small DSL for exploring the state space of
   // HugePageFiller.
   //
-  // [0] - (available)
+  // [0] - used for choosing dense tracker type.
   // [1] - (available)
   // [2] - (available)
   //
@@ -116,11 +116,15 @@ void FuzzFiller(const std::string& s) {
   //                  For example, this input can provide a Length to
   //                  allocate, or the index of the previous allocation to
   //                  deallocate.
+  const HugePageFillerDenseTrackerType dense_tracker_type =
+      static_cast<uint8_t>(data[0]) >= 128
+          ? HugePageFillerDenseTrackerType::kLongestFreeRangeAndChunks
+          : HugePageFillerDenseTrackerType::kSpansAllocated;
   data += kInitBytes;
   size -= kInitBytes;
 
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
-                                     unback, unback);
+                                     dense_tracker_type, unback, unback);
 
   struct Alloc {
     PageId page;
@@ -144,8 +148,8 @@ void FuzzFiller(const std::string& s) {
         //
         // value[0:15]  - We choose a Length to allocate.
         // value[16:31] - We select num_to_objects.
-        const Length n(std::clamp<size_t>(value & 0xFFFF, 1,
-                                          kPagesPerHugePage.raw_num() - 1));
+        Length n(std::clamp<size_t>(value & 0xFFFF, 1,
+                                    kPagesPerHugePage.raw_num() - 1));
         AccessDensityPrediction density;
         const uint32_t lval = (value >> 16);
         // Choose many objects if the last bit is 1.
@@ -162,6 +166,11 @@ void FuzzFiller(const std::string& s) {
         if (n > kPagesPerHugePage / 2) {
           num_objects = 1;
           density = AccessDensityPrediction::kSparse;
+        }
+        if (dense_tracker_type ==
+                HugePageFillerDenseTrackerType::kSpansAllocated &&
+            density == AccessDensityPrediction::kDense) {
+          n = Length(1);
         }
 
         SpanAllocInfo alloc_info = {.objects_per_span = num_objects,

@@ -313,6 +313,19 @@ bool Parameters::resize_size_class_max_capacity() {
       std::memory_order_relaxed);
 }
 
+bool Parameters::dense_trackers_sorted_on_spans_allocated() {
+  ABSL_CONST_INIT static absl::once_flag flag;
+  ABSL_CONST_INIT static std::atomic<bool> v{false};
+  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    v.store(
+        IsExperimentActive(
+            Experiment::
+                TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED),
+        std::memory_order_relaxed);
+  });
+  return v;
+}
+
 int32_t Parameters::max_per_cpu_cache_size() {
   return tc_globals.cpu_cache().CacheLimit();
 }
