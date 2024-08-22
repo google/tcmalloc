@@ -78,6 +78,7 @@ class StubPageFlags final : public PageFlagsBase {
     if (locked_bytes_.find(uaddr) != locked_bytes_.end()) {
       ret.bytes_locked = locked_bytes_[uaddr];
     }
+    ret.stale_scan_seconds = stale_scan_period_;
     return ret;
   }
 
@@ -91,9 +92,14 @@ class StubPageFlags final : public PageFlagsBase {
     locked_bytes_[uaddr] = locked;
   }
 
+  void set_stale_scan_period(const void* addr, uint64_t seconds_stale) {
+    stale_scan_period_ = seconds_stale;
+  }
+
  private:
   absl::flat_hash_map<uintptr_t, int> stale_bytes_;
   absl::flat_hash_map<uintptr_t, int> locked_bytes_;
+  uint64_t stale_scan_period_;
 };
 
 // Returns the fully resolved path of this program.
@@ -387,6 +393,8 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
       // Total locked bytes for this sample = 5 * 11 = 55.
       p->set_bytes_stale(sample.span_start_address, /*stale=*/17);
       p->set_bytes_locked(sample.span_start_address, /*locked=*/11);
+      p->set_stale_scan_period(sample.span_start_address,
+                               /*seconds_stale=*/10);
     }
 
     samples.push_back(sample);
@@ -578,26 +586,32 @@ TEST(ProfileConverterTest, HeapProfile) {
       UnorderedElementsAre(
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("stale_scan_period", 10),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
+                               Pair("stale_scan_period", 10),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"),
                                Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 16),
+              Pair("stale_scan_period", 10),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
               Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "RateLimited")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Filtered")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
+              Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
               Pair("size_returning", 1), Pair("guarded_status", "Guarded"))));
 

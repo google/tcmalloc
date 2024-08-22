@@ -106,6 +106,7 @@ struct SampleMergedData {
   std::optional<size_t> swapped_size;
   std::optional<size_t> stale_size;
   std::optional<size_t> locked_size;
+  std::optional<uint64_t> stale_scan_period;
 };
 
 // The equality and hash methods of Profile::Sample only use a subset of its
@@ -178,6 +179,14 @@ SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
           data.locked_size.emplace();
         }
         data.locked_size.value() += entry.count * page_stats->bytes_locked;
+
+        if (!data.stale_scan_period.has_value()) {
+          data.stale_scan_period = page_stats->stale_scan_seconds;
+        } else if (*data.stale_scan_period != page_stats->stale_scan_seconds) {
+          // multiple values for stale_scan_seconds, so we don't know what it
+          // is; explicitly set to the default of zero.
+          data.stale_scan_period = 0;
+        }
       }
     }
   });
@@ -645,6 +654,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int objects_id = builder.InternString("objects");
   const int request_id = builder.InternString("request");
   const int size_returning_id = builder.InternString("size_returning");
+  const int stale_scan_period_id = builder.InternString("stale_scan_period");
+  const int seconds_id = builder.InternString("seconds");
   const int space_id = builder.InternString("space");
   const int resident_space_id = builder.InternString("resident_space");
   const int swapped_space_id = builder.InternString("swapped_space");
@@ -755,6 +766,8 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_positive_label(request_id, bytes_id, entry.requested_size);
     add_positive_label(alignment_id, bytes_id, entry.requested_alignment);
     add_positive_label(size_returning_id, 0, entry.requested_size_returning);
+    add_positive_label(stale_scan_period_id, seconds_id,
+                       data.stale_scan_period.value_or(0));
 
     auto add_access_label = [&](int key,
                                 tcmalloc::Profile::Sample::Access access) {
