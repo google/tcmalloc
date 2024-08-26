@@ -55,7 +55,13 @@ int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current) {
 }
 
 void CacheTopology::Init() {
-  cpu_count_ = NumCPUs();
+  const auto maybe_numcpus = NumCPUsMaybe();
+  if (!maybe_numcpus.has_value()) {
+    l3_count_ = 1;
+    return;
+  }
+
+  cpu_count_ = *maybe_numcpus;
   for (int cpu = 0; cpu < cpu_count_; ++cpu) {
     const int fd = OpenSysfsCacheList(cpu);
     if (fd == -1) {

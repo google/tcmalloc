@@ -116,7 +116,12 @@ int VirtualCpu::Synchronize() {
 }
 
 static void InitPerCpu() {
-  TC_CHECK(NumCPUs() <= std::numeric_limits<uint16_t>::max());
+  const auto maybe_numcpus = NumCPUsMaybe();
+  if (!maybe_numcpus.has_value()) {
+    init_status = kSlowMode;
+    return;
+  }
+  TC_CHECK(*maybe_numcpus <= std::numeric_limits<uint16_t>::max());
 
   // Based on the results of successfully initializing the first thread, mark
   // init_status to initialize all subsequent threads.

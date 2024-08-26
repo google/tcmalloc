@@ -570,6 +570,10 @@ void TCMalloc_Internal_SetPerCpuCachesEnabled(bool v) {
   }
 #endif  // !TCMALLOC_DEPRECATED_PERTHREAD
 
+  TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(v);
+}
+
+void TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(bool v) {
   Parameters::per_cpu_caches_enabled_.store(v, std::memory_order_relaxed);
 }
 

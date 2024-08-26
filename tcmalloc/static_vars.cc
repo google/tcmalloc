@@ -39,6 +39,7 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
@@ -162,7 +163,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     TC_CHECK(sizemap_.Init(SizeMap::CurrentClasses().classes));
     // Verify we can determine the number of CPUs now, since we will need it
     // later for per-CPU caches and initializing the cache topology.
-    (void)NumCPUs();
+    if (ABSL_PREDICT_FALSE(!NumCPUsMaybe().has_value())) {
+      TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(false);
+    }
     (void)subtle::percpu::IsFast();
     numa_topology_.Init();
     CacheTopology::Instance().Init();

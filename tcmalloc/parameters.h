@@ -213,7 +213,8 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
   friend void ::TCMalloc_Internal_SetPeakSamplingHeapGrowthFraction(double v);
-  friend void ::TCMalloc_Internal_SetPerCpuCachesEnabled(bool v);
+  friend void ::TCMalloc_Internal_SetPerCpuCachesEnabledNoBuildRequirement(
+      bool v);
   friend void ::TCMalloc_Internal_SetProfileSamplingInterval(int64_t v);
 
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
