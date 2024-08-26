@@ -26,6 +26,7 @@
 #include "absl/functional/function_ref.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
+#include "tcmalloc/internal/logging.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -49,20 +50,26 @@ std::optional<CpuSet> ParseCpulist(
 namespace sysinfo_internal {
 
 // Returns the number of possible CPUs on the machine, including currently
-// offline CPUs.
+// offline CPUs.  If this cannot be retrieved, std::nullopt is returned.
 //
 // The result of this function is not cached internally.
-int NumPossibleCPUsNoCache();
+std::optional<int> NumPossibleCPUsNoCache();
 
 }  // namespace sysinfo_internal
 #endif  // __linux__
 
-inline int NumCPUs() {
+inline std::optional<int> NumCPUsMaybe() {
   ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static int result;
+  ABSL_CONST_INIT static std::optional<int> result;
   absl::base_internal::LowLevelCallOnce(
       &flag, [&]() { result = sysinfo_internal::NumPossibleCPUsNoCache(); });
   return result;
+}
+
+inline int NumCPUs() {
+  std::optional<int> maybe_cpus = NumCPUsMaybe();
+  TC_CHECK(maybe_cpus.has_value());
+  return *maybe_cpus;
 }
 
 }  // namespace tcmalloc_internal

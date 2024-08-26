@@ -948,6 +948,7 @@ cc_library(
     hdrs = ["sysinfo.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
+        "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
     ],
     deps = [
@@ -1038,6 +1039,7 @@ cc_library(
     hdrs = ["util.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
+        "//tcmalloc:__pkg__",
         "//tcmalloc:__subpackages__",
     ],
     deps = [

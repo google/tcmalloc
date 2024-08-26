@@ -108,7 +108,7 @@ std::optional<CpuSet> ParseCpulist(
 
 namespace sysinfo_internal {
 
-int NumPossibleCPUsNoCache() {
+std::optional<int> NumPossibleCPUsNoCache() {
   int fd = signal_safe_open("/sys/devices/system/cpu/possible",
                             O_RDONLY | O_CLOEXEC);
 
@@ -121,14 +121,21 @@ int NumPossibleCPUsNoCache() {
 
   signal_safe_close(fd);
 
-  TC_CHECK(cpus.has_value());
+  if (!cpus.has_value()) {
+    return std::nullopt;
+  }
+
   std::optional<int> max_so_far;
   for (int i = 0; i < kMaxCpus; ++i) {
     if (cpus->IsSet(i)) {
       max_so_far = std::max(i, max_so_far.value_or(-1));
     }
   }
-  TC_CHECK(max_so_far.has_value());
+
+  if (!max_so_far.has_value()) {
+    return std::nullopt;
+  }
+
   return *max_so_far + 1;
 }
 

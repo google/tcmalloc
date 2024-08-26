@@ -164,7 +164,7 @@ TEST(ParseCpulistTest, Random) {
 TEST(NumCPUs, NoCache) {
   const int result = []() {
     AllocationGuard guard;
-    return sysinfo_internal::NumPossibleCPUsNoCache();
+    return *sysinfo_internal::NumPossibleCPUsNoCache();
   }();
 
   // TODO(b/67389555): This test may fail if there are offlined CPUs.
