@@ -49,6 +49,8 @@ We've published several papers relating to TCMalloc optimizations:
     Warehouse-Scale Computers" (ISMM
     2021)](https://research.google/pubs/pub50436/) relating to optimizations for
     releasing partial hugepages to the operating system.
+*   ["Characterizing a Memory Allocator at Warehouse Scale" (ASPLOS 2024)](https://research.google/pubs/characterizing-a-memory-allocator-at-warehouse-scale/)
+    relating to several optimizations developed since 2018.
 
 ## License
 
