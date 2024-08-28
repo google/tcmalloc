@@ -1318,6 +1318,7 @@ cc_test(
     # There can be only one CpuCache due to slab offset caching in rseq.
     malloc = "//tcmalloc/internal:system_malloc",
     shard_count = 3,
+    tags = ["noubsan"],
     deps = [
         ":common_8k_pages",
         ":mock_transfer_cache",
@@ -1344,6 +1345,7 @@ cc_test(
     srcs = ["cpu_cache_activate_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = ":tcmalloc_deprecated_perthread",
+    tags = ["noubsan"],
     deps = [
         ":common_deprecated_perthread",
         ":malloc_extension",

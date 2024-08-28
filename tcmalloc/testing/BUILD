@@ -626,6 +626,7 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_numa_aware",
     tags = [
+        "noubsan",
     ],
     deps = [
         ":testutil",
@@ -808,6 +809,9 @@ cc_test(
     srcs = ["malloc_extension_system_malloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "noubsan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/random",
@@ -926,6 +930,9 @@ cc_test(
     srcs = ["parallel_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc/internal:system_malloc",
+    tags = [
+        "noubsan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep

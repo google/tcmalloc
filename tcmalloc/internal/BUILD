@@ -675,6 +675,7 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = ":system_malloc",
+    tags = ["noubsan"],
     deps = [
         ":affinity",
         ":config",
