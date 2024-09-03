@@ -29,7 +29,6 @@
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
-#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
