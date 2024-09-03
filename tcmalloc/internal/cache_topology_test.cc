@@ -38,13 +38,5 @@ TEST(CacheTopology, ComputesSomethingReasonable) {
   }
 }
 
-TEST(CacheTopology, FindFirstNumberInBuf) {
-  using tcmalloc::tcmalloc_internal::BuildCpuToL3CacheMap_FindFirstNumberInBuf;
-  EXPECT_EQ(7, BuildCpuToL3CacheMap_FindFirstNumberInBuf("7,-787"));
-  EXPECT_EQ(5, BuildCpuToL3CacheMap_FindFirstNumberInBuf("5"));
-  EXPECT_EQ(5, BuildCpuToL3CacheMap_FindFirstNumberInBuf("5-9"));
-  EXPECT_EQ(5, BuildCpuToL3CacheMap_FindFirstNumberInBuf("5,9"));
-}
-
 }  // namespace
 }  // namespace tcmalloc::tcmalloc_internal

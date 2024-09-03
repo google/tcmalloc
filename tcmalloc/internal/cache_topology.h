@@ -54,9 +54,6 @@ class CacheTopology {
   uint8_t l3_cache_index_[kMaxCpus] = {};
 };
 
-// Helper function exposed to permit testing it.
-int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current);
-
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END

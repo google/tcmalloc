@@ -19,9 +19,8 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <optional>
 
-#include "absl/strings/numbers.h"
-#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/cpu_utils.h"
 #include "tcmalloc/internal/logging.h"
@@ -41,19 +40,6 @@ int OpenSysfsCacheList(size_t cpu) {
 }
 }  // namespace
 
-int BuildCpuToL3CacheMap_FindFirstNumberInBuf(absl::string_view current) {
-  // Remove all parts coming after a dash or comma.
-  const size_t dash = current.find('-');
-  if (dash != absl::string_view::npos) current = current.substr(0, dash);
-  const size_t comma = current.find(',');
-  if (comma != absl::string_view::npos) current = current.substr(0, comma);
-
-  int first_cpu;
-  TC_CHECK(absl::SimpleAtoi(current, &first_cpu));
-  TC_CHECK_LT(first_cpu, kMaxCpus);
-  return first_cpu;
-}
-
 void CacheTopology::Init() {
   const auto maybe_numcpus = NumCPUsMaybe();
   if (!maybe_numcpus.has_value()) {
@@ -62,7 +48,17 @@ void CacheTopology::Init() {
   }
 
   cpu_count_ = *maybe_numcpus;
+  CpuSet cpus_to_check;
+  cpus_to_check.Zero();
   for (int cpu = 0; cpu < cpu_count_; ++cpu) {
+    cpus_to_check.Set(cpu);
+  }
+
+  while (true) {
+    const int cpu = cpus_to_check.FindFirstSet();
+    if (cpu == -1) {
+      break;
+    }
     const int fd = OpenSysfsCacheList(cpu);
     if (fd == -1) {
       // At some point we reach the number of CPU on the system, and
@@ -82,21 +78,31 @@ void CacheTopology::Init() {
     }
     // The file contains something like:
     //   0-11,22-33
-    // we are looking for the first number in that file.
-    char buf[10];
-    const size_t bytes_read =
-        signal_safe_read(fd, buf, 10, /*bytes_read=*/nullptr);
-    signal_safe_close(fd);
-    TC_CHECK_GE(bytes_read, 0);
+    // Extract all CPUs from that.
 
-    const int first_cpu =
-        BuildCpuToL3CacheMap_FindFirstNumberInBuf({buf, bytes_read});
-    TC_CHECK_LT(first_cpu, kMaxCpus);
-    TC_CHECK_LE(first_cpu, cpu);
-    if (cpu == first_cpu) {
-      l3_cache_index_[cpu] = l3_count_++;
-    } else {
-      l3_cache_index_[cpu] = l3_cache_index_[first_cpu];
+    std::optional<CpuSet> maybe_shared_cpu_list =
+        ParseCpulist([&](char* const buf, const size_t count) {
+          return signal_safe_read(fd, buf, count, /*bytes_read=*/nullptr);
+        });
+    signal_safe_close(fd);
+
+    TC_CHECK(maybe_shared_cpu_list.has_value());
+    CpuSet& shared_cpu_list = *maybe_shared_cpu_list;
+    shared_cpu_list.CLR(cpu);
+    cpus_to_check.CLR(cpu);
+
+    const int first_cpu = cpu;
+    l3_cache_index_[first_cpu] = l3_count_++;
+    // Set the remaining in the parsed cpu set to the l3_cache_index of
+    // the first one.
+    while (true) {
+      int next_cpu = shared_cpu_list.FindFirstSet();
+      if (next_cpu == -1) {
+        break;
+      }
+      shared_cpu_list.CLR(next_cpu);
+      cpus_to_check.CLR(next_cpu);
+      l3_cache_index_[next_cpu] = l3_cache_index_[first_cpu];
     }
   }
 }

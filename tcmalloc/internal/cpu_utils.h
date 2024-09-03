@@ -41,6 +41,18 @@ class CpuSet {
   bool CLR(int cpu) { return CPU_CLR_S(cpu, kCpuSetBytes, cpu_set_.data()); }
   int Count() const { return CPU_COUNT_S(kCpuSetBytes, cpu_set_.data()); }
 
+  // Find the index of the first set CPU. Returns -1 if none are set.
+  int FindFirstSet() const {
+    if (Count() == 0) {
+      return -1;
+    }
+    int cpu = 0;
+    while (!IsSet(cpu)) {
+      ++cpu;
+    }
+    return cpu;
+  }
+
   // Sets the CPU affinity of the process with the given pid. Returns true if
   // successful. If returns false, please check the global 'errno' variable to
   // determine the specific error that occurred.
