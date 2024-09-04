@@ -44,13 +44,14 @@ namespace {
 
 class RawSpan {
  public:
-  void Init(size_t size_class, uint32_t max_cache_size) {
+  void Init(size_t size_class, uint32_t max_cache_array_size,
+            uint32_t max_cache_size) {
     size_t size = tc_globals.sizemap().class_to_size(size_class);
     auto npages = Length(tc_globals.sizemap().class_to_pages(size_class));
     size_t objects_per_span = npages.in_bytes() / size;
 
     // Dynamically allocate so ASan can flag if we run out of bounds.
-    size_t span_size = Span::CalcSizeOf(max_cache_size);
+    size_t span_size = Span::CalcSizeOf(max_cache_array_size);
     buf_ = ::operator new(span_size, std::align_val_t(alignof(Span)));
 
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
@@ -83,15 +84,20 @@ class SpanTest : public testing::TestWithParam<std::tuple<size_t, size_t>> {
   size_t objects_per_span_;
   uint32_t reciprocal_;
   uint32_t max_cache_size_;
+  uint32_t max_cache_array_size_;
   RawSpan raw_span_;
 
  private:
   void SetUp() override {
     size_class_ = std::get<0>(GetParam());
-    max_cache_size_ = std::get<1>(GetParam());
-    ASSERT_THAT(max_cache_size_,
+    max_cache_array_size_ = std::get<1>(GetParam());
+    max_cache_size_ = max_cache_array_size_ == Span::kCacheSize
+                          ? Span::kCacheSize
+                          : Span::kLargeCacheSize;
+    ASSERT_THAT(max_cache_array_size_,
                 testing::AnyOf(testing::Eq(Span::kCacheSize),
-                               testing::Eq(Span::kLargeCacheSize)));
+                               testing::Eq(Span::kLargeCacheArraySize)));
+    ASSERT_LE(max_cache_size_, max_cache_array_size_);
 
     size_ = tc_globals.sizemap().class_to_size(size_class_);
     if (size_ == 0) {
@@ -103,7 +109,7 @@ class SpanTest : public testing::TestWithParam<std::tuple<size_t, size_t>> {
     objects_per_span_ = npages_ * kPageSize / size_;
     reciprocal_ = Span::CalcReciprocal(size_);
 
-    raw_span_.Init(size_class_, max_cache_size_);
+    raw_span_.Init(size_class_, max_cache_array_size_, max_cache_size_);
   }
 
   void TearDown() override {}
@@ -221,7 +227,8 @@ TEST_P(SpanTest, FreelistRandomized) {
 INSTANTIATE_TEST_SUITE_P(
     All, SpanTest,
     testing::Combine(testing::Range(size_t(1), kNumClasses),
-                     testing::Values(Span::kCacheSize, Span::kLargeCacheSize)));
+                     testing::Values(Span::kCacheSize,
+                                     Span::kLargeCacheArraySize)));
 
 TEST(SpanAllocatorTest, Alignment) {
   PageId p{1};

@@ -273,6 +273,7 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
 // TODO.  Start with 0 to make it clear if we have read this before it is
 // populated during Init.
 ABSL_CONST_INIT std::atomic<uint32_t> Parameters::max_span_cache_size_(0);
+ABSL_CONST_INIT std::atomic<uint32_t> Parameters::max_span_cache_array_size_(0);
 
 bool Parameters::background_process_actions_enabled() {
   return background_process_actions_enabled_ptr().load(

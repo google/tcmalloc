@@ -220,10 +220,11 @@ class Span final : public SpanList::Elem {
   static uint32_t CalcReciprocal(size_t size);
 
   static constexpr size_t kCacheSize = 4;
-  static constexpr size_t kLargeCacheSize = 12;
+  static constexpr size_t kLargeCacheSize = 8;
+  static constexpr size_t kLargeCacheArraySize = 12;
 
-  static std::align_val_t CalcAlignOf(uint32_t max_cache_size);
-  static size_t CalcSizeOf(uint32_t max_cache_size);
+  static std::align_val_t CalcAlignOf(uint32_t max_cache_array_size);
+  static size_t CalcSizeOf(uint32_t max_cache_array_size);
 
  private:
   // See the comment on freelist organization in cc file.
@@ -494,20 +495,21 @@ inline bool Span::UseBitmapForSize(size_t size) {
 // callers care about, while use of bitmap is an implementation detail.
 inline bool Span::IsNonIntrusive(size_t size) { return UseBitmapForSize(size); }
 
-inline std::align_val_t Span::CalcAlignOf(uint32_t max_cache_size) {
-  TC_ASSERT_GE(max_cache_size, kCacheSize);
-  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
+inline std::align_val_t Span::CalcAlignOf(uint32_t max_cache_array_size) {
+  TC_ASSERT_GE(max_cache_array_size, kCacheSize);
+  TC_ASSERT_LE(max_cache_array_size, kLargeCacheArraySize);
   return static_cast<std::align_val_t>(
-      max_cache_size == kCacheSize ? 8 : ABSL_CACHELINE_SIZE);
+      max_cache_array_size == kCacheSize ? 8 : ABSL_CACHELINE_SIZE);
 }
 
-inline size_t Span::CalcSizeOf(uint32_t max_cache_size) {
-  TC_ASSERT_GE(max_cache_size, kCacheSize);
-  TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
-  size_t ret = sizeof(Span) + sizeof(uint16_t) * (max_cache_size - kCacheSize);
+inline size_t Span::CalcSizeOf(uint32_t max_cache_array_size) {
+  TC_ASSERT_GE(max_cache_array_size, kCacheSize);
+  TC_ASSERT_LE(max_cache_array_size, kLargeCacheArraySize);
+  size_t ret =
+      sizeof(Span) + sizeof(uint16_t) * (max_cache_array_size - kCacheSize);
   ret = (ret + alignof(Span) - 1) & ~(alignof(Span) - 1);
-  TC_ASSERT_GE(ret, 48);
-  TC_ASSERT_LE(ret, 64);
+  TC_ASSERT((ret == 48 && max_cache_array_size == kCacheSize) ||
+            (ret == 64 && max_cache_array_size == kLargeCacheArraySize));
   return ret;
 }
 

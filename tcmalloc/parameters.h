@@ -147,6 +147,14 @@ class Parameters {
     max_span_cache_size_.store(v, std::memory_order_relaxed);
   }
 
+  static uint32_t max_span_cache_array_size() {
+    return max_span_cache_array_size_.load(std::memory_order_relaxed);
+  }
+
+  static void set_max_span_cache_array_size(uint32_t v) {
+    max_span_cache_array_size_.store(v, std::memory_order_relaxed);
+  }
+
   static int64_t profile_sampling_interval() {
     return profile_sampling_interval_.load(std::memory_order_relaxed);
   }
@@ -237,6 +245,7 @@ class Parameters {
 
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<uint32_t> max_span_cache_size_;
+  static std::atomic<uint32_t> max_span_cache_array_size_;
   static std::atomic<int32_t> max_per_cpu_cache_size_;
   static std::atomic<int64_t> max_total_thread_cache_bytes_;
   static std::atomic<double> peak_sampling_heap_growth_fraction_;

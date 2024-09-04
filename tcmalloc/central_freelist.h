@@ -55,6 +55,9 @@ class StaticForwarder {
   static uint32_t max_span_cache_size() {
     return Parameters::max_span_cache_size();
   }
+  static uint32_t max_span_cache_array_size() {
+    return Parameters::max_span_cache_array_size();
+  }
 
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);

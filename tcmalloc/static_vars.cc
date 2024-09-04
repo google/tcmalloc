@@ -178,6 +178,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
         IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN);
     Parameters::set_max_span_cache_size(
         large_span_experiment ? Span::kLargeCacheSize : Span::kCacheSize);
+    Parameters::set_max_span_cache_array_size(
+        large_span_experiment ? Span::kLargeCacheArraySize : Span::kCacheSize);
 
     span_allocator_.Init(&arena_);
     span_allocator_.New();  // Reduce cache conflicts

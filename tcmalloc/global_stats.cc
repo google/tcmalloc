@@ -357,7 +357,7 @@ void DumpStats(Printer* out, int level) {
       virtual_memory_used, virtual_memory_used / MiB,
       uint64_t(stats.span_stats.in_use),
       uint64_t(stats.span_stats.total),
-      (stats.span_stats.total * Span::CalcSizeOf(Parameters::max_span_cache_size())) / MiB,
+      (stats.span_stats.total * Span::CalcSizeOf(Parameters::max_span_cache_array_size())) / MiB,
       uint64_t(stats.tc_stats.in_use),
       uint64_t(stats.tc_stats.total),
       (stats.tc_stats.total * sizeof(ThreadCache)) / MiB,
@@ -562,6 +562,8 @@ void DumpStats(Printer* out, int level) {
                 PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
     out->printf("PARAMETER max_span_cache_size %d\n",
                 Parameters::max_span_cache_size());
+    out->printf("PARAMETER max_span_cache_array_size %d\n",
+                Parameters::max_span_cache_array_size());
     out->printf("PARAMETER madvise %s\n", MadviseString());
     out->printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
                 Parameters::resize_size_class_max_capacity() ? 1 : 0);
@@ -760,6 +762,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintBool("tcmalloc_configure_size_class_max_capacity",
                    tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());
+  region.PrintI64("span_max_cache_array_size",
+                  Parameters::max_span_cache_array_size());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
                    Parameters::dense_trackers_sorted_on_spans_allocated());
 

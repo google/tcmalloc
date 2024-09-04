@@ -30,10 +30,10 @@ namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 void FuzzSpan(const std::string& s) {
-  // Extract fuzz input into 3 integers.
+  // Extract fuzz input into 5 integers.
   //
   // TODO(b/271282540): Strongly type input.
-  size_t state[4];
+  size_t state[5];
   if (s.size() != sizeof(state)) {
     return;
   }
@@ -44,6 +44,8 @@ void FuzzSpan(const std::string& s) {
   const size_t num_to_move = state[2];
   const uint32_t max_span_cache_size =
       std::clamp(state[3] & 0xF, Span::kCacheSize, Span::kLargeCacheSize);
+  const uint32_t max_span_cache_array_size = std::clamp<uint32_t>(
+      state[4] & 0xF, max_span_cache_size, Span::kLargeCacheArraySize);
 
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
@@ -52,7 +54,7 @@ void FuzzSpan(const std::string& s) {
 
   const auto pages = Length(num_pages);
   const size_t objects_per_span = pages.in_bytes() / object_size;
-  const size_t span_size = Span::CalcSizeOf(max_span_cache_size);
+  const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
   const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
   void* mem;

@@ -38,12 +38,16 @@ class FakeStaticForwarder {
     pages_ = Length(pages);
     num_objects_to_move_ = num_objects_to_move;
     use_large_spans_ = use_large_spans;
+    TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
   }
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
   size_t num_objects_to_move() const { return num_objects_to_move_; }
   uint32_t max_span_cache_size() const {
     return use_large_spans_ ? Span::kLargeCacheSize : Span::kCacheSize;
+  }
+  uint32_t max_span_cache_array_size() const {
+    return use_large_spans_ ? Span::kLargeCacheArraySize : Span::kCacheSize;
   }
 
   void MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
@@ -73,8 +77,10 @@ class FakeStaticForwarder {
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);
 
-    void* span_buf = ::operator new(Span::CalcSizeOf(max_span_cache_size()),
-                                    Span::CalcAlignOf(max_span_cache_size()));
+    void* span_buf =
+        ::operator new(Span::CalcSizeOf(max_span_cache_array_size()),
+                       Span::CalcAlignOf(max_span_cache_array_size()));
+    TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
 
     auto* span = new (span_buf) Span();
     span->Init(page, pages_per_span);
@@ -101,7 +107,7 @@ class FakeStaticForwarder {
     }
 
     const std::align_val_t span_alignment =
-        Span::CalcAlignOf(max_span_cache_size());
+        Span::CalcAlignOf(max_span_cache_array_size());
 
     for (Span* span : free_spans) {
       ::operator delete(span->start_address(), std::align_val_t(kPageSize));
