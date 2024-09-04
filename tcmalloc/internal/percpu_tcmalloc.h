@@ -61,9 +61,6 @@ struct PerCPUMetadataState {
   size_t resident_size;
 };
 
-// The bit denotes that tcmalloc_slabs contains valid slabs offset.
-constexpr inline uintptr_t kCachedSlabsBit = 63;
-
 struct ResizeSlabsInfo {
   void* old_slabs;
   size_t old_slabs_size;
@@ -364,7 +361,6 @@ class TcmallocSlab {
                                  size_t size_class);
   static Header LoadHeader(AtomicHeader* hdrp);
   static void StoreHeader(AtomicHeader* hdrp, Header hdr);
-  static void LockHeader(void* slabs, Shift shift, int cpu, size_t size_class);
   void DrainCpu(void* slabs, Shift shift, int cpu, DrainHandler drain_handler);
   void DrainOldSlabs(void* slabs, Shift shift, int cpu,
                      const std::array<uint16_t, NumClasses>& old_begins,
