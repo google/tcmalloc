@@ -36,7 +36,7 @@
 .type tcmalloc_cached_vcpu, @object
 .type tcmalloc_slabs, @object
 .type __rseq_abi, @object
-.section .tdata, "awT", @progbits, unique, 1
+.section .tdata, "awT", @progbits
 .globl tcmalloc_sampler
 .globl tcmalloc_cached_vcpu
 .globl tcmalloc_slabs
