@@ -126,6 +126,18 @@ void FuzzCFL(const std::string& s) {
         }
         break;
       }
+      case 4: {
+        std::string s;
+        s.resize(1 << 20);
+        Printer p(&s[0], s.size());
+        env.central_freelist().PrintSpanUtilStats(&p);
+        env.central_freelist().PrintSpanLifetimeStats(&p);
+
+        PbtxtRegion region(&p, kTop);
+        env.central_freelist().PrintSpanUtilStatsInPbtxt(&region);
+        env.central_freelist().PrintSpanLifetimeStatsInPbtxt(&region);
+        break;
+      }
     }
   }
 
