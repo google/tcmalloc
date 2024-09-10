@@ -203,7 +203,7 @@ class Span final : public SpanList::Elem {
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
   int BuildFreelist(size_t size, size_t count, void** batch, int N,
-                    uint32_t max_cache_size);
+                    uint32_t max_cache_size, uint64_t alloc_time);
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();
@@ -225,6 +225,10 @@ class Span final : public SpanList::Elem {
 
   static std::align_val_t CalcAlignOf(uint32_t max_cache_array_size);
   static size_t CalcSizeOf(uint32_t max_cache_array_size);
+  uint64_t AllocTime(size_t size, uint32_t max_span_cache_size) const;
+
+  // Returns true if Span will use bitmap for objects of size <size>.
+  static bool UseBitmapForSize(size_t size);
 
  private:
   // See the comment on freelist organization in cc file.
@@ -272,9 +276,6 @@ class Span final : public SpanList::Elem {
     SampledAllocation* sampled_allocation_;
   };
 
-  // Returns true if Span will use bitmap for objects of size <size>.
-  static bool UseBitmapForSize(size_t size);
-
   // Convert object pointer <-> freelist index.
   ObjIdx PtrToIdx(void* ptr, size_t size) const;
   ObjIdx* IdxToPtr(ObjIdx idx, size_t size, uintptr_t start) const;
@@ -305,6 +306,15 @@ class Span final : public SpanList::Elem {
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;
 };
+
+inline uint64_t Span::AllocTime(size_t size,
+                                uint32_t max_span_cache_size) const {
+  uint64_t alloc_time = 0;
+  if (max_span_cache_size == Span::kLargeCacheSize && !UseBitmapForSize(size)) {
+    memcpy(&alloc_time, &cache_[Span::kLargeCacheSize], sizeof(alloc_time));
+  }
+  return alloc_time;
+}
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {

@@ -34,6 +34,7 @@ namespace {
 
 // TODO(b/304135905): Complete experiments and remove hard-coded cache size.
 constexpr uint32_t kMaxCacheSize = 4;
+constexpr uint64_t kSpanAllocTime = 1234;
 
 class RawSpan {
  public:
@@ -47,7 +48,8 @@ class RawSpan {
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.Init(PageIdContaining(mem), npages);
-    span_.BuildFreelist(size, objects_per_span, nullptr, 0, kMaxCacheSize);
+    span_.BuildFreelist(size, objects_per_span, nullptr, 0, kMaxCacheSize,
+                        kSpanAllocTime);
   }
 
   ~RawSpan() { free(span_.start_address()); }

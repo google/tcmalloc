@@ -30,10 +30,10 @@ namespace tcmalloc::tcmalloc_internal {
 namespace {
 
 void FuzzSpan(const std::string& s) {
-  // Extract fuzz input into 5 integers.
+  // Extract fuzz input into 6 integers.
   //
   // TODO(b/271282540): Strongly type input.
-  size_t state[5];
+  size_t state[6];
   if (s.size() != sizeof(state)) {
     return;
   }
@@ -46,6 +46,7 @@ void FuzzSpan(const std::string& s) {
       std::clamp(state[3] & 0xF, Span::kCacheSize, Span::kLargeCacheSize);
   const uint32_t max_span_cache_array_size = std::clamp<uint32_t>(
       state[4] & 0xF, max_span_cache_size, Span::kLargeCacheArraySize);
+  const uint64_t alloc_time = state[5];
 
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {
     // Invalid size class configuration, but ValidSizeClass detected that.
@@ -65,7 +66,7 @@ void FuzzSpan(const std::string& s) {
   Span* span = new (buf) Span();
   span->Init(PageIdContaining(mem), pages);
   span->BuildFreelist(object_size, objects_per_span, nullptr, 0,
-                      max_span_cache_size);
+                      max_span_cache_size, alloc_time);
 
   TC_CHECK_EQ(span->Allocated(), 0);
 
@@ -98,6 +99,13 @@ void FuzzSpan(const std::string& s) {
     //
     // For single object spans, the freelist always stays "empty" as a result.
     TC_CHECK(popped == 1 || !span->FreelistEmpty(object_size));
+  }
+
+  if (!span->UseBitmapForSize(object_size) &&
+      max_span_cache_size == Span::kLargeCacheSize) {
+    TC_CHECK_EQ(span->AllocTime(object_size, max_span_cache_size), alloc_time);
+  } else {
+    TC_CHECK_EQ(span->AllocTime(object_size, max_span_cache_size), 0);
   }
 
   free(mem);

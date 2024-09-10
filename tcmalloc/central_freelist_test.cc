@@ -19,7 +19,9 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -101,9 +103,10 @@ TEST_P(StaticForwarderTest, Simple) {
 
   absl::FixedArray<void*> batch(objects_per_span_);
   const uint32_t max_span_cache_size = StaticForwarder::max_span_cache_size();
+  const uint64_t alloc_time = StaticForwarder::clock_now();
   size_t allocated =
       span->BuildFreelist(object_size_, objects_per_span_, &batch[0],
-                          objects_per_span_, max_span_cache_size);
+                          objects_per_span_, max_span_cache_size, alloc_time);
   ASSERT_EQ(allocated, objects_per_span_);
 
   EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -201,7 +204,7 @@ class StaticForwarderEnvironment {
 
     size_t allocated = span->BuildFreelist(
         object_size_, objects_per_span_, d->batch, batch_size_,
-        StaticForwarder::max_span_cache_size());
+        StaticForwarder::max_span_cache_size(), StaticForwarder::clock_now());
     EXPECT_LE(allocated, objects_per_span_);
 
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -688,6 +691,85 @@ TEST_P(CentralFreeListTest, SpanPriority) {
       e.central_freelist().InsertRange({&objects[span][i], 1});
     }
   }
+}
+
+TEST_P(CentralFreeListTest, SpanLifetime) {
+  TypeParam e(std::get<0>(GetParam()).size, std::get<0>(GetParam()).pages,
+              std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
+
+  const uint32_t max_span_cache_size = e.forwarder().max_span_cache_size();
+  if (max_span_cache_size != Span::kLargeCacheSize) {
+    GTEST_SKIP() << "Skipping test when cache size is small. We do not "
+                    "record lifetime telemetry.";
+  }
+  const size_t object_size =
+      e.central_freelist().forwarder().class_to_size(TypeParam::kSizeClass);
+  if (Span::UseBitmapForSize(object_size)) {
+    GTEST_SKIP() << "Bitmap is used for size class. We do not "
+                    "record lifetime telemetry.";
+  }
+  std::vector<void*> all_objects;
+
+  // Request kNumSpans spans.
+  void* batch[kMaxObjectsToMove];
+  ASSERT_GT(e.objects_per_span(), 0);
+  int got = e.central_freelist().RemoveRange(batch, 1);
+  ASSERT_EQ(got, 1);
+
+  e.forwarder().AdvanceClock(absl::Seconds(1));
+
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            R"(0 ms <      0,  1 ms <      0, 10 ms <      0,100 ms <      0,1000 ms <      1,10000 ms <      0,100000 ms <      0,1000000 ms <      0)"));
+  }
+
+  e.forwarder().AdvanceClock(absl::Seconds(10));
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            R"(0 ms <      0,  1 ms <      0, 10 ms <      0,100 ms <      0,1000 ms <      0,10000 ms <      1,100000 ms <      0,1000000 ms <      0)"));
+  }
+
+  e.forwarder().AdvanceClock(absl::Seconds(100));
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            R"(0 ms <      0,  1 ms <      0, 10 ms <      0,100 ms <      0,1000 ms <      0,10000 ms <      0,100000 ms <      1,1000000 ms <      0)"));
+  }
+
+  e.forwarder().AdvanceClock(absl::Seconds(1000));
+  {
+    std::string buffer(1024 * 1024, '\0');
+    Printer printer(&*buffer.begin(), buffer.size());
+    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    buffer.resize(strlen(buffer.c_str()));
+
+    EXPECT_THAT(
+        buffer,
+        testing::HasSubstr(
+            R"(0 ms <      0,  1 ms <      0, 10 ms <      0,100 ms <      0,1000 ms <      0,10000 ms <      0,100000 ms <      0,1000000 ms <      1)"));
+  }
+
+  e.central_freelist().InsertRange({batch, 1});
 }
 
 TEST_P(CentralFreeListTest, MultipleSpans) {

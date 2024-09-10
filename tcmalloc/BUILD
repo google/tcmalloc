@@ -551,6 +551,7 @@ cc_library(
     deps = [
         ":common_8k_pages",
         "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
     ],

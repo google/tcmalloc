@@ -456,6 +456,15 @@ void DumpStats(Printer* out, int level) {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStats(out);
     }
+
+    out->printf("\n");
+    out->printf("------------------------------------------------\n");
+    out->printf("Central cache freelist: Span lifetime histogram\n");
+    out->printf("Non-cumulative number of spans lifetime a < N\n");
+    out->printf("------------------------------------------------\n");
+    for (int size_class = 1; size_class < kNumClasses; ++size_class) {
+      tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
+    }
 #endif
 
     tc_globals.transfer_cache().Print(out);
@@ -666,6 +675,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
         entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
         tc_globals.central_freelist(size_class)
             .PrintSpanUtilStatsInPbtxt(&entry);
+        tc_globals.central_freelist(size_class)
+            .PrintSpanLifetimeStatsInPbtxt(&entry);
       }
 #endif
     }

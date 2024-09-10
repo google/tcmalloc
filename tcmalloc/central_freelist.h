@@ -23,6 +23,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
@@ -58,6 +59,10 @@ class StaticForwarder {
   static uint32_t max_span_cache_array_size() {
     return Parameters::max_span_cache_array_size();
   }
+  static uint64_t clock_now() { return absl::base_internal::CycleClock::Now(); }
+  static double clock_frequency() {
+    return absl::base_internal::CycleClock::Frequency();
+  }
 
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
@@ -91,7 +96,8 @@ class CentralFreeList {
         first_nonempty_index_(0),
         pages_per_span_(0),
         nonempty_(),
-        use_all_buckets_for_few_object_spans_(false) {}
+        use_all_buckets_for_few_object_spans_(false),
+        lifetime_bucket_bounds_() {}
 
   CentralFreeList(const CentralFreeList&) = delete;
   CentralFreeList& operator=(const CentralFreeList&) = delete;
@@ -123,9 +129,11 @@ class CentralFreeList {
   size_t NumSpansInList(int n) ABSL_LOCKS_EXCLUDED(lock_);
   SpanStats GetSpanStats() const;
 
-  // Reports span utilization histogram stats.
+  // Reports span utilization and lifetime histogram stats.
   void PrintSpanUtilStats(Printer* out);
+  void PrintSpanLifetimeStats(Printer* out);
   void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region);
+  void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion* region);
 
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
@@ -222,6 +230,18 @@ class CentralFreeList {
     counter_.LossyAdd(num);
   }
 
+  static constexpr size_t kLifetimeBuckets = 8;
+  using LifetimeHistogram = size_t[kLifetimeBuckets];
+
+  int LifetimeBucketNum(absl::Duration duration) {
+    int64_t duration_ms = absl::ToInt64Milliseconds(duration);
+    auto it = std::upper_bound(lifetime_bucket_bounds_,
+                               lifetime_bucket_bounds_ + kLifetimeBuckets,
+                               duration_ms);
+    TC_CHECK_NE(it, lifetime_bucket_bounds_);
+    return it - lifetime_bucket_bounds_ - 1;
+  }
+
   // The followings are kept as a StatsCounter so that they can read without
   // acquiring a lock. Updates to these variables are guarded by lock_
   // so writes are performed using LossyAdd for speed, the lock still
@@ -266,6 +286,8 @@ class CentralFreeList {
   HintedTrackerLists<Span, kNumLists> nonempty_ ABSL_GUARDED_BY(lock_);
   bool use_all_buckets_for_few_object_spans_;
 
+  size_t lifetime_bucket_bounds_[kLifetimeBuckets];
+
   ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
@@ -300,6 +322,12 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
                 std::min<size_t>(absl::bit_width(objects_per_span_), kNumLists);
 
   TC_ASSERT(absl::bit_width(objects_per_span_) <= kSpanUtilBucketCapacity);
+
+  lifetime_bucket_bounds_[0] = 0;
+  lifetime_bucket_bounds_[1] = 1;
+  for (int i = 2; i < kLifetimeBuckets; ++i) {
+    lifetime_bucket_bounds_[i] = lifetime_bucket_bounds_[i - 1] * 10;
+  }
 }
 
 template <class Forwarder>
@@ -555,8 +583,10 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
     return 0;
   }
 
-  int result = span->BuildFreelist(object_size_, objects_per_span_, batch, N,
-                                   forwarder_.max_span_cache_size());
+  const uint64_t alloc_time = forwarder_.clock_now();
+  int result =
+      span->BuildFreelist(object_size_, objects_per_span_, batch, N,
+                          forwarder_.max_span_cache_size(), alloc_time);
   TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().
   bool span_empty = result == objects_per_span_;
@@ -637,6 +667,40 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) {
 }
 
 template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer* out) {
+  // We do not log allocation time when bitmap is used for spans.
+  if (Span::UseBitmapForSize(object_size_)) return;
+
+  uint64_t now = forwarder_.clock_now();
+  double frequency = forwarder_.clock_frequency();
+  LifetimeHistogram lifetime_histo{};
+
+  {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    nonempty_.Iter(
+        [&](const Span* s) {
+          const double elapsed = std::max<double>(
+              now - s->AllocTime(size_class_, forwarder_.max_span_cache_size()),
+              0);
+          const absl::Duration lifetime =
+              absl::Milliseconds(elapsed * 1000 / frequency);
+          ++lifetime_histo[LifetimeBucketNum(lifetime)];
+        },
+        0);
+  }
+
+  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    out->printf("%3zu ms < %6zu", lifetime_bucket_bounds_[i],
+                lifetime_histo[i]);
+    if (i < kLifetimeBuckets - 1) {
+      out->printf(",");
+    }
+  }
+  out->printf("\n");
+}
+
+template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
     PbtxtRegion* region) {
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
@@ -651,6 +715,40 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
         region->CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);
     occupancy.PrintI64("value", NumSpansInList(i));
+  }
+}
+
+template <class Forwarder>
+inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
+    PbtxtRegion* region) {
+  // We do not log allocation time when bitmap is used for spans.
+  if (Span::UseBitmapForSize(object_size_)) return;
+
+  uint64_t now = forwarder_.clock_now();
+  double frequency = forwarder_.clock_frequency();
+  LifetimeHistogram lifetime_histo{};
+
+  {
+    absl::base_internal::SpinLockHolder h(&lock_);
+    nonempty_.Iter(
+        [&](const Span* s) {
+          const double elapsed = std::max<double>(
+              now - s->AllocTime(size_class_, forwarder_.max_span_cache_size()),
+              0);
+          const absl::Duration lifetime =
+              absl::Milliseconds(elapsed * 1000 / frequency);
+          ++lifetime_histo[LifetimeBucketNum(lifetime)];
+        },
+        0);
+  }
+
+  for (size_t i = 0; i < kLifetimeBuckets; ++i) {
+    PbtxtRegion histogram = region->CreateSubRegion("span_lifetime_histogram");
+    histogram.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
+    histogram.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
+                                           ? lifetime_bucket_bounds_[i]
+                                           : lifetime_bucket_bounds_[i + 1]));
+    histogram.PrintI64("value", lifetime_histo[i]);
   }
 }
 

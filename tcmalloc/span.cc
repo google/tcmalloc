@@ -18,6 +18,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstring>
 
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
@@ -232,7 +233,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
-                        uint32_t max_cache_size) {
+                        uint32_t max_cache_size, uint64_t alloc_time) {
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
@@ -269,6 +270,11 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
   // Then, push as much as we can into the cache_.
   TC_ASSERT_GE(max_cache_size, kCacheSize);
   TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
+
+  if (max_cache_size == Span::kLargeCacheSize) {
+    memcpy(&cache_[Span::kLargeCacheSize], &alloc_time, sizeof(alloc_time));
+  }
+
   int cache_size = 0;
   for (; idx < idxEnd && cache_size < max_cache_size; idx += idxStep) {
     cache_[cache_size] = idx;

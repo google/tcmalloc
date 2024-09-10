@@ -22,6 +22,7 @@
 
 #include "gmock/gmock.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
@@ -39,7 +40,17 @@ class FakeStaticForwarder {
     num_objects_to_move_ = num_objects_to_move;
     use_large_spans_ = use_large_spans;
     TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
+    clock_ = 1234;
   }
+  uint64_t clock_now() const { return clock_; }
+  double clock_frequency() const {
+    return absl::ToDoubleNanoseconds(absl::Seconds(2));
+  }
+  void AdvanceClock(absl::Duration d) {
+    clock_ += absl::ToDoubleSeconds(d) * clock_frequency();
+  }
+  void ResetClock() { clock_ = 1234; }
+
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
   size_t num_objects_to_move() const { return num_objects_to_move_; }
@@ -129,6 +140,7 @@ class FakeStaticForwarder {
   Length pages_;
   size_t num_objects_to_move_;
   bool use_large_spans_;
+  uint64_t clock_;
 };
 
 class RawMockStaticForwarder : public FakeStaticForwarder {

@@ -42,6 +42,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+constexpr uint64_t kSpanAllocTime = 1234;
+
 class RawSpan {
  public:
   void Init(size_t size_class, uint32_t max_cache_array_size,
@@ -59,7 +61,8 @@ class RawSpan {
 
     span_ = new (buf_) Span();
     span_->Init(PageIdContaining(mem_), npages);
-    span_->BuildFreelist(size, objects_per_span, nullptr, 0, max_cache_size);
+    span_->BuildFreelist(size, objects_per_span, nullptr, 0, max_cache_size,
+                         kSpanAllocTime);
   }
 
   ~RawSpan() {
@@ -176,6 +179,16 @@ TEST_P(SpanTest, FreelistBasic) {
   }
 }
 
+TEST_P(SpanTest, AllocTime) {
+  Span& span_ = raw_span_.span();
+  if (span_.UseBitmapForSize(size_) ||
+      max_cache_size_ != Span::kLargeCacheSize) {
+    EXPECT_EQ(span_.AllocTime(size_, max_cache_size_), 0);
+  } else {
+    EXPECT_EQ(span_.AllocTime(size_, max_cache_size_), kSpanAllocTime);
+  }
+}
+
 TEST_P(SpanTest, FreelistRandomized) {
   Span& span_ = raw_span_.span();
 
@@ -205,6 +218,9 @@ TEST_P(SpanTest, FreelistRandomized) {
       }
     }
   }
+
+  EXPECT_TRUE(span_.AllocTime(size_, max_cache_size_) == 0 ||
+              span_.AllocTime(size_, max_cache_size_) == kSpanAllocTime);
   // Now pop everything what's there.
   for (;;) {
     size_t n = span_.FreelistPopBatch(batch, batch_size_, size_);
