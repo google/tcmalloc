@@ -155,6 +155,23 @@ TEST(ProfileBuilderTest, LocationTableNoMappings) {
   EXPECT_EQ(location.address(), kAddress);
 }
 
+TEST(ProfileBuilderTest, DocURL) {
+  // Try good and bad URLs.
+  constexpr absl::string_view good1 = "http://example.com/foo";
+  constexpr absl::string_view good2 = "https://example.com/foo";
+  constexpr absl::string_view good3 = "";
+  constexpr absl::string_view bad = "example.com/foo";
+  for (absl::string_view url : {good1, good2, good3, bad}) {
+    ProfileBuilder b;
+    absl::Status error = b.SetDocURL(url);
+    if (url == bad) {
+      EXPECT_FALSE(error.ok()) << url;
+    } else {
+      EXPECT_TRUE(error.ok()) << url;
+    }
+  }
+}
+
 TEST(ProfileBuilderTest, LocationTable) {
   ProfileBuilder builder;
 

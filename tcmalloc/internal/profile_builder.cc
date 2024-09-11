@@ -22,6 +22,8 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/hash/hash.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tcmalloc/internal/pageflags.h"
@@ -494,8 +496,8 @@ int ProfileBuilder::AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
   return mapping_id;
 }
 
-static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
-                                     ProfileBuilder* builder) {
+static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
+                                             ProfileBuilder* builder) {
   TC_CHECK_NE(builder, nullptr);
   perftools::profiles::Profile& converted = builder->profile();
   perftools::profiles::ValueType* period_type = converted.mutable_period_type();
@@ -631,6 +633,7 @@ static void MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
       sample.add_value(0);
     }
   });
+  return absl::OkStatus();
 }
 
 std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
@@ -644,7 +647,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   builder.AddCurrentMappings();
 
   if (profile.Type() == ProfileType::kLifetimes) {
-    MakeLifetimeProfileProto(profile, &builder);
+    absl::Status error = MakeLifetimeProfileProto(profile, &builder);
+    if (!error.ok()) {
+      return error;
+    }
     return std::move(builder).Finalize();
   }
 
@@ -673,7 +679,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   period_type.set_type(space_id);
   period_type.set_unit(bytes_id);
   converted.set_drop_frames(builder.InternString(kProfileDropFrames));
-
   converted.set_duration_nanos(absl::ToInt64Nanoseconds(profile.Duration()));
 
   {
@@ -851,6 +856,16 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   }
 
   return std::move(builder).Finalize();
+}
+
+absl::Status ProfileBuilder::SetDocURL(absl::string_view url) {
+  if (!url.empty() && !absl::StartsWith(url, "http://") &&
+      !absl::StartsWith(url, "https://")) {
+    return absl::InternalError(
+        absl::StrCat("setting invalid profile doc URL '", url, "'"));
+  }
+  profile_->set_doc_url(InternString(url));
+  return absl::OkStatus();
 }
 
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(

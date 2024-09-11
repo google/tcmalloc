@@ -27,6 +27,7 @@
 #include "tcmalloc/internal/profile.pb.h"
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
@@ -55,6 +56,9 @@ class ProfileBuilder {
   int AddMapping(uintptr_t memory_start, uintptr_t memory_limit,
                  uintptr_t file_offset, absl::string_view filename,
                  absl::string_view build_id);
+
+  // Add documentation URL.
+  absl::Status SetDocURL(absl::string_view url);
 
   // Interns sv in the profile's string table and returns the resulting ID.
   int InternString(absl::string_view sv);
