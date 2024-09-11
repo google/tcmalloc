@@ -133,7 +133,7 @@ struct SampleHashWithSubFields {
 };
 
 using SampleMergedMap =
-    absl::flat_hash_map<const tcmalloc::Profile::Sample, SampleMergedData,
+    absl::flat_hash_map<tcmalloc::Profile::Sample, SampleMergedData,
                         SampleHashWithSubFields, SampleEqWithSubFields>;
 
 SampleMergedMap MergeProfileSamplesAndMaybeGetResidencyInfo(
