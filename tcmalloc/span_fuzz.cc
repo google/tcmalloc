@@ -44,8 +44,12 @@ void FuzzSpan(const std::string& s) {
   const size_t num_to_move = state[2];
   const uint32_t max_span_cache_size =
       std::clamp(state[3] & 0xF, Span::kCacheSize, Span::kLargeCacheSize);
-  const uint32_t max_span_cache_array_size = std::clamp<uint32_t>(
-      state[4] & 0xF, max_span_cache_size, Span::kLargeCacheArraySize);
+
+  // Use a larger cache array only when we are using a maximum allowed cache
+  // size.
+  const uint32_t max_span_cache_array_size =
+      max_span_cache_size == Span::kLargeCacheSize ? Span::kLargeCacheArraySize
+                                                   : max_span_cache_size;
   const uint64_t alloc_time = state[5];
 
   if (!SizeMap::IsValidSizeClass(object_size, num_pages, num_to_move)) {

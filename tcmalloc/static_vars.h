@@ -249,7 +249,10 @@ inline void Static::InitIfNecessary() {
 inline Span* Span::New(PageId p, Length len) {
   const uint32_t max_span_cache_array_size =
       Parameters::max_span_cache_array_size();
-  TC_ASSERT_LE(Parameters::max_span_cache_size(), max_span_cache_array_size);
+  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
+             max_span_cache_array_size == Span::kCacheSize) ||
+            (Parameters::max_span_cache_size() == kLargeCacheSize &&
+             max_span_cache_array_size == Span::kLargeCacheArraySize));
   Span* result = Static::span_allocator().NewWithSize(
       Span::CalcSizeOf(max_span_cache_array_size),
       Span::CalcAlignOf(max_span_cache_array_size));
@@ -261,7 +264,10 @@ inline void Span::Delete(Span* span) {
 #ifndef NDEBUG
   const uint32_t max_span_cache_array_size =
       Parameters::max_span_cache_array_size();
-  TC_ASSERT_LE(Parameters::max_span_cache_size(), max_span_cache_array_size);
+  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
+             max_span_cache_array_size == Span::kCacheSize) ||
+            (Parameters::max_span_cache_size() == kLargeCacheSize &&
+             max_span_cache_array_size == Span::kLargeCacheArraySize));
   const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
 
   // In debug mode, trash the contents of deleted Spans
