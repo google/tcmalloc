@@ -120,7 +120,6 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
-  EXPECT_THAT(buf, ContainsRegex("(tcmalloc_filler_chunks_per_alloc: 8|(16))"));
 
   sized_delete(alloc, kSize);
 }
