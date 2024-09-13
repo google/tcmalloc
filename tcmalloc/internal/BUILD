@@ -593,7 +593,7 @@ cc_library(
     ],
     hdrs = ["percpu.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    # See b/299621672 for detials.
+    # See b/299621672 for details.
     linkstatic = 1,
     textual_hdrs = [
         "percpu_rseq_aarch64.S",
