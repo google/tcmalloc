@@ -97,6 +97,8 @@ extern "C" void free_aligned_sized(void* ptr, size_t align,
                                    size_t size) noexcept;
 #endif
 
+extern "C" void* reallocarray(void* ptr, size_t nmemb, size_t size);
+
 #if !defined(__GLIBC__)
 extern "C" int malloc_trim(size_t pad);
 #endif
