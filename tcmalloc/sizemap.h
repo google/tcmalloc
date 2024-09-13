@@ -45,10 +45,6 @@ extern const SizeClasses kReuseSizeClasses;
 // Size-class information + mapping
 class SizeMap {
  public:
-  // Min allocation size for cold. Once more applications can provide cold hints
-  // with PGHO, we can consider adding more size classes for cold to increase
-  // cold coverage fleet-wide.
-  static constexpr size_t kMinAllocSizeForCold = 4096;
   static constexpr int kLargeSize = 1024;
   static constexpr int kLargeSizeAlignment = 128;
 

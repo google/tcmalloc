@@ -857,7 +857,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
         (ConfigureSizeClassMaxCapacity()
              ? tc_globals.sizemap().max_capacity(size_class)
              : 133 * kWiderSlabMultiplier);
-    const uint16_t kLargeInterestingObjectDepth = 53 * kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth = 28 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {

@@ -47,7 +47,7 @@ TEST(ColdSizeClassTest, ColdSizeClasses) {
   std::vector<size_t> allowed_alloc_size;
   std::vector<size_t> expected_cold_size_classes;
   for (int i = 0; i < classes.size(); ++i) {
-    if (classes[i].size >= SizeMap::kMinAllocSizeForCold) {
+    if (Span::IsNonIntrusive(classes[i].size)) {
       allowed_alloc_size.push_back(classes[i].size);
       expected_cold_size_classes.push_back(i + kExpandedClassesStart);
     }
@@ -75,9 +75,16 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   const auto& classes = kSizeClasses.classes;
   size_map.Init(classes);
 
+  size_t min_alloc_for_cold = 0;
+  for (int i = 0; i < classes.size(); ++i) {
+    if (Span::IsNonIntrusive(classes[i].size)) {
+      min_alloc_for_cold = classes[i].size;
+      break;
+    }
+  }
+
   size_t size_before_min_alloc_for_cold = 0;
-  auto it = std::lower_bound(classes.begin(), classes.end(),
-                             SizeMap::kMinAllocSizeForCold,
+  auto it = std::lower_bound(classes.begin(), classes.end(), min_alloc_for_cold,
                              [](const SizeClassInfo& lhs, const size_t rhs) {
                                return lhs.size < rhs;
                              });

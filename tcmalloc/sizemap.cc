@@ -102,12 +102,6 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     TC_LOG("size %v class too big %v", size, kMaxSize);
     return false;
   }
-  // Verify Span does not use intrusive list which triggers memory accesses
-  // for sizes suitable for cold classes.
-  if (size >= kMinAllocSizeForCold && !Span::IsNonIntrusive(size)) {
-    TC_LOG("size %v is suitable for cold classes but is intrusive", size);
-    return false;
-  }
   // Check required alignment
   const size_t alignment = size > SizeMap::kLargeSize
                                ? kLargeSizeAlignment
@@ -273,9 +267,7 @@ bool SizeMap::Init(absl::Span<const SizeClassInfo> size_classes) {
 
   for (int c = kExpandedClassesStart; c < kNumClasses; c++) {
     size_t max_size_in_class = class_to_size_[c];
-    if (max_size_in_class == 0 || max_size_in_class < kMinAllocSizeForCold) {
-      // Resetting next_size to the last size class before
-      // kMinAllocSizeForCold + kAlignment.
+    if (max_size_in_class == 0 || !Span::IsNonIntrusive(max_size_in_class)) {
       next_size = max_size_in_class + static_cast<size_t>(kAlignment);
       continue;
     }
