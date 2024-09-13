@@ -1115,6 +1115,7 @@ extern "C" ABSL_CACHELINE_ALIGNED void* TCMallocInternalNewNothrow(
 // - libc++ provides a weak default `__size_returning_new(...)` which is
 //   implemented in terms of `{::operator new(...), n}`
 // - tcmalloc provides strong implementations of `__size_returning_new`
+
 extern "C" ABSL_CACHELINE_ALIGNED ABSL_ATTRIBUTE_SECTION(google_malloc)
 __sized_ptr_t __size_returning_new(size_t size) {
   return fast_alloc(size, CppPolicy().SizeReturning());
