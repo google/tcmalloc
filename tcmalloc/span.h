@@ -222,6 +222,8 @@ class Span final : public SpanList::Elem {
   static constexpr size_t kCacheSize = 4;
   static constexpr size_t kLargeCacheSize = 8;
   static constexpr size_t kLargeCacheArraySize = 12;
+  static constexpr size_t kMaxCacheBits = 4;
+  static_assert(kLargeCacheSize <= (1 << kMaxCacheBits) - 1);
 
   static std::align_val_t CalcAlignOf(uint32_t max_cache_array_size);
   static size_t CalcSizeOf(uint32_t max_cache_array_size);
@@ -249,7 +251,7 @@ class Span final : public SpanList::Elem {
     uint16_t freelist_;
   };
   std::atomic<uint16_t> allocated_;  // Number of non-free objects
-  uint8_t cache_size_;
+  uint8_t cache_size_ : kMaxCacheBits;
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   uint8_t sampled_ : 1;   // Sampled object?
