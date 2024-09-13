@@ -1106,6 +1106,8 @@ cc_test(
     srcs = ["segv_handler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
+    tags = [
+    ],
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
