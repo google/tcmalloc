@@ -223,6 +223,7 @@ class Span final : public SpanList::Elem {
   static constexpr size_t kLargeCacheSize = 8;
   static constexpr size_t kLargeCacheArraySize = 12;
   static constexpr size_t kMaxCacheBits = 4;
+  static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
   static_assert(kLargeCacheSize <= (1 << kMaxCacheBits) - 1);
 
   static std::align_val_t CalcAlignOf(uint32_t max_cache_array_size);
@@ -261,7 +262,7 @@ class Span final : public SpanList::Elem {
 
   static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
 
-  PageId first_page_;  // Starting page number.
+  uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
   Length num_pages_;   // Number of pages in span.
 
   union {
@@ -321,7 +322,7 @@ inline uint64_t Span::AllocTime(size_t size,
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
   TC_ASSERT_EQ(num_pages_, Length(1));
-  TC_ASSERT_EQ(start, first_page_.start_uintptr());
+  TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
   ObjIdx* ptr = reinterpret_cast<ObjIdx*>(off);
@@ -335,12 +336,12 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
   TC_ASSERT_EQ(num_pages_, Length(1));
-  TC_ASSERT_EQ(PageIdContaining(ptr), first_page_);
+  TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
   TC_ASSERT_NE(idx, kListEnd);
   TC_ASSERT_EQ(idx, off);
-  TC_ASSERT_EQ(p, first_page_.start_uintptr() +
+  TC_ASSERT_EQ(p, first_page().start_uintptr() +
                       (static_cast<uintptr_t>(idx) << kAlignmentShift));
   return idx;
 }
@@ -395,7 +396,7 @@ inline Span::ObjIdx Span::OffsetToIdx(uintptr_t offset, uint32_t reciprocal) {
 inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
                                          uint32_t reciprocal) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
-  uintptr_t off = static_cast<uint32_t>(p - first_page_.start_uintptr());
+  uintptr_t off = static_cast<uint32_t>(p - first_page().start_uintptr());
   ObjIdx idx = OffsetToIdx(off, reciprocal);
   TC_ASSERT_EQ(BitmapIdxToPtr(idx, size), ptr);
   return idx;
@@ -428,20 +429,21 @@ inline SampledAllocation* Span::sampled_allocation() const {
 
 inline bool Span::sampled() const { return sampled_; }
 
-inline PageId Span::first_page() const { return first_page_; }
+inline PageId Span::first_page() const { return PageId(first_page_); }
 
 inline PageId Span::last_page() const {
-  return first_page_ + num_pages_ - Length(1);
+  return first_page() + num_pages_ - Length(1);
 }
 
 inline void Span::set_first_page(PageId p) {
   TC_ASSERT_GT(p, PageId{0});
-  first_page_ = p;
+  TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
+  first_page_ = p.index();
 }
 
 inline void* Span::start_address() const {
-  TC_ASSERT_GT(first_page_, PageId{0});
-  return first_page_.start_addr();
+  TC_ASSERT_GT(first_page(), PageId{0});
+  return first_page().start_addr();
 }
 
 inline Length Span::num_pages() const { return num_pages_; }
@@ -477,7 +479,8 @@ inline void Span::Init(PageId p, Length n) {
   // initialized.
   new (this) Span();
 #endif
-  first_page_ = p;
+  TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
+  first_page_ = p.index();
   num_pages_ = n;
   location_ = IN_USE;
   sampled_ = 0;

@@ -128,7 +128,7 @@ double Span::Fragmentation(size_t object_size) const {
 //
 
 void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
-  uintptr_t off = first_page_.start_uintptr() + idx * size;
+  uintptr_t off = first_page().start_uintptr() + idx * size;
   return reinterpret_cast<ObjIdx*>(off);
 }
 
@@ -168,7 +168,7 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
   // TODO(b/304135905):  Complete experiment and update kCacheSize.
   ASSUME(csize <= kLargeCacheSize);
   auto cache_reads = csize < N ? csize : N;
-  const uintptr_t span_start = first_page_.start_uintptr();
+  const uintptr_t span_start = first_page().start_uintptr();
   for (; result < cache_reads; result++) {
     batch[result] = IdxToPtr(cache_[csize - result - 1], size, span_start);
   }
@@ -243,7 +243,7 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
   }
 
   // First, push as much as we can into the batch.
-  const uintptr_t start = first_page_.start_uintptr();
+  const uintptr_t start = first_page().start_uintptr();
   char* ptr = reinterpret_cast<char*>(start);
   int result = N <= count ? N : count;
   for (int i = 0; i < result; ++i) {
