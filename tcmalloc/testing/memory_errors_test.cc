@@ -138,14 +138,15 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
   auto RepeatUnderflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
       auto buf = std::make_unique<char[]>(kPageSize / 2);
-      benchmark::DoNotOptimize(buf);
+      volatile char* buf_minus_1 = buf.get() - 1;
+      benchmark::DoNotOptimize(buf_minus_1);
       // TCMalloc may crash without a GWP-ASan report if we underflow a regular
       // allocation.  Make sure we have a guarded allocation.
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf.get())) {
         if (write_test) {
-          buf[-1] = 'A';
+          *buf_minus_1 = 'A';
         } else {
-          volatile char sink = buf[-1];
+          volatile char sink = *buf_minus_1;
           benchmark::DoNotOptimize(sink);
         }
       }
