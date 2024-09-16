@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -63,26 +64,70 @@ TEST(InternalLogging, MessageFormatting) {
 }
 
 TEST(Printer, RequiredSpace) {
-  const char kChunk[] = "0123456789";
+  constexpr absl::string_view kChunk = "0123456789";
   std::string expected;
 
   for (int i = 0; i < 10; i++) {
-    int length = strlen(kChunk) * i + 1;
+    int length = kChunk.size() * i + 1;
     std::unique_ptr<char[]> buf(new char[length]);
     Printer printer(buf.get(), length);
+
+    auto get_buf = [&]() {
+      return absl::string_view(
+          buf.get(), std::min<int>(length - 1, printer.SpaceRequired()));
+    };
 
     for (int j = 0; j < i; j++) {
       printer.printf("%s", kChunk);
     }
-    EXPECT_EQ(buf.get(), expected);
+    EXPECT_EQ(get_buf(), expected);
     EXPECT_EQ(length - 1, printer.SpaceRequired());
 
     // Go past the end of the buffer.  This should not overrun or affect the
     // existing contents of buf, but we should see SpaceRequired tick up.
     printer.printf("%s", kChunk);
-    EXPECT_EQ(buf.get(), expected);
-    EXPECT_EQ(length - 1 + strlen(kChunk), printer.SpaceRequired());
+    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(length - 1 + kChunk.size(), printer.SpaceRequired());
 
+    printer.printf("%s", kChunk);
+    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(length - 1 + 2 * kChunk.size(), printer.SpaceRequired());
+
+    expected.append(kChunk);
+  }
+}
+
+TEST(Printer, RequiredSpacePieces) {
+  constexpr absl::string_view kChunk = "0123456789";
+  std::string expected;
+
+  for (int i = 0; i < 10; i++) {
+    int length = 2 * kChunk.size() * i + 1;
+    std::unique_ptr<char[]> buf(new char[length]);
+    Printer printer(buf.get(), length);
+
+    auto get_buf = [&]() {
+      return absl::string_view(
+          buf.get(), std::min<int>(length - 1, printer.SpaceRequired()));
+    };
+
+    for (int j = 0; j < i; j++) {
+      printer.Append(kChunk, kChunk);
+    }
+    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(length - 1, printer.SpaceRequired());
+
+    // Go past the end of the buffer.  This should not overrun or affect the
+    // existing contents of buf, but we should see SpaceRequired tick up.
+    printer.Append(kChunk, kChunk);
+    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(length - 1 + 2 * kChunk.size(), printer.SpaceRequired());
+
+    printer.Append(kChunk, kChunk);
+    EXPECT_EQ(get_buf(), expected);
+    EXPECT_EQ(length - 1 + 4 * kChunk.size(), printer.SpaceRequired());
+
+    expected.append(kChunk);
     expected.append(kChunk);
   }
 }

@@ -261,10 +261,6 @@ class Printer {
 
   template <typename... Args>
   void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
-    TC_ASSERT_GE(left_, 0);
-    if (left_ <= 0) {
-      return;
-    }
     AllocationGuard enforce_no_alloc;
     const int r = absl::SNPrintF(buf_, left_, format, args...);
     if (r < 0) {
@@ -291,11 +287,6 @@ class Printer {
 
  private:
   void AppendPieces(std::initializer_list<absl::string_view> pieces) {
-    TC_ASSERT_GE(left_, 0);
-    if (left_ <= 0) {
-      return;
-    }
-
     size_t total_size = 0;
     for (const absl::string_view piece : pieces) total_size += piece.size();
 

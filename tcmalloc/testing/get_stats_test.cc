@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -347,6 +348,36 @@ Enabled: (0|1)
   EXPECT_THAT(pbtxt,
               ContainsRegex(R"(selsan { status: SELSAN_(ENABLED|DISABLED)})"));
 #endif  // #ifndef TCMALLOC_INTERNAL_SELSAN
+}
+
+TEST_F(GetStatsTest, RequiredBufferSizes) {
+  if (&MallocExtension_Internal_GetStatsInPbtxt == nullptr) {
+    GTEST_SKIP() << "Not linked against malloc";
+  }
+
+  std::string stats;
+  const int kLargeBufferSize = 3 << 20;
+  const int kSmallBufferSize = 16 << 10;
+  std::string buf;
+  buf.resize(kLargeBufferSize);
+
+  const int actual_large =
+      MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kLargeBufferSize);
+  // This should be enough space.
+  EXPECT_LE(actual_large, kLargeBufferSize);
+
+  const int actual_small =
+      MallocExtension_Internal_GetStatsInPbtxt(&buf[0], kSmallBufferSize);
+  // But the small buffer will probably overflow.  Relax test if we don't have
+  // per-CPU caches or HPAA.
+  if (MallocExtension::PerCpuCachesActive() ||
+      MallocExtension::GetNumericProperty("tcmalloc.page_algorithm")
+              .value_or(0) == 1) {
+    EXPECT_GT(actual_small, kSmallBufferSize);
+  }
+
+  // The required bytes should be similar.
+  EXPECT_LE(std::abs(actual_large - actual_small), 1000);
 }
 
 }  // namespace
