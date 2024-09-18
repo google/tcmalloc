@@ -7,7 +7,7 @@ delete(size,align)       -   -   6   -    5   -   -    -   -   -     3
 malloc                   -   -   5   -    6   -   -    -   1   -     2
 new                      -   -   4   -    5   -   -    -   1   -     2
 new(align)               -   -   6   -    6   -   -    -   1   -     2
-new(align)->size         -   -   6   -    7   -   1    1   1   1     2
+new(align)->size         -   -   6   -    7   -   -    -   1   -     2
 new(align,cold)->size    -   -   6   -    8   -   -    -   1   -     2
 new(align,nothrow)       -   -   6   -    6   -   -    -   1   -     2
 new(cold)->size          -   -   4   -    7   -   1    1   1   1     2
