@@ -226,6 +226,12 @@ class Span final : public SpanList::Elem {
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
   static_assert(kLargeCacheSize <= (1 << kMaxCacheBits) - 1);
 
+  // When central freelist tracks a span, that span is assured to consist of <
+  // kLargeSpanLength number of pages. This can allows us to record number of
+  // pages in that span in fewer (i.e. kMaxNumPageBits) bits.
+  static constexpr size_t kMaxNumPageBits = 6;
+  static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
+
   static std::align_val_t CalcAlignOf(uint32_t max_cache_array_size);
   static size_t CalcSizeOf(uint32_t max_cache_array_size);
   uint64_t AllocTime(size_t size, uint32_t max_span_cache_size) const;
@@ -489,6 +495,7 @@ inline void Span::Init(PageId p, Length n) {
 }
 
 inline bool Span::IsValidSizeClass(size_t size, size_t pages) {
+  if (Length(pages) > kLargeSpanLength) return false;
   if (Span::UseBitmapForSize(size)) {
     size_t objects = Length(pages).in_bytes() / size;
     return objects <= kBitmapSize;

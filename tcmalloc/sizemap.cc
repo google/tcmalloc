@@ -114,8 +114,8 @@ bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
     TC_LOG("pages should not be 0");
     return false;
   }
-  if (pages >= 255) {
-    TC_LOG("pages %v limited to 254", pages);
+  if (pages > 32) {
+    TC_LOG("pages %v limited to 32", pages);
     return false;
   }
   const size_t objects_per_span = Length(pages).in_bytes() / size;

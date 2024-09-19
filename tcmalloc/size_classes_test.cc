@@ -91,7 +91,7 @@ TEST_F(RunTimeSizeClassesTest, SpanPages) {
   }
 }
 
-TEST_F(RunTimeSizeClassesTest, ValidateSufficientBitmapCapacity) {
+TEST_F(RunTimeSizeClassesTest, ValidatePagesAndBitmapCapacity) {
   for (int c = 1; c < kNumClasses; ++c) {
     const size_t max_size_in_class = m_.class_to_size(c);
     if (max_size_in_class == 0) {
