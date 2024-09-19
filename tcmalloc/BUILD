@@ -984,7 +984,6 @@ cc_test(
         "noasan",
         "nomsan",
         "notsan",
-        "noubsan",
     ],
     deps = [
         ":common_8k_pages",

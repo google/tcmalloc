@@ -950,7 +950,6 @@ create_tcmalloc_testsuite(
         "noasan",
         "nomsan",
         "notsan",
-        "noubsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
