@@ -37,22 +37,13 @@ namespace tcmalloc_internal {
 // Caller must use external synchronization if used
 // from multiple threads.
 //
-// With 512K average sample step (the default):
+// With 512K average sample step:
 //  the probability of sampling a 4K allocation is about 0.00778
 //  the probability of sampling a 1MB allocation is about 0.865
 //  the probability of sampling a 1GB allocation is about 1.00000
 // In general, the probability of sampling is an allocation of size X
-// given a flag value of Y (default 1M) is:
+// given a flag value of Y is:
 //  1 - e^(-X/Y)
-//
-// With 128K average sample step:
-//  the probability of sampling a 1MB allocation is about 0.99966
-//  the probability of sampling a 1GB allocation is about 1.0
-//  (about 1 - 2**(-26))
-// With 1M average sample step:
-//  the probability of sampling a 4K allocation is about 0.00390
-//  the probability of sampling a 1MB allocation is about 0.632
-//  the probability of sampling a 1GB allocation is about 1.0
 //
 // The sampler works by representing memory as a long stream from
 // which allocations are taken. Some of the bytes in this stream are
