@@ -109,7 +109,19 @@ TEST_F(GetStatsTest, Pbtxt) {
       buf,
       HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 300000000000"));
 #endif
-
+#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_cache_demand_release_short_interval_ns: 0"));
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_cache_demand_release_long_interval_ns: 0"));
+#else
+  EXPECT_THAT(
+      buf, HasSubstr(
+               "tcmalloc_cache_demand_release_short_interval_ns: 60000000000"));
+  EXPECT_THAT(
+      buf, HasSubstr(
+               "tcmalloc_cache_demand_release_long_interval_ns: 300000000000"));
+#endif
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   if (Parameters::huge_region_demand_based_release()) {
     EXPECT_THAT(buf,
@@ -136,6 +148,8 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
+  Parameters::set_cache_demand_release_short_interval(absl::Seconds(4));
+  Parameters::set_cache_demand_release_long_interval(absl::Seconds(5));
 
   auto using_hpaa = [](absl::string_view sv) {
     return absl::StrContains(sv, "HugePageAwareAllocator");
@@ -204,6 +218,14 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_long_interval_ns: 3000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_cache_demand_release_short_interval_ns: 4000000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
   }
 
   Parameters::set_hpaa_subrelease(true);
@@ -217,6 +239,10 @@ TEST_F(GetStatsTest, Parameters) {
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
       absl::Milliseconds(180375));
+  Parameters::set_cache_demand_release_short_interval(
+      absl::Milliseconds(180250));
+  Parameters::set_cache_demand_release_long_interval(
+      absl::Milliseconds(240375));
   Parameters::set_huge_cache_demand_based_release(true);
 
   {
@@ -252,7 +278,14 @@ TEST_F(GetStatsTest, Parameters) {
         buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_long_interval 3m0.375s)"));
-
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_cache_demand_release_short_interval 3m0.25s)"));
+    EXPECT_THAT(
+        buf,
+        HasSubstr(
+            R"(PARAMETER tcmalloc_cache_demand_release_long_interval 4m0.375s)"));
     if (using_hpaa(buf)) {
       EXPECT_THAT(pbtxt, HasSubstr(R"(using_hpaa_subrelease: true)"));
     }
@@ -275,6 +308,14 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_skip_subrelease_long_interval_ns: 180375000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_cache_demand_release_short_interval_ns: 180250000000)"));
+    EXPECT_THAT(
+        pbtxt,
+        HasSubstr(
+            R"(tcmalloc_cache_demand_release_long_interval_ns: 240375000000)"));
   }
 }
 

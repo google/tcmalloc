@@ -184,6 +184,18 @@ class Parameters {
 
   static absl::Duration filler_skip_subrelease_long_interval();
 
+  static void set_cache_demand_release_short_interval(absl::Duration value) {
+    TCMalloc_Internal_SetHugeCacheDemandReleaseShortInterval(value);
+  }
+
+  static absl::Duration cache_demand_release_short_interval();
+
+  static void set_cache_demand_release_long_interval(absl::Duration value) {
+    TCMalloc_Internal_SetHugeCacheDemandReleaseLongInterval(value);
+  }
+
+  static absl::Duration cache_demand_release_long_interval();
+
   static bool per_cpu_caches_dynamic_slab_enabled() {
     return per_cpu_caches_dynamic_slab_.load(std::memory_order_relaxed);
   }
@@ -230,6 +242,10 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
+      absl::Duration v);
+  friend void ::TCMalloc_Internal_SetHugeCacheDemandReleaseShortInterval(
+      absl::Duration v);
+  friend void ::TCMalloc_Internal_SetHugeCacheDemandReleaseLongInterval(
       absl::Duration v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabEnabled(bool v);
   friend void ::TCMalloc_Internal_SetPerCpuCachesDynamicSlabGrowThreshold(

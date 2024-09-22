@@ -429,9 +429,24 @@ void FuzzHPAA(const std::string& s) {
               i += size;
               break;
             }
-            case 8:
+            case 8: {
+              // Flips the settings used by demand-based release in HugeCache:
+              // actual_value[0] - release enabled
+              // actual_value[1:16] - interval_1
+              // actual_value[17:32] - interval_2
               forwarder.set_huge_cache_demand_based_release(actual_value & 0x1);
+              if (forwarder.huge_cache_demand_based_release()) {
+                const uint64_t interval_1 = (actual_value >> 1) & 0xffff;
+                const uint64_t interval_2 = (actual_value >> 17) & 0xffff;
+                forwarder.set_cache_demand_release_long_interval(
+                    interval_1 >= interval_2 ? absl::Nanoseconds(interval_1)
+                                             : absl::Nanoseconds(interval_2));
+                forwarder.set_cache_demand_release_short_interval(
+                    interval_1 >= interval_2 ? absl::Nanoseconds(interval_2)
+                                             : absl::Nanoseconds(interval_1));
+              }
               break;
+            }
           }
           break;
         }

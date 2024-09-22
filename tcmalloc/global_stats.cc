@@ -551,6 +551,12 @@ void DumpStats(Printer* out, int level) {
     out->printf("PARAMETER tcmalloc_skip_subrelease_long_interval %s\n",
                 absl::FormatDuration(
                     Parameters::filler_skip_subrelease_long_interval()));
+    out->printf("PARAMETER tcmalloc_cache_demand_release_short_interval %s\n",
+                absl::FormatDuration(
+                    Parameters::cache_demand_release_short_interval()));
+    out->printf(
+        "PARAMETER tcmalloc_cache_demand_release_long_interval %s\n",
+        absl::FormatDuration(Parameters::cache_demand_release_long_interval()));
     out->printf("PARAMETER tcmalloc_release_partial_alloc_pages %d\n",
                 Parameters::release_partial_alloc_pages() ? 1 : 0);
     out->printf("PARAMETER tcmalloc_huge_cache_demand_based_release %d\n",
@@ -756,6 +762,12 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   region.PrintI64("tcmalloc_skip_subrelease_long_interval_ns",
                   absl::ToInt64Nanoseconds(
                       Parameters::filler_skip_subrelease_long_interval()));
+  region.PrintI64("tcmalloc_cache_demand_release_short_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::cache_demand_release_short_interval()));
+  region.PrintI64("tcmalloc_cache_demand_release_long_interval_ns",
+                  absl::ToInt64Nanoseconds(
+                      Parameters::cache_demand_release_long_interval()));
   region.PrintBool("tcmalloc_release_partial_alloc_pages",
                    Parameters::release_partial_alloc_pages());
   region.PrintBool("tcmalloc_huge_cache_demand_based_release",

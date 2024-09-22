@@ -580,6 +580,58 @@ void MallocExtension::SetSkipSubreleaseLongInterval(absl::Duration value) {
 #endif
 }
 
+absl::Duration MallocExtension::GetCacheDemandReleaseShortInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetCacheDemandReleaseShortInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetCacheDemandReleaseShortInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetCacheDemandReleaseShortInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetCacheDemandReleaseShortInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetCacheDemandReleaseShortInterval(value);
+#else
+  (void)value;
+#endif
+}
+
+absl::Duration MallocExtension::GetCacheDemandReleaseLongInterval() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_GetCacheDemandReleaseLongInterval == nullptr) {
+    return absl::ZeroDuration();
+  }
+
+  absl::Duration value;
+  MallocExtension_Internal_GetCacheDemandReleaseLongInterval(&value);
+  return value;
+#else
+  return absl::ZeroDuration();
+#endif
+}
+
+void MallocExtension::SetCacheDemandReleaseLongInterval(absl::Duration value) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  if (MallocExtension_Internal_SetCacheDemandReleaseLongInterval == nullptr) {
+    return;
+  }
+
+  MallocExtension_Internal_SetCacheDemandReleaseLongInterval(value);
+#else
+  (void)value;
+#endif
+}
+
 std::optional<size_t> MallocExtension::GetNumericProperty(
     absl::string_view property) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS

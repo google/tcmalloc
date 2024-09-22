@@ -514,6 +514,15 @@ class MallocExtension final {
   static absl::Duration GetSkipSubreleaseLongInterval();
   static void SetSkipSubreleaseLongInterval(absl::Duration value);
 
+  // Gets and sets intervals used for finding the recent short-term demand
+  // fluctuation and long-term demand trend in HugeCache. Zero duration means
+  // not considering corresponding demand history for delayed (demand-based)
+  // hugepage release. The feature is disabled if both intervals are zero.
+  static absl::Duration GetCacheDemandReleaseShortInterval();
+  static void SetCacheDemandReleaseShortInterval(absl::Duration value);
+  static absl::Duration GetCacheDemandReleaseLongInterval();
+  static void SetCacheDemandReleaseLongInterval(absl::Duration value);
+
   // Returns the estimated number of bytes that will be allocated for a request
   // of "size" bytes.  This is an estimate: an allocation of "size" bytes may
   // reserve more bytes, but will never reserve fewer.

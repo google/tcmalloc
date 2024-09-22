@@ -70,6 +70,12 @@ class StaticForwarder {
   static absl::Duration filler_skip_subrelease_long_interval() {
     return Parameters::filler_skip_subrelease_long_interval();
   }
+  static absl::Duration cache_demand_release_short_interval() {
+    return Parameters::cache_demand_release_short_interval();
+  }
+  static absl::Duration cache_demand_release_long_interval() {
+    return Parameters::cache_demand_release_long_interval();
+  }
 
   static bool release_partial_alloc_pages() {
     return Parameters::release_partial_alloc_pages();
@@ -852,21 +858,22 @@ inline Length HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPages(
   // We use demand-based release for the background release but not for the
   // other cases (e.g., limit hit). We achieve this by configuring the intervals
   // and hit_limit accordingly.
-  SkipSubreleaseIntervals intervals;
+  SkipSubreleaseIntervals cache_release_intervals;
   if (reason == PageReleaseReason::kProcessBackgroundActions) {
-    intervals.peak_interval = forwarder_.filler_skip_subrelease_interval();
-    intervals.short_interval =
-        forwarder_.filler_skip_subrelease_short_interval();
-    intervals.long_interval = forwarder_.filler_skip_subrelease_long_interval();
+    cache_release_intervals.short_interval =
+        forwarder_.cache_demand_release_short_interval();
+    cache_release_intervals.long_interval =
+        forwarder_.cache_demand_release_long_interval();
   }
   bool hit_limit = (reason == PageReleaseReason::kSoftLimitExceeded ||
                     reason == PageReleaseReason::kHardLimitExceeded);
   Length released;
   if (forwarder_.huge_cache_demand_based_release()) {
-    released += cache_
-                    .ReleaseCachedPagesByDemand(HLFromPages(num_pages),
-                                                intervals, hit_limit)
-                    .in_pages();
+    released +=
+        cache_
+            .ReleaseCachedPagesByDemand(HLFromPages(num_pages),
+                                        cache_release_intervals, hit_limit)
+            .in_pages();
   } else {
     released += cache_.ReleaseCachedPages(HLFromPages(num_pages)).in_pages();
   }

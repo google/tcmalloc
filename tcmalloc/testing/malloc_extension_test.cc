@@ -87,6 +87,27 @@ TEST(MallocExtension, SkipSubreleaseIntervals) {
             absl::ZeroDuration());
 }
 
+TEST(MallocExtension, CacheDemandReleaseIntervals) {
+
+  // Mutate via MallocExtension.
+  MallocExtension::SetCacheDemandReleaseShortInterval(absl::Seconds(50));
+  EXPECT_EQ(MallocExtension::GetCacheDemandReleaseShortInterval(),
+            absl::Seconds(50));
+  MallocExtension::SetCacheDemandReleaseLongInterval(absl::Seconds(60));
+  EXPECT_EQ(MallocExtension::GetCacheDemandReleaseLongInterval(),
+            absl::Seconds(60));
+
+  // Sets all intervals to zero, this means no history is considered for
+  // demand-based release.
+
+  MallocExtension::SetCacheDemandReleaseShortInterval(absl::ZeroDuration());
+  EXPECT_EQ(MallocExtension::GetCacheDemandReleaseShortInterval(),
+            absl::ZeroDuration());
+  MallocExtension::SetCacheDemandReleaseLongInterval(absl::ZeroDuration());
+  EXPECT_EQ(MallocExtension::GetCacheDemandReleaseLongInterval(),
+            absl::ZeroDuration());
+}
+
 TEST(MallocExtension, Properties) {
   // Verify that every property under GetProperties also works with
   // GetNumericProperty.

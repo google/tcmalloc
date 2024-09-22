@@ -54,6 +54,12 @@ class FakeStaticForwarder {
   absl::Duration filler_skip_subrelease_long_interval() {
     return long_interval_;
   }
+  absl::Duration cache_demand_release_short_interval() {
+    return cache_demand_release_short_interval_;
+  }
+  absl::Duration cache_demand_release_long_interval() {
+    return cache_demand_release_long_interval_;
+  }
   bool release_partial_alloc_pages() { return release_partial_alloc_pages_; }
   bool hpaa_subrelease() const { return hpaa_subrelease_; }
 
@@ -65,6 +71,12 @@ class FakeStaticForwarder {
   }
   void set_filler_skip_subrelease_long_interval(absl::Duration v) {
     long_interval_ = v;
+  }
+  void set_cache_demand_release_short_interval(absl::Duration v) {
+    cache_demand_release_short_interval_ = v;
+  }
+  void set_cache_demand_release_long_interval(absl::Duration v) {
+    cache_demand_release_long_interval_ = v;
   }
   void set_release_partial_alloc_pages(bool v) {
     release_partial_alloc_pages_ = v;
@@ -166,6 +178,8 @@ class FakeStaticForwarder {
   }
 
   absl::Duration subrelease_interval_, short_interval_, long_interval_;
+  absl::Duration cache_demand_release_short_interval_;
+  absl::Duration cache_demand_release_long_interval_;
   bool release_partial_alloc_pages_ = false;
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;

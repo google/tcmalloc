@@ -384,6 +384,30 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest,
+       ReleasingLargeForBackgroundActionsWithZeroIntervals) {
+  // Tests that the configured intervals can be passed to HugeCache: release is
+  // not being impacted by demand-based release when the intervals are zero.
+  const bool old_enabled = Parameters::huge_cache_demand_based_release();
+  Parameters::set_huge_cache_demand_based_release(true);
+  const absl::Duration old_cache_short_interval =
+      Parameters::cache_demand_release_short_interval();
+  Parameters::set_cache_demand_release_short_interval(absl::ZeroDuration());
+  const absl::Duration old_cache_long_interval =
+      Parameters::cache_demand_release_long_interval();
+  Parameters::set_cache_demand_release_long_interval(absl::ZeroDuration());
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
+  // There is no history to reference so release all.
+  EXPECT_EQ(
+      ReleasePages(kPagesPerHugePage,
+                   /*reason=*/PageReleaseReason::kProcessBackgroundActions),
+      kPagesPerHugePage);
+  Parameters::set_huge_cache_demand_based_release(old_enabled);
+  Parameters::set_cache_demand_release_short_interval(old_cache_short_interval);
+  Parameters::set_cache_demand_release_long_interval(old_cache_long_interval);
+}
+
 TEST_P(HugePageAwareAllocatorTest, SettingDemandBasedReleaseFlags) {
   // Checks if we can set the demand-based release flags.
   Parameters::set_huge_cache_demand_based_release(false);

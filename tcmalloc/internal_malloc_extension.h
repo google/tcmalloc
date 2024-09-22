@@ -93,6 +93,11 @@ ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_GetSkipSubreleaseShortInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
     absl::Duration* ret);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_GetCacheDemandReleaseShortInterval(
+    absl::Duration* ret);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_GetCacheDemandReleaseLongInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetProperties(
     std::map<std::string, tcmalloc::MallocExtension::Property>* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetExperiments(
@@ -110,6 +115,12 @@ ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseInterval(
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetSkipSubreleaseShortInterval(absl::Duration value);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
+    absl::Duration value);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_SetCacheDemandReleaseShortInterval(
+    absl::Duration value);
+ABSL_ATTRIBUTE_WEAK void
+MallocExtension_Internal_SetCacheDemandReleaseLongInterval(
     absl::Duration value);
 ABSL_ATTRIBUTE_WEAK size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu);
 ABSL_ATTRIBUTE_WEAK size_t
