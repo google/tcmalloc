@@ -63,6 +63,9 @@ struct SpanAllocInfo {
 
 // Information kept for a span (a contiguous run of pages).
 //
+// TODO(b/137017688): This is a legacy information kept for the legacy page
+// heap. The definitions may differ for the default TCMalloc settings.
+//
 // Spans can be in different states. The current state determines set of methods
 // that can be called on the span (and the active member in the union below).
 // States are:
@@ -87,6 +90,23 @@ typedef TList<Span> SpanList;
 
 class Span final : public SpanList::Elem {
  public:
+  constexpr Span()
+      : embed_count_(0),
+        freelist_(0),
+        allocated_(0),
+        cache_size_(0),
+        nonempty_index_(0),
+        location_(IN_USE),
+        is_donated_(0),
+        first_page_(0),
+        reserved_(0),
+        is_large_span_(0),
+        sampled_(0),
+        large_or_sampled_state_{0, nullptr} {}
+
+  Span(const Span&) = delete;
+  Span& operator=(const Span&) = delete;
+
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
   static Span* New(PageId p, Length len)
@@ -135,6 +155,10 @@ class Span final : public SpanList::Elem {
 
   bool donated() const { return is_donated_; }
   void set_donated(bool value) { is_donated_ = value; }
+
+  // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
+  // pages) or is sampled.
+  bool is_large_or_sampled() const { return is_large_span_ || sampled_; }
   // ---------------------------------------------------------------------------
   // Span memory range.
   // ---------------------------------------------------------------------------
@@ -224,11 +248,13 @@ class Span final : public SpanList::Elem {
   static constexpr size_t kLargeCacheArraySize = 12;
   static constexpr size_t kMaxCacheBits = 4;
   static constexpr size_t kMaxPageIdBits = kAddressBits - kPageShift;
+  static constexpr size_t kReservedBits = 26;
+
   static_assert(kLargeCacheSize <= (1 << kMaxCacheBits) - 1);
 
   // When central freelist tracks a span, that span is assured to consist of <
-  // kLargeSpanLength number of pages. This can allows us to record number of
-  // pages in that span in fewer (i.e. kMaxNumPageBits) bits.
+  // kLargeSpanLength number of pages. This allows us to record number of pages
+  // in that span in fewer (i.e. kMaxNumPageBits) bits.
   static constexpr size_t kMaxNumPageBits = 6;
   static constexpr Length kLargeSpanLength = Length((1 << kMaxNumPageBits) - 1);
 
@@ -261,7 +287,6 @@ class Span final : public SpanList::Elem {
   uint8_t cache_size_ : kMaxCacheBits;
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
   uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
-  uint8_t sampled_ : 1;   // Sampled object?
   // Has this span allocation resulted in a donation to the filler in the page
   // heap? This is used by page heap to compute abandoned pages.
   uint8_t is_donated_ : 1;
@@ -269,20 +294,46 @@ class Span final : public SpanList::Elem {
   static constexpr size_t kBitmapSize = 8 * sizeof(ObjIdx) * kCacheSize;
 
   uint64_t first_page_ : kMaxPageIdBits;  // Starting page number.
-  Length num_pages_;   // Number of pages in span.
+
+  uint32_t reserved_ : kReservedBits;
+  // Determines if the span consists of > kLargeSpanLength number of pages.
+  uint8_t is_large_span_ : 1;
+  uint8_t sampled_ : 1;  // Sampled object?
+
+  struct LargeOrSampledState {
+    uint64_t num_pages;
+    // Used only for sampled spans (SAMPLED state).
+    SampledAllocation* sampled_allocation;
+  };
+
+  struct SmallSpanState {
+    uint64_t num_pages : kMaxNumPageBits;
+    union {
+      // Used only for spans in CentralFreeList (SMALL_OBJECT state).
+      // Embed cache of free objects.
+      ObjIdx cache[0];
+
+      // Used for spans with in CentralFreeList with fewer than 64 objects.
+      // Each bit is set to one when the object is available, and zero
+      // when the object is used.
+      Bitmap<kBitmapSize> bitmap{};
+    };
+  };
 
   union {
-    // Used only for spans in CentralFreeList (SMALL_OBJECT state).
-    // Embed cache of free objects.
-    ObjIdx cache_[0];
+    // When a span consists of greater than kLargeSpanLength number of pages,
+    // it's the page heap that is allocating an object > kMaxSize. In such a
+    // scenario, use larger number of bits to record the number of pages in that
+    // span. Additionally, as central freelist is not tracking that span, we do
+    // not need to record the state such as bitmap or cache bits. We also do
+    // not need to record that state when the span is sampled.
+    LargeOrSampledState large_or_sampled_state_;
 
-    // Used for spans with in CentralFreeList with fewer than 64 objects.
-    // Each bit is set to one when the object is available, and zero
-    // when the object is used.
-    Bitmap<kBitmapSize> bitmap_{};
-
-    // Used only for sampled spans (SAMPLED state).
-    SampledAllocation* sampled_allocation_;
+    // When a span consists of < kLargeSpanLength number of pages, we can record
+    // the number of pages in kMaxNumPageBits number of bits. Additionally, it's
+    // likely (although not assured) that the central freelist is tracking that
+    // span. So, we additionally need to record cache or bitmap for that span.
+    SmallSpanState small_span_state_;
   };
 
   // Convert object pointer <-> freelist index.
@@ -320,14 +371,15 @@ inline uint64_t Span::AllocTime(size_t size,
                                 uint32_t max_span_cache_size) const {
   uint64_t alloc_time = 0;
   if (max_span_cache_size == Span::kLargeCacheSize && !UseBitmapForSize(size)) {
-    memcpy(&alloc_time, &cache_[Span::kLargeCacheSize], sizeof(alloc_time));
+    memcpy(&alloc_time, &small_span_state_.cache[Span::kLargeCacheSize],
+           sizeof(alloc_time));
   }
   return alloc_time;
 }
 
 inline Span::ObjIdx* Span::IdxToPtr(ObjIdx idx, size_t size,
                                     uintptr_t start) const {
-  TC_ASSERT_EQ(num_pages_, Length(1));
+  TC_ASSERT_EQ(small_span_state_.num_pages, 1);
   TC_ASSERT_EQ(start, first_page().start_uintptr());
   TC_ASSERT_NE(idx, kListEnd);
   uintptr_t off = start + (static_cast<uintptr_t>(idx) << kAlignmentShift);
@@ -341,7 +393,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
   uintptr_t p = reinterpret_cast<uintptr_t>(ptr);
   // Classes that use freelist must also use 1 page per span,
   // so don't load first_page_ (may be on a different cache line).
-  TC_ASSERT_EQ(num_pages_, Length(1));
+  TC_ASSERT_EQ(small_span_state_.num_pages, 1);
   TC_ASSERT_EQ(PageIdContaining(ptr), first_page());
   uintptr_t off = (p & (kPageSize - 1)) >> kAlignmentShift;
   ObjIdx idx = static_cast<ObjIdx>(off);
@@ -354,6 +406,7 @@ inline Span::ObjIdx Span::PtrToIdx(void* ptr, size_t size) const {
 
 inline bool Span::FreelistPush(void* ptr, size_t size, uint32_t reciprocal,
                                uint32_t max_cache_size) {
+  TC_ASSERT(!is_large_or_sampled());
   const auto allocated = allocated_.load(std::memory_order_relaxed);
   TC_ASSERT_GT(allocated, 0);
   if (ABSL_PREDICT_FALSE(allocated == 1)) {
@@ -372,7 +425,7 @@ inline bool Span::ListPush(void* ptr, size_t size, uint32_t max_cache_size) {
   ObjIdx idx = PtrToIdx(ptr, size);
   if (cache_size_ < max_cache_size) {
     // Have empty space in the cache, push there.
-    cache_[cache_size_] = idx;
+    small_span_state_.cache[cache_size_] = idx;
     cache_size_++;
   } else if (ABSL_PREDICT_TRUE(freelist_ != kListEnd) &&
              // -1 because the first slot is used by freelist link.
@@ -409,14 +462,16 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
 }
 
 inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
-  size_t before = bitmap_.CountBits(0, bitmap_.size());
+  size_t before =
+      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size());
   // TODO(djgove) Conversions to offsets can be computed outside of lock.
   ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
   // Check that the object is not already returned.
-  TC_ASSERT_EQ(bitmap_.GetBit(idx), 0);
+  TC_ASSERT_EQ(small_span_state_.bitmap.GetBit(idx), 0);
   // Set the bit indicating where the object was returned.
-  bitmap_.SetBit(idx);
-  TC_ASSERT_EQ(before + 1, bitmap_.CountBits(0, bitmap_.size()));
+  small_span_state_.bitmap.SetBit(idx);
+  TC_ASSERT_EQ(before + 1, small_span_state_.bitmap.CountBits(
+                               0, small_span_state_.bitmap.size()));
   return true;
 }
 
@@ -430,7 +485,8 @@ inline void Span::set_location(Location loc) {
 
 inline SampledAllocation* Span::sampled_allocation() const {
   TC_ASSERT(sampled_);
-  return sampled_allocation_;
+  TC_ASSERT(is_large_or_sampled());
+  return large_or_sampled_state_.sampled_allocation;
 }
 
 inline bool Span::sampled() const { return sampled_; }
@@ -438,7 +494,10 @@ inline bool Span::sampled() const { return sampled_; }
 inline PageId Span::first_page() const { return PageId(first_page_); }
 
 inline PageId Span::last_page() const {
-  return first_page() + num_pages_ - Length(1);
+  if (is_large_or_sampled()) {
+    return first_page() + Length(large_or_sampled_state_.num_pages) - Length(1);
+  }
+  return first_page() + Length(small_span_state_.num_pages) - Length(1);
 }
 
 inline void Span::set_first_page(PageId p) {
@@ -452,15 +511,35 @@ inline void* Span::start_address() const {
   return first_page().start_addr();
 }
 
-inline Length Span::num_pages() const { return num_pages_; }
+inline Length Span::num_pages() const {
+  if (is_large_or_sampled()) {
+    return Length(large_or_sampled_state_.num_pages);
+  }
+  return Length(small_span_state_.num_pages);
+}
 
-inline void Span::set_num_pages(Length len) { num_pages_ = len; }
+inline void Span::set_num_pages(Length len) {
+  if (len > kLargeSpanLength || sampled()) {
+    large_or_sampled_state_.num_pages = len.raw_num();
+    is_large_span_ = len > kLargeSpanLength;
+    return;
+  }
+  TC_ASSERT_LT(len.raw_num(), 1 << kMaxNumPageBits);
+  small_span_state_.num_pages = len.raw_num();
+  is_large_span_ = 0;
+}
 
-inline size_t Span::bytes_in_span() const { return num_pages_.in_bytes(); }
+inline size_t Span::bytes_in_span() const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  if (is_large_or_sampled()) {
+    return Length(large_or_sampled_state_.num_pages).in_bytes();
+  }
+  return Length(small_span_state_.num_pages).in_bytes();
+}
 
 inline bool Span::FreelistEmpty(size_t size) const {
+  TC_ASSERT(!is_large_or_sampled());
   if (UseBitmapForSize(size)) {
-    return bitmap_.IsZero();
+    return small_span_state_.bitmap.IsZero();
   } else {
     return cache_size_ == 0 && freelist_ == kListEnd;
   }
@@ -487,11 +566,11 @@ inline void Span::Init(PageId p, Length n) {
 #endif
   TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
   first_page_ = p.index();
-  num_pages_ = n;
   location_ = IN_USE;
   sampled_ = 0;
   nonempty_index_ = 0;
   is_donated_ = 0;
+  set_num_pages(n);
 }
 
 inline bool Span::IsValidSizeClass(size_t size, size_t pages) {

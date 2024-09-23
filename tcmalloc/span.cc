@@ -38,8 +38,11 @@ namespace tcmalloc_internal {
 
 void Span::Sample(SampledAllocation* sampled_allocation) {
   TC_CHECK(!sampled_ && sampled_allocation);
+  Length pages_per_span = num_pages();
+  TC_CHECK_GT(pages_per_span, Length(0));
   sampled_ = 1;
-  sampled_allocation_ = sampled_allocation;
+  large_or_sampled_state_.num_pages = pages_per_span.raw_num();
+  large_or_sampled_state_.sampled_allocation = sampled_allocation;
 
   // The cast to value matches Unsample.
   tcmalloc_internal::StatsCounter::Value allocated_bytes =
@@ -53,10 +56,14 @@ SampledAllocation* Span::Unsample() {
   if (!sampled_) {
     return nullptr;
   }
-  TC_CHECK(sampled_ && sampled_allocation_);
+  Length pages_per_span = num_pages();
+  TC_CHECK_GT(pages_per_span, Length(0));
+  TC_CHECK(sampled_ && large_or_sampled_state_.sampled_allocation);
   sampled_ = 0;
-  SampledAllocation* sampled_allocation = sampled_allocation_;
-  sampled_allocation_ = nullptr;
+  small_span_state_.num_pages = pages_per_span.raw_num();
+  SampledAllocation* sampled_allocation =
+      large_or_sampled_state_.sampled_allocation;
+  large_or_sampled_state_.sampled_allocation = nullptr;
 
   // The cast to Value ensures no funny business happens during the negation if
   // sizeof(size_t) != sizeof(Value).
@@ -105,7 +112,7 @@ double Span::Fragmentation(size_t object_size) const {
 // 2 bytes.
 //
 // The freelist has two components. First, we have a small array-based cache
-// (4 objects) embedded directly into the Span (cache_ and cache_size_). We can
+// (4 objects) embedded directly into the Span (cache and cache_size_). We can
 // access this without touching any objects themselves.
 //
 // The rest of the freelist is stored as arrays inside free objects themselves.
@@ -117,7 +124,7 @@ double Span::Fragmentation(size_t object_size) const {
 //
 // Graphically this can be depicted as follows:
 //
-//         freelist_  embed_count_         cache_        cache_size_
+//         freelist_  embed_count_         cache        cache_size_
 // Span: [  |idx|         4          |idx|idx|---|---|        2      ]
 //            |
 //            \/
@@ -133,26 +140,31 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 }
 
 size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
-  size_t before = bitmap_.CountBits(0, bitmap_.size());
+  size_t before =
+      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size());
   size_t count = 0;
   // Want to fill the batch either with N objects, or the number of objects
   // remaining in the span.
-  while (!bitmap_.IsZero() && count < N) {
-    size_t offset = bitmap_.FindSet(0);
-    TC_ASSERT_LT(offset, bitmap_.size());
+  while (!small_span_state_.bitmap.IsZero() && count < N) {
+    size_t offset = small_span_state_.bitmap.FindSet(0);
+    TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
     batch[count] = BitmapIdxToPtr(offset, size);
-    bitmap_.ClearLowestBit();
+    small_span_state_.bitmap.ClearLowestBit();
     count++;
   }
 
-  TC_ASSERT_EQ(bitmap_.CountBits(0, bitmap_.size()) + count, before);
+  TC_ASSERT_EQ(
+      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size()) +
+          count,
+      before);
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
 }
 
 size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
-  // Handle spans with bitmap_.size() or fewer objects using a bitmap. We expect
+  TC_ASSERT(!is_large_or_sampled());
+  // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
     return BitmapPopBatch(batch, N, size);
@@ -170,7 +182,8 @@ size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
   auto cache_reads = csize < N ? csize : N;
   const uintptr_t span_start = first_page().start_uintptr();
   for (; result < cache_reads; result++) {
-    batch[result] = IdxToPtr(cache_[csize - result - 1], size, span_start);
+    batch[result] =
+        IdxToPtr(small_span_state_.cache[csize - result - 1], size, span_start);
   }
 
   // Store this->cache_size_ one time.
@@ -224,16 +237,20 @@ uint32_t Span::CalcReciprocal(size_t size) {
 
 void Span::BuildBitmap(size_t size, size_t count) {
   // We are using a bitmap to indicate whether objects are used or not. The
-  // maximum capacity for the bitmap is bitmap_.size() objects.
-  TC_ASSERT_LE(count, bitmap_.size());
+  // maximum capacity for the bitmap is bitmap.size() objects.
+  TC_ASSERT_LE(count, small_span_state_.bitmap.size());
   allocated_.store(0, std::memory_order_relaxed);
-  bitmap_.Clear();  // bitmap_ can be non-zero from a previous use.
-  bitmap_.SetRange(0, count);
-  TC_ASSERT_EQ(bitmap_.CountBits(0, bitmap_.size()), count);
+  small_span_state_.bitmap
+      .Clear();  // bitmap can be non-zero from a previous use.
+  small_span_state_.bitmap.SetRange(0, count);
+  TC_ASSERT_EQ(
+      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size()),
+      count);
 }
 
 int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
                         uint32_t max_cache_size, uint64_t alloc_time) {
+  TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
   freelist_ = kListEnd;
 
@@ -267,17 +284,18 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
   // The index of the end of the useful portion of the span.
   ObjIdx idxEnd = count * idxStep;
 
-  // Then, push as much as we can into the cache_.
+  // Then, push as much as we can into the cache.
   TC_ASSERT_GE(max_cache_size, kCacheSize);
   TC_ASSERT_LE(max_cache_size, kLargeCacheSize);
 
   if (max_cache_size == Span::kLargeCacheSize) {
-    memcpy(&cache_[Span::kLargeCacheSize], &alloc_time, sizeof(alloc_time));
+    memcpy(&small_span_state_.cache[Span::kLargeCacheSize], &alloc_time,
+           sizeof(alloc_time));
   }
 
   int cache_size = 0;
   for (; idx < idxEnd && cache_size < max_cache_size; idx += idxStep) {
-    cache_[cache_size] = idx;
+    small_span_state_.cache[cache_size] = idx;
     cache_size++;
   }
   cache_size_ = cache_size;
