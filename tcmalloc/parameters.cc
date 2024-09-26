@@ -263,7 +263,7 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
 // TODO(b/123345734): Remove the flag when experimentation is done.
 ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
-    false);
+    true);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_cache_demand_based_release_(
     false);
 // TODO(b/199203282):  Remove this opt-out.
