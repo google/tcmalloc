@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
@@ -25,6 +26,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/call_once.h"
+#include "absl/base/internal/cycleclock.h"
 #include "absl/functional/function_ref.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/match.h"
@@ -177,7 +179,9 @@ const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
   // to stderr breaks some tests that capture subprocess output.
   if (unset && !test_target.empty()) {
     TC_CHECK(active.empty() && disabled.empty());
-    const size_t target_hash = absl::HashOf(test_target);
+    uint64_t seed =
+        static_cast<uint64_t>(absl::base_internal::CycleClock::Now());
+    const size_t target_hash = absl::HashOf(test_target, seed);
     constexpr size_t kVanillaOneOf = 11;
     constexpr size_t kEnableOneOf = 3;
     if ((target_hash % kVanillaOneOf) == 0) {
