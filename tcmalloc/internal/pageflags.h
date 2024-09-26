@@ -96,6 +96,9 @@ class PageFlags final : public PageFlagsBase {
   std::optional<PageStats> Get(const void* addr, size_t size) override;
 
  private:
+  // Returns the offset in the pageflags file for the given virtual address.
+  size_t GetOffset(uintptr_t vaddr);
+
   // This helper seeks the internal file to the correct location for the given
   // virtual address.
   [[nodiscard]] absl::StatusCode Seek(uintptr_t vaddr);

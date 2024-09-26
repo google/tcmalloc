@@ -96,8 +96,12 @@ PageFlags::~PageFlags() {
   }
 }
 
+size_t PageFlags::GetOffset(const uintptr_t vaddr) {
+  return vaddr / kPageSize * kPagemapEntrySize;
+}
+
 absl::StatusCode PageFlags::Seek(const uintptr_t vaddr) {
-  size_t offset = vaddr / kPageSize * kPagemapEntrySize;
+  size_t offset = GetOffset(vaddr);
   // Note: lseek can't be interrupted.
   off_t status = ::lseek(fd_, offset, SEEK_SET);
   if (status != offset) {
