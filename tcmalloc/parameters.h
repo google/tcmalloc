@@ -120,7 +120,9 @@ class Parameters {
     TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(value);
   }
 
-  static bool resize_size_class_max_capacity();
+  static bool resize_size_class_max_capacity() {
+    return resize_size_class_max_capacity_.load(std::memory_order_relaxed);
+  }
 
   static bool per_cpu_caches() {
     return per_cpu_caches_enabled_.load(std::memory_order_relaxed);
@@ -269,6 +271,7 @@ class Parameters {
   static std::atomic<bool> release_partial_alloc_pages_;
   static std::atomic<bool> huge_cache_demand_based_release_;
   static std::atomic<bool> release_pages_from_huge_region_;
+  static std::atomic<bool> resize_size_class_max_capacity_;
   static std::atomic<bool> tag_metadata_separately_;
   static std::atomic<int64_t> profile_sampling_interval_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;

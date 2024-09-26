@@ -134,21 +134,6 @@ static std::atomic<bool>& tag_metadata_hugepage_enabled() {
   return v;
 }
 
-// As resize_size_class_max_capacity_enabled() is determined at runtime, we
-// cannot require constant initialization for the atomic.  This avoids an
-// initialization order fiasco.
-static std::atomic<bool>& resize_size_class_max_capacity_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(
-            Experiment::TCMALLOC_RESIZE_SIZE_CLASS_MAX_CAPACITY)) {
-      v.store(true, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
@@ -276,6 +261,9 @@ ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
 // TODO(b/285379004):  Remove this opt-out.
 ABSL_CONST_INIT std::atomic<bool> Parameters::release_partial_alloc_pages_(
     true);
+// TODO(b/123345734): Remove the flag when experimentation is done.
+ABSL_CONST_INIT std::atomic<bool> Parameters::resize_size_class_max_capacity_(
+    false);
 ABSL_CONST_INIT std::atomic<bool> Parameters::huge_cache_demand_based_release_(
     false);
 // TODO(b/199203282):  Remove this opt-out.
@@ -353,11 +341,6 @@ bool Parameters::huge_region_demand_based_release() {
 
 bool Parameters::tag_metadata_separately() {
   return tag_metadata_hugepage_enabled().load(std::memory_order_relaxed);
-}
-
-bool Parameters::resize_size_class_max_capacity() {
-  return resize_size_class_max_capacity_enabled().load(
-      std::memory_order_relaxed);
 }
 
 bool Parameters::dense_trackers_sorted_on_spans_allocated() {
@@ -606,8 +589,8 @@ void TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(bool v) {
 }
 
 void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::resize_size_class_max_capacity_enabled().store(
-      v, std::memory_order_relaxed);
+  Parameters::resize_size_class_max_capacity_.store(v,
+                                                    std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
