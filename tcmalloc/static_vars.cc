@@ -175,7 +175,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     peak_heap_tracker_.Init(&arena_);
 
     const bool large_span_experiment =
-        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN);
+        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN) ||
+        IsExperimentActive(Experiment::TCMALLOC_BIG_SPAN);
     Parameters::set_max_span_cache_size(
         large_span_experiment ? Span::kLargeCacheSize : Span::kCacheSize);
     Parameters::set_max_span_cache_array_size(
