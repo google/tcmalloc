@@ -120,7 +120,8 @@ PageAllocator::PageAllocator() {
     }
     alg_ = HPAA;
   } else {
-#if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
+    // TODO(b/137017688):  Constant propagate.
+#if 0
     normal_impl_[0] = new (&choices_[part++].ph) PageHeap(MemoryTag::kNormal);
     if (tc_globals.numa_topology().numa_aware()) {
       normal_impl_[1] =
