@@ -643,6 +643,20 @@ std::unique_ptr<perftools::profiles::Profile> ProfileBuilder::Finalize() && {
 absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     const ::tcmalloc::Profile& profile, PageFlagsBase* pageflags,
     Residency* residency) {
+  if (profile.Type() == ProfileType::kDoNotUse) {
+#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
+    defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
+    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+    return absl::UnimplementedError(
+        "Program was built with sanitizers enabled, which do not support heap "
+        "profiling");
+#else
+    return absl::InvalidArgumentError(
+        "Empty heap profile: TCMalloc appears disabled or unavailable (e.g. a "
+        "custom allocator may be linked)");
+#endif
+  }
+
   ProfileBuilder builder;
   builder.AddCurrentMappings();
 
@@ -724,13 +738,6 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
       default_sample_type_id = objects_id;
       break;
     default:
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
-    defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
-    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-      return absl::UnimplementedError(
-          "Program was built with sanitizers enabled, which do not support "
-          "heap profiling");
-#endif
       return absl::InvalidArgumentError("Unexpected profile format");
   }
 

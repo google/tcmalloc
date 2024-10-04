@@ -239,17 +239,6 @@ TEST(ProfileBuilderTest, StringTable) {
   EXPECT_EQ(strings.size(), profile->string_table_size());
 }
 
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || \
-    defined(ABSL_HAVE_LEAK_SANITIZER) ||    \
-    defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
-TEST(ProfileBuilderTest, Sanitizers) {
-  auto converted_or =
-      MakeProfileProto(MallocExtension::SnapshotCurrent(ProfileType::kHeap));
-  ASSERT_FALSE(converted_or.ok());
-  EXPECT_EQ(converted_or.status().code(), absl::StatusCode::kUnimplemented);
-}
-#endif
-
 // A helper type alias for a list of samples and their labels.
 using SampleLabels = std::vector<
     std::vector<std::pair<std::string, std::variant<int, std::string>>>>;

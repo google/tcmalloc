@@ -805,6 +805,23 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "profile_builder_no_tcmalloc_test",
+    srcs = ["profile_builder_no_tcmalloc_test.cc"],
+    copts = TCMALLOC_DEFAULT_COPTS,
+    malloc = ":system_malloc",
+    tags = [
+        "noubsan",
+    ],
+    deps = [
+        ":profile_builder",
+        "//tcmalloc:malloc_extension",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
 cc_library(
     name = "proc_maps",
     srcs = ["proc_maps.cc"],
