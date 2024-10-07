@@ -1222,6 +1222,106 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
   }
 }
 
+// Test that old slabs are madvised-away during max capacity resize even when
+// memory is mlocked.
+TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  int n_threads = NumCPUs();
+#ifdef UNDEFINED_BEHAVIOR_SANITIZER
+  // Prevent timeout issues by using fewer stress threads with UBSan.
+  n_threads = std::min(n_threads, 2);
+#endif
+
+  int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
+  ASSERT_EQ(ret, 0);
+
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+  cache.Activate();
+
+  SizeMap size_map;
+  size_map.Init(kSizeClasses.classes);
+  forwarder.size_map_ = size_map;
+
+  std::vector<std::thread> threads;
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+  }
+
+  for (int i = 0; i < 10; ++i) {
+    absl::SleepFor(absl::Milliseconds(100));
+    cache.ResizeSizeClassMaxCapacities();
+  }
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+  int failed_bytes = cache.GetDynamicSlabFailedBytes();
+  EXPECT_EQ(failed_bytes, 0);
+
+  ret = munlockall();
+  ASSERT_EQ(ret, 0);
+
+  cache.Deactivate();
+}
+
+// Test that old slabs are madvised-away during slab resize even when memory is
+// mlocked.
+TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
+  if (!subtle::percpu::IsFast()) {
+    return;
+  }
+  int n_threads = NumCPUs();
+#ifdef UNDEFINED_BEHAVIOR_SANITIZER
+  // Prevent timeout issues by using fewer stress threads with UBSan.
+  n_threads = std::min(n_threads, 2);
+#endif
+
+  int ret = mlockall(MCL_CURRENT | MCL_FUTURE);
+  ASSERT_EQ(ret, 0);
+
+  CpuCache cache;
+  TestStaticForwarder& forwarder = cache.forwarder();
+  forwarder.dynamic_slab_enabled_ = true;
+  cache.Activate();
+
+  SizeMap size_map;
+  size_map.Init(kSizeClasses.classes);
+  forwarder.size_map_ = size_map;
+
+  std::vector<std::thread> threads;
+  std::atomic<bool> stop(false);
+
+  for (size_t t = 0; t < n_threads; ++t) {
+    threads.push_back(
+        std::thread(StressThread, std::ref(cache), t, std::ref(stop)));
+  }
+
+  for (DynamicSlab dynamic_slab :
+       {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
+    absl::SleepFor(absl::Milliseconds(100));
+    forwarder.dynamic_slab_ = dynamic_slab;
+    cache.ResizeSlabIfNeeded();
+  }
+  stop = true;
+  for (auto& t : threads) {
+    t.join();
+  }
+  int failed_bytes = cache.GetDynamicSlabFailedBytes();
+  EXPECT_EQ(failed_bytes, 0);
+
+  ret = munlockall();
+  ASSERT_EQ(ret, 0);
+
+  cache.Deactivate();
+}
+
 TEST(CpuCacheTest, SlabUsage) {
   // Note: we can't do ValidateSlabBytes on the test-cpu-cache because in that
   // case, the slab only uses size classes 1 and 2.

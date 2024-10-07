@@ -283,6 +283,12 @@ class CpuCache {
     int max_last_overflow_cpu_id = -1;
   };
 
+  struct DynamicSlabInfo {
+    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
+    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
+    std::atomic<size_t> madvise_failed_bytes;
+  };
+
   // Sets the lower limit on the capacity that can be stolen from the cpu cache.
   static constexpr double kCacheCapacityThreshold = 0.20;
 
@@ -472,6 +478,8 @@ class CpuCache {
   // Reports allowed slab shift initial and maximum bounds.
   SlabShiftBounds GetPerCpuSlabShiftBounds() const;
 
+  size_t GetDynamicSlabFailedBytes() const;
+
   // Report statistics
   void Print(Printer* out) const;
   void PrintInPbtxt(PbtxtRegion* region) const;
@@ -585,12 +593,6 @@ class CpuCache {
     std::atomic<int64_t> last_reclaim;
   };
 
-  struct DynamicSlabInfo {
-    std::atomic<size_t> grow_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> shrink_count[kNumPossiblePerCpuShifts];
-    std::atomic<size_t> madvise_failed_bytes;
-  };
-
   // Determines how we distribute memory in the per-cpu cache to the various
   // class sizes.
   size_t MaxCapacity(size_t size_class) const;
@@ -686,6 +688,9 @@ class CpuCache {
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset,
       uint8_t resize_offset);
+
+  // madvise-away slab memory, pointed to by <slab_addr> of size <slab_size>.
+  void MadviseAwaySlabs(void* slab_addr, size_t slab_size);
 
   Freelist freelist_;
 
@@ -933,6 +938,12 @@ inline bool CpuCache<Forwarder>::ConfigureSizeClassMaxCapacity() const {
 template <class Forwarder>
 inline SlabShiftBounds CpuCache<Forwarder>::GetPerCpuSlabShiftBounds() const {
   return shift_bounds_;
+}
+
+template <class Forwarder>
+inline size_t CpuCache<Forwarder>::GetDynamicSlabFailedBytes() const {
+  return dynamic_slab_info_.madvise_failed_bytes.load(
+      std::memory_order_relaxed);
 }
 
 template <class Forwarder>
@@ -1467,6 +1478,41 @@ int CpuCache<Forwarder>::GetUpdatedMaxCapacities(
 }
 
 template <class Forwarder>
+void CpuCache<Forwarder>::MadviseAwaySlabs(void* slab_addr, size_t slab_size) {
+  // It is important that we do not MADV_REMOVE the memory, since file-backed
+  // pages may SIGSEGV/SIGBUS if another thread sees the previous slab after
+  // this point and reads it.
+  //
+  // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
+  // kernel enables huge zero pages.
+  // Note: we use bitwise OR to avoid short-circuiting.
+  ErrnoRestorer errno_restorer;
+  bool madvise_failed = false;
+  do {
+    madvise_failed = madvise(slab_addr, slab_size, MADV_NOHUGEPAGE) |
+                     madvise(slab_addr, slab_size, MADV_DONTNEED);
+  } while (madvise_failed && errno == EAGAIN);
+
+  int ret = 0;
+  if (madvise_failed) {
+    // Try to unlock if madvise fails the first time.
+    do {
+      ret = munlock(slab_addr, slab_size);
+    } while (ret == -1 && errno == EAGAIN);
+
+    do {
+      madvise_failed = madvise(slab_addr, slab_size, MADV_NOHUGEPAGE) |
+                       madvise(slab_addr, slab_size, MADV_DONTNEED);
+    } while (madvise_failed && errno == EAGAIN);
+  }
+
+  if (ret != 0 || madvise_failed) {
+    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
+        slab_size, std::memory_order_relaxed);
+  }
+}
+
+template <class Forwarder>
 void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   const int num_cpus = NumCPUs();
@@ -1535,21 +1581,7 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
-  // madvise away the old slabs memory.  It is important that we do not
-  // MADV_REMOVE the memory, since file-backed pages may SIGSEGV/SIGBUS if
-  // another thread sees the previous slab after this point and reads it.
-  //
-  // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
-  // kernel enables huge zero pages.
-  // Note: we use bitwise OR to avoid short-circuiting.
-  ErrnoRestorer errno_restorer;
-  const bool madvise_failed =
-      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
-      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
-  if (madvise_failed) {
-    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
-        info.old_slabs_size, std::memory_order_relaxed);
-  }
+  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
   const int64_t old_slabs_size = info.old_slabs_size;
   forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
                                                 old_slabs_size - reused_bytes);
@@ -2283,21 +2315,7 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   }
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Unlock();
 
-  // madvise away the old slabs memory.  It is important that we do not
-  // MADV_REMOVE the memory, since file-backed pages may SIGSEGV/SIGBUS if
-  // another thread sees the previous slab after this point and reads it.
-  //
-  // TODO(b/214241843): we should be able to remove MADV_NOHUGEPAGE once the
-  // kernel enables huge zero pages.
-  // Note: we use bitwise OR to avoid short-circuiting.
-  ErrnoRestorer errno_restorer;
-  const bool madvise_failed =
-      madvise(info.old_slabs, info.old_slabs_size, MADV_NOHUGEPAGE) |
-      madvise(info.old_slabs, info.old_slabs_size, MADV_DONTNEED);
-  if (madvise_failed) {
-    dynamic_slab_info_.madvise_failed_bytes.fetch_add(
-        info.old_slabs_size, std::memory_order_relaxed);
-  }
+  MadviseAwaySlabs(info.old_slabs, info.old_slabs_size);
   const int64_t old_slabs_size = info.old_slabs_size;
   forwarder_.ArenaUpdateAllocatedAndNonresident(-old_slabs_size,
                                                 old_slabs_size - reused_bytes);
