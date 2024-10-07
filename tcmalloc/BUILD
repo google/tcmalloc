@@ -354,16 +354,10 @@ cc_library(
 # allocator.
 cc_library(
     name = "want_no_hpaa",
-    srcs = ["want_no_hpaa.cc"],
-    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     visibility = [
         "//tcmalloc/testing:__pkg__",
     ],
-    deps = [
-        "//tcmalloc/internal:config",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-    alwayslink = 1,
 )
 
 cc_library(
