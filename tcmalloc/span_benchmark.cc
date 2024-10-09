@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "absl/random/random.h"
+#include "absl/types/span.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/allocation_guard.h"
@@ -48,7 +49,7 @@ class RawSpan {
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.Init(PageIdContaining(mem), npages);
-    span_.BuildFreelist(size, objects_per_span, nullptr, 0, kMaxCacheSize,
+    span_.BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
                         kSpanAllocTime);
   }
 
@@ -76,7 +77,7 @@ void BM_single_span(benchmark::State& state) {
 
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
-    int n = span.FreelistPopBatch(batch, batch_size, size);
+    int n = span.FreelistPopBatch(absl::MakeSpan(batch, batch_size), size);
     processed += n;
 
     for (int j = 0; j < n; j++) {
@@ -109,7 +110,8 @@ void BM_single_span_fulldrain(benchmark::State& state) {
   while (state.KeepRunningBatch(objects_per_span)) {
     // Drain span
     while (oindex < objects_per_span) {
-      size_t popped = span.FreelistPopBatch(&objects[oindex], batch_size, size);
+      size_t popped = span.FreelistPopBatch(
+          absl::MakeSpan(objects).subspan(oindex, batch_size), size);
       oindex += popped;
       processed += popped;
     }
@@ -196,8 +198,8 @@ void BM_multiple_spans(benchmark::State& state) {
   int64_t processed = 0;
   while (state.KeepRunningBatch(batch_size)) {
     int current_span = absl::Uniform(rng, 0, num_spans);
-    int n =
-        spans[current_span].span().FreelistPopBatch(batch, batch_size, size);
+    int n = spans[current_span].span().FreelistPopBatch(
+        absl::MakeSpan(batch, batch_size), size);
     processed += n;
 
     for (int j = 0; j < n; j++) {

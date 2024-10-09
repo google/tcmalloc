@@ -112,7 +112,7 @@ class CentralFreeList {
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.
-  ABSL_MUST_USE_RESULT int RemoveRange(void** batch, int N)
+  ABSL_MUST_USE_RESULT int RemoveRange(absl::Span<void*> batch)
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.
@@ -155,7 +155,7 @@ class CentralFreeList {
   // May temporarily release lock_.
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist. Returns the number of elements removed.
-  int Populate(void** batch, int N) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  int Populate(absl::Span<void*> batch) ABSL_EXCLUSIVE_LOCKS_REQUIRED(lock_);
 
   // Allocate a span from the forwarder.
   Span* AllocateSpan();
@@ -510,8 +510,8 @@ void CentralFreeList<Forwarder>::DeallocateSpans(absl::Span<Span*> spans) {
 }
 
 template <class Forwarder>
-inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
-  ASSUME(N > 0);
+inline int CentralFreeList<Forwarder>::RemoveRange(absl::Span<void*> batch) {
+  TC_ASSERT(!batch.empty());
 
   if (objects_per_span_ == 1) {
     // If there is only 1 object per span, skip CentralFreeList entirely.
@@ -531,14 +531,14 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
   do {
     Span* span = FirstNonEmptySpan();
     if (ABSL_PREDICT_FALSE(!span)) {
-      result += Populate(batch + result, N - result);
+      result += Populate(batch.subspan(result));
       break;
     }
 
     const uint16_t prev_allocated = span->Allocated();
     const uint8_t prev_bitwidth = absl::bit_width(prev_allocated);
     const uint8_t prev_index = span->nonempty_index();
-    int here = span->FreelistPopBatch(batch + result, N - result, object_size);
+    int here = span->FreelistPopBatch(batch.subspan(result), object_size);
     TC_ASSERT_GT(here, 0);
     // As the objects are being popped from the span, its utilization might
     // change. So, we remove the stale utilization from the histogram here and
@@ -564,14 +564,14 @@ inline int CentralFreeList<Forwarder>::RemoveRange(void** batch, int N) {
       }
     }
     result += here;
-  } while (result < N);
+  } while (result < batch.size());
   UpdateObjectCounts(-result);
   return result;
 }
 
 // Fetch memory from the system and add to the central cache freelist.
 template <class Forwarder>
-inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
+inline int CentralFreeList<Forwarder>::Populate(absl::Span<void*> batch)
     ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Release central list lock while operating on pageheap
   // Note, this could result in multiple calls to populate each allocating
@@ -585,7 +585,7 @@ inline int CentralFreeList<Forwarder>::Populate(void** batch, int N)
 
   const uint64_t alloc_time = forwarder_.clock_now();
   int result =
-      span->BuildFreelist(object_size_, objects_per_span_, batch, N,
+      span->BuildFreelist(object_size_, objects_per_span_, batch,
                           forwarder_.max_span_cache_size(), alloc_time);
   TC_ASSERT_GT(result, 0);
   // This is a cheaper check than using FreelistEmpty().

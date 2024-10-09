@@ -206,12 +206,15 @@ TYPED_TEST_P(TransferCacheTest, PartialFetchFromFreelist) {
   EXPECT_CALL(e.central_freelist(), InsertRange).Times(0);
   EXPECT_CALL(e.central_freelist(), RemoveRange)
       .Times(2)
-      .WillOnce([&](void** batch, int n) {
-        int returned = static_cast<FakeCentralFreeList&>(e.central_freelist())
-                           .RemoveRange(batch, std::min(batch_size / 2, n));
+      .WillOnce([&](absl::Span<void*> batch) {
+        int returned =
+            static_cast<FakeCentralFreeList&>(e.central_freelist())
+                .RemoveRange(batch.subspan(
+                    0, std::min<size_t>(batch_size / 2, batch.size())));
         // Overwrite the elements of batch that were not populated by
         // RemoveRange.
-        memset(batch + returned, 0x3f, sizeof(*batch) * (n - returned));
+        memset(batch.data() + returned, 0x3f,
+               sizeof(void*) * (batch.size() - returned));
         return returned;
       });
   e.Remove(batch_size);
@@ -281,8 +284,8 @@ TYPED_TEST_P(TransferCacheTest, Plunder) {
   void* buf[TypeParam::kBatchSize];
   // -1 +1, this sets the low_water_mark (the lowest end-state after a
   // call to RemoveRange to 1 batch.
-  (void)env.transfer_cache().RemoveRange(kSizeClass, buf,
-                                         TypeParam::kBatchSize);
+  (void)env.transfer_cache().RemoveRange(kSizeClass,
+                                         {buf, TypeParam::kBatchSize});
   EXPECT_EQ(env.transfer_cache().tc_length(), TypeParam::kBatchSize);
   env.transfer_cache().InsertRange(kSizeClass, {buf, TypeParam::kBatchSize});
   EXPECT_EQ(env.transfer_cache().tc_length(), 2 * TypeParam::kBatchSize);
@@ -399,8 +402,8 @@ TYPED_TEST_P(TransferCacheTest, b172283201) {
   size_t N = env.transfer_cache().tc_length();
   while (N > 0) {
     const size_t to_remove = std::min(N, batch_size);
-    const size_t removed =
-        env.transfer_cache().RemoveRange(kSizeClass, to_free.data(), to_remove);
+    const size_t removed = env.transfer_cache().RemoveRange(
+        kSizeClass, {to_free.data(), to_remove});
     ASSERT_THAT(removed, testing::Le(to_remove));
     ASSERT_THAT(removed, testing::Gt(0));
     N -= removed;
@@ -519,7 +522,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
   // after initialization.
   {
     void* ptr;
-    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.central_freelist().AllocateBatch(absl::MakeSpan(&ptr, 1));
     env.SetCurrentCpu(0);
     manager.Push(kSizeClass, ptr);
     // We should be able to initialize the shard, but its capacity should be
@@ -554,7 +557,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
   // sharded transfer cache's state.
   {
     void* ptr;
-    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.central_freelist().AllocateBatch({&ptr, 1});
     env.SetCurrentCpu(1);
     manager.Push(kSizeClass, ptr);
     EXPECT_TRUE(manager.shard_initialized(0));
@@ -572,7 +575,7 @@ TEST(ShardedTransferCacheManagerTest, MinimumNumShards) {
   // after initialization.
   {
     void* ptr;
-    env.central_freelist().AllocateBatch(&ptr, 1);
+    env.central_freelist().AllocateBatch({&ptr, 1});
     env.SetCurrentCpu(2);
     manager.Push(kSizeClass, ptr);
     EXPECT_TRUE(manager.shard_initialized(0));
@@ -610,7 +613,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
     // Push something onto cpu 0/shard0.
     {
       void* ptr;
-      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.central_freelist().AllocateBatch({&ptr, 1});
       env.SetCurrentCpu(0);
       manager.Push(kSizeClass, ptr);
       EXPECT_TRUE(manager.shard_initialized(0));
@@ -636,7 +639,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
     // Push something onto cpu 1, also shard 0.
     {
       void* ptr;
-      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.central_freelist().AllocateBatch({&ptr, 1});
       env.SetCurrentCpu(1);
       manager.Push(kSizeClass, ptr);
       EXPECT_TRUE(manager.shard_initialized(0));
@@ -650,7 +653,7 @@ TEST(ShardedTransferCacheManagerTest, ShardsOnDemand) {
     // Push something onto cpu 2/shard 1.
     {
       void* ptr;
-      env.central_freelist().AllocateBatch(&ptr, 1);
+      env.central_freelist().AllocateBatch({&ptr, 1});
       env.SetCurrentCpu(2);
       manager.Push(kSizeClass, ptr);
       EXPECT_TRUE(manager.shard_initialized(0));

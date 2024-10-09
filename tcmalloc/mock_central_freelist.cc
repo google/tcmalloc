@@ -15,17 +15,18 @@
 #include "tcmalloc/mock_central_freelist.h"
 
 #include "absl/base/internal/spinlock.h"
+#include "absl/types/span.h"
 #include "tcmalloc/internal/logging.h"
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void RealCentralFreeListForTesting::AllocateBatch(void** batch, int n) {
+void RealCentralFreeListForTesting::AllocateBatch(absl::Span<void*> batch) {
   int total = 0;
 
-  while (total < n) {
-    const int to_remove = n - total;
-    const int removed = RemoveRange(batch + total, to_remove);
+  while (total < batch.size()) {
+    const int to_remove = batch.size() - total;
+    const int removed = RemoveRange(batch.subspan(total));
     ASSERT_GT(removed, 0);
     ASSERT_LE(removed, to_remove);
     total += removed;
@@ -36,8 +37,8 @@ void RealCentralFreeListForTesting::FreeBatch(absl::Span<void*> batch) {
   InsertRange(batch);
 }
 
-void MinimalFakeCentralFreeList::AllocateBatch(void** batch, int n) {
-  for (int i = 0; i < n; ++i) batch[i] = &batch[i];
+void MinimalFakeCentralFreeList::AllocateBatch(absl::Span<void*> batch) {
+  for (void*& v : batch) v = &v;
 }
 
 void MinimalFakeCentralFreeList::FreeBatch(absl::Span<void*> batch) {
@@ -49,14 +50,14 @@ void MinimalFakeCentralFreeList::InsertRange(absl::Span<void*> batch) {
   FreeBatch(batch);
 }
 
-int MinimalFakeCentralFreeList::RemoveRange(void** batch, int n) {
+int MinimalFakeCentralFreeList::RemoveRange(absl::Span<void*> batch) {
   absl::base_internal::SpinLockHolder h(&lock_);
-  AllocateBatch(batch, n);
-  return n;
+  AllocateBatch(batch);
+  return batch.size();
 }
 
-void FakeCentralFreeList::AllocateBatch(void** batch, int n) {
-  for (int i = 0; i < n; ++i) {
+void FakeCentralFreeList::AllocateBatch(absl::Span<void*> batch) {
+  for (int i = 0; i < batch.size(); ++i) {
     batch[i] = ::operator new(4);
   }
 }
@@ -71,9 +72,9 @@ void FakeCentralFreeList::InsertRange(absl::Span<void*> batch) {
   FreeBatch(batch);
 }
 
-int FakeCentralFreeList::RemoveRange(void** batch, int n) {
-  AllocateBatch(batch, n);
-  return n;
+int FakeCentralFreeList::RemoveRange(absl::Span<void*> batch) {
+  AllocateBatch(batch);
+  return batch.size();
 }
 
 }  // namespace tcmalloc_internal

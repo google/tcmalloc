@@ -19,6 +19,7 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/random/random.h"
+#include "absl/types/span.h"
 #include "benchmark/benchmark.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/static_vars.h"
@@ -52,7 +53,7 @@ void BM_Populate(benchmark::State& state) {
     // populating the span.
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(&buffer[index], count);
+      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 
@@ -100,7 +101,7 @@ void BM_MixAndReturn(benchmark::State& state) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(&buffer[index], count);
+      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 
@@ -145,7 +146,8 @@ void BM_SpanReuse(benchmark::State& state) {
   // Request twice the objects we need
   for (int index = 0; index < 2 * num_objects;) {
     int count = std::min(batch_size, 2 * num_objects - index);
-    int got = cfl.RemoveRange(&held_objects[index], count);
+    int got =
+        cfl.RemoveRange(absl::MakeSpan(held_objects).subspan(index, count));
     index += got;
   }
 
@@ -164,7 +166,7 @@ void BM_SpanReuse(benchmark::State& state) {
     int index = 0;
     while (index < num_objects) {
       int count = std::min(batch_size, num_objects - index);
-      int got = cfl.RemoveRange(&buffer[index], count);
+      int got = cfl.RemoveRange(absl::MakeSpan(buffer).subspan(index, count));
       index += got;
     }
 

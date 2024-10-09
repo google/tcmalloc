@@ -724,6 +724,7 @@ cc_test(
         ":common_8k_pages",
         ":mock_static_forwarder",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",
@@ -1154,6 +1155,7 @@ create_tcmalloc_testsuite(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -1170,6 +1172,7 @@ create_tcmalloc_benchmark(
         "//tcmalloc/internal:logging",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -1392,6 +1395,7 @@ create_tcmalloc_benchmark(
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

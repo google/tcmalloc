@@ -218,7 +218,7 @@ class Span final : public SpanList::Elem {
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  size_t FreelistPopBatch(void** batch, size_t N, size_t size);
+  size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);
 
   // Reset a Span object to track the range [p, p + n).
   void Init(PageId p, Length n);
@@ -226,7 +226,7 @@ class Span final : public SpanList::Elem {
   // Initialize freelist to contain all objects in the span.
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  int BuildFreelist(size_t size, size_t count, void** batch, int N,
+  int BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
                     uint32_t max_cache_size, uint64_t alloc_time);
 
   // Prefetch cacheline containing most important span information.
@@ -361,7 +361,7 @@ class Span final : public SpanList::Elem {
 
   // For spans with 64 or fewer objects populate batch with up to N objects.
   // Returns number of objects actually popped.
-  size_t BitmapPopBatch(void** batch, size_t N, size_t size);
+  size_t BitmapPopBatch(absl::Span<void*> batch, size_t size);
 
   // Friend class to enable more indepth testing of bitmap code.
   friend class SpanTestPeer;

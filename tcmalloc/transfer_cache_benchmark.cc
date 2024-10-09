@@ -59,7 +59,7 @@ void BM_CrossThread(benchmark::State& state) {
                             2;
          ++i) {
       for (Cache& c : s->c) {
-        c.freelist().AllocateBatch(batch, kBatchSize);
+        c.freelist().AllocateBatch({batch, kBatchSize});
         c.InsertRange(kSizeClass, {batch, kBatchSize});
       }
     }
@@ -69,7 +69,7 @@ void BM_CrossThread(benchmark::State& state) {
   int dst = (src + 1) % 2;
   for (auto iter : state) {
     benchmark::DoNotOptimize(batch);
-    (void)s->c[src].RemoveRange(kSizeClass, batch, kBatchSize);
+    (void)s->c[src].RemoveRange(kSizeClass, {batch, kBatchSize});
     benchmark::DoNotOptimize(batch);
     s->c[dst].InsertRange(kSizeClass, {batch, kBatchSize});
     benchmark::DoNotOptimize(batch);
@@ -107,7 +107,7 @@ void BM_InsertRange(benchmark::State& state) {
   for (auto iter : state) {
     state.PauseTiming();
     e.emplace();
-    e->central_freelist().AllocateBatch(batch, kBatchSize);
+    e->central_freelist().AllocateBatch({batch, kBatchSize});
     benchmark::DoNotOptimize(e);
     benchmark::DoNotOptimize(batch);
     state.ResumeTiming();
@@ -132,7 +132,7 @@ void BM_RemoveRange(benchmark::State& state) {
     benchmark::DoNotOptimize(e);
     state.ResumeTiming();
 
-    (void)e->transfer_cache().RemoveRange(kSizeClass, batch, kBatchSize);
+    (void)e->transfer_cache().RemoveRange(kSizeClass, {batch, kBatchSize});
     benchmark::DoNotOptimize(batch);
   }
 }

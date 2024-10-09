@@ -21,6 +21,7 @@
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
+#include "absl/types/span.h"
 #include "tcmalloc/central_freelist.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/mock_static_forwarder.h"
@@ -77,7 +78,8 @@ void FuzzCFL(const std::string& s) {
         const uint8_t num_objects = value & 0x00FF;
         void* batch[kMaxObjectsToMove];
         const size_t n = num_objects % kMaxObjectsToMove + 1;
-        int allocated = env.central_freelist().RemoveRange(batch, n);
+        int allocated =
+            env.central_freelist().RemoveRange(absl::MakeSpan(batch, n));
         objects.insert(objects.end(), batch, batch + allocated);
         break;
       }

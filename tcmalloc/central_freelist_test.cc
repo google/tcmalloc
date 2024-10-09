@@ -104,9 +104,9 @@ TEST_P(StaticForwarderTest, Simple) {
   absl::FixedArray<void*> batch(objects_per_span_);
   const uint32_t max_span_cache_size = StaticForwarder::max_span_cache_size();
   const uint64_t alloc_time = StaticForwarder::clock_now();
-  size_t allocated =
-      span->BuildFreelist(object_size_, objects_per_span_, &batch[0],
-                          objects_per_span_, max_span_cache_size, alloc_time);
+  size_t allocated = span->BuildFreelist(object_size_, objects_per_span_,
+                                         absl::MakeSpan(batch),
+                                         max_span_cache_size, alloc_time);
   ASSERT_EQ(allocated, objects_per_span_);
 
   EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->first_page()));
@@ -203,7 +203,7 @@ class StaticForwarderEnvironment {
     d->span = span;
 
     size_t allocated = span->BuildFreelist(
-        object_size_, objects_per_span_, d->batch, batch_size_,
+        object_size_, objects_per_span_, absl::MakeSpan(d->batch, batch_size_),
         StaticForwarder::max_span_cache_size(), StaticForwarder::clock_now());
     EXPECT_LE(allocated, objects_per_span_);
 
@@ -336,7 +336,8 @@ TEST_P(CentralFreeListTest, IsolatedSmoke) {
   EXPECT_CALL(e.forwarder(), AllocateSpan).Times(1);
 
   absl::FixedArray<void*> batch(e.batch_size());
-  int allocated = e.central_freelist().RemoveRange(&batch[0], e.batch_size());
+  int allocated = e.central_freelist().RemoveRange(
+      absl::MakeSpan(&batch[0], e.batch_size()));
   ASSERT_GT(allocated, 0);
   EXPECT_LE(allocated, e.batch_size());
 
@@ -399,8 +400,8 @@ TEST_P(CentralFreeListTest, SpanUtilizationHistogram) {
 
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got =
-        e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
+    int got = e.central_freelist().RemoveRange(
+        absl::MakeSpan(batch, std::min(n, e.batch_size())));
     total_fetched += got;
 
     // Increment span_idx if current objects have been fetched from the new
@@ -491,8 +492,8 @@ TEST_P(CentralFreeListTest, SinglePopulate) {
   // Try to fetch sufficiently large number of objects at startup.
   const int num_objects_to_fetch = 10 * e.objects_per_span();
   std::vector<void*> objects(num_objects_to_fetch, nullptr);
-  const size_t got =
-      e.central_freelist().RemoveRange(objects.data(), num_objects_to_fetch);
+  const size_t got = e.central_freelist().RemoveRange(
+      absl::MakeSpan(objects.data(), num_objects_to_fetch));
   // Confirm we allocated at most kObjectsPerSpan number of objects.
   EXPECT_GT(got, 0);
   EXPECT_LE(got, e.objects_per_span());
@@ -520,7 +521,8 @@ void TestIndexing(TypeParam& e, IndexingFunc f) {
   // through the nonempty_ lists as we allocate more objects from it.
   while (fetched < num_objects_to_fetch) {
     // Try to fetch one object from the span.
-    int got = e.central_freelist().RemoveRange(&objects[fetched], 1);
+    int got =
+        e.central_freelist().RemoveRange(absl::MakeSpan(&objects[fetched], 1));
     fetched += got;
     TC_ASSERT(fetched);
     if (fetched % num_objects_to_fetch == 0) {
@@ -610,8 +612,8 @@ TEST_P(CentralFreeListTest, SpanPriority) {
     size_t fetched = 0;
     while (fetched < to_fetch) {
       const size_t n = to_fetch - fetched;
-      int got =
-          e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
+      int got = e.central_freelist().RemoveRange(
+          absl::MakeSpan(batch, std::min(n, e.batch_size())));
       for (int i = 0; i < got; ++i) {
         objects[span].push_back(batch[i]);
       }
@@ -662,7 +664,7 @@ TEST_P(CentralFreeListTest, SpanPriority) {
 
   // Allocate one object to ensure that it is being allocated from the span with
   // the highest number of allocated objects.
-  int got = e.central_freelist().RemoveRange(batch, 1);
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
   EXPECT_EQ(got, 1);
   // Number of spans in the last nonempty_ list should be unchanged (i.e.
   // kNumSpans-1).
@@ -713,7 +715,7 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   // Request kNumSpans spans.
   void* batch[kMaxObjectsToMove];
   ASSERT_GT(e.objects_per_span(), 0);
-  int got = e.central_freelist().RemoveRange(batch, 1);
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(batch, 1));
   ASSERT_EQ(got, 1);
 
   e.forwarder().AdvanceClock(absl::Seconds(1));
@@ -785,8 +787,8 @@ TEST_P(CentralFreeListTest, MultipleSpans) {
   int total_fetched = 0;
   while (total_fetched < num_objects_to_fetch) {
     size_t n = num_objects_to_fetch - total_fetched;
-    int got =
-        e.central_freelist().RemoveRange(batch, std::min(n, e.batch_size()));
+    int got = e.central_freelist().RemoveRange(
+        absl::MakeSpan(batch, std::min(n, e.batch_size())));
     for (int i = 0; i < got; ++i) {
       all_objects.push_back(batch[i]);
     }
@@ -865,7 +867,7 @@ TEST_P(CentralFreeListTest, PassSpanDensityToPageheap) {
         .Times(1);
     const size_t to_fetch = std::min(e.objects_per_span(), e.batch_size());
     const size_t fetched =
-        e.central_freelist().RemoveRange(&objects[0], to_fetch);
+        e.central_freelist().RemoveRange(absl::MakeSpan(&objects[0], to_fetch));
     size_t returned = 0;
     while (returned < fetched) {
       EXPECT_CALL(e.forwarder(), DeallocateSpans(testing::_, testing::_))
@@ -887,7 +889,7 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
               std::get<0>(GetParam()).num_to_move, std::get<1>(GetParam()));
   // Allocate one object from the CFL to allocate a span.
   void* initial;
-  int got = e.central_freelist().RemoveRange(&initial, 1);
+  int got = e.central_freelist().RemoveRange(absl::MakeSpan(&initial, 1));
   ASSERT_EQ(got, 1);
 
   Span* const span = e.central_freelist().forwarder().MapObjectToSpan(initial);
@@ -904,7 +906,7 @@ TEST_P(CentralFreeListTest, SpanFragmentation) {
   ThreadManager cfl;
   cfl.Start(1, [&](int) {
     void* next;
-    int got = e.central_freelist().RemoveRange(&next, 1);
+    int got = e.central_freelist().RemoveRange(absl::MakeSpan(&next, 1));
     e.central_freelist().InsertRange(absl::MakeSpan(&next, got));
   });
 

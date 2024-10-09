@@ -69,8 +69,9 @@ void FuzzSpan(const std::string& s) {
   void* buf = ::operator new(span_size, std::align_val_t(alignof(Span)));
   Span* span = new (buf) Span();
   span->Init(PageIdContaining(mem), pages);
-  span->BuildFreelist(object_size, objects_per_span, nullptr, 0,
-                      max_span_cache_size, alloc_time);
+  // TODO(b/271282540): Fuzz the initial allocation during freelist building.
+  span->BuildFreelist(object_size, objects_per_span, {}, max_span_cache_size,
+                      alloc_time);
 
   TC_CHECK_EQ(span->Allocated(), 0);
 
@@ -82,7 +83,7 @@ void FuzzSpan(const std::string& s) {
     TC_CHECK_GT(want, 0);
     void* batch[kMaxObjectsToMove];
     TC_CHECK(!span->FreelistEmpty(object_size));
-    size_t n = span->FreelistPopBatch(batch, want, object_size);
+    size_t n = span->FreelistPopBatch(absl::MakeSpan(batch, want), object_size);
 
     TC_CHECK_GT(n, 0);
     TC_CHECK_LE(n, want);

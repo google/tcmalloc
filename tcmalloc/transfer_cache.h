@@ -112,7 +112,7 @@ class BackingTransferCache {
  public:
   void Init(int size_class) { size_class_ = size_class; }
   void InsertRange(absl::Span<void *> batch) const;
-  ABSL_MUST_USE_RESULT int RemoveRange(void **batch, int n) const;
+  ABSL_MUST_USE_RESULT int RemoveRange(absl::Span<void *> batch) const;
   int size_class() const { return size_class_; }
 
  private:
@@ -197,13 +197,14 @@ class ShardedTransferCacheManagerBase {
   void *Pop(int size_class) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     void *batch[1];
-    const int got = get_cache(size_class).RemoveRange(size_class, batch, 1);
+    const int got =
+        get_cache(size_class).RemoveRange(size_class, absl::MakeSpan(batch));
     return got == 1 ? batch[0] : nullptr;
   }
 
   void Push(int size_class, void *ptr) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
-    get_cache(size_class).InsertRange(size_class, {&ptr, 1});
+    get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }
 
   void Print(Printer *out) const {
@@ -275,8 +276,8 @@ class ShardedTransferCacheManagerBase {
     return stats;
   }
 
-  int RemoveRange(int size_class, void **batch, size_t count) {
-    return get_cache(size_class).RemoveRange(size_class, batch, count);
+  int RemoveRange(int size_class, absl::Span<void *> batch) {
+    return get_cache(size_class).RemoveRange(size_class, batch);
   }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
@@ -422,8 +423,9 @@ class TransferCacheManager : public StaticForwarder {
     cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int n) {
-    return cache_[size_class].tc.RemoveRange(size_class, batch, n);
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
+                                       absl::Span<void *> batch) {
+    return cache_[size_class].tc.RemoveRange(size_class, batch);
   }
 
   // This is not const because the underlying ring-buffer transfer cache
@@ -556,8 +558,9 @@ class TransferCacheManager {
     freelist_[size_class].InsertRange(batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void** batch, int n) {
-    return freelist_[size_class].RemoveRange(batch, n);
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
+                                       absl::Span<void*> batch) {
+    return freelist_[size_class].RemoveRange(batch);
   }
 
   static constexpr size_t tc_length(int size_class) { return 0; }
@@ -586,7 +589,7 @@ struct ShardedTransferCacheManager {
   static constexpr bool should_use(int size_class) { return false; }
   static constexpr void* Pop(int size_class) { return nullptr; }
   static constexpr void Push(int size_class, void* ptr) {}
-  static constexpr int RemoveRange(int size_class, void** batch, int n) {
+  static constexpr int RemoveRange(int size_class, absl::Span<void*> batch) {
     return 0;
   }
   static constexpr void InsertRange(int size_class, absl::Span<void*> batch) {}

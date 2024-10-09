@@ -179,20 +179,22 @@ class TransferCache {
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class, void **batch, int N)
+  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
+                                       const absl::Span<void *> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
-    TC_ASSERT(0 < N && N <= kMaxObjectsToMove);
+    TC_ASSERT(!batch.empty());
+    TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);
     auto info = slot_info_.load(std::memory_order_relaxed);
     if (info.used) {
       AllocationGuardSpinLockHolder h(&lock_);
       // Refetch with the lock
       info = slot_info_.load(std::memory_order_relaxed);
-      int got = std::min(N, info.used);
+      int got = std::min<int>(batch.size(), info.used);
       if (got) {
         info.used -= got;
         SetSlotInfo(info);
         void **entry = GetSlot(info.used);
-        memcpy(batch, entry, sizeof(void *) * got);
+        memcpy(batch.data(), entry, sizeof(void *) * got);
         remove_hits_.LossyAdd(1);
         low_water_mark_ = std::min(low_water_mark_, info.used);
         return got;
@@ -200,8 +202,8 @@ class TransferCache {
     }
 
     remove_misses_.LossyAdd(1);
-    remove_object_misses_.Inc(N);
-    return freelist().RemoveRange(batch, N);
+    remove_object_misses_.Inc(batch.size());
+    return freelist().RemoveRange(batch);
   }
 
   // We record the lowest value of info.used in a low water mark since the last

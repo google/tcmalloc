@@ -48,9 +48,9 @@ void BackingTransferCache::InsertRange(absl::Span<void *> batch) const {
   tc_globals.transfer_cache().InsertRange(size_class_, batch);
 }
 
-ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(void **batch,
-                                                           int n) const {
-  return tc_globals.transfer_cache().RemoveRange(size_class_, batch, n);
+ABSL_MUST_USE_RESULT int BackingTransferCache::RemoveRange(
+    const absl::Span<void *> batch) const {
+  return tc_globals.transfer_cache().RemoveRange(size_class_, batch);
 }
 
 #endif

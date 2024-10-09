@@ -90,8 +90,8 @@ void* ThreadCache::FetchFromTransferCache(size_t size_class, size_t byte_size) {
 
   const int num_to_move = std::min<int>(list->max_length(), batch_size);
   void* batch[kMaxObjectsToMove];
-  int fetch_count =
-      tc_globals.transfer_cache().RemoveRange(size_class, batch, num_to_move);
+  int fetch_count = tc_globals.transfer_cache().RemoveRange(
+      size_class, absl::MakeSpan(batch, num_to_move));
   if (fetch_count == 0) {
     return nullptr;
   }

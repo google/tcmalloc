@@ -603,7 +603,7 @@ class CpuCache {
   GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
   // Fetches objects from backing transfer cache.
-  int FetchFromBackingCache(size_t size_class, void** batch, size_t count);
+  int FetchFromBackingCache(size_t size_class, absl::Span<void*> batch);
 
   // Releases free batch of objects to the backing transfer cache.
   void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
@@ -1043,13 +1043,11 @@ inline void CpuCache<Forwarder>::Deactivate() {
 
 template <class Forwarder>
 inline int CpuCache<Forwarder>::FetchFromBackingCache(size_t size_class,
-                                                      void** batch,
-                                                      size_t count) {
+                                                      absl::Span<void*> batch) {
   if (UseBackingShardedTransferCache(size_class)) {
-    return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch,
-                                                           count);
+    return forwarder_.sharded_transfer_cache().RemoveRange(size_class, batch);
   }
-  return forwarder_.transfer_cache().RemoveRange(size_class, batch, count);
+  return forwarder_.transfer_cache().RemoveRange(size_class, batch);
 }
 
 template <class Forwarder>
@@ -1080,7 +1078,7 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
       void* ptr = nullptr;
-      FetchFromBackingCache(size_class, &ptr, 1);
+      FetchFromBackingCache(size_class, absl::MakeSpan(&ptr, 1));
       return ptr;
     }
     if (void* ret = AllocateFast(size_class)) {
@@ -1114,7 +1112,7 @@ inline void* CpuCache<Forwarder>::Refill(int cpu, size_t size_class) {
 
   do {
     const size_t want = std::min(kMaxObjectsToMove, target - total);
-    got = FetchFromBackingCache(size_class, batch, want);
+    got = FetchFromBackingCache(size_class, absl::MakeSpan(batch, want));
     if (got == 0) {
       break;
     }

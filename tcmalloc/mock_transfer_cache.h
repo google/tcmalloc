@@ -164,7 +164,7 @@ class FakeTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min(n, batch);
       bufs.resize(b);
-      central_freelist().AllocateBatch(&bufs[0], b);
+      central_freelist().AllocateBatch(absl::MakeSpan(bufs));
       cache_.InsertRange(kSizeClass, absl::MakeSpan(bufs));
       n -= b;
     }
@@ -175,7 +175,7 @@ class FakeTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min(n, batch);
       bufs.resize(b);
-      int removed = cache_.RemoveRange(kSizeClass, &bufs[0], b);
+      int removed = cache_.RemoveRange(kSizeClass, absl::MakeSpan(bufs));
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
@@ -272,8 +272,8 @@ class TwoSizeClassManager : public FakeTransferCacheManager {
     caches_[size_class]->InsertRange(size_class, batch);
   }
 
-  int RemoveRange(int size_class, void** batch, int N) {
-    return caches_[size_class]->RemoveRange(size_class, batch, N);
+  int RemoveRange(int size_class, absl::Span<void*> batch) {
+    return caches_[size_class]->RemoveRange(size_class, batch);
   }
 
   size_t tc_length(int size_class) { return caches_[size_class]->tc_length(); }
@@ -342,7 +342,8 @@ class MultiSizeClassTransferCacheEnvironment {
     while (n > 0) {
       int b = std::min<int>(n, batch_size);
       bufs.resize(b);
-      int removed = central_freelist(size_class).RemoveRange(&bufs[0], b);
+      int removed =
+          central_freelist(size_class).RemoveRange(absl::MakeSpan(bufs));
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);
       manager_.InsertRange(size_class, absl::MakeSpan(bufs));
@@ -356,7 +357,8 @@ class MultiSizeClassTransferCacheEnvironment {
     while (n > 0) {
       const int b = std::min<int>(n, batch_size);
       bufs.resize(b);
-      const int removed = manager_.RemoveRange(size_class, &bufs[0], b);
+      const int removed =
+          manager_.RemoveRange(size_class, absl::MakeSpan(bufs));
       // Ensure we make progress.
       ASSERT_GT(removed, 0);
       ASSERT_LE(removed, b);

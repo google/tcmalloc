@@ -21,6 +21,7 @@
 #include <cstring>
 
 #include "absl/base/optimization.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/config.h"
@@ -139,13 +140,13 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
   return reinterpret_cast<ObjIdx*>(off);
 }
 
-size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
+size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) {
   size_t before =
       small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size());
   size_t count = 0;
-  // Want to fill the batch either with N objects, or the number of objects
-  // remaining in the span.
-  while (!small_span_state_.bitmap.IsZero() && count < N) {
+  // Want to fill the batch either with batch.size() objects, or the number of
+  // objects remaining in the span.
+  while (!small_span_state_.bitmap.IsZero() && count < batch.size()) {
     size_t offset = small_span_state_.bitmap.FindSet(0);
     TC_ASSERT_LT(offset, small_span_state_.bitmap.size());
     batch[count] = BitmapIdxToPtr(offset, size);
@@ -162,14 +163,14 @@ size_t Span::BitmapPopBatch(void** __restrict batch, size_t N, size_t size) {
   return count;
 }
 
-size_t Span::FreelistPopBatch(void** __restrict batch, size_t N, size_t size) {
+size_t Span::FreelistPopBatch(const absl::Span<void*> batch, size_t size) {
   TC_ASSERT(!is_large_or_sampled());
   // Handle spans with bitmap.size() or fewer objects using a bitmap. We expect
   // spans to frequently hold smaller objects.
   if (ABSL_PREDICT_FALSE(UseBitmapForSize(size))) {
-    return BitmapPopBatch(batch, N, size);
+    return BitmapPopBatch(batch, size);
   }
-  return ListPopBatch(batch, N, size);
+  return ListPopBatch(batch.data(), batch.size(), size);
 }
 
 size_t Span::ListPopBatch(void** __restrict batch, size_t N, size_t size) {
@@ -248,7 +249,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
       count);
 }
 
-int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
+int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
                         uint32_t max_cache_size, uint64_t alloc_time) {
   TC_ASSERT(!is_large_or_sampled());
   TC_ASSERT_GT(count, 0);
@@ -256,13 +257,13 @@ int Span::BuildFreelist(size_t size, size_t count, void** batch, int N,
 
   if (UseBitmapForSize(size)) {
     BuildBitmap(size, count);
-    return BitmapPopBatch(batch, N, size);
+    return BitmapPopBatch(batch, size);
   }
 
   // First, push as much as we can into the batch.
   const uintptr_t start = first_page().start_uintptr();
   char* ptr = reinterpret_cast<char*>(start);
-  int result = N <= count ? N : count;
+  int result = batch.size() <= count ? batch.size() : count;
   for (int i = 0; i < result; ++i) {
     batch[i] = ptr;
     ptr += size;

@@ -31,6 +31,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/random/random.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
@@ -61,7 +62,7 @@ class RawSpan {
 
     span_ = new (buf_) Span();
     span_->Init(PageIdContaining(mem_), npages);
-    span_->BuildFreelist(size, objects_per_span, nullptr, 0, max_cache_size,
+    span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
                          kSpanAllocTime);
   }
 
@@ -131,7 +132,7 @@ TEST_P(SpanTest, FreelistBasic) {
     // Pop all objects in batches of varying size and ensure that we've got
     // all objects.
     for (;;) {
-      size_t n = span_.FreelistPopBatch(batch, want, size_);
+      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       popped += n;
       EXPECT_NEAR(
           span_.Fragmentation(size_),
@@ -157,7 +158,7 @@ TEST_P(SpanTest, FreelistBasic) {
       }
     }
     EXPECT_TRUE(span_.FreelistEmpty(size_));
-    EXPECT_EQ(span_.FreelistPopBatch(batch, 1, size_), 0);
+    EXPECT_EQ(span_.FreelistPopBatch(absl::MakeSpan(batch, 1), size_), 0);
     EXPECT_EQ(popped, objects_per_span_);
 
     // Push all objects back except the last one (which would not be pushed).
@@ -209,7 +210,7 @@ TEST_P(SpanTest, FreelistRandomized) {
       EXPECT_EQ(span_.FreelistEmpty(size_), objects_per_span_ == 1);
     } else {
       size_t want = absl::Uniform<int32_t>(rng, 0, batch_size_) + 1;
-      size_t n = span_.FreelistPopBatch(batch, want, size_);
+      size_t n = span_.FreelistPopBatch(absl::MakeSpan(batch, want), size_);
       if (n < want) {
         EXPECT_TRUE(span_.FreelistEmpty(size_));
       }
@@ -223,7 +224,8 @@ TEST_P(SpanTest, FreelistRandomized) {
               span_.AllocTime(size_, max_cache_size_) == kSpanAllocTime);
   // Now pop everything what's there.
   for (;;) {
-    size_t n = span_.FreelistPopBatch(batch, batch_size_, size_);
+    size_t n =
+        span_.FreelistPopBatch(absl::MakeSpan(batch, batch_size_), size_);
     for (size_t i = 0; i < n; ++i) {
       EXPECT_TRUE(objects.insert(batch[i]).second);
     }
