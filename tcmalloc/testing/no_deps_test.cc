@@ -78,14 +78,20 @@ int main() {
       // than a hard-coded list.
       //
       // go/keep-sorted start
-      "generic.bytes_in_use_by_app", "generic.current_allocated_bytes",
-      "generic.heap_size", "generic.peak_memory_usage",
-      "generic.physical_memory_used", "generic.virtual_memory_used",
-      "tcmalloc.central_cache_free", "tcmalloc.cpu_free",
+      "generic.bytes_in_use_by_app",
+      "generic.current_allocated_bytes",
+      "generic.heap_size",
+      "generic.peak_memory_usage",
+      "generic.physical_memory_used",
+      "generic.virtual_memory_used",
+      "tcmalloc.central_cache_free",
+      "tcmalloc.cpu_free",
       "tcmalloc.current_total_thread_cache_bytes",
-      // TODO(b/329837900): Add tcmalloc.metadata_bytes to this list.
-      "tcmalloc.pageheap_free_bytes", "tcmalloc.pageheap_unmapped_bytes",
-      "tcmalloc.per_cpu_caches_active", "tcmalloc.sharded_transfer_cache_free",
+      "tcmalloc.metadata_bytes",
+      "tcmalloc.pageheap_free_bytes",
+      "tcmalloc.pageheap_unmapped_bytes",
+      "tcmalloc.per_cpu_caches_active",
+      "tcmalloc.sharded_transfer_cache_free",
       "tcmalloc.transfer_cache_free",
       // go/keep-sorted end
   };

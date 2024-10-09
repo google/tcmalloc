@@ -66,9 +66,9 @@ TEST(StartupSizeTest, Basic) {
   size_t meta = Property(map, "tcmalloc.metadata_bytes");
   size_t physical = Property(map, "generic.physical_memory_used");
   EXPECT_LE(meta, metadata_limit);
-  // Allow 50% more total physical memory than the virtual memory
+  // Allow 20% more total physical memory than the virtual memory
   // reserved for the metadata.
-  EXPECT_LE(physical, metadata_limit * 1.5);
+  EXPECT_LE(physical, metadata_limit * 1.2);
 }
 
 }  // namespace
