@@ -28,6 +28,7 @@
 #include <cstring>
 #include <initializer_list>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -43,6 +44,7 @@
 #include "absl/log/log.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -73,6 +75,10 @@ class PageFlagsFriend {
 
   decltype(auto) CachedScanSeconds() { return r_.cached_scan_seconds_; }
 
+  decltype(auto) CountHolesInSinglePage(const void* const addr) {
+    return r_.CountHolesInSinglePage(addr);
+  }
+
   void SetCachedScanSeconds(
       decltype(PageFlags::cached_scan_seconds_) scan_seconds) {
     r_.cached_scan_seconds_ = scan_seconds;
@@ -94,6 +100,7 @@ using ::testing::Optional;
 
 constexpr uint64_t kPageHead = (1UL << 15);
 constexpr uint64_t kPageTail = (1UL << 16);
+constexpr uint64_t kPageHole = (1UL << 20);
 constexpr uint64_t kPageThp = (1UL << 22);
 constexpr uint64_t kPageStale = (1UL << 44);
 
@@ -380,6 +387,157 @@ TEST(PageFlagsTest, OnlyTails) {
   PageFlagsFriend s(file_path);
   ASSERT_EQ(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
             std::nullopt);
+}
+
+// Method that can write a region with a single hugepage
+// a region with a single missing page, a region with every other page missing,
+// a region with all missing pages, or a region with a hugepage in the middle.
+void GenerateHolesInSinglePage(absl::string_view filename, int case_num,
+                               bool large_buffer) {
+  int write_fd = signal_safe_open(filename.data(), O_CREAT | O_WRONLY, S_IRUSR);
+  CHECK_NE(write_fd, -1) << errno;
+  // Create a large enough buffer to hold 4 hugepages worth of flags
+  constexpr size_t kPageSize = 4096;
+  int num_pages = large_buffer ? 2 << 13 : kHugePageSize / kPageSize;
+  std::vector<uint64_t> buf(num_pages, 0);
+  // constexpr int num_pages = static_cast<int>(kHugePageSize / kPageSize);
+  // std::array<uint64_t, num_pages> buf = {};
+  for (int i = 0; i < num_pages; i++) {
+    switch (case_num) {
+      case 0:
+        // First region is a thp hugepage
+        buf[i] = kPageThp;
+        if (i == 0) {
+          buf[i] |= kPageHead;
+        } else {
+          buf[i] |= kPageTail;
+        }
+        break;
+      case 1:
+        // First page is a hole, rest are stale
+        if (i == 0) {
+          buf[i] = kPageHole;
+        } else {
+          buf[i] = kPageStale;
+        }
+        break;
+      case 2:
+        // Every other page is a hole, rest are stale
+        if (i % 2 == 0) {
+          buf[i] = kPageHole;
+        } else if (i % 2 == 1) {
+          buf[i] = kPageStale;
+        }
+        break;
+      case 3:
+        // All pages are holes
+        buf[i] = kPageHole;
+        break;
+      case 4:
+        // Hugepage in the middle of region
+        if (i == 256) {
+          buf[i] = kPageThp;
+        } else {
+          buf[i] = kPageHole;
+        }
+        break;
+    }
+  }
+  int size_of_write = large_buffer ? (2 << 13) : kPageSize;
+  CHECK_EQ(write(write_fd, buf.data(), size_of_write), size_of_write);
+  CHECK_EQ(close(write_fd), 0) << errno;
+}
+
+TEST(PageFlagsTest, CountHolesInSinglePage) {
+  constexpr int kNumCases = 4;
+  std::array<PageFlags::HoleInfo, kNumCases> expected = {
+      PageFlags::HoleInfo{.status = absl::StatusCode::kOk,
+                          .num_holes = 0,
+                          .already_hugepage = true},
+      PageFlags::HoleInfo{.status = absl::StatusCode::kOk,
+                          .num_holes = 1,
+                          .already_hugepage = false},
+      PageFlags::HoleInfo{.status = absl::StatusCode::kOk,
+                          .num_holes = 256,
+                          .already_hugepage = false},
+      PageFlags::HoleInfo{.status = absl::StatusCode::kOk,
+                          .num_holes = 512,
+                          .already_hugepage = false},
+  };
+  std::optional<AllocationGuard> g;
+
+  for (int i = 0; i < kNumCases; ++i) {
+    std::string file_path =
+        absl::StrCat(testing::TempDir(), "/holes_in_single_page_", i);
+    GenerateHolesInSinglePage(file_path, /*case_num=*/i,
+                              /*large_buffer=*/false);
+
+    g.emplace();
+    PageFlagsFriend s(file_path);
+    PageFlags::HoleInfo res =
+        s.CountHolesInSinglePage(reinterpret_cast<void*>(0));
+    g.reset();
+    EXPECT_THAT(res.status, expected[i].status);
+    EXPECT_THAT(res.num_holes, expected[i].num_holes);
+    EXPECT_THAT(res.already_hugepage, expected[i].already_hugepage);
+  }
+}
+
+TEST(PageFlagsTest, CountHolesWithAddressBeyondFirstPage) {
+  std::optional<AllocationGuard> g;
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/holes_in_single_page");
+  GenerateHolesInSinglePage(file_path, /*case_num=*/3,
+                            /*large_buffer=*/true);
+  PageFlags::HoleInfo expected =
+      PageFlags::HoleInfo{.status = absl::StatusCode::kOk,
+                          .num_holes = 512,
+                          .already_hugepage = false};
+  g.emplace();
+  PageFlagsFriend s(file_path);
+  PageFlags::HoleInfo res =
+      s.CountHolesInSinglePage(reinterpret_cast<void*>(2 << 21));
+  g.reset();
+  EXPECT_THAT(res.status, expected.status);
+  EXPECT_THAT(res.num_holes, expected.num_holes);
+  EXPECT_THAT(res.already_hugepage, expected.already_hugepage);
+}
+
+TEST(PageFlagsTest, VerifyAddressAlignmentCheckPasses) {
+  std::optional<AllocationGuard> g;
+  std::string file_path = absl::StrCat(testing::TempDir(), "asd");
+  GenerateHolesInSinglePage(file_path, /*case_num=*/0,
+                            /*large_buffer=*/false);
+  g.emplace();
+  PageFlagsFriend s(file_path);
+  PageFlags::HoleInfo non_align_addr_res =
+      s.CountHolesInSinglePage(reinterpret_cast<void*>(0x00001));
+  g.reset();
+  EXPECT_EQ(non_align_addr_res.status, absl::StatusCode::kFailedPrecondition);
+}
+
+TEST(PageFlagsTest, VerifyHugePageInMiddleOfRegionFails) {
+  std::optional<AllocationGuard> g;
+  std::string file_path =
+      absl::StrCat(testing::TempDir(), "/page_head_in_middle_of_region");
+  GenerateHolesInSinglePage(file_path, /*case_num=*/4,
+                            /*large_buffer=*/false);
+  g.emplace();
+  PageFlagsFriend s(file_path);
+  PageFlags::HoleInfo res =
+      s.CountHolesInSinglePage(reinterpret_cast<void*>(0));
+  g.reset();
+  EXPECT_EQ(res.status, absl::StatusCode::kFailedPrecondition);
+}
+
+TEST(PageFlagsTest, VerifyAddressAlignmentBeyondFirstPageFails) {
+  std::optional<AllocationGuard> g;
+  g.emplace();
+  PageFlagsFriend s;
+  PageFlags::HoleInfo res =
+      s.CountHolesInSinglePage(reinterpret_cast<void*>((2 << 21) + 1));
+  g.reset();
+  EXPECT_EQ(res.status, absl::StatusCode::kFailedPrecondition);
 }
 
 TEST(PageFlagsTest, TooManyTails) {

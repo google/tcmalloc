@@ -83,6 +83,12 @@ class PageFlags final : public PageFlagsBase {
   // reclaim it.
   PageFlags();
   ~PageFlags() override;
+
+  struct HoleInfo {
+    absl::StatusCode status;
+    int32_t num_holes;
+    bool already_hugepage;
+  };
   // Query a span of memory starting from `addr` for `size` bytes. The memory
   // span must consist of only native-size pages and THP hugepages; the behavior
   // is undefined if we encounter other hugepages (such as hugetlbfs). We try to
@@ -94,6 +100,11 @@ class PageFlags final : public PageFlagsBase {
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
   std::optional<PageStats> Get(const void* addr, size_t size) override;
+
+  // Count the number of holes in a single hugepage region when a hugepage
+  // aligned address is passed.  A HoleInfo object is returned with the status
+  // code, number of holes, and whether the region is  huge.
+  HoleInfo CountHolesInSinglePage(const void* addr);
 
  private:
   // Returns the offset in the pageflags file for the given virtual address.
