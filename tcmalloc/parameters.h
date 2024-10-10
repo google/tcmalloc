@@ -114,12 +114,6 @@ class Parameters {
     return release_pages_from_huge_region_.load(std::memory_order_relaxed);
   }
 
-  static bool tag_metadata_separately();
-
-  static void set_tag_metadata_separately(bool value) {
-    TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(value);
-  }
-
   static bool resize_size_class_max_capacity() {
     return resize_size_class_max_capacity_.load(std::memory_order_relaxed);
   }
@@ -230,7 +224,6 @@ class Parameters {
   friend void ::TCMalloc_Internal_SetHugeCacheDemandBasedRelease(bool v);
   friend void ::TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v);
   friend void ::TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v);
-  friend void ::TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(bool v);
   friend void ::TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v);
   friend void ::TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v);
   friend void ::TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v);
@@ -272,7 +265,6 @@ class Parameters {
   static std::atomic<bool> huge_cache_demand_based_release_;
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<bool> resize_size_class_max_capacity_;
-  static std::atomic<bool> tag_metadata_separately_;
   static std::atomic<int64_t> profile_sampling_interval_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
   static std::atomic<MadvisePreference> madvise_;

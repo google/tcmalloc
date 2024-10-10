@@ -32,7 +32,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/parameters.h"
 
 #ifndef PR_SET_VMA
 #define PR_SET_VMA 0x53564d41
@@ -224,9 +223,8 @@ TEST(Basic, RetryFailTest) {
   free(q);
 }
 
-// Verify when tag_metadata_separately is true, the usage hint is kMetadata.
+// Verify default behavior for tcmalloc metadata utilizes usage hint kMetadata.
 TEST(UsageHint, VerifyUsageHintkMetadataTest) {
-  Parameters::set_tag_metadata_separately(true);
   MallocExtension::SetRegionFactory(&f);
   // Need a large enough size to trigger the system allocator,
   //  2.0 is an arbitrary number. Else it would continue to use the previous
@@ -234,21 +232,6 @@ TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   void* ptr = ::operator new(kMinMmapAlloc * 2.0);
 
   EXPECT_EQ(f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
-      << "Usage hint is " << hintToString(f.usage_hint_);
-  ::operator delete(ptr);
-}
-
-// Verify that when tag_metadata_separately is false, the usage hint is
-// kInfrequentAllocation.
-TEST(UsageHint, WhenNotTaggingMetadataSeparately) {
-  Parameters::set_tag_metadata_separately(false);
-  MallocExtension::SetRegionFactory(&f);
-  // Need a large enough size to trigger the system allocator,
-  //  2.0 is an arbitrary number. Else it would continue to use the previous
-  //  hugepage region and a new usage hint wouldn't be assigned
-  void* ptr = ::operator new(kMinMmapAlloc * 2.0);
-  EXPECT_EQ(f.usage_hint_,
-            AddressRegionFactory::UsageHint::kInfrequentAllocation)
       << "Usage hint is " << hintToString(f.usage_hint_);
   ::operator delete(ptr);
 }

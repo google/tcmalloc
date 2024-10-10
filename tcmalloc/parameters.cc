@@ -121,19 +121,6 @@ static std::atomic<bool>& huge_region_demand_based_release_enabled() {
   return v;
 }
 
-// As set_metadata_hugepage is determined at runtime, we cannot require constant
-// initialization for the atomic.  This avoids an initialization order fiasco.
-static std::atomic<bool>& tag_metadata_hugepage_enabled() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{true};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    if (IsExperimentActive(Experiment::TCMALLOC_METADATA_HUGEPAGE)) {
-      v.store(false, std::memory_order_relaxed);
-    }
-  });
-  return v;
-}
-
 // Configures short and long intervals to zero by default. We expect to set them
 // to the non-zero durations once the feature is no longer experimental.
 static std::atomic<int64_t>& skip_subrelease_short_interval_ns() {
@@ -284,7 +271,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
 ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
     MadvisePreference::kDontNeed);
-ABSL_CONST_INIT std::atomic<bool> Parameters::tag_metadata_separately_(true);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
 ABSL_CONST_INIT std::atomic<double>
@@ -337,10 +323,6 @@ absl::Duration Parameters::cache_demand_release_long_interval() {
 bool Parameters::huge_region_demand_based_release() {
   return huge_region_demand_based_release_enabled().load(
       std::memory_order_relaxed);
-}
-
-bool Parameters::tag_metadata_separately() {
-  return tag_metadata_hugepage_enabled().load(std::memory_order_relaxed);
 }
 
 bool Parameters::dense_trackers_sorted_on_spans_allocated() {
@@ -510,10 +492,6 @@ bool TCMalloc_Internal_GetReleasePagesFromHugeRegionEnabled() {
   return Parameters::release_pages_from_huge_region();
 }
 
-bool TCMalloc_Internal_GetTagMetadataSeparatelyEnabled() {
-  return Parameters::tag_metadata_separately();
-}
-
 bool TCMalloc_Internal_GetResizeSizeClassMaxCapacityEnabled() {
   return Parameters::resize_size_class_max_capacity();
 }
@@ -581,11 +559,6 @@ void TCMalloc_Internal_SetHugeRegionDemandBasedRelease(bool v) {
 void TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(bool v) {
   Parameters::release_pages_from_huge_region_.store(v,
                                                     std::memory_order_relaxed);
-}
-
-void TCMalloc_Internal_SetTagMetadataSeparatelyEnabled(bool v) {
-  tcmalloc::tcmalloc_internal::tag_metadata_hugepage_enabled().store(
-      v, std::memory_order_relaxed);
 }
 
 void TCMalloc_Internal_SetResizeSizeClassMaxCapacityEnabled(bool v) {
