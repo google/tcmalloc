@@ -26,5 +26,5 @@ bazel_dep(name = "googletest", version = "1.13.0", repo_name = "com_google_googl
 bazel_dep(name = "protobuf", version = "26.0", repo_name = "com_google_protobuf")
 bazel_dep(name = "re2", version = "2024-02-01", repo_name = "com_googlesource_code_re2")
 bazel_dep(name = "rules_cc", version = "0.0.9")
-bazel_dep(name = "rules_fuzzing", version = "0.5.1")
+bazel_dep(name = "rules_fuzzing", version = "0.5.2")
 bazel_dep(name = "rules_proto", version = "4.0.0")
