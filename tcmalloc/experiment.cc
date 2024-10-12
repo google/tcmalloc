@@ -61,7 +61,8 @@ bool HasBrittleTestFailures(Experiment exp) {
     return true;
   }
 
-  if (exp == Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES) {
+  if (exp == Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES ||
+      exp == Experiment::TCMALLOC_REUSE_SIZE_CLASSES) {
     return true;
   }
 
