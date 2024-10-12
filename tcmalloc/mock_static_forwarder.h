@@ -49,7 +49,6 @@ class FakeStaticForwarder {
   void AdvanceClock(absl::Duration d) {
     clock_ += absl::ToDoubleSeconds(d) * clock_frequency();
   }
-  void ResetClock() { clock_ = 1234; }
 
   size_t class_to_size(int size_class) const { return class_size_; }
   Length class_to_pages(int size_class) const { return pages_; }
