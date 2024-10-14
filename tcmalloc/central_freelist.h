@@ -67,8 +67,9 @@ class StaticForwarder {
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
   static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans);
-  static Span* AllocateSpan(int size_class, size_t objects_per_span,
-                            Length pages_per_span)
+  [[nodiscard]] static Span* AllocateSpan(int size_class,
+                                          size_t objects_per_span,
+                                          Length pages_per_span)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
   static void DeallocateSpans(size_t objects_per_span,
                               absl::Span<Span*> free_spans)
@@ -112,7 +113,7 @@ class CentralFreeList {
 
   // Fill a prefix of batch[0..N-1] with up to N elements removed from central
   // freelist.  Return the number of elements removed.
-  ABSL_MUST_USE_RESULT int RemoveRange(absl::Span<void*> batch)
+  [[nodiscard]] int RemoveRange(absl::Span<void*> batch)
       ABSL_LOCKS_EXCLUDED(lock_);
 
   // Returns the number of free objects in cache.

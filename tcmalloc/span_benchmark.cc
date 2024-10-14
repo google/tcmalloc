@@ -49,8 +49,9 @@ class RawSpan {
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
     span_.Init(PageIdContaining(mem), npages);
-    span_.BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
-                        kSpanAllocTime);
+    TC_CHECK_EQ(span_.BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
+                                    kSpanAllocTime),
+                0);
   }
 
   ~RawSpan() { free(span_.start_address()); }
@@ -81,7 +82,7 @@ void BM_single_span(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      span.FreelistPush(batch[j], size, reciprocal, kMaxCacheSize);
+      (void)span.FreelistPush(batch[j], size, reciprocal, kMaxCacheSize);
     }
   }
 
@@ -203,8 +204,8 @@ void BM_multiple_spans(benchmark::State& state) {
     processed += n;
 
     for (int j = 0; j < n; j++) {
-      spans[current_span].span().FreelistPush(batch[j], size, reciprocal,
-                                              kMaxCacheSize);
+      (void)spans[current_span].span().FreelistPush(batch[j], size, reciprocal,
+                                                    kMaxCacheSize);
     }
   }
 

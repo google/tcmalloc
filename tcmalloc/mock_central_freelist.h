@@ -53,7 +53,7 @@ class FakeCentralFreeListBase {
 class FakeCentralFreeList : public FakeCentralFreeListBase {
  public:
   void InsertRange(absl::Span<void*> batch);
-  int RemoveRange(absl::Span<void*> batch);
+  [[nodiscard]] int RemoveRange(absl::Span<void*> batch);
 
   void AllocateBatch(absl::Span<void*> batch);
   void FreeBatch(absl::Span<void*> batch);
@@ -66,7 +66,7 @@ class FakeCentralFreeList : public FakeCentralFreeListBase {
 class MinimalFakeCentralFreeList : public FakeCentralFreeListBase {
  public:
   void InsertRange(absl::Span<void*> batch);
-  int RemoveRange(absl::Span<void*> batch);
+  [[nodiscard]] int RemoveRange(absl::Span<void*> batch);
 
   void AllocateBatch(absl::Span<void*> batch);
   void FreeBatch(absl::Span<void*> batch);

@@ -62,8 +62,9 @@ class RawSpan {
 
     span_ = new (buf_) Span();
     span_->Init(PageIdContaining(mem_), npages);
-    span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
-                         kSpanAllocTime);
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
+                                     kSpanAllocTime),
+                0);
   }
 
   ~RawSpan() {

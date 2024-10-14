@@ -121,8 +121,9 @@ TEST_P(StaticForwarderTest, Simple) {
   }
 
   for (void* ptr : batch) {
-    span->FreelistPush(ptr, object_size_, size_reciprocal_,
-                       max_span_cache_size);
+    EXPECT_EQ(span->FreelistPush(ptr, object_size_, size_reciprocal_,
+                                 max_span_cache_size),
+              ptr != batch.back());
   }
 
   StaticForwarder::DeallocateSpans(objects_per_span_, absl::MakeSpan(&span, 1));

@@ -139,7 +139,7 @@ class Span final : public SpanList::Elem {
   // non-sampling span. It will also update the global counters on the total
   // size of sampled allocations.
   // REQUIRES: this is a SAMPLED span.
-  SampledAllocation* Unsample();
+  [[nodiscard]] SampledAllocation* Unsample();
 
   // Returns the sampled allocation of the span.
   // pageheap_lock is not required, but caller either needs to hold the lock or
@@ -213,12 +213,12 @@ class Span final : public SpanList::Elem {
   // just return false.
   //
   // If the freelist becomes full, we do not push the object onto the freelist.
-  bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal,
-                    uint32_t max_cache_size);
+  [[nodiscard]] bool FreelistPush(void* ptr, size_t size, uint32_t reciprocal,
+                                  uint32_t max_cache_size);
 
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);
+  [[nodiscard]] size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);
 
   // Reset a Span object to track the range [p, p + n).
   void Init(PageId p, Length n);
@@ -226,8 +226,9 @@ class Span final : public SpanList::Elem {
   // Initialize freelist to contain all objects in the span.
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
-  int BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
-                    uint32_t max_cache_size, uint64_t alloc_time);
+  [[nodiscard]] int BuildFreelist(size_t size, size_t count,
+                                  absl::Span<void*> batch,
+                                  uint32_t max_cache_size, uint64_t alloc_time);
 
   // Prefetch cacheline containing most important span information.
   void Prefetch();

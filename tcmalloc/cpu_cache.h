@@ -90,13 +90,14 @@ constexpr inline uint8_t kTotalPossibleSlabs =
 // testing.
 class StaticForwarder {
  public:
-  static void* Alloc(size_t size, std::align_val_t alignment)
+  [[nodiscard]] static void* Alloc(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
     return tc_globals.arena().Alloc(size, alignment);
   }
-  static void* AllocReportedImpending(size_t size, std::align_val_t alignment)
+  [[nodiscard]] static void* AllocReportedImpending(size_t size,
+                                                    std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
@@ -304,15 +305,15 @@ class CpuCache {
 
   // Allocate an object of the given size class.
   // Returns nullptr when allocation fails.
-  void* Allocate(size_t size_class);
+  [[nodiscard]] void* Allocate(size_t size_class);
   // Separate allocation fast/slow paths.
   // The fast path succeeds iff the thread has already cached the slab pointer
   // (done by AllocateSlow) and there is an available object in the slab.
-  void* AllocateFast(size_t size_class);
-  void* AllocateSlow(size_t size_class);
+  [[nodiscard]] void* AllocateFast(size_t size_class);
+  [[nodiscard]] void* AllocateSlow(size_t size_class);
   // A slightly faster version of AllocateSlow that may be called only
   // when it's known that no hooks are installed.
-  void* AllocateSlowNoHooks(size_t size_class);
+  [[nodiscard]] void* AllocateSlowNoHooks(size_t size_class);
 
   // Free an object of the given class.
   void Deallocate(void* ptr, size_t size_class);
@@ -603,12 +604,13 @@ class CpuCache {
   GetShiftMaxCapacity GetMaxCapacityFunctor(uint8_t shift) const;
 
   // Fetches objects from backing transfer cache.
-  int FetchFromBackingCache(size_t size_class, absl::Span<void*> batch);
+  [[nodiscard]] int FetchFromBackingCache(size_t size_class,
+                                          absl::Span<void*> batch);
 
   // Releases free batch of objects to the backing transfer cache.
   void ReleaseToBackingCache(size_t size_class, absl::Span<void*> batch);
 
-  void* Refill(int cpu, size_t size_class);
+  [[nodiscard]] void* Refill(int cpu, size_t size_class);
   std::pair<int, bool> CacheCpuSlab();
   void Populate(int cpu);
 
@@ -684,7 +686,7 @@ class CpuCache {
   // <shift_offset> is the offset of the shift in slabs_by_shift_. Note that we
   // can't calculate this from `shift` directly due to numa shift.
   // Returns the allocated slabs and the number of reused bytes.
-  ABSL_MUST_USE_RESULT std::pair<void*, size_t> AllocOrReuseSlabs(
+  [[nodiscard]] std::pair<void*, size_t> AllocOrReuseSlabs(
       absl::FunctionRef<void*(size_t, std::align_val_t)> alloc,
       subtle::percpu::Shift shift, int num_cpus, uint8_t shift_offset,
       uint8_t resize_offset);
@@ -1078,7 +1080,12 @@ void* CpuCache<Forwarder>::AllocateSlowNoHooks(size_t size_class) {
     if (ABSL_PREDICT_FALSE(cpu < 0)) {
       // The cpu is stopped.
       void* ptr = nullptr;
-      FetchFromBackingCache(size_class, absl::MakeSpan(&ptr, 1));
+      int r = FetchFromBackingCache(size_class, absl::MakeSpan(&ptr, 1));
+#ifndef NDEBUG
+      TC_ASSERT(r == 1 || ptr == nullptr);
+#else
+      (void)r;
+#endif
       return ptr;
     }
     if (void* ret = AllocateFast(size_class)) {

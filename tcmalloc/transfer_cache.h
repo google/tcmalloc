@@ -112,7 +112,7 @@ class BackingTransferCache {
  public:
   void Init(int size_class) { size_class_ = size_class; }
   void InsertRange(absl::Span<void *> batch) const;
-  ABSL_MUST_USE_RESULT int RemoveRange(absl::Span<void *> batch) const;
+  [[nodiscard]] int RemoveRange(absl::Span<void *> batch) const;
   int size_class() const { return size_class_; }
 
  private:
@@ -194,7 +194,7 @@ class ShardedTransferCacheManagerBase {
     return objects;
   }
 
-  void *Pop(int size_class) {
+  [[nodiscard]] void *Pop(int size_class) {
     TC_ASSERT(subtle::percpu::IsFastNoInit());
     void *batch[1];
     const int got =
@@ -276,7 +276,7 @@ class ShardedTransferCacheManagerBase {
     return stats;
   }
 
-  int RemoveRange(int size_class, absl::Span<void *> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void *> batch) {
     return get_cache(size_class).RemoveRange(size_class, batch);
   }
 
@@ -423,8 +423,7 @@ class TransferCacheManager : public StaticForwarder {
     cache_[size_class].tc.InsertRange(size_class, batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
-                                       absl::Span<void *> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void *> batch) {
     return cache_[size_class].tc.RemoveRange(size_class, batch);
   }
 
@@ -558,8 +557,7 @@ class TransferCacheManager {
     freelist_[size_class].InsertRange(batch);
   }
 
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
-                                       absl::Span<void*> batch) {
+  [[nodiscard]] int RemoveRange(int size_class, absl::Span<void*> batch) {
     return freelist_[size_class].RemoveRange(batch);
   }
 
@@ -587,9 +585,10 @@ struct ShardedTransferCacheManager {
   constexpr ShardedTransferCacheManager(std::nullptr_t, std::nullptr_t) {}
   static constexpr void Init() {}
   static constexpr bool should_use(int size_class) { return false; }
-  static constexpr void* Pop(int size_class) { return nullptr; }
+  [[nodiscard]] static constexpr void* Pop(int size_class) { return nullptr; }
   static constexpr void Push(int size_class, void* ptr) {}
-  static constexpr int RemoveRange(int size_class, absl::Span<void*> batch) {
+  [[nodiscard]] static constexpr int RemoveRange(int size_class,
+                                                 absl::Span<void*> batch) {
     return 0;
   }
   static constexpr void InsertRange(int size_class, absl::Span<void*> batch) {}

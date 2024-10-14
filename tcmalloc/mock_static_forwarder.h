@@ -66,7 +66,7 @@ class FakeStaticForwarder {
     }
   }
 
-  Span* MapObjectToSpan(const void* object) {
+  [[nodiscard]] Span* MapObjectToSpan(const void* object) {
     const PageId page = PageIdContaining(object);
 
     absl::MutexLock l(&mu_);
@@ -82,7 +82,8 @@ class FakeStaticForwarder {
     return nullptr;
   }
 
-  Span* AllocateSpan(int, size_t objects_per_span, Length pages_per_span) {
+  [[nodiscard]] Span* AllocateSpan(int, size_t objects_per_span,
+                                   Length pages_per_span) {
     void* backing =
         ::operator new(pages_per_span.in_bytes(), std::align_val_t(kPageSize));
     PageId page = PageIdContaining(backing);

@@ -70,8 +70,9 @@ void FuzzSpan(const std::string& s) {
   Span* span = new (buf) Span();
   span->Init(PageIdContaining(mem), pages);
   // TODO(b/271282540): Fuzz the initial allocation during freelist building.
-  span->BuildFreelist(object_size, objects_per_span, {}, max_span_cache_size,
-                      alloc_time);
+  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
+                                  max_span_cache_size, alloc_time),
+              0);
 
   TC_CHECK_EQ(span->Allocated(), 0);
 
