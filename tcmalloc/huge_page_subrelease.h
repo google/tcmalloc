@@ -336,94 +336,39 @@ class SubreleaseStatsTracker {
   // decision.
   Length GetRecentPeak(absl::Duration peak_interval) {
     last_skip_subrelease_intervals_.peak_interval =
-        std::min(peak_interval, epoch_length_ * kEpochs);
-    Length max_demand_pages;
-
-    int64_t num_epochs =
-        std::min<int64_t>(peak_interval / epoch_length_, kEpochs);
-
-    tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
-          if (!e.empty()) {
-            // Identify the maximum number of demand pages we have seen within
-            // the time interval.
-            if (e.stats[kStatsAtMaxDemand].num_pages > max_demand_pages) {
-              max_demand_pages = e.stats[kStatsAtMaxDemand].num_pages;
-            }
-          }
-        },
-        num_epochs);
-
-    return max_demand_pages;
+        std::min(peak_interval, window_);
+    return CalculateDemandPeak(peak_interval);
   }
 
-  // Calculates demand requirements for skip subrelease: HugePageFiller would
-  // not subrelease if it has less pages than (or equal to) the required
-  // amount. We report that the skipping is correct if future demand is going to
-  // be above the required amount within another realized fragemenation
-  // interval. The demand requirement is the sum of short-term demand
-  // fluctuation peak and long-term demand trend. The former is the largest max
-  // and min demand difference within short_interval, and the latter is the
-  // largest min demand within long_interval. When both set, short_interval
-  // should be (significantly) shorter or equal to long_interval to avoid
-  // realized fragmentation caused by non-recent (short-term) demand spikes.
+  // Calculates demand requirements for the skip subrelease: we do not
+  // subrelease if the number of free pages are than (or equal to) the demand
+  // computed by GetRecentDemand. The demand requirement is the sum of
+  // short-term demand fluctuation peak with in the last <short_interval> and
+  // long-term demand trend in the previous <long_interval>. When both are set,
+  // short_interval should be (significantly) shorter or equal to long_interval
+  // to avoid realized fragmentation caused by non-recent (short-term) demand
+  // spikes. The demand is capped to the peak observed in the time series.
   Length GetRecentDemand(absl::Duration short_interval,
                          absl::Duration long_interval) {
-    if (short_interval != absl::ZeroDuration() &&
-        long_interval != absl::ZeroDuration()) {
-      short_interval = std::min(short_interval, long_interval);
-    }
-    last_skip_subrelease_intervals_.short_interval =
-        std::min(short_interval, epoch_length_ * kEpochs);
-    last_skip_subrelease_intervals_.long_interval =
-        std::min(long_interval, epoch_length_ * kEpochs);
-    Length short_term_fluctuation_pages, long_term_trend_pages;
-    int short_epochs = std::min<int>(short_interval / epoch_length_, kEpochs);
-    int long_epochs = std::min<int>(long_interval / epoch_length_, kEpochs);
+    return GetRecentDemand(short_interval, long_interval, window_);
+  }
 
-    tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
-          if (!e.empty()) {
-            Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
-                                       e.stats[kStatsAtMinDemand].num_pages;
-            // Identifies the highest demand fluctuation (i.e., difference
-            // between max_demand and min_demand) that we have seen within the
-            // time interval.
-            if (demand_difference > short_term_fluctuation_pages) {
-              short_term_fluctuation_pages = demand_difference;
-            }
-          }
-        },
-        short_epochs);
-    tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
-          if (!e.empty()) {
-            // Identifies the long-term demand peak (i.e., largest minimum
-            // demand) that we have seen within the time interval.
-            if (e.stats[kStatsAtMinDemand].num_pages > long_term_trend_pages) {
-              long_term_trend_pages = e.stats[kStatsAtMinDemand].num_pages;
-            }
-          }
-        },
-        long_epochs);
-
-    // Since we are taking the sum of peaks, we can end up with a demand peak
-    // that is larger than the largest peak encountered so far, which could
-    // lead to OOMs. We adjust the peak in that case, by capping it to the
-    // largest peak observed in our time series.
-    Length demand_peak = Length(0);
-    tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
-          if (!e.empty()) {
-            if (e.stats[kStatsAtMaxDemand].num_pages > demand_peak) {
-              demand_peak = e.stats[kStatsAtMaxDemand].num_pages;
-            }
-          }
-        },
-        -1);
-
-    return std::min(demand_peak,
-                    short_term_fluctuation_pages + long_term_trend_pages);
+  // Calculates demand requirements for the skip subrelease: we do not
+  // subrelease if the number of free pages are than (or equal to) the demand
+  // computed by GetRecentDemand. The demand requirement is the sum of
+  // short-term demand fluctuation peak with in the last <short_interval> and
+  // long-term demand trend in the previous <long_interval>. When both are set,
+  // short_interval should be (significantly) shorter or equal to long_interval
+  // to avoid realized fragmentation caused by non-recent (short-term) demand
+  // spikes. The demand is capped to the peak observed in the time series over
+  // the last <peak_interval>.
+  Length GetRecentDemand(absl::Duration short_interval,
+                         absl::Duration long_interval,
+                         absl::Duration peak_interval) {
+    Length demand_trend =
+        CalculateCombinedDemandTrend(short_interval, long_interval);
+    Length demand_peak = CalculateDemandPeak(peak_interval);
+    return std::min(demand_peak, demand_trend);
   }
 
   // Reports a skipped subrelease, which is evaluated by coming peaks within the
@@ -553,6 +498,70 @@ class SubreleaseStatsTracker {
 
     bool empty() const { return min_free_pages == kDefaultValue; }
   };
+
+  // Gets the peak demand recorded in the time series over the last
+  // <peak_interval>.
+  Length CalculateDemandPeak(absl::Duration peak_interval) {
+    Length max_demand_pages;
+    int64_t num_epochs =
+        std::min<int64_t>(peak_interval / epoch_length_, kEpochs);
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+          if (!e.empty()) {
+            // Identify the maximum number of demand pages we have seen within
+            // the time interval.
+            if (e.stats[kStatsAtMaxDemand].num_pages > max_demand_pages) {
+              max_demand_pages = e.stats[kStatsAtMaxDemand].num_pages;
+            }
+          }
+        },
+        num_epochs);
+    return max_demand_pages;
+  }
+
+  // Gets the combined demand trend, which is the sum of the maximum demand
+  // difference in <short_interval> and the maxmin demand in <long_interval>.
+  Length CalculateCombinedDemandTrend(absl::Duration short_interval,
+                                      absl::Duration long_interval) {
+    if (short_interval != absl::ZeroDuration() &&
+        long_interval != absl::ZeroDuration()) {
+      short_interval = std::min(short_interval, long_interval);
+    }
+    last_skip_subrelease_intervals_.short_interval =
+        std::min(short_interval, window_);
+    last_skip_subrelease_intervals_.long_interval =
+        std::min(long_interval, window_);
+    Length short_term_fluctuation_pages, long_term_trend_pages;
+    int short_epochs = std::min<int>(short_interval / epoch_length_, kEpochs);
+    int long_epochs = std::min<int>(long_interval / epoch_length_, kEpochs);
+
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+          if (!e.empty()) {
+            Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
+                                       e.stats[kStatsAtMinDemand].num_pages;
+            // Identifies the highest demand fluctuation (i.e., difference
+            // between max_demand and min_demand) that we have seen within the
+            // time interval.
+            if (demand_difference > short_term_fluctuation_pages) {
+              short_term_fluctuation_pages = demand_difference;
+            }
+          }
+        },
+        short_epochs);
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+          if (!e.empty()) {
+            // Identifies the long-term demand peak (i.e., largest minimum
+            // demand) that we have seen within the time interval.
+            if (e.stats[kStatsAtMinDemand].num_pages > long_term_trend_pages) {
+              long_term_trend_pages = e.stats[kStatsAtMinDemand].num_pages;
+            }
+          }
+        },
+        long_epochs);
+    return short_term_fluctuation_pages + long_term_trend_pages;
+  }
 
   // The tracker reports pages that have been free for at least this interval,
   // as well as peaks within this interval. The interval is also used for

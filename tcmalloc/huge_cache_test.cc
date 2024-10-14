@@ -675,6 +675,41 @@ TEST_P(HugeCacheTest, ReleaseByDemandNoHistory) {
             NHugePages(10));
 }
 
+// Tests that the demand is capped by peak within the default interval (5 mins).
+TEST_P(HugeCacheTest, ReleaseByDemandCappedByDemandPeak) {
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+  // Generates a demand pattern that can cause the sum-of-peak issue.
+  bool released;
+  // The diff peak: 20 hps - 1 hps = 19 hps.
+  HugeRange diff_a = cache_.Get(NHugePages(1), &released);
+  HugeRange diff_b = cache_.Get(NHugePages(20), &released);
+  Release(diff_a);
+  Release(diff_b);
+  Advance(absl::Minutes(5));
+  // The long-term demand peak: 15 hps.
+  HugeRange peak = cache_.Get(NHugePages(15), &released);
+  Advance(absl::Minutes(1));
+  Release(peak);
+  EXPECT_EQ(cache_.size(), NHugePages(21));
+  // Releases partial of the cache as the demand is capped by the 5-mins' peak
+  // (15 hps).
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(100),
+                SkipSubreleaseIntervals{.short_interval = absl::Minutes(10),
+                                        .long_interval = absl::Minutes(10)},
+                /*hit_limit=*/false),
+            NHugePages(6));
+  // Releases the rest of the cache.
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
+                                              SkipSubreleaseIntervals{},
+                                              /*hit_limit=*/false),
+            NHugePages(15));
+}
+
 // Tests demand-based skip release. The test is a modified version of the
 // FillerTest.SkipSubrelease test by removing parts designed particularly for
 // subrelease.

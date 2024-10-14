@@ -270,6 +270,9 @@ class HugeCache {
   MemoryModifyFunction& unback_;
   absl::Duration cache_time_;
 
+  // Interval used for capping demand calculated for demand-based release.
+  absl::Duration CapDemandInterval() const { return absl::Minutes(5); }
+
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType::SubreleaseStats GetSubreleaseStats() const {
     StatsTrackerType::SubreleaseStats stats;

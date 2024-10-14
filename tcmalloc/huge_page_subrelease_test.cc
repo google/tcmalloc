@@ -256,6 +256,27 @@ TEST_F(StatsTrackerTest, ComputeRecentDemand) {
             tracker_.GetRecentDemand(absl::Minutes(1), absl::Minutes(1)));
 }
 
+TEST_F(StatsTrackerTest, ComputeRecentDemandAndCappedToPeak) {
+  // Generates max and min demand in each epoch to create short-term demand
+  // fluctuations.
+  GenerateDemandPoint(Length(50), Length(2000));
+  GenerateDemandPoint(Length(3000), Length(1000));
+  Advance(absl::Minutes(2));
+  GenerateDemandPoint(Length(1500), Length(0));
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(Length(50), Length(1000));
+  GenerateDemandPoint(Length(100), Length(2000));
+  // The calculated demand is 2500 (maximum demand diff) + 1500 (max
+  // min_demand), but capped by the peak observed in the time series.
+  Length demand_1 =
+      tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5));
+  EXPECT_EQ(demand_1, Length(3000));
+  // Capped by the peak observed in 2 mins.
+  Length demand_2 = tracker_.GetRecentDemand(absl::Minutes(5), absl::Minutes(5),
+                                             absl::Minutes(2));
+  EXPECT_EQ(demand_2, Length(1500));
+}
+
 TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   // First peak (large)
   GenerateDemandPoint(Length(1000), Length(1000));
