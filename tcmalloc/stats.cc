@@ -103,8 +103,6 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
       cum_returned_pages.in_mib());
 }
 
-struct HistBucket {};
-
 struct PageHeapEntry {
   int64_t span_size;  // bytes
   int64_t present;    // bytes
