@@ -693,6 +693,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/types:span",
         "@com_google_fuzztest//fuzztest",
         "@com_google_fuzztest//fuzztest:fuzztest_gtest_main",
         "@com_google_googletest//:gtest",

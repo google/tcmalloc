@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "fuzztest/fuzztest.h"
+#include "absl/types/span.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/pages.h"
@@ -62,6 +63,9 @@ void FuzzSpan(const std::string& s) {
   const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
   const uint32_t size_reciprocal = Span::CalcReciprocal(object_size);
 
+  const size_t initial_objects_at_build =
+      std::min(objects_per_span, state[3] >> 4);
+
   void* mem;
   int res = posix_memalign(&mem, kPageSize, pages.in_bytes());
   TC_CHECK_EQ(res, 0);
@@ -69,16 +73,17 @@ void FuzzSpan(const std::string& s) {
   void* buf = ::operator new(span_size, std::align_val_t(alignof(Span)));
   Span* span = new (buf) Span();
   span->Init(PageIdContaining(mem), pages);
-  // TODO(b/271282540): Fuzz the initial allocation during freelist building.
-  TC_CHECK_EQ(span->BuildFreelist(object_size, objects_per_span, {},
-                                  max_span_cache_size, alloc_time),
-              0);
-
-  TC_CHECK_EQ(span->Allocated(), 0);
 
   std::vector<void*> ptrs;
-  ptrs.reserve(objects_per_span);
+  ptrs.resize(initial_objects_at_build);
 
+  TC_CHECK_EQ(
+      span->BuildFreelist(object_size, objects_per_span, absl::MakeSpan(ptrs),
+                          max_span_cache_size, alloc_time),
+      initial_objects_at_build);
+  TC_CHECK_EQ(span->Allocated(), initial_objects_at_build);
+
+  ptrs.reserve(objects_per_span);
   while (ptrs.size() < objects_per_span) {
     size_t want = std::min(num_to_move, objects_per_span - ptrs.size());
     TC_CHECK_GT(want, 0);
