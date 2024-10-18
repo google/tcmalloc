@@ -89,14 +89,6 @@
 // kLogMaxMemalign.
 const int kLogMaxMemalign = 18;
 
-#if !defined(__STDC_VERSION_STDLIB_H__) || __STDC_VERSION_STDLIB_H__ < 202311L
-// free_sized is a sized free function introduced in C23.
-extern "C" void free_sized(void* ptr, size_t size) noexcept;
-// free_aligned_sized is an overaligned sized free function introduced in C23.
-extern "C" void free_aligned_sized(void* ptr, size_t align,
-                                   size_t size) noexcept;
-#endif
-
 extern "C" void* reallocarray(void* ptr, size_t nmemb, size_t size);
 
 #if !defined(__GLIBC__)

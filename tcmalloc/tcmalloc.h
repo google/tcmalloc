@@ -38,11 +38,11 @@ ABSL_ATTRIBUTE_UNUSED void* TCMallocInternalMalloc(size_t size) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFree(void* ptr) noexcept
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeSized(void* ptr,
-                                                     size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeSized(void* ptr, size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
-ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeAlignedSized(
-    void* ptr, size_t align, size_t size) noexcept
+ABSL_ATTRIBUTE_UNUSED void TCMallocInternalFreeAlignedSized(void* ptr,
+                                                            size_t align,
+                                                            size_t size)
     ABSL_ATTRIBUTE_SECTION(google_malloc);
 ABSL_ATTRIBUTE_UNUSED void TCMallocInternalSdallocx(void* ptr, size_t size,
                                                     int flags) noexcept

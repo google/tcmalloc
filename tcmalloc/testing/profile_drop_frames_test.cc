@@ -35,14 +35,6 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/new_extension.h"
 
-#if !defined(__STDC_VERSION_STDLIB_H__) || __STDC_VERSION_STDLIB_H__ < 202311L
-// free_sized is a sized free function introduced in C23.
-extern "C" void free_sized(void* ptr, size_t size) noexcept;
-// free_aligned_sized is an overaligned sized free function introduced in C23.
-extern "C" void free_aligned_sized(void* ptr, size_t align,
-                                   size_t size) noexcept;
-#endif
-
 namespace {
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void wrap_delete(void* ptr, size_t size) {
