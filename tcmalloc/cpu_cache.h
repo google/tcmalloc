@@ -116,13 +116,10 @@ class StaticForwarder {
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
     PageHeapSpinLockHolder l;
+    if (allocated > 0) {
+      tc_globals.page_allocator().ShrinkToUsageLimit(Length(allocated));
+    }
     tc_globals.arena().UpdateAllocatedAndNonresident(allocated, nonresident);
-  }
-
-  static void ShrinkToUsageLimit() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    TC_ASSERT(tc_globals.IsInited());
-    PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().ShrinkToUsageLimit(Length(0));
   }
 
   static bool per_cpu_caches_dynamic_slab_enabled() {
@@ -1551,7 +1548,6 @@ void CpuCache<Forwarder>::ResizeSizeClassMaxCapacities()
   // Account for impending allocation/reusing of new slab so that we can avoid
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
-  forwarder_.ShrinkToUsageLimit();
 
   int64_t reused_bytes;
   ResizeSlabsInfo info;
@@ -2294,7 +2290,6 @@ void CpuCache<Forwarder>::ResizeSlabIfNeeded() ABSL_NO_THREAD_SAFETY_ANALYSIS {
   // Account for impending allocation/reusing of new slab so that we can avoid
   // going over memory limit.
   forwarder_.ArenaUpdateAllocatedAndNonresident(new_slabs_size, 0);
-  forwarder_.ShrinkToUsageLimit();
 
   for (int cpu = 0; cpu < num_cpus; ++cpu) resize_[cpu].lock.Lock();
   ResizeSlabsInfo info;

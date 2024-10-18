@@ -46,6 +46,7 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
+#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
@@ -133,17 +134,17 @@ class TestStaticForwarder {
 
   void ArenaUpdateAllocatedAndNonresident(int64_t allocated,
                                           int64_t nonresident) {
+    if (allocated > 0) {
+      EXPECT_EQ(arena_reported_impending_bytes_, 0);
+      ++shrink_to_usage_limit_calls_;
+    }
+
     if (nonresident == 0) {
       arena_reported_impending_bytes_ += allocated;
     } else {
       arena_reported_impending_bytes_ = 0;
     }
     arena_reported_nonresident_bytes_ += nonresident;
-  }
-
-  void ShrinkToUsageLimit() {
-    EXPECT_GT(arena_reported_impending_bytes_, 0);
-    ++shrink_to_usage_limit_calls_;
   }
 
   bool per_cpu_caches_dynamic_slab_enabled() { return dynamic_slab_enabled_; }
