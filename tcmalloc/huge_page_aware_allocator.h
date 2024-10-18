@@ -148,6 +148,9 @@ struct HugePageAwareAllocatorOptions {
 
 template <typename Forwarder>
 class HugePageAwareAllocator final : public PageAllocatorInterface {
+  static_assert(kHugePageSize <= kMinSystemAlloc,
+                "HPAA requires kMinSystemAlloc is at least a hugepage.");
+
  public:
   explicit HugePageAwareAllocator(const HugePageAwareAllocatorOptions& options);
   ~HugePageAwareAllocator() override = default;

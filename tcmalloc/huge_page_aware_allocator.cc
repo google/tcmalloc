@@ -31,39 +31,17 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-bool decide_want_hpaa();
-ABSL_ATTRIBUTE_WEAK int default_want_hpaa();
 ABSL_ATTRIBUTE_WEAK int default_subrelease();
 
 namespace huge_page_allocator_internal {
 
 bool decide_subrelease() {
-  if (!decide_want_hpaa()) {
-    // Subrelease is off if HPAA is off.
-    return false;
-  }
-
   const char* e = thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
   if (e) {
     switch (e[0]) {
       case '0':
-        if (kUnconditionalHPAA) {
-          // If we're forcing HPAA on, we want to converge towards our default
-          // of subrelease on, rather than off (where it is moot without HPAA).
-          break;
-        }
-
-        if (default_want_hpaa != nullptr) {
-          int default_hpaa = default_want_hpaa();
-          if (default_hpaa < 0) {
-            return false;
-          }
-        }
-
-        TC_LOG(
-            "Runtime opt-out from HPAA requires building with "
-            "//tcmalloc:want_no_hpaa."
-        );
+        // If we're forcing HPAA on, we want to converge towards our default
+        // of subrelease on, rather than off (where it is moot without HPAA).
         break;
       case '1':
         return false;

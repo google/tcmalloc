@@ -39,110 +39,30 @@ namespace tcmalloc_internal {
 
 using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
-int ABSL_ATTRIBUTE_WEAK default_want_hpaa();
-
-bool decide_want_hpaa() {
-  static_assert(kHugePageSize <= kMinSystemAlloc,
-                "HPAA requires kMinSystemAlloc is at least a hugepage.");
-
-  if (huge_page_allocator_internal::kUnconditionalHPAA) {
-    return true;
-  }
-
-  const char* e =
-      tcmalloc::tcmalloc_internal::thread_safe_getenv("TCMALLOC_HPAA_CONTROL");
-  if (e) {
-    switch (e[0]) {
-      case '0':
-        if (default_want_hpaa != nullptr) {
-          int default_hpaa = default_want_hpaa();
-          if (default_hpaa < 0) {
-            return false;
-          }
-        }
-
-        TC_LOG(
-            "Runtime opt-out from HPAA requires building with "
-            "//tcmalloc:want_no_hpaa."
-        );
-        break;
-      case '1':
-        return true;
-      case '2':
-        return true;
-      default:
-        TC_BUG("bad env var '%s'", e);
-    }
-  }
-
-  if (default_want_hpaa != nullptr) {
-    int default_hpaa = default_want_hpaa();
-    if (default_hpaa != 0) {
-      return default_hpaa > 0;
-    }
-  }
-
-  return true;
-}
-
-bool want_hpaa() {
-  ABSL_CONST_INIT static bool use;
-  ABSL_CONST_INIT static absl::once_flag flag;
-
-  absl::base_internal::LowLevelCallOnce(&flag,
-                                        []() { use = decide_want_hpaa(); });
-
-  return use;
-}
-
 PageAllocator::PageAllocator() {
-  const bool kUseHPAA = want_hpaa();
   has_cold_impl_ = ColdFeatureActive();
   size_t part = 0;
-  if (kUseHPAA) {
-    normal_impl_[0] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-        HugePageAwareAllocatorOptions{MemoryTag::kNormal});
-    if (tc_globals.numa_topology().numa_aware()) {
-      normal_impl_[1] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-          HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
-    }
-    sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-        HugePageAwareAllocatorOptions{MemoryTag::kSampled});
-    if (selsan::IsEnabled()) {
-      selsan_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-          HugePageAwareAllocatorOptions{MemoryTag::kSelSan});
-    }
-    if (has_cold_impl_) {
-      cold_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
-          HugePageAwareAllocatorOptions{MemoryTag::kCold});
-    } else {
-      cold_impl_ = normal_impl_[0];
-    }
-    alg_ = HPAA;
-  } else {
-    // TODO(b/137017688):  Constant propagate.
-#if 0
-    normal_impl_[0] = new (&choices_[part++].ph) PageHeap(MemoryTag::kNormal);
-    if (tc_globals.numa_topology().numa_aware()) {
-      normal_impl_[1] =
-          new (&choices_[part++].ph) PageHeap(MemoryTag::kNormalP1);
-    }
-    sampled_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kSampled);
-    if (selsan::IsEnabled()) {
-      selsan_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kSelSan);
-    }
-    if (has_cold_impl_) {
-      cold_impl_ = new (&choices_[part++].ph) PageHeap(MemoryTag::kCold);
-    } else {
-      cold_impl_ = normal_impl_[0];
-    }
-    alg_ = PAGE_HEAP;
-#else
-    static_assert(huge_page_allocator_internal::kUnconditionalHPAA);
-    TC_BUG("unreachable");
-#endif
-    TC_CHECK_LE(part, ABSL_ARRAYSIZE(choices_));
+
+  normal_impl_[0] = new (&choices_[part++].hpaa)
+      HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kNormal});
+  if (tc_globals.numa_topology().numa_aware()) {
+    normal_impl_[1] = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+        HugePageAwareAllocatorOptions{MemoryTag::kNormalP1});
   }
+  sampled_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+      HugePageAwareAllocatorOptions{MemoryTag::kSampled});
+  if (selsan::IsEnabled()) {
+    selsan_impl_ = new (&choices_[part++].hpaa) HugePageAwareAllocator(
+        HugePageAwareAllocatorOptions{MemoryTag::kSelSan});
+  }
+  if (has_cold_impl_) {
+    cold_impl_ = new (&choices_[part++].hpaa)
+        HugePageAwareAllocator(HugePageAwareAllocatorOptions{MemoryTag::kCold});
+  } else {
+    cold_impl_ = normal_impl_[0];
+  }
+  alg_ = HPAA;
+  TC_CHECK_LE(part, ABSL_ARRAYSIZE(choices_));
 }
 
 void PageAllocator::ShrinkToUsageLimit(Length n) {
