@@ -88,10 +88,6 @@ void SizeMap::CheckAssumptions() {
   }
 }
 
-extern "C" void TCMallocInternalCheckSizeClassAssumptions() {
-  SizeMap::CheckAssumptions();
-}
-
 bool SizeMap::IsValidSizeClass(size_t size, size_t pages,
                                size_t num_objects_to_move) {
   if (size == 0) {
