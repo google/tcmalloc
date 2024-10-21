@@ -332,7 +332,9 @@ bool Parameters::dense_trackers_sorted_on_spans_allocated() {
     v.store(
         IsExperimentActive(
             Experiment::
-                TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED),
+                TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED) ||
+            IsExperimentActive(
+                Experiment::TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED),
         std::memory_order_relaxed);
   });
   return v;
