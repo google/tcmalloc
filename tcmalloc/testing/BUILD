@@ -454,20 +454,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "want_hpaa_test_helper_32k_no_hpaa",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_large_pages",
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
     name = "want_hpaa_test_helper_256k",
     testonly = 1,
     srcs = ["want_hpaa_test_helper.cc"],
@@ -475,20 +461,6 @@ cc_binary(
     malloc = "//tcmalloc:tcmalloc_256k_pages",
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
-    name = "want_hpaa_test_helper_256k_no_hpaa",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_256k_pages",
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_no_hpaa",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],
@@ -508,19 +480,6 @@ cc_binary(
 )
 
 cc_binary(
-    name = "want_hpaa_test_helper_no_hpaa",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_no_hpaa",
-        "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
     name = "want_hpaa_test_helper_small",
     testonly = 1,
     srcs = ["want_hpaa_test_helper.cc"],
@@ -528,20 +487,6 @@ cc_binary(
     malloc = "//tcmalloc:tcmalloc_small_but_slow",
     deps = [
         "//tcmalloc:malloc_extension",
-        "@com_google_absl//absl/log:check",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_binary(
-    name = "want_hpaa_test_helper_small_no_hpaa",
-    testonly = 1,
-    srcs = ["want_hpaa_test_helper.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    malloc = "//tcmalloc:tcmalloc_small_but_slow",
-    deps = [
-        "//tcmalloc:malloc_extension",
-        "//tcmalloc:want_no_hpaa",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],

@@ -349,17 +349,6 @@ cc_library(
     alwayslink = 1,
 )
 
-# TEMPORARY. WILL BE REMOVED.
-# Add a dep to this if you want your binary to not use hugepage-aware
-# allocator.
-cc_library(
-    name = "want_no_hpaa",
-    copts = TCMALLOC_DEFAULT_COPTS,
-    visibility = [
-        "//tcmalloc/testing:__pkg__",
-    ],
-)
-
 cc_library(
     # TODO(b/199203282, b/296281171):  Remove this opt-out.
     name = "want_disable_huge_region_more_often",
