@@ -146,6 +146,26 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
         release_stats.process_background_actions;
     r->num_released_soft_limit_exceeded = release_stats.soft_limit_exceeded;
     r->num_released_hard_limit_exceeded = release_stats.hard_limit_exceeded;
+
+    r->per_cpu_bytes = 0;
+    r->sharded_transfer_bytes = 0;
+    r->percpu_metadata_bytes_res = 0;
+    r->percpu_metadata_bytes = 0;
+    if (UsePerCpuCache(tc_globals)) {
+      r->per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
+      r->sharded_transfer_bytes =
+          tc_globals.sharded_transfer_cache().TotalBytes();
+
+      if (report_residence) {
+        auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
+        r->percpu_metadata_bytes_res = percpu_metadata.resident_size;
+        r->percpu_metadata_bytes = percpu_metadata.virtual_size;
+
+        TC_ASSERT_GE(r->metadata_bytes, r->percpu_metadata_bytes);
+        r->metadata_bytes = r->metadata_bytes - r->percpu_metadata_bytes +
+                            r->percpu_metadata_bytes_res;
+      }
+    }
   }
   // We can access the pagemap without holding the pageheap_lock since it
   // is static data, and we are only taking address and size which are
@@ -159,25 +179,6 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
     r->pagemap_root_bytes_res = 0;
   }
 
-  r->per_cpu_bytes = 0;
-  r->sharded_transfer_bytes = 0;
-  r->percpu_metadata_bytes_res = 0;
-  r->percpu_metadata_bytes = 0;
-  if (UsePerCpuCache(tc_globals)) {
-    r->per_cpu_bytes = tc_globals.cpu_cache().TotalUsedBytes();
-    r->sharded_transfer_bytes =
-        tc_globals.sharded_transfer_cache().TotalBytes();
-
-    if (report_residence) {
-      auto percpu_metadata = tc_globals.cpu_cache().MetadataMemoryUsage();
-      r->percpu_metadata_bytes_res = percpu_metadata.resident_size;
-      r->percpu_metadata_bytes = percpu_metadata.virtual_size;
-
-      TC_ASSERT_GE(r->metadata_bytes, r->percpu_metadata_bytes);
-      r->metadata_bytes = r->metadata_bytes - r->percpu_metadata_bytes +
-                          r->percpu_metadata_bytes_res;
-    }
-  }
 }
 
 void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
