@@ -33,7 +33,9 @@ namespace tcmalloc_internal {
 
 class Parameters {
  public:
-  static MallocExtension::BytesPerSecond background_release_rate();
+  static MallocExtension::BytesPerSecond background_release_rate() {
+    return background_release_rate_.load(std::memory_order_relaxed);
+  }
 
   static void set_background_release_rate(
       MallocExtension::BytesPerSecond value) {
@@ -256,6 +258,7 @@ class Parameters {
       tcmalloc::tcmalloc_internal::MadvisePreference v);
   friend void ::TCMalloc_Internal_SetMinHotAccessHint(uint8_t v);
 
+  static std::atomic<MallocExtension::BytesPerSecond> background_release_rate_;
   static std::atomic<int64_t> guarded_sampling_interval_;
   static std::atomic<uint32_t> max_span_cache_size_;
   static std::atomic<uint32_t> max_span_cache_array_size_;

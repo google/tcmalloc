@@ -27,8 +27,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "tcmalloc/cpu_cache.h"
-#include "tcmalloc/experiment.h"
-#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/testing/testutil.h"
 

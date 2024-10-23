@@ -30,7 +30,6 @@
 #include "tcmalloc/huge_page_aware_allocator.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
@@ -209,23 +208,10 @@ absl::Duration Parameters::huge_cache_release_time() {
   return absl::Seconds(v.load(std::memory_order_relaxed));
 }
 
-// As background_release_rate() is determined at runtime, we cannot require
-// constant initialization for the atomic.  This avoids an initialization order
-// fiasco.
-static std::atomic<MallocExtension::BytesPerSecond>& malloc_release_rate() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<MallocExtension::BytesPerSecond>
-  v(MallocExtension::BytesPerSecond{0});
-
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-  });
-
-  return v;
-}
-
-MallocExtension::BytesPerSecond Parameters::background_release_rate() {
-  return malloc_release_rate().load(std::memory_order_relaxed);
-}
+ABSL_CONST_INIT std::atomic<MallocExtension::BytesPerSecond>
+    Parameters::background_release_rate_(MallocExtension::BytesPerSecond{
+        0
+    });
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::guarded_sampling_interval_(
     DefaultOrDebugValue(/*default_val=*/50, /*debug_val=*/5) *
@@ -446,9 +432,8 @@ void MallocExtension_Internal_SetBackgroundReleaseRate(
 }
 
 void TCMalloc_Internal_SetBackgroundReleaseRate(size_t value) {
-  tcmalloc::tcmalloc_internal::malloc_release_rate().store(
-      static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value),
-      std::memory_order_relaxed);
+  Parameters::background_release_rate_.store(
+      static_cast<tcmalloc::MallocExtension::BytesPerSecond>(value));
 }
 
 uint64_t TCMalloc_Internal_GetHeapSizeHardLimit() {

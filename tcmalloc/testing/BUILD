@@ -534,7 +534,6 @@ create_tcmalloc_testsuite(
     srcs = ["default_parameters_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
-        "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
@@ -773,7 +772,6 @@ create_tcmalloc_testsuite(
     ],
     deps = [
         ":testutil",
-        "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
