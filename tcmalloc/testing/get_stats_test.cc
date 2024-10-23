@@ -123,13 +123,8 @@ TEST_F(GetStatsTest, Pbtxt) {
                "tcmalloc_cache_demand_release_long_interval_ns: 300000000000"));
 #endif
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
-  if (Parameters::huge_region_demand_based_release()) {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_region_demand_based_release: true"));
-  } else {
-    EXPECT_THAT(buf,
-                HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
-  }
+  EXPECT_THAT(buf,
+              HasSubstr("tcmalloc_huge_region_demand_based_release: false"));
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
@@ -186,15 +181,9 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_huge_cache_demand_based_release 0)"));
-    if (Parameters::huge_region_demand_based_release()) {
-      EXPECT_THAT(
-          buf, HasSubstr(
-                   R"(PARAMETER tcmalloc_huge_region_demand_based_release 1)"));
-    } else {
-      EXPECT_THAT(
-          buf, HasSubstr(
-                   R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));
-    }
+    EXPECT_THAT(
+        buf,
+        HasSubstr(R"(PARAMETER tcmalloc_huge_region_demand_based_release 0)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_release_pages_from_huge_region 1)"));

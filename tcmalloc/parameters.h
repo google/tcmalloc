@@ -100,7 +100,9 @@ class Parameters {
     return release_partial_alloc_pages_.load(std::memory_order_relaxed);
   }
 
-  static bool huge_region_demand_based_release();
+  static bool huge_region_demand_based_release() {
+    return huge_region_demand_based_release_.load(std::memory_order_relaxed);
+  }
 
   static bool huge_cache_demand_based_release() {
     return huge_cache_demand_based_release_.load(std::memory_order_relaxed);
@@ -262,6 +264,7 @@ class Parameters {
   static std::atomic<double> peak_sampling_heap_growth_fraction_;
   static std::atomic<bool> per_cpu_caches_enabled_;
   static std::atomic<bool> release_partial_alloc_pages_;
+  static std::atomic<bool> huge_region_demand_based_release_;
   static std::atomic<bool> huge_cache_demand_based_release_;
   static std::atomic<bool> release_pages_from_huge_region_;
   static std::atomic<bool> resize_size_class_max_capacity_;
