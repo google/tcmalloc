@@ -13,7 +13,6 @@
 // limitations under the License.
 
 #include <cstddef>
-#include <cstdint>
 
 #include "fuzztest/fuzztest.h"
 #include "absl/log/check.h"
