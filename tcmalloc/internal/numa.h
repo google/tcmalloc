@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <sys/types.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 

@@ -17,8 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <string>
-
 #include "gtest/gtest.h"
 
 namespace tcmalloc {

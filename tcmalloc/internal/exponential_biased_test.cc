@@ -14,7 +14,9 @@
 
 #include "tcmalloc/internal/exponential_biased.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <vector>
 
 #include "gtest/gtest.h"
 #include "tcmalloc/testing/testutil.h"

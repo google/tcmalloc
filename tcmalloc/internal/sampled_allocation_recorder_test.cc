@@ -21,7 +21,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <random>
-#include <string>
 #include <vector>
 
 #include "gmock/gmock.h"
