@@ -15,7 +15,6 @@
 #include <stddef.h>
 #include <sys/types.h>
 
-#include <atomic>
 #include <thread>
 
 #include "gtest/gtest.h"

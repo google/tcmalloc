@@ -23,6 +23,7 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <limits>
 #include <optional>
