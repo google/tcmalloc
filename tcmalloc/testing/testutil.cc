@@ -25,9 +25,9 @@
 #include <cstring>
 #include <limits>
 #include <string>
-#include <vector>
 
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/percpu.h"
 
 // When compiled 64-bit and run on systems with swap several unittests will end
 // up trying to consume all of RAM+swap, and that can take quite some time.  By
@@ -79,6 +79,11 @@ size_t GetTestResourceLimit() {
 }
 
 namespace tcmalloc {
+thread_local int ScopedFakeCpuId::test_vcpu_ =
+    tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
+namespace tcmalloc_internal::subtle::percpu {
+int VirtualCpu::TestSynchronize() { return ScopedFakeCpuId::test_vcpu_; }
+}  // namespace tcmalloc_internal::subtle::percpu
 
 std::string GetStatsInPbTxt() {
   // When huge page telemetry is enabled, the output can become very large.

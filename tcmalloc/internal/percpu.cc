@@ -98,6 +98,14 @@ int VirtualCpu::Synchronize() {
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
   int vcpu = kCpuIdUninitialized;
 
+  if (TestSynchronize) {
+    vcpu = TestSynchronize();
+    if (vcpu >= kCpuIdInitialized) {
+      tcmalloc_cached_vcpu = vcpu;
+      return vcpu;
+    }
+  }
+
   if (UsingVirtualCpus()) {
     if (UsingRseqVirtualCpus())
       vcpu = __rseq_abi.vcpu_id;

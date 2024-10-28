@@ -18,12 +18,16 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <new>
 #include <string>
 
 #include "benchmark/benchmark.h"
+#include "absl/base/attributes.h"
 #include "absl/time/clock.h"
 #include "absl/time/time.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -240,10 +244,7 @@ class ScopedFakeCpuId {
     // Now that our unregister_rseq_ member has prevented the kernel from
     // modifying __rseq_abi, we can inject our own CPU ID.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id = cpu_id;
-
-    if (tcmalloc_internal::subtle::percpu::UsingRseqVirtualCpus()) {
-      tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id = cpu_id;
-    }
+    test_vcpu_ = cpu_id;
 #endif
   }
 
@@ -253,17 +254,15 @@ class ScopedFakeCpuId {
     // ~ScopedFakeCpuId.
     tcmalloc_internal::subtle::percpu::__rseq_abi.cpu_id =
         tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-
-    if (tcmalloc_internal::subtle::percpu::UsingRseqVirtualCpus()) {
-      tcmalloc_internal::subtle::percpu::__rseq_abi.vcpu_id =
-          tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
-    }
+    test_vcpu_ = tcmalloc_internal::subtle::percpu::kCpuIdUninitialized;
 #endif
   }
 
  private:
 
   const ScopedUnregisterRseq unregister_rseq_;
+  static thread_local int test_vcpu_;
+  friend class tcmalloc_internal::subtle::percpu::VirtualCpu;
 };
 
 // This pragma ensures that a loop does not get unrolled, in which case the
