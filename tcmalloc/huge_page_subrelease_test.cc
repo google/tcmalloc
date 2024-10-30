@@ -277,6 +277,24 @@ TEST_F(StatsTrackerTest, ComputeRecentDemandAndCappedToPeak) {
   EXPECT_EQ(demand_2, Length(1500));
 }
 
+// Tests that we can compute the realized fragmentation correctly.
+TEST_F(StatsTrackerTest, ComputeRealizedFragmentation) {
+  GenerateDemandPoint(Length(50), Length(500));
+  Advance(absl::Minutes(2));
+  GenerateDemandPoint(Length(3000), Length(1000));
+  Advance(absl::Minutes(1));
+  GenerateDemandPoint(Length(1500), Length(2000));
+  Advance(absl::Minutes(2));
+  Length fragmentation_1 = tracker_.RealizedFragmentation();
+  EXPECT_EQ(fragmentation_1, Length(500));
+
+  Advance(absl::Minutes(30));
+  GenerateDemandPoint(Length(1500), Length(2000));
+  Advance(absl::Minutes(2));
+  Length fragmentation_2 = tracker_.RealizedFragmentation();
+  EXPECT_EQ(fragmentation_2, Length(2000));
+}
+
 TEST_F(StatsTrackerTest, TrackCorrectSubreleaseDecisions) {
   // First peak (large)
   GenerateDemandPoint(Length(1000), Length(1000));

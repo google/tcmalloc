@@ -357,8 +357,12 @@ HugeLength HugeCache::GetDesiredReleaseablePages(
 
 HugeLength HugeCache::ReleaseCachedPagesByDemand(
     HugeLength n, SkipSubreleaseIntervals intervals, bool hit_limit) {
-  // We cannot release more than what exists in the cache.
-  HugeLength release_target = std::min(n, size());
+  // We cannot release more than what exists in the cache. Also, we want to
+  // increase the release target if the cache has been fragmented for a while
+  // (default 5 min).
+  HugeLength release_target = std::min(
+      std::max(n, HLFromPages(cachestats_tracker_.RealizedFragmentation())),
+      size());
 
   // When demand-based release is enabled, we would no longer unback in
   // Release(). Hence, we want to release some hugepages even though the target

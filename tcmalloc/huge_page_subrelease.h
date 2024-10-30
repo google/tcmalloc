@@ -435,6 +435,25 @@ class SubreleaseStatsTracker {
     return mins;
   }
 
+  // Returns the realized fragmentation, which is the minimum number of free
+  // backed pages over the last summary_interval_ (default 5 min).
+  Length RealizedFragmentation() const {
+    Length min_free_backed = Length::max();
+    int64_t num_epochs =
+        std::min<int64_t>(summary_interval_ / epoch_length_, kEpochs);
+    tracker_.IterBackwards(
+        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+          if (!e.empty()) {
+            min_free_backed =
+                std::min(min_free_backed, e.min_free_backed_pages);
+          }
+        },
+        num_epochs);
+    min_free_backed =
+        (min_free_backed == Length::max()) ? Length(0) : min_free_backed;
+    return min_free_backed;
+  }
+
  private:
   // We collect subrelease statistics at four "interesting points" within each
   // time step: at min/max demand of pages and at min/max use of hugepages. This

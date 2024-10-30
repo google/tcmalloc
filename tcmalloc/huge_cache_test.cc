@@ -710,6 +710,37 @@ TEST_P(HugeCacheTest, ReleaseByDemandCappedByDemandPeak) {
             NHugePages(15));
 }
 
+// Tests that the we can increase the release target if the realized
+// fragmentation is high.
+TEST_P(HugeCacheTest, ReleaseByDemandIncreaseReleaseTarget) {
+  if (!GetDemandBasedRelease()) {
+    GTEST_SKIP();
+  }
+  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
+      .WillRepeatedly(Return(true));
+
+  bool released;
+  // Creates realized fragmentation.
+  HugeRange large = cache_.Get(NHugePages(100), &released);
+  Release(large);
+  Advance(absl::Minutes(5));
+  HugeRange small = cache_.Get(NHugePages(10), &released);
+  Release(small);
+  Advance(absl::Minutes(1));
+  // Releases more that requested due to high fragmentation.
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
+                NHugePages(10),
+                SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
+                                        .long_interval = absl::Minutes(1)},
+                /*hit_limit=*/false),
+            NHugePages(90));
+  // Releases the rest.
+  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
+                                              SkipSubreleaseIntervals{},
+                                              /*hit_limit=*/false),
+            NHugePages(10));
+}
+
 // Tests demand-based skip release. The test is a modified version of the
 // FillerTest.SkipSubrelease test by removing parts designed particularly for
 // subrelease.
