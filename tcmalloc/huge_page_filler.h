@@ -40,6 +40,7 @@
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
+#include "tcmalloc/internal/pageflags.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/timeseries_tracker.h"
 #include "tcmalloc/pages.h"
@@ -388,7 +389,7 @@ class HugePageFiller {
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer* out, bool everything) const;
+  void Print(Printer* out, bool everything);
   void PrintInPbtxt(PbtxtRegion* hpaa) const;
 
   template <typename F>
@@ -1249,8 +1250,18 @@ class UsageInfo {
   }
 
   template <class TrackerType>
-  void Record(const TrackerType* pt, Type which, double clock_now,
-              double clock_frequency) {
+  bool IsHugepageBacked(const TrackerType* tracker, PageFlags& pageflags) {
+    TC_CHECK_NE(tracker, nullptr);
+    void* addr = tracker->location().start_addr();
+    // TODO(b/28093874): Investigate if pageflags may be queried without
+    // pageheap_lock.
+    const bool is_hugepage_backed = pageflags.IsHugepageBacked(addr);
+    return is_hugepage_backed;
+  }
+
+  template <class TrackerType>
+  void Record(const TrackerType* pt, PageFlags& pageflags, Type which,
+              double clock_now, double clock_frequency) {
     TC_ASSERT_LT(which, kNumTypes);
     const Length free = kPagesPerHugePage - pt->used_pages();
     const Length lf = pt->longest_free_range();
@@ -1278,6 +1289,11 @@ class UsageInfo {
       nalloc_free_page_histo_[BucketNum(nalloc - 1)]
                              [BucketNum(free.raw_num())]++;
     }
+
+    if (IsHugepageBacked(pt, pageflags)) {
+      ++hugepage_backed_[which];
+    }
+    ++total_pages_[which];
   }
 
   void Print(Printer* out) {
@@ -1342,6 +1358,14 @@ class UsageInfo {
       PrintHisto(out, long_lived_hps_histo_[type], type,
                  "hps with a <= # of allocations < b", 0);
     }
+
+    for (int i = 0; i < kNumTypes; ++i) {
+      const Type type = static_cast<Type>(i);
+      out->printf(
+          "\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
+          hugepage_backed_[type], TypeToStr(type), total_pages_[type]);
+    }
+    out->printf("\n");
   }
 
   void Print(PbtxtRegion* hpaa) {
@@ -1372,6 +1396,8 @@ class UsageInfo {
           PrintHisto(&twodhist, nalloc_free_page_histo_[j], "entry", 0);
         }
       }
+      scoped.PrintI64("total_pages", total_pages_[type]);
+      scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
     }
   }
 
@@ -1534,6 +1560,8 @@ class UsageInfo {
   Histo nalloc_free_page_histo_[kBucketCapacity]{};
   size_t bucket_bounds_[kBucketCapacity];
   size_t lifetime_bucket_bounds_[kBucketCapacity];
+  size_t hugepage_backed_[kNumTypes] = {0};
+  size_t total_pages_[kNumTypes] = {0};
   int buckets_size_ = 0;
 };
 }  // namespace huge_page_filler_internal
@@ -1593,8 +1621,7 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer* out,
-                                               bool everything) const {
+inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
   out->printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
@@ -1681,39 +1708,42 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out,
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
+  PageFlags pageflags;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDonated, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparsePartialReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparsePartialReleased, now,
+                     frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDensePartialReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDensePartialReleased, now,
+                     frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency);
       },
       0);
 
@@ -1809,39 +1839,42 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   UsageInfo usage;
   const double now = clock_.now();
   const double frequency = clock_.freq();
+  PageFlags pageflags;
   donated_alloc_.Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDonated, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDonated, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseRegular, now, frequency);
       },
       0);
   regular_alloc_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseRegular, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseRegular, now, frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparsePartialReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparsePartialReleased, now,
+                     frequency);
       },
       0);
   regular_alloc_partial_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDensePartialReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDensePartialReleased, now,
+                     frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kSparse].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kSparseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kSparseReleased, now, frequency);
       },
       0);
   regular_alloc_released_[AccessDensityPrediction::kDense].Iter(
       [&](const TrackerType* pt) {
-        usage.Record(pt, UsageInfo::kDenseReleased, now, frequency);
+        usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency);
       },
       0);
 

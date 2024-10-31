@@ -1344,6 +1344,7 @@ TEST_P(FillerTest, PrintFreeRatio) {
   DeleteVector(a5);
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
@@ -1678,51 +1679,55 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
 
+  std::string buffer(1024 * 1024, '\0');
   {
-    std::string buffer(1024 * 1024, '\0');
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
+  }
     buffer.resize(strlen(buffer.c_str()));
     EXPECT_THAT(
         buffer,
         testing::HasSubstr(
             "HugePageFiller: 0 hugepages were previously released, but later "
             "became full."));
-  }
 
   // Repopulate.
   ASSERT_TRUE(!tiny1.empty());
   half = AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
   EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  buffer.resize(1024 * 1024);
   {
-    std::string buffer(1024 * 1024, '\0');
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
-    buffer.resize(strlen(buffer.c_str()));
-    EXPECT_THAT(
-        buffer,
-        testing::HasSubstr(
-            "HugePageFiller: 1 hugepages were previously released, but later "
-            "became full."));
   }
+
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 1 hugepages were previously released, but later "
+          "became full."));
 
   // Release everything and cleanup.
   DeleteVector(half);
   DeleteVector(tiny1);
   DeleteVector(tiny2);
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+  buffer.resize(1024 * 1024);
   {
-    std::string buffer(1024 * 1024, '\0');
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
-    buffer.resize(strlen(buffer.c_str()));
-    EXPECT_THAT(
-        buffer,
-        testing::HasSubstr(
-            "HugePageFiller: 0 hugepages were previously released, but later "
-            "became full."));
   }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 0 hugepages were previously released, but later "
+          "became full."));
 }
 
 TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
@@ -1968,6 +1973,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -2192,6 +2198,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -2395,6 +2402,7 @@ TEST_P(FillerTest, SkipSubrelease) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -2614,6 +2622,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -2640,6 +2649,7 @@ TEST_P(FillerTest, LifetimeTelemetryTest) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -2762,6 +2772,7 @@ HugePageFiller: <254<=     0 <255<=     0
 
   Advance(absl::Seconds(101));
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
@@ -3182,6 +3193,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
@@ -3289,6 +3301,7 @@ TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
@@ -3346,6 +3359,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
 
     std::string buffer(1024 * 1024, '\0');
     {
+      PageHeapSpinLockHolder l;
       Printer printer(&*buffer.begin(), buffer.size());
       filler_.Print(&printer, /*everything=*/false);
       buffer.erase(printer.SpaceRequired());
@@ -3395,6 +3409,7 @@ TEST_P(FillerTest, CheckBufferSize) {
   std::string buffer(1024 * 1024, '\0');
   Printer printer(&*buffer.begin(), buffer.size());
   {
+    PageHeapSpinLockHolder l;
     PbtxtRegion region(&printer, kTop);
     filler_.PrintInPbtxt(&region);
   }
@@ -3683,6 +3698,7 @@ TEST_P(FillerTest, Print) {
 
   std::string buffer(1024 * 1024, '\0');
   {
+    PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
@@ -4005,6 +4021,14 @@ HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0
 HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
 HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
 HugePageFiller: <254<=     0 <255<=     0
+
+HugePageFiller: 0 of sparsely-accessed regular pages hugepage backed out of 5.
+HugePageFiller: 0 of densely-accessed regular pages hugepage backed out of 5.
+HugePageFiller: 0 of donated pages hugepage backed out of 1.
+HugePageFiller: 0 of sparsely-accessed partial released pages hugepage backed out of 0.
+HugePageFiller: 0 of densely-accessed partial released pages hugepage backed out of 0.
+HugePageFiller: 0 of sparsely-accessed released pages hugepage backed out of 2.
+HugePageFiller: 0 of densely-accessed released pages hugepage backed out of 2.
 
 HugePageFiller: time series over 5 min interval
 

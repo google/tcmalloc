@@ -100,6 +100,7 @@ class PageFlags final : public PageFlagsBase {
   // dynamically allocate memory when needed.  Using std::optional allows us to
   // use the function in places where memory allocation is prohibited.
   std::optional<PageStats> Get(const void* addr, size_t size) override;
+  bool IsHugepageBacked(const void* addr);
 
   // Count the number of holes in a single hugepage region when a hugepage
   // aligned address is passed.  A HoleInfo object is returned with the status

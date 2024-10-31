@@ -303,6 +303,7 @@ create_tcmalloc_libraries(
         "//tcmalloc/internal:numa",
         "//tcmalloc/internal:optimization",
         "//tcmalloc/internal:page_size",
+        "//tcmalloc/internal:pageflags",
         "//tcmalloc/internal:parameter_accessors",
         "//tcmalloc/internal:percpu",
         "//tcmalloc/internal:percpu_tcmalloc",

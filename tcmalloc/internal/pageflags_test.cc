@@ -79,6 +79,10 @@ class PageFlagsFriend {
     return r_.CountHolesInSinglePage(addr);
   }
 
+  decltype(auto) IsHugepageBacked(const void* const addr) {
+    return r_.IsHugepageBacked(addr);
+  }
+
   void SetCachedScanSeconds(
       decltype(PageFlags::cached_scan_seconds_) scan_seconds) {
     r_.cached_scan_seconds_ = scan_seconds;
@@ -102,6 +106,7 @@ constexpr uint64_t kPageHead = (1UL << 15);
 constexpr uint64_t kPageTail = (1UL << 16);
 constexpr uint64_t kPageHole = (1UL << 20);
 constexpr uint64_t kPageThp = (1UL << 22);
+constexpr uint64_t kPageHuge = (1UL << 17);
 constexpr uint64_t kPageStale = (1UL << 44);
 
 constexpr size_t kPagemapEntrySize = 8;
@@ -387,6 +392,42 @@ TEST(PageFlagsTest, OnlyTails) {
   PageFlagsFriend s(file_path);
   ASSERT_EQ(s.Get(reinterpret_cast<char*>(kHugePageSize), kHugePageSize),
             std::nullopt);
+}
+
+// Queries and checks the pageflags if the pages are hugepage-backed or not.
+// TODO(b/28093874): Check to see if we can add a real pageflags test (e.g.
+// using MADV_COLLAPSE) to confirm the hugepage status using pageflags.
+TEST(PageFlagsTest, IsHugepageBacked) {
+  const auto test_hugepage_status = [&](uint64_t flags, bool expected) {
+    const size_t kPageSize = getpagesize();
+    const size_t kPagesPerHugepage = kHugePageSize / kPageSize;
+
+    std::vector<uint64_t> data(kPagesPerHugepage);
+    for (auto& page : data) {
+      page |= flags;
+    }
+    std::string file_path =
+        absl::StrCat(testing::TempDir(), "/hugepage_backed_", flags);
+    int write_fd =
+        signal_safe_open(file_path.c_str(), O_CREAT | O_WRONLY, S_IRUSR);
+    ASSERT_NE(write_fd, -1) << errno;
+
+    size_t bytes_to_write = data.size() * sizeof(data[0]);
+    ASSERT_EQ(write(write_fd, data.data(), bytes_to_write), bytes_to_write)
+        << errno;
+    ASSERT_EQ(close(write_fd), 0) << errno;
+
+    PageFlagsFriend s(file_path);
+    for (int page = 0; page < kPagesPerHugepage; ++page) {
+      ASSERT_EQ(s.IsHugepageBacked(reinterpret_cast<char*>(page)), expected);
+    }
+    CHECK_EQ(signal_safe_close(write_fd), 0) << errno;
+  };
+
+  test_hugepage_status(kPageHuge, /*expected=*/true);
+  test_hugepage_status(kPageHuge | kPageThp, /*expected=*/true);
+  test_hugepage_status(kPageThp, /*expected=*/true);
+  test_hugepage_status(/*flags=*/0, /*expected=*/false);
 }
 
 // Method that can write a region with a single hugepage

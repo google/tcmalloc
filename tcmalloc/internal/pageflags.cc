@@ -42,6 +42,11 @@ namespace {
 #define KPF_COMPOUND_TAIL 16
 #define KPF_NOPAGE 20
 #define KPF_THP 22
+
+#ifndef KPF_HUGE
+#define KPF_HUGE 17
+#endif
+
 #ifndef KPF_MLOCKED
 #define KPF_MLOCKED 33
 #endif
@@ -61,6 +66,13 @@ constexpr bool PageTail(uint64_t flags) {
 constexpr bool PageThp(uint64_t flags) {
   constexpr uint64_t kPageThp = (1UL << KPF_THP);
   return (flags & kPageThp) == kPageThp;
+}
+constexpr bool PageHugetlbfs(uint64_t flags) {
+  constexpr uint64_t kPageHuge = (1UL << KPF_HUGE);
+  return (flags & kPageHuge) == kPageHuge;
+}
+constexpr bool IsHugepage(uint64_t flags) {
+  return PageThp(flags) || PageHugetlbfs(flags);
 }
 constexpr bool PageStale(uint64_t flags) {
   constexpr uint64_t kPageStale = (1UL << KPF_STALE);
@@ -101,6 +113,7 @@ PageFlags::~PageFlags() {
 }
 
 size_t PageFlags::GetOffset(const uintptr_t vaddr) {
+  TC_ASSERT_EQ(vaddr % kPageSize, 0);
   return vaddr / kPageSize * kPagemapEntrySize;
 }
 
@@ -188,6 +201,29 @@ absl::StatusCode PageFlags::ReadMany(int64_t num_pages, PageStats& output) {
     num_pages -= batch_size;
   }
   return absl::StatusCode::kOk;
+}
+
+bool PageFlags::IsHugepageBacked(const void* const addr) {
+  if (fd_ < 0) {
+    return false;
+  }
+
+  uint64_t flags = 0;
+  uintptr_t uaddr = reinterpret_cast<uintptr_t>(addr);
+  // Round address down to get the start of the first page that has any bytes
+  // corresponding to the span [addr, addr+size).
+  uintptr_t basePage = uaddr & ~(kPageSize - 1);
+  // Seek into fd.
+  if (auto res = Seek(basePage); res != absl::StatusCode::kOk) return false;
+  // Read entry
+  static_assert(sizeof(flags) == kPagemapEntrySize);
+  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(&flags),
+                                 kPagemapEntrySize, nullptr);
+  if (status != kPagemapEntrySize) {
+    return false;
+  }
+  // pass entry to check if its hugepage backed.
+  return IsHugepage(flags);
 }
 
 std::optional<PageStats> PageFlags::Get(const void* const addr,
