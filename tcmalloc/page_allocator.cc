@@ -17,8 +17,6 @@
 #include <cstddef>
 #include <limits>
 
-#include "absl/base/attributes.h"
-#include "absl/base/call_once.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
