@@ -586,6 +586,8 @@ void DumpStats(Printer* out, int level) {
     out->printf(
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated %d\n",
         Parameters::dense_trackers_sorted_on_spans_allocated() ? 1 : 0);
+    out->printf("PARAMETER min_hot_access_hint %d\n",
+                static_cast<int>(Parameters::min_hot_access_hint()));
   }
 }
 
@@ -790,6 +792,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                   Parameters::max_span_cache_array_size());
   region.PrintBool("tcmalloc_dense_trackers_sorted_on_spans_allocated",
                    Parameters::dense_trackers_sorted_on_spans_allocated());
+  region.PrintI64("min_hot_access_hint",
+                  static_cast<int>(Parameters::min_hot_access_hint()));
 
   region.PrintRaw(
       "size_class_config",

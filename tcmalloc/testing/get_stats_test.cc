@@ -128,6 +128,7 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
+  EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
 
   sized_delete(alloc, kSize);
 }
@@ -215,6 +216,7 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
   }
 
   Parameters::set_hpaa_subrelease(true);
@@ -233,6 +235,7 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_cache_demand_release_long_interval(
       absl::Milliseconds(240375));
   Parameters::set_huge_cache_demand_based_release(true);
+  Parameters::set_min_hot_access_hint(hot_cold_t{3});
 
   {
     const std::string buf = MallocExtension::GetStats();
@@ -305,6 +308,7 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_cache_demand_release_long_interval_ns: 240375000000)"));
+    EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 3)"));
   }
 }
 
