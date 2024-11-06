@@ -301,6 +301,8 @@ ABSL_CONST_INIT const absl::string_view kProfileDropFrames =
     "__gnu_cxx::new_allocator::allocate|"
     "__gnu_cxx::new_allocator::deallocate|"
     "__malloc_alloc_template::allocate|"
+    "std::__new_allocator::allocate|"
+    "std::__new_allocator::deallocate|"
     "_M_allocate|"
 
     // libc++ memory allocation routines
