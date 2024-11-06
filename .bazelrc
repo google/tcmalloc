@@ -18,6 +18,13 @@ build --cxxopt='-std=c++17'
 # https://github.com/bazelbuild/bazel/pull/15327 for details.
 build --incompatible_disallow_empty_glob
 
+# Link Google Test against Abseil and RE2.
+build --define='absl=1'
+
+# AllocationGuard.CooperativeDeathTest checks for "SIGABRT received"
+# message printed by this signal handler.
+test --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1"
+
 # Define the --config=asan-libfuzzer configuration.
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:libfuzzer
 build:asan-libfuzzer --@rules_fuzzing//fuzzing:cc_engine_instrumentation=libfuzzer

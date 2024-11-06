@@ -66,12 +66,10 @@ for std in ${STD}; do
         /usr/local/bin/bazel test ... \
           --compilation_mode="${compilation_mode}" \
           --copt="${exceptions_mode}" \
-          --define="absl=1" \
           --distdir="/bazel-distdir" \
           --keep_going \
           --experimental_ui_max_stdouterr_bytes=-1 \
           --show_timestamps \
-          --test_env="GTEST_INSTALL_FAILURE_SIGNAL_HANDLER=1" \
           --test_output=errors \
           --test_tag_filters=-benchmark \
           ${BAZEL_EXTRA_ARGS:-}
