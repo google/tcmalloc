@@ -365,7 +365,7 @@ TEST_F(TcMallocTest, ReallocLarger) {
             free(ptr);
           }
         },
-        "SIGSEGV");
+        "has detected a memory error");
   }
 }
 
@@ -385,7 +385,7 @@ TEST_F(TcMallocTest, ReallocSmaller) {
             free(ptr);
           }
         },
-        "SIGSEGV");
+        "has detected a memory error");
   }
 }
 
@@ -405,7 +405,7 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
             free(new_ptr);
           }
         },
-        "SIGSEGV");
+        "has detected a memory error");
   }
 }
 
