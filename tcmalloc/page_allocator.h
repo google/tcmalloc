@@ -33,7 +33,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/page_allocator_interface.h"
-#include "tcmalloc/page_heap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
@@ -152,7 +151,6 @@ class PageAllocator {
     Choices() : dummy(0) {}
     ~Choices() {}
     int dummy;
-    PageHeap ph;
     HugePageAwareAllocator hpaa;
   } choices_[kNumHeaps];
   std::array<Interface*, kNumaPartitions> normal_impl_;

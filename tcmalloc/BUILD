@@ -203,8 +203,6 @@ create_tcmalloc_libraries(
         "page_allocator.h",
         "page_allocator_interface.cc",
         "page_allocator_interface.h",
-        "page_heap.cc",
-        "page_heap.h",
         "page_heap_allocator.h",
         "pagemap.cc",
         "pagemap.h",
@@ -256,7 +254,6 @@ create_tcmalloc_libraries(
         "huge_region.h",
         "page_allocator.h",
         "page_allocator_interface.h",
-        "page_heap.h",
         "page_heap_allocator.h",
         "pagemap.h",
         "pages.h",
@@ -568,18 +565,6 @@ cc_library(
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/types:span",
-    ],
-)
-
-create_tcmalloc_testsuite(
-    name = "page_heap_test",
-    srcs = ["page_heap_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/memory",
-        "@com_google_googletest//:gtest_main",
     ],
 )
 
