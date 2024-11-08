@@ -73,19 +73,11 @@ struct SpanAllocInfo {
 //  - SMALL_OBJECT: the span holds multiple small objects.
 //    The span is owned by CentralFreeList and is generally on
 //    CentralFreeList::nonempty_ list (unless has no free objects).
-//    location_ == IN_USE.
 //  - LARGE_OBJECT: the span holds a single large object.
 //    The span can be considered to be owner by user until the object is freed.
-//    location_ == IN_USE.
 //  - SAMPLED: the span holds a single sampled object.
 //    The span can be considered to be owner by user until the object is freed.
-//    location_ == IN_USE && sampled_ == 1.
-//  - ON_NORMAL_FREELIST: the span has no allocated objects, owned by PageHeap
-//    and is on normal PageHeap list.
-//    location_ == ON_NORMAL_FREELIST.
-//  - ON_RETURNED_FREELIST: the span has no allocated objects, owned by PageHeap
-//    and is on returned PageHeap list.
-//    location_ == ON_RETURNED_FREELIST.
+//    sampled_ == 1.
 class Span;
 typedef TList<Span> SpanList;
 
@@ -97,7 +89,6 @@ class Span final : public SpanList::Elem {
         allocated_(0),
         cache_size_(0),
         nonempty_index_(0),
-        location_(IN_USE),
         is_donated_(0),
         first_page_(0),
         reserved_(0),
@@ -115,15 +106,6 @@ class Span final : public SpanList::Elem {
   static void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   static void operator delete(void*) = delete;
-
-  // locations used to track what list a span resides on.
-  enum Location {
-    IN_USE,                // not on PageHeap lists
-    ON_NORMAL_FREELIST,    // on normal PageHeap list
-    ON_RETURNED_FREELIST,  // on returned PageHeap list
-  };
-  Location location() const;
-  void set_location(Location loc);
 
   // ---------------------------------------------------------------------------
   // Support for sampled allocations.
@@ -288,7 +270,6 @@ class Span final : public SpanList::Elem {
   std::atomic<uint16_t> allocated_;  // Number of non-free objects
   uint8_t cache_size_ : kMaxCacheBits;
   uint8_t nonempty_index_ : 4;  // The nonempty_ list index for this span.
-  uint8_t location_ : 2;  // Is the span on a freelist, and if so, which?
   // Has this span allocation resulted in a donation to the filler in the page
   // heap? This is used by page heap to compute abandoned pages.
   uint8_t is_donated_ : 1;
@@ -477,14 +458,6 @@ inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
   return true;
 }
 
-inline Span::Location Span::location() const {
-  return static_cast<Location>(location_);
-}
-
-inline void Span::set_location(Location loc) {
-  location_ = static_cast<uint64_t>(loc);
-}
-
 inline SampledAllocation* Span::sampled_allocation() const {
   TC_ASSERT(sampled_);
   TC_ASSERT(is_large_or_sampled());
@@ -568,7 +541,6 @@ inline void Span::Init(PageId p, Length n) {
 #endif
   TC_CHECK_LT(p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
   first_page_ = p.index();
-  location_ = IN_USE;
   sampled_ = 0;
   nonempty_index_ = 0;
   is_donated_ = 0;

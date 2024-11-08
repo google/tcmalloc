@@ -32,7 +32,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 void PageMap::RegisterSizeClass(Span* span, size_t sc) {
-  TC_ASSERT_EQ(span->location(), Span::IN_USE);
   const PageId first = span->first_page();
   const PageId last = span->last_page();
   TC_ASSERT_EQ(GetDescriptor(first), span);
@@ -42,7 +41,6 @@ void PageMap::RegisterSizeClass(Span* span, size_t sc) {
 }
 
 void PageMap::UnregisterSizeClass(Span* span) {
-  TC_ASSERT_EQ(span->location(), Span::IN_USE);
   const PageId first = span->first_page();
   const PageId last = span->last_page();
   TC_ASSERT_EQ(GetDescriptor(first), span);
