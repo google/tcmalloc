@@ -274,30 +274,30 @@ static Length RoundUp(Length value, Length alignment) {
                 ~(alignment.raw_num() - 1));
 }
 
-void PageAllocInfo::RecordAlloc(PageId p, Length n) {
+void PageAllocInfo::RecordAlloc(Range r) {
   static_assert(kMaxPages.in_bytes() == 1024 * 1024, "threshold changed?");
   static_assert(kMaxPages < kPagesPerHugePage, "there should be slack");
-  largest_seen_ = std::max(largest_seen_, n);
-  if (n <= kMaxPages) {
-    total_small_ += n;
-    small_[(n - Length(1)).raw_num()].Alloc(n);
+  largest_seen_ = std::max(largest_seen_, r.n);
+  if (r.n <= kMaxPages) {
+    total_small_ += r.n;
+    small_[(r.n - Length(1)).raw_num()].Alloc(r.n);
   } else {
-    Length slack = RoundUp(n, kPagesPerHugePage) - n;
+    Length slack = RoundUp(r.n, kPagesPerHugePage) - r.n;
     total_slack_ += slack;
-    size_t i = absl::bit_width(n.raw_num() - 1);
-    large_[i].Alloc(n);
+    size_t i = absl::bit_width(r.n.raw_num() - 1);
+    large_[i].Alloc(r.n);
   }
 }
 
-void PageAllocInfo::RecordFree(PageId p, Length n) {
-  if (n <= kMaxPages) {
-    total_small_ -= n;
-    small_[n.raw_num() - 1].Free(n);
+void PageAllocInfo::RecordFree(Range r) {
+  if (r.n <= kMaxPages) {
+    total_small_ -= r.n;
+    small_[r.n.raw_num() - 1].Free(r.n);
   } else {
-    Length slack = RoundUp(n, kPagesPerHugePage) - n;
+    Length slack = RoundUp(r.n, kPagesPerHugePage) - r.n;
     total_slack_ -= slack;
-    size_t i = absl::bit_width(n.raw_num() - 1);
-    large_[i].Free(n);
+    size_t i = absl::bit_width(r.n.raw_num() - 1);
+    large_[i].Free(r.n);
   }
 }
 

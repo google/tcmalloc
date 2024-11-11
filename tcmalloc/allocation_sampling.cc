@@ -172,7 +172,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
       TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
       const PageId p = PageIdContaining(alloc_with_status.alloc);
       PageHeapSpinLockHolder l;
-      span = Span::New(p, num_pages);
+      span = Span::New(Range(p, num_pages));
       state.pagemap().Set(p, span);
       // If we report capacity back from a size returning allocation, we can not
       // report the stack_trace.allocated_size, as we guard the size to

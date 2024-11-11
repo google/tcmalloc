@@ -67,7 +67,7 @@ class HugeCacheTest
    public:
     MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
 
-    bool operator()(PageId p, Length len) override { return Unback(p, len); }
+    bool operator()(Range r) override { return Unback(r.p, r.n); }
   };
 
  protected:

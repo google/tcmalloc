@@ -61,7 +61,7 @@ class RawSpan {
     TC_CHECK_EQ(res, 0);
 
     span_ = new (buf_) Span();
-    span_->Init(PageIdContaining(mem_), npages);
+    span_->Init(Range(PageIdContaining(mem_), npages));
     TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
                                      kSpanAllocTime),
                 0);
@@ -250,8 +250,7 @@ INSTANTIATE_TEST_SUITE_P(
                                      Span::kLargeCacheArraySize)));
 
 TEST(SpanAllocatorTest, Alignment) {
-  PageId p{1};
-  Length len{2};
+  Range r(PageId{1}, Length{2});
 
   constexpr int kNumSpans = 1000;
   std::vector<Span*> spans;
@@ -260,7 +259,7 @@ TEST(SpanAllocatorTest, Alignment) {
   {
     PageHeapSpinLockHolder l;
     for (int i = 0; i < kNumSpans; ++i) {
-      spans.push_back(Span::New(p, len));
+      spans.push_back(Span::New(r));
     }
   }
 

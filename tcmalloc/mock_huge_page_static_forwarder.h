@@ -118,16 +118,15 @@ class FakeStaticForwarder {
     }
     return it->second;
   }
-  bool Ensure(PageId page, Length length)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  bool Ensure(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return true;
   }
   void Set(PageId page, Span* span) {}
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.
-  Span* NewSpan(PageId page, Length length) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
-      pageheap_lock) ABSL_ATTRIBUTE_RETURNS_NONNULL {
+  Span* NewSpan(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+      ABSL_ATTRIBUTE_RETURNS_NONNULL {
     Span* span;
     void* result = absl::base_internal::LowLevelAlloc::AllocWithArena(
         sizeof(*span) + alignof(Span) + sizeof(void*), ll_arena());
@@ -136,7 +135,7 @@ class FakeStaticForwarder {
         ~(alignof(Span) - 1u))) Span();
     *(reinterpret_cast<uintptr_t*>(span + 1)) =
         reinterpret_cast<uintptr_t>(result);
-    span->Init(page, length);
+    span->Init(r);
     return span;
   }
   void DeleteSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
@@ -157,10 +156,10 @@ class FakeStaticForwarder {
     fake_allocation_ += bytes;
     return ret;
   }
-  bool ReleasePages(PageId begin, Length size) {
+  bool ReleasePages(Range r) {
     const uintptr_t start =
-        reinterpret_cast<uintptr_t>(begin.start_addr()) & ~kTagMask;
-    const uintptr_t end = start + size.in_bytes();
+        reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;
+    const uintptr_t end = start + r.n.in_bytes();
     TC_CHECK_LE(end, fake_allocation_);
 
     return release_succeeds_;

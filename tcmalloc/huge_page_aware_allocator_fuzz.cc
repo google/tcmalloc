@@ -46,12 +46,12 @@ using huge_page_allocator_internal::HugePageAwareAllocatorOptions;
 
 class FakeStaticForwarderWithUnback : public FakeStaticForwarder {
  public:
-  bool ReleasePages(PageId begin, Length size) {
-    pending_release_ += size;
+  bool ReleasePages(Range r) {
+    pending_release_ += r.n;
     release_callback_();
-    pending_release_ -= size;
+    pending_release_ -= r.n;
 
-    return FakeStaticForwarder::ReleasePages(begin, size);
+    return FakeStaticForwarder::ReleasePages(r);
   }
 
   Length pending_release_;

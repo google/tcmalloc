@@ -70,7 +70,7 @@ class HugeRegionTest : public ::testing::Test {
    public:
     MOCK_METHOD(bool, Unback, (PageId p, Length len), ());
 
-    bool operator()(PageId p, Length len) override { return Unback(p, len); }
+    bool operator()(Range r) override { return Unback(r.p, r.n); }
   };
 
   std::unique_ptr<MockBackingInterface> mock_;
@@ -130,12 +130,12 @@ class HugeRegionTest : public ::testing::Test {
 
   void Delete(Alloc a) {
     Check(a);
-    region_.Put(a.p, a.n, false);
+    region_.Put(Range(a.p, a.n), false);
   }
 
   void DeleteUnback(Alloc a) {
     Check(a);
-    region_.Put(a.p, a.n, true);
+    region_.Put(Range(a.p, a.n), true);
   }
 };
 
@@ -331,13 +331,12 @@ class MemorySimulation final : public MemoryModifyFunction {
                    absl::Span<std::atomic<char>> bytes)
       : mu_(mu), base_(base), bytes_(bytes) {}
 
-  bool operator()(PageId p,
-                  Length len) override ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  bool operator()(Range r) override ABSL_NO_THREAD_SAFETY_ANALYSIS {
     // TODO(b/73749855): Simulate with unlocking.
     mu_.AssertHeld();
 
-    size_t index = (p - base_).raw_num();
-    for (size_t i = 0, n = len.raw_num(); i < n; ++i) {
+    size_t index = (r.p - base_).raw_num();
+    for (size_t i = 0, n = r.n.raw_num(); i < n; ++i) {
       bytes_[index + i].store(0, std::memory_order_release);
     }
 
@@ -366,8 +365,7 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
   absl::Mutex state_mu;
   struct FuzzAlloc {
     int tid;
-    PageId start;
-    Length len;
+    Range r;
   };
   std::vector<FuzzAlloc> allocs;
 
@@ -380,16 +378,16 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
 
         FuzzAlloc f;
         f.tid = tid;
-        f.len = Length(n);
+        f.r.n = Length(n);
         bool from_released;
         {
           absl::MutexLock l(&mu);
-          if (!region_.MaybeGet(f.len, &f.start, &from_released)) {
+          if (!region_.MaybeGet(f.r.n, &f.r.p, &from_released)) {
             break;
           }
         }
 
-        const size_t base = (f.start - p_.first_page()).raw_num();
+        const size_t base = (f.r.p - p_.first_page()).raw_num();
         for (size_t i = 0; i < n; ++i) {
           const int old_val =
               bytes[base + i].exchange(tid, std::memory_order_acq_rel);
@@ -417,15 +415,15 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
           allocs.resize(allocs.size() - 1);
         }
 
-        const size_t base = (f.start - p_.first_page()).raw_num();
-        for (size_t i = 0; i < f.len.raw_num(); ++i) {
+        const size_t base = (f.r.p - p_.first_page()).raw_num();
+        for (size_t i = 0; i < f.r.n.raw_num(); ++i) {
           const int old_val =
               bytes[base + i].exchange(0, std::memory_order_acq_rel);
           TC_CHECK_EQ(old_val, f.tid);
         }
 
         absl::MutexLock l(&mu);
-        region_.Put(f.start, f.len, false);
+        region_.Put(f.r, false);
         break;
       }
       case 2: {
@@ -437,8 +435,8 @@ TEST_F(HugeRegionTest, ReleaseFuzz) {
         const size_t index = absl::Uniform(rngs[tid], 0u, allocs.size());
         FuzzAlloc f = allocs[index];
 
-        const size_t base = (f.start - p_.first_page()).raw_num();
-        for (size_t i = 0; i < f.len.raw_num(); ++i) {
+        const size_t base = (f.r.p - p_.first_page()).raw_num();
+        for (size_t i = 0; i < f.r.n.raw_num(); ++i) {
           const int val = bytes[base + i].load(std::memory_order_acquire);
           TC_CHECK_EQ(val, f.tid);
         }
@@ -634,7 +632,7 @@ TEST_F(HugeRegionTest, StatBreakdownReleaseFailure) {
 
 class NilUnback final : public MemoryModifyFunction {
  public:
-  bool operator()(PageId p, Length bytes) override { return true; }
+  bool operator()(Range r) override { return true; }
 };
 
 class HugeRegionSetTest
@@ -680,7 +678,7 @@ class HugeRegionSetTest
     return ret;
   }
 
-  void Delete(Alloc a) { TC_CHECK(set_.MaybePut(a.p, a.n)); }
+  void Delete(Alloc a) { TC_CHECK(set_.MaybePut(Range(a.p, a.n))); }
 
   Length ReleasePagesByPeakDemand(Length desired,
                                   SkipSubreleaseIntervals intervals = {},
@@ -722,7 +720,7 @@ TEST_P(HugeRegionSetTest, Release) {
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   for (auto a : allocs) {
-    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
   }
 
   stats = set_.stats();
@@ -760,7 +758,7 @@ TEST_P(HugeRegionSetTest, ReleasePagesWithoutIntervals) {
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   for (auto a : allocs) {
-    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
   }
 
   stats = set_.stats();
@@ -810,7 +808,7 @@ TEST_P(HugeRegionSetTest, ReleaseZeroPages) {
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   for (auto a : allocs) {
-    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
   }
 
   stats = set_.stats();
@@ -1066,7 +1064,7 @@ TEST_P(HugeRegionSetTest, HardRelease) {
   EXPECT_EQ(stats.unmapped_bytes, 0);
 
   for (auto a : allocs) {
-    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
   }
 
   stats = set_.stats();
@@ -1114,7 +1112,7 @@ TEST_P(HugeRegionSetTest, Set) {
   allocs.erase(allocs.begin() + allocs.size() / 2, allocs.end());
 
   for (auto d : doomed) {
-    ASSERT_TRUE(set_.MaybePut(d.p, d.n));
+    ASSERT_TRUE(set_.MaybePut(Range(d.p, d.n)));
   }
 
   for (size_t i = 0; i < 100 * 1000; ++i) {
@@ -1122,7 +1120,7 @@ TEST_P(HugeRegionSetTest, Set) {
     size_t index = absl::Uniform<int32_t>(rng, 0, N);
     std::swap(allocs[index], allocs[N - 1]);
     auto a = allocs.back();
-    ASSERT_TRUE(set_.MaybePut(a.p, a.n));
+    ASSERT_TRUE(set_.MaybePut(Range(a.p, a.n)));
     allocs.pop_back();
     ASSERT_TRUE(set_.MaybeGet(kSize, &p, &from_released));
     allocs.push_back({p, kSize});

@@ -311,6 +311,15 @@ inline HugePage HugePageContaining(void* p) {
 
 // A set of contiguous huge pages.
 struct HugeRange {
+  HugeRange() = default;
+  constexpr HugeRange(HugePage p, HugeLength len) : first(p), n(len) {}
+
+  constexpr HugeRange(const HugeRange&) = default;
+  constexpr HugeRange& operator=(const HugeRange&) = default;
+
+  constexpr HugeRange(HugeRange&&) = default;
+  constexpr HugeRange& operator=(HugeRange&&) = default;
+
   void* start_addr() const { return first.start_addr(); }
   void* end_addr() const { return (first + n).start_addr(); }
   size_t byte_len() const {

@@ -186,9 +186,9 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface final : public MemoryModifyFunction {
    public:
-    ABSL_MUST_USE_RESULT bool operator()(PageId p, Length len) override {
+    ABSL_MUST_USE_RESULT bool operator()(Range r) override {
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
-      actual_[actual_index_] = {p, len};
+      actual_[actual_index_].r = r;
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(expected_));
       // Assume expected calls occur and use those return values.
       const bool success = expected_[actual_index_].success;
@@ -198,7 +198,7 @@ class PageTrackerTest : public testing::Test {
 
     void Expect(PageId p, Length len, bool success) {
       TC_CHECK_LT(expected_index_, kMaxCalls);
-      expected_[expected_index_] = {p, len, success};
+      expected_[expected_index_] = {Range(p, len), success};
       ++expected_index_;
     }
 
@@ -206,8 +206,8 @@ class PageTrackerTest : public testing::Test {
       EXPECT_EQ(expected_index_, actual_index_);
       for (size_t i = 0, n = std::min(expected_index_, actual_index_); i < n;
            ++i) {
-        EXPECT_EQ(expected_[i].ptr, actual_[i].ptr);
-        EXPECT_EQ(expected_[i].len, actual_[i].len);
+        EXPECT_EQ(expected_[i].r.p, actual_[i].r.p);
+        EXPECT_EQ(expected_[i].r.n, actual_[i].r.n);
       }
       expected_index_ = 0;
       actual_index_ = 0;
@@ -215,8 +215,7 @@ class PageTrackerTest : public testing::Test {
 
    private:
     struct CallArgs {
-      PageId ptr;
-      Length len;
+      Range r;
       bool success = true;
     };
 
@@ -255,7 +254,7 @@ class PageTrackerTest : public testing::Test {
 
   void Put(PAlloc a) {
     PageHeapSpinLockHolder l;
-    tracker_.Put(a.p, a.n);
+    tracker_.Put(Range(a.p, a.n));
   }
 
   Length ReleaseFree() {
@@ -620,7 +619,7 @@ class BlockingUnback final : public MemoryModifyFunction {
  public:
   constexpr BlockingUnback() = default;
 
-  ABSL_MUST_USE_RESULT bool operator()(PageId p, Length len) override {
+  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
     if (!mu_) {
       return success_;
     }
@@ -899,7 +898,7 @@ class FillerTest : public testing::TestWithParam<
     PageTracker* pt;
     {
       PageHeapSpinLockHolder l;
-      pt = filler_.Put(p.pt, p.p, p.n);
+      pt = filler_.Put(p.pt, Range(p.p, p.n));
     }
     total_allocated_ -= p.n;
     if (pt != nullptr) {

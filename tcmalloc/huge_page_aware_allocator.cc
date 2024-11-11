@@ -109,9 +109,7 @@ void* StaticForwarder::GetHugepage(HugePage p) {
   return tc_globals.pagemap().GetHugepage(p.first_page());
 }
 
-bool StaticForwarder::Ensure(PageId page, Length length) {
-  return tc_globals.pagemap().Ensure(page, length);
-}
+bool StaticForwarder::Ensure(Range r) { return tc_globals.pagemap().Ensure(r); }
 
 void StaticForwarder::Set(PageId page, Span* span) {
   tc_globals.pagemap().Set(page, span);
@@ -125,9 +123,9 @@ void StaticForwarder::ShrinkToUsageLimit(Length n) {
   tc_globals.page_allocator().ShrinkToUsageLimit(n);
 }
 
-Span* StaticForwarder::NewSpan(PageId page, Length length) {
+Span* StaticForwarder::NewSpan(Range r) {
   // TODO(b/134687001):  Delete this when span_allocator moves.
-  return Span::New(page, length);
+  return Span::New(r);
 }
 
 void StaticForwarder::DeleteSpan(Span* span) { Span::Delete(span); }

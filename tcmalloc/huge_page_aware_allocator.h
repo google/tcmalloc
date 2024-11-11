@@ -103,15 +103,13 @@ class StaticForwarder {
 
   // PageMap state.
   static void* GetHugepage(HugePage p);
-  static bool Ensure(PageId page, Length length)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static bool Ensure(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void Set(PageId page, Span* span);
   static void SetHugepage(HugePage p, void* pt);
 
   // SpanAllocator state.
-  static Span* NewSpan(PageId page, Length length)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-          ABSL_ATTRIBUTE_RETURNS_NONNULL;
+  static Span* NewSpan(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+      ABSL_ATTRIBUTE_RETURNS_NONNULL;
   static void DeleteSpan(Span* span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) ABSL_ATTRIBUTE_NONNULL();
 
@@ -119,8 +117,8 @@ class StaticForwarder {
   static AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
     return SystemAlloc(bytes, align, tag);
   }
-  static bool ReleasePages(PageId start, Length size) {
-    return SystemRelease(start.start_addr(), size.in_bytes());
+  static bool ReleasePages(Range r) {
+    return SystemRelease(r.start_addr(), r.in_bytes());
   }
 };
 
@@ -253,12 +251,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(PageId start, Length length) override
+    ABSL_MUST_USE_RESULT bool operator()(Range r) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
-      return hpaa_.forwarder_.ReleasePages(start, length);
+      return hpaa_.forwarder_.ReleasePages(r);
     }
 
    public:
@@ -271,13 +269,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(PageId start, Length length) override
+    ABSL_MUST_USE_RESULT bool operator()(Range r) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
 #endif  // NDEBUG
       pageheap_lock.Unlock();
-      bool ret = hpaa_.forwarder_.ReleasePages(start, length);
+      bool ret = hpaa_.forwarder_.ReleasePages(r);
       pageheap_lock.Lock();
       return ret;
     }
@@ -388,12 +386,11 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   void ReleaseHugepage(FillerType::Tracker* pt)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Return an allocation from a single hugepage.
-  void DeleteFromHugepage(FillerType::Tracker* pt, PageId p, Length n,
-                          bool might_abandon)
+  void DeleteFromHugepage(FillerType::Tracker* pt, Range r, bool might_abandon)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  Span* Finalize(Length n, PageId page);
+  Span* Finalize(Range r);
 
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
@@ -474,14 +471,14 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Finalize(Length n, PageId page)
+inline Span* HugePageAwareAllocator<Forwarder>::Finalize(Range r)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  TC_ASSERT_NE(page, PageId{0});
-  Span* ret = forwarder_.NewSpan(page, n);
-  forwarder_.Set(page, ret);
+  TC_ASSERT_NE(r.p, PageId{0});
+  Span* ret = forwarder_.NewSpan(r);
+  forwarder_.Set(r.p, ret);
   TC_ASSERT(!ret->sampled());
-  info_.RecordAlloc(page, n);
-  forwarder_.ShrinkToUsageLimit(n);
+  info_.RecordAlloc(r);
+  forwarder_.ShrinkToUsageLimit(r.n);
   return ret;
 }
 
@@ -493,14 +490,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
   auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-    return Finalize(n, page);
+    return Finalize(Range(page, n));
   }
 
   page = RefillFiller(n, span_alloc_info, from_released);
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
     return nullptr;
   }
-  return Finalize(n, page);
+  return Finalize(Range(page, n));
 }
 
 template <class Forwarder>
@@ -513,19 +510,19 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   }
 
   PageId page;
-  // If we fit in a single hugepage, try the Filler first.
+  // If we fit in a single hugepage, try the Filler.p.
   if (n < kPagesPerHugePage) {
     auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
     *from_released = released;
     if (ABSL_PREDICT_TRUE(pt != nullptr)) {
-      return Finalize(n, page);
+      return Finalize(Range(page, n));
     }
   }
 
   // If we're using regions in this binary (see below comment), is
   // there currently available space there?
   if (regions_.MaybeGet(n, &page, from_released)) {
-    return Finalize(n, page);
+    return Finalize(Range(page, n));
   }
 
   // We have two choices here: allocate a new region or go to
@@ -564,7 +561,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
   }
 
   TC_CHECK(regions_.MaybeGet(n, &page, from_released));
-  return Finalize(n, page);
+  return Finalize(Range(page, n));
 }
 
 template <class Forwarder>
@@ -592,7 +589,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   HugePage last = first + r.len() - NHugePages(1);
   if (slack == Length(0)) {
     SetTracker(last, nullptr);
-    return Finalize(total, r.start().first_page());
+    return Finalize(Range(r.start().first_page(), total));
   }
 
   ++donated_huge_pages_;
@@ -600,7 +597,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
-  Span* span = Finalize(n, r.start().first_page());
+  Span* span = Finalize(Range(r.start().first_page(), n));
   span->set_donated(/*value=*/true);
   return span;
 }
@@ -670,8 +667,8 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::DeleteFromHugepage(
-    FillerType::Tracker* pt, PageId p, Length n, bool might_abandon) {
-  if (ABSL_PREDICT_TRUE(filler_.Put(pt, p, n) == nullptr)) {
+    FillerType::Tracker* pt, Range r, bool might_abandon) {
+  if (ABSL_PREDICT_TRUE(filler_.Put(pt, r) == nullptr)) {
     // If this allocation had resulted in a donation to the filler, we record
     // these pages as abandoned.
     if (ABSL_PREDICT_FALSE(might_abandon)) {
@@ -710,7 +707,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
-  info_.RecordFree(p, n);
+  info_.RecordFree(Range(p, n));
 
   bool might_abandon = span->donated();
   forwarder_.DeleteSpan(span);
@@ -725,13 +722,13 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   //    allocation to that hugepage in the filler.
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
     TC_ASSERT_EQ(hp, HugePageContaining(p + n - Length(1)));
-    DeleteFromHugepage(pt, p, n, might_abandon);
+    DeleteFromHugepage(pt, Range(p, n), might_abandon);
     return;
   }
 
   // b) We got put into a region, possibly crossing hugepages -
   //    return our allocation to the region.
-  if (regions_.MaybePut(p, n)) return;
+  if (regions_.MaybePut(Range(p, n))) return;
 
   // c) we came straight from the HugeCache - return straight there.  (We
   //    might have had slack put into the filler - if so, return that virtual
@@ -753,7 +750,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
     Length virt_len = kPagesPerHugePage - slack;
     // We may have used the slack, which would prevent us from returning
     // the entire range now.  If filler returned a Tracker, we are fully empty.
-    if (filler_.Put(pt, virt, virt_len) == nullptr) {
+    if (filler_.Put(pt, Range(virt, virt_len)) == nullptr) {
       // Last page isn't empty -- pretend the range was shorter.
       --hl;
 
@@ -1066,7 +1063,7 @@ inline AddressRange HugePageAwareAllocator<Forwarder>::AllocAndReport(
   if (ret.ptr == nullptr) return ret;
   const PageId page = PageIdContaining(ret.ptr);
   const Length page_len = BytesToLengthFloor(ret.bytes);
-  forwarder_.Ensure(page, page_len);
+  forwarder_.Ensure(Range(page, page_len));
   return ret;
 }
 

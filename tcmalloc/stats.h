@@ -178,8 +178,8 @@ class PageAllocInfo {
 
   // Subclasses are responsible for calling these methods when
   // the relevant actions occur
-  void RecordAlloc(PageId p, Length n);
-  void RecordFree(PageId p, Length n);
+  void RecordAlloc(Range r);
+  void RecordFree(Range r);
   void RecordRelease(Length n, Length got, PageReleaseReason reason);
 
   PageReleaseStats GetRecordedReleases() const;

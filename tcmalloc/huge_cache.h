@@ -44,7 +44,10 @@ class MemoryModifyFunction {
  public:
   virtual ~MemoryModifyFunction() = default;
 
-  ABSL_MUST_USE_RESULT virtual bool operator()(PageId start, Length len) = 0;
+  ABSL_MUST_USE_RESULT virtual bool operator()(Range r) = 0;
+  ABSL_MUST_USE_RESULT bool operator()(HugeRange r) {
+    return (*this)(Range{r.start().first_page(), r.len().in_pages()});
+  }
 };
 
 // Track the extreme values of a HugeLength value over the past

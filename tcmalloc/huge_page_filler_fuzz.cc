@@ -56,16 +56,16 @@ absl::flat_hash_set<PageId>& ReleasedPages() {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  ABSL_MUST_USE_RESULT bool operator()(PageId p, Length l) override {
+  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
     if (!unback_success) {
       return false;
     }
 
     absl::flat_hash_set<PageId>& released_set = ReleasedPages();
 
-    PageId end = p + l;
-    for (; p != end; ++p) {
-      released_set.insert(p);
+    PageId end = r.p + r.n;
+    for (; r.p != end; ++r.p) {
+      released_set.insert(r.p);
     }
 
     return true;
@@ -126,13 +126,8 @@ void FuzzFiller(const std::string& s) {
   HugePageFiller<PageTracker> filler(Clock{.now = mock_clock, .freq = freq},
                                      dense_tracker_type, unback, unback);
 
-  struct Alloc {
-    PageId page;
-    Length length;
-  };
-
   std::vector<PageTracker*> trackers;
-  absl::flat_hash_map<PageTracker*, std::vector<Alloc>> allocs;
+  absl::flat_hash_map<PageTracker*, std::vector<Range>> allocs;
 
   // Running counter to allocate pseudo-random addresses
   size_t next_hugepage = 1;
@@ -236,7 +231,7 @@ void FuzzFiller(const std::string& s) {
 
         CHECK(!allocs[pt].empty());
         const size_t hi = std::min<size_t>(value >> 16, allocs[pt].size() - 1);
-        Alloc alloc = allocs[pt][hi];
+        Range alloc = allocs[pt][hi];
 
         // Remove the allocation.
         std::swap(allocs[pt][hi], allocs[pt].back());
@@ -251,7 +246,7 @@ void FuzzFiller(const std::string& s) {
         PageTracker* ret;
         {
           PageHeapSpinLockHolder l;
-          ret = filler.Put(pt, alloc.page, alloc.length);
+          ret = filler.Put(pt, alloc);
         }
         CHECK_EQ(ret != nullptr, last_alloc);
         absl::flat_hash_set<PageId>& released_set = ReleasedPages();
@@ -445,7 +440,7 @@ void FuzzFiller(const std::string& s) {
       PageTracker* ret;
       {
         PageHeapSpinLockHolder l;
-        ret = filler.Put(pt, alloc.page, alloc.length);
+        ret = filler.Put(pt, alloc);
       }
       CHECK_EQ(ret != nullptr, i + 1 == n);
     }

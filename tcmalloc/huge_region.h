@@ -81,10 +81,10 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // Returns false if no range available.
   bool MaybeGet(Length n, PageId* p, bool* from_released);
 
-  // Return [p, p + n) for new allocations.
+  // Return r for new allocations.
   // If release=true, release any hugepages made empty as a result.
-  // REQUIRES: [p, p + n) was the result of a previous MaybeGet.
-  void Put(PageId p, Length n, bool release);
+  // REQUIRES: Range{p, n} was the result of a previous MaybeGet.
+  void Put(Range r, bool release);
 
   // Release <desired> numbae of pages from free-and-backed hugepages from
   // region.
@@ -130,12 +130,12 @@ class HugeRegion : public TList<HugeRegion>::Elem {
 
   Length longest_free() const { return Length(tracker_.longest_free()); }
 
-  // Adjust counts of allocs-per-hugepage for [p, p + n) being added/removed.
+  // Adjust counts of allocs-per-hugepage for r being added/removed.
 
-  // *from_released is set to true iff [p, p + n) is currently unbacked
-  void Inc(PageId p, Length n, bool* from_released);
+  // *from_released is set to true iff r is currently unbacked
+  void Inc(Range r, bool* from_released);
   // If release is true, unback any hugepage that becomes empty.
-  void Dec(PageId p, Length n, bool release);
+  void Dec(Range r, bool release);
 
   HugeLength UnbackHugepages(bool should_unback[kNumHugePages]);
 
@@ -172,7 +172,7 @@ class HugeRegionSet {
   bool MaybeGet(Length n, PageId* page, bool* from_released);
 
   // Return an allocation to a region (if one matches!)
-  bool MaybePut(PageId p, Length n);
+  bool MaybePut(Range r);
 
   // Add region to the set.
   void Contribute(Region* region);
@@ -339,16 +339,16 @@ inline bool HugeRegion::MaybeGet(Length n, PageId* p, bool* from_released) {
   *p = page;
 
   // the last hugepage we touch
-  Inc(page, n, from_released);
+  Inc(Range{page, n}, from_released);
   return true;
 }
 
 // If release=true, release any hugepages made empty as a result.
-inline void HugeRegion::Put(PageId p, Length n, bool release) {
-  Length index = p - location_.start().first_page();
-  tracker_.Unmark(index.raw_num(), n.raw_num());
+inline void HugeRegion::Put(Range r, bool release) {
+  Length index = r.p - location_.start().first_page();
+  tracker_.Unmark(index.raw_num(), r.n.raw_num());
 
-  Dec(p, n, release);
+  Dec(r, release);
 }
 
 // Release hugepages that are unused but backed.
@@ -484,13 +484,13 @@ inline BackingStats HugeRegion::stats() const {
   return s;
 }
 
-inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
+inline void HugeRegion::Inc(Range r, bool* from_released) {
   bool should_back = false;
-  while (n > Length(0)) {
-    const HugePage hp = HugePageContaining(p);
+  while (r.n > Length(0)) {
+    const HugePage hp = HugePageContaining(r.p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
-    Length here = std::min(n, lim - p);
+    Length here = std::min(r.n, lim - r.p);
     if (pages_used_[i] == Length(0) && !backed_[i]) {
       backed_[i] = true;
       should_back = true;
@@ -498,19 +498,19 @@ inline void HugeRegion::Inc(PageId p, Length n, bool* from_released) {
     }
     pages_used_[i] += here;
     TC_ASSERT_LE(pages_used_[i], kPagesPerHugePage);
-    p += here;
-    n -= here;
+    r.p += here;
+    r.n -= here;
   }
   *from_released = should_back;
 }
 
-inline void HugeRegion::Dec(PageId p, Length n, bool release) {
+inline void HugeRegion::Dec(Range r, bool release) {
   bool should_unback[kNumHugePages] = {};
-  while (n > Length(0)) {
-    const HugePage hp = HugePageContaining(p);
+  while (r.n > Length(0)) {
+    const HugePage hp = HugePageContaining(r.p);
     const size_t i = (hp - location_.start()) / NHugePages(1);
     const PageId lim = (hp + NHugePages(1)).first_page();
-    Length here = std::min(n, lim - p);
+    Length here = std::min(r.n, lim - r.p);
     TC_ASSERT_GT(here, Length(0));
     TC_ASSERT_GE(pages_used_[i], here);
     TC_ASSERT(backed_[i]);
@@ -518,8 +518,8 @@ inline void HugeRegion::Dec(PageId p, Length n, bool release) {
     if (pages_used_[i] == Length(0)) {
       should_unback[i] = true;
     }
-    p += here;
-    n -= here;
+    r.p += here;
+    r.n -= here;
   }
   if (release) {
     UnbackHugepages(should_unback);
@@ -542,7 +542,7 @@ inline HugeLength HugeRegion::UnbackHugepages(
 
     HugeLength hl = NHugePages(j - i);
     HugePage p = location_.start() + NHugePages(i);
-    if (ABSL_PREDICT_TRUE(unback_(p.first_page(), hl.in_pages()))) {
+    if (ABSL_PREDICT_TRUE(unback_(HugeRange(p, hl)))) {
       nbacked_ -= hl;
       total_unbacked_ += hl;
 
@@ -649,14 +649,14 @@ inline bool HugeRegionSet<Region>::MaybeGet(Length n, PageId* page,
 
 // Return an allocation to a region (if one matches!)
 template <typename Region>
-inline bool HugeRegionSet<Region>::MaybePut(PageId p, Length n) {
+inline bool HugeRegionSet<Region>::MaybePut(Range r) {
   // When HugeRegionMoreOften experiment is enabled, we do not release
   // free-but-backed hugepages when we deallocate pages, but we do that
   // periodically on the background thread.
   const bool release = !UseHugeRegionMoreOften();
   for (Region* region : list_) {
-    if (region->contains(p)) {
-      region->Put(p, n, release);
+    if (region->contains(r.p)) {
+      region->Put(r, release);
       Fix(region);
       UpdateStatsTracker();
       return true;

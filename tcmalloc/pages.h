@@ -164,6 +164,23 @@ class PageId {
   uintptr_t pn_;
 };
 
+struct Range {
+  constexpr Range() = default;
+  constexpr Range(PageId page, Length len) : p(page), n(len) {}
+
+  constexpr Range(const Range&) = default;
+  constexpr Range& operator=(const Range&) = default;
+
+  constexpr Range(Range&&) = default;
+  constexpr Range& operator=(Range&&) = default;
+
+  void* start_addr() const { return p.start_addr(); }
+  size_t in_bytes() const { return n.in_bytes(); }
+
+  PageId p;
+  Length n;
+};
+
 TCMALLOC_ATTRIBUTE_CONST
 inline constexpr Length LengthFromBytes(size_t bytes) {
   return Length(bytes >> kPageShift);

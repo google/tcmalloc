@@ -48,7 +48,7 @@ class RawSpan {
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
-    span_.Init(PageIdContaining(mem), npages);
+    span_.Init(Range(PageIdContaining(mem), npages));
     TC_CHECK_EQ(span_.BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
                                     kSpanAllocTime),
                 0);

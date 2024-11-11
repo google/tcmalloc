@@ -411,8 +411,8 @@ class PageMap {
 
   void Set(PageId p, Span* span) { map_.set(p.index(), span); }
 
-  bool Ensure(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return map_.Ensure(p.index(), n.raw_num());
+  bool Ensure(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return map_.Ensure(r.p.index(), r.n.raw_num());
   }
 
   // Mark an allocated span as being used for small objects of the

@@ -114,8 +114,8 @@ class PageTracker : public TList<PageTracker>::Elem {
   // [i, i+n) in previously_unbacked.
   PageAllocation Get(Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // REQUIRES: p was the result of a previous call to Get(n)
-  void Put(PageId p, Length n) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  // REQUIRES: r was the result of a previous call to Get(n)
+  void Put(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Returns true if any unused pages have been returned-to-system.
   bool released() const { return released_count_ > 0; }
@@ -216,9 +216,9 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   bool has_dense_spans_ = false;
 
-  ABSL_MUST_USE_RESULT bool ReleasePages(PageId p, Length n,
+  ABSL_MUST_USE_RESULT bool ReleasePages(Range r,
                                          MemoryModifyFunction& unback) {
-    bool success = unback(p, n);
+    bool success = unback(r);
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;
     }
@@ -290,11 +290,12 @@ class HugePageFiller {
   TryGetResult TryGet(Length n, SpanAllocInfo span_alloc_info)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
-  // Marks [p, p + n) as usable by new allocations into *pt; returns pt
-  // if that hugepage is now empty (nullptr otherwise.)
+  // Marks r as usable by new allocations into *pt; returns pt if that hugepage
+  // is now empty (nullptr otherwise.)
+  //
   // REQUIRES: pt is owned by this object (has been Contribute()), and
-  // {pt, p, n} was the result of a previous TryGet.
-  TrackerType* Put(TrackerType* pt, PageId p, Length n)
+  // {pt, Range{p, n}} was the result of a previous TryGet.
+  TrackerType* Put(TrackerType* pt, Range r)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Contributes a tracker to the filler. If "donated," then the tracker is
@@ -536,9 +537,9 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
                         Length(unbacked)};
 }
 
-inline void PageTracker::Put(PageId p, Length n) {
-  Length index = p - location_.first_page();
-  free_.Unmark(index.raw_num(), n.raw_num());
+inline void PageTracker::Put(Range r) {
+  Length index = r.p - location_.first_page();
+  free_.Unmark(index.raw_num(), r.n.raw_num());
 }
 
 inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
@@ -569,7 +570,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
       TC_ASSERT_EQ(released_by_page_.CountBits(free_index, length), 0);
       PageId p = location_.first_page() + Length(free_index);
 
-      if (ABSL_PREDICT_TRUE(ReleasePages(p, Length(length), unback))) {
+      if (ABSL_PREDICT_TRUE(ReleasePages(Range(p, Length(length)), unback))) {
         // Mark pages as released.  Amortize the update to release_count_.
         released_by_page_.SetRange(free_index, length);
         count += length;
@@ -794,21 +795,21 @@ HugePageFiller<TrackerType>::TryGet(Length n, SpanAllocInfo span_alloc_info) {
   return {pt, page_allocation.page, was_released};
 }
 
-// Marks [p, p + n) as usable by new allocations into *pt; returns pt
-// if that hugepage is now empty (nullptr otherwise.)
-// REQUIRES: pt is owned by this object (has been Contribute()), and
-// {pt, p, n} was the result of a previous TryGet.
+// Marks r as usable by new allocations into *pt; returns pt if that hugepage is
+// now empty (nullptr otherwise.)
+//
+// REQUIRES: pt is owned by this object (has been Contribute()), and {pt,
+// Range(p, n)} was the result of a previous TryGet.
 template <class TrackerType>
-inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
-                                                     Length n) {
+inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, Range r) {
   RemoveFromFillerList(pt);
-  pt->Put(p, n);
+  pt->Put(r);
   if (pt->HasDenseSpans()) {
-    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kDense], n);
-    pages_allocated_[AccessDensityPrediction::kDense] -= n;
+    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kDense], r.n);
+    pages_allocated_[AccessDensityPrediction::kDense] -= r.n;
   } else {
-    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kSparse], n);
-    pages_allocated_[AccessDensityPrediction::kSparse] -= n;
+    TC_ASSERT_GE(pages_allocated_[AccessDensityPrediction::kSparse], r.n);
+    pages_allocated_[AccessDensityPrediction::kSparse] -= r.n;
   }
 
   if (pt->longest_free_range() == kPagesPerHugePage) {
@@ -827,8 +828,8 @@ inline TrackerType* HugePageFiller<TrackerType>::Put(TrackerType* pt, PageId p,
         // rest of the hugepage.  This simplifies subsequent accounting by
         // allowing us to work with hugepage-granularity, rather than needing to
         // retain pt's state indefinitely.
-        bool success = unback_without_lock_(pt->location().first_page(),
-                                            kPagesPerHugePage);
+        bool success =
+            unback_without_lock_(HugeRange(pt->location(), NHugePages(1)));
 
         if (ABSL_PREDICT_TRUE(success)) {
           unmapping_unaccounted_ += free_pages - released_pages;

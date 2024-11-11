@@ -246,7 +246,7 @@ inline void Static::InitIfNecessary() {
 // includes static_vars.h, this is a perfectly good compromise.
 // TODO(b/134687001): move span_allocator to Span, getting rid of the need for
 // this.
-inline Span* Span::New(PageId p, Length len) {
+inline Span* Span::New(Range r) {
   const uint32_t max_span_cache_array_size =
       Parameters::max_span_cache_array_size();
   TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
@@ -256,7 +256,7 @@ inline Span* Span::New(PageId p, Length len) {
   Span* result = Static::span_allocator().NewWithSize(
       Span::CalcSizeOf(max_span_cache_array_size),
       Span::CalcAlignOf(max_span_cache_array_size));
-  result->Init(p, len);
+  result->Init(r);
   return result;
 }
 

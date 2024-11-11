@@ -35,16 +35,16 @@ namespace {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  ABSL_MUST_USE_RESULT bool operator()(PageId p, Length l) override {
+  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
     release_callback_();
 
     if (!unback_success_) {
       return false;
     }
 
-    PageId end = p + l;
-    for (; p != end; ++p) {
-      released_.insert(p);
+    PageId end = r.p + r.n;
+    for (; r.p != end; ++r.p) {
+      released_.insert(r.p);
     }
 
     return true;
@@ -81,7 +81,7 @@ void FuzzRegion(const std::string& s) {
     unback.released_.insert(p);
   }
 
-  std::vector<std::pair<PageId, Length>> allocs;
+  std::vector<Range> allocs;
   std::vector<std::pair<const char*, size_t>> reentrant;
 
   std::string output;
@@ -141,7 +141,7 @@ void FuzzRegion(const std::string& s) {
           swap(allocs[index], allocs.back());
           allocs.resize(allocs.size() - 1);
 
-          region.Put(alloc.first, alloc.second, release);
+          region.Put(alloc, release);
           break;
         }
         case 2: {
@@ -239,7 +239,7 @@ void FuzzRegion(const std::string& s) {
   reentrant.clear();
 
   for (const auto& alloc : allocs) {
-    region.Put(alloc.first, alloc.second, false);
+    region.Put(alloc, false);
   }
 }
 
