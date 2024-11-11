@@ -251,7 +251,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     explicit Unback(HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(Range r) override
+    [[nodiscard]] bool operator()(Range r) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
@@ -269,7 +269,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT bool operator()(Range r) override
+    [[nodiscard]] bool operator()(Range r) override
         ABSL_NO_THREAD_SAFETY_ANALYSIS {
 #ifndef NDEBUG
       pageheap_lock.AssertHeld();
@@ -296,8 +296,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT AddressRange operator()(size_t bytes,
-                                                 size_t align) override
+    [[nodiscard]] AddressRange operator()(size_t bytes, size_t align) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
       return hpaa_.AllocAndReport(bytes, align);
     }
@@ -312,7 +311,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    ABSL_MUST_USE_RESULT void* operator()(size_t bytes) override
+    [[nodiscard]] void* operator()(size_t bytes) override
         ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
       return hpaa_.forwarder_.arena().Alloc(bytes);
     }

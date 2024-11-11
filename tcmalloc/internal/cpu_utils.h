@@ -56,14 +56,14 @@ class CpuSet {
   // Sets the CPU affinity of the process with the given pid. Returns true if
   // successful. If returns false, please check the global 'errno' variable to
   // determine the specific error that occurred.
-  ABSL_MUST_USE_RESULT bool SetAffinity(pid_t pid) {
+  [[nodiscard]] bool SetAffinity(pid_t pid) {
     return sched_setaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
   }
 
   // Gets the CPU affinity of the process with the given pid. Return trues if
   // successful. If returns false, please check the global 'errno' variable to
   // determine the specific error that occurred.
-  ABSL_MUST_USE_RESULT bool GetAffinity(pid_t pid) {
+  [[nodiscard]] bool GetAffinity(pid_t pid) {
     return sched_getaffinity(pid, kCpuSetBytes, cpu_set_.data()) == 0;
   }
 

@@ -186,7 +186,7 @@ class PageTrackerTest : public testing::Test {
 
   class MockUnbackInterface final : public MemoryModifyFunction {
    public:
-    ABSL_MUST_USE_RESULT bool operator()(Range r) override {
+    [[nodiscard]] bool operator()(Range r) override {
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(actual_));
       actual_[actual_index_].r = r;
       TC_CHECK_LT(actual_index_, ABSL_ARRAYSIZE(expected_));
@@ -619,7 +619,7 @@ class BlockingUnback final : public MemoryModifyFunction {
  public:
   constexpr BlockingUnback() = default;
 
-  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
+  [[nodiscard]] bool operator()(Range r) override {
     if (!mu_) {
       return success_;
     }

@@ -29,8 +29,7 @@ namespace tcmalloc::tcmalloc_internal {
 
 class FakeVirtualAllocator final : public VirtualAllocator {
  public:
-  ABSL_MUST_USE_RESULT AddressRange operator()(size_t bytes,
-                                               size_t align) override;
+  [[nodiscard]] AddressRange operator()(size_t bytes, size_t align) override;
 
   static constexpr size_t kMaxBacking = 1024 * 1024;
   // This isn't super good form but we'll never have more than one HAT

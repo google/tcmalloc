@@ -31,7 +31,7 @@ class FakeMetadataAllocator final : public MetadataAllocator {
     }
   }
 
-  ABSL_MUST_USE_RESULT void* operator()(size_t size) override {
+  [[nodiscard]] void* operator()(size_t size) override {
     void* ptr = malloc(size);
     metadata_allocs_.push_back(ptr);
     return ptr;

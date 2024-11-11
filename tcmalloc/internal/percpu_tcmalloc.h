@@ -150,7 +150,7 @@ class TcmallocSlab {
   // <classes_to_resize> provides the number of size classes for which the
   // capacity needs to be updated.
   // <drain_handler> callback drains the old slab.
-  ABSL_MUST_USE_RESULT ResizeSlabsInfo UpdateMaxCapacities(
+  [[nodiscard]] ResizeSlabsInfo UpdateMaxCapacities(
       void* new_slabs, absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<void(int, uint16_t)> update_capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler,
@@ -168,7 +168,7 @@ class TcmallocSlab {
   //
   // Caller must ensure that there are no concurrent calls to InitCpu,
   // ShrinkOtherCache, or Drain.
-  ABSL_MUST_USE_RESULT ResizeSlabsInfo ResizeSlabs(
+  [[nodiscard]] ResizeSlabsInfo ResizeSlabs(
       Shift new_shift, void* new_slabs,
       absl::FunctionRef<size_t(size_t)> capacity,
       absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler);
@@ -200,7 +200,7 @@ class TcmallocSlab {
 
   // Remove an item (LIFO) from the current CPU's slab. If the slab is empty,
   // invokes <underflow_handler> and returns its result.
-  ABSL_MUST_USE_RESULT void* Pop(size_t class_size);
+  [[nodiscard]] void* Pop(size_t size_class);
 
   // Add up to <len> items to the current cpu slab from the array located at
   // <batch>. Returns the number of items that were added (possibly 0). All
@@ -351,7 +351,7 @@ class TcmallocSlab {
 
   // It's important that we use consistent values for slabs/shift rather than
   // loading from the atomic repeatedly whenever we use one of the values.
-  ABSL_MUST_USE_RESULT std::pair<void*, Shift> GetSlabsAndShift(
+  [[nodiscard]] std::pair<void*, Shift> GetSlabsAndShift(
       std::memory_order order) const {
     return slabs_and_shift_.load(order).Get();
   }

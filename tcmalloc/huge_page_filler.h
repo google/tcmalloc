@@ -216,8 +216,7 @@ class PageTracker : public TList<PageTracker>::Elem {
 
   bool has_dense_spans_ = false;
 
-  ABSL_MUST_USE_RESULT bool ReleasePages(Range r,
-                                         MemoryModifyFunction& unback) {
+  [[nodiscard]] bool ReleasePages(Range r, MemoryModifyFunction& unback) {
     bool success = unback(r);
     if (ABSL_PREDICT_TRUE(success)) {
       unbroken_ = false;

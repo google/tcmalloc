@@ -44,8 +44,8 @@ class MemoryModifyFunction {
  public:
   virtual ~MemoryModifyFunction() = default;
 
-  ABSL_MUST_USE_RESULT virtual bool operator()(Range r) = 0;
-  ABSL_MUST_USE_RESULT bool operator()(HugeRange r) {
+  [[nodiscard]] virtual bool operator()(Range r) = 0;
+  [[nodiscard]] bool operator()(HugeRange r) {
     return (*this)(Range{r.start().first_page(), r.len().in_pages()});
   }
 };

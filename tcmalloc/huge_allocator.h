@@ -44,8 +44,7 @@ class VirtualAllocator {
   VirtualAllocator& operator=(VirtualAllocator&&) = delete;
 
   // Allocates bytes of virtual address space with align alignment.
-  ABSL_MUST_USE_RESULT virtual AddressRange operator()(size_t bytes,
-                                                       size_t align) = 0;
+  [[nodiscard]] virtual AddressRange operator()(size_t bytes, size_t align) = 0;
 };
 
 // This tracks available ranges of hugepages and fulfills requests for

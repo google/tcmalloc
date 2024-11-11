@@ -56,7 +56,7 @@ absl::flat_hash_set<PageId>& ReleasedPages() {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
+  [[nodiscard]] bool operator()(Range r) override {
     if (!unback_success) {
       return false;
     }

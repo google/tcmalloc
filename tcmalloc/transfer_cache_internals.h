@@ -179,8 +179,7 @@ class TransferCache {
 
   // Returns the actual number of fetched elements and stores elements in the
   // batch.
-  ABSL_MUST_USE_RESULT int RemoveRange(int size_class,
-                                       const absl::Span<void *> batch)
+  [[nodiscard]] int RemoveRange(int size_class, const absl::Span<void *> batch)
       ABSL_LOCKS_EXCLUDED(lock_) {
     TC_ASSERT(!batch.empty());
     TC_ASSERT_LE(batch.size(), kMaxObjectsToMove);

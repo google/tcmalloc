@@ -35,7 +35,7 @@ namespace {
 
 class MockUnback final : public MemoryModifyFunction {
  public:
-  ABSL_MUST_USE_RESULT bool operator()(Range r) override {
+  [[nodiscard]] bool operator()(Range r) override {
     release_callback_();
 
     if (!unback_success_) {
