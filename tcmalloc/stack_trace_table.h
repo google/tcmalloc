@@ -42,6 +42,9 @@ class StackTraceTable final : public ProfileBase {
 
   ProfileType Type() const override { return type_; }
 
+  void SetStartTime(absl::Time start_time) { start_time_ = start_time; }
+  std::optional<absl::Time> StartTime() const override { return start_time_; }
+
   void SetDuration(absl::Duration duration) { duration_ = duration; }
   absl::Duration Duration() const override { return duration_; }
 
@@ -64,6 +67,7 @@ class StackTraceTable final : public ProfileBase {
  private:
   ProfileType type_;
   absl::Duration duration_ = absl::ZeroDuration();
+  absl::Time start_time_;
   int depth_total_;
   LinkedSample* all_;
 };

@@ -158,6 +158,14 @@ ProfileType Profile::Type() const {
   return impl_->Type();
 }
 
+std::optional<absl::Time> Profile::StartTime() const {
+  if (!impl_) {
+    return std::nullopt;
+  }
+
+  return impl_->StartTime();
+}
+
 absl::Duration Profile::Duration() const {
   if (!impl_) {
     return absl::ZeroDuration();

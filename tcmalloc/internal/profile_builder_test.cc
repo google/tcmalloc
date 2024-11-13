@@ -43,6 +43,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/fake_profile.h"
@@ -312,8 +313,9 @@ void CheckAndExtractSampleLabels(const perftools::profiles::Profile& converted,
   }
 }
 
-perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
-                                             const ProfileType profile_type) {
+perftools::profiles::Profile MakeTestProfile(
+    std::optional<absl::Time> start_time, const absl::Duration duration,
+    const ProfileType profile_type) {
   std::vector<Profile::Sample> samples;
   StubPageFlags* p = nullptr;
   Residency* r = nullptr;
@@ -472,6 +474,7 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
   auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(profile_type);
   fake_profile->SetDuration(duration);
+  fake_profile->SetStartTime(start_time);
   fake_profile->SetSamples(std::move(samples));
   Profile profile = ProfileAccessor::MakeProfile(std::move(fake_profile));
   auto converted_or = MakeProfileProto(profile, p, r);
@@ -480,8 +483,10 @@ perftools::profiles::Profile MakeTestProfile(const absl::Duration duration,
 }
 
 TEST(ProfileConverterTest, NonHeapProfileDoesntHaveResidency) {
+  const absl::Time start_time = absl::Now();
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
-  const auto& converted = MakeTestProfile(kDuration, ProfileType::kPeakHeap);
+  const auto& converted =
+      MakeTestProfile(start_time, kDuration, ProfileType::kPeakHeap);
 
   // Two sample types: [objects, count] and [space, bytes]
   std::vector<std::pair<std::string, std::string>> extracted_sample_type;
@@ -500,6 +505,7 @@ TEST(ProfileConverterTest, NonHeapProfileDoesntHaveResidency) {
   EXPECT_THAT(
       extracted_sample_type,
       UnorderedElementsAre(Pair("objects", "count"), Pair("space", "bytes")));
+  EXPECT_EQ(converted.time_nanos(), absl::ToUnixNanos(start_time));
 
   absl::flat_hash_map<std::string, std::string> label_to_units;
   for (const auto& s : converted.sample()) {
@@ -522,7 +528,8 @@ TEST(ProfileConverterTest, NonHeapProfileDoesntHaveResidency) {
 
 TEST(ProfileConverterTest, HeapProfile) {
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
-  const auto& converted = MakeTestProfile(kDuration, ProfileType::kHeap);
+  const auto& converted =
+      MakeTestProfile(std::nullopt, kDuration, ProfileType::kHeap);
 
   // Two sample types: [objects, count] and [space, bytes]
   std::vector<std::pair<std::string, std::string>> extracted_sample_type;
@@ -679,6 +686,7 @@ TEST(ProfileConverterTest, HeapProfile) {
   EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
 
   EXPECT_EQ(converted.duration_nanos(), absl::ToInt64Nanoseconds(kDuration));
+  EXPECT_EQ(converted.time_nanos(), 0);
 
   // Period type [space, bytes]
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");
@@ -691,10 +699,12 @@ TEST(ProfileConverterTest, HeapProfile) {
 // This test is to check that profile of type other than `kHeap` should not have
 // residency info available, even if samples' `span_start_address` is not null.
 TEST(ProfileBuilderTest, PeakHeapProfile) {
+  const absl::Time start_time = absl::Now();
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
   auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(ProfileType::kPeakHeap);
   fake_profile->SetDuration(kDuration);
+  fake_profile->SetStartTime(start_time);
 
   std::vector<Profile::Sample> samples;
 
@@ -766,13 +776,17 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
   ASSERT_GE(converted.sample(1).location_id().size(), 2);
   EXPECT_EQ(converted.sample(0).location_id(0),
             converted.sample(1).location_id(0));
+
+  EXPECT_EQ(converted.time_nanos(), absl::ToUnixNanos(start_time));
 }
 
 TEST(ProfileBuilderTest, LifetimeProfile) {
+  const absl::Time start_time = absl::Now();
   constexpr absl::Duration kDuration = absl::Milliseconds(1500);
   auto fake_profile = std::make_unique<FakeProfile>();
   fake_profile->SetType(ProfileType::kLifetimes);
   fake_profile->SetDuration(kDuration);
+  fake_profile->SetStartTime(start_time);
 
   std::vector<Profile::Sample> samples;
   {
@@ -918,6 +932,7 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
   EXPECT_EQ(converted.string_table(converted.keep_frames()), "");
 
   EXPECT_EQ(converted.duration_nanos(), absl::ToInt64Nanoseconds(kDuration));
+  EXPECT_EQ(converted.time_nanos(), absl::ToUnixNanos(start_time));
 
   // Period type [space, bytes]
   EXPECT_EQ(converted.string_table(converted.period_type().type()), "space");

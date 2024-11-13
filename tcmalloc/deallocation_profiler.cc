@@ -22,6 +22,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -382,6 +383,8 @@ class DeallocationProfiler {
     ProfileType Type() const override {
       return tcmalloc::ProfileType::kLifetimes;
     }
+
+    std::optional<absl::Time> StartTime() const override { return start_time_; }
 
     absl::Duration Duration() const override {
       return stop_time_ - start_time_;

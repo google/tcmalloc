@@ -90,6 +90,8 @@ class PeakHeapTracker {
   ExplicitlyConstructed<PeakHeapRecorder> peak_heap_recorder_
       ABSL_GUARDED_BY(recorder_lock_);
 
+  absl::Time last_peak_ ABSL_GUARDED_BY(recorder_lock_);
+
   // Sampled heap size last time peak_heap_recorder_ was saved. Only written
   // under `recorder_lock_`; may be read without it.
   std::atomic<int64_t> do_not_access_directly_peak_sampled_heap_size_{0};

@@ -99,6 +99,18 @@ INSTANTIATE_TEST_SUITE_P(SamplingIntervals, HeapProfilingTest,
                          testing::Values(1, 1 << 7, 1 << 14, 1 << 21),
                          testing::PrintToStringParamName());
 
+TEST(HeapProfilingTest, Timestamp) {
+  const absl::Time now = absl::Now();
+
+  auto converted_or = tcmalloc_internal::MakeProfileProto(
+      MallocExtension::SnapshotCurrent(ProfileType::kHeap));
+  ASSERT_TRUE(converted_or.ok());
+  const auto& converted = **converted_or;
+
+  EXPECT_GE(converted.time_nanos(), absl::ToUnixNanos(now - absl::Seconds(10)));
+  EXPECT_LE(converted.time_nanos(), absl::ToUnixNanos(now + absl::Seconds(10)));
+}
+
 TEST(HeapProfilingTest, AllocateDifferentSizes) {
   const int num_allocations = 1000;
   const size_t requested_size1 = (1 << 19) + 1;

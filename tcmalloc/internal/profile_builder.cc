@@ -520,6 +520,11 @@ static absl::Status MakeLifetimeProfileProto(const tcmalloc::Profile& profile,
 
   converted.set_default_sample_type(builder->InternString("deallocated_space"));
   converted.set_duration_nanos(absl::ToInt64Nanoseconds(profile.Duration()));
+
+  if (auto start = profile.StartTime(); start.has_value()) {
+    converted.set_time_nanos(absl::ToUnixNanos(*start));
+  }
+
   converted.set_drop_frames(builder->InternString(kProfileDropFrames));
 
   // Common intern string ids which are going to be used for each sample.
@@ -696,6 +701,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   period_type.set_unit(bytes_id);
   converted.set_drop_frames(builder.InternString(kProfileDropFrames));
   converted.set_duration_nanos(absl::ToInt64Nanoseconds(profile.Duration()));
+
+  if (auto start = profile.StartTime(); start.has_value()) {
+    converted.set_time_nanos(absl::ToUnixNanos(*start));
+  }
 
   {
     perftools::profiles::ValueType& sample_type = *converted.add_sample_type();

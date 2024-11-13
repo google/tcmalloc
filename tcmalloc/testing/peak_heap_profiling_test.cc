@@ -16,22 +16,25 @@
 #include <stdint.h>
 
 #include <optional>
+#include <utility>
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
 #include "absl/log/check.h"
+#include "absl/time/time.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 namespace {
 
-int64_t ProfileSize(ProfileType type) {
+std::pair<int64_t, absl::Time> ProfileSizeAndTime(ProfileType type) {
   int64_t total = 0;
 
-  MallocExtension::SnapshotCurrent(type).Iterate(
-      [&](const Profile::Sample& e) { total += e.sum; });
-  return total;
+  auto profile = MallocExtension::SnapshotCurrent(type);
+  profile.Iterate([&](const Profile::Sample& e) { total += e.sum; });
+  CHECK(profile.StartTime().has_value());
+  return {total, *profile.StartTime()};
 }
 
 size_t PeakMemoryUsage() {
@@ -68,7 +71,7 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
   // sampling point, we may overweight some allocations above their true size.
   ScopedPeakGrowthFraction s(1.25);
 
-  int64_t start_peak_sz = ProfileSize(ProfileType::kPeakHeap);
+  auto [start_peak_sz, start_time] = ProfileSizeAndTime(ProfileType::kPeakHeap);
 
   // make a large allocation to force a new peak heap sample
   // (total live: 50MiB)
@@ -77,7 +80,9 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
   // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=94295.
   benchmark::DoNotOptimize(first);
   int64_t expected_first = start_peak_sz + (50 << 20);
-  int64_t peak_after_first = ProfileSize(ProfileType::kPeakHeap);
+  auto [peak_after_first, time_after_first] =
+      ProfileSizeAndTime(ProfileType::kPeakHeap);
+  EXPECT_LE(start_time, time_after_first);
   int64_t numeric_property_peak_after_first = PeakMemoryUsage();
   EXPECT_NEAR(peak_after_first, expected_first, 10 << 20);
   EXPECT_NEAR(numeric_property_peak_after_first, expected_first, 10 << 20);
@@ -86,8 +91,10 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
   // (total live: 54MiB)
   void* second = ::operator new(4 << 20);
   benchmark::DoNotOptimize(second);
-  int64_t peak_after_second = ProfileSize(ProfileType::kPeakHeap);
+  auto [peak_after_second, time_after_second] =
+      ProfileSizeAndTime(ProfileType::kPeakHeap);
   EXPECT_EQ(peak_after_second, peak_after_first);
+  EXPECT_EQ(time_after_second, time_after_first);
   // For GetNumericProperty, it does increase.
   EXPECT_NEAR(PeakMemoryUsage(), numeric_property_peak_after_first + (4 << 20),
               10 << 20);
@@ -97,23 +104,25 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
   void* third = ::operator new(200 << 20);
   benchmark::DoNotOptimize(third);
   int64_t expected_third = peak_after_second + (200 << 20);
-  int64_t peak_after_third = ProfileSize(ProfileType::kPeakHeap);
+  auto [peak_after_third, time_after_third] =
+      ProfileSizeAndTime(ProfileType::kPeakHeap);
   int64_t numeric_property_peak_after_third = PeakMemoryUsage();
+  EXPECT_LE(peak_after_second, peak_after_third);
   EXPECT_NEAR(peak_after_third, expected_third, 10 << 20);
   EXPECT_NEAR(numeric_property_peak_after_third, expected_third, 10 << 20);
 
   // freeing everything shouldn't affect the peak
   // (total live: 0MiB)
   ::operator delete(first);
-  EXPECT_EQ(ProfileSize(ProfileType::kPeakHeap), peak_after_third);
+  EXPECT_EQ(ProfileSizeAndTime(ProfileType::kPeakHeap).first, peak_after_third);
   EXPECT_EQ(PeakMemoryUsage(), numeric_property_peak_after_third);
 
   ::operator delete(second);
-  EXPECT_EQ(ProfileSize(ProfileType::kPeakHeap), peak_after_third);
+  EXPECT_EQ(ProfileSizeAndTime(ProfileType::kPeakHeap).first, peak_after_third);
   EXPECT_EQ(PeakMemoryUsage(), numeric_property_peak_after_third);
 
   ::operator delete(third);
-  EXPECT_EQ(ProfileSize(ProfileType::kPeakHeap), peak_after_third);
+  EXPECT_EQ(ProfileSizeAndTime(ProfileType::kPeakHeap).first, peak_after_third);
   EXPECT_EQ(PeakMemoryUsage(), numeric_property_peak_after_third);
 
   // going back up less than previous peak shouldn't affect the peak
@@ -122,7 +131,7 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
   benchmark::DoNotOptimize(fourth);
   void* fifth = ::operator new(100 << 20);
   benchmark::DoNotOptimize(fifth);
-  EXPECT_EQ(ProfileSize(ProfileType::kPeakHeap), peak_after_third);
+  EXPECT_EQ(ProfileSizeAndTime(ProfileType::kPeakHeap).first, peak_after_third);
   EXPECT_EQ(PeakMemoryUsage(), numeric_property_peak_after_third);
 
   // passing the old peak significantly, even with many small allocations,
@@ -133,7 +142,7 @@ TEST(PeakHeapProfilingTest, PeakHeapTracking) {
     bitsy[i] = ::operator new(1 << 18);
     benchmark::DoNotOptimize(bitsy[i]);
   }
-  EXPECT_GT(ProfileSize(ProfileType::kPeakHeap), peak_after_third);
+  EXPECT_GT(ProfileSizeAndTime(ProfileType::kPeakHeap).first, peak_after_third);
   EXPECT_GT(PeakMemoryUsage(), peak_after_third);
 
   ::operator delete(fourth);

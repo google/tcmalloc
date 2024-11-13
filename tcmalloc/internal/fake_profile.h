@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_INTERNAL_FAKE_PROFILE_H_
 #define TCMALLOC_INTERNAL_FAKE_PROFILE_H_
 
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -48,10 +49,14 @@ class FakeProfile final : public ProfileBase {
   absl::Duration Duration() const override { return duration_; }
   void SetDuration(absl::Duration duration) { duration_ = duration; }
 
+  std::optional<absl::Time> StartTime() const override { return start_time_; }
+  void SetStartTime(std::optional<absl::Time> t) { start_time_ = t; }
+
  private:
   std::vector<Profile::Sample> samples_;
   ProfileType type_;
   absl::Duration duration_;
+  std::optional<absl::Time> start_time_;
 };
 
 }  // namespace tcmalloc_internal

@@ -234,6 +234,10 @@ class Profile final {
 
   ProfileType Type() const;
 
+  // Time stamp when the profile collection started.  Returns std::nullopt if
+  // this is not available.
+  std::optional<absl::Time> StartTime() const;
+
   // The duration the profile was collected for.  For instantaneous profiles
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().
   absl::Duration Duration() const;
@@ -808,6 +812,8 @@ class ProfileBase {
 
   // The type of profile (live objects, allocated, etc.).
   virtual ProfileType Type() const = 0;
+
+  virtual std::optional<absl::Time> StartTime() const = 0;
 
   // The duration the profile was collected for.  For instantaneous profiles
   // (heap, peakheap, etc.), this returns absl::ZeroDuration().

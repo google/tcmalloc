@@ -30,6 +30,7 @@ namespace tcmalloc::tcmalloc_internal {
 AllocationSample::AllocationSample(AllocationSampleList* list, absl::Time start)
     : list_(list), start_(start) {
   mallocs_ = std::make_unique<StackTraceTable>(ProfileType::kAllocations);
+  mallocs_->SetStartTime(start_);
   list->Add(this);
 }
 
