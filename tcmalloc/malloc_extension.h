@@ -64,7 +64,7 @@ namespace tcmalloc {
 using hot_cold_t = __hot_cold_t;
 
 constexpr hot_cold_t kDefaultMinHotAccessHint =
-    static_cast<tcmalloc::hot_cold_t>(1);
+    static_cast<tcmalloc::hot_cold_t>(2);
 
 }  // namespace tcmalloc
 
