@@ -289,73 +289,76 @@ static void ReportMismatchedDelete(const SampledAllocation& alloc, size_t size,
 }
 
 void MaybeUnsampleAllocation(Static& state, void* ptr,
-                             std::optional<size_t> size, Span* span) {
+                             std::optional<size_t> size, Span& span) {
   // No pageheap_lock required. The sampled span should be unmarked and have its
   // state cleared only once. External synchronization when freeing is required;
   // otherwise, concurrent writes here would likely report a double-free.
-  if (SampledAllocation* sampled_allocation = span->Unsample()) {
-    TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
+  SampledAllocation* sampled_allocation = span.Unsample();
+  if (sampled_allocation == nullptr) {
+    return;
+  }
 
-    void* const proxy = sampled_allocation->sampled_stack.proxy;
-    const size_t weight = sampled_allocation->sampled_stack.weight;
-    const size_t requested_size =
-        sampled_allocation->sampled_stack.requested_size;
-    const size_t allocated_size =
-        sampled_allocation->sampled_stack.allocated_size;
-    if (size.has_value()) {
-      if (sampled_allocation->sampled_stack.requested_size_returning) {
-        if (ABSL_PREDICT_FALSE(
-                !(requested_size <= *size && *size <= allocated_size))) {
-          ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
-                                 allocated_size);
-        }
-      } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
+  TC_ASSERT_EQ(state.pagemap().sizeclass(PageIdContainingTagged(ptr)), 0);
+
+  void* const proxy = sampled_allocation->sampled_stack.proxy;
+  const size_t weight = sampled_allocation->sampled_stack.weight;
+  const size_t requested_size =
+      sampled_allocation->sampled_stack.requested_size;
+  const size_t allocated_size =
+      sampled_allocation->sampled_stack.allocated_size;
+  if (size.has_value()) {
+    if (sampled_allocation->sampled_stack.requested_size_returning) {
+      if (ABSL_PREDICT_FALSE(
+              !(requested_size <= *size && *size <= allocated_size))) {
         ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
-                               std::nullopt);
+                               allocated_size);
       }
+    } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
+      ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
+                             std::nullopt);
     }
-    // SampleifyAllocation turns alignment 1 into 0, turn it back for
-    // SizeMap::SizeClass.
-    const size_t alignment =
-        sampled_allocation->sampled_stack.requested_alignment != 0
-            ? sampled_allocation->sampled_stack.requested_alignment
-            : 1;
-    // How many allocations does this sample represent, given the sampling
-    // frequency (weight) and its size.
-    const double allocation_estimate =
-        static_cast<double>(weight) / (requested_size + 1);
-    AllocHandle sampled_alloc_handle =
-        sampled_allocation->sampled_stack.sampled_alloc_handle;
-    state.sampled_allocation_recorder().Unregister(sampled_allocation);
+  }
+  // SampleifyAllocation turns alignment 1 into 0, turn it back for
+  // SizeMap::SizeClass.
+  const size_t alignment =
+      sampled_allocation->sampled_stack.requested_alignment != 0
+          ? sampled_allocation->sampled_stack.requested_alignment
+          : 1;
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+  AllocHandle sampled_alloc_handle =
+      sampled_allocation->sampled_stack.sampled_alloc_handle;
+  state.sampled_allocation_recorder().Unregister(sampled_allocation);
 
-    // Adjust our estimate of internal fragmentation.
-    TC_ASSERT_LE(requested_size, allocated_size);
-    if (requested_size < allocated_size) {
-      const size_t sampled_fragmentation =
-          allocation_estimate * (allocated_size - requested_size);
+  // Adjust our estimate of internal fragmentation.
+  TC_ASSERT_LE(requested_size, allocated_size);
+  if (requested_size < allocated_size) {
+    const size_t sampled_fragmentation =
+        allocation_estimate * (allocated_size - requested_size);
 
-      // Check against wraparound
-      TC_ASSERT_GE(state.sampled_internal_fragmentation_.value(),
-                   sampled_fragmentation);
-      state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
+    // Check against wraparound
+    TC_ASSERT_GE(state.sampled_internal_fragmentation_.value(),
+                 sampled_fragmentation);
+    state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
+  }
+
+  state.deallocation_samples.ReportFree(sampled_alloc_handle);
+
+  if (proxy) {
+    const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
+    size_t size_class;
+    if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
+      size_class = state.sizemap().SizeClass(
+          policy.AccessAsCold().AlignAs(alignment), allocated_size);
+    } else {
+      size_class = state.sizemap().SizeClass(
+          policy.AccessAsHot().AlignAs(alignment), allocated_size);
     }
-
-    state.deallocation_samples.ReportFree(sampled_alloc_handle);
-
-    if (proxy) {
-      const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);
-      size_t size_class;
-      if (AccessFromPointer(proxy) == AllocationAccess::kCold) {
-        size_class = state.sizemap().SizeClass(
-            policy.AccessAsCold().AlignAs(alignment), allocated_size);
-      } else {
-        size_class = state.sizemap().SizeClass(
-            policy.AccessAsHot().AlignAs(alignment), allocated_size);
-      }
-      TC_ASSERT_EQ(size_class,
-                   state.pagemap().sizeclass(PageIdContainingTagged(proxy)));
-      FreeProxyObject(state, proxy, size_class);
-    }
+    TC_ASSERT_EQ(size_class,
+                 state.pagemap().sizeclass(PageIdContainingTagged(proxy)));
+    FreeProxyObject(state, proxy, size_class);
   }
 }
 

@@ -638,7 +638,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
   TC_CHECK_NE(span, nullptr, "Possible double free detected");
 
-  MaybeUnsampleAllocation(tc_globals, ptr, size, span);
+  MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
 
   if (ABSL_PREDICT_FALSE(
           tc_globals.guardedpage_allocator().PointerIsMine(ptr))) {
