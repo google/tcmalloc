@@ -138,9 +138,6 @@ class Span final : public SpanList::Elem {
   bool donated() const { return is_donated_; }
   void set_donated(bool value) { is_donated_ = value; }
 
-  // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
-  // pages) or is sampled.
-  bool is_large_or_sampled() const { return is_large_span_ || sampled_; }
   // ---------------------------------------------------------------------------
   // Span memory range.
   // ---------------------------------------------------------------------------
@@ -249,6 +246,10 @@ class Span final : public SpanList::Elem {
   static bool UseBitmapForSize(size_t size);
 
  private:
+  // Returns if the span is large (i.e. consists of > kLargeSpanLength number of
+  // pages) or is sampled.
+  bool is_large_or_sampled() const { return is_large_span_ || sampled_; }
+
   // See the comment on freelist organization in cc file.
   typedef uint16_t ObjIdx;
   static constexpr ObjIdx kListEnd = -1;
