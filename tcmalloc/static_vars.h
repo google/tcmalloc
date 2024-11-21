@@ -39,8 +39,8 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
+#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
@@ -124,9 +124,11 @@ class Static final {
     return sampledallocation_allocator_;
   }
 
-  static PageHeapAllocator<Span>& span_allocator() { return span_allocator_; }
+  static MetadataObjectAllocator<Span>& span_allocator() {
+    return span_allocator_;
+  }
 
-  static PageHeapAllocator<ThreadCache>& threadcache_allocator() {
+  static MetadataObjectAllocator<ThreadCache>& threadcache_allocator() {
     return threadcache_allocator_;
   }
 
@@ -155,7 +157,7 @@ class Static final {
   ABSL_CONST_INIT static std::atomic<AllocHandle>
       sampled_alloc_handle_generator;
 
-  static PageHeapAllocator<StackTraceTable::LinkedSample>&
+  static MetadataObjectAllocator<StackTraceTable::LinkedSample>&
   linked_sample_allocator() {
     return linked_sample_allocator_;
   }
@@ -199,9 +201,9 @@ class Static final {
   static CpuCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
   static SampledAllocationAllocator sampledallocation_allocator_;
-  static PageHeapAllocator<Span> span_allocator_;
-  static PageHeapAllocator<ThreadCache> threadcache_allocator_;
-  static PageHeapAllocator<StackTraceTable::LinkedSample>
+  static MetadataObjectAllocator<Span> span_allocator_;
+  static MetadataObjectAllocator<ThreadCache> threadcache_allocator_;
+  static MetadataObjectAllocator<StackTraceTable::LinkedSample>
       linked_sample_allocator_;
   ABSL_CONST_INIT static std::atomic<bool> inited_;
   ABSL_CONST_INIT static std::atomic<bool> cpu_cache_active_;

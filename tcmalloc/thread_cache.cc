@@ -25,7 +25,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
-#include "tcmalloc/page_heap_allocator.h"
+#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/transfer_cache.h"
 

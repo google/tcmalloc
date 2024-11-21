@@ -21,8 +21,8 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/stats.h"
 

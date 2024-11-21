@@ -24,19 +24,19 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/sampled_allocation.h"
-#include "tcmalloc/page_heap_allocator.h"
+#include "tcmalloc/metadata_object_allocator.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-// Wrapper around PageHeapAllocator<SampledAllocation> to provide a customized
-// New() and Delete() for SampledAllocation.
-// 1) SampledAllocation is used internally by TCMalloc and can not use normal
-// heap allocation. We rely on PageHeapAllocator that allocates from TCMalloc's
-// arena and requires the pageheap_lock here.
-// 2) PageHeapAllocator only allocates/deallocates memory, so we need to
-// manually invoke the constructor/destructor to initialize/clear some fields.
+// Wrapper around MetadataObjectAllocator<SampledAllocation> to provide a
+// customized New() and Delete() for SampledAllocation. 1) SampledAllocation is
+// used internally by TCMalloc and can not use normal heap allocation. We rely
+// on MetadataObjectAllocator that allocates from TCMalloc's arena and requires
+// the pageheap_lock here. 2) MetadataObjectAllocator only allocates/deallocates
+// memory, so we need to manually invoke the constructor/destructor to
+// initialize/clear some fields.
 class SampledAllocationAllocator {
  public:
   constexpr SampledAllocationAllocator() = default;
@@ -65,7 +65,7 @@ class SampledAllocationAllocator {
   }
 
  private:
-  PageHeapAllocator<SampledAllocation> allocator_
+  MetadataObjectAllocator<SampledAllocation> allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 };
 

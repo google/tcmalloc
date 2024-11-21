@@ -36,8 +36,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/prefetch.h"
 #include "tcmalloc/metadata_allocator.h"
+#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator_interface.h"
-#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
@@ -322,9 +322,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
 
   HugeRegionSet<HugeRegion> regions_ ABSL_GUARDED_BY(pageheap_lock);
 
-  PageHeapAllocator<FillerType::Tracker> tracker_allocator_
+  MetadataObjectAllocator<FillerType::Tracker> tracker_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
-  PageHeapAllocator<HugeRegion> region_allocator_
+  MetadataObjectAllocator<HugeRegion> region_allocator_
       ABSL_GUARDED_BY(pageheap_lock);
 
   FillerType::Tracker* GetTracker(HugePage p);

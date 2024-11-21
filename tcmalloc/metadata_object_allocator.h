@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_PAGE_HEAP_ALLOCATOR_H_
-#define TCMALLOC_PAGE_HEAP_ALLOCATOR_H_
+#ifndef TCMALLOC_METADATA_OBJECT_ALLOCATOR_H_
+#define TCMALLOC_METADATA_OBJECT_ALLOCATOR_H_
 
 #include <stddef.h>
 
@@ -45,9 +45,9 @@ struct AllocatorStats {
 // Simple allocator for objects of a specified type.  External locking
 // is required before accessing one of these objects.
 template <class T>
-class PageHeapAllocator {
+class MetadataObjectAllocator {
  public:
-  constexpr PageHeapAllocator()
+  constexpr MetadataObjectAllocator()
       : arena_(nullptr), free_list_(nullptr), stats_{0, 0} {}
 
   // We use an explicit Init function because these variables are statically
@@ -117,4 +117,4 @@ class PageHeapAllocator {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_PAGE_HEAP_ALLOCATOR_H_
+#endif  // TCMALLOC_METADATA_OBJECT_ALLOCATOR_H_

@@ -43,8 +43,8 @@
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
-#include "tcmalloc/page_heap_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
@@ -76,8 +76,9 @@ ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CpuCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT SampledAllocationAllocator Static::sampledallocation_allocator_;
-ABSL_CONST_INIT PageHeapAllocator<Span> Static::span_allocator_;
-ABSL_CONST_INIT PageHeapAllocator<ThreadCache> Static::threadcache_allocator_;
+ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_;
+ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
+    Static::threadcache_allocator_;
 ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
     Static::sampled_allocation_recorder_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
@@ -90,7 +91,7 @@ ABSL_CONST_INIT deallocationz::DeallocationProfilerList
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
 ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
-ABSL_CONST_INIT PageHeapAllocator<StackTraceTable::LinkedSample>
+ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
     Static::linked_sample_allocator_;
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
