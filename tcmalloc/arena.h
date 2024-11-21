@@ -21,6 +21,7 @@
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
@@ -49,19 +50,20 @@ struct ArenaStats {
 
 // Arena allocation; designed for use by tcmalloc internal data structures like
 // spans, profiles, etc.  Always expands.
-class Arena {
+//
+// Thread-safe.
+class ABSL_CACHELINE_ALIGNED Arena {
  public:
-  constexpr Arena() {}
+  constexpr Arena() = default;
 
   // Returns a properly aligned byte array of length "bytes".  Crashes if
-  // allocation fails.  Requires pageheap_lock is held.
+  // allocation fails.
   ABSL_ATTRIBUTE_RETURNS_NONNULL void* Alloc(
-      size_t bytes, std::align_val_t alignment = kAlignment)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      size_t bytes, std::align_val_t alignment = kAlignment);
 
   // Updates the stats for allocated and non-resident bytes.
-  void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void UpdateAllocatedAndNonresident(int64_t allocated, int64_t nonresident) {
+    AllocationGuardSpinLockHolder l(&arena_lock_);
     TC_ASSERT_GE(static_cast<int64_t>(bytes_allocated_) + allocated, 0);
     bytes_allocated_ += allocated;
     TC_ASSERT_GE(static_cast<int64_t>(bytes_nonresident_) + nonresident, 0);
@@ -69,7 +71,9 @@ class Arena {
   }
 
   // Returns statistics about memory allocated and managed by this Arena.
-  ArenaStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  ArenaStats stats() const {
+    AllocationGuardSpinLockHolder l(&arena_lock_);
+
     ArenaStats s;
     s.bytes_allocated = bytes_allocated_;
     s.bytes_unallocated = free_avail_;
@@ -83,24 +87,30 @@ class Arena {
   // How much to allocate from system at a time
   static constexpr int kAllocIncrement = 128 << 10;
 
+  mutable absl::base_internal::SpinLock arena_lock_{
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
+
   // Free area from which to carve new objects
-  char* free_area_ ABSL_GUARDED_BY(pageheap_lock) = nullptr;
-  size_t free_avail_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  char* free_area_ ABSL_GUARDED_BY(arena_lock_) = nullptr;
+  size_t free_avail_ ABSL_GUARDED_BY(arena_lock_) = 0;
 
   // Total number of bytes allocated from this arena
-  size_t bytes_allocated_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  size_t bytes_allocated_ ABSL_GUARDED_BY(arena_lock_) = 0;
   // The number of bytes that are unused and unavailable for future allocations
   // because they are at the end of a discarded arena block.
-  size_t bytes_unavailable_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  size_t bytes_unavailable_ ABSL_GUARDED_BY(arena_lock_) = 0;
   // The number of bytes on the arena that have been MADV_DONTNEEDed away. Note
   // that these bytes are disjoint from the ones counted in `bytes_allocated`.
-  size_t bytes_nonresident_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  size_t bytes_nonresident_ ABSL_GUARDED_BY(arena_lock_) = 0;
   // Total number of blocks/free areas managed by this Arena.
-  size_t blocks_ ABSL_GUARDED_BY(pageheap_lock) = 0;
+  size_t blocks_ ABSL_GUARDED_BY(arena_lock_) = 0;
 
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;
 };
+
+static_assert(sizeof(Arena) <= ABSL_CACHELINE_SIZE,
+              "Arena is unexpectedly large");
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

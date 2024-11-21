@@ -32,7 +32,6 @@ std::align_val_t Align(int align) {
 
 TEST(Arena, AlignedAlloc) {
   Arena arena;
-  PageHeapSpinLockHolder l;
   EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(64, Align(64))) % 64, 0);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(7)) % 8, 0);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(arena.Alloc(128, Align(64))) % 64, 0);
@@ -46,11 +45,7 @@ TEST(Arena, AlignedAlloc) {
 TEST(Arena, Stats) {
   Arena arena;
 
-  ArenaStats stats;
-  {
-    PageHeapSpinLockHolder l;
-    stats = arena.stats();
-  }
+  ArenaStats stats = arena.stats();
   EXPECT_EQ(stats.bytes_allocated, 0);
   EXPECT_EQ(stats.bytes_unallocated, 0);
   EXPECT_EQ(stats.bytes_unavailable, 0);
@@ -58,13 +53,9 @@ TEST(Arena, Stats) {
   EXPECT_EQ(stats.blocks, 0);
 
   // Trigger an allocation and grab new stats.
-  ArenaStats stats_after_alloc;
-  void* ptr;
-  {
-    PageHeapSpinLockHolder l;
-    ptr = arena.Alloc(1, Align(1));
-    stats_after_alloc = arena.stats();
-  }
+  void* ptr = arena.Alloc(1, Align(1));
+  ArenaStats stats_after_alloc = arena.stats();
+
   EXPECT_NE(ptr, nullptr);
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 1);
@@ -76,12 +67,8 @@ TEST(Arena, Stats) {
   // Trigger an allocation that is larger than the remaining free bytes.
   //
   // TODO(b/201694482): Optimize this.
-  ArenaStats stats_after_alloc2;
-  {
-    PageHeapSpinLockHolder l;
-    ptr = arena.Alloc(stats_after_alloc.bytes_unallocated + 1, Align(1));
-    stats_after_alloc2 = arena.stats();
-  }
+  ptr = arena.Alloc(stats_after_alloc.bytes_unallocated + 1, Align(1));
+  ArenaStats stats_after_alloc2 = arena.stats();
   EXPECT_NE(ptr, nullptr);
 
   EXPECT_EQ(stats_after_alloc2.bytes_allocated,
@@ -95,32 +82,21 @@ TEST(Arena, Stats) {
 
 TEST(Arena, ReportUnmapped) {
   Arena arena;
-  ArenaStats stats_after_alloc;
-  void* ptr;
-  {
-    PageHeapSpinLockHolder l;
-    ptr = arena.Alloc(10, Align(1));
-    stats_after_alloc = arena.stats();
-  }
+  void* ptr = arena.Alloc(10, Align(1));
+  ArenaStats stats_after_alloc = arena.stats();
   EXPECT_NE(ptr, nullptr);
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 10);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 0);
 
-  {
-    PageHeapSpinLockHolder l;
-    arena.UpdateAllocatedAndNonresident(-5, 5);
-    stats_after_alloc = arena.stats();
-  }
+  arena.UpdateAllocatedAndNonresident(-5, 5);
+  stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 5);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 5);
 
-  {
-    PageHeapSpinLockHolder l;
-    arena.UpdateAllocatedAndNonresident(3, -3);
-    stats_after_alloc = arena.stats();
-  }
+  arena.UpdateAllocatedAndNonresident(3, -3);
+  stats_after_alloc = arena.stats();
 
   EXPECT_EQ(stats_after_alloc.bytes_allocated, 8);
   EXPECT_EQ(stats_after_alloc.bytes_nonresident, 2);
@@ -129,28 +105,18 @@ TEST(Arena, ReportUnmapped) {
 TEST(Arena, BytesImpending) {
   Arena arena;
 
-  ArenaStats stats;
-  {
-    PageHeapSpinLockHolder l;
-    stats = arena.stats();
-  }
+  ArenaStats stats = arena.stats();
   EXPECT_EQ(stats.bytes_allocated, 0);
 
-  {
-    PageHeapSpinLockHolder l;
-    arena.UpdateAllocatedAndNonresident(100, 0);
-    stats = arena.stats();
-  }
+  arena.UpdateAllocatedAndNonresident(100, 0);
+  stats = arena.stats();
 
   EXPECT_EQ(stats.bytes_allocated, 100);
 
-  void* ptr;
-  {
-    PageHeapSpinLockHolder l;
-    arena.UpdateAllocatedAndNonresident(-100, 0);
-    ptr = arena.Alloc(100, Align(1));
-    stats = arena.stats();
-  }
+  arena.UpdateAllocatedAndNonresident(-100, 0);
+  void* ptr = arena.Alloc(100, Align(1));
+  stats = arena.stats();
+
   EXPECT_NE(ptr, nullptr);
   EXPECT_EQ(stats.bytes_allocated, 100);
 }

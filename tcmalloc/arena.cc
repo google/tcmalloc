@@ -20,6 +20,7 @@
 
 #include "absl/base/optimization.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/static_vars.h"
@@ -32,6 +33,9 @@ namespace tcmalloc_internal {
 void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
   size_t align = static_cast<size_t>(alignment);
   TC_ASSERT_GT(align, 0);
+
+  AllocationGuardSpinLockHolder l(&arena_lock_);
+
   {  // First we need to move up to the correct alignment.
     const int misalignment = reinterpret_cast<uintptr_t>(free_area_) % align;
     const int alignment_bytes = misalignment != 0 ? align - misalignment : 0;
