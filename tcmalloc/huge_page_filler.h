@@ -956,6 +956,17 @@ inline Length HugePageFiller<TrackerType>::ReleaseCandidates(
     TC_ASSERT_GE(unmapped_, best->released_pages());
     total_released += ret;
     AddToFillerList(best);
+    // If the candidate we just released from previously had was_released set,
+    // clear it. was_released is tracked only for pages that aren't in
+    // released state.
+    if (best->was_released() && best->released()) {
+      best->set_was_released(/*status=*/false);
+      if (best->HasDenseSpans()) {
+        --n_was_released_[AccessDensityPrediction::kDense];
+      } else {
+        --n_was_released_[AccessDensityPrediction::kSparse];
+      }
+    }
   }
 
   subrelease_stats_.num_pages_subreleased += total_released;

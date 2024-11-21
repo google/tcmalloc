@@ -1729,6 +1729,85 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
           "became full."));
 }
 
+// Make sure that previously_released_huge_pages stat is correct when a huge
+// page toggles from full -> released -> full -> released.
+TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
+  const Length N = kPagesPerHugePage;
+  auto half = AllocateVector(N / 2);
+  ASSERT_TRUE(!half.empty());
+  ASSERT_EQ(filler_.size(), NHugePages(1));
+
+  // We should be able to release the N/2 pages that are free.
+  EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  std::string buffer(1024 * 1024, '\0');
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 0 hugepages were previously released, but later "
+          "became full."));
+
+  // Repopulate.
+  auto half1 =
+      AllocateVectorWithSpanAllocInfo(N / 2, half.front().span_alloc_info);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  buffer.resize(1024 * 1024);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 1 hugepages were previously released, but later "
+          "became full."));
+
+  // Release again.
+  DeleteVector(half1);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), N / 2);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+
+  buffer.resize(1024 * 1024);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 0 hugepages were previously released, but later "
+          "became full."));
+
+  // Release everything and cleanup.
+  DeleteVector(half);
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
+  buffer.resize(1024 * 1024);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(
+      buffer,
+      testing::HasSubstr(
+          "HugePageFiller: 0 hugepages were previously released, but later "
+          "became full."));
+}
+
 TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
   const Length N = kPagesPerHugePage;
   // Guarantee we have a ton of released pages go empty.
