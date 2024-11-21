@@ -34,6 +34,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/static_vars.h"
@@ -406,6 +407,53 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
           }
         },
         "has detected a memory error");
+  }
+}
+
+TEST_F(TcMallocTest, MismatchedDelete) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+
+  auto RoundUp = [](size_t size) {
+    // We only do our checks on "large" (>kMaxSize) deallocations.
+    size_t r = size + tcmalloc_internal::kMaxSize + 1u;
+    // We use multiple pages for spans of kPageSize/kMaxSize in small-but-slow.
+    // Adjust the threshold needed to ensure we're larger than the span.
+    if (tcmalloc_internal::kPageShift == 12) {
+      r += 64 << 10;
+    }
+    return r;
+  };
+
+  constexpr size_t kSizes[] = {0u,
+                               8u,
+                               tcmalloc_internal::kPageSize,
+                               tcmalloc_internal::kMaxSize - 1u,
+                               tcmalloc_internal::kMaxSize,
+                               tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize - 1u,
+                               tcmalloc_internal::kHugePageSize,
+                               tcmalloc_internal::kHugePageSize + 1u};
+  for (size_t size : kSizes) {
+    SCOPED_TRACE(absl::StrCat("size=", size));
+
+    for (bool size_returning : {true, false}) {
+      SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
+      EXPECT_DEATH(
+          {
+            sized_ptr_t r;
+            if (size_returning) {
+              r = __size_returning_new(size);
+            } else {
+              r.p = ::operator new(size);
+              r.n = size;
+            }
+
+            ::operator delete(r.p, RoundUp(r.n));
+          },
+          "(Mismatched-size-delete of|CorrectSize)");
+    }
   }
 }
 
