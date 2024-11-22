@@ -93,8 +93,7 @@ class FakeStaticForwarder {
                        Span::CalcAlignOf(max_span_cache_array_size()));
     TC_ASSERT_LE(max_span_cache_size(), max_span_cache_array_size());
 
-    auto* span = new (span_buf) Span();
-    span->Init(Range(page, pages_per_span));
+    auto* span = new (span_buf) Span(Range(page, pages_per_span));
 
     absl::MutexLock l(&mu_);
     SpanInfo info;

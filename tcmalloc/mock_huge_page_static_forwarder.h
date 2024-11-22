@@ -132,10 +132,9 @@ class FakeStaticForwarder {
         sizeof(*span) + alignof(Span) + sizeof(void*), ll_arena());
     span = new (reinterpret_cast<void*>(
         (reinterpret_cast<uintptr_t>(result) + alignof(Span) - 1u) &
-        ~(alignof(Span) - 1u))) Span();
+        ~(alignof(Span) - 1u))) Span(r);
     *(reinterpret_cast<uintptr_t*>(span + 1)) =
         reinterpret_cast<uintptr_t>(result);
-    span->Init(r);
     return span;
   }
   void DeleteSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)

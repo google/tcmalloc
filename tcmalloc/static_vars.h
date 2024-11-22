@@ -258,8 +258,7 @@ inline Span* Span::New(Range r) {
   Span* result = Static::span_allocator().NewWithSize(
       Span::CalcSizeOf(max_span_cache_array_size),
       Span::CalcAlignOf(max_span_cache_array_size));
-  result->Init(r);
-  return result;
+  return new (result) Span(r);
 }
 
 inline void Span::Delete(Span* span) {

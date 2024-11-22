@@ -83,18 +83,22 @@ typedef TList<Span> SpanList;
 
 class Span final : public SpanList::Elem {
  public:
-  constexpr Span()
+  explicit Span(Range r)
       : embed_count_(0),
         freelist_(0),
         allocated_(0),
         cache_size_(0),
         nonempty_index_(0),
         is_donated_(0),
-        first_page_(0),
+        first_page_(r.p.index()),
         reserved_(0),
         is_large_span_(0),
         sampled_(0),
-        large_or_sampled_state_{0, nullptr} {}
+        large_or_sampled_state_{0, nullptr} {
+    TC_ASSERT_GT(r.p, PageId{0});
+    TC_CHECK_LT(r.p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
+    set_num_pages(r.n);
+  }
 
   Span(const Span&) = delete;
   Span& operator=(const Span&) = delete;
@@ -198,9 +202,6 @@ class Span final : public SpanList::Elem {
   // Pops up to N objects from the freelist and returns them in the batch array.
   // Returns number of objects actually popped.
   [[nodiscard]] size_t FreelistPopBatch(absl::Span<void*> batch, size_t size);
-
-  // Reset a Span object to track the range [p, p + n).
-  void Init(Range r);
 
   // Initialize freelist to contain all objects in the span.
   // Pops up to N objects from the freelist and returns them in the batch array.
@@ -530,21 +531,6 @@ inline void Span::Prefetch() {
   // data by offseting into the middle of the Span.
   static_assert(sizeof(Span) <= 64, "Update span prefetch offset");
   PrefetchT0(&this->allocated_);
-}
-
-inline void Span::Init(Range r) {
-  TC_ASSERT_GT(r.p, PageId{0});
-#ifndef NDEBUG
-  // In debug mode we have additional checking of our list ops; these must be
-  // initialized.
-  new (this) Span();
-#endif
-  TC_CHECK_LT(r.p.index(), static_cast<uint64_t>(1) << kMaxPageIdBits);
-  first_page_ = r.p.index();
-  sampled_ = 0;
-  nonempty_index_ = 0;
-  is_donated_ = 0;
-  set_num_pages(r.n);
 }
 
 inline bool Span::IsValidSizeClass(size_t size, size_t pages) {

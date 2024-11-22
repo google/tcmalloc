@@ -15,6 +15,7 @@
 #include <stdlib.h>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include "absl/random/random.h"
@@ -48,18 +49,22 @@ class RawSpan {
     void* mem;
     int res = posix_memalign(&mem, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
-    span_.Init(Range(PageIdContaining(mem), npages));
-    TC_CHECK_EQ(span_.BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
-                                    kSpanAllocTime),
+    span_.emplace(Range(PageIdContaining(mem), npages));
+    TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, kMaxCacheSize,
+                                     kSpanAllocTime),
                 0);
   }
 
-  ~RawSpan() { free(span_.start_address()); }
+  ~RawSpan() {
+    if (span_.has_value()) {
+      free(span_->start_address());
+    }
+  }
 
-  Span& span() { return span_; }
+  Span& span() { return *span_; }
 
  private:
-  Span span_;
+  std::optional<Span> span_;
 };
 
 // BM_single_span repeatedly pushes and pops the same

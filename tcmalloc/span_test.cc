@@ -60,8 +60,7 @@ class RawSpan {
     int res = posix_memalign(&mem_, kPageSize, npages.in_bytes());
     TC_CHECK_EQ(res, 0);
 
-    span_ = new (buf_) Span();
-    span_->Init(Range(PageIdContaining(mem_), npages));
+    span_ = new (buf_) Span(Range(PageIdContaining(mem_), npages));
     TC_CHECK_EQ(span_->BuildFreelist(size, objects_per_span, {}, max_cache_size,
                                      kSpanAllocTime),
                 0);

@@ -71,8 +71,7 @@ void FuzzSpan(const std::string& s) {
   TC_CHECK_EQ(res, 0);
 
   void* buf = ::operator new(span_size, std::align_val_t(alignof(Span)));
-  Span* span = new (buf) Span();
-  span->Init(Range(PageIdContaining(mem), pages));
+  Span* span = new (buf) Span(Range(PageIdContaining(mem), pages));
 
   std::vector<void*> ptrs;
   ptrs.resize(initial_objects_at_build);
