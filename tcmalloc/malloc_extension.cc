@@ -894,49 +894,48 @@ tcmalloc_size_returning_operator_new_aligned_hot_cold_nothrow(
 
 #endif  // _LIBCPP_VERSION && __cpp_aligned_new
 
-ABSL_ATTRIBUTE_WEAK void* operator new(
-    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+ABSL_ATTRIBUTE_WEAK void* operator new(size_t size,
+                                       tcmalloc::hot_cold_t) noexcept(false) {
   return ::operator new(size);
 }
 
 ABSL_ATTRIBUTE_WEAK void* operator new(size_t size, const std::nothrow_t&,
-                                       tcmalloc::hot_cold_t hot_cold) noexcept {
+                                       tcmalloc::hot_cold_t) noexcept {
   return ::operator new(size, std::nothrow);
 }
 
-ABSL_ATTRIBUTE_WEAK void* operator new[](
-    size_t size, tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+ABSL_ATTRIBUTE_WEAK void* operator new[](size_t size,
+                                         tcmalloc::hot_cold_t) noexcept(false) {
   return ::operator new[](size);
 }
 
-ABSL_ATTRIBUTE_WEAK void* operator new[](
-    size_t size, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_ATTRIBUTE_WEAK void* operator new[](size_t size, const std::nothrow_t&,
+                                         tcmalloc::hot_cold_t) noexcept {
   return ::operator new[](size, std::nothrow);
 }
 
 #ifdef __cpp_aligned_new
-ABSL_ATTRIBUTE_WEAK void* operator new(
-    size_t size, std::align_val_t alignment,
-    tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+ABSL_ATTRIBUTE_WEAK void* operator new(size_t size, std::align_val_t alignment,
+                                       tcmalloc::hot_cold_t) noexcept(false) {
   return ::operator new(size, alignment);
 }
 
 ABSL_ATTRIBUTE_WEAK void* operator new(size_t size, std::align_val_t alignment,
                                        const std::nothrow_t&,
-                                       tcmalloc::hot_cold_t hot_cold) noexcept {
+                                       tcmalloc::hot_cold_t) noexcept {
   return ::operator new(size, alignment, std::nothrow);
 }
 
-ABSL_ATTRIBUTE_WEAK void* operator new[](
-    size_t size, std::align_val_t alignment,
-    tcmalloc::hot_cold_t hot_cold) noexcept(false) {
+ABSL_ATTRIBUTE_WEAK void* operator new[](size_t size,
+                                         std::align_val_t alignment,
+                                         tcmalloc::hot_cold_t) noexcept(false) {
   return ::operator new[](size, alignment);
 }
 
-ABSL_ATTRIBUTE_WEAK void* operator new[](
-    size_t size, std::align_val_t alignment, const std::nothrow_t&,
-    tcmalloc::hot_cold_t hot_cold) noexcept {
+ABSL_ATTRIBUTE_WEAK void* operator new[](size_t size,
+                                         std::align_val_t alignment,
+                                         const std::nothrow_t&,
+                                         tcmalloc::hot_cold_t) noexcept {
   return ::operator new[](size, alignment, std::nothrow);
 }
 #endif  // __cpp_aligned_new
