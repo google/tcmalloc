@@ -185,8 +185,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
         large_span_experiment ? Span::kLargeCacheArraySize : Span::kCacheSize);
 
     span_allocator_.Init(&arena_);
-    span_allocator_.New();  // Reduce cache conflicts
-    span_allocator_.New();  // Reduce cache conflicts
     linked_sample_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);

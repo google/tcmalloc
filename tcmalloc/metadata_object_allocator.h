@@ -55,17 +55,20 @@ class MetadataObjectAllocator {
   // other static variable tries to allocate memory.
   void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     arena_ = arena;
-    // Reserve some space at the beginning to avoid fragmentation.
-    Delete(New());
   }
 
-  ABSL_ATTRIBUTE_RETURNS_NONNULL T* New()
+  // Allocates storage for a T.
+  //
+  // Once New() has been invoked to allocate storage, it is no longer safe to
+  // request an overaligned instance via NewWithSize as the underaligned result
+  // may be freelisted.
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New()
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)));
   }
 
-  ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(size_t size,
-                                                std::align_val_t align)
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
+      size_t size, std::align_val_t align)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
     // Consult free list
