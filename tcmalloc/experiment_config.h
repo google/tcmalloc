@@ -23,7 +23,6 @@ namespace tcmalloc {
 enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
-  TCMALLOC_BIG_SPAN,  // TODO(b/304135905): Complete experiment.
   TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS,  // TODO(b/348043731): Complete experiment.
   TCMALLOC_REUSE_SIZE_CLASSES,  // TODO(b/358126781): Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
@@ -46,7 +45,6 @@ struct ExperimentConfig {
 // clang-format off
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
-    {Experiment::TCMALLOC_BIG_SPAN, "TCMALLOC_BIG_SPAN"},
     {Experiment::TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS, "TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS"},
     {Experiment::TCMALLOC_REUSE_SIZE_CLASSES, "TCMALLOC_REUSE_SIZE_CLASSES"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
