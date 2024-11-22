@@ -66,8 +66,7 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static size_t num_objects_to_move(int size_class);
-  static void *Alloc(size_t size, std::align_val_t alignment = kAlignment)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static void *Alloc(size_t size, std::align_val_t alignment = kAlignment);
 };
 
 class ShardedStaticForwarder : public StaticForwarder {
@@ -136,7 +135,7 @@ class ShardedTransferCacheManagerBase {
   // node. kMinShardsAllowed is a workaround for now that hardcodes this.
   static constexpr int kMinShardsAllowed = 3;
 
-  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init() {
     owner_->Init();
     num_shards_ = cpu_layout_->NumShards();
     shards_ = reinterpret_cast<Shard *>(owner_->Alloc(
@@ -357,8 +356,7 @@ class ShardedTransferCacheManagerBase {
   }
 
   // Initializes all transfer caches in the given shard.
-  void InitShard(Shard &shard) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    PageHeapSpinLockHolder l;
+  void InitShard(Shard &shard) {
     TransferCache *new_caches = reinterpret_cast<TransferCache *>(
         owner_->Alloc(sizeof(TransferCache) * kNumClasses,
                       std::align_val_t{ABSL_CACHELINE_SIZE}));

@@ -311,8 +311,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
         HugePageAwareAllocator& hpaa ABSL_ATTRIBUTE_LIFETIME_BOUND)
         : hpaa_(hpaa) {}
 
-    [[nodiscard]] void* operator()(size_t bytes) override
-        ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    [[nodiscard]] void* operator()(size_t bytes) override {
       return hpaa_.forwarder_.arena().Alloc(bytes);
     }
 

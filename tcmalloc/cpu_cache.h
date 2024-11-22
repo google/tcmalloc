@@ -93,6 +93,8 @@ class StaticForwarder {
   [[nodiscard]] static void* Alloc(size_t size, std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
+    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
+    // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     return tc_globals.arena().Alloc(size, alignment);
   }
@@ -100,6 +102,8 @@ class StaticForwarder {
                                                     std::align_val_t alignment)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
+    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
+    // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     // Negate previous update to allocated that accounted for this allocation.
     tc_globals.arena().UpdateAllocatedAndNonresident(
@@ -115,6 +119,8 @@ class StaticForwarder {
                                                  int64_t nonresident)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     TC_ASSERT(tc_globals.IsInited());
+    // TODO(b/373944374): Arena is thread-safe, but we take the pageheap_lock to
+    // present a consistent view of memory usage.
     PageHeapSpinLockHolder l;
     if (allocated > 0) {
       tc_globals.page_allocator().ShrinkToUsageLimit(Length(allocated));

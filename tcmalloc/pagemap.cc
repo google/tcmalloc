@@ -70,9 +70,7 @@ void PageMap::MapRootWithSmallPages() {
   }
 }
 
-void* MetaDataAlloc(size_t bytes) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-  return tc_globals.arena().Alloc(bytes);
-}
+void* MetaDataAlloc(size_t bytes) { return tc_globals.arena().Alloc(bytes); }
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc

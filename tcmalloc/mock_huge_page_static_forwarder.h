@@ -100,7 +100,7 @@ class FakeStaticForwarder {
   }
 
   // Arena state.
-  Arena& arena() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) { return arena_; }
+  Arena& arena() { return arena_; }
 
   // PageAllocator state.
 

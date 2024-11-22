@@ -112,7 +112,6 @@ class TestStaticForwarder {
   }
 
   void InitializeShardedManager(int num_shards) {
-    PageHeapSpinLockHolder l;
     cpu_layout_.Init(num_shards);
     sharded_manager_.Init();
   }

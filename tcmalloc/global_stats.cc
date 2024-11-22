@@ -131,6 +131,8 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
       tc_globals.page_allocator().GetLargeSpanStats(large_spans);
     }
 
+    // TODO(b/207622377):  Arena is thread-safe, but we take the pageheap_lock
+    // to present a consistent view of memory usage.
     r->arena = tc_globals.arena().stats();
     if (!report_residence) {
       r->metadata_bytes += r->arena.bytes_nonresident;
