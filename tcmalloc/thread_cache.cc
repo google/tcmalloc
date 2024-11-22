@@ -66,8 +66,6 @@ ThreadCache::ThreadCache(pthread_t tid) {
   for (size_t size_class = 0; size_class < kNumClasses; ++size_class) {
     list_[size_class].Init();
   }
-
-  (void)padding_;  // to suppress "private field is not used" warning
 }
 
 void ThreadCache::Cleanup() {

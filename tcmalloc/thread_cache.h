@@ -37,7 +37,7 @@ namespace tcmalloc_internal {
 // Data kept per thread
 //-------------------------------------------------------------------
 
-class ThreadCache {
+class ABSL_CACHELINE_ALIGNED ThreadCache {
  public:
   explicit ThreadCache(pthread_t tid)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -215,11 +215,6 @@ class ThreadCache {
   // All ThreadCache objects are kept in a linked list (for stats collection)
   ThreadCache* next_;
   ThreadCache* prev_;
-
-  // Ensure that two instances of this class are never on the same cache line.
-  // This is critical for performance, as false sharing would negate many of
-  // the benefits of a per-thread cache.
-  char padding_[ABSL_CACHELINE_SIZE];
 };
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(
