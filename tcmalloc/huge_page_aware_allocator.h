@@ -49,9 +49,6 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace huge_page_allocator_internal {
 
-// TODO(b/137017688):  Constant propagate.
-constexpr bool kUnconditionalHPAA = true;
-
 bool decide_subrelease();
 
 HugeRegionUsageOption huge_region_option();
