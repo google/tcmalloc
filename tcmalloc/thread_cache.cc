@@ -355,15 +355,17 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
   heap->Cleanup();
 
   // Remove from linked list
-  PageHeapSpinLockHolder l;
-  if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
-  if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
-  if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
-  thread_heap_count_--;
+  {
+    PageHeapSpinLockHolder l;
+    if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
+    if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
+    if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
+    thread_heap_count_--;
 
-  if (next_memory_steal_ == heap) next_memory_steal_ = heap->next_;
-  if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;
-  unclaimed_cache_space_ += heap->max_size_;
+    if (next_memory_steal_ == heap) next_memory_steal_ = heap->next_;
+    if (next_memory_steal_ == nullptr) next_memory_steal_ = thread_heaps_;
+    unclaimed_cache_space_ += heap->max_size_;
+  }
 
   tc_globals.threadcache_allocator().Delete(heap);
 }

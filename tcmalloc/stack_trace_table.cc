@@ -63,11 +63,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // when iterating over `tc_globals.sampled_allocation_recorder()` and
   // allocating, see more details in "HeapProfilingTest.AllocateWhileIterating"
   // under google3/tcmalloc/heap_profiling_test.cc.
-  LinkedSample* s;
-  {
-    PageHeapSpinLockHolder l;
-    s = tc_globals.linked_sample_allocator().New();
-  }
+  LinkedSample* s = tc_globals.linked_sample_allocator().New();
   s = new (s) LinkedSample;
 
   // Report total bytes that are a multiple of the object size.

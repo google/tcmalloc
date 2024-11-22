@@ -1048,12 +1048,8 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
   constexpr float kAllocatedSpansSizeReserveFactor = 1.2;
   constexpr int kMaxAttempts = 10;
   for (int i = 0; i < kMaxAttempts; i++) {
-    int estimated_span_count;
-    {
-      AllocationGuardSpinLockHolder l(
-          &tcmalloc::tcmalloc_internal::pageheap_lock);
-      estimated_span_count = tc_globals.span_allocator().stats().total;
-    }
+    int estimated_span_count = tc_globals.span_allocator().stats().total;
+
     // We need to avoid allocation events during GetAllocatedSpans, as that may
     // cause a deadlock on pageheap_lock. To this end, we ensure that the result
     // vector already has a capacity greater than the current total span count.

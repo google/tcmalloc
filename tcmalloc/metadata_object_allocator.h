@@ -20,11 +20,14 @@
 #include <new>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/dynamic_annotations.h"
+#include "absl/base/internal/spinlock.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
@@ -53,7 +56,8 @@ class MetadataObjectAllocator {
   // We use an explicit Init function because these variables are statically
   // allocated and their constructors might not have run by the time some
   // other static variable tries to allocate memory.
-  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init(Arena* arena) {
+    // TODO(b/175334169): Move this parameter to the constructor.
     arena_ = arena;
   }
 
@@ -62,15 +66,34 @@ class MetadataObjectAllocator {
   // Once New() has been invoked to allocate storage, it is no longer safe to
   // request an overaligned instance via NewWithSize as the underaligned result
   // may be freelisted.
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New()
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New() {
     return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)));
   }
 
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
-      size_t size, std::align_val_t align)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+      size_t size, std::align_val_t align) {
+    // TODO(b/175334169): Run T::T here.
+    return LockAndAllocMemory(size, align);
+  }
+
+  void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
+    // TODO(b/175334169): Run T::~T here.
+    LockAndDeleteMemory(p);
+  }
+
+  AllocatorStats stats() const {
+    AllocationGuardSpinLockHolder l(&metadata_lock_);
+
+    return stats_;
+  }
+
+ private:
+  ABSL_ATTRIBUTE_RETURNS_NONNULL T* LockAndAllocMemory(size_t size,
+                                                       std::align_val_t align) {
     TC_ASSERT_GE(static_cast<size_t>(align), alignof(T));
+
+    AllocationGuardSpinLockHolder l(&metadata_lock_);
+
     // Consult free list
     T* result = free_list_;
     stats_.in_use++;
@@ -90,8 +113,9 @@ class MetadataObjectAllocator {
     return result;
   }
 
-  void Delete(T* p) ABSL_ATTRIBUTE_NONNULL()
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void LockAndDeleteMemory(T* p) ABSL_ATTRIBUTE_NONNULL() {
+    AllocationGuardSpinLockHolder l(&metadata_lock_);
+
     *(reinterpret_cast<void**>(p)) = free_list_;
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
     // Poison the object on the freelist.  We do not dereference it after this
@@ -102,18 +126,16 @@ class MetadataObjectAllocator {
     stats_.in_use--;
   }
 
-  AllocatorStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return stats_;
-  }
-
- private:
   // Arena from which to allocate memory
   Arena* arena_;
 
-  // Free list of already carved objects
-  T* free_list_ ABSL_GUARDED_BY(pageheap_lock);
+  mutable absl::base_internal::SpinLock metadata_lock_{
+      absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY};
 
-  AllocatorStats stats_ ABSL_GUARDED_BY(pageheap_lock);
+  // Free list of already carved objects
+  T* free_list_ ABSL_GUARDED_BY(metadata_lock_);
+
+  AllocatorStats stats_ ABSL_GUARDED_BY(metadata_lock_);
 };
 
 }  // namespace tcmalloc_internal

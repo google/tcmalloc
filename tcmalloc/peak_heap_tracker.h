@@ -43,8 +43,7 @@ class PeakHeapTracker {
                        absl::base_internal::SCHEDULE_KERNEL_ONLY),
         peak_heap_recorder_() {}
 
-  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-      ABSL_LOCKS_EXCLUDED(recorder_lock_) {
+  void Init(Arena* arena) ABSL_LOCKS_EXCLUDED(recorder_lock_) {
     peak_heap_record_allocator_.Init(arena);
     AllocationGuardSpinLockHolder h(&recorder_lock_);
     peak_heap_recorder_.Construct(&peak_heap_record_allocator_);

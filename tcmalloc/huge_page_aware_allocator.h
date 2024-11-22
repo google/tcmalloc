@@ -472,6 +472,7 @@ template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::Finalize(Range r)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
+  // TODO(b/175334169): Lift Span creation out of LockAndAlloc.
   Span* ret = forwarder_.NewSpan(r);
   forwarder_.Set(r.p, ret);
   TC_ASSERT(!ret->sampled());
@@ -708,6 +709,7 @@ inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
   info_.RecordFree(Range(p, n));
 
   bool might_abandon = span->donated();
+  // TODO(b/175334169): Lift this out of Delete's pageheap_lock.
   forwarder_.DeleteSpan(span);
   // Clear the descriptor of the page so a second pass through the same page
   // could trigger the check on `span != nullptr` in do_free_pages.

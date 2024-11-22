@@ -213,8 +213,8 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // All ThreadCache objects are kept in a linked list (for stats collection)
-  ThreadCache* next_;
-  ThreadCache* prev_;
+  ThreadCache* next_ ABSL_GUARDED_BY(pageheap_lock);
+  ThreadCache* prev_ ABSL_GUARDED_BY(pageheap_lock);
 };
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(

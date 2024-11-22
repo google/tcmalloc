@@ -39,34 +39,23 @@ namespace tcmalloc_internal {
 // initialize/clear some fields.
 class SampledAllocationAllocator {
  public:
+  // TODO(b/175334169):  Delete this class by pushing construction logic into
+  // MetadataObjectAllocator.
   constexpr SampledAllocationAllocator() = default;
 
-  void Init(Arena* arena) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    allocator_.Init(arena);
-  }
+  void Init(Arena* arena) { allocator_.Init(arena); }
 
-  SampledAllocation* New(StackTrace stack_trace)
-      ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    SampledAllocation* s;
-    {
-      PageHeapSpinLockHolder l;
-      s = allocator_.New();
-    }
+  SampledAllocation* New(StackTrace stack_trace) {
+    SampledAllocation* s = allocator_.New();
     return new (s) SampledAllocation(std::move(stack_trace));
   }
 
-  void Delete(SampledAllocation* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    PageHeapSpinLockHolder l;
-    allocator_.Delete(s);
-  }
+  void Delete(SampledAllocation* s) { allocator_.Delete(s); }
 
-  AllocatorStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    return allocator_.stats();
-  }
+  AllocatorStats stats() const { return allocator_.stats(); }
 
  private:
-  MetadataObjectAllocator<SampledAllocation> allocator_
-      ABSL_GUARDED_BY(pageheap_lock);
+  MetadataObjectAllocator<SampledAllocation> allocator_;
 };
 
 }  // namespace tcmalloc_internal

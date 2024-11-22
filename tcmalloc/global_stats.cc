@@ -114,12 +114,14 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
 
   // Add stats from per-thread heaps
   r->thread_bytes = 0;
+
+  r->span_stats = tc_globals.span_allocator().stats();
+  r->stack_stats = tc_globals.sampledallocation_allocator().stats();
+  r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
+
   {  // scope
     PageHeapSpinLockHolder l;
     r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
-    r->span_stats = tc_globals.span_allocator().stats();
-    r->stack_stats = tc_globals.sampledallocation_allocator().stats();
-    r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
     r->metadata_bytes = tc_globals.metadata_bytes();
     r->pagemap_bytes = tc_globals.pagemap().bytes();
     r->pageheap = tc_globals.page_allocator().stats();
