@@ -1231,9 +1231,9 @@ cc_library(
 
 cc_library(
     name = "new_extension",
-    srcs = ["new_extension.cc"],
     hdrs = ["new_extension.h"],
     copts = TCMALLOC_DEFAULT_COPTS,
+    deprecation = "Use :malloc_extension directly",
     visibility = [":__subpackages__"],
     deps = [
         ":malloc_extension",
