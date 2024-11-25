@@ -348,6 +348,16 @@ cc_library(
 )
 
 cc_library(
+    # TODO(b/304135905):  Remove this opt-out.
+    name = "want_disable_tcmalloc_big_span",
+    srcs = ["want_disable_tcmalloc_big_span.cc"],
+    copts = ["-g0"] + TCMALLOC_DEFAULT_COPTS,
+    visibility = ["//visibility:public"],
+    deps = ["@com_google_absl//absl/base:core_headers"],
+    alwayslink = 1,
+)
+
+cc_library(
     # TODO(b/199203282, b/296281171):  Remove this opt-out.
     name = "want_disable_huge_region_more_often",
     srcs = ["want_disable_huge_region_more_often.cc"],

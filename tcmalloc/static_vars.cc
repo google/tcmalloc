@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
@@ -59,6 +60,31 @@
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
+
+ABSL_ATTRIBUTE_WEAK bool default_want_disable_tcmalloc_big_span();
+bool tcmalloc_big_span() {
+  // Disable 64B span if built against an opt-out.
+  if (default_want_disable_tcmalloc_big_span != nullptr) {
+    return false;
+  }
+
+  const char* e = thread_safe_getenv("TCMALLOC_DISABLE_BIG_SPAN");
+  if (e) {
+    switch (e[0]) {
+      case '0':
+        // TODO(b/304135905): Enable this.
+        return false;
+      case '1':
+        return false;
+      default:
+        TC_BUG("bad env var '%s'", e);
+        return false;
+    }
+  }
+
+  // TODO(b/304135905): Enable this by default.
+  return false;
+}
 
 // Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays as
 // their first member variables, and aligning them reduces the number of cache
@@ -177,7 +203,8 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     peak_heap_tracker_.Init(&arena_);
 
     const bool large_span_experiment =
-        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN);
+        IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN) ||
+        tcmalloc_big_span();
     Parameters::set_max_span_cache_size(
         large_span_experiment ? Span::kLargeCacheSize : Span::kCacheSize);
     Parameters::set_max_span_cache_array_size(

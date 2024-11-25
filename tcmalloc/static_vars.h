@@ -70,6 +70,8 @@ enum class SizeClassConfiguration {
   kReuse = 6,
 };
 
+bool tcmalloc_big_span();
+
 class Static final {
  public:
   constexpr Static() = default;
