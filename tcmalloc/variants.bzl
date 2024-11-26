@@ -237,14 +237,6 @@ test_variants = [
         ],
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
-    {
-        "name": "large_spans",
-        "malloc": "//tcmalloc",
-        "deps": [
-            "//tcmalloc:common_8k_pages",
-        ],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_BIG_SPAN"},
-    },
 ]
 
 def create_tcmalloc_library(

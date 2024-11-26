@@ -271,11 +271,7 @@ TEST(SpanAllocatorTest, Alignment) {
   // Not all spans are currently aligned to a cacheline.
   //
   // TODO(b/304135905): Modify this assumption.
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_BIG_SPAN)) {
-    EXPECT_EQ(address_mod_cacheline[0], kNumSpans);
-  } else {
-    EXPECT_LT(address_mod_cacheline[0], kNumSpans);
-  }
+  EXPECT_LT(address_mod_cacheline[0], kNumSpans);
 
   // Verify alignof is respected.
   for (auto [alignment, count] : address_mod_cacheline) {
