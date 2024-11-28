@@ -888,7 +888,6 @@ inline struct mallinfo2 do_mallinfo2() {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-using tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder;
 using tcmalloc::tcmalloc_internal::CppPolicy;
 #ifdef TCMALLOC_HAVE_STRUCT_MALLINFO
 using tcmalloc::tcmalloc_internal::do_mallinfo;
