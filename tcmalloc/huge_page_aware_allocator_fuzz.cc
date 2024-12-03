@@ -244,7 +244,7 @@ void FuzzHPAA(const std::string& s) {
 
           {
             PageHeapSpinLockHolder l;
-            allocator->Delete(span_info.span, span_info.objects_per_span);
+            allocator->Delete(span_info.span);
           }
           break;
         }
@@ -497,7 +497,7 @@ void FuzzHPAA(const std::string& s) {
     for (auto span_info : allocs) {
       Span* span = span_info.span;
       allocated -= span->num_pages();
-      allocator->Delete(span, span_info.objects_per_span);
+      allocator->Delete(span);
     }
 
     return allocator->GetReleaseStats();

@@ -649,8 +649,7 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
     TC_ASSERT_EQ(span->first_page(), p);
     TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kPageSize, 0);
     PageHeapSpinLockHolder l;
-    tc_globals.page_allocator().Delete(span, /*objects_per_span=*/1,
-                                       GetMemoryTag(ptr));
+    tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));
   }
 }
 

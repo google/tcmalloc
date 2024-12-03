@@ -164,8 +164,7 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
-  void Delete(Span* span, size_t objects_per_span)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+  void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
@@ -697,8 +696,7 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
 }
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span,
-                                                      size_t objects_per_span) {
+inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span) {
   TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
   HugePage hp = HugePageContaining(p);

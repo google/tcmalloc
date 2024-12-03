@@ -142,7 +142,7 @@ class HugePageAwareAllocatorTest
 
   void AllocatorDelete(Span* s, size_t objects_per_span) {
     PageHeapSpinLockHolder l;
-    allocator_->Delete(s, objects_per_span);
+    allocator_->Delete(s);
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info) {
@@ -1376,7 +1376,7 @@ class StatTest : public testing::Test {
     total_ -= n;
     {
       PageHeapSpinLockHolder l;
-      alloc_->Delete(s, span_info.objects_per_span);
+      alloc_->Delete(s);
     }
   }
 
@@ -1557,7 +1557,7 @@ struct SpanDeleter {
 
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     const PageHeapSpinLockHolder l;
-    allocator.Delete(s, /*objects_per_span=*/1);
+    allocator.Delete(s);
   }
 
   HugePageAwareAllocator& allocator;

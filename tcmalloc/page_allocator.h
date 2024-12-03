@@ -63,7 +63,7 @@ class PageAllocator {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() with the same value of
   //           "tag" and has not yet been deleted.
-  void Delete(Span* span, size_t objects_per_span, MemoryTag tag)
+  void Delete(Span* span, MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   BackingStats stats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -211,9 +211,8 @@ inline Span* PageAllocator::NewAligned(Length n, Length align,
   return impl(tag)->NewAligned(n, align, span_alloc_info);
 }
 
-inline void PageAllocator::Delete(Span* span, size_t objects_per_span,
-                                  MemoryTag tag) {
-  impl(tag)->Delete(span, objects_per_span);
+inline void PageAllocator::Delete(Span* span, MemoryTag tag) {
+  impl(tag)->Delete(span);
 }
 
 inline BackingStats PageAllocator::stats() const {

@@ -106,7 +106,7 @@ static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
   PageHeapSpinLockHolder l;
   for (Span* const free_span : free_spans) {
     TC_ASSERT_EQ(tag, GetMemoryTag(free_span->start_address()));
-    tc_globals.page_allocator().Delete(free_span, objects_per_span, tag);
+    tc_globals.page_allocator().Delete(free_span, tag);
   }
 }
 
