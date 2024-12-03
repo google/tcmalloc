@@ -291,14 +291,15 @@ static void ReportMismatchedDelete(const SampledAllocation& alloc, size_t size,
 }
 
 ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(void* ptr, size_t size,
+static void ReportMismatchedDelete(void* ptr, size_t size, size_t minimum_size,
                                    size_t maximum_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
 
   TC_LOG(
-      "Mismatched-size-delete of %v bytes (expected at most %v bytes) for %p "
+      "Mismatched-size-delete of %v bytes (expected between [%v, %v] bytes) "
+      "for %p "
       "at:",
-      size, maximum_size, ptr);
+      size, minimum_size, maximum_size, ptr);
 
   static void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
@@ -316,13 +317,14 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
   SampledAllocation* sampled_allocation = span.Unsample();
   if (sampled_allocation == nullptr) {
     if (ABSL_PREDICT_TRUE(size.has_value())) {
-      size_t maximum_size = span.bytes_in_span();
+      const size_t maximum_size = span.bytes_in_span();
+      const size_t minimum_size = maximum_size - (kPageSize - 1u);
 
-      if (ABSL_PREDICT_FALSE(*size > maximum_size)) {
+      if (ABSL_PREDICT_FALSE(*size < minimum_size || *size > maximum_size)) {
         // While we don't have precise allocation-time information because this
         // span was not sampled, the deallocated object's purported size exceeds
         // the span it is on.  This is impossible and indicates corruption.
-        ReportMismatchedDelete(ptr, *size, maximum_size);
+        ReportMismatchedDelete(ptr, *size, minimum_size, maximum_size);
       }
     }
 

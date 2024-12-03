@@ -410,7 +410,7 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
   }
 }
 
-TEST_F(TcMallocTest, MismatchedDelete) {
+TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
 #endif
@@ -451,6 +451,39 @@ TEST_F(TcMallocTest, MismatchedDelete) {
             }
 
             ::operator delete(r.p, RoundUp(r.n));
+          },
+          "(Mismatched-size-delete of|CorrectSize)");
+    }
+  }
+}
+
+TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+
+  using tcmalloc_internal::kHugePageSize;
+  using tcmalloc_internal::kMaxSize;
+  using tcmalloc_internal::kPageSize;
+
+  constexpr size_t kSizes[] = {kHugePageSize - 1u, kHugePageSize,
+                               kHugePageSize + 1u};
+  for (size_t size : kSizes) {
+    SCOPED_TRACE(absl::StrCat("size=", size));
+
+    for (bool size_returning : {true, false}) {
+      SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
+      EXPECT_DEATH(
+          {
+            sized_ptr_t r;
+            if (size_returning) {
+              r = __size_returning_new(size);
+            } else {
+              r.p = ::operator new(size);
+              r.n = size;
+            }
+
+            ::operator delete(r.p, std::max(kMaxSize, r.n - kPageSize));
           },
           "(Mismatched-size-delete of|CorrectSize)");
     }
