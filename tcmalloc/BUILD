@@ -511,6 +511,30 @@ cc_library(
     alwayslink = 1,
 )
 
+cc_library(
+    name = "tcmalloc_legacy_locking",
+    srcs = [
+        "libc_override.h",
+        "tcmalloc.cc",
+        "tcmalloc.h",
+    ],
+    copts = [
+        "-DTCMALLOC_INTERNAL_8K_PAGES",
+        "-DTCMALLOC_INTERNAL_LEGACY_LOCKING",
+    ] + TCMALLOC_DEFAULT_COPTS,
+    linkstatic = 1,
+    visibility = [":tcmalloc_tests"],
+    deps = tcmalloc_deps + [
+        ":common_legacy_locking",
+        "//tcmalloc/internal:allocation_guard",
+        "//tcmalloc/internal:overflow",
+        "//tcmalloc/internal:page_size",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+    alwayslink = 1,
+)
+
 # Export some header files to //tcmalloc/testing/...
 package_group(
     name = "tcmalloc_tests",

@@ -44,6 +44,10 @@ build_variants = [
         "name": "256k_pages_numa_aware",
         "copts": ["-DTCMALLOC_INTERNAL_256K_PAGES", "-DTCMALLOC_INTERNAL_NUMA_AWARE"],
     },
+    {
+        "name": "legacy_locking",
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
+    },
 ]
 
 test_variants = [
@@ -236,6 +240,13 @@ test_variants = [
             "//tcmalloc:common_8k_pages",
         ],
         "env": {"PERCPU_VCPU_MODE": "none"},
+    },
+    {
+        "name": "legacy_locking",
+        "malloc": "//tcmalloc:tcmalloc_legacy_locking",
+        "deps": ["//tcmalloc:common_legacy_locking"],
+        "copts": ["-DTCMALLOC_INTERNAL_8K_PAGES", "-DTCMALLOC_INTERNAL_LEGACY_LOCKING"],
+        "tags": ["noubsan"],
     },
 ]
 

@@ -643,7 +643,9 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   if (ABSL_PREDICT_FALSE(
           tc_globals.guardedpage_allocator().PointerIsMine(ptr))) {
     tc_globals.guardedpage_allocator().Deallocate(ptr);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     Span::Delete(span);
   } else {
     TC_ASSERT_EQ(span->first_page(), p);
