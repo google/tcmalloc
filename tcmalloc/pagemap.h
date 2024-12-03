@@ -411,7 +411,8 @@ class PageMap {
 
   void Set(PageId p, Span* span) { map_.set(p.index(), span); }
 
-  bool Ensure(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  [[nodiscard]] bool Ensure(Range r)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return map_.Ensure(r.p.index(), r.n.raw_num());
   }
 
@@ -431,15 +432,16 @@ class PageMap {
   // Return the descriptor for the specified page.  Returns NULL if
   // this PageId was not allocated previously.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  inline Span* GetDescriptor(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] inline Span* GetDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return reinterpret_cast<Span*>(map_.get(p.index()));
   }
 
   // Return the descriptor for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span* GetExistingDescriptor(
-      PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span*
+  GetExistingDescriptor(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     Span* span = map_.get_existing(p.index());
     TC_ASSERT_NE(span, nullptr);
     return span;
@@ -449,7 +451,9 @@ class PageMap {
     return map_.bytes_used();
   }
 
-  void* GetHugepage(PageId p) { return map_.get_hugepage(p.index()); }
+  [[nodiscard]] void* GetHugepage(PageId p) {
+    return map_.get_hugepage(p.index());
+  }
 
   void SetHugepage(PageId p, void* v) { map_.set_hugepage(p.index(), v); }
 

@@ -100,7 +100,8 @@ class StaticForwarder {
 
   // PageMap state.
   static void* GetHugepage(HugePage p);
-  static bool Ensure(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  [[nodiscard]] static bool Ensure(Range r)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   static void Set(PageId page, Span* span);
   static void SetHugepage(HugePage p, void* pt);
 
@@ -1058,7 +1059,8 @@ inline AddressRange HugePageAwareAllocator<Forwarder>::AllocAndReport(
   if (ret.ptr == nullptr) return ret;
   const PageId page = PageIdContaining(ret.ptr);
   const Length page_len = BytesToLengthFloor(ret.bytes);
-  forwarder_.Ensure(Range(page, page_len));
+  TC_CHECK(forwarder_.Ensure(Range(page, page_len)),
+           "Is something limiting virtual address space?");
   return ret;
 }
 
