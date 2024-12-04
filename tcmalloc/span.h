@@ -64,9 +64,6 @@ struct SpanAllocInfo {
 
 // Information kept for a span (a contiguous run of pages).
 //
-// TODO(b/137017688): This is a legacy information kept for the legacy page
-// heap. The definitions may differ for the default TCMalloc settings.
-//
 // Spans can be in different states. The current state determines set of methods
 // that can be called on the span (and the active member in the union below).
 // States are:
