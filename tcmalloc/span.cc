@@ -29,6 +29,7 @@
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/parameters.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
@@ -327,6 +328,35 @@ int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,
   }
   embed_count_ = embed_count;
   return result;
+}
+
+Span* Span::New(Range r) {
+  const uint32_t max_span_cache_array_size =
+      Parameters::max_span_cache_array_size();
+  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
+             max_span_cache_array_size == Span::kCacheSize) ||
+            (Parameters::max_span_cache_size() == kLargeCacheSize &&
+             max_span_cache_array_size == Span::kLargeCacheArraySize));
+  Span* result = Static::span_allocator().NewWithSize(
+      Span::CalcSizeOf(max_span_cache_array_size),
+      Span::CalcAlignOf(max_span_cache_array_size));
+  return new (result) Span(r);
+}
+
+void Span::Delete(Span* span) {
+#ifndef NDEBUG
+  const uint32_t max_span_cache_array_size =
+      Parameters::max_span_cache_array_size();
+  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
+             max_span_cache_array_size == Span::kCacheSize) ||
+            (Parameters::max_span_cache_size() == kLargeCacheSize &&
+             max_span_cache_array_size == Span::kLargeCacheArraySize));
+  const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
+
+  // In debug mode, trash the contents of deleted Spans
+  memset(static_cast<void*>(span), 0x3f, span_size);
+#endif
+  Static::span_allocator().Delete(span);
 }
 
 }  // namespace tcmalloc_internal

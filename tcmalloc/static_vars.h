@@ -244,41 +244,6 @@ inline void Static::InitIfNecessary() {
   }
 }
 
-// Why are these functions here? Because we want to inline them, but they
-// need access to Static::span_allocator. Putting them in span.h would lead
-// to nasty dependency loops.  Since anything that needs them certainly
-// includes static_vars.h, this is a perfectly good compromise.
-// TODO(b/134687001): move span_allocator to Span, getting rid of the need for
-// this.
-inline Span* Span::New(Range r) {
-  const uint32_t max_span_cache_array_size =
-      Parameters::max_span_cache_array_size();
-  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
-             max_span_cache_array_size == Span::kCacheSize) ||
-            (Parameters::max_span_cache_size() == kLargeCacheSize &&
-             max_span_cache_array_size == Span::kLargeCacheArraySize));
-  Span* result = Static::span_allocator().NewWithSize(
-      Span::CalcSizeOf(max_span_cache_array_size),
-      Span::CalcAlignOf(max_span_cache_array_size));
-  return new (result) Span(r);
-}
-
-inline void Span::Delete(Span* span) {
-#ifndef NDEBUG
-  const uint32_t max_span_cache_array_size =
-      Parameters::max_span_cache_array_size();
-  TC_ASSERT((Parameters::max_span_cache_size() == Span::kCacheSize &&
-             max_span_cache_array_size == Span::kCacheSize) ||
-            (Parameters::max_span_cache_size() == kLargeCacheSize &&
-             max_span_cache_array_size == Span::kLargeCacheArraySize));
-  const size_t span_size = Span::CalcSizeOf(max_span_cache_array_size);
-
-  // In debug mode, trash the contents of deleted Spans
-  memset(static_cast<void*>(span), 0x3f, span_size);
-#endif
-  Static::span_allocator().Delete(span);
-}
-
 // ConstantRatePageAllocatorReleaser() might release more than the requested
 // bytes because the page heap releases at the span granularity, and spans are
 // of wildly different sizes. This keeps track of the extra bytes bytes released
