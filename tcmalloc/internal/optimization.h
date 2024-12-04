@@ -56,7 +56,7 @@ namespace tcmalloc_internal {
 #define TCMALLOC_MUSTTAIL
 #endif
 
-static inline void* AssumeNotNull(void* p) {
+inline void* AssumeNotNull(void* p) {
   ASSUME(p != nullptr);
   return p;
 }

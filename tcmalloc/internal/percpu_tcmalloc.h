@@ -599,6 +599,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void PrefetchSlabMemory(uintptr_t ptr) {
 }
 
 #if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ && defined(__x86_64__)
+// Note: These helpers must be "static inline" to avoid ODR violations due to
+// different labels emitted in TCMALLOC_RSEQ_PROLOGUE.
 static inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool TcmallocSlab_Internal_Push(
     size_t size_class, void* item) {
   uintptr_t scratch, current;
