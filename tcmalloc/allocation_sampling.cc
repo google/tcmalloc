@@ -41,6 +41,7 @@
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
+#include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
 #include "tcmalloc/thread_cache.h"
 
@@ -291,8 +292,26 @@ static void ReportMismatchedDelete(const SampledAllocation& alloc, size_t size,
 }
 
 ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(void* ptr, size_t size, size_t minimum_size,
-                                   size_t maximum_size) {
+static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
+                                   size_t minimum_size, size_t maximum_size) {
+  // Try to refine the maximum possible size.
+  const PageId p = PageIdContainingTagged(ptr);
+  size_t size_class = state.pagemap().sizeclass(p);
+  if (size_class != 0) {
+    maximum_size = state.sizemap().class_to_size(size_class);
+    if (maximum_size < minimum_size) {
+      // Our size class refinement may have made the bounds inconsistent.  Use
+      // the prior size class to set the lower bound.
+      minimum_size = state.sizemap().class_to_size(size_class - 1) + 1;
+      if (maximum_size < minimum_size) {
+        // TCMalloc places the NUMA and cold size classes after the hot ones.
+        // The "prior" size class by index might be larger in bytes.  If this
+        // happens, give up and use 0 as the lower bound.
+        minimum_size = 0;
+      }
+    }
+  }
+
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
 
   TC_LOG(
@@ -324,7 +343,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
         // While we don't have precise allocation-time information because this
         // span was not sampled, the deallocated object's purported size exceeds
         // the span it is on.  This is impossible and indicates corruption.
-        ReportMismatchedDelete(ptr, *size, minimum_size, maximum_size);
+        ReportMismatchedDelete(state, ptr, *size, minimum_size, maximum_size);
       }
     }
 

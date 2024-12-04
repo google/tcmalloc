@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <memory>
 #include <new>
+#include <optional>
 #include <string>
 #include <tuple>
 
@@ -428,6 +429,7 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 
   constexpr size_t kSizes[] = {0u,
                                8u,
+                               64u,
                                tcmalloc_internal::kPageSize,
                                tcmalloc_internal::kMaxSize - 1u,
                                tcmalloc_internal::kMaxSize,
@@ -435,24 +437,47 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
                                tcmalloc_internal::kHugePageSize - 1u,
                                tcmalloc_internal::kHugePageSize,
                                tcmalloc_internal::kHugePageSize + 1u};
-  for (size_t size : kSizes) {
+  for (const size_t size : kSizes) {
+    const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
     SCOPED_TRACE(absl::StrCat("size=", size));
 
-    for (bool size_returning : {true, false}) {
-      SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
-      EXPECT_DEATH(
-          {
-            sized_ptr_t r;
-            if (size_returning) {
-              r = __size_returning_new(size);
-            } else {
-              r.p = ::operator new(size);
-              r.n = size;
-            }
+    // Hot-cold doesn't affect the sizes directly, but since the cold size
+    // classes immediately follow the hot ones, it lets us stress our fixups to
+    // the minimum size class.
+    constexpr std::optional<hot_cold_t> hot_cold_set[] = {
+        std::nullopt,
+        hot_cold_t{0},
+        hot_cold_t{128},
+        hot_cold_t{255},
+    };
 
-            ::operator delete(r.p, RoundUp(r.n));
-          },
-          "(Mismatched-size-delete of|CorrectSize)");
+    for (const auto hot_cold : hot_cold_set) {
+      for (const bool size_returning : {true, false}) {
+        SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
+        EXPECT_DEATH(
+            {
+              sized_ptr_t r;
+              if (hot_cold.has_value()) {
+                if (size_returning) {
+                  r = __size_returning_new_hot_cold(size, *hot_cold);
+                } else {
+                  r.p = ::operator new(size, *hot_cold);
+                  r.n = size;
+                }
+              } else {
+                if (size_returning) {
+                  r = __size_returning_new(size);
+                } else {
+                  r.p = ::operator new(size);
+                  r.n = size;
+                }
+              }
+
+              ::operator delete(r.p, RoundUp(r.n));
+            },
+            absl::StrCat("(Mismatched-size-delete of .* bytes \\(expected.* (",
+                         size, "|", likely_size, ").*bytes|CorrectSize)"));
+      }
     }
   }
 }
