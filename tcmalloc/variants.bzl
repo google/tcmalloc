@@ -142,6 +142,14 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
+        "name": "big_span_disable",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"TCMALLOC_DISABLE_BIG_SPAN": "1"},
+    },
+    {
         "name": "256k_pages_pow2_sharded_transfer_cache",
         "malloc": "//tcmalloc:tcmalloc_256k_pages",
         "deps": [

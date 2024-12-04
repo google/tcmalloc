@@ -61,6 +61,7 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
+// TODO(b/304135905): Remove the opt out.
 ABSL_ATTRIBUTE_WEAK bool default_want_disable_tcmalloc_big_span();
 bool tcmalloc_big_span() {
   // Disable 64B span if built against an opt-out.
@@ -72,8 +73,7 @@ bool tcmalloc_big_span() {
   if (e) {
     switch (e[0]) {
       case '0':
-        // TODO(b/304135905): Enable this.
-        return false;
+        return true;
       case '1':
         return false;
       default:
@@ -82,8 +82,7 @@ bool tcmalloc_big_span() {
     }
   }
 
-  // TODO(b/304135905): Enable this by default.
-  return false;
+  return true;
 }
 
 // Cacheline-align our SizeMap and CpuCache.  They both have very hot arrays as

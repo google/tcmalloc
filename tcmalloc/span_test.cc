@@ -268,10 +268,12 @@ TEST(SpanAllocatorTest, Alignment) {
                             ABSL_CACHELINE_SIZE];
   }
 
-  // Not all spans are currently aligned to a cacheline.
-  //
-  // TODO(b/304135905): Modify this assumption.
-  EXPECT_LT(address_mod_cacheline[0], kNumSpans);
+  // TODO(b/304135905): Remove the opt out.
+  if (tcmalloc_big_span()) {
+    EXPECT_EQ(address_mod_cacheline[0], kNumSpans);
+  } else {
+    EXPECT_LT(address_mod_cacheline[0], kNumSpans);
+  }
 
   // Verify alignof is respected.
   for (auto [alignment, count] : address_mod_cacheline) {
