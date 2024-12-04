@@ -41,10 +41,7 @@ StackTraceTable::~StackTraceTable() {
   while (cur != nullptr) {
     LinkedSample* next = cur->next;
     cur->~LinkedSample();
-    {
-      PageHeapSpinLockHolder l;
-      tc_globals.linked_sample_allocator().Delete(cur);
-    }
+    tc_globals.linked_sample_allocator().Delete(cur);
     cur = next;
   }
   all_ = nullptr;
