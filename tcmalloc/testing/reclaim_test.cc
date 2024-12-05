@@ -93,11 +93,11 @@ TEST(ReclaimTest, ReclaimWorks) {
   // Allocate strings, so that they don't need to be reallocated below, and so
   // don't perturb what we're trying to measure.
   //
-  // As of November 2021, this size, plus the null terminator on the
+  // As of December 2024, this size, plus the null terminator on the
   // std::string, is well outside of the size classes used by TCMalloc, so a
   // resize will not perturb the per-CPU cache.
-  before.reserve(1 << 19);
-  after.reserve(1 << 19);
+  before.reserve(1 << 20);
+  after.reserve(1 << 20);
 
   // Generate some traffic to fill up caches.
   const int kThreads = 10;
