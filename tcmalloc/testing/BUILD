@@ -898,7 +898,6 @@ create_tcmalloc_testsuite(
     ],
     deps = [
         "//tcmalloc:malloc_extension",
-        "//tcmalloc:new_extension",
         "//tcmalloc/internal:profile_builder",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",

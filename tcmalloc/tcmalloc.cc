@@ -101,7 +101,6 @@
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
-#include "tcmalloc/new_extension.h"
 #include "tcmalloc/page_allocator.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"

@@ -33,7 +33,6 @@
 #include "absl/strings/str_replace.h"
 #include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/new_extension.h"
 
 namespace {
 

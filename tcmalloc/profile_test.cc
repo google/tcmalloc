@@ -34,7 +34,6 @@
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/linked_list.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/new_extension.h"
 #include "tcmalloc/testing/testutil.h"
 
 namespace tcmalloc {

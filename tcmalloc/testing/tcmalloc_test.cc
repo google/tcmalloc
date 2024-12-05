@@ -76,7 +76,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/new_extension.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/testing/test_allocator_harness.h"

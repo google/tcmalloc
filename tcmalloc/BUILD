@@ -1092,7 +1092,6 @@ cc_test(
     ],
     deps = [
         ":malloc_extension",
-        ":new_extension",
         "//tcmalloc/internal:declarations",
         "//tcmalloc/internal:linked_list",
         "//tcmalloc/testing:testutil",
@@ -1281,7 +1280,6 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     deps = [
         ":malloc_extension",
-        ":new_extension",
         "//tcmalloc/internal:page_size",
         "//tcmalloc/testing:testutil",
         "@com_github_google_benchmark//:benchmark",
