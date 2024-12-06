@@ -269,25 +269,35 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
 }
 
 ABSL_ATTRIBUTE_NOINLINE
-static void ReportMismatchedDelete(const SampledAllocation& alloc, size_t size,
+static void ReportMismatchedDelete(Static& state,
+                                   const SampledAllocation& alloc, size_t size,
                                    size_t requested_size,
                                    std::optional<size_t> allocated_size) {
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
   TC_LOG("Error originates from memory allocated at:");
   PrintStackTrace(alloc.sampled_stack.stack, alloc.sampled_stack.depth);
 
+  size_t maximum_size;
   if (allocated_size.value_or(requested_size) != requested_size) {
     TC_LOG("Mismatched-size-delete of %v bytes (expected %v - %v bytes) at:",
            size, requested_size, *allocated_size);
+
+    maximum_size = *allocated_size;
   } else {
     TC_LOG("Mismatched-size-delete of %v bytes (expected %v bytes) at:", size,
            requested_size);
+
+    maximum_size = requested_size;
   }
   static void* stack[kMaxStackDepth];
   const size_t depth = absl::GetStackTrace(stack, kMaxStackDepth, 1);
   PrintStackTrace(stack, depth);
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
+  state.mismatched_delete_state().Record(
+      size, requested_size, maximum_size,
+      absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
+      absl::MakeSpan(stack, depth));
   abort();
 }
 
@@ -325,6 +335,9 @@ static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
   PrintStackTrace(stack, depth);
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
+  state.mismatched_delete_state().Record(size, minimum_size, maximum_size,
+                                         std::nullopt,
+                                         absl::MakeSpan(stack, depth));
   abort();
 }
 
@@ -362,11 +375,11 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
     if (sampled_allocation->sampled_stack.requested_size_returning) {
       if (ABSL_PREDICT_FALSE(
               !(requested_size <= *size && *size <= allocated_size))) {
-        ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
-                               allocated_size);
+        ReportMismatchedDelete(state, *sampled_allocation, *size,
+                               requested_size, allocated_size);
       }
     } else if (ABSL_PREDICT_FALSE(size != requested_size)) {
-      ReportMismatchedDelete(*sampled_allocation, *size, requested_size,
+      ReportMismatchedDelete(state, *sampled_allocation, *size, requested_size,
                              std::nullopt);
     }
   }

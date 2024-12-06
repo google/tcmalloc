@@ -39,6 +39,7 @@
 #include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
+#include "tcmalloc/internal/mismatched_delete_state.h"
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
@@ -125,6 +126,8 @@ ABSL_CONST_INIT PageMap Static::pagemap_;
 ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
+ABSL_CONST_INIT MismatchedDeleteState Static::mismatched_delete_state_;
+
 // LINT.ThenChange(:static_vars_size)
 
 ABSL_CONST_INIT Static tc_globals;
@@ -150,7 +153,7 @@ size_t Static::metadata_bytes() {
       sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
-      sizeof(CacheTopology::Instance());
+      sizeof(CacheTopology::Instance()) + sizeof(mismatched_delete_state_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

@@ -35,6 +35,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/guarded_allocations.h"
 #include "tcmalloc/guarded_page_allocator.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/declarations.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
@@ -411,6 +412,80 @@ TEST_F(TcMallocTest, ReallocUseAfterFree) {
   }
 }
 
+TEST_F(TcMallocTest, MismatchedSampled) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+
+  // Sampled allocations should be able to provide a richer error (precise
+  // size/allocation stack) when there is a mismatch in provided sizes.
+
+  constexpr size_t kSizes[] = {0u,
+                               8u,
+                               64u,
+                               tcmalloc_internal::kPageSize,
+                               tcmalloc_internal::kMaxSize - 1u,
+                               tcmalloc_internal::kMaxSize,
+                               tcmalloc_internal::kMaxSize + 1u,
+                               tcmalloc_internal::kHugePageSize - 1u,
+                               tcmalloc_internal::kHugePageSize,
+                               tcmalloc_internal::kHugePageSize + 1u};
+  for (const size_t size : kSizes) {
+    const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
+    SCOPED_TRACE(absl::StrCat("size=", size));
+
+    // Hot-cold doesn't affect the sizes directly, stress our size classes.
+    constexpr std::optional<hot_cold_t> hot_cold_set[] = {
+        std::nullopt,
+        hot_cold_t{0},
+        hot_cold_t{128},
+        hot_cold_t{255},
+    };
+
+    for (const auto hot_cold : hot_cold_set) {
+      for (const bool size_returning : {true, false}) {
+        SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
+
+        std::string size_range;
+        if (size_returning && size != likely_size) {
+          size_range = absl::StrCat(size, " - ", likely_size);
+        } else {
+          size_range = absl::StrCat(size);
+        }
+
+        EXPECT_DEATH(
+            {
+              ScopedAlwaysSample always_sample;
+              ScopedGuardedSamplingInterval gs(-1);
+
+              sized_ptr_t r;
+              if (hot_cold.has_value()) {
+                if (size_returning) {
+                  r = __size_returning_new_hot_cold(size, *hot_cold);
+                } else {
+                  r.p = ::operator new(size, *hot_cold);
+                  r.n = size;
+                }
+              } else {
+                if (size_returning) {
+                  r = __size_returning_new(size);
+                } else {
+                  r.p = ::operator new(size);
+                  r.n = size;
+                }
+              }
+
+              ::operator delete(r.p, r.n + 1);
+            },
+            absl::StrCat(
+                "(Mismatched-size-delete of .* bytes \\(expected ", size_range,
+                " bytes"
+                "|CorrectSize)"));
+      }
+    }
+  }
+}
+
 TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 #ifdef ABSL_HAVE_ADDRESS_SANITIZER
   GTEST_SKIP() << "ASan will trap ahead of us";
@@ -475,8 +550,11 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
 
               ::operator delete(r.p, RoundUp(r.n));
             },
-            absl::StrCat("(Mismatched-size-delete of .* bytes \\(expected.* (",
-                         size, "|", likely_size, ").*bytes|CorrectSize)"));
+            absl::StrCat(
+                "(Mismatched-size-delete of .* bytes \\(expected.* (", size,
+                "|", likely_size,
+                ").*bytes"
+                "|CorrectSize)"));
       }
     }
   }
@@ -495,6 +573,7 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
                                kHugePageSize + 1u};
   for (size_t size : kSizes) {
     SCOPED_TRACE(absl::StrCat("size=", size));
+    const size_t likely_size = MallocExtension::GetEstimatedAllocatedSize(size);
 
     for (bool size_returning : {true, false}) {
       SCOPED_TRACE(absl::StrCat("size_returning=", size_returning));
@@ -510,7 +589,9 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
 
             ::operator delete(r.p, std::max(kMaxSize, r.n - kPageSize));
           },
-          "(Mismatched-size-delete of|CorrectSize)");
+          absl::StrCat(
+              "(Mismatched-size-delete of"
+              "|CorrectSize)"));
     }
   }
 }
