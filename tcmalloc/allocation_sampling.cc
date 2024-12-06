@@ -279,13 +279,19 @@ static void ReportMismatchedDelete(Static& state,
 
   size_t maximum_size;
   if (allocated_size.value_or(requested_size) != requested_size) {
-    TC_LOG("Mismatched-size-delete of %v bytes (expected %v - %v bytes) at:",
-           size, requested_size, *allocated_size);
+    TC_LOG(
+        "Mismatched-size-delete "
+        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+        "of %v bytes (expected %v - %v bytes) at:",
+        size, requested_size, *allocated_size);
 
     maximum_size = *allocated_size;
   } else {
-    TC_LOG("Mismatched-size-delete of %v bytes (expected %v bytes) at:", size,
-           requested_size);
+    TC_LOG(
+        "Mismatched-size-delete "
+        "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+        "of %v bytes (expected %v bytes) at:",
+        size, requested_size);
 
     maximum_size = requested_size;
   }
@@ -325,9 +331,9 @@ static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
   TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
 
   TC_LOG(
-      "Mismatched-size-delete of %v bytes (expected between [%v, %v] bytes) "
-      "for %p "
-      "at:",
+      "Mismatched-size-delete "
+      "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+      "of %v bytes (expected between [%v, %v] bytes) for %p at:",
       size, minimum_size, maximum_size, ptr);
 
   static void* stack[kMaxStackDepth];

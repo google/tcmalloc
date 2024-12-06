@@ -478,7 +478,9 @@ TEST_F(TcMallocTest, MismatchedSampled) {
               ::operator delete(r.p, r.n + 1);
             },
             absl::StrCat(
-                "(Mismatched-size-delete of .* bytes \\(expected ", size_range,
+                "(Mismatched-size-delete.*mismatched-sized-delete.md.*of .* "
+                "bytes \\(expected ",
+                size_range,
                 " bytes"
                 "|CorrectSize)"));
       }
@@ -551,8 +553,9 @@ TEST_F(TcMallocTest, MismatchedDeleteTooLarge) {
               ::operator delete(r.p, RoundUp(r.n));
             },
             absl::StrCat(
-                "(Mismatched-size-delete of .* bytes \\(expected.* (", size,
-                "|", likely_size,
+                "(Mismatched-size-delete.*mismatched-sized-delete.md.*of .* "
+                "bytes \\(expected.* (",
+                size, "|", likely_size,
                 ").*bytes"
                 "|CorrectSize)"));
       }
@@ -590,7 +593,7 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
             ::operator delete(r.p, std::max(kMaxSize, r.n - kPageSize));
           },
           absl::StrCat(
-              "(Mismatched-size-delete of"
+              "(Mismatched-size-delete.*mismatched-sized-delete.md.*of"
               "|CorrectSize)"));
     }
   }

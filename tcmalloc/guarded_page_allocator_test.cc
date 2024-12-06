@@ -303,9 +303,9 @@ TEST_P(SampledAllocationWithFilterTest, MismatchedSizeDelete) {
     if (!filter(ptr.get())) continue;
     ASSERT_TRUE(!IsNormalMemory(ptr.get()));
 
-    EXPECT_DEATH(
-        sized_delete(ptr.get(), 2000),
-        "Mismatched-size-delete of 2000 bytes \\(expected 1000 bytes\\) at");
+    EXPECT_DEATH(sized_delete(ptr.get(), 2000),
+                 "Mismatched-size-delete.*mismatched-sized-delete.md.*of 2000 "
+                 "bytes \\(expected 1000 bytes\\) at");
 
     return;
   }
@@ -323,9 +323,9 @@ TEST_P(SampledAllocationWithFilterTest, MismatchedSizeDeleteZero) {
     if (!filter(ptr.get())) continue;
     ASSERT_TRUE(!IsNormalMemory(ptr.get()));
 
-    EXPECT_DEATH(
-        sized_delete(ptr.get(), 0),
-        "Mismatched-size-delete of 0 bytes \\(expected 1000 bytes\\) at");
+    EXPECT_DEATH(sized_delete(ptr.get(), 0),
+                 "Mismatched-size-delete.*mismatched-sized-delete.md.*of 0 "
+                 "bytes \\(expected 1000 bytes\\) at");
 
     return;
   }
@@ -347,10 +347,12 @@ TEST_P(SampledAllocationWithFilterTest, SizedNewMismatchedSizeDelete) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr.get()))
       EXPECT_DEATH(  // Guarded page allocation will return exactly as requested
           sized_delete(ptr.get(), 2000),
-          "Mismatched-size-delete of 2000 bytes \\(expected 1000 bytes\\) at");
+          "Mismatched-size-delete.*mismatched-sized-delete.md.*of 2000 bytes "
+          "\\(expected 1000 bytes\\) at");
     else
       EXPECT_DEATH(sized_delete(ptr.get(), 2000),
-                   "Mismatched-size-delete of 2000 bytes \\(expected 1000 - "
+                   "Mismatched-size-delete.*mismatched-sized-delete.md.*of "
+                   "2000 bytes \\(expected 1000 - "
                    "1024 bytes\\) at");
 
     return;
