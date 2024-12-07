@@ -21,10 +21,10 @@ module(
 
 bazel_dep(name = "abseil-cpp", version = "20240722.0", repo_name = "com_google_absl")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "fuzztest", version = "20241028.0", repo_name = "com_google_fuzztest")
 bazel_dep(name = "google_benchmark", version = "1.8.3", repo_name = "com_github_google_benchmark")
 bazel_dep(name = "googletest", version = "1.13.0", repo_name = "com_google_googletest")
-bazel_dep(name = "protobuf", version = "26.0", repo_name = "com_google_protobuf")
+bazel_dep(name = "protobuf", version = "27.5", repo_name = "com_google_protobuf")
 bazel_dep(name = "re2", version = "2024-02-01", repo_name = "com_googlesource_code_re2")
 bazel_dep(name = "rules_cc", version = "0.0.9")
-bazel_dep(name = "rules_fuzzing", version = "0.5.1")
-bazel_dep(name = "rules_proto", version = "4.0.0")
+bazel_dep(name = "rules_fuzzing", version = "0.5.2")

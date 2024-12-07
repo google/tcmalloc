@@ -80,15 +80,16 @@ http_archive(
 # Proto rules for Bazel and Protobuf
 http_archive(
     name = "com_google_protobuf",
-    sha256 = "9ca59193fcfe52c54e4c2b4584770acd1a6528fc35efad363f8513c224490c50",
-    strip_prefix = "protobuf-13d559beb6967033a467a7517c35d8ad970f8afb",
-    urls = ["https://github.com/protocolbuffers/protobuf/archive/13d559beb6967033a467a7517c35d8ad970f8afb.zip"],
+    integrity = "sha256-ecxtCdAnBsWnPpAOqEK1s9rhYPNxtmVHdJR/54GFFCM=",
+    strip_prefix = "protobuf-27.5",
+    urls = ["https://github.com/protocolbuffers/protobuf/archive/refs/tags/v27.5.tar.gz"],
 )
 
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 
 protobuf_deps()
 
+# rules_proto is deprecated, but still needed by fuzztest.
 http_archive(
     name = "rules_proto",
     sha256 = "66bfdf8782796239d3875d37e7de19b1d94301e8972b3cbd2446b332429b4df1",
