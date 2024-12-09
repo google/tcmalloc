@@ -126,8 +126,11 @@ class FakeStaticForwarder {
   void SetHugepage(HugePage p, void* pt) { trackers_[p] = pt; }
 
   // SpanAllocator state.
-  [[nodiscard]] Span* NewSpan(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
-      pageheap_lock) ABSL_ATTRIBUTE_RETURNS_NONNULL {
+  [[nodiscard]] Span* NewSpan(Range r)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+          ABSL_ATTRIBUTE_RETURNS_NONNULL {
     Span* span;
     void* result = absl::base_internal::LowLevelAlloc::AllocWithArena(
         sizeof(*span) + alignof(Span) + sizeof(void*), ll_arena());

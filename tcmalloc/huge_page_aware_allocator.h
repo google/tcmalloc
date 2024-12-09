@@ -106,8 +106,13 @@ class StaticForwarder {
   static void SetHugepage(HugePage p, void* pt);
 
   // SpanAllocator state.
-  static Span* NewSpan(Range r) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-      ABSL_ATTRIBUTE_RETURNS_NONNULL;
+  static Span* NewSpan(Range r)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+#else
+      ABSL_LOCKS_EXCLUDED(pageheap_lock)
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+          ABSL_ATTRIBUTE_RETURNS_NONNULL;
   static void DeleteSpan(Span* span)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) ABSL_ATTRIBUTE_NONNULL();
 
@@ -361,19 +366,30 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
   // Helpers for New().
 
-  Span* LockAndAlloc(Length n, SpanAllocInfo span_alloc_info,
-                     bool* from_released);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  using FinalizeType = Span*;
+#else   // !TCMALLOC_INTERNAL_LEGACY_LOCKING
+  struct FinalizeType {
+    Range r;
+    bool donated = false;
+  };
+#endif  // !TCMALLOC_INTERNAL_LEGACY_LOCKING
 
-  Span* AllocSmall(Length n, SpanAllocInfo span_alloc_info, bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocLarge(Length n, SpanAllocInfo span_alloc_info, bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
-  Span* AllocEnormous(Length n, SpanAllocInfo span_alloc_info,
-                      bool* from_released)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  FinalizeType LockAndAlloc(Length n, SpanAllocInfo span_alloc_info,
+                            bool* from_released);
 
-  Span* AllocRawHugepages(Length n, SpanAllocInfo span_alloc_info,
+  FinalizeType AllocSmall(Length n, SpanAllocInfo span_alloc_info,
                           bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  FinalizeType AllocLarge(Length n, SpanAllocInfo span_alloc_info,
+                          bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  FinalizeType AllocEnormous(Length n, SpanAllocInfo span_alloc_info,
+                             bool* from_released)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+
+  FinalizeType AllocRawHugepages(Length n, SpanAllocInfo span_alloc_info,
+                                 bool* from_released)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   bool AddRegion() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
@@ -385,7 +401,9 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Finish an allocation request - give it a span and mark it in the pagemap.
-  Span* Finalize(Range r);
+  FinalizeType Finalize(Range r);
+
+  Span* Spanify(FinalizeType f);
 
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
@@ -466,23 +484,30 @@ inline PageId HugePageAwareAllocator<Forwarder>::RefillFiller(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::Finalize(Range r)
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::Finalize(Range r)
     ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
   TC_ASSERT_NE(r.p, PageId{0});
+  info_.RecordAlloc(r);
+  forwarder_.ShrinkToUsageLimit(r.n);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   // TODO(b/175334169): Lift Span creation out of LockAndAlloc.
   Span* ret = forwarder_.NewSpan(r);
   forwarder_.Set(r.p, ret);
   TC_ASSERT(!ret->sampled());
-  info_.RecordAlloc(r);
-  forwarder_.ShrinkToUsageLimit(r.n);
   return ret;
+#else
+  return {r, false};
+#endif
 }
 
 // For anything <= half a huge page, we will unconditionally use the filler
 // to pack it into a single page.  If we need another page, that's fine.
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::AllocSmall(Length n,
+                                              SpanAllocInfo span_alloc_info,
+                                              bool* from_released) {
   auto [pt, page, released] = filler_.TryGet(n, span_alloc_info);
   *from_released = released;
   if (ABSL_PREDICT_TRUE(pt != nullptr)) {
@@ -491,14 +516,16 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocSmall(
 
   page = RefillFiller(n, span_alloc_info, from_released);
   if (ABSL_PREDICT_FALSE(page == PageId{0})) {
-    return nullptr;
+    return {};
   }
   return Finalize(Range(page, n));
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
+                                              SpanAllocInfo span_alloc_info,
+                                              bool* from_released) {
   // If it's an exact page multiple, just pull it from pages directly.
   HugeLength hl = HLFromPages(n);
   if (hl.in_pages() == n) {
@@ -561,18 +588,21 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocLarge(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::AllocEnormous(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::AllocEnormous(Length n,
+                                                 SpanAllocInfo span_alloc_info,
+                                                 bool* from_released) {
   return AllocRawHugepages(n, span_alloc_info, from_released);
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
     Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
   HugeLength hl = HLFromPages(n);
 
   HugeRange r = cache_.Get(hl, from_released);
-  if (!r.valid()) return nullptr;
+  if (!r.valid()) return {};
 
   // We now have a huge page range that covers our request.  There
   // might be some slack in it if n isn't a multiple of
@@ -593,9 +623,14 @@ inline Span* HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
   Length here = kPagesPerHugePage - slack;
   TC_ASSERT_GT(here, Length(0));
   AllocAndContribute(last, here, span_alloc_info, /*donated=*/true);
-  Span* span = Finalize(Range(r.start().first_page(), n));
+  auto span = Finalize(Range(r.start().first_page(), n));
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   span->set_donated(/*value=*/true);
   return span;
+#else
+  span.donated = true;
+  return span;
+#endif
 }
 
 inline static void BackSpan(Span* span) {
@@ -608,7 +643,7 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
     Length n, SpanAllocInfo span_alloc_info) {
   TC_CHECK_GT(n, Length(0));
   bool from_released;
-  Span* s = LockAndAlloc(n, span_alloc_info, &from_released);
+  Span* s = Spanify(LockAndAlloc(n, span_alloc_info, &from_released));
   if (s) {
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(s->start_address());
@@ -619,8 +654,10 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
 }
 
 template <class Forwarder>
-inline Span* HugePageAwareAllocator<Forwarder>::LockAndAlloc(
-    Length n, SpanAllocInfo span_alloc_info, bool* from_released) {
+inline typename HugePageAwareAllocator<Forwarder>::FinalizeType
+HugePageAwareAllocator<Forwarder>::LockAndAlloc(Length n,
+                                                SpanAllocInfo span_alloc_info,
+                                                bool* from_released) {
   PageHeapSpinLockHolder l;
   // Our policy depends on size.  For small things, we will pack them
   // into single hugepages.
@@ -651,14 +688,32 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
   // TODO(b/134690769): support higher align.
   TC_CHECK_LE(align, kPagesPerHugePage);
   bool from_released;
-  Span* s;
+  FinalizeType f;
   {
     PageHeapSpinLockHolder l;
-    s = AllocRawHugepages(n, span_alloc_info, &from_released);
+    f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
+  Span* s = Spanify(f);
   if (s && from_released) BackSpan(s);
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
+}
+
+template <class Forwarder>
+inline Span* HugePageAwareAllocator<Forwarder>::Spanify(FinalizeType f) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+  return f;
+#else
+  if (ABSL_PREDICT_FALSE(f.r.p == PageId{0})) {
+    return nullptr;
+  }
+
+  Span* s = forwarder_.NewSpan(f.r);
+  forwarder_.Set(f.r.p, s);
+  TC_ASSERT(!s->sampled());
+  s->set_donated(f.donated);
+  return s;
+#endif
 }
 
 template <class Forwarder>

@@ -102,7 +102,11 @@ class Span final : public SpanList::Elem {
 
   // Allocator/deallocator for spans. Note that these functions are defined
   // in static_vars.h, which is weird: see there for why.
-  static Span* New(Range r);
+  static Span* New(Range r)
+#ifndef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ABSL_LOCKS_EXCLUDED(pageheap_lock)
+#endif
+          ;
   static void Delete(Span* span);
 
   static void operator delete(void*) = delete;

@@ -256,7 +256,9 @@ TEST(SpanAllocatorTest, Alignment) {
   spans.reserve(kNumSpans);
 
   {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     for (int i = 0; i < kNumSpans; ++i) {
       spans.push_back(Span::New(r));
     }
