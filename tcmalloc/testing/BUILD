@@ -22,33 +22,6 @@ load("//tcmalloc:variants.bzl", "create_tcmalloc_benchmark_suite", "create_tcmal
 
 licenses(["notice"])
 
-REGTEST_DEPS = [
-    ":test_allocator_harness",
-    ":testutil",
-    ":thread_manager",
-    "@com_google_googletest//:gtest",
-    "@com_google_absl//absl/base",
-    "@com_google_absl//absl/base:core_headers",
-    "@com_google_absl//absl/container:flat_hash_set",
-    "@com_google_absl//absl/debugging:leak_check",
-    "@com_google_absl//absl/random",
-    "@com_google_absl//absl/random:distributions",
-    "@com_google_absl//absl/strings",
-    "@com_google_absl//absl/strings:str_format",
-    "@com_google_absl//absl/synchronization",
-    "@com_google_absl//absl/utility",
-    "@com_google_absl//absl/numeric:bits",
-    "//tcmalloc/internal:declarations",
-    "//tcmalloc/internal:logging",
-    "//tcmalloc/internal:parameter_accessors",
-    "//tcmalloc:malloc_extension",
-    "//tcmalloc:new_extension",
-]
-
-REGTEST_OPTS = [
-    "$(STACK_FRAME_UNLIMITED)",  # required for tcmalloc_test.cc
-] + TCMALLOC_DEFAULT_COPTS
-
 cc_library(
     name = "testutil",
     testonly = 1,
@@ -72,7 +45,7 @@ create_tcmalloc_testsuite(
     name = "tcmalloc_test",
     timeout = "long",
     srcs = ["tcmalloc_test.cc"],
-    copts = REGTEST_OPTS,
+    copts = TCMALLOC_DEFAULT_COPTS,
     exec_properties = select({
         "//conditions:default": None,
     }),
@@ -82,11 +55,30 @@ create_tcmalloc_testsuite(
         "nosan",
     ],
     visibility = ["//visibility:private"],
-    deps = REGTEST_DEPS + [
+    deps = [
+        ":test_allocator_harness",
+        ":testutil",
+        ":thread_manager",
+        "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
+        "//tcmalloc/internal:declarations",
+        "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:parameter_accessors",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/debugging:leak_check",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/random:distributions",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/utility",
+        "@com_google_googletest//:gtest",
     ],
 )
 
