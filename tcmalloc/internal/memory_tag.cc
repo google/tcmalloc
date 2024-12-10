@@ -1,4 +1,4 @@
-// Copyright 2019 The TCMalloc Authors
+// Copyright 2024 The TCMalloc Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,21 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "tcmalloc/common.h"
+#include "tcmalloc/internal/memory_tag.h"
 
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/optimization.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
-namespace tcmalloc {
-namespace tcmalloc_internal {
+namespace tcmalloc::tcmalloc_internal {
 
-// This only provides correct answer for TCMalloc-allocated memory,
-// and may give a false positive for non-allocated block.
-extern "C" bool TCMalloc_Internal_PossiblyCold(const void* ptr) {
-  return GetMemoryTag(ptr) == MemoryTag::kCold;
+absl::string_view MemoryTagToLabel(MemoryTag tag) {
+  switch (tag) {
+    case MemoryTag::kNormal:
+      return "NORMAL";
+    case MemoryTag::kNormalP1:
+      return "NORMAL_P1";
+    case MemoryTag::kSampled:
+      return "SAMPLED";
+    case MemoryTag::kSelSan:
+      return "SELSAN";
+    case MemoryTag::kCold:
+      return "COLD";
+    case MemoryTag::kMetadata:
+      return "METADATA";
+  }
+
+  ASSUME(false);
 }
 
-}  // namespace tcmalloc_internal
-}  // namespace tcmalloc
+}  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

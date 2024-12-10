@@ -137,6 +137,21 @@ inline constexpr int kAddressBits = 48;
 inline constexpr int kAddressBits = 8 * sizeof(void*);
 #endif
 
+#ifdef TCMALLOC_INTERNAL_SELSAN
+inline constexpr bool kSelSanPresent = true;
+#else
+inline constexpr bool kSelSanPresent = false;
+#endif
+
+// Sanitizers constrain the memory layout which causes problems with the
+// enlarged tags required to represent NUMA partitions and for SelSan.
+#if defined(ABSL_HAVE_MEMORY_SANITIZER) || defined(ABSL_HAVE_THREAD_SANITIZER)
+static_assert(!kSelSanPresent, "MSan/TSan are incompatible with SelSan.");
+inline constexpr bool kSanitizerAddressSpace = true;
+#else
+inline constexpr bool kSanitizerAddressSpace = false;
+#endif
+
 #if defined(__x86_64__)
 // x86 has 2 MiB huge pages
 static constexpr size_t kHugePageShift = 21;

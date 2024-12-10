@@ -331,6 +331,21 @@ cc_test(
 )
 
 cc_library(
+    name = "memory_tag",
+    srcs = ["memory_tag.cc"],
+    hdrs = ["memory_tag.h"],
+    visibility = [
+        "//tcmalloc:__subpackages__",
+    ],
+    deps = [
+        ":config",
+        ":logging",
+        ":optimization",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
     name = "mincore",
     srcs = ["mincore.cc"],
     hdrs = ["mincore.h"],

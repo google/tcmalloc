@@ -44,6 +44,7 @@ cc_library(
 cc_test(
     name = "shadow_test",
     srcs = ["shadow_test.cc"],
+    tags = ["nosan"],
     deps = [
         ":selsan",
         "@com_google_googletest//:gtest_main",
