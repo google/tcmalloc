@@ -1270,6 +1270,12 @@ class UsageInfo {
     return is_hugepage_backed;
   }
 
+  // Reports the number of pages that were previously released, but later became
+  // full and are hugepage backed.
+  size_t HugepageBackedPreviouslyReleased() {
+    return hugepage_backed_previously_released_;
+  }
+
   template <class TrackerType>
   void Record(const TrackerType* pt, PageFlags& pageflags, Type which,
               double clock_now, double clock_frequency) {
@@ -1303,6 +1309,9 @@ class UsageInfo {
 
     if (IsHugepageBacked(pt, pageflags)) {
       ++hugepage_backed_[which];
+      if (pt->was_released()) {
+        ++hugepage_backed_previously_released_;
+      }
     }
     ++total_pages_[which];
   }
@@ -1573,6 +1582,7 @@ class UsageInfo {
   size_t lifetime_bucket_bounds_[kBucketCapacity];
   size_t hugepage_backed_[kNumTypes] = {0};
   size_t total_pages_[kNumTypes] = {0};
+  size_t hugepage_backed_previously_released_ = 0;
   int buckets_size_ = 0;
 };
 }  // namespace huge_page_filler_internal
@@ -1698,10 +1708,6 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
                    .in_pages()));
   out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
               hugepage_frac());
-  out->printf(
-      "HugePageFiller: %zu hugepages were previously released, but "
-      "later became full.\n",
-      previously_released_huge_pages().raw_num());
 
   // Subrelease
   out->printf(
@@ -1757,6 +1763,13 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
         usage.Record(pt, pageflags, UsageInfo::kDenseReleased, now, frequency);
       },
       0);
+
+  out->printf(
+      "HugePageFiller: %zu hugepages became full after being previously "
+      "released, "
+      "out of which %zu pages are hugepage backed.\n",
+      previously_released_huge_pages().raw_num(),
+      usage.HugepageBackedPreviouslyReleased());
 
   out->printf("\n");
   out->printf("HugePageFiller: fullness histograms\n");
@@ -1889,6 +1902,8 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       },
       0);
 
+  hpaa->PrintI64("filler_previously_released_backed_huge_pages",
+                 usage.HugepageBackedPreviouslyReleased());
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");

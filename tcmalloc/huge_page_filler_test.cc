@@ -1685,30 +1685,29 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
     filler_.Print(&printer, true);
   }
     buffer.resize(strlen(buffer.c_str()));
-    EXPECT_THAT(
-        buffer,
-        testing::HasSubstr(
-            "HugePageFiller: 0 hugepages were previously released, but later "
-            "became full."));
+    EXPECT_THAT(buffer, testing::HasSubstr(
+                            "HugePageFiller: 0 hugepages became full after "
+                            "being previously released, "
+                            "out of which 0 pages are hugepage backed."));
 
-  // Repopulate.
-  ASSERT_TRUE(!tiny1.empty());
-  half = AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
-  EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
-  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
-  buffer.resize(1024 * 1024);
-  {
-    PageHeapSpinLockHolder l;
-    Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
-  }
+    // Repopulate.
+    ASSERT_TRUE(!tiny1.empty());
+    half =
+        AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
+    EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
+    EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+    buffer.resize(1024 * 1024);
+    {
+      PageHeapSpinLockHolder l;
+      Printer printer(&*buffer.begin(), buffer.size());
+      filler_.Print(&printer, true);
+    }
 
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 1 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: 1 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 
   // Release everything and cleanup.
   DeleteVector(half);
@@ -1722,11 +1721,10 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
     filler_.Print(&printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 0 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: 0 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 }
 
 // Make sure that previously_released_huge_pages stat is correct when a huge
@@ -1748,11 +1746,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
     filler_.Print(&printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 0 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: 0 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 
   // Repopulate.
   auto half1 =
@@ -1767,11 +1764,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   }
 
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 1 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: 1 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 
   // Release again.
   DeleteVector(half1);
@@ -1785,11 +1781,11 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
     filler_.Print(&printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 0 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+
+              testing::HasSubstr("HugePageFiller: 0 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 
   // Release everything and cleanup.
   DeleteVector(half);
@@ -1801,11 +1797,10 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
     filler_.Print(&printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
-  EXPECT_THAT(
-      buffer,
-      testing::HasSubstr(
-          "HugePageFiller: 0 hugepages were previously released, but later "
-          "became full."));
+  EXPECT_THAT(buffer,
+              testing::HasSubstr("HugePageFiller: 0 hugepages became full "
+                                 "after being previously released, "
+                                 "out of which 0 pages are hugepage backed."));
 }
 
 TEST_P(FillerTest, AvoidArbitraryQuarantineVMGrowth) {
@@ -3793,8 +3788,8 @@ HugePageFiller: among non-fulls, 0.2086 free
 HugePageFiller: 998 used pages in subreleased hugepages (0 of them in partially released)
 HugePageFiller: 4 hugepages partially released, 0.0254 released
 HugePageFiller: 0.7186 of used pages hugepageable
-HugePageFiller: 0 hugepages were previously released, but later became full.
 HugePageFiller: Since startup, 282 pages subreleased, 5 hugepages broken, (0 pages, 0 hugepages due to reaching tcmalloc limit)
+HugePageFiller: 0 hugepages became full after being previously released, out of which 0 pages are hugepage backed.
 
 HugePageFiller: fullness histograms
 
