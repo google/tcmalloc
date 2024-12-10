@@ -197,20 +197,6 @@ TEST_F(NumaTopologyTest, EmptyNode) {
   }
 }
 
-TEST_F(NumaTopologyTest, IsLocalToCpuPartition) {
-  std::vector<SyntheticCpuList> nodes;
-  nodes.emplace_back("0-1");
-  nodes.emplace_back("2-3");
-
-  const auto nt = CreateNumaTopology<2, 2>(nodes);
-
-  EXPECT_EQ(nt.numa_aware(), true);
-  EXPECT_TRUE(nt.IsLocalToCpuPartition(/*size_class=*/0, /*cpu=*/0));
-  EXPECT_TRUE(nt.IsLocalToCpuPartition(/*size_class=*/2, /*cpu=*/2));
-  EXPECT_FALSE(nt.IsLocalToCpuPartition(/*size_class=*/0, /*cpu=*/2));
-  EXPECT_FALSE(nt.IsLocalToCpuPartition(/*size_class=*/2, /*cpu=*/0));
-}
-
 // Test that cpulists too long to fit into the 16 byte buffer used by
 // InitNumaTopology() parse successfully.
 TEST_F(NumaTopologyTest, LongCpuLists) {

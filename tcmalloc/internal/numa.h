@@ -139,10 +139,6 @@ class NumaTopology {
   // specified NUMA `partition`.
   uint64_t GetPartitionNodes(int partition) const;
 
-  // Returns whether the `size_class` is NUMA-partition-local to the given
-  // `cpu`.
-  bool IsLocalToCpuPartition(size_t size_class, int cpu) const;
-
  private:
   // Maps from NUMA partition to a bitmap of NUMA nodes within the partition.
   uint64_t partition_to_nodes_[kNumInternalPartitions] = {0};
@@ -259,12 +255,6 @@ template <size_t NumPartitions, size_t ScaleBy>
 inline uint64_t NumaTopology<NumPartitions, ScaleBy>::GetPartitionNodes(
     const int partition) const {
   return partition_to_nodes_[partition];
-}
-
-template <size_t NumPartitions, size_t ScaleBy>
-inline bool NumaTopology<NumPartitions, ScaleBy>::IsLocalToCpuPartition(
-    size_t size_class, int cpu) const {
-  return numa_aware() ? GetCpuPartition(cpu) == size_class / ScaleBy : true;
 }
 
 }  // namespace tcmalloc_internal
