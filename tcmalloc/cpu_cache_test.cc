@@ -457,7 +457,9 @@ TEST(CpuCacheTest, Metadata) {
       // CacheCpuSlab.  This check can spuriously pass if we're preempted
       // between the end of Allocate and now, rather than within Allocate, but
       // it ensures we do not silently break.
+#if TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
       EXPECT_EQ(subtle::percpu::tcmalloc_slabs & TCMALLOC_CACHED_SLABS_MASK, 0);
+#endif  // TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
 
       cache.Deallocate(ptr, kSizeClass);
       cache.Deactivate();
