@@ -54,53 +54,64 @@ TEST(ResidenceTest, ThisProcess) {
   const size_t kPageSize = GetPageSize();
   const int kNumPages = 16;
 
-#ifdef ABSL_HAVE_THREAD_SANITIZER
-  // TSAN completely ignores hints unless you ask really nicely.
-  int base = MAP_FIXED;
-
-  // Minimize the chance of a race between munmap and a new mmap.
-  void* const mmap_hint = reinterpret_cast<void*>(0x000DEAD0000);
-#else
-  // ASAN, among others, needs a different memory mapping.
-  void* const mmap_hint = reinterpret_cast<void*>(0x00007BADDEAD0000);
-
-  int base = 0;
-#endif
   // Try both private and shared mappings to make sure we have the bit order of
   // /proc/pid/pageflags correct.
-  for (const int flags : {base | MAP_ANONYMOUS | MAP_SHARED,
-                          base | MAP_ANONYMOUS | MAP_PRIVATE}) {
+  for (const int flags :
+       {MAP_ANONYMOUS | MAP_SHARED, MAP_ANONYMOUS | MAP_PRIVATE}) {
+    const size_t kHead = kPageSize * 10;
+    const size_t kTail = kPageSize * 10;
+
     Residency r;
     // Overallocate kNumPages of memory, so we can munmap the page before and
     // after it.
-    void* p = mmap(mmap_hint, (kNumPages + 2) * kPageSize,
+    void* p = mmap(nullptr, kNumPages * kPageSize + kHead + kTail,
                    PROT_READ | PROT_WRITE, flags, -1, 0);
     ASSERT_NE(p, MAP_FAILED) << errno;
+
     EXPECT_THAT(r.Get(p, (kNumPages + 2) * kPageSize),
                 Optional(FieldsAre(0, 0)));
-    if (p != mmap_hint) {
-      absl::FPrintF(stderr,
-                    "failed to move test mapping out of the way; we might fail "
-                    "due to race\n");
-    }
     ASSERT_EQ(munmap(p, kPageSize), 0);
-    void* q = reinterpret_cast<char*>(p) + kPageSize;
-    void* last = reinterpret_cast<char*>(p) + (kNumPages + 1) * kPageSize;
+    void* q = reinterpret_cast<char*>(p) + kHead;
+    void* last = reinterpret_cast<char*>(p) + kNumPages * kPageSize + kHead;
     ASSERT_EQ(munmap(last, kPageSize), 0);
 
+    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
+    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
+
     memset(q, 0, kNumPages * kPageSize);
+    (void)mlock(q, kNumPages * kPageSize);
     ::benchmark::DoNotOptimize(q);
+
+    EXPECT_THAT(r.Get(p, kHead), Optional(FieldsAre(0, 0)));
+    EXPECT_THAT(r.Get(last, kTail), Optional(FieldsAre(0, 0)));
 
     EXPECT_THAT(r.Get(q, kPageSize), Optional(FieldsAre(kPageSize, 0)));
 
-    EXPECT_THAT(r.Get(p, (kNumPages + 2) * kPageSize),
+    EXPECT_THAT(r.Get(q, (kNumPages + 2) * kPageSize),
                 Optional(FieldsAre(kPageSize * kNumPages, 0)));
+
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kPageSize - 7),
+                Optional(FieldsAre(kPageSize - 7, 0)));
+
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kPageSize),
+                Optional(FieldsAre(kPageSize, 0)));
 
     EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, 3 * kPageSize),
                 Optional(FieldsAre(kPageSize * 3, 0)));
 
+    EXPECT_THAT(r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kPageSize),
+                Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+
+    EXPECT_THAT(
+        r.Get(reinterpret_cast<char*>(q) + 7, kNumPages * kPageSize - 7),
+        Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+
     EXPECT_THAT(
         r.Get(reinterpret_cast<char*>(q) + 7, (kNumPages + 1) * kPageSize),
+        Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
+
+    EXPECT_THAT(
+        r.Get(reinterpret_cast<char*>(q) + 7, (kNumPages + 1) * kPageSize - 7),
         Optional(FieldsAre(kPageSize * kNumPages - 7, 0)));
 
     ASSERT_EQ(munmap(q, kNumPages * kPageSize), 0);

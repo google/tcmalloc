@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <optional>
+#include <ostream>
 
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
@@ -81,6 +82,12 @@ class Residency {
   uint64_t buf_[kEntriesInBuf];
   const int fd_;
 };
+
+inline std::ostream& operator<<(std::ostream& stream,
+                                const Residency::Info& rhs) {
+  return stream << "{.resident = " << rhs.bytes_resident
+                << ", .swapped = " << rhs.bytes_swapped << "}";
+}
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
