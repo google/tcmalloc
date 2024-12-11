@@ -885,11 +885,6 @@ cc_test(
 create_tcmalloc_testsuite(
     name = "profile_drop_frames_test",
     srcs = ["profile_drop_frames_test.cc"],
-    tags = [
-        "noasan",
-        "nomsan",
-        "notsan",
-    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:profile_builder",

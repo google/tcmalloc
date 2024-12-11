@@ -361,11 +361,22 @@ TEST(AllocationSampleTest, ProfileDropFrames) {
     });
   };
   check(alloc_profile);
+
+#if !defined(ABSL_HAVE_ADDRESS_SANITIZER) && \
+    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&  \
+    !defined(ABSL_HAVE_THREAD_SANITIZER) &&  \
+    !defined(UNDEFINED_BEHAVIOR_SANITIZER)
   EXPECT_GT(got_stacks, 20);
+#endif
   got_stacks = 0;
   check(lifetime_profile);
+#if !defined(ABSL_HAVE_ADDRESS_SANITIZER) && \
+    !defined(ABSL_HAVE_MEMORY_SANITIZER) &&  \
+    !defined(ABSL_HAVE_THREAD_SANITIZER) &&  \
+    !defined(UNDEFINED_BEHAVIOR_SANITIZER)
   EXPECT_GT(got_stacks, 20);
   EXPECT_FALSE(failed);
+#endif
 }
 
 }  // namespace
