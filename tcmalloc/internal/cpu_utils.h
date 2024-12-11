@@ -38,7 +38,7 @@ class CpuSet {
   bool IsSet(int cpu) const {
     return CPU_ISSET_S(cpu, kCpuSetBytes, cpu_set_.data());
   }
-  bool CLR(int cpu) { return CPU_CLR_S(cpu, kCpuSetBytes, cpu_set_.data()); }
+  void CLR(int cpu) { CPU_CLR_S(cpu, kCpuSetBytes, cpu_set_.data()); }
   int Count() const { return CPU_COUNT_S(kCpuSetBytes, cpu_set_.data()); }
 
   // Find the index of the first set CPU. Returns -1 if none are set.
