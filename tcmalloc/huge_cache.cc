@@ -356,27 +356,29 @@ HugeLength HugeCache::GetDesiredReleaseablePages(
 
 HugeLength HugeCache::ReleaseCachedPagesByDemand(
     HugeLength n, SkipSubreleaseIntervals intervals, bool hit_limit) {
-  // We cannot release more than what exists in the cache. Also, we want to
-  // increase the release target if the cache has been fragmented for a while
-  // (default 5 min).
-  HugeLength release_target = std::min(
-      std::max(n, HLFromPages(cachestats_tracker_.RealizedFragmentation())),
-      size());
+  // We get here when one of the three happened: A) hit limit, B) background
+  // release, or C) ReleaseMemoryToSystem().
+  HugeLength release_target = std::min(n, size());
 
-  // When demand-based release is enabled, we would no longer unback in
-  // Release(). Hence, we want to release some hugepages even though the target
-  // is zero, and protect the minimum cache size at the same time. This covers
-  // the background release and the best effort release triggered by
-  // ReleaseMemoryToSystem(0).
-  if (release_target == NHugePages(0)) {
-    release_target =
-        size() > MinCacheLimit() ? size() - MinCacheLimit() : NHugePages(0);
+  // For all those three reasons, we want to release as much as possible to be
+  // efficient. However, we do not want to release a large number of hugepages
+  // at once because that may impact applications' performance. So we release a
+  // fraction of the cache.
+  if (size() > MinCacheLimit()) {
+    HugeLength increased_release_target =
+        std::min(HugeLength(kFractionToReleaseFromCache * size().raw_num()),
+                 size() - MinCacheLimit());
+    release_target = std::max(release_target, increased_release_target);
   }
+
   if (release_target == NHugePages(0)) {
     return NHugePages(0);
   }
   if (intervals.SkipSubreleaseEnabled() && !hit_limit) {
-    // Updates the target based on the recent demand history.
+    // This will reduce the target if the calculated (future) demand is higher
+    // than the current. In other words, we need to reserve some of the free
+    // hugepages to meet the future demand. It also makes sure we release the
+    // realized fragmentation.
     release_target = GetDesiredReleaseablePages(release_target, intervals);
   }
   HugeLength released = ShrinkCache(size() - release_target);

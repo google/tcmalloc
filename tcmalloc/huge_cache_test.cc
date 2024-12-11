@@ -298,7 +298,7 @@ TEST_P(HugeCacheTest, Growth) {
   // Requests a best-effort demand-based release to shrink the cache.
   if (GetDemandBasedRelease()) {
     cache_.ReleaseCachedPagesByDemand(
-        NHugePages(0),
+        cache_.size(),
         SkipSubreleaseIntervals{.short_interval = absl::Seconds(10),
                                 .long_interval = absl::Seconds(10)},
         /*hit_limit=*/false);
@@ -326,8 +326,9 @@ TEST_P(HugeCacheTest, Growth) {
       for (auto r : items) {
         Release(r);
       }
-      // Requests a best-effort demand-based release. The cache should shrink
-      // to the working set size, avoiding fragmentation.
+      // Requests a demand-based release. The target will increase to
+      // kFractionToReleaseFromCache of the cache, and that is enough to trim
+      // the fragmentation.
       if (GetDemandBasedRelease()) {
         cache_.ReleaseCachedPagesByDemand(
             NHugePages(0),
@@ -576,9 +577,10 @@ HugeCache: Subrelease stats last 10 min: total 256000 pages subreleased (0 pages
 )"));
 }
 
-// Tests the best effort release -- releasing as much as the past demand allows
-// even though the release target is zero.
-TEST_P(HugeCacheTest, ReleaseByDemandBestEffort) {
+// Tests that we can increase the release target to a fraction
+// (kFractionToReleaseFromCache) of HugeCache. This can happen regardless of the
+// initial value of the target.
+TEST_P(HugeCacheTest, ReleaseByDemandIncreaseTarget) {
   if (!GetDemandBasedRelease()) {
     GTEST_SKIP();
   }
@@ -607,38 +609,47 @@ TEST_P(HugeCacheTest, ReleaseByDemandBestEffort) {
   EXPECT_EQ(cache_.usage(), NHugePages(0));
 
   // The past demand is 80 hps (short 10 hps + long 70 hps), and we can unback
-  // 90 hps.
+  // 34 hps (170 hps * kFractionToReleaseFromCache), more than the release
+  // target (0 hps).
   HugeLength unbacked_1 = cache_.ReleaseCachedPagesByDemand(
       NHugePages(0),
       SkipSubreleaseIntervals{.short_interval = absl::Seconds(120),
                               .long_interval = absl::Seconds(180)},
       /*hit_limit=*/false);
-  EXPECT_EQ(unbacked_1, NHugePages(90));
-  // The past peak demand is 170 hps, and we can unback zero.
+  EXPECT_EQ(unbacked_1, NHugePages(34));
+  // Repeats the test using a non-zero target.
+  EXPECT_EQ(cache_.size(), NHugePages(136));
   HugeLength unbacked_2 = cache_.ReleaseCachedPagesByDemand(
-      NHugePages(0),
-      SkipSubreleaseIntervals{.peak_interval = absl::Seconds(130)},
+      NHugePages(10),
+      SkipSubreleaseIntervals{.short_interval = absl::Seconds(120),
+                              .long_interval = absl::Seconds(180)},
       /*hit_limit=*/false);
-  EXPECT_EQ(unbacked_2, NHugePages(0));
+  EXPECT_EQ(unbacked_2, NHugePages(28));
 
-  // We do not release anything if the size is at the minimum (10hps).
-  // First, force the cache to be at the minimum.
+  // Tests that we always manage to protect the cache limit (10 hps) while
+  // increasing the target. First, force the cache close to the limit using a
+  // crafted target.
   HugeLength unbacked_3 = cache_.ReleaseCachedPagesByDemand(
-      NHugePages(70), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
-  EXPECT_EQ(unbacked_3, NHugePages(70));
-  EXPECT_EQ(cache_.size(), NHugePages(10));
-  // Then, ask for release again. There has been no demand in the past 10s so
-  // there would be no reduction if a release target is proposed.
+      NHugePages(97), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  EXPECT_EQ(unbacked_3, NHugePages(97));
+  EXPECT_EQ(cache_.size(), NHugePages(11));
+  // Then, ask for release using target zero.
   HugeLength unbacked_4 = cache_.ReleaseCachedPagesByDemand(
-      NHugePages(0),
+      NHugePages(0), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  EXPECT_EQ(unbacked_4, NHugePages(1));
+  EXPECT_EQ(cache_.size(), NHugePages(10));
+  // Now the cache is at the limit. Checks if that can be protected.
+  HugeLength unbacked_5 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(0), SkipSubreleaseIntervals{}, /*hit_limit=*/true);
+  EXPECT_EQ(unbacked_5, NHugePages(0));
+
+  // Finally, show that we can release the limit if requested. There has been no
+  // demand in the past 10s so we can release the rest of the cache.
+  HugeLength unbacked_6 = cache_.ReleaseCachedPagesByDemand(
+      NHugePages(100),
       SkipSubreleaseIntervals{.peak_interval = absl::Seconds(10)},
       /*hit_limit=*/false);
-  EXPECT_EQ(unbacked_4, NHugePages(0));
-  EXPECT_EQ(cache_.size(), NHugePages(10));
-  // Releases the rest.
-  HugeLength unbacked_5 = cache_.ReleaseCachedPagesByDemand(
-      NHugePages(10), SkipSubreleaseIntervals{}, /*hit_limit=*/false);
-  EXPECT_EQ(unbacked_5, NHugePages(10));
+  EXPECT_EQ(unbacked_6, NHugePages(10));
 }
 
 // Tests releasing zero pages when the cache size and demand are both zero.
@@ -708,37 +719,6 @@ TEST_P(HugeCacheTest, ReleaseByDemandCappedByDemandPeak) {
                                               SkipSubreleaseIntervals{},
                                               /*hit_limit=*/false),
             NHugePages(15));
-}
-
-// Tests that the we can increase the release target if the realized
-// fragmentation is high.
-TEST_P(HugeCacheTest, ReleaseByDemandIncreaseReleaseTarget) {
-  if (!GetDemandBasedRelease()) {
-    GTEST_SKIP();
-  }
-  EXPECT_CALL(mock_unback_, Unback(testing::_, testing::_))
-      .WillRepeatedly(Return(true));
-
-  bool released;
-  // Creates realized fragmentation.
-  HugeRange large = cache_.Get(NHugePages(100), &released);
-  Release(large);
-  Advance(absl::Minutes(5));
-  HugeRange small = cache_.Get(NHugePages(10), &released);
-  Release(small);
-  Advance(absl::Minutes(1));
-  // Releases more that requested due to high fragmentation.
-  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(
-                NHugePages(10),
-                SkipSubreleaseIntervals{.short_interval = absl::Minutes(1),
-                                        .long_interval = absl::Minutes(1)},
-                /*hit_limit=*/false),
-            NHugePages(90));
-  // Releases the rest.
-  EXPECT_EQ(cache_.ReleaseCachedPagesByDemand(NHugePages(100),
-                                              SkipSubreleaseIntervals{},
-                                              /*hit_limit=*/false),
-            NHugePages(10));
 }
 
 // Tests demand-based skip release. The test is a modified version of the

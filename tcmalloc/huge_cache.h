@@ -273,8 +273,16 @@ class HugeCache {
   MemoryModifyFunction& unback_;
   absl::Duration cache_time_;
 
-  // Interval used for capping demand calculated for demand-based release.
+  // Interval used for capping demand calculated for demand-based release:
+  // making sure that it is not more than the maximum demand recorded in that
+  // period. When the cap applies, we also release the minimum amount of free
+  // hugepages that we have been consistently holding at anytime for 5 minutes
+  // (realized fragmentation).
   absl::Duration CapDemandInterval() const { return absl::Minutes(5); }
+
+  // The fraction of the cache that we are happy to return at a time. We use
+  // this to efficiently reduce the fragmenation.
+  static constexpr double kFractionToReleaseFromCache = 0.2;
 
   using StatsTrackerType = SubreleaseStatsTracker<600>;
   StatsTrackerType::SubreleaseStats GetSubreleaseStats() const {
