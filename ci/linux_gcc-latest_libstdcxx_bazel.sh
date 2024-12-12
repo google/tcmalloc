@@ -36,7 +36,7 @@ if [ -z ${EXCEPTIONS_MODE:-} ]; then
   EXCEPTIONS_MODE="-fno-exceptions -fexceptions"
 fi
 
-readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20230217"
+readonly DOCKER_CONTAINER="gcr.io/google.com/absl-177019/linux_hybrid-latest:20240523"
 
 # USE_BAZEL_CACHE=1 only works on Kokoro.
 # Without access to the credentials this won't work.
@@ -47,7 +47,7 @@ if [[ ${USE_BAZEL_CACHE:-0} -ne 0 ]]; then
   # remote_http_cache url, we make changes to the container part of
   # the cache key. Hashing the key is to make it shorter and url-safe.
   container_key=$(echo ${DOCKER_CONTAINER} | sha256sum | head -c 16)
-  BAZEL_EXTRA_ARGS="--remote_http_cache=https://storage.googleapis.com/absl-bazel-remote-cache/${container_key} --google_credentials=/keystore/73103_absl-bazel-remote-cache ${BAZEL_EXTRA_ARGS:-}"
+  BAZEL_EXTRA_ARGS="--remote_cache=https://storage.googleapis.com/absl-bazel-remote-cache/${container_key} --google_credentials=/keystore/73103_absl-bazel-remote-cache ${BAZEL_EXTRA_ARGS:-}"
 fi
 
 for std in ${STD}; do
@@ -66,7 +66,7 @@ for std in ${STD}; do
         /usr/local/bin/bazel test ... \
           --compilation_mode="${compilation_mode}" \
           --copt="${exceptions_mode}" \
-          --distdir="/bazel-distdir" \
+          --enable_bzlmod=false \
           --keep_going \
           --experimental_ui_max_stdouterr_bytes=-1 \
           --show_timestamps \

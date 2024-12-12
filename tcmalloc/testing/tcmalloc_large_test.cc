@@ -43,10 +43,11 @@ void TryAllocExpectFail(size_t size) {
   void* p2 = malloc(1);
   ASSERT_NE(p2, nullptr);
 
+  void* volatile stashed_p2 = p2;
   void* p3 = realloc(p2, size);
   ASSERT_EQ(p3, nullptr);
 
-  free(p2);
+  free(stashed_p2);
 }
 
 // Alloc a size that might work and might fail.

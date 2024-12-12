@@ -235,6 +235,7 @@ TEST_F(TcMallocTest, DoubleFreeDetected) {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(kPageSize);
       ::operator delete(buf);
+      benchmark::DoNotOptimize(buf);
       // TCMalloc often SEGVs on double free (without GWP-ASan report). Make
       // sure we have a guarded allocation before double-freeing.
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf)) {
@@ -285,6 +286,7 @@ TEST_F(TcMallocTest, OffsetAndLength) {
       ::operator delete(buf);
       // TCMalloc may crash without a GWP-ASan report if we overflow a regular
       // allocation.  Make sure we have a guarded allocation.
+      benchmark::DoNotOptimize(buf);
       if (tc_globals.guardedpage_allocator().PointerIsMine(buf)) {
         volatile char sink = static_cast<char*>(buf)[access_offset];
         benchmark::DoNotOptimize(sink);
@@ -344,7 +346,9 @@ TEST_F(TcMallocTest, DoubleFree) {
   ScopedProfileSamplingInterval s(1);
   auto DoubleFree = []() {
     void* buf = ::operator new(42);
+    benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
+    benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
   EXPECT_DEATH(DoubleFree(),
