@@ -40,7 +40,6 @@ namespace {
 // From include/uapi/linux/kernel-page-flags.h
 #define KPF_COMPOUND_HEAD 15
 #define KPF_COMPOUND_TAIL 16
-#define KPF_NOPAGE 20
 #define KPF_THP 22
 
 #ifndef KPF_HUGE
@@ -84,10 +83,7 @@ constexpr bool PageLocked(uint64_t flags) {
   constexpr uint64_t kPageUnevictable = (1UL << KPF_UNEVICTABLE);
   return (flags & (kPageMlocked | kPageUnevictable)) != 0;
 }
-constexpr bool PageHole(uint64_t flags) {
-  constexpr uint64_t kPageNoPage = (1UL << KPF_NOPAGE);
-  return (flags & kPageNoPage) == kPageNoPage;
-}
+
 void MaybeAddToStats(PageStats& stats, const uint64_t flags,
                      const size_t delta) {
   if (PageStale(flags)) stats.bytes_stale += delta;
@@ -365,54 +361,6 @@ uint64_t PageFlags::MaybeReadStaleScanSeconds(const char* filename) {
   }
 
   return cached_scan_seconds_;
-}
-
-PageFlags::HoleInfo PageFlags::CountHolesInSinglePage(const void* const addr) {
-  uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
-  if ((currPage & kHugePageMask) != currPage) {
-    TC_LOG("Address is not hugepage aligned");
-    return HoleInfo{absl::StatusCode::kFailedPrecondition};
-  }
-  auto res = Seek(currPage);
-  if (res != absl::StatusCode::kOk) {
-    return HoleInfo{absl::StatusCode::kUnavailable};
-  }
-  const int kBufferSizeBasedOnEntries = kPagemapEntrySize * kPagesInHugePage;
-
-  TC_ASSERT(sizeof(buf_) >= kBufferSizeBasedOnEntries);
-  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
-                                 kBufferSizeBasedOnEntries, nullptr);
-  if (status != kBufferSizeBasedOnEntries) {
-    TC_LOG(
-        "Could not read from pageflags file due to unexpected number of bytes "
-        "read");
-    TC_LOG("Expected %d bytes, got %d bytes", kBufferSizeBasedOnEntries,
-           status);
-    return HoleInfo{absl::StatusCode::kUnavailable};
-  }
-
-  int32_t holes_count = 0;
-  for (int native_page_idx = 0; native_page_idx < kPagesInHugePage;
-       ++native_page_idx) {
-    uint64_t page_flags = buf_[native_page_idx];
-    // Case for hugepage
-    if (PageThp(page_flags)) {
-      if (ABSL_PREDICT_TRUE(native_page_idx == 0)) {
-        return HoleInfo{absl::StatusCode::kOk, /*num_holes=*/0,
-                        /*already_hugepage=*/true};
-        // Hugepage is found in the middle of a hugepage region
-      } else {
-        TC_LOG("Hugepage in middle of region, shouldn't happen");
-        return HoleInfo{absl::StatusCode::kFailedPrecondition};
-      }
-    }
-    // Case for a hole
-    if (PageHole(page_flags)) {
-      ++holes_count;
-    }
-  }
-  return HoleInfo{absl::StatusCode::kOk, holes_count,
-                  /*already_hugepage=*/false};
 }
 
 }  // namespace tcmalloc_internal

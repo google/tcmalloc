@@ -25,6 +25,7 @@
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/range_tracker.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -56,6 +57,22 @@ class Residency {
   };
   std::optional<Info> Get(const void* addr, size_t size);
 
+  static constexpr int kNativePagesInHugePage = 512;
+
+  // Struct is ordered with bitmaps first to optimize cacheline usage.
+  struct SinglePageBitmaps {
+    Bitmap<kNativePagesInHugePage> holes;
+    Bitmap<kNativePagesInHugePage> swapped;
+    absl::StatusCode status;
+  };
+
+  // Using a hugepage-aligned address, parse through /proc/self/pagemap
+  // to output two bitmaps - one for pages that are holes and one for pages that
+  // are swapped. Hugepage-sized regions are assumed to be 2MiB in size. A
+  // SinglePageBitmaps struct is returned with the status , the page_holes
+  // bitmap, and the page_swapped bitmap.
+  SinglePageBitmaps GetHolesAndSwappedBitmaps(const void* addr);
+
  private:
   // This helper seeks the internal file to the correct location for the given
   // virtual address.
@@ -79,8 +96,13 @@ class Residency {
   static constexpr int kEntriesInBuf = kBufferLength / kPagemapEntrySize;
 
   const size_t kPageSize = GetPageSize();
+
+  static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
+  const size_t kPagesInHugePage = kHugePageSize / kPageSize;
+
   uint64_t buf_[kEntriesInBuf];
   const int fd_;
+  const size_t kSizeOfHugepageInPagemap = kPagemapEntrySize * kPagesInHugePage;
 };
 
 inline std::ostream& operator<<(std::ostream& stream,

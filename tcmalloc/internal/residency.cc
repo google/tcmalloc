@@ -25,6 +25,8 @@
 
 #include "absl/status/status.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -32,27 +34,52 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 namespace {
 
+// From fs/proc/task_mmu.c:
+#define PM_SWAP 1ULL << 62
+#define PM_PRESENT 1ULL << 63
+
+constexpr bool PageSwapped(uint64_t flags) {
+  constexpr uint64_t kSwap = PM_SWAP;
+  return (flags & kSwap) == kSwap;
+}
+
+constexpr bool PagePresent(uint64_t flags) {
+  constexpr uint64_t kPresentPage = PM_PRESENT;
+  return (flags & kPresentPage) == kPresentPage;
+}
+
 // Small helper to interpret /proc/pid/pagemap. Bit 62 represents if the page is
 // swapped, and bit 63 represents if the page is present.
 void Update(const uint64_t input, const size_t size, Residency::Info& info) {
   // From fs/proc/task_mmu.c:
-  constexpr uint64_t kSwap = 1ULL << 62;      // PM_SWAP
-  constexpr uint64_t kResident = 1ULL << 63;  // PM_PRESENT
-  if ((input & kResident) == kResident) {
+  if (PagePresent(input)) {
     info.bytes_resident += size;
   }
-  if ((input & kSwap) == kSwap) {
+  if (PageSwapped(input)) {
     info.bytes_swapped += size;
   }
 }
 
 }  // namespace
 
-Residency::Residency()
-    : fd_(signal_safe_open("/proc/self/pagemap", O_RDONLY)) {}
+Residency::Residency() : fd_(signal_safe_open("/proc/self/pagemap", O_RDONLY)) {
+  TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
+              "Buffer size is not large enough to hold the pagemap entries");
+  TC_CHECK_EQ(kPagesInHugePage, kNativePagesInHugePage,
+              "Actual number of pages in a hugepage not equal to the expected "
+              "number: %d vs %d",
+              kPagesInHugePage, kNativePagesInHugePage);
+}
 
 Residency::Residency(const char* const alternate_filename)
-    : fd_(signal_safe_open(alternate_filename, O_RDONLY)) {}
+    : fd_(signal_safe_open(alternate_filename, O_RDONLY)) {
+  TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
+              "Buffer size is not large enough to hold the pagemap entries");
+  TC_CHECK_EQ(kPagesInHugePage, kNativePagesInHugePage,
+              "Actual Number of pages in a hugepage not equal to the expected "
+              "number: %d vs %d",
+              kPagesInHugePage, kNativePagesInHugePage);
+}
 
 Residency::~Residency() {
   if (fd_ >= 0) {
@@ -157,6 +184,47 @@ std::optional<Residency::Info> Residency::Get(const void* const addr,
   if (!res.has_value()) return std::nullopt;
   Update(res.value(), lastPageSize, info);
   return info;
+}
+
+Residency::SinglePageBitmaps Residency::GetHolesAndSwappedBitmaps(
+    const void* const addr) {
+  Bitmap<kNativePagesInHugePage> page_holes;
+  Bitmap<kNativePagesInHugePage> page_swapped;
+  uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
+  if ((currPage & kHugePageMask) != currPage) {
+    TC_LOG("Address is not hugepage aligned");
+    return SinglePageBitmaps{page_holes, page_swapped,
+                             absl::StatusCode::kFailedPrecondition};
+  }
+  auto res = Seek(currPage);
+  if (res != absl::StatusCode::kOk) {
+    return SinglePageBitmaps{page_holes, page_swapped,
+                             absl::StatusCode::kUnavailable};
+  }
+  auto status = signal_safe_read(fd_, reinterpret_cast<char*>(buf_),
+                                 kSizeOfHugepageInPagemap, nullptr);
+  if (status != kSizeOfHugepageInPagemap) {
+    TC_LOG(
+        "Could not read from pagemap file due to unexpected number of bytes "
+        "read. Expected %d bytes, got %d bytes",
+        kSizeOfHugepageInPagemap, status);
+    return SinglePageBitmaps{page_holes, page_swapped,
+                             absl::StatusCode::kUnavailable};
+  }
+
+  for (int native_page_idx = 0; native_page_idx < kPagesInHugePage;
+       ++native_page_idx) {
+    uint64_t page_map = buf_[native_page_idx];
+    // Case for page hole
+    if (!PagePresent(page_map)) {
+      page_holes.SetBit(native_page_idx);
+      // Case for zswap
+      if (PageSwapped(page_map)) {
+        page_swapped.SetBit(native_page_idx);
+      }
+    }
+  }
+  return SinglePageBitmaps{page_holes, page_swapped, absl::StatusCode::kOk};
 }
 
 }  // namespace tcmalloc_internal

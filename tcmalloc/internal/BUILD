@@ -385,7 +385,9 @@ cc_library(
     ],
     deps = [
         ":config",
+        ":logging",
         ":page_size",
+        ":range_tracker",
         ":util",
         "@com_google_absl//absl/status",
     ],
@@ -469,10 +471,17 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     deps = [
+        ":allocation_guard",
         ":page_size",
+        ":range_tracker",
         ":residency",
+        ":util",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
         "@com_google_googletest//:gtest_main",
     ],
 )
