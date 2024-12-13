@@ -37,7 +37,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 #if defined(__linux__)
-std::string GetBuildId(const dl_phdr_info* const info);
+std::string GetBuildId(const dl_phdr_info* info);
 #endif  // defined(__linux__)
 
 // ProfileBuilder manages building up a profile.proto instance and populating
