@@ -495,16 +495,19 @@ extern "C" size_t MallocExtension_Internal_ReleaseCpuMemory(int cpu) {
 // Helpers for the exported routines below
 //-------------------------------------------------------------------
 
-inline size_t GetLargeSize(const void* ptr, const PageId p) {
-  const Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
-  if (span->sampled()) {
+inline size_t GetLargeSize(const void* ptr, const Span& span) {
+  if (span.sampled()) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
       return tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
     }
-    return span->sampled_allocation()->sampled_stack.allocated_size;
+    return span.sampled_allocation()->sampled_stack.allocated_size;
   } else {
-    return span->bytes_in_span();
+    return span.bytes_in_span();
   }
+}
+
+inline size_t GetLargeSize(const void* ptr, const PageId p) {
+  return GetLargeSize(ptr, *tc_globals.pagemap().GetExistingDescriptor(p));
 }
 
 inline size_t GetSize(const void* ptr) {
@@ -636,6 +639,12 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   const PageId p = PageIdContaining(ptr);
 
   Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+  // This check failing most likely means we double-freed the span.  In the
+  // page heap, we clear the descriptor on Delete(span).
+  //
+  // We may also encounter this if we free a pointer that was never allocated
+  // (it's corrupted, it's an interior pointer to another allocation separated
+  // by more than kPageSize from the true pointer, etc.).
   TC_CHECK_NE(span, nullptr, "Possible double free detected");
 
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);

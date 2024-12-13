@@ -357,6 +357,19 @@ TEST_F(TcMallocTest, DoubleFree) {
                "InvokeHooksAndFreePages\\(\\)");
 }
 
+TEST_F(TcMallocTest, LargeDoubleFree) {
+  ScopedGuardedSamplingInterval gs(-1);
+  ScopedProfileSamplingInterval s(1);
+  auto DoubleFree = []() {
+    void* buf = ::operator new(tcmalloc_internal::kMaxSize + 1);
+    benchmark::DoNotOptimize(buf);
+    ::operator delete(buf);
+    benchmark::DoNotOptimize(buf);
+    ::operator delete(buf);
+  };
+  EXPECT_DEATH(DoubleFree(), "span != nullptr.*Possible double free detected");
+}
+
 TEST_F(TcMallocTest, ReallocLarger) {
   // Note: sizes are chosen so that size + 2 access below
   // does not write out of actual allocation bounds.

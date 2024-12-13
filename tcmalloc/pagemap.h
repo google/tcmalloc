@@ -440,10 +440,10 @@ class PageMap {
   // Return the descriptor for the specified page.
   // PageId must have been previously allocated.
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL inline Span*
-  GetExistingDescriptor(PageId p) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
+  [[nodiscard]] inline Span* GetExistingDescriptor(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
     Span* span = map_.get_existing(p.index());
-    TC_ASSERT_NE(span, nullptr);
+    TC_ASSERT_NE(span, nullptr, "Possible double free detected");
     return span;
   }
 
