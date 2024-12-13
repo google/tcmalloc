@@ -697,6 +697,7 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
     __builtin_unreachable();
   }();
 
+  bool first = !next_addr;
   if (!next_addr || next_addr & (alignment - 1) ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr)) != tag ||
       GetMemoryTag(reinterpret_cast<void*>(next_addr + size - 1)) != tag) {
@@ -766,6 +767,14 @@ void* MmapAligned(size_t size, size_t alignment, const MemoryTag tag) {
       "MmapAligned() failed - unable to allocate with tag (hint=%p, size=%v, "
       "alignment=%v) - is something limiting address placement?",
       hint, size, alignment);
+  if (first) {
+    TC_LOG(
+        "Note: the allocation may have failed because TCMalloc assumes a "
+        "%u-bit virtual address space size; you may need to rebuild TCMalloc "
+        "with TCMALLOC_ADDRESS_BITS defined to your system's virtual address "
+        "space size",
+        kAddressBits);
+  }
   return nullptr;
 }
 
