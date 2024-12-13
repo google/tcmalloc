@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef TCMALLOC_MISMATCHED_DELETE_STATE_H_
-#define TCMALLOC_MISMATCHED_DELETE_STATE_H_
+#ifndef TCMALLOC_INTERNAL_MISMATCHED_DELETE_STATE_H_
+#define TCMALLOC_INTERNAL_MISMATCHED_DELETE_STATE_H_
 
 #include <algorithm>
 #include <cstddef>
@@ -104,4 +104,4 @@ class MismatchedDeleteState {
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
 
-#endif  // TCMALLOC_MISMATCHED_DELETE_STATE_H_
+#endif  // TCMALLOC_INTERNAL_MISMATCHED_DELETE_STATE_H_
