@@ -69,7 +69,6 @@ tcmalloc_deps = [
     "@com_google_absl//absl/base:config",
     "@com_google_absl//absl/base:core_headers",
     "@com_google_absl//absl/base:dynamic_annotations",
-    "@com_google_absl//absl/debugging:leak_check",
     "@com_google_absl//absl/debugging:stacktrace",
     "@com_google_absl//absl/debugging:symbolize",
     "//tcmalloc/selsan",
