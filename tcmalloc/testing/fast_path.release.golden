@@ -10,7 +10,7 @@ new(align)               -   -   6   -    6   -   -    -   1   -     2
 new(align)->size         -   -   6   -    7   -   -    -   1   -     2
 new(align,cold)->size    -   -   6   -    8   -   -    -   1   -     2
 new(align,nothrow)       -   -   6   -    6   -   -    -   1   -     2
-new(cold)->size          -   -   5   -    7   -   -    -   1   -     2
+new(cold)->size          -   -   4   -    7   -   -    -   1   -     2
 new(nothrow)             -   -   4   -    5   -   -    -   1   -     2
 new->size                -   -   4   -    6   -   -    -   1   -     2
 posix_memalign           -   -   8   -    6   -   3    3   1   2     3
