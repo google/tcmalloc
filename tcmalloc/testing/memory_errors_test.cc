@@ -109,7 +109,7 @@ TEST_F(GuardedAllocAlignmentTest, AlignedNew) {
   for (size_t align = 1; align <= kPageSize; align <<= 1) {
     void* p = ::operator new(1, static_cast<std::align_val_t>(align));
     EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % align, 0);
-    ::operator delete(p);
+    ::operator delete(p, static_cast<std::align_val_t>(align));
   }
 }
 
