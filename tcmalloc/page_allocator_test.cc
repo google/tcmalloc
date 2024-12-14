@@ -31,6 +31,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
@@ -70,8 +71,18 @@ class PageAllocatorTest : public testing::Test {
     return allocator_->NewAligned(n, align, span_alloc_info, tag);
   }
   void Delete(Span* s, MemoryTag tag = MemoryTag::kNormal) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     allocator_->Delete(s, tag);
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(s->first_page(), s->num_pages()),
+        s->donated(),
+    };
+    Span::Delete(s);
+    PageHeapSpinLockHolder l;
+    allocator_->Delete(a, tag);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   std::string Print() {

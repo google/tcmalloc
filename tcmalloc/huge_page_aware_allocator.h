@@ -114,7 +114,10 @@ class StaticForwarder {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
           ABSL_ATTRIBUTE_RETURNS_NONNULL;
   static void DeleteSpan(Span* span)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) ABSL_ATTRIBUTE_NONNULL();
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+          ABSL_ATTRIBUTE_NONNULL();
 
   // SystemAlloc state.
   static AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
@@ -170,7 +173,12 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Delete the span "[p, p+n-1]".
   // REQUIRES: span was returned by earlier call to New() and
   //           has not yet been deleted.
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   void Delete(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+  void Delete(AllocationState s)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   BackingStats stats() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
@@ -751,20 +759,32 @@ inline bool HugePageAwareAllocator<Forwarder>::AddRegion() {
   return true;
 }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::Delete(Span* span) {
   TC_ASSERT(!span || GetMemoryTag(span->start_address()) == tag_);
   PageId p = span->first_page();
-  HugePage hp = HugePageContaining(p);
   Length n = span->num_pages();
+
+  bool donated = span->donated();
+  forwarder_.DeleteSpan(span);
+
+  Delete(AllocationState{Range{p, n}, donated});
+}
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+template <class Forwarder>
+inline void HugePageAwareAllocator<Forwarder>::Delete(AllocationState s) {
+  const PageId p = s.r.p;
+  const HugePage hp = HugePageContaining(p);
+  const Length n = s.r.n;
   info_.RecordFree(Range(p, n));
 
-  bool might_abandon = span->donated();
-  // TODO(b/175334169): Lift this out of Delete's pageheap_lock.
-  forwarder_.DeleteSpan(span);
   // Clear the descriptor of the page so a second pass through the same page
   // could trigger the check on `span != nullptr` in do_free_pages.
   forwarder_.Set(p, nullptr);
+
+  const bool might_abandon = s.donated;
 
   // The tricky part, as with so many allocators: where did we come from?
   // There are several possibilities.

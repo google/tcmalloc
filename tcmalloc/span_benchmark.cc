@@ -175,8 +175,18 @@ void BM_NewDelete(benchmark::State& state) {
 
     benchmark::DoNotOptimize(sp);
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(sp, MemoryTag::kNormal);
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(sp->first_page(), sp->num_pages()),
+        sp->donated(),
+    };
+    Span::Delete(sp);
+    PageHeapSpinLockHolder l;
+    tc_globals.page_allocator().Delete(a, MemoryTag::kNormal);
+#endif
   }
   state.SetItemsProcessed(state.iterations());
 }

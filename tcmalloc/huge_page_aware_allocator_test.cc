@@ -141,8 +141,18 @@ class HugePageAwareAllocatorTest
   }
 
   void AllocatorDelete(Span* s, size_t objects_per_span) {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     allocator_->Delete(s);
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(s->first_page(), s->num_pages()),
+        s->donated(),
+    };
+    allocator_->forwarder().DeleteSpan(s);
+    PageHeapSpinLockHolder l;
+    allocator_->Delete(a);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   Span* New(Length n, SpanAllocInfo span_alloc_info) {
@@ -1374,10 +1384,18 @@ class StatTest : public testing::Test {
   void Free(Span* s, SpanAllocInfo span_info) {
     Length n = s->num_pages();
     total_ -= n;
-    {
-      PageHeapSpinLockHolder l;
-      alloc_->Delete(s);
-    }
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    PageHeapSpinLockHolder l;
+    alloc_->Delete(s);
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(s->first_page(), s->num_pages()),
+        s->donated(),
+    };
+    alloc_->forwarder().DeleteSpan(s);
+    PageHeapSpinLockHolder l;
+    alloc_->Delete(a);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   void CheckStats() {
@@ -1556,8 +1574,18 @@ struct SpanDeleter {
       : allocator(*allocator) {}
 
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
-    const PageHeapSpinLockHolder l;
-    allocator.Delete(s);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+    PageHeapSpinLockHolder l;
+    allocator_->Delete(s);
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(s->first_page(), s->num_pages()),
+        s->donated(),
+    };
+    allocator.forwarder().DeleteSpan(s);
+    PageHeapSpinLockHolder l;
+    allocator.Delete(a);
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
   HugePageAwareAllocator& allocator;

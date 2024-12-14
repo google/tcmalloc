@@ -25,6 +25,7 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/prefetch.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/selsan/selsan.h"
@@ -100,6 +101,7 @@ Span* StaticForwarder::AllocateSpan(int size_class, size_t objects_per_span,
   return span;
 }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
 static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
                                   size_t objects_per_span)
     ABSL_LOCKS_EXCLUDED(pageheap_lock) {
@@ -107,6 +109,17 @@ static void ReturnSpansToPageHeap(MemoryTag tag, absl::Span<Span*> free_spans,
   for (Span* const free_span : free_spans) {
     TC_ASSERT_EQ(tag, GetMemoryTag(free_span->start_address()));
     tc_globals.page_allocator().Delete(free_span, tag);
+  }
+}
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+
+static void ReturnAllocsToPageHeap(
+    MemoryTag tag,
+    absl::Span<PageAllocatorInterface::AllocationState> free_allocs)
+    ABSL_LOCKS_EXCLUDED(pageheap_lock) {
+  PageHeapSpinLockHolder l;
+  for (const auto& alloc : free_allocs) {
+    tc_globals.page_allocator().Delete(alloc, tag);
   }
 }
 
@@ -134,7 +147,19 @@ void StaticForwarder::DeallocateSpans(size_t objects_per_span,
                                       ABSL_CACHELINE_SIZE));
   }
 
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
   ReturnSpansToPageHeap(tag, free_spans, objects_per_span);
+#else
+  PageAllocatorInterface::AllocationState allocs[kMaxObjectsToMove];
+  for (int i = 0, n = free_spans.size(); i < n; ++i) {
+    Span* s = free_spans[i];
+    TC_ASSERT_EQ(tag, GetMemoryTag(s->start_address()));
+    allocs[i].r = Range(s->first_page(), s->num_pages());
+    allocs[i].donated = s->donated();
+    Span::Delete(s);
+  }
+  ReturnAllocsToPageHeap(tag, absl::MakeSpan(allocs, free_spans.size()));
+#endif
 }
 
 }  // namespace central_freelist_internal

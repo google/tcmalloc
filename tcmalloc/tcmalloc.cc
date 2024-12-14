@@ -103,6 +103,7 @@
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
 #include "tcmalloc/page_allocator.h"
+#include "tcmalloc/page_allocator_interface.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -659,8 +660,18 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   } else {
     TC_ASSERT_EQ(span->first_page(), p);
     TC_ASSERT_EQ(reinterpret_cast<uintptr_t>(ptr) % kPageSize, 0);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
     tc_globals.page_allocator().Delete(span, GetMemoryTag(ptr));
+#else
+    PageAllocatorInterface::AllocationState a{
+        Range(p, span->num_pages()),
+        span->donated(),
+    };
+    Span::Delete(span);
+    PageHeapSpinLockHolder l;
+    tc_globals.page_allocator().Delete(a, GetMemoryTag(ptr));
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 }
 

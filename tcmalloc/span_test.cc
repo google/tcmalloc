@@ -283,7 +283,9 @@ TEST(SpanAllocatorTest, Alignment) {
   }
 
   {
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
     for (Span* s : spans) {
       Span::Delete(s);
     }

@@ -141,8 +141,11 @@ class FakeStaticForwarder {
         reinterpret_cast<uintptr_t>(result);
     return span;
   }
-  void DeleteSpan(Span* span) ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
-      ABSL_ATTRIBUTE_NONNULL() {
+  void DeleteSpan(Span* span)
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock)
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+          ABSL_ATTRIBUTE_NONNULL() {
     absl::base_internal::LowLevelAlloc::Free(
         reinterpret_cast<void*>(*(reinterpret_cast<uintptr_t*>(span + 1))));
   }
