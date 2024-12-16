@@ -106,10 +106,6 @@ class Static final {
     return numa_topology_;
   }
 
-  //////////////////////////////////////////////////////////////////////
-  // In addition to the explicit initialization comment, the variables below
-  // must be protected by pageheap_lock.
-
   static Arena& arena() { return arena_; }
 
   // Page-level allocator.
@@ -139,8 +135,7 @@ class Static final {
     return sampled_allocation_recorder_.get_mutable();
   }
 
-  // State kept for sampled allocations (/heapz support). No pageheap_lock
-  // required when reading/writing the counters.
+  // State kept for sampled allocations (/heapz support).
   ABSL_CONST_INIT static tcmalloc_internal::StatsCounter sampled_objects_size_;
   // sampled_internal_fragmentation estimates the amount of memory overhead from
   // allocation sizes being rounded up to size class/page boundaries.
