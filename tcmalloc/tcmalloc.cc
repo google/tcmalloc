@@ -501,7 +501,7 @@ inline size_t GetLargeSize(const void* ptr, const Span& span) {
     if (tc_globals.guardedpage_allocator().PointerIsMine(ptr)) {
       return tc_globals.guardedpage_allocator().GetRequestedSize(ptr);
     }
-    return span.sampled_allocation()->sampled_stack.allocated_size;
+    return span.sampled_allocation().sampled_stack.allocated_size;
   } else {
     return span.bytes_in_span();
   }

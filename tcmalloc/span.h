@@ -133,7 +133,7 @@ class Span final : public SpanList::Elem {
   // ensure by some other means that the sampling state can't be changed
   // concurrently.
   // REQUIRES: this is a SAMPLED span.
-  SampledAllocation* sampled_allocation() const;
+  const SampledAllocation& sampled_allocation() const;
 
   // Is it a sampling span?
   // For debug checks. pageheap_lock is not required, but caller needs to ensure
@@ -460,10 +460,10 @@ inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
   return true;
 }
 
-inline SampledAllocation* Span::sampled_allocation() const {
+inline const SampledAllocation& Span::sampled_allocation() const {
   TC_ASSERT(sampled_);
   TC_ASSERT(is_large_or_sampled());
-  return large_or_sampled_state_.sampled_allocation;
+  return *large_or_sampled_state_.sampled_allocation;
 }
 
 inline bool Span::sampled() const { return sampled_; }
