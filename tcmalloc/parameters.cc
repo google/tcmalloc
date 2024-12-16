@@ -152,7 +152,7 @@ static std::atomic<int64_t>& cache_demand_release_short_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
-                absl::Seconds(60)
+                absl::Seconds(10)
 #endif
                     ),
             std::memory_order_relaxed);
@@ -170,7 +170,7 @@ static std::atomic<int64_t>& cache_demand_release_long_interval_ns() {
 #if defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
                 absl::ZeroDuration()
 #else
-                absl::Seconds(300)
+                absl::Seconds(30)
 #endif
                     ),
             std::memory_order_relaxed);

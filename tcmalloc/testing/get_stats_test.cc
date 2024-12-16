@@ -117,10 +117,10 @@ TEST_F(GetStatsTest, Pbtxt) {
 #else
   EXPECT_THAT(
       buf, HasSubstr(
-               "tcmalloc_cache_demand_release_short_interval_ns: 60000000000"));
+               "tcmalloc_cache_demand_release_short_interval_ns: 10000000000"));
   EXPECT_THAT(
-      buf, HasSubstr(
-               "tcmalloc_cache_demand_release_long_interval_ns: 300000000000"));
+      buf,
+      HasSubstr("tcmalloc_cache_demand_release_long_interval_ns: 30000000000"));
 #endif
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_partial_alloc_pages: true"));
   EXPECT_THAT(buf,
