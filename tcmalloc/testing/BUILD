@@ -52,7 +52,9 @@ create_tcmalloc_testsuite(
     linkstatic = 1,  # get the most realistic performance
     shard_count = 3,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     visibility = ["//visibility:private"],
     deps = [
@@ -119,7 +121,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -133,7 +137,9 @@ create_tcmalloc_testsuite(
     srcs = ["memalign_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc/internal:page_size",
@@ -149,7 +155,9 @@ create_tcmalloc_testsuite(
     srcs = ["frag_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -164,7 +172,9 @@ create_tcmalloc_testsuite(
         "$(STACK_FRAME_UNLIMITED)",  # largesmall_frag_test.cc
     ] + TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -191,7 +201,11 @@ cc_test(
     srcs = ["outofmemory_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -223,7 +237,9 @@ cc_test(
     linkstatic = 1,
     malloc = "//tcmalloc",
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -246,7 +262,9 @@ create_tcmalloc_testsuite(
     srcs = ["sampling_memusage_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -281,7 +299,11 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
@@ -327,7 +349,9 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -364,7 +388,11 @@ create_tcmalloc_testsuite(
     srcs = ["limit_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -390,7 +418,9 @@ create_tcmalloc_testsuite(
             }),
     linkstatic = 1,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -407,7 +437,11 @@ create_tcmalloc_testsuite(
     srcs = ["memory_errors_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 3,
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -493,7 +527,9 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -511,7 +547,11 @@ create_tcmalloc_testsuite(
     name = "releasing_test",
     srcs = ["releasing_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
@@ -610,7 +650,9 @@ create_tcmalloc_testsuite(
     srcs = ["realized_fragmentation_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -628,7 +670,9 @@ create_tcmalloc_testsuite(
     srcs = ["background_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":test_allocator_harness",
@@ -644,7 +688,11 @@ create_tcmalloc_testsuite(
     name = "reclaim_test",
     srcs = ["reclaim_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":test_allocator_harness",
         ":thread_manager",
@@ -684,7 +732,11 @@ create_tcmalloc_testsuite(
     name = "deallocation_profiler_test",
     srcs = ["deallocation_profiler_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         ":testutil",
         "//tcmalloc:malloc_extension",
@@ -702,7 +754,11 @@ cc_test(
     srcs = ["system-alloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+    ],
     deps = [
         "//tcmalloc:common_8k_pages",
         "//tcmalloc:malloc_extension",
@@ -729,10 +785,7 @@ create_tcmalloc_testsuite(
     timeout = "moderate",
     srcs = ["tcmalloc_large_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
-    tags = [
-        "noasan",
-        "noubsan",
-    ],
+    tags = ["noasan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
@@ -748,9 +801,7 @@ cc_test(
     srcs = ["malloc_extension_system_malloc_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc/internal:system_malloc",
-    tags = [
-        "noubsan",
-    ],
+    tags = ["noubsan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/random",
@@ -763,7 +814,9 @@ create_tcmalloc_testsuite(
     srcs = ["malloc_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":testutil",
@@ -781,7 +834,10 @@ cc_test(
     local_defines = ["MALLOC_TRACING_EXTENSION_NOT_SUPPORTED"],
     malloc = "//tcmalloc/internal:system_malloc",
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
     ],
     deps = [
         "//tcmalloc:malloc_tracing_extension",
@@ -797,7 +853,9 @@ create_tcmalloc_testsuite(
     srcs = ["malloc_tracing_extension_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_tracing_extension",
@@ -813,7 +871,9 @@ create_tcmalloc_testsuite(
     srcs = ["heap_profiling_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         ":test_allocator_harness",
@@ -840,7 +900,9 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc",
     tags = [
-        "nosan",
+        "noasan",
+        "nomsan",
+        "notsan",
     ],
     deps = [
         "//tcmalloc:malloc_extension",
@@ -869,9 +931,7 @@ cc_test(
     srcs = ["parallel_test.cc"],
     copts = TCMALLOC_DEFAULT_COPTS,
     malloc = "//tcmalloc/internal:system_malloc",
-    tags = [
-        "noubsan",
-    ],
+    tags = ["noubsan"],
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc:tcmalloc_internal_methods_only",  # buildcleaner: keep

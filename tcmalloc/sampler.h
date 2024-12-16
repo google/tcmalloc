@@ -148,7 +148,10 @@ class Sampler {
   friend class SamplerTest;
   // Initialize this sampler.
   void Init(uint64_t seed);
-  size_t RecordAllocationSlow(size_t k);
+
+  // TODO(b/148986845): Enable this to pass under ubsan for its signed overflow
+  // for extreme k and remove sanitizer opt-out.
+  size_t RecordAllocationSlow(size_t k) ABSL_ATTRIBUTE_NO_SANITIZE_UNDEFINED;
   ssize_t GetGeometricVariable(ssize_t mean);
 };
 

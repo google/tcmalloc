@@ -1126,7 +1126,12 @@ cc_test(
     copts = TCMALLOC_DEFAULT_COPTS,
     linkstatic = 1,
     malloc = "//tcmalloc:tcmalloc_deprecated_perthread",
-    tags = ["nosan"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "noubsan",
+    ],
     deps = [
         ":malloc_extension",
         "//tcmalloc/internal:logging",
