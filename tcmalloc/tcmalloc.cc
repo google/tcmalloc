@@ -427,13 +427,8 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.thread_cache_free"].value = stats.thread_bytes;
   (*result)["tcmalloc.local_bytes"].value = LocalBytes(stats);
 
-  size_t overall_thread_cache_size;
-  {
-    PageHeapSpinLockHolder l;
-    overall_thread_cache_size = ThreadCache::overall_thread_cache_size();
-  }
   (*result)["tcmalloc.max_total_thread_cache_bytes"].value =
-      overall_thread_cache_size;
+      ThreadCache::overall_thread_cache_size();
 
   // Page Unmapped
   (*result)["tcmalloc.pageheap_unmapped_bytes"].value =

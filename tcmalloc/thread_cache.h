@@ -40,7 +40,8 @@ namespace tcmalloc_internal {
 class ABSL_CACHELINE_ALIGNED ThreadCache {
  public:
   explicit ThreadCache(pthread_t tid)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
+
   void Cleanup();
 
   // Allocate an object of the given size class.
@@ -59,16 +60,16 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // and this function will increment each element of class_count by the number
   // of items in all thread-local freelists of the corresponding size class.
   static AllocatorStats GetStats(uint64_t* total_bytes, uint64_t* class_count)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
   // Sets the total thread cache size to new_size, recomputing the
   // individual thread cache sizes as necessary.
   static void set_overall_thread_cache_size(size_t new_size)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_LOCKS_EXCLUDED(threadcache_lock_);
 
   static size_t overall_thread_cache_size()
-      ABSL_SHARED_LOCKS_REQUIRED(pageheap_lock) {
-    return overall_thread_cache_size_;
+      ABSL_LOCKS_EXCLUDED(threadcache_lock_) {
+    return overall_thread_cache_size_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -140,8 +141,11 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   // the delta is kStealAmount.
   void IncreaseCacheLimit();
 
-  // Same as above but called with pageheap_lock held.
-  void IncreaseCacheLimitLocked() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+  static absl::base_internal::SpinLock threadcache_lock_;
+
+  // Same as above but called with threadcache_lock_ held.
+  void IncreaseCacheLimitLocked()
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   void Scavenge();
   static ThreadCache* CreateCacheIfNecessary();
@@ -171,24 +175,24 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
   static pthread_key_t heap_key_;
 
   // Linked list of heap objects.
-  static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(pageheap_lock);
-  static int thread_heap_count_ ABSL_GUARDED_BY(pageheap_lock);
+  static ThreadCache* thread_heaps_ ABSL_GUARDED_BY(threadcache_lock_);
+  static int thread_heap_count_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // A pointer to one of the objects in thread_heaps_.  Represents
   // the next ThreadCache from which a thread over its max_size_ should
   // steal memory limit.  Round-robin through all of the objects in
   // thread_heaps_.
-  static ThreadCache* next_memory_steal_ ABSL_GUARDED_BY(pageheap_lock);
+  static ThreadCache* next_memory_steal_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // Overall thread cache size.
-  static size_t overall_thread_cache_size_ ABSL_GUARDED_BY(pageheap_lock);
+  static std::atomic<size_t> overall_thread_cache_size_;
 
   // Global per-thread cache size.
-  static size_t per_thread_cache_size_ ABSL_GUARDED_BY(pageheap_lock);
+  static size_t per_thread_cache_size_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // Represents overall_thread_cache_size_ minus the sum of max_size_
   // across all ThreadCaches.
-  static int64_t unclaimed_cache_space_ ABSL_GUARDED_BY(pageheap_lock);
+  static int64_t unclaimed_cache_space_ ABSL_GUARDED_BY(threadcache_lock_);
 
   // This class is laid out with the most frequently used fields
   // first so that hot elements are placed on the same cache line.
@@ -203,18 +207,18 @@ class ABSL_CACHELINE_ALIGNED ThreadCache {
 
   // Allocate a new heap.
   static ThreadCache* NewHeap(pthread_t tid)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   // Use only as pthread thread-specific destructor function.
   static void DestroyThreadCache(void* ptr);
 
   static void DeleteCache(ThreadCache* heap);
   static void RecomputePerThreadCacheSize()
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
 
   // All ThreadCache objects are kept in a linked list (for stats collection)
-  ThreadCache* next_ ABSL_GUARDED_BY(pageheap_lock);
-  ThreadCache* prev_ ABSL_GUARDED_BY(pageheap_lock);
+  ThreadCache* next_ ABSL_GUARDED_BY(threadcache_lock_);
+  ThreadCache* prev_ ABSL_GUARDED_BY(threadcache_lock_);
 };
 
 inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* ThreadCache::Allocate(

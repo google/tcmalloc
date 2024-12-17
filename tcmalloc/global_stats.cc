@@ -118,10 +118,10 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   r->span_stats = tc_globals.span_allocator().stats();
   r->stack_stats = tc_globals.sampledallocation_allocator().stats();
   r->linked_sample_stats = tc_globals.linked_sample_allocator().stats();
+  r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
 
   {  // scope
     PageHeapSpinLockHolder l;
-    r->tc_stats = ThreadCache::GetStats(&r->thread_bytes, class_count);
     r->metadata_bytes = tc_globals.metadata_bytes();
     r->pagemap_bytes = tc_globals.pagemap().bytes();
     r->pageheap = tc_globals.page_allocator().stats();
@@ -925,7 +925,6 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
   }
 
   if (name == "tcmalloc.max_total_thread_cache_bytes") {
-    PageHeapSpinLockHolder l;
     *value = ThreadCache::overall_thread_cache_size();
     return true;
   }

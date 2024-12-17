@@ -542,9 +542,6 @@ void TCMalloc_Internal_SetMaxPerCpuCacheSize(int32_t v) {
 
 void TCMalloc_Internal_SetMaxTotalThreadCacheBytes(int64_t v) {
   Parameters::max_total_thread_cache_bytes_.store(v, std::memory_order_relaxed);
-
-  tcmalloc::tcmalloc_internal::AllocationGuardSpinLockHolder l(
-      &tcmalloc::tcmalloc_internal::pageheap_lock);
   tcmalloc::tcmalloc_internal::ThreadCache::set_overall_thread_cache_size(v);
 }
 

@@ -15,10 +15,12 @@
 #include "tcmalloc/thread_cache.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
 #include "absl/base/attributes.h"
+#include "absl/base/const_init.h"
 #include "absl/base/macros.h"
 #include "absl/base/optimization.h"
 #include "absl/types/span.h"
@@ -34,7 +36,8 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 size_t ThreadCache::per_thread_cache_size_ = kMaxThreadCacheSize;
-size_t ThreadCache::overall_thread_cache_size_ = kDefaultOverallThreadCacheSize;
+std::atomic<size_t> ThreadCache::overall_thread_cache_size_ =
+    kDefaultOverallThreadCacheSize;
 int64_t ThreadCache::unclaimed_cache_space_ = kDefaultOverallThreadCacheSize;
 ThreadCache* ThreadCache::thread_heaps_ = nullptr;
 int ThreadCache::thread_heap_count_ = 0;
@@ -43,6 +46,8 @@ ABSL_CONST_INIT thread_local ThreadCache* ThreadCache::thread_local_data_
     ABSL_ATTRIBUTE_INITIAL_EXEC = nullptr;
 ABSL_CONST_INIT bool ThreadCache::tsd_inited_ = false;
 pthread_key_t ThreadCache::heap_key_;
+ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
+    absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 ThreadCache::ThreadCache(pthread_t tid) {
   size_ = 0;
@@ -214,7 +219,7 @@ void ThreadCache::DeallocateSlow(void* ptr, FreeList* list, size_t size_class) {
 }
 
 void ThreadCache::IncreaseCacheLimit() {
-  PageHeapSpinLockHolder l;
+  AllocationGuardSpinLockHolder l(&threadcache_lock_);
   IncreaseCacheLimitLocked();
 }
 
@@ -267,7 +272,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
   }
 
   {
-    PageHeapSpinLockHolder l;
+    AllocationGuardSpinLockHolder l(&threadcache_lock_);
     const pthread_t me = pthread_self();
 
     // This may be a recursive malloc call from pthread_setspecific()
@@ -356,7 +361,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
 
   // Remove from linked list
   {
-    PageHeapSpinLockHolder l;
+    AllocationGuardSpinLockHolder l(&threadcache_lock_);
     if (heap->next_ != nullptr) heap->next_->prev_ = heap->prev_;
     if (heap->prev_ != nullptr) heap->prev_->next_ = heap->next_;
     if (thread_heaps_ == heap) thread_heaps_ = heap->next_;
@@ -373,7 +378,7 @@ void ThreadCache::DeleteCache(ThreadCache* heap) {
 void ThreadCache::RecomputePerThreadCacheSize() {
   // Divide available space across threads
   int n = thread_heap_count_ > 0 ? thread_heap_count_ : 1;
-  size_t space = overall_thread_cache_size_ / n;
+  size_t space = overall_thread_cache_size_.load(std::memory_order_relaxed) / n;
 
   // Limit to allowed range
   if (space < kMinThreadCacheSize) space = kMinThreadCacheSize;
@@ -389,12 +394,15 @@ void ThreadCache::RecomputePerThreadCacheSize() {
     }
     claimed += h->max_size_;
   }
-  unclaimed_cache_space_ = overall_thread_cache_size_ - claimed;
+  unclaimed_cache_space_ =
+      overall_thread_cache_size_.load(std::memory_order_relaxed) - claimed;
   per_thread_cache_size_ = space;
 }
 
 AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
                                      uint64_t* class_count) {
+  AllocationGuardSpinLockHolder l(&threadcache_lock_);
+
   for (ThreadCache* h = thread_heaps_; h != nullptr; h = h->next_) {
     *total_bytes += h->size_;
     if (class_count) {
@@ -409,7 +417,9 @@ AllocatorStats ThreadCache::GetStats(uint64_t* total_bytes,
 void ThreadCache::set_overall_thread_cache_size(size_t new_size) {
   // Clip the value to a reasonable minimum
   if (new_size < kMinThreadCacheSize) new_size = kMinThreadCacheSize;
-  overall_thread_cache_size_ = new_size;
+
+  AllocationGuardSpinLockHolder l(&threadcache_lock_);
+  overall_thread_cache_size_.store(new_size, std::memory_order_relaxed);
 
   RecomputePerThreadCacheSize();
 }
