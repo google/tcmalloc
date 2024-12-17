@@ -675,11 +675,6 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   }
 }
 
-static size_t GetSizeClass(void* ptr) {
-  const PageId p = PageIdContaining(ptr);
-  return tc_globals.pagemap().sizeclass(p);
-}
-
 // Helper for the object deletion (free, delete, etc.).  Inputs:
 //   ptr is object to be freed
 //   size_class is the size class of that object, or 0 if it's unknown
@@ -713,8 +708,6 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void do_free(void* ptr) {
 
   size_t size_class = tc_globals.pagemap().sizeclass(PageIdContaining(ptr));
   if (ABSL_PREDICT_TRUE(size_class != 0)) {
-    TC_ASSERT_EQ(size_class, GetSizeClass(ptr));
-    TC_ASSERT_NE(ptr, nullptr);
     FreeSmall(ptr, size_class);
   } else {
     SLOW_PATH_BARRIER();
