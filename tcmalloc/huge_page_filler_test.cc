@@ -1220,9 +1220,13 @@ TEST_P(FillerTest, Release) {
   EXPECT_EQ(filler_.unmapped_pages(), kAlloc - Length(1));
   EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(0));
   ASSERT_TRUE(AllReleased(p1));
-  // ASSERT_FALSE(p1.from_released);
+  for (const auto& pa : p1) {
+    ASSERT_FALSE(pa.from_released);
+  }
   ASSERT_FALSE(AllReleased(p3));
-  // ASSERT_FALSE(p3.from_released);
+  for (const auto& pa : p3) {
+    ASSERT_FALSE(pa.from_released);
+  }
 
   // We expect to reuse p1.pt.
   std::vector<PAlloc> p5 = AllocateVectorWithSpanAllocInfo(
