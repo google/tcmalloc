@@ -143,7 +143,11 @@ size_t Sampler::RecordAllocationSlow(size_t k) {
   // total samples. Multiplying by T, the mean number of bytes between samples,
   // gives us a weight of T + k - f.
   //
-  size_t weight = sample_interval_ - bytes_until_sample_ - kIntervalOffset;
+  ssize_t weight;
+  if (ABSL_PREDICT_FALSE(__builtin_ssubl_overflow(
+          sample_interval_, bytes_until_sample_ + kIntervalOffset, &weight))) {
+    weight = std::numeric_limits<ssize_t>::max();
+  }
   bytes_until_sample_ = PickNextSamplingPoint();
   return GetSampleInterval() <= 0 ? 0 : weight;
 }
