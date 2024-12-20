@@ -337,10 +337,9 @@ Span* Span::New(Range r) {
              max_span_cache_array_size == Span::kCacheSize) ||
             (Parameters::max_span_cache_size() == kLargeCacheSize &&
              max_span_cache_array_size == Span::kLargeCacheArraySize));
-  Span* result = Static::span_allocator().NewWithSize(
+  return Static::span_allocator().NewWithSize(
       Span::CalcSizeOf(max_span_cache_array_size),
-      Span::CalcAlignOf(max_span_cache_array_size));
-  return new (result) Span(r);
+      Span::CalcAlignOf(max_span_cache_array_size), r);
 }
 
 void Span::Delete(Span* span) {

@@ -50,6 +50,7 @@ ABSL_CONST_INIT absl::base_internal::SpinLock ThreadCache::threadcache_lock_(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
 ThreadCache::ThreadCache(pthread_t tid) {
+  threadcache_lock_.AssertHeld();
   size_ = 0;
 
   max_size_ = 0;
@@ -308,8 +309,7 @@ ThreadCache* ThreadCache::CreateCacheIfNecessary() {
 
 ThreadCache* ThreadCache::NewHeap(pthread_t tid) {
   // Create the heap and add it to the linked list
-  ThreadCache* heap = tc_globals.threadcache_allocator().New();
-  new (heap) ThreadCache(tid);
+  ThreadCache* heap = tc_globals.threadcache_allocator().New(tid);
   heap->next_ = thread_heaps_;
   heap->prev_ = nullptr;
   if (thread_heaps_ != nullptr) {

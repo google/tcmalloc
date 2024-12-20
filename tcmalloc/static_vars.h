@@ -45,7 +45,6 @@
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
-#include "tcmalloc/sampled_allocation_allocator.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
@@ -60,9 +59,8 @@ class CpuCache;
 class PageMap;
 class ThreadCache;
 
-using SampledAllocationRecorder =
-    ::tcmalloc::tcmalloc_internal::SampleRecorder<SampledAllocation,
-                                                  SampledAllocationAllocator>;
+using SampledAllocationRecorder = ::tcmalloc::tcmalloc_internal::SampleRecorder<
+    SampledAllocation, MetadataObjectAllocator<SampledAllocation>>;
 
 enum class SizeClassConfiguration {
   kPow2Below64 = 1,
@@ -119,7 +117,8 @@ class Static final {
     return guardedpage_allocator_;
   }
 
-  static SampledAllocationAllocator& sampledallocation_allocator() {
+  static MetadataObjectAllocator<SampledAllocation>&
+  sampledallocation_allocator() {
     return sampledallocation_allocator_;
   }
 
@@ -202,7 +201,8 @@ class Static final {
   ABSL_CONST_INIT static ShardedTransferCacheManager sharded_transfer_cache_;
   static CpuCache cpu_cache_;
   ABSL_CONST_INIT static GuardedPageAllocator guardedpage_allocator_;
-  static SampledAllocationAllocator sampledallocation_allocator_;
+  static MetadataObjectAllocator<SampledAllocation>
+      sampledallocation_allocator_;
   static MetadataObjectAllocator<Span> span_allocator_;
   static MetadataObjectAllocator<ThreadCache> threadcache_allocator_;
   static MetadataObjectAllocator<StackTraceTable::LinkedSample>

@@ -259,7 +259,6 @@ create_tcmalloc_libraries(
         "pages.h",
         "parameters.h",
         "peak_heap_tracker.h",
-        "sampled_allocation_allocator.h",
         "sampler.h",
         "segv_handler.h",
         "sizemap.h",
@@ -1202,17 +1201,6 @@ cc_test(
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/time",
-        "@com_google_googletest//:gtest_main",
-    ],
-)
-
-create_tcmalloc_testsuite(
-    name = "sampled_allocation_allocator_test",
-    srcs = ["sampled_allocation_allocator_test.cc"],
-    copts = TCMALLOC_DEFAULT_COPTS,
-    deps = [
-        "//tcmalloc/internal:logging",
-        "@com_google_absl//absl/debugging:stacktrace",
         "@com_google_googletest//:gtest_main",
     ],
 )

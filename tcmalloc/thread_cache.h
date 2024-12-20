@@ -39,9 +39,7 @@ namespace tcmalloc_internal {
 
 class ABSL_CACHELINE_ALIGNED ThreadCache {
  public:
-  explicit ThreadCache(pthread_t tid)
-      ABSL_EXCLUSIVE_LOCKS_REQUIRED(threadcache_lock_);
-
+  explicit ThreadCache(pthread_t tid);
   void Cleanup();
 
   // Allocate an object of the given size class.

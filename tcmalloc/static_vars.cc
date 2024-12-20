@@ -31,7 +31,6 @@
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/experiment_config.h"
 #include "tcmalloc/guarded_page_allocator.h"
-#include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/atomic_stats_counter.h"
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
@@ -43,6 +42,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/internal/percpu.h"
+#include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/metadata_object_allocator.h"
@@ -50,7 +50,6 @@
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/peak_heap_tracker.h"
-#include "tcmalloc/sampled_allocation_allocator.h"
 #include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
@@ -101,7 +100,8 @@ TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT TransferCacheManager
 ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CpuCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
-ABSL_CONST_INIT SampledAllocationAllocator Static::sampledallocation_allocator_;
+ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
+    Static::sampledallocation_allocator_;
 ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_;
 ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
     Static::threadcache_allocator_;

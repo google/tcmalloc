@@ -40,7 +40,6 @@ StackTraceTable::~StackTraceTable() {
   LinkedSample* cur = all_;
   while (cur != nullptr) {
     LinkedSample* next = cur->next;
-    cur->~LinkedSample();
     tc_globals.linked_sample_allocator().Delete(cur);
     cur = next;
   }
@@ -61,7 +60,6 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   // allocating, see more details in "HeapProfilingTest.AllocateWhileIterating"
   // under google3/tcmalloc/heap_profiling_test.cc.
   LinkedSample* s = tc_globals.linked_sample_allocator().New();
-  s = new (s) LinkedSample;
 
   // Report total bytes that are a multiple of the object size.
   size_t allocated_size = t.allocated_size;

@@ -30,7 +30,7 @@
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/sampled_allocation_allocator.h"
+#include "tcmalloc/metadata_object_allocator.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -72,9 +72,10 @@ class PeakHeapTracker {
   }
 
   using PeakHeapRecorder =
-      SampleRecorder<SampledAllocation, SampledAllocationAllocator>;
+      SampleRecorder<SampledAllocation,
+                     MetadataObjectAllocator<SampledAllocation>>;
 
-  SampledAllocationAllocator peak_heap_record_allocator_;
+  MetadataObjectAllocator<SampledAllocation> peak_heap_record_allocator_;
 
   // Guards the peak heap samples stored in `peak_heap_recorder_`.
   absl::base_internal::SpinLock recorder_lock_;

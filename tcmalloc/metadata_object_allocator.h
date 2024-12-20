@@ -66,18 +66,21 @@ class MetadataObjectAllocator {
   // Once New() has been invoked to allocate storage, it is no longer safe to
   // request an overaligned instance via NewWithSize as the underaligned result
   // may be freelisted.
-  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New() {
-    return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)));
+  template <typename... Args>
+  [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* New(Args&&... args) {
+    return NewWithSize(sizeof(T), static_cast<std::align_val_t>(alignof(T)),
+                       std::forward<Args>(args)...);
   }
 
+  template <typename... Args>
   [[nodiscard]] ABSL_ATTRIBUTE_RETURNS_NONNULL T* NewWithSize(
-      size_t size, std::align_val_t align) {
-    // TODO(b/175334169): Run T::T here.
-    return LockAndAllocMemory(size, align);
+      size_t size, std::align_val_t align, Args&&... args) {
+    T* ret = LockAndAllocMemory(size, align);
+    return new (ret) T(std::forward<Args>(args)...);
   }
 
   void Delete(T* p) ABSL_ATTRIBUTE_NONNULL() {
-    // TODO(b/175334169): Run T::~T here.
+    p->~T();
     LockAndDeleteMemory(p);
   }
 
