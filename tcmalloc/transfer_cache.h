@@ -299,12 +299,14 @@ class ShardedTransferCacheManagerBase {
   int tc_length(int cpu, int size_class) const {
     if (shards_ == nullptr) return 0;
     const uint8_t shard = cpu_layout_->CpuShard(cpu);
+    TC_ASSERT_LT(shard, num_shards_);
     if (!shard_initialized(shard)) return 0;
     return shards_[shard].transfer_caches[size_class].tc_length();
   }
 
   bool shard_initialized(int shard) const {
     if (shards_ == nullptr) return false;
+    TC_ASSERT_LT(shard, num_shards_);
     return shards_[shard].initialized.load(std::memory_order_acquire);
   }
 
@@ -413,9 +415,7 @@ class TransferCacheManager : public StaticForwarder {
   TransferCacheManager(const TransferCacheManager &) = delete;
   TransferCacheManager &operator=(const TransferCacheManager &) = delete;
 
-  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    InitCaches();
-  }
+  void Init() { InitCaches(); }
 
   void InsertRange(int size_class, absl::Span<void *> batch) {
     cache_[size_class].tc.InsertRange(size_class, batch);
@@ -464,7 +464,7 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void InitCaches() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void InitCaches() {
     for (int i = 0; i < kNumClasses; ++i) {
       new (&cache_[i].tc) TransferCache(this, i);
     }
@@ -545,7 +545,7 @@ class TransferCacheManager {
   TransferCacheManager(const TransferCacheManager&) = delete;
   TransferCacheManager& operator=(const TransferCacheManager&) = delete;
 
-  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+  void Init() {
     for (int i = 0; i < kNumClasses; ++i) {
       freelist_[i].Init(i);
     }

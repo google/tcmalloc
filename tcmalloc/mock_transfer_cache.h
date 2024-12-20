@@ -66,14 +66,12 @@ class FakeTransferCacheManager {
   std::vector<std::unique_ptr<AlignedPtr>> memory_;
 };
 
-// A transfer cache manager which allocates memory from a fixed size arena. This
-// is necessary to prevent running into deadlocks in some cases, e.g. when the
-// `ShardedTransferCacheManager` calls `Alloc()` which in turns tries to
-// allocate memory using the normal malloc machinery, it leads to a deadlock
-// on the pageheap_lock.
+// A transfer cache manager which wraps malloc.
+//
+// TODO(b/175334169): Remove this once the locks are no longer used.
 class ArenaBasedFakeTransferCacheManager {
  public:
-  ArenaBasedFakeTransferCacheManager() { bytes_.resize(kTotalSize); }
+  ArenaBasedFakeTransferCacheManager() = default;
   constexpr static size_t class_to_size(int size_class) {
     // Chosen >= min size for the sharded transfer cache to kick in.
     if (size_class == kSizeClass) return 4096;
@@ -84,17 +82,14 @@ class ArenaBasedFakeTransferCacheManager {
     return 0;
   }
   void* Alloc(size_t size, std::align_val_t alignment = kAlignment) {
-    size_t space = kTotalSize - used_;
-    if (space < size) return nullptr;
-    void* head = &bytes_[used_];
-    void* aligned =
-        std::align(static_cast<size_t>(alignment), size, head, space);
-    if (aligned != nullptr) {
-      // Increase by the allocated size plus the alignment offset.
-      used_ += size + (kTotalSize - space);
-      TC_CHECK_LE(used_, bytes_.capacity());
+    {
+      // Bounce pageheap_lock to verify we can take it.
+      //
+      // TODO(b/175334169): Remove this.
+      PageHeapSpinLockHolder l;
     }
-    return aligned;
+    used_ += size;
+    return ::operator new(size, alignment);
   }
   size_t used() const { return used_; }
 
@@ -103,10 +98,6 @@ class ArenaBasedFakeTransferCacheManager {
   }
 
  private:
-  static constexpr size_t kTotalSize = 10000000;
-  // We're not changing the size of this vector during the life of this object,
-  // to avoid running into deadlocks.
-  std::vector<char> bytes_;
   size_t used_ = 0;
   static bool partial_legacy_transfer_cache_;
 };
@@ -303,7 +294,9 @@ class FakeCpuLayout {
 
   unsigned NumShards() { return num_shards_; }
   int CurrentCpu() { return current_cpu_; }
-  unsigned CpuShard(int cpu) { return cpu / kCpusPerShard; }
+  unsigned CpuShard(int cpu) {
+    return std::min(cpu / kCpusPerShard, num_shards_ - 1);
+  }
 
  private:
   int current_cpu_ = 0;
@@ -313,9 +306,7 @@ class FakeCpuLayout {
 // Defines transfer cache manager for testing legacy transfer cache.
 class FakeMultiClassTransferCacheManager : public TransferCacheManager {
  public:
-  void Init() ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
-    InitCaches();
-  }
+  void Init() { InitCaches(); }
 };
 
 // Wires up a largely functional TransferCache + TransferCacheManager +
