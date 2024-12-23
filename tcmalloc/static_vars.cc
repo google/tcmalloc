@@ -35,7 +35,6 @@
 #include "tcmalloc/internal/cache_topology.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
-#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/mincore.h"
 #include "tcmalloc/internal/mismatched_delete_state.h"
@@ -105,8 +104,8 @@ ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
 ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
     Static::threadcache_allocator_{arena_};
-ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
-    Static::sampled_allocation_recorder_;
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SampledAllocationRecorder
+    Static::sampled_allocation_recorder_{sampledallocation_allocator_};
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter
     Static::sampled_internal_fragmentation_;
@@ -116,7 +115,8 @@ ABSL_CONST_INIT deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
-ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_{arena_};
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT PeakHeapTracker
+    Static::peak_heap_tracker_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
     Static::linked_sample_allocator_{arena_};
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
@@ -199,9 +199,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     (void)subtle::percpu::IsFast();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
-    sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
-    sampled_allocation_recorder().Init();
-    peak_heap_tracker_.Init();
 
     const bool large_span_experiment = tcmalloc_big_span();
     Parameters::set_max_span_cache_size(

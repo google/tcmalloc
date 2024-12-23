@@ -26,7 +26,6 @@
 #include "tcmalloc/arena.h"
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
-#include "tcmalloc/internal/explicitly_constructed.h"
 #include "tcmalloc/internal/sampled_allocation.h"
 #include "tcmalloc/internal/sampled_allocation_recorder.h"
 #include "tcmalloc/malloc_extension.h"
@@ -42,13 +41,7 @@ class PeakHeapTracker {
       : peak_heap_record_allocator_(arena),
         recorder_lock_(absl::kConstInit,
                        absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        peak_heap_recorder_() {}
-
-  void Init() ABSL_LOCKS_EXCLUDED(recorder_lock_) {
-    AllocationGuardSpinLockHolder h(&recorder_lock_);
-    peak_heap_recorder_.Construct(&peak_heap_record_allocator_);
-    peak_heap_recorder_.get_mutable().Init();
-  }
+        peak_heap_recorder_(peak_heap_record_allocator_) {}
 
   // Possibly save high-water-mark allocation stack traces for peak-heap
   // profile. Should be called immediately after sampling an allocation. If
@@ -75,6 +68,7 @@ class PeakHeapTracker {
       SampleRecorder<SampledAllocation,
                      MetadataObjectAllocator<SampledAllocation>>;
 
+  // TODO(b/175334169): Use the global sample allocator.
   MetadataObjectAllocator<SampledAllocation> peak_heap_record_allocator_;
 
   // Guards the peak heap samples stored in `peak_heap_recorder_`.
@@ -82,13 +76,12 @@ class PeakHeapTracker {
 
   // Linked list that stores the stack traces of the sampled allocation saved
   // when we allocate memory from the system.
-  // PeakHeapRecorder is based off `tcmalloc::tcmalloc_internal::SampleRecorder`
-  // , which is mainly used as the allocator and also for iteration here. It
-  // reuses memory so we don't have to take the pageheap_lock every time for
-  // allocation. `SampleRecorder` has a non-trivial destructor. So wrapping
-  // `ExplicitlyConstructed` around it to make the destructor never run.
-  ExplicitlyConstructed<PeakHeapRecorder> peak_heap_recorder_
-      ABSL_GUARDED_BY(recorder_lock_);
+  //
+  // PeakHeapRecorder is based off
+  // `tcmalloc::tcmalloc_internal::SampleRecorder`, which is mainly used as the
+  // allocator and also for iteration here. It reuses memory so we don't have to
+  // take the pageheap_lock every time for allocation.
+  PeakHeapRecorder peak_heap_recorder_ ABSL_GUARDED_BY(recorder_lock_);
 
   absl::Time last_peak_ ABSL_GUARDED_BY(recorder_lock_);
 

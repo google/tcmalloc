@@ -58,12 +58,12 @@ void PeakHeapTracker::MaybeSaveSample() {
 
   // Guaranteed to have no live sample after this call since we are doing this
   // under `recorder_lock_`.
-  peak_heap_recorder_.get_mutable().UnregisterAll();
+  peak_heap_recorder_.UnregisterAll();
   tc_globals.sampled_allocation_recorder().Iterate(
       [this](const SampledAllocation& sampled_allocation) {
         recorder_lock_.AssertHeld();
         StackTrace st = sampled_allocation.sampled_stack;
-        peak_heap_recorder_.get_mutable().Register(std::move(st));
+        peak_heap_recorder_.Register(std::move(st));
       });
 }
 
@@ -72,7 +72,7 @@ std::unique_ptr<ProfileBase> PeakHeapTracker::DumpSample() {
 
   AllocationGuardSpinLockHolder h(&recorder_lock_);
   profile->SetStartTime(last_peak_);
-  peak_heap_recorder_.get_mutable().Iterate(
+  peak_heap_recorder_.Iterate(
       [&profile](const SampledAllocation& peak_heap_record) {
         profile->AddTrace(1.0, peak_heap_record.sampled_stack);
       });

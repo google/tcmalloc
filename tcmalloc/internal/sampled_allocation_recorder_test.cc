@@ -67,9 +67,7 @@ class TestAllocator {
 
 class SampleRecorderTest : public ::testing::Test {
  public:
-  SampleRecorderTest() : sample_recorder_(&allocator_) {
-    sample_recorder_.Init();
-  }
+  SampleRecorderTest() : sample_recorder_(allocator_) {}
 
   std::vector<size_t> GetSizes() {
     std::vector<size_t> res;
@@ -91,23 +89,6 @@ class SampleRecorderTest : public ::testing::Test {
   TestAllocator allocator_;
   SampleRecorder<Info, TestAllocator> sample_recorder_;
 };
-
-// In static_vars.cc, we use
-// tcmalloc/internal/explicitly_constructed.h to set up the sample
-// recorder. Have a test here to verify that it is properly initialized and
-// functional through this approach.
-TEST_F(SampleRecorderTest, ExplicitlyConstructed) {
-  ExplicitlyConstructed<SampleRecorder<Info, TestAllocator>>
-      sample_recorder_helper;
-  sample_recorder_helper.Construct(&allocator_);
-  SampleRecorder<Info, TestAllocator>& sample_recorder =
-      sample_recorder_helper.get_mutable();
-  sample_recorder.Init();
-
-  Info* info = sample_recorder.Register();
-  assert(info != nullptr);
-  sample_recorder.Unregister(info);
-}
 
 // Check that the state modified by PrepareForSampling() is properly set.
 TEST_F(SampleRecorderTest, PrepareForSampling) {
@@ -216,8 +197,7 @@ TEST_F(SampleRecorderTest, MultiThreaded) {
   // work well with the setup above since `infoz` might find itself storing dead
   // objects as `UnregisterAll()` is running concurrently. And `Unregister()`
   // assumes the object it is going to mark dead is still alive.
-  SampleRecorder<Info, TestAllocator> sample_recorder{&allocator_};
-  sample_recorder.Init();
+  SampleRecorder<Info, TestAllocator> sample_recorder{allocator_};
   threads.Start(kThreads, [&](int) { sample_recorder.Register(); });
   threads.Start(kThreads, [&](int) { sample_recorder.UnregisterAll(); });
   threads.Start(kThreads, [&](int) {
@@ -277,8 +257,7 @@ class InfoAllocator {
 
 TEST(SampleRecorderWithParamTest, RegisterWithParam) {
   InfoAllocator allocator;
-  SampleRecorder<InfoWithParam, InfoAllocator> sample_recorder{&allocator};
-  sample_recorder.Init();
+  SampleRecorder<InfoWithParam, InfoAllocator> sample_recorder{allocator};
   // Register() goes though New().
   InfoWithParam* info = sample_recorder.Register(1);
   EXPECT_THAT(info->info_size, 1);

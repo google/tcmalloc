@@ -24,6 +24,7 @@
 
 #include <atomic>
 
+#include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
 #include "absl/base/internal/spinlock.h"
 #include "absl/base/thread_annotations.h"
@@ -55,7 +56,8 @@ class SampleRecorder {
  public:
   using Allocator = AllocatorT;
 
-  constexpr explicit SampleRecorder(Allocator* allocator);
+  constexpr explicit SampleRecorder(
+      Allocator& allocator ABSL_ATTRIBUTE_LIFETIME_BOUND);
   ~SampleRecorder();
 
   SampleRecorder(const SampleRecorder&) = delete;
@@ -63,9 +65,6 @@ class SampleRecorder {
 
   SampleRecorder(SampleRecorder&&) = delete;
   SampleRecorder& operator=(SampleRecorder&&) = delete;
-
-  // Sets up the dead pointer of `graveyard_` to make it a circular linked list.
-  void Init();
 
   // Registers for sampling.  Returns an opaque registration info.
   template <typename... Targs>
@@ -138,8 +137,10 @@ SampleRecorder<T, Allocator>::SetDisposeCallback(DisposeCallback f) {
 }
 
 template <typename T, typename Allocator>
-constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator* allocator)
-    : all_(nullptr), dispose_(nullptr), allocator_(allocator) {}
+constexpr SampleRecorder<T, Allocator>::SampleRecorder(Allocator& allocator)
+    : all_(nullptr), dispose_(nullptr), allocator_(&allocator) {
+  graveyard_.dead = &graveyard_;
+}
 
 template <typename T, typename Allocator>
 SampleRecorder<T, Allocator>::~SampleRecorder() {
@@ -149,12 +150,6 @@ SampleRecorder<T, Allocator>::~SampleRecorder() {
     allocator_->Delete(s);
     s = next;
   }
-}
-
-template <typename T, typename Allocator>
-void SampleRecorder<T, Allocator>::Init() {
-  AllocationGuardSpinLockHolder l(&graveyard_.lock);
-  graveyard_.dead = &graveyard_;
 }
 
 template <typename T, typename Allocator>

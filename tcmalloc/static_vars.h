@@ -131,7 +131,7 @@ class Static final {
   }
 
   static SampledAllocationRecorder& sampled_allocation_recorder() {
-    return sampled_allocation_recorder_.get_mutable();
+    return sampled_allocation_recorder_;
   }
 
   // State kept for sampled allocations (/heapz support).
@@ -227,10 +227,9 @@ class Static final {
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
 
-  // Manages sampled allocations and allows iteration over samples free from
-  // the global pageheap_lock.
-  static ExplicitlyConstructed<SampledAllocationRecorder>
-      sampled_allocation_recorder_;
+  // Manages sampled allocations and allows iteration over samples free from the
+  // global pageheap_lock.
+  static SampledAllocationRecorder sampled_allocation_recorder_;
 };
 
 ABSL_CONST_INIT extern Static tc_globals;
