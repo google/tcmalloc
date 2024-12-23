@@ -38,13 +38,13 @@ namespace tcmalloc_internal {
 
 class PeakHeapTracker {
  public:
-  constexpr PeakHeapTracker()
-      : recorder_lock_(absl::kConstInit,
+  constexpr explicit PeakHeapTracker(Arena& arena ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : peak_heap_record_allocator_(arena),
+        recorder_lock_(absl::kConstInit,
                        absl::base_internal::SCHEDULE_KERNEL_ONLY),
         peak_heap_recorder_() {}
 
-  void Init(Arena* arena) ABSL_LOCKS_EXCLUDED(recorder_lock_) {
-    peak_heap_record_allocator_.Init(arena);
+  void Init() ABSL_LOCKS_EXCLUDED(recorder_lock_) {
     AllocationGuardSpinLockHolder h(&recorder_lock_);
     peak_heap_recorder_.Construct(&peak_heap_record_allocator_);
     peak_heap_recorder_.get_mutable().Init();

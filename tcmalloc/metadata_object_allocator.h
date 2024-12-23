@@ -50,16 +50,9 @@ struct AllocatorStats {
 template <class T>
 class MetadataObjectAllocator {
  public:
-  constexpr MetadataObjectAllocator()
-      : arena_(nullptr), free_list_(nullptr), stats_{0, 0} {}
-
-  // We use an explicit Init function because these variables are statically
-  // allocated and their constructors might not have run by the time some
-  // other static variable tries to allocate memory.
-  void Init(Arena* arena) {
-    // TODO(b/175334169): Move this parameter to the constructor.
-    arena_ = arena;
-  }
+  constexpr explicit MetadataObjectAllocator(
+      Arena& arena ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : arena_(&arena), free_list_(nullptr), stats_{0, 0} {}
 
   // Allocates storage for a T.
   //

@@ -101,10 +101,10 @@ ABSL_CONST_INIT ShardedTransferCacheManager
     Static::sharded_transfer_cache_(nullptr, nullptr);
 ABSL_CONST_INIT CpuCache ABSL_CACHELINE_ALIGNED Static::cpu_cache_;
 ABSL_CONST_INIT MetadataObjectAllocator<SampledAllocation>
-    Static::sampledallocation_allocator_;
-ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_;
+    Static::sampledallocation_allocator_{arena_};
+ABSL_CONST_INIT MetadataObjectAllocator<Span> Static::span_allocator_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<ThreadCache>
-    Static::threadcache_allocator_;
+    Static::threadcache_allocator_{arena_};
 ABSL_CONST_INIT ExplicitlyConstructed<SampledAllocationRecorder>
     Static::sampled_allocation_recorder_;
 ABSL_CONST_INIT tcmalloc_internal::StatsCounter Static::sampled_objects_size_;
@@ -116,9 +116,9 @@ ABSL_CONST_INIT deallocationz::DeallocationProfilerList
     Static::deallocation_samples;
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
-ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_;
+ABSL_CONST_INIT PeakHeapTracker Static::peak_heap_tracker_{arena_};
 ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
-    Static::linked_sample_allocator_;
+    Static::linked_sample_allocator_{arena_};
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
 ABSL_CONST_INIT std::atomic<bool> Static::cpu_cache_active_{false};
 ABSL_CONST_INIT Static::PageAllocatorStorage Static::page_allocator_;
@@ -199,10 +199,9 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     (void)subtle::percpu::IsFast();
     numa_topology_.Init();
     CacheTopology::Instance().Init();
-    sampledallocation_allocator_.Init(&arena_);
     sampled_allocation_recorder_.Construct(&sampledallocation_allocator_);
     sampled_allocation_recorder().Init();
-    peak_heap_tracker_.Init(&arena_);
+    peak_heap_tracker_.Init();
 
     const bool large_span_experiment = tcmalloc_big_span();
     Parameters::set_max_span_cache_size(
@@ -210,8 +209,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     Parameters::set_max_span_cache_array_size(
         large_span_experiment ? Span::kLargeCacheArraySize : Span::kCacheSize);
 
-    span_allocator_.Init(&arena_);
-    linked_sample_allocator_.Init(&arena_);
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
     transfer_cache_.Init();
@@ -219,7 +216,6 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     // state.
     sharded_transfer_cache_.Init();
     new (page_allocator_.memory) PageAllocator;
-    threadcache_allocator_.Init(&arena_);
     pagemap_.MapRootWithSmallPages();
     guardedpage_allocator_.Init(/*max_allocated_pages=*/64,
                                 /*total_pages=*/128);

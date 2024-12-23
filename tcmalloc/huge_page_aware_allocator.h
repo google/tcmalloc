@@ -294,6 +294,8 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     HugePageAwareAllocator& hpaa_;
   };
 
+  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
+
   Unback unback_ ABSL_GUARDED_BY(pageheap_lock);
   UnbackWithoutLock unback_without_lock_ ABSL_GUARDED_BY(pageheap_lock);
 
@@ -416,8 +418,6 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
   // Whether this HPAA should use subrelease. This delegates to the appropriate
   // parameter depending whether this is for the cold heap or another heap.
   bool hpaa_subrelease() const;
-
-  ABSL_ATTRIBUTE_NO_UNIQUE_ADDRESS Forwarder forwarder_;
 };
 
 template <class Forwarder>
@@ -428,14 +428,13 @@ inline HugePageAwareAllocator<Forwarder>::HugePageAwareAllocator(
       unback_without_lock_(*this),
       filler_(options.dense_tracker_type, unback_, unback_without_lock_),
       regions_(options.use_huge_region_more_often),
+      tracker_allocator_(forwarder_.arena()),
+      region_allocator_(forwarder_.arena()),
       vm_allocator_(*this),
       metadata_allocator_(*this),
       alloc_(vm_allocator_, metadata_allocator_),
       cache_(HugeCache{&alloc_, metadata_allocator_, unback_without_lock_,
-                       options.huge_cache_time}) {
-  tracker_allocator_.Init(&forwarder_.arena());
-  region_allocator_.Init(&forwarder_.arena());
-}
+                       options.huge_cache_time}) {}
 
 template <class Forwarder>
 inline HugePageAwareAllocator<Forwarder>::FillerType::Tracker*
