@@ -137,6 +137,10 @@ class ReadWriteTcMallocTest
       public testing::WithParamInterface<bool /* write_test */> {};
 
 TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+
   const bool write_test = GetParam();
   auto RepeatUnderflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
@@ -168,6 +172,10 @@ TEST_P(ReadWriteTcMallocTest, UnderflowDetected) {
 }
 
 TEST_P(ReadWriteTcMallocTest, OverflowDetected) {
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+
   const bool write_test = GetParam();
   auto RepeatOverflow = [&]() {
     for (int i = 0; i < 1000000; i++) {
@@ -221,7 +229,7 @@ TEST_P(ReadWriteTcMallocTest, UseAfterFreeDetected) {
       "\\(read or write: indeterminate\\)",
 #endif
       " occurs in thread [0-9]+ at"
-  );
+      "|heap-use-after-free");
   EXPECT_DEATH(RepeatUseAfterFree(), expected_output);
 }
 
@@ -231,6 +239,10 @@ INSTANTIATE_TEST_SUITE_P(rwtmt, ReadWriteTcMallocTest, testing::Bool());
 // run this test for opt builds.
 #ifdef NDEBUG
 TEST_F(TcMallocTest, DoubleFreeDetected) {
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif
+
   auto RepeatDoubleFree = []() {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(kPageSize);
@@ -264,7 +276,7 @@ TEST_F(TcMallocTest, OverflowWriteDetectedAtFree) {
   };
   std::string expected_output = absl::StrCat(
       "Buffer overflow \\(write\\) detected in thread [0-9]+ at free"
-  );
+      "|heap-buffer-overflow");
   EXPECT_DEATH(RepeatOverflowWrite(), expected_output);
 }
 
@@ -280,6 +292,10 @@ TEST_F(TcMallocTest, ReallocNoFalsePositive) {
 }
 
 TEST_F(TcMallocTest, OffsetAndLength) {
+#if ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires GWP-ASan";
+#endif  // ABSL_HAVE_ADDRESS_SANITIZER
+
   auto RepeatUseAfterFree = [&](size_t buffer_len, off_t access_offset) {
     for (int i = 0; i < 1000000; i++) {
       void* buf = ::operator new(buffer_len);
@@ -338,7 +354,9 @@ TEST_F(TcMallocTest, b201199449_AlignedObjectConstruction) {
     }
   }
 
+#if !ABSL_HAVE_ADDRESS_SANITIZER
   EXPECT_TRUE(allocated) << "Failed to allocate with GWP-ASan";
+#endif  // !ABSL_HAVE_ADDRESS_SANITIZER
 }
 
 TEST_F(TcMallocTest, DoubleFree) {
@@ -352,9 +370,9 @@ TEST_F(TcMallocTest, DoubleFree) {
     ::operator delete(buf);
   };
   EXPECT_DEATH(DoubleFree(),
-               "span != "
-               "nullptr|Span::Unsample\\(\\)|Span::IN_USE|"
-               "InvokeHooksAndFreePages\\(\\)");
+               "span != nullptr|Span::Unsample\\(\\)|Span::IN_USE|"
+               "InvokeHooksAndFreePages\\(\\)|"
+               "attempting double-free");
 }
 
 TEST_F(TcMallocTest, LargeDoubleFree) {
@@ -367,7 +385,9 @@ TEST_F(TcMallocTest, LargeDoubleFree) {
     benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(DoubleFree(), "span != nullptr.*Possible double free detected");
+  EXPECT_DEATH(
+      DoubleFree(),
+      "span != nullptr.*Possible double free detected|attempting double-free");
 }
 
 TEST_F(TcMallocTest, ReallocLarger) {
@@ -385,7 +405,7 @@ TEST_F(TcMallocTest, ReallocLarger) {
             free(ptr);
           }
         },
-        "has detected a memory error");
+        "has detected a memory error|heap-buffer-overflow");
   }
 }
 
