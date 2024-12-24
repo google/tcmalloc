@@ -1598,7 +1598,7 @@ class GetReleaseStatsTest : public testing::Test {
   void SetUp() override {
     // Use SetUp instead of a constructor so that we can make assertions.
 
-    // TODO(b/242550501): Mock these paramters.
+    // TODO(b/242550501): Mock these parameters.
     Parameters::set_background_release_rate(MallocExtension::BytesPerSecond{0});
     TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(false);
     Parameters::set_hpaa_subrelease(false);

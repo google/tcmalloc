@@ -55,7 +55,7 @@ TEST_F(OutOfMemoryTest, TestUntilFailure) {
     }
     ::operator delete(large_object);
   }
-  ASSERT_TRUE(false) << "Did not run out of memory";
+  FAIL() << "Did not run out of memory";
 }
 
 TEST_F(OutOfMemoryTest, SmallAllocs) {

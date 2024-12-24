@@ -56,8 +56,7 @@ best-fit algorithm that tracks the free lengths seems appropriate.
 As allocations become free, it seems reasonable (by requirement (3) above) that
 we unback empty hugepages.
 
-Finally, what happens if the the range we allocated is full? We could do two
-things
+Finally, what happens if the range we allocated is full? We could do two things
 
 1.  extend it
 1.  obtain a new one and do allocations from there as needed.

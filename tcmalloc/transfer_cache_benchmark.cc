@@ -188,7 +188,7 @@ void BM_RealisticHitRate(benchmark::State& state) {
   for (auto iter : state) {
     state.PauseTiming();
     const double partial = absl::Uniform(gen, 0.0, 1.0);
-    // We perform insert (or remove) operations with a probablity specified by
+    // We perform insert (or remove) operations with a probability specified by
     // kBias during the insert-heavy (or remove-heavy) phase of this benchmark.
     const bool insert = absl::Bernoulli(gen, kBias) == insert_heavy;
     state.ResumeTiming();

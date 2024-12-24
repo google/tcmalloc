@@ -158,7 +158,7 @@ void operator delete[](void* p, std::align_val_t alignment,
                        const std::nothrow_t&) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDeleteArrayAlignedNothrow);
 void operator delete[](void* p, size_t size,
-                       std::align_val_t alignemnt) noexcept
+                       std::align_val_t alignment) noexcept
     TCMALLOC_ALIAS(TCMallocInternalDeleteArraySizedAligned);
 
 extern "C" {

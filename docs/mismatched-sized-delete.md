@@ -131,7 +131,7 @@ TCMalloc detects:
     Since these objects were sampled at allocation time, we have a callstack for
     the allocation.
 
-*   Large object sizes (`>kMaxSize`, typically 256KB): When an deallocation is
+*   Large object sizes (`>kMaxSize`, typically 256KB): When a deallocation is
     for a large number of bytes, we expect to deallocate that object to a single
     object [span](design.md#spans). The deallocated object should be no larger
     than the span. It cannot be any smaller than the size less a

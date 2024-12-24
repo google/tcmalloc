@@ -187,7 +187,7 @@ TEST_F(TimeSeriesTrackerTest, Works) {
   tracker_.UpdateTimeBase();
   tracker_.Iter(
       [&](size_t offset, int64_t ts, const TestEntry& e) {
-        ASSERT_TRUE(false) << "Time series should be empty";
+        FAIL() << "Time series should be empty";
       },
       tracker_.kSkipEmptyEntries);
 

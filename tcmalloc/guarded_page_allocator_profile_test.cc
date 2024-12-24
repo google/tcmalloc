@@ -330,8 +330,8 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   AllocateUntilGuarded();
 
   auto token = MallocExtension::StartAllocationProfiling();
-  // Obtain a few sample guarding canidates, which will eventualy yield at least
-  // one that is filtered.
+  // Obtain a few sample guarding candidates, which will eventually yield at
+  // least one that is filtered.
   int guarded_count = 0;
   int sampled_count = 0;
   AllocateGuardableUntil(1062, [&](void* alloc) -> NextSteps {

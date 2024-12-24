@@ -39,7 +39,7 @@ RAM overhead is up to 512 KB on x86\_64, or 4 MB on PowerPC.
 `tcmalloc::MallocExtension::SetGuardedSamplingRate` sets the sampling rate for
 GWP-ASan. GWP-ASan will guard allocations approximately every
 `GuardedSamplingRate` bytes allocated. Thus, lower values will generally
-increase the the chance of finding bugs but will also have higher CPU overhead.
+increase the chance of finding bugs but will also have higher CPU overhead.
 
 For applications that cannot tolerate any CPU overhead, we recommend
 using TCMalloc's default sampling rate.  If your application can tolerate some

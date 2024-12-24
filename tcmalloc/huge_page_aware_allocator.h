@@ -556,7 +556,7 @@ HugePageAwareAllocator<Forwarder>::AllocLarge(Length n,
 
   // We have two choices here: allocate a new region or go to
   // hugepages directly (hoping that slack will be filled by small
-  // allocation.) The second strategy is preferrable, as it's
+  // allocation.) The second strategy is preferable, as it's
   // typically faster and usually more space efficient, but it's sometimes
   // catastrophic.
   //

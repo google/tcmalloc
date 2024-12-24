@@ -205,7 +205,7 @@ ABSL_ATTRIBUTE_NOINLINE void LogImpl(
   })
 
 // absl::SNPrintF rejects to print pointers with %v,
-// so we need this little danse to convience it.
+// so we need this little dance to convenience it.
 struct PtrFormatter {
   const volatile void* val;
   template <typename Sink>

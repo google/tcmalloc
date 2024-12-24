@@ -305,7 +305,7 @@ TEST(FragmentationzTest, Accuracy) {
   // decrease noise and speed up, we just keep every 5th one exactly.)
   for (int i = 0; i < kNumItems; ++i) {
     // Ideally we should use a malloc() here, for consistency; but unique_ptr
-    // doesn't come with a have a "free()" deleter; use ::operator new insted.
+    // doesn't come with a have a "free()" deleter; use ::operator new instead.
     (i % 5 == 0 ? keep : drop)
         .push_back(std::unique_ptr<char[]>(
             static_cast<char*>(::operator new[](kItemSize))));

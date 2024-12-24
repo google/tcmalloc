@@ -285,7 +285,7 @@ TEST(MemalignTest, pvalloc) {
     free(p);
   }
 
-  // should be safe to write upto a page in pvalloc(0) region
+  // should be safe to write up to a page in pvalloc(0) region
   void* p = pvalloc(0);
   Fill(p, pagesize, 'y');
   ASSERT_TRUE(Valid(p, pagesize, 'y'));

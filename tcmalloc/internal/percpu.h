@@ -320,7 +320,7 @@ void __tsan_release(void* addr);
 #endif
 
 // TSAN relies on seeing (and rewriting) memory accesses.  It can't
-// get at the memory acccesses we make from RSEQ assembler sequences,
+// get at the memory accesses we make from RSEQ assembler sequences,
 // which means it doesn't know about the semantics our sequences
 // enforce.  So if we're under TSAN, add barrier annotations.
 inline void TSANAcquire(void* p) {
