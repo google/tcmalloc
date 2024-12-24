@@ -438,6 +438,7 @@ create_tcmalloc_testsuite(
     copts = TCMALLOC_DEFAULT_COPTS,
     shard_count = 3,
     tags = [
+        "nohwasan",
         "nomsan",
         "notsan",
     ],
