@@ -36,6 +36,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/internal/allocation_guard.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/range_tracker.h"
 #include "tcmalloc/internal/util.h"
@@ -329,6 +330,42 @@ TEST(PageMapTest, VerifyAddressAlignmentBeyondFirstPageFails) {
       s.GetHolesAndSwappedBitmaps(reinterpret_cast<void*>((2 << 21) + 1));
   g.reset();
   EXPECT_EQ(res.status, absl::StatusCode::kFailedPrecondition);
+}
+
+TEST(PageMapIntegrationTest, WorksOnActualData) {
+  std::optional<AllocationGuard> g;
+  void* addr = mmap(nullptr, 4 << 20, PROT_WRITE,
+                    MAP_ANONYMOUS | MAP_POPULATE | MAP_PRIVATE, -1, 0);
+  ASSERT_NE(addr, MAP_FAILED) << errno;
+  auto position = reinterpret_cast<uintptr_t>(addr);
+  if ((position & (kHugePageSize - 1)) != 0) {
+    position |= kHugePageSize - 1;
+    position++;
+    addr = reinterpret_cast<void*>(position);
+  }
+  g.emplace();
+  Residency r;
+  auto res = r.GetHolesAndSwappedBitmaps(addr);
+  g.reset();
+  ASSERT_EQ(res.status, absl::StatusCode::kOk);
+  EXPECT_TRUE(res.holes.IsZero());
+  EXPECT_TRUE(res.swapped.IsZero());
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 1 * 4096, 4096), 0)
+      << errno;
+  ASSERT_EQ(munmap(reinterpret_cast<uint8_t*>(addr) + 17 * 4096, 4096), 0)
+      << errno;
+
+  g.emplace();
+  res = r.GetHolesAndSwappedBitmaps(addr);
+  g.reset();
+  ASSERT_EQ(res.status, absl::StatusCode::kOk);
+  EXPECT_FALSE(res.holes.IsZero());
+  ASSERT_TRUE(res.holes.GetBit(1));
+  ASSERT_TRUE(res.holes.GetBit(17));
+  res.holes.ClearLowestBit();
+  res.holes.ClearLowestBit();
+  EXPECT_TRUE(res.holes.IsZero());
+  EXPECT_TRUE(res.swapped.IsZero());
 }
 
 }  // namespace
