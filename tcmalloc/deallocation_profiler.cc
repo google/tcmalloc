@@ -662,19 +662,17 @@ void DeallocationProfiler::DeallocationStackTraceTable::Iterate(
                                  static_cast<double>((v.counts[index]))));
 
       const auto bucketize = internal::LifetimeNsToBucketedDuration;
-      Profile::Sample sample{
-          .sum = sum,
-          .requested_size = k.alloc.requested_size,
-          .requested_alignment = k.alloc.requested_alignment,
-          .allocated_size = allocated_size,
-          .profile_id = pair_id++,
-          // Set the is_censored flag so that when we create a proto
-          // sample later we can treat the *_lifetime accordingly.
-          .is_censored = (k.dealloc.depth == 0),
-          .avg_lifetime = bucketize(v.mean_life_times_ns[index]),
-          .stddev_lifetime = bucketize(stddev_life_time_ns),
-          .min_lifetime = bucketize(v.min_life_times_ns[index]),
-          .max_lifetime = bucketize(v.max_life_times_ns[index])};
+      Profile::Sample sample;
+      sample.sum = sum, sample.requested_size = k.alloc.requested_size,
+      sample.requested_alignment = k.alloc.requested_alignment,
+      sample.allocated_size = allocated_size, sample.profile_id = pair_id++,
+      // Set the is_censored flag so that when we create a proto
+      // sample later we can treat the *_lifetime accordingly.
+          sample.is_censored = (k.dealloc.depth == 0),
+      sample.avg_lifetime = bucketize(v.mean_life_times_ns[index]),
+      sample.stddev_lifetime = bucketize(stddev_life_time_ns),
+      sample.min_lifetime = bucketize(v.min_life_times_ns[index]),
+      sample.max_lifetime = bucketize(v.max_life_times_ns[index]);
       // Only set the cpu and thread matched flags if the sample is not
       // censored.
       if (!sample.is_censored) {
