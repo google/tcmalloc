@@ -37,11 +37,12 @@ namespace tcmalloc_internal {
 
 class PeakHeapTracker {
  public:
-  constexpr explicit PeakHeapTracker(Arena& arena ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : peak_heap_record_allocator_(arena),
-        recorder_lock_(absl::kConstInit,
+  constexpr explicit PeakHeapTracker(
+      MetadataObjectAllocator<SampledAllocation>& allocator
+          ABSL_ATTRIBUTE_LIFETIME_BOUND)
+      : recorder_lock_(absl::kConstInit,
                        absl::base_internal::SCHEDULE_KERNEL_ONLY),
-        peak_heap_recorder_(peak_heap_record_allocator_) {}
+        peak_heap_recorder_(allocator) {}
 
   // Possibly save high-water-mark allocation stack traces for peak-heap
   // profile. Should be called immediately after sampling an allocation. If
@@ -68,19 +69,11 @@ class PeakHeapTracker {
       SampleRecorder<SampledAllocation,
                      MetadataObjectAllocator<SampledAllocation>>;
 
-  // TODO(b/175334169): Use the global sample allocator.
-  MetadataObjectAllocator<SampledAllocation> peak_heap_record_allocator_;
-
   // Guards the peak heap samples stored in `peak_heap_recorder_`.
   absl::base_internal::SpinLock recorder_lock_;
 
   // Linked list that stores the stack traces of the sampled allocation saved
   // when we allocate memory from the system.
-  //
-  // PeakHeapRecorder is based off
-  // `tcmalloc::tcmalloc_internal::SampleRecorder`, which is mainly used as the
-  // allocator and also for iteration here. It reuses memory so we don't have to
-  // take the pageheap_lock every time for allocation.
   PeakHeapRecorder peak_heap_recorder_ ABSL_GUARDED_BY(recorder_lock_);
 
   absl::Time last_peak_ ABSL_GUARDED_BY(recorder_lock_);

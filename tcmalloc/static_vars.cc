@@ -116,7 +116,7 @@ ABSL_CONST_INIT deallocationz::DeallocationProfilerList
 ABSL_CONST_INIT std::atomic<AllocHandle> Static::sampled_alloc_handle_generator{
     0};
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT PeakHeapTracker
-    Static::peak_heap_tracker_{arena_};
+    Static::peak_heap_tracker_{sampledallocation_allocator_};
 ABSL_CONST_INIT MetadataObjectAllocator<StackTraceTable::LinkedSample>
     Static::linked_sample_allocator_{arena_};
 ABSL_CONST_INIT std::atomic<bool> Static::inited_{false};
