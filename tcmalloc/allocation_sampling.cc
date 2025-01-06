@@ -222,7 +222,7 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
   TC_ASSERT_NE(span, nullptr);
 
   stack_trace.sampled_alloc_handle =
-      state.sampled_alloc_handle_generator.fetch_add(
+      state.sampled_alloc_handle_generator_.fetch_add(
           1, std::memory_order_relaxed) +
       1;
   stack_trace.span_start_address = span->start_address();
@@ -241,9 +241,9 @@ sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
         allocation_estimate * (stack_trace.allocated_size - requested_size));
   }
 
-  state.allocation_samples.ReportMalloc(stack_trace);
+  state.allocation_samples_.ReportMalloc(stack_trace);
 
-  state.deallocation_samples.ReportMalloc(stack_trace);
+  state.deallocation_samples_.ReportMalloc(stack_trace);
 
   // The SampledAllocation object is visible to readers after this. Readers only
   // care about its various metadata (e.g. stack trace, weight) to generate the
@@ -415,7 +415,7 @@ void MaybeUnsampleAllocation(Static& state, void* ptr,
     state.sampled_internal_fragmentation_.Add(-sampled_fragmentation);
   }
 
-  state.deallocation_samples.ReportFree(sampled_alloc_handle);
+  state.deallocation_samples_.ReportFree(sampled_alloc_handle);
 
   if (proxy) {
     const auto policy = CppPolicy().InSameNumaPartitionAs(proxy);

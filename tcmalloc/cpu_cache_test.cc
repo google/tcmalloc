@@ -26,7 +26,6 @@
 #include <optional>
 #include <string>
 #include <thread>  // NOLINT(build/c++11)
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -46,7 +45,6 @@
 #include "tcmalloc/internal/percpu_tcmalloc.h"
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
-#include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
@@ -227,6 +225,11 @@ class TestStaticForwarder {
   }
   void SetShardedCacheForLargeClassesOnly(bool value) {
     owner_.SetCacheForLargeClassesOnly(value);
+  }
+
+  bool HaveHooks() const {
+    // TODO(b/242550501): Test other states.
+    return false;
   }
 
   size_t arena_reported_nonresident_bytes_ = 0;

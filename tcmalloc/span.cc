@@ -337,7 +337,7 @@ Span* Span::New(Range r) {
              max_span_cache_array_size == Span::kCacheSize) ||
             (Parameters::max_span_cache_size() == kLargeCacheSize &&
              max_span_cache_array_size == Span::kLargeCacheArraySize));
-  return Static::span_allocator().NewWithSize(
+  return tc_globals.span_allocator().NewWithSize(
       Span::CalcSizeOf(max_span_cache_array_size),
       Span::CalcAlignOf(max_span_cache_array_size), r);
 }
@@ -355,7 +355,7 @@ void Span::Delete(Span* span) {
   // In debug mode, trash the contents of deleted Spans
   memset(static_cast<void*>(span), 0x3f, span_size);
 #endif
-  Static::span_allocator().Delete(span);
+  tc_globals.span_allocator().Delete(span);
 }
 
 }  // namespace tcmalloc_internal

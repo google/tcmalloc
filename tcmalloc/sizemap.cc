@@ -37,7 +37,7 @@ namespace tcmalloc {
 namespace tcmalloc_internal {
 
 const SizeClasses& SizeMap::CurrentClasses() {
-  switch (Static::size_class_configuration()) {
+  switch (tc_globals.size_class_configuration()) {
     case SizeClassConfiguration::kPow2Below64:
       return kSizeClasses;
     case SizeClassConfiguration::kPow2Only:

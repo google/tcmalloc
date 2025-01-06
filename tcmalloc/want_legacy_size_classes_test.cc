@@ -26,7 +26,7 @@ namespace {
 
 TEST(SizeClassesTest, SmallClasses) {
   // This test needs to validate against the actual SizeMap TCMalloc will use.
-  Static::InitIfNecessary();
+  tc_globals.InitIfNecessary();
 
   if (__STDCPP_DEFAULT_NEW_ALIGNMENT__ > 8)
     GTEST_SKIP() << "Unexpected default new alignment.";
@@ -37,7 +37,7 @@ TEST(SizeClassesTest, SmallClasses) {
 
   ASSERT_LE(classes.size(), kNumClasses);
   for (int c = 0; c < classes.size(); ++c) {
-    EXPECT_EQ(Static::sizemap().class_to_size(c), classes[c]) << c;
+    EXPECT_EQ(tc_globals.sizemap().class_to_size(c), classes[c]) << c;
   }
 }
 

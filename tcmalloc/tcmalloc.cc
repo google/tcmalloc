@@ -261,13 +261,13 @@ extern "C" const ProfileBase* MallocExtension_Internal_SnapshotCurrent(
 
 extern "C" AllocationProfilingTokenBase*
 MallocExtension_Internal_StartAllocationProfiling() {
-  return new AllocationSample(&tc_globals.allocation_samples, absl::Now());
+  return new AllocationSample(&tc_globals.allocation_samples_, absl::Now());
 }
 
 extern "C" tcmalloc_internal::AllocationProfilingTokenBase*
 MallocExtension_Internal_StartLifetimeProfiling() {
   return new deallocationz::DeallocationSample(
-      &tc_globals.deallocation_samples);
+      &tc_globals.deallocation_samples_);
 }
 
 MallocExtension::Ownership GetOwnership(const void* ptr) {
@@ -540,7 +540,7 @@ __attribute__((flatten))
 #endif
 ABSL_ATTRIBUTE_NOINLINE static void
 FreeSmallSlow(void* ptr, size_t size_class) {
-  if (ABSL_PREDICT_FALSE(Static::HaveHooks()) ||
+  if (ABSL_PREDICT_FALSE(tc_globals.HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     return FreeWithHooksOrPerThread(ptr, size_class);
   }
@@ -958,7 +958,7 @@ ABSL_ATTRIBUTE_NOINLINE static typename Policy::pointer_type
 slow_alloc_small(size_t size, uint32_t size_class, Policy policy) {
   size_t weight = GetThreadSampler()->RecordedAllocationFast(size);
   if (ABSL_PREDICT_FALSE(weight != 0) ||
-      ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::Static::HaveHooks()) ||
+      ABSL_PREDICT_FALSE(tcmalloc::tcmalloc_internal::tc_globals.HaveHooks()) ||
       ABSL_PREDICT_FALSE(!UsePerCpuCache(tc_globals))) {
     return alloc_small_sampled_hooks_or_perthread(size, size_class, policy,
                                                   weight);
@@ -1060,8 +1060,8 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
     // vector already has a capacity greater than the current total span count.
     allocated_address_ranges.spans.reserve(estimated_span_count *
                                            kAllocatedSpansSizeReserveFactor);
-    int actual_span_count =
-        tc_globals.pagemap().GetAllocatedSpans(allocated_address_ranges.spans);
+    int actual_span_count = tc_globals.pagemap().GetAllocatedSpans(
+        tc_globals.sizemap(), allocated_address_ranges.spans);
     if (allocated_address_ranges.spans.size() == actual_span_count) {
       return allocated_address_ranges;
     }

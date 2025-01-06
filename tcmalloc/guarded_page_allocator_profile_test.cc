@@ -68,7 +68,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
 
   int AllocateGuardableUntil(
       size_t size, absl::FunctionRef<NextSteps(void*)> evaluate_alloc) {
-    CHECK_LE(size, Static::guardedpage_allocator().page_size());
+    CHECK_LE(size, tc_globals.guardedpage_allocator().page_size());
     return AllocateUntil(size, evaluate_alloc);
   }
 
@@ -78,7 +78,7 @@ class GuardedPageAllocatorProfileTest : public testing::Test {
   void AllocateUntilGuarded() {
     AllocateGuardableUntil(968, [&](void* alloc) -> NextSteps {
       return {!IsNormalMemory(alloc) &&
-                  Static::guardedpage_allocator().PointerIsMine(alloc),
+                  tc_globals.guardedpage_allocator().PointerIsMine(alloc),
               true};
     });
   }
@@ -184,7 +184,7 @@ TEST_F(GuardedPageAllocatorProfileTest, RateLimited) {
   AllocateGuardableUntil(kAllocSize, [&](void* alloc) -> NextSteps {
     if (!IsNormalMemory(alloc)) {
       num_sampled++;
-      if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+      if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
         num_guarded++;
       }
       // The expectation is that as soon as there are more sampled allocations
@@ -228,7 +228,8 @@ TEST_F(GuardedPageAllocatorProfileTest, NeverRateLimited) {
   AllocateGuardableUntil(kAllocSize, [&](void* alloc) -> NextSteps {
     if (!IsNormalMemory(alloc)) {
       // Stack trace filter may still filter.
-      if (Static::guardedpage_allocator().PointerIsMine(alloc)) num_guarded++;
+      if (tc_globals.guardedpage_allocator().PointerIsMine(alloc))
+        num_guarded++;
       return {num_guarded > 100, true};
     }
     return {false, true};
@@ -276,10 +277,10 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   std::vector<std::unique_ptr<void, void (*)(void*)>> allocs;
   // Guard until there are no slots available.
   AllocateGuardableUntil(1039, [&](void* alloc) -> NextSteps {
-    if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+    if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
       allocs.emplace_back(alloc,
                           static_cast<void (*)(void*)>(::operator delete));
-      return {Static::guardedpage_allocator().GetNumAvailablePages() == 0,
+      return {tc_globals.guardedpage_allocator().GetNumAvailablePages() == 0,
               false};
     }
     return {false, true};
@@ -288,7 +289,7 @@ TEST_F(GuardedPageAllocatorProfileTest, NoAvailableSlots) {
   auto token = MallocExtension::StartAllocationProfiling();
   // This should  fail for lack of slots
   AllocateGuardableUntil(1055, [&](void* alloc) -> NextSteps {
-    return {!Static::guardedpage_allocator().PointerIsMine(alloc), true};
+    return {!tc_globals.guardedpage_allocator().PointerIsMine(alloc), true};
   });
 
   auto profile = std::move(token).Stop();
@@ -315,7 +316,7 @@ TEST_F(GuardedPageAllocatorProfileTest, Filtered) {
   auto token = MallocExtension::StartAllocationProfiling();
   int guarded_count = 0;
   AllocateGuardableUntil(1058, [&](void* alloc) -> NextSteps {
-    guarded_count += Static::guardedpage_allocator().PointerIsMine(alloc);
+    guarded_count += tc_globals.guardedpage_allocator().PointerIsMine(alloc);
     return {guarded_count == 1000, true};
   });
 
@@ -336,7 +337,7 @@ TEST_F(GuardedPageAllocatorProfileTest, FilteredWithRateLimiting) {
   int sampled_count = 0;
   AllocateGuardableUntil(1062, [&](void* alloc) -> NextSteps {
     if (!IsNormalMemory(alloc)) {
-      if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+      if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
         ++guarded_count;
       }
       ++sampled_count;
@@ -360,7 +361,7 @@ TEST_F(GuardedPageAllocatorProfileTest, DynamicParamChange) {
     auto token = MallocExtension::StartAllocationProfiling();
     int guarded_count = 0;
     AllocateGuardableUntil(1063, [&](void* alloc) -> NextSteps {
-      if (Static::guardedpage_allocator().PointerIsMine(alloc)) {
+      if (tc_globals.guardedpage_allocator().PointerIsMine(alloc)) {
         ++guarded_count;
       }
       return {guarded_count > 1, true};

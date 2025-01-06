@@ -172,6 +172,8 @@ class StaticForwarder {
     return tc_globals.sharded_transfer_cache().UseCacheForLargeClassesOnly();
   }
 
+  static bool HaveHooks() { return tc_globals.HaveHooks(); }
+
   // We use size class maximum capacities as configured in sizemap.
   //
   // TODO(b/311398687): re-enable this experiment.
@@ -768,7 +770,7 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE bool CpuCache<Forwarder>::DeallocateFast(
 
 template <class Forwarder>
 void CpuCache<Forwarder>::MaybeForceSlowPath() {
-  if (ABSL_PREDICT_FALSE(Static::HaveHooks())) {
+  if (ABSL_PREDICT_FALSE(forwarder_.HaveHooks())) {
     freelist_.UncacheCpuSlab();
   }
 }

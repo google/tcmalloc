@@ -41,8 +41,8 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_tracing_extension.h"
 #include "tcmalloc/pages.h"
+#include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
-#include "tcmalloc/static_vars.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -468,6 +468,7 @@ class PageMap {
   // allocation events since we hold the pageheap_lock, so no more elements will
   // be added to allocated_spans after it reaches its already reserved capacity.
   int GetAllocatedSpans(
+      const SizeMap& sizemap,
       std::vector<tcmalloc::malloc_tracing_extension::AllocatedAddressRanges::
                       SpanDetails>& allocated_spans) {
     PageHeapSpinLockHolder l;
@@ -490,9 +491,9 @@ class PageMap {
       // adding more entries after we reach its existing capacity. Note that the
       // count returned will still be the total number of allocated Spans.
       if (allocated_spans.capacity() > allocated_spans.size()) {
-        allocated_spans.push_back(
-            {s->first_page().start_uintptr(), s->bytes_in_span(),
-             Static::sizemap().class_to_size(size_class)});
+        allocated_spans.push_back({s->first_page().start_uintptr(),
+                                   s->bytes_in_span(),
+                                   sizemap.class_to_size(size_class)});
       }
       ++allocated_span_count;
       i = s->last_page().index();
