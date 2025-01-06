@@ -144,7 +144,6 @@ TEST(MallocExtension, Properties) {
       "tcmalloc.num_released_release_memory_to_system_bytes",
       "tcmalloc.num_released_soft_limit_exceeded_bytes",
       "tcmalloc.num_released_total_bytes",
-      "tcmalloc.page_algorithm",
       "tcmalloc.page_heap_free",
       "tcmalloc.page_heap_unmapped",
       "tcmalloc.pageheap_free_bytes",

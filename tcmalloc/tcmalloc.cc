@@ -439,9 +439,6 @@ extern "C" void MallocExtension_Internal_GetProperties(
   (*result)["tcmalloc.sampled_internal_fragmentation"].value =
       tc_globals.sampled_internal_fragmentation_.value();
 
-  (*result)["tcmalloc.page_algorithm"].value =
-      tc_globals.page_allocator().algorithm();
-
   (*result)["tcmalloc.external_fragmentation_bytes"].value =
       ExternalBytes(stats);
   (*result)["tcmalloc.required_bytes"].value = RequiredBytes(stats);

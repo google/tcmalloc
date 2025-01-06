@@ -918,12 +918,6 @@ bool GetNumericProperty(const char* name_data, size_t name_size,
     return true;
   }
 
-  if (name == "tcmalloc.page_algorithm") {
-    PageHeapSpinLockHolder l;
-    *value = tc_globals.page_allocator().algorithm();
-    return true;
-  }
-
   if (name == "tcmalloc.max_total_thread_cache_bytes") {
     *value = ThreadCache::overall_thread_cache_size();
     return true;

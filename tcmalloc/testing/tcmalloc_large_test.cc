@@ -189,12 +189,6 @@ TEST_F(LargeAllocationTest, Half) {
 }
 
 TEST_F(LargeAllocationTest, NearMaxAddressBits) {
-#ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  if (MallocExtension::GetNumericProperty("tcmalloc.page_algorithm")
-          .value_or(-1) <= 0) {
-    GTEST_SKIP() << "OOMs under small-but-slow without HPAA";
-  }
-#endif  // TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   // Tests sizes near the maximum address space size.
   // For -1 <= i < 5, we expect all allocations to fail.  For -6 <= i < -1, the
   // allocation might succeed but create so much pagemap metadata that we exceed
