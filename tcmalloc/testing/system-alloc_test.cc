@@ -21,14 +21,17 @@
 #include <sys/prctl.h>
 
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "benchmark/benchmark.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/base/attributes.h"
 #include "absl/strings/str_format.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
@@ -150,6 +153,8 @@ class SimpleRegion : public AddressRegion {
 
 class SimpleRegionFactory : public AddressRegionFactory {
  public:
+  constexpr SimpleRegionFactory() = default;
+
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override {
     void* region_space = MallocInternal(sizeof(SimpleRegion));
     TC_CHECK_NE(region_space, nullptr);
@@ -159,7 +164,7 @@ class SimpleRegionFactory : public AddressRegionFactory {
   }
 
   // Used to verify that the correct usage hint was passed to Create().
-  UsageHint usage_hint_;
+  std::optional<UsageHint> usage_hint_;
 };
 
 const char* hintToString(AddressRegionFactory::UsageHint usage_hint) {
@@ -182,7 +187,7 @@ const char* hintToString(AddressRegionFactory::UsageHint usage_hint) {
   }
 }
 
-SimpleRegionFactory f;
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT SimpleRegionFactory f;
 
 TEST(Basic, InvokedTest) {
   MallocExtension::SetRegionFactory(&f);
@@ -231,8 +236,9 @@ TEST(UsageHint, VerifyUsageHintkMetadataTest) {
   //  hugepage region and a new usage hint wouldn't be assigned
   void* ptr = ::operator new(kMinMmapAlloc * 2.0);
 
-  EXPECT_EQ(f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
-      << "Usage hint is " << hintToString(f.usage_hint_);
+  ASSERT_TRUE(f.usage_hint_.has_value());
+  EXPECT_EQ(*f.usage_hint_, AddressRegionFactory::UsageHint::kMetadata)
+      << "Usage hint is " << hintToString(*f.usage_hint_);
   ::operator delete(ptr);
 }
 

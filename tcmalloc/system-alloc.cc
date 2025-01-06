@@ -156,17 +156,19 @@ class MmapRegion final : public AddressRegion {
 
 class MmapRegionFactory final : public AddressRegionFactory {
  public:
+  constexpr MmapRegionFactory() = default;
+  ~MmapRegionFactory() override = default;
+
   AddressRegion* Create(void* start, size_t size, UsageHint hint) override;
   size_t GetStats(absl::Span<char> buffer) override;
   size_t GetStatsInPbtxt(absl::Span<char> buffer) override;
-  ~MmapRegionFactory() override = default;
 
  private:
   std::atomic<size_t> bytes_reserved_{0};
 };
-ABSL_CONST_INIT std::aligned_storage<sizeof(MmapRegionFactory),
-                                     alignof(MmapRegionFactory)>::type
-    mmap_space ABSL_GUARDED_BY(spinlock){};
+
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT MmapRegionFactory mmap_factory
+    ABSL_GUARDED_BY(spinlock);
 
 class RegionManager {
  public:
@@ -384,7 +386,7 @@ void InitSystemAllocatorIfNecessary() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock) {
   // SMALL_BUT_SLOW where we do not allocate in units of huge pages.
   preferred_alignment = std::max(GetPageSize(), kMinSystemAlloc);
   region_manager = new (&region_manager_space) RegionManager();
-  region_factory = new (&mmap_space) MmapRegionFactory();
+  region_factory = &mmap_factory;
 }
 
 // Bind the memory region spanning `size` bytes starting from `base` to NUMA

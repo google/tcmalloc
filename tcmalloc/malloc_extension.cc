@@ -176,8 +176,6 @@ absl::Duration Profile::Duration() const {
 
 AddressRegion::~AddressRegion() {}
 
-AddressRegionFactory::~AddressRegionFactory() {}
-
 size_t AddressRegionFactory::GetStats(absl::Span<char> buffer) {
   static_cast<void>(buffer);
   return 0;

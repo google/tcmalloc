@@ -281,8 +281,8 @@ class AddressRegionFactory {
     kNormalNumaAwareS1,  // Normal usage intended for NUMA S1 under numa_aware.
   };
 
-  AddressRegionFactory() {}
-  virtual ~AddressRegionFactory();
+  constexpr AddressRegionFactory() = default;
+  virtual ~AddressRegionFactory() = default;
 
   // Returns an AddressRegion with the specified start address and size.  hint
   // indicates how the caller intends to use the returned region (helpful for
