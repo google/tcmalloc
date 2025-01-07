@@ -121,13 +121,6 @@ static_assert(sizeof(MemoryAligner) < kMinSystemAlloc,
 ABSL_CONST_INIT absl::base_internal::SpinLock spinlock(
     absl::kConstInit, absl::base_internal::SCHEDULE_KERNEL_ONLY);
 
-// Page size is initialized on demand
-ABSL_CONST_INIT size_t preferred_alignment ABSL_GUARDED_BY(spinlock) = 0;
-
-// The current region factory.
-ABSL_CONST_INIT AddressRegionFactory* region_factory ABSL_GUARDED_BY(spinlock) =
-    nullptr;
-
 // Rounds size down to a multiple of alignment.
 size_t RoundDown(const size_t size, const size_t alignment) {
   // Checks that the alignment has only one bit set.
@@ -170,8 +163,14 @@ class MmapRegionFactory final : public AddressRegionFactory {
 TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT MmapRegionFactory mmap_factory
     ABSL_GUARDED_BY(spinlock);
 
+// The current region factory.
+ABSL_CONST_INIT AddressRegionFactory* region_factory ABSL_GUARDED_BY(spinlock) =
+    &mmap_factory;
+
 class RegionManager {
  public:
+  constexpr RegionManager() = default;
+
   std::pair<void*, size_t> Alloc(size_t size, size_t alignment, MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock);
 
@@ -197,11 +196,8 @@ class RegionManager {
   AddressRegion* cold_region_{nullptr};
   AddressRegion* metadata_region_{nullptr};
 };
-ABSL_CONST_INIT
-std::aligned_storage<sizeof(RegionManager), alignof(RegionManager)>::type
-    region_manager_space ABSL_GUARDED_BY(spinlock){};
-ABSL_CONST_INIT RegionManager* region_manager ABSL_GUARDED_BY(spinlock) =
-    nullptr;
+
+ABSL_CONST_INIT RegionManager region_manager ABSL_GUARDED_BY(spinlock);
 
 std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
                                            size_t alignment) {
@@ -209,7 +205,7 @@ std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
   // future allocations.
   size_t size = RoundUp(request_size, kMinSystemAlloc);
   if (size < request_size) return {nullptr, 0};
-  alignment = std::max(alignment, preferred_alignment);
+  alignment = std::max(alignment, kMinSystemAlloc);
 
   // Tries to allocate size bytes from the end of [start_, start_ + free_size_),
   // aligned to alignment.
@@ -314,7 +310,7 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
     // future allocations.
     size_t size = RoundUp(request_size, kMinSystemAlloc);
     if (size < request_size) return {nullptr, 0};
-    alignment = std::max(alignment, preferred_alignment);
+    alignment = std::max(alignment, kMinSystemAlloc);
     void* ptr = MmapAligned(size, alignment, tag);
     if (!ptr) return {nullptr, 0};
 
@@ -376,17 +372,6 @@ std::pair<void*, size_t> RegionManager::Allocate(size_t size, size_t alignment,
     return {nullptr, 0};
   }
   return region->Alloc(size, alignment);
-}
-
-void InitSystemAllocatorIfNecessary() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock) {
-  if (region_factory) return;
-  // Sets the preferred alignment to be the largest of either the alignment
-  // returned by mmap() or our minimum allocation size. The minimum allocation
-  // size is usually a multiple of page size, but this need not be true for
-  // SMALL_BUT_SLOW where we do not allocate in units of huge pages.
-  preferred_alignment = std::max(GetPageSize(), kMinSystemAlloc);
-  region_manager = new (&region_manager_space) RegionManager();
-  region_factory = &mmap_factory;
 }
 
 // Bind the memory region spanning `size` bytes starting from `base` to NUMA
@@ -476,9 +461,7 @@ AddressRange SystemAlloc(size_t bytes, size_t alignment, const MemoryTag tag) {
 
   AllocationGuardSpinLockHolder lock_holder(&spinlock);
 
-  InitSystemAllocatorIfNecessary();
-
-  auto [result, actual_bytes] = region_manager->Alloc(bytes, alignment, tag);
+  auto [result, actual_bytes] = region_manager.Alloc(bytes, alignment, tag);
 
   if (result != nullptr) {
     CheckAddressBits<kAddressBits>(reinterpret_cast<uintptr_t>(result) +
@@ -610,14 +593,12 @@ bool SystemRelease(void* start, size_t length) {
 
 AddressRegionFactory* GetRegionFactory() {
   AllocationGuardSpinLockHolder lock_holder(&spinlock);
-  InitSystemAllocatorIfNecessary();
   return region_factory;
 }
 
 void SetRegionFactory(AddressRegionFactory* factory) {
   AllocationGuardSpinLockHolder lock_holder(&spinlock);
-  InitSystemAllocatorIfNecessary();
-  region_manager->DiscardMappedRegions();
+  region_manager.DiscardMappedRegions();
   region_factory = factory;
 }
 
