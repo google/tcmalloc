@@ -352,6 +352,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[4] = reinterpret_cast<void*>(&ProfileAccessor::MakeProfile);
     sample.access_hint = hot_cold_t{254};
     sample.access_allocated = Profile::Sample::Access::Cold;
+    sample.type = Profile::Sample::AllocationType::New;
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
@@ -396,6 +397,8 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[3] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{1};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.type = Profile::Sample::AllocationType::Malloc;
+
     if (profile_type == ProfileType::kHeap) {
       // Total stale bytes for this sample = 5 * 17 = 85.
       // Total locked bytes for this sample = 5 * 11 = 55.
@@ -432,6 +435,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.stack[2] = reinterpret_cast<void*>(&RealPath);
     sample.access_hint = hot_cold_t{0};
     sample.access_allocated = Profile::Sample::Access::Hot;
+    sample.type = Profile::Sample::AllocationType::AlignedMalloc;
   }
 
   {  // We have three samples here that will be merged (if guarded_status is not
@@ -461,6 +465,7 @@ perftools::profiles::Profile MakeTestProfile(
     sample.access_hint = hot_cold_t{253};
     sample.access_allocated = Profile::Sample::Access::Cold;
     sample.guarded_status = Profile::Sample::GuardedStatus::RateLimited;
+    sample.type = Profile::Sample::AllocationType::New;
     samples.push_back(sample);
 
     Profile::Sample sample2 = sample;
@@ -601,32 +606,38 @@ TEST(ProfileConverterTest, HeapProfile) {
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("allocation type", "new")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
                                Pair("stale_scan_period", 10),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "Unknown")),
+                               Pair("guarded_status", "Unknown"),
+                               Pair("allocation type", "malloc")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 16),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 0), Pair("access_allocated", "hot"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("allocation type", "aligned malloc")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "RateLimited")),
+              Pair("size_returning", 1), Pair("guarded_status", "RateLimited"),
+              Pair("allocation type", "new")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Filtered")),
+              Pair("size_returning", 1), Pair("guarded_status", "Filtered"),
+              Pair("allocation type", "new")),
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("stale_scan_period", 10),
               Pair("access_hint", 253), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Guarded"))));
+              Pair("size_returning", 1), Pair("guarded_status", "Guarded"),
+              Pair("allocation type", "new"))));
 
   EXPECT_THAT(extracted_samples,
               UnorderedElementsAre(IsSupersetOf({
@@ -765,11 +776,13 @@ TEST(ProfileBuilderTest, PeakHeapProfile) {
           UnorderedElementsAre(
               Pair("bytes", 16), Pair("request", 2), Pair("alignment", 4),
               Pair("access_hint", 254), Pair("access_allocated", "cold"),
-              Pair("size_returning", 1), Pair("guarded_status", "Unknown")),
+              Pair("size_returning", 1), Pair("guarded_status", "Unknown"),
+              Pair("allocation type", "new")),
           UnorderedElementsAre(Pair("bytes", 8), Pair("request", 4),
                                Pair("access_hint", 1),
                                Pair("access_allocated", "hot"),
-                               Pair("guarded_status", "Unknown"))));
+                               Pair("guarded_status", "Unknown"),
+                               Pair("allocation type", "new"))));
 
   ASSERT_GE(converted.sample().size(), 2);
   ASSERT_GE(converted.sample(0).location_id().size(), 2);
@@ -896,6 +909,9 @@ TEST(ProfileBuilderTest, LifetimeProfile) {
     ASSERT_NO_FATAL_FAILURE(CheckAndExtractSampleLabels(converted, extracted));
   }
 
+  // TODO(b/248332543): Reduce implementation duplication so that properties
+  // (allocation type) of the original allocation are captured without this
+  // duplication.
   EXPECT_THAT(
       extracted,
       UnorderedElementsAre(

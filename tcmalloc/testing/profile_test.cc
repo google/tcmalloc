@@ -15,7 +15,9 @@
 #include <stddef.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
+#include <new>
 #include <optional>
 #include <string>
 #include <utility>
@@ -23,6 +25,7 @@
 
 #include "tcmalloc/internal/profile.pb.h"
 #include "gtest/gtest.h"
+#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/statusor.h"
@@ -31,7 +34,6 @@
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/gzip_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
-#include "tcmalloc/internal/profile_builder.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/profile_marshaler.h"
 #include "tcmalloc/testing/testutil.h"
@@ -59,11 +61,21 @@ TEST(ProfileTest, HeapProfile) {
   // fast path of the first `emplace_back` is taken. We reserve enough space for
   // all insertions so that all `emplace_back` calls go through the fast path
   // and there is only one stack trace for tcmalloc.
-  allocs.reserve(kAllocs * 2);
+  allocs.reserve(3 * kAllocs);
   for (int i = 0; i < kAllocs; i++) {
     allocs.emplace_back(::operator new(alloc_size), deleter);
+    allocs.emplace_back(::operator new(alloc_size, std::nothrow), deleter);
     allocs.emplace_back(tcmalloc_size_returning_operator_new(alloc_size).p,
                         deleter);
+  }
+
+  auto malloc_deleter = [](void* ptr) { free(ptr); };
+  std::vector<std::unique_ptr<void, decltype(malloc_deleter)>> mallocs;
+  mallocs.reserve(2 * kAllocs);
+  for (int i = 0; i < kAllocs; i++) {
+    mallocs.emplace_back(malloc(alloc_size), malloc_deleter);
+    mallocs.emplace_back(aligned_alloc(ABSL_CACHELINE_SIZE, alloc_size),
+                         malloc_deleter);
   }
 
   // Grab profile, encode, then decode to look for the allocations.
@@ -80,20 +92,35 @@ TEST(ProfileTest, HeapProfile) {
   perftools::profiles::Profile converted;
   ASSERT_TRUE(converted.ParseFromCodedStream(&coded));
 
-  // Look for "request" and "size_returning" string in string table.
-  std::optional<int> request_id, size_returning_id;
+  // Look for "request", "size_returning", "allocation_type", "new", "malloc",
+  // "aligned_malloc" strings in string table.
+  std::optional<int> request_id, size_returning_id, allocation_type_id, new_id,
+      malloc_id, aligned_malloc_id;
   for (int i = 0, n = converted.string_table().size(); i < n; ++i) {
     if (converted.string_table(i) == "request") {
       request_id = i;
     } else if (converted.string_table(i) == "size_returning") {
       size_returning_id = i;
+    } else if (converted.string_table(i) == "allocation type") {
+      allocation_type_id = i;
+    } else if (converted.string_table(i) == "new") {
+      new_id = i;
+    } else if (converted.string_table(i) == "malloc") {
+      malloc_id = i;
+    } else if (converted.string_table(i) == "aligned malloc") {
+      aligned_malloc_id = i;
     }
   }
 
   EXPECT_TRUE(request_id.has_value());
   EXPECT_TRUE(size_returning_id.has_value());
+  EXPECT_TRUE(allocation_type_id.has_value());
+  EXPECT_TRUE(new_id.has_value());
+  EXPECT_TRUE(malloc_id.has_value());
+  EXPECT_TRUE(aligned_malloc_id.has_value());
 
-  size_t count = 0, bytes = 0, samples = 0, size_returning_samples = 0;
+  size_t count = 0, bytes = 0, samples = 0, size_returning_samples = 0,
+         new_samples = 0, malloc_samples = 0, aligned_malloc_samples = 0;
   for (const auto& sample : converted.sample()) {
     count += sample.value(0);
     bytes += sample.value(1);
@@ -113,6 +140,27 @@ TEST(ProfileTest, HeapProfile) {
           size_returning_samples++;
         }
       }
+
+      // Count new versus malloc'd allocations.
+      bool type_seen = false;
+      for (const auto& label : sample.label()) {
+        if (label.key() == allocation_type_id) {
+          EXPECT_FALSE(type_seen);
+          type_seen = true;
+
+          if (label.str() == new_id) {
+            new_samples++;
+          } else if (label.str() == malloc_id) {
+            malloc_samples++;
+          } else if (label.str() == aligned_malloc_id) {
+            aligned_malloc_samples++;
+          } else {
+            GTEST_FAIL() << "Unexpected string key: "
+                         << converted.string_table(label.str()) << " ("
+                         << label.str() << ")";
+          }
+        }
+      }
     }
   }
 
@@ -123,8 +171,11 @@ TEST(ProfileTest, HeapProfile) {
   // profile.proto.  Since all of the calls to operator new(alloc_size) are
   // similar in these dimensions, we expect to see only 2 samples, one for
   // ::operator new and one for tcmalloc_size_returning_operator_new.
-  EXPECT_EQ(samples, 2);
+  EXPECT_EQ(samples, 5);
   EXPECT_EQ(size_returning_samples, 1);
+  EXPECT_EQ(new_samples, 3);
+  EXPECT_EQ(malloc_samples, 1);
+  EXPECT_EQ(aligned_malloc_samples, 1);
 
   // Dump the profile in case of failures so that it's possible to debug.
   // Since SCOPED_TRACE attaches output to every failure, we use ASSERTs below.

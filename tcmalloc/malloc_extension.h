@@ -228,6 +228,15 @@ class Profile final {
     // The start address of the sampled allocation, used to calculate the
     // residency info for the objects represented by this sampled allocation.
     void* span_start_address;
+
+    // How the memory was allocated (new/malloc/etc.).
+    enum class AllocationType {
+      New,
+      Malloc,
+      AlignedMalloc,
+    };
+
+    AllocationType type;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;

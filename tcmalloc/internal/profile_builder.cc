@@ -118,7 +118,8 @@ struct SampleEqWithSubFields {
     auto fields = [](const Profile::Sample& s) {
       return std::tie(s.depth, s.requested_size, s.requested_alignment,
                       s.requested_size_returning, s.allocated_size,
-                      s.access_hint, s.access_allocated, s.guarded_status);
+                      s.access_hint, s.access_allocated, s.guarded_status,
+                      s.type);
     };
     return fields(a) == fields(b) &&
            std::equal(a.stack, a.stack + a.depth, b.stack, b.stack + b.depth);
@@ -127,10 +128,10 @@ struct SampleEqWithSubFields {
 
 struct SampleHashWithSubFields {
   size_t operator()(const Profile::Sample& s) const {
-    return absl::HashOf(absl::MakeConstSpan(s.stack, s.depth), s.depth,
-                        s.requested_size, s.requested_alignment,
-                        s.requested_size_returning, s.allocated_size,
-                        s.access_hint, s.access_allocated, s.guarded_status);
+    return absl::HashOf(
+        absl::MakeConstSpan(s.stack, s.depth), s.depth, s.requested_size,
+        s.requested_alignment, s.requested_size_returning, s.allocated_size,
+        s.access_hint, s.access_allocated, s.guarded_status, s.type);
   }
 };
 
@@ -692,6 +693,10 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
   const int access_allocated_id = builder.InternString("access_allocated");
   const int cold_id = builder.InternString("cold");
   const int hot_id = builder.InternString("hot");
+  const int allocation_type_id = builder.InternString("allocation type");
+  const int new_id = builder.InternString("new");
+  const int malloc_id = builder.InternString("malloc");
+  const int aligned_malloc_id = builder.InternString("aligned malloc");
 
   perftools::profiles::Profile& converted = builder.profile();
 
@@ -815,6 +820,21 @@ absl::StatusOr<std::unique_ptr<perftools::profiles::Profile>> MakeProfileProto(
     add_label(access_hint_id, access_hint_id,
               static_cast<uint8_t>(entry.access_hint));
     add_access_label(access_allocated_id, entry.access_allocated);
+
+    perftools::profiles::Label& type_label = *sample.add_label();
+    type_label.set_key(allocation_type_id);
+
+    switch (entry.type) {
+      case Profile::Sample::AllocationType::New:
+        type_label.set_str(new_id);
+        break;
+      case Profile::Sample::AllocationType::Malloc:
+        type_label.set_str(malloc_id);
+        break;
+      case Profile::Sample::AllocationType::AlignedMalloc:
+        type_label.set_str(aligned_malloc_id);
+        break;
+    }
 
     const int guarded_status_id = builder.InternString("guarded_status");
     const int larger_than_one_page_id =

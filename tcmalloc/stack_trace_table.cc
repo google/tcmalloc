@@ -88,6 +88,7 @@ void StackTraceTable::AddTrace(double sample_weight, const StackTrace& t) {
   s->sample.span_start_address = t.span_start_address;
   s->sample.guarded_status =
       static_cast<Profile::Sample::GuardedStatus>(t.guarded_status);
+  s->sample.type = t.allocation_type;
 
   static_assert(kMaxStackDepth <= Profile::Sample::kMaxStackDepth,
                 "Profile stack size smaller than internal stack sizes");

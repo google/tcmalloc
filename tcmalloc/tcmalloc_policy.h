@@ -85,6 +85,7 @@
 
 #include <cstddef>
 #include <new>
+#include <type_traits>
 
 #include "absl/base/attributes.h"
 #include "tcmalloc/common.h"
@@ -279,6 +280,18 @@ class TCMallocPolicy {
   // OOM policy
   static pointer_type handle_oom(size_t size) {
     return OomPolicy::template handle_oom<SizeReturningPolicy>(size);
+  }
+
+  // Allocation type is deduced from the policy characteristics to avoid
+  // requiring redundant data.
+  constexpr Profile::Sample::AllocationType allocation_type() const {
+    if constexpr (!std::is_same<OomPolicy, MallocOomPolicy>::value) {
+      return Profile::Sample::AllocationType::New;
+    } else if constexpr (std::is_same<MallocAlignPolicy, AlignPolicy>::value) {
+      return Profile::Sample::AllocationType::Malloc;
+    } else {
+      return Profile::Sample::AllocationType::AlignedMalloc;
+    }
   }
 
   // Alignment policy

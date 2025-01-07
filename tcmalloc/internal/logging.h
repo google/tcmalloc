@@ -37,6 +37,7 @@
 #include "absl/time/time.h"
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/malloc_extension.h"
 
 //-------------------------------------------------------------------
 // Utility routines
@@ -97,6 +98,9 @@ struct StackTrace {
   // An integer representing the guarded status of the allocation.
   // The values are from the enum GuardedStatus in ../malloc_extension.h.
   int guarded_status;
+
+  // How the memory was allocated (new/malloc/etc.)
+  Profile::Sample::AllocationType allocation_type;
 };
 
 #define TC_LOG(msg, ...)                                                \

@@ -20,9 +20,12 @@
 #include <optional>
 
 #include "absl/base/attributes.h"
+#include "absl/debugging/stacktrace.h"
 #include "tcmalloc/internal/config.h"
+#include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/percpu.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/pagemap.h"
 #include "tcmalloc/sampler.h"
 #include "tcmalloc/span.h"
 
@@ -67,6 +70,8 @@ inline Sampler* GetThreadSampler() {
   return &tcmalloc_sampler;
 }
 
+void FreeProxyObject(Static& state, void* ptr, size_t size_class);
+
 // Performs sampling for already occurred allocation of object.
 //
 // For very small object sizes, object is used as 'proxy' and full
@@ -90,10 +95,143 @@ inline Sampler* GetThreadSampler() {
 // In case of out-of-memory condition when allocating span or
 // stacktrace struct, this function simply cheats and returns original
 // object. As if no sampling was requested.
-sized_ptr_t SampleifyAllocation(Static& state, size_t requested_size,
-                                size_t align, size_t weight, size_t size_class,
-                                hot_cold_t access_hint, bool size_returning,
-                                void* obj, Span* span);
+template <typename Policy>
+ABSL_ATTRIBUTE_NOINLINE sized_ptr_t
+SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
+                    size_t weight, size_t size_class, void* obj, Span* span) {
+  TC_CHECK((size_class != 0 && obj != nullptr && span == nullptr) ||
+           (size_class == 0 && obj == nullptr && span != nullptr));
+
+  StackTrace stack_trace;
+  stack_trace.proxy = nullptr;
+  stack_trace.requested_size = requested_size;
+  // Grab the stack trace outside the heap lock.
+  stack_trace.depth = absl::GetStackTrace(stack_trace.stack, kMaxStackDepth, 0);
+
+  // requested_alignment = 1 means 'small size table alignment was used'
+  // Historically this is reported as requested_alignment = 0
+  stack_trace.requested_alignment = policy.align();
+  if (stack_trace.requested_alignment == 1) {
+    stack_trace.requested_alignment = 0;
+  }
+
+  stack_trace.requested_size_returning = policy.size_returning();
+  stack_trace.access_hint = static_cast<uint8_t>(policy.access());
+  stack_trace.weight = weight;
+
+  GuardedAllocWithStatus alloc_with_status{
+      nullptr, Profile::Sample::GuardedStatus::NotAttempted};
+
+  size_t capacity = 0;
+  if (size_class != 0) {
+    TC_ASSERT_EQ(size_class,
+                 state.pagemap().sizeclass(PageIdContainingTagged(obj)));
+
+    stack_trace.allocated_size = state.sizemap().class_to_size(size_class);
+    stack_trace.cold_allocated = IsExpandedSizeClass(size_class);
+
+    Length num_pages = BytesToLengthCeil(stack_trace.allocated_size);
+    alloc_with_status = state.guardedpage_allocator().TrySample(
+        requested_size, stack_trace.requested_alignment, num_pages,
+        stack_trace);
+    if (alloc_with_status.status == Profile::Sample::GuardedStatus::Guarded) {
+      TC_ASSERT(!IsNormalMemory(alloc_with_status.alloc));
+      const PageId p = PageIdContaining(alloc_with_status.alloc);
+#ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
+      PageHeapSpinLockHolder l;
+#endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
+      span = Span::New(Range(p, num_pages));
+      state.pagemap().Set(p, span);
+      // If we report capacity back from a size returning allocation, we can not
+      // report the stack_trace.allocated_size, as we guard the size to
+      // 'requested_size', and we maintain the invariant that GetAllocatedSize()
+      // must match the returned size from size returning allocations. So in
+      // that case, we report the requested size for both capacity and
+      // GetAllocatedSize().
+      if (policy.size_returning()) {
+        stack_trace.allocated_size = requested_size;
+      }
+      capacity = requested_size;
+    } else if ((span = state.page_allocator().New(
+                    num_pages, {1, AccessDensityPrediction::kSparse},
+                    MemoryTag::kSampled)) == nullptr) {
+      capacity = stack_trace.allocated_size;
+      return {obj, capacity};
+    } else {
+      capacity = stack_trace.allocated_size;
+    }
+
+    size_t span_size =
+        Length(state.sizemap().class_to_pages(size_class)).in_bytes();
+    size_t objects_per_span = span_size / stack_trace.allocated_size;
+
+    if (objects_per_span != 1) {
+      TC_ASSERT_GT(objects_per_span, 1);
+      stack_trace.proxy = obj;
+      obj = nullptr;
+    }
+  } else {
+    // Set stack_trace.allocated_size to the exact size for a page allocation.
+    // NOTE: if we introduce gwp-asan sampling / guarded allocations
+    // for page allocations, then we need to revisit do_malloc_pages as
+    // the current assumption is that only class sized allocs are sampled
+    // for gwp-asan.
+    stack_trace.allocated_size = span->bytes_in_span();
+    stack_trace.cold_allocated =
+        GetMemoryTag(span->start_address()) == MemoryTag::kCold;
+    capacity = stack_trace.allocated_size;
+  }
+
+  // A span must be provided or created by this point.
+  TC_ASSERT_NE(span, nullptr);
+
+  stack_trace.sampled_alloc_handle =
+      state.sampled_alloc_handle_generator.fetch_add(
+          1, std::memory_order_relaxed) +
+      1;
+  stack_trace.span_start_address = span->start_address();
+  stack_trace.allocation_time = absl::Now();
+  stack_trace.guarded_status = static_cast<int>(alloc_with_status.status);
+  stack_trace.allocation_type = policy.allocation_type();
+
+  // How many allocations does this sample represent, given the sampling
+  // frequency (weight) and its size.
+  const double allocation_estimate =
+      static_cast<double>(weight) / (requested_size + 1);
+
+  // Adjust our estimate of internal fragmentation.
+  TC_ASSERT_LE(requested_size, stack_trace.allocated_size);
+  if (requested_size < stack_trace.allocated_size) {
+    state.sampled_internal_fragmentation_.Add(
+        allocation_estimate * (stack_trace.allocated_size - requested_size));
+  }
+
+  state.allocation_samples.ReportMalloc(stack_trace);
+
+  state.deallocation_samples.ReportMalloc(stack_trace);
+
+  // The SampledAllocation object is visible to readers after this. Readers only
+  // care about its various metadata (e.g. stack trace, weight) to generate the
+  // heap profile, and won't need any information from Span::Sample() next.
+  SampledAllocation* sampled_allocation =
+      state.sampled_allocation_recorder().Register(std::move(stack_trace));
+  // No pageheap_lock required. The span is freshly allocated and no one else
+  // can access it. It is visible after we return from this allocation path.
+  span->Sample(sampled_allocation);
+
+  state.peak_heap_tracker().MaybeSaveSample();
+
+  if (obj != nullptr) {
+    // We are not maintaining precise statistics on malloc hit/miss rates at our
+    // cache tiers.  We can deallocate into our ordinary cache.
+    TC_ASSERT_NE(size_class, 0);
+    FreeProxyObject(state, obj, size_class);
+  }
+  TC_ASSERT_EQ(state.pagemap().sizeclass(span->first_page()), 0);
+  return {(alloc_with_status.alloc != nullptr) ? alloc_with_status.alloc
+                                               : span->start_address(),
+          capacity};
+}
 
 void MaybeUnsampleAllocation(Static& state, void* ptr,
                              std::optional<size_t> size, Span& span);
@@ -102,8 +240,7 @@ template <typename Policy>
 static sized_ptr_t SampleLargeAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
                                          Span* span) {
-  return SampleifyAllocation(state, requested_size, policy.align(), weight, 0,
-                             policy.access(), policy.size_returning(), nullptr,
+  return SampleifyAllocation(state, policy, requested_size, weight, 0, nullptr,
                              span);
 }
 
@@ -111,9 +248,8 @@ template <typename Policy>
 static sized_ptr_t SampleSmallAllocation(Static& state, Policy policy,
                                          size_t requested_size, size_t weight,
                                          size_t size_class, sized_ptr_t res) {
-  return SampleifyAllocation(state, requested_size, policy.align(), weight,
-                             size_class, policy.access(),
-                             policy.size_returning(), res.p, nullptr);
+  return SampleifyAllocation(state, policy, requested_size, weight, size_class,
+                             res.p, nullptr);
 }
 }  // namespace tcmalloc::tcmalloc_internal
 GOOGLE_MALLOC_SECTION_END

@@ -271,6 +271,7 @@ cc_library(
         ":config",
         ":environment",
         ":parameter_accessors",
+        "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/debugging:stacktrace",
