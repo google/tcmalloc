@@ -18,6 +18,11 @@ build --cxxopt='-std=c++17'
 # https://github.com/bazelbuild/bazel/pull/15327 for details.
 build --incompatible_disallow_empty_glob
 
+# Flip incompatible_config_setting_private_default_visibility to avoid breaking
+# forward compatibility. See https://github.com/bazelbuild/bazel/issues/12933
+# for details.
+common --incompatible_config_setting_private_default_visibility
+
 # Link Google Test against Abseil and RE2.
 build --define='absl=1'
 
