@@ -49,7 +49,7 @@ class ExplicitlyConstructed {
  private:
   union AlignedUnion {
     constexpr AlignedUnion() = default;
-    alignas(T) char space[sizeof(T)] = {};
+    alignas(T) char space[sizeof(T)];
     int64_t align_to_int64;
     void* align_to_ptr;
   } union_;
