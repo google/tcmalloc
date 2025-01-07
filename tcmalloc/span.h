@@ -447,16 +447,14 @@ inline Span::ObjIdx Span::BitmapPtrToIdx(void* ptr, size_t size,
 }
 
 inline bool Span::BitmapPush(void* ptr, size_t size, uint32_t reciprocal) {
-  size_t before =
-      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size());
+  size_t before = small_span_state_.bitmap.CountBits();
   // TODO(djgove) Conversions to offsets can be computed outside of lock.
   ObjIdx idx = BitmapPtrToIdx(ptr, size, reciprocal);
   // Check that the object is not already returned.
   TC_ASSERT_EQ(small_span_state_.bitmap.GetBit(idx), 0);
   // Set the bit indicating where the object was returned.
   small_span_state_.bitmap.SetBit(idx);
-  TC_ASSERT_EQ(before + 1, small_span_state_.bitmap.CountBits(
-                               0, small_span_state_.bitmap.size()));
+  TC_ASSERT_EQ(before + 1, small_span_state_.bitmap.CountBits());
   return true;
 }
 

@@ -514,8 +514,7 @@ class HugePageFiller {
 inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
   size_t index = free_.FindAndMark(n.raw_num());
 
-  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
-               released_count_);
+  TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
 
   size_t unbacked = 0;
   // If release_count_ == 0, CountBits will return 0 and ClearRange will be a
@@ -530,8 +529,7 @@ inline typename PageTracker::PageAllocation PageTracker::Get(Length n) {
     released_count_ -= unbacked;
   }
 
-  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
-               released_count_);
+  TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return PageAllocation{location_.first_page() + Length(index),
                         Length(unbacked)};
 }
@@ -585,8 +583,7 @@ inline Length PageTracker::ReleaseFree(MemoryModifyFunction& unback) {
 
   released_count_ += count;
   TC_ASSERT_LE(Length(released_count_), kPagesPerHugePage);
-  TC_ASSERT_EQ(released_by_page_.CountBits(0, kPagesPerHugePage.raw_num()),
-               released_count_);
+  TC_ASSERT_EQ(released_by_page_.CountBits(), released_count_);
   return Length(count);
 }
 
@@ -1991,10 +1988,9 @@ inline void HugePageFiller<TrackerType>::RemoveFromFillerList(TrackerType* pt) {
     return;
   }
 
-  const AccessDensityPrediction type =
-              pt->HasDenseSpans()
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
+  const AccessDensityPrediction type = pt->HasDenseSpans()
+                                           ? AccessDensityPrediction::kDense
+                                           : AccessDensityPrediction::kSparse;
   size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
 
   if (!pt->released()) {
@@ -2021,10 +2017,9 @@ inline void HugePageFiller<TrackerType>::AddToFillerList(TrackerType* pt) {
   // donated allocs.
   pt->set_donated(false);
 
-  const AccessDensityPrediction type =
-              pt->HasDenseSpans()
-          ? AccessDensityPrediction::kDense
-          : AccessDensityPrediction::kSparse;
+  const AccessDensityPrediction type = pt->HasDenseSpans()
+                                           ? AccessDensityPrediction::kDense
+                                           : AccessDensityPrediction::kSparse;
   size_t i = ListFor(longest, IndexFor(pt), type, pt->nallocs());
 
   if (!pt->released()) {

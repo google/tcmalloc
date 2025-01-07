@@ -46,6 +46,8 @@ class Bitmap {
 
   // Returns the number of set bits [index, ..., index + n - 1].
   size_t CountBits(size_t index, size_t n) const;
+  // Returns the total number of set bits.
+  size_t CountBits() const;
 
   // Returns whether the bitmap is entirely zero or not.
   bool IsZero() const;
@@ -351,6 +353,11 @@ inline void Bitmap<N>::ClearBit(size_t i) {
   size_t offset = i % kWordSize;
   ASSUME(word < kWords);
   bits_[word] &= ~(size_t{1} << offset);
+}
+
+template <size_t N>
+inline size_t Bitmap<N>::CountBits() const {
+  return CountBits(0, N);
 }
 
 template <size_t N>

@@ -142,8 +142,7 @@ void* Span::BitmapIdxToPtr(ObjIdx idx, size_t size) const {
 }
 
 size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) {
-  size_t before =
-      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size());
+  size_t before = small_span_state_.bitmap.CountBits();
   size_t count = 0;
   // Want to fill the batch either with batch.size() objects, or the number of
   // objects remaining in the span.
@@ -155,10 +154,7 @@ size_t Span::BitmapPopBatch(absl::Span<void*> batch, size_t size) {
     count++;
   }
 
-  TC_ASSERT_EQ(
-      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size()) +
-          count,
-      before);
+  TC_ASSERT_EQ(small_span_state_.bitmap.CountBits() + count, before);
   allocated_.store(allocated_.load(std::memory_order_relaxed) + count,
                    std::memory_order_relaxed);
   return count;
@@ -245,9 +241,7 @@ void Span::BuildBitmap(size_t size, size_t count) {
   small_span_state_.bitmap
       .Clear();  // bitmap can be non-zero from a previous use.
   small_span_state_.bitmap.SetRange(0, count);
-  TC_ASSERT_EQ(
-      small_span_state_.bitmap.CountBits(0, small_span_state_.bitmap.size()),
-      count);
+  TC_ASSERT_EQ(small_span_state_.bitmap.CountBits(), count);
 }
 
 int Span::BuildFreelist(size_t size, size_t count, absl::Span<void*> batch,

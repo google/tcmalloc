@@ -187,6 +187,7 @@ TEST_F(BitmapTest, FindClear) {
 TEST_F(BitmapTest, CountBits) {
   Bitmap<253> map;
   map.SetRange(0, 253);
+  EXPECT_EQ(map.CountBits(), 253);
   EXPECT_EQ(map.CountBits(0, 253), 253);
   EXPECT_EQ(map.CountBits(8, 245), 245);
   EXPECT_EQ(map.CountBits(0, 250), 250);
@@ -197,6 +198,7 @@ TEST_F(BitmapTest, CountBits) {
   map.ClearBit(63);
   map.ClearBit(128);
 
+  EXPECT_EQ(map.CountBits(), 248);
   EXPECT_EQ(map.CountBits(0, 253), 248);
   EXPECT_EQ(map.CountBits(8, 245), 241);
   EXPECT_EQ(map.CountBits(0, 250), 245);
@@ -206,12 +208,14 @@ TEST_F(BitmapTest, CountBits) {
   map.ClearBit(251);
   map.ClearBit(252);
 
+  EXPECT_EQ(map.CountBits(), 244);
   EXPECT_EQ(map.CountBits(0, 253), 244);
   EXPECT_EQ(map.CountBits(8, 245), 237);
   EXPECT_EQ(map.CountBits(0, 250), 243);
 
   map.ClearBit(0);
 
+  EXPECT_EQ(map.CountBits(), 243);
   EXPECT_EQ(map.CountBits(0, 253), 243);
   EXPECT_EQ(map.CountBits(8, 245), 237);
   EXPECT_EQ(map.CountBits(0, 250), 242);
