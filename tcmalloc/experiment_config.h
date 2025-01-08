@@ -24,7 +24,6 @@ enum class Experiment : int {
   // clang-format off
   // go/keep-sorted start
   TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS,  // TODO(b/348043731): Complete experiment.
-  TCMALLOC_REUSE_SIZE_CLASSES,  // TODO(b/358126781): Complete experiment.
   TEST_ONLY_L3_AWARE,  // TODO(b/239977380): Complete experiment.
   TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED,  // TODO(b/348043731): Complete experiment.
   TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S,  // TODO(b/319872040): Complete experiment.
@@ -45,7 +44,6 @@ struct ExperimentConfig {
 inline constexpr ExperimentConfig experiments[] = {
     // go/keep-sorted start
     {Experiment::TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS, "TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS"},
-    {Experiment::TCMALLOC_REUSE_SIZE_CLASSES, "TCMALLOC_REUSE_SIZE_CLASSES"},
     {Experiment::TEST_ONLY_L3_AWARE, "TEST_ONLY_L3_AWARE"},
     {Experiment::TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED, "TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED"},
     {Experiment::TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S, "TEST_ONLY_TCMALLOC_HUGE_CACHE_RELEASE_30S"},
