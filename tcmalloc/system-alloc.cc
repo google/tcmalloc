@@ -115,7 +115,7 @@ union MemoryAligner {
   size_t s;
 } ABSL_CACHELINE_ALIGNED;
 
-static_assert(sizeof(MemoryAligner) < kMinSystemAlloc,
+static_assert(sizeof(MemoryAligner) < kHugePageSize,
               "hugepage alignment too small");
 
 ABSL_CONST_INIT absl::base_internal::SpinLock spinlock(
@@ -201,11 +201,11 @@ ABSL_CONST_INIT RegionManager region_manager ABSL_GUARDED_BY(spinlock);
 
 std::pair<void*, size_t> MmapRegion::Alloc(size_t request_size,
                                            size_t alignment) {
-  // Align on kMinSystemAlloc boundaries to reduce external fragmentation for
+  // Align on kHugePageSize boundaries to reduce external fragmentation for
   // future allocations.
-  size_t size = RoundUp(request_size, kMinSystemAlloc);
+  size_t size = RoundUp(request_size, kHugePageSize);
   if (size < request_size) return {nullptr, 0};
-  alignment = std::max(alignment, kMinSystemAlloc);
+  alignment = std::max(alignment, kHugePageSize);
 
   // Tries to allocate size bytes from the end of [start_, start_ + free_size_),
   // aligned to alignment.
@@ -306,11 +306,11 @@ std::pair<void*, size_t> RegionManager::Alloc(size_t request_size,
   // want to throw away the existing reserved region, so instead we
   // return a new region specifically targeted for the request.
   if (request_size > kMinMmapAlloc || alignment > kMinMmapAlloc) {
-    // Align on kMinSystemAlloc boundaries to reduce external fragmentation for
+    // Align on kHugePageSize boundaries to reduce external fragmentation for
     // future allocations.
-    size_t size = RoundUp(request_size, kMinSystemAlloc);
+    size_t size = RoundUp(request_size, kHugePageSize);
     if (size < request_size) return {nullptr, 0};
-    alignment = std::max(alignment, kMinSystemAlloc);
+    alignment = std::max(alignment, kHugePageSize);
     void* ptr = MmapAligned(size, alignment, tag);
     if (!ptr) return {nullptr, 0};
 

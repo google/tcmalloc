@@ -319,6 +319,7 @@ create_tcmalloc_testsuite(
     linkstatic = 1,
     deps = [
         "//tcmalloc:malloc_extension",
+        "//tcmalloc/internal:config",
         "@com_google_googletest//:gtest_main",
     ],
 )

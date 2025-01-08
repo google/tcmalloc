@@ -20,13 +20,14 @@
 
 #include "gtest/gtest.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/internal/config.h"
 #include "tcmalloc/malloc_extension.h"
 
 namespace tcmalloc {
 namespace {
 
 // Regression test for b/31102171.
-// Ensure that when we allocate lots of kMinSystemAlloc + epsilon blocks,
+// Ensure that when we allocate lots of kHugePageSize + epsilon blocks,
 // tcmalloc does not double memory consumption.
 TEST(LargeAllocSizeTest, Basic) {
   typedef std::map<std::string, MallocExtension::Property> PropertyMap;
@@ -34,7 +35,7 @@ TEST(LargeAllocSizeTest, Basic) {
   const size_t start_mem = map["generic.physical_memory_used"].value;
   const size_t kTotalToAllocate = 1024 << 20;
   const size_t kAllocSize =
-      tcmalloc_internal::kMinSystemAlloc + tcmalloc_internal::kPageSize;
+      tcmalloc_internal::kHugePageSize + tcmalloc_internal::kPageSize;
   const size_t kBlocks = kTotalToAllocate / kAllocSize;
   void* volatile blocks[kBlocks];
   for (size_t i = 0; i < kBlocks; ++i) {

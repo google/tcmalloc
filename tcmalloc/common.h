@@ -226,21 +226,16 @@ inline constexpr bool IsExpandedSizeClass(unsigned size_class) {
 }
 
 #if !defined(TCMALLOC_INTERNAL_SMALL_BUT_SLOW)
-// Always allocate at least a huge page
-inline constexpr size_t kMinSystemAlloc = kHugePageSize;
 inline constexpr size_t kMinMmapAlloc = 1 << 30;  // mmap() in 1GiB ranges.
 #else
-// Allocate in units of 2MiB. This is the size of a huge page for x86, but
-// not for Power.
-inline constexpr size_t kMinSystemAlloc = 2 << 20;
 // mmap() in units of 32MiB. This is a multiple of huge page size for
 // both x86 (2MiB) and Power (16MiB)
 inline constexpr size_t kMinMmapAlloc = 32 << 20;
 #endif
 
-static_assert(kMinMmapAlloc % kMinSystemAlloc == 0,
-              "Minimum mmap allocation size is not a multiple of"
-              " minimum system allocation size");
+static_assert(
+    kMinMmapAlloc % kHugePageSize == 0,
+    "Minimum mmap allocation size is not a multiple of the huge page size");
 
 enum class AllocationAccess {
   kHot,

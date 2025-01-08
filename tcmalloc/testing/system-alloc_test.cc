@@ -112,12 +112,12 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
   }
 };
 INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,
-                         testing::Values(kPageSize, kMinSystemAlloc,
+                         testing::Values(kPageSize, kHugePageSize,
                                          kMinMmapAlloc,
                                          uintptr_t{1} << kTagShift));
 
 TEST_P(MmapAlignedTest, CorrectAlignmentAndTag) {
-  MmapAndCheck(kMinSystemAlloc, GetParam());
+  MmapAndCheck(kHugePageSize, GetParam());
 }
 
 // Ensure mmap sizes near kTagMask still have the correct tag at the beginning
