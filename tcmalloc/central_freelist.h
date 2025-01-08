@@ -429,7 +429,7 @@ template <class Forwarder>
 inline size_t CentralFreeList<Forwarder>::NumSpansInList(int n) {
   ASSUME(n >= 0);
   ASSUME(n < kNumLists);
-  absl::base_internal::SpinLockHolder h(&lock_);
+  AllocationGuardSpinLockHolder h(&lock_);
   return nonempty_.SizeOfList(n);
 }
 
@@ -677,7 +677,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer* out) {
   LifetimeHistogram lifetime_histo{};
 
   {
-    absl::base_internal::SpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(&lock_);
     nonempty_.Iter(
         [&](const Span* s) {
           const double elapsed = std::max<double>(
@@ -730,7 +730,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
   LifetimeHistogram lifetime_histo{};
 
   {
-    absl::base_internal::SpinLockHolder h(&lock_);
+    AllocationGuardSpinLockHolder h(&lock_);
     nonempty_.Iter(
         [&](const Span* s) {
           const double elapsed = std::max<double>(
