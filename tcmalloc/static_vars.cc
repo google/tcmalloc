@@ -17,6 +17,7 @@
 #include <stddef.h>
 
 #include <atomic>
+#include <cstring>
 
 #include "absl/base/attributes.h"
 #include "absl/base/const_init.h"
@@ -172,16 +173,32 @@ int ABSL_ATTRIBUTE_WEAK default_want_legacy_size_classes();
 SizeClassConfiguration Static::size_class_configuration() {
   if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_POW2_SIZECLASS)) {
     return SizeClassConfiguration::kPow2Only;
-  } else if (default_want_legacy_size_classes != nullptr &&
-             default_want_legacy_size_classes() > 0) {
-    // TODO(b/242710633): remove this opt out.
-    return SizeClassConfiguration::kLegacy;
-  } else if (IsExperimentActive(
-                 Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES)) {
-    return SizeClassConfiguration::kReuse;
-  } else {
-    return SizeClassConfiguration::kPow2Below64;
   }
+
+  // TODO(b/242710633): remove this opt out.
+  if (default_want_legacy_size_classes != nullptr &&
+      default_want_legacy_size_classes() > 0) {
+    return SizeClassConfiguration::kLegacy;
+  }
+
+  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES)) {
+    return SizeClassConfiguration::kReuse;
+  }
+
+  const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
+  if (e == nullptr) {
+    // TODO(b/358126781): Change this to use reuse size classes.
+    return SizeClassConfiguration::kPow2Below64;
+  } else if (!strcmp(e, "pow2below64")) {
+    return SizeClassConfiguration::kPow2Below64;
+  } else if (!strcmp(e, "0")) {
+    // TODO(b/358126781): Change this to use reuse size classes.
+    return SizeClassConfiguration::kPow2Below64;
+  } else {
+    TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e);
+  }
+  // TODO(b/358126781): Change this to use reuse size classes.
+  return SizeClassConfiguration::kPow2Below64;
 }
 
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
