@@ -181,10 +181,6 @@ SizeClassConfiguration Static::size_class_configuration() {
     return SizeClassConfiguration::kLegacy;
   }
 
-  if (IsExperimentActive(Experiment::TEST_ONLY_TCMALLOC_REUSE_SIZE_CLASSES)) {
-    return SizeClassConfiguration::kReuse;
-  }
-
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
     // TODO(b/358126781): Change this to use reuse size classes.
