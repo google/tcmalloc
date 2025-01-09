@@ -44,16 +44,22 @@ class MismatchedDeleteState {
     return absl::MakeSpan(allocation_stack_, *allocation_stack_depth_);
   }
 
-  absl::Span<void* const> DeallocationStack() const {
+  std::optional<absl::Span<void* const>> DeallocationStack() const {
     TC_ASSERT(triggered_);
-    TC_ASSERT(deallocation_stack_depth_.has_value());
+    if (!deallocation_stack_depth_.has_value()) {
+      return std::nullopt;
+    }
 
     return absl::MakeSpan(deallocation_stack_, *deallocation_stack_depth_);
   }
 
-  size_t provided_size() const {
+  size_t provided_min() const {
     TC_ASSERT(triggered_);
-    return provided_;
+    return provided_min_;
+  }
+  size_t provided_max() const {
+    TC_ASSERT(triggered_);
+    return provided_max_;
   }
 
   size_t minimum_size() const {
@@ -66,12 +72,14 @@ class MismatchedDeleteState {
     return maximum_;
   }
 
-  void Record(size_t provided, size_t minimum, size_t maximum,
+  void Record(size_t provided_min, size_t provided_max, size_t minimum,
+              size_t maximum,
               std::optional<absl::Span<void* const>> allocation_stack,
-              absl::Span<void* const> deallocation_stack) {
+              std::optional<absl::Span<void* const>> deallocation_stack) {
     triggered_ = true;
 
-    provided_ = provided;
+    provided_min_ = provided_min;
+    provided_max_ = provided_max;
     minimum_ = minimum;
     maximum_ = maximum;
 
@@ -81,18 +89,24 @@ class MismatchedDeleteState {
       memcpy(allocation_stack_, allocation_stack->data(),
              sizeof(void*) * allocation_stack_depth);
       allocation_stack_depth_ = allocation_stack_depth;
+    } else {
+      allocation_stack_depth_ = std::nullopt;
     }
 
-    size_t deallocation_stack_depth =
-        std::min<size_t>(kMaxStackDepth, deallocation_stack.size());
-    memcpy(deallocation_stack_, deallocation_stack.data(),
-           sizeof(void*) * deallocation_stack_depth);
-    deallocation_stack_depth_ = deallocation_stack_depth;
+    if (deallocation_stack.has_value()) {
+      size_t deallocation_stack_depth =
+          std::min<size_t>(kMaxStackDepth, deallocation_stack->size());
+      memcpy(deallocation_stack_, deallocation_stack->data(),
+             sizeof(void*) * deallocation_stack_depth);
+      deallocation_stack_depth_ = deallocation_stack_depth;
+    } else {
+      deallocation_stack_depth_ = std::nullopt;
+    }
   }
 
  private:
   bool triggered_ = false;
-  size_t provided_ = 0, minimum_ = 0, maximum_ = 0;
+  size_t provided_min_ = 0, provided_max_ = 0, minimum_ = 0, maximum_ = 0;
 
   void* allocation_stack_[kMaxStackDepth] = {};
   std::optional<size_t> allocation_stack_depth_ = std::nullopt;

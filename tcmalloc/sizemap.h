@@ -18,6 +18,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <limits>
+#include <utility>
+
 #include "absl/base/attributes.h"
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/optimization.h"
@@ -272,6 +275,25 @@ class SizeMap {
       size_t size_class) const {
     TC_ASSERT_LT(size_class, kNumClasses);
     return class_to_pages_[size_class];
+  }
+
+  // Returns the inclusive range of possible sizes for a given size class.
+  // REQUIRES: size_class < kNumClasses.
+  std::pair<size_t, size_t> class_to_size_range(size_t size_class) const {
+    TC_ASSERT_LT(size_class, kNumClasses);
+    if (size_class == 0) {
+      return {0, 0};
+    }
+    size_t max_size = class_to_size_[size_class];
+    size_t min_size = class_to_size_[size_class - 1] + 1;
+    if (min_size > max_size) {
+      // TCMalloc places the NUMA and cold size classes after the hot ones.
+      // If the "prior" size class is actually larger in bytes, then we fell
+      // off the beginning of one of these other size classes and should use
+      // 0 as the min size.
+      min_size = 0;
+    }
+    return {min_size, max_size};
   }
 
   // Number of objects to move between a per-thread list and a central

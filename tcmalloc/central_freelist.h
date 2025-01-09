@@ -66,7 +66,8 @@ class StaticForwarder {
 
   static size_t class_to_size(int size_class);
   static Length class_to_pages(int size_class);
-  static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans);
+  static void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
+                                int expected_size_class);
   [[nodiscard]] static Span* AllocateSpan(int size_class,
                                           size_t objects_per_span,
                                           Length pages_per_span)
@@ -447,7 +448,7 @@ inline void CentralFreeList<Forwarder>::InsertRange(absl::Span<void*> batch) {
   Span* spans[kMaxObjectsToMove];
   // First, map objects to spans and prefetch spans outside of our mutex
   // (to reduce critical section size and cache misses).
-  forwarder_.MapObjectsToSpans(batch, spans);
+  forwarder_.MapObjectsToSpans(batch, spans, size_class_);
 
   if (objects_per_span_ == 1) {
     // If there is only 1 object per span, skip CentralFreeList entirely.

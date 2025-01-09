@@ -16,7 +16,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
+#include "absl/base/attributes.h"
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/types/span.h"
@@ -68,12 +70,48 @@ Length StaticForwarder::class_to_pages(int size_class) {
   return Length(tc_globals.sizemap().class_to_pages(size_class));
 }
 
-void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
+ABSL_ATTRIBUTE_NOINLINE
+static void ReportMismatchedSizeClass(void* object, int page_size_class,
+                                      int object_size_class) {
+  auto [object_min_size, object_max_size] =
+      tc_globals.sizemap().class_to_size_range(object_size_class);
+  auto [page_min_size, page_max_size] =
+      tc_globals.sizemap().class_to_size_range(page_size_class);
+
+  TC_LOG("*** GWP-ASan (https://google.github.io/tcmalloc/gwp-asan.html) has detected a memory error ***");
+  TC_LOG(
+      "Mismatched-size-class "
+      "(https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) "
+      "discovered for pointer %p: this pointer was recently freed "
+      "with a size argument in the range [%v, %v], but the "
+      "associated span of allocated memory is for allocations with sizes "
+      "[%v, %v]. This is not a bug in tcmalloc, but rather is indicative "
+      "of an application bug such as buffer overrun/underrun, use-after-free "
+      "or double-free.",
+      object, object_min_size, object_max_size, page_min_size, page_max_size);
+  TC_LOG(
+      "NOTE: The blamed stack trace that is about to crash is not likely the "
+      "root cause of the issue. We are detecting the invalid deletion at a "
+      "later point in time and different code location.");
+  RecordCrash("GWP-ASan", "mismatched-size-class");
+
+  tc_globals.mismatched_delete_state().Record(object_min_size, object_max_size,
+                                              page_min_size, page_max_size,
+                                              std::nullopt, std::nullopt);
+  abort();
+}
+
+void StaticForwarder::MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
+                                        int expected_size_class) {
   // Prefetch Span objects to reduce cache misses.
   for (int i = 0; i < batch.size(); ++i) {
     const PageId p = PageIdContaining(batch[i]);
-    Span* span = tc_globals.pagemap().GetExistingDescriptor(p);
+    auto [span, page_size_class] =
+        tc_globals.pagemap().GetExistingDescriptorAndSizeClass(p);
     TC_ASSERT_NE(span, nullptr);
+    if (ABSL_PREDICT_FALSE(page_size_class != expected_size_class)) {
+      ReportMismatchedSizeClass(span, page_size_class, expected_size_class);
+    }
     span->Prefetch();
     spans[i] = span;
   }

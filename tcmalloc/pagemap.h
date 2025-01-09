@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "absl/base/attributes.h"
@@ -111,6 +112,17 @@ class PageMap2 {
       }
     }
     return std::nullopt;
+  }
+
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  // Requires that the span is known to already exist.
+  std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    const Number i1 = k >> kLeafBits;
+    const Number i2 = k & (kLeafLength - 1);
+    TC_ASSERT_EQ(k >> BITS, 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
+    return std::make_pair(root_[i1]->span[i2], root_[i1]->sizeclass[i2]);
   }
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
@@ -288,6 +300,20 @@ class PageMap3 {
 
   // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
   // Requires that the span is known to already exist.
+  std::pair<Span*, int> get_existing_with_sizeclass(Number k) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    const Number i1 = k >> (kLeafBits + kMidBits);
+    const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
+    const Number i3 = k & (kLeafLength - 1);
+    TC_ASSERT_EQ(k >> BITS, 0);
+    TC_ASSERT_NE(root_[i1], nullptr);
+    TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
+    return std::make_pair(root_[i1]->leafs[i2]->span[i3],
+                          root_[i1]->leafs[i2]->sizeclass[i3]);
+  }
+
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  // Requires that the span is known to already exist.
   Span* get_existing(Number k) const ABSL_NO_THREAD_SAFETY_ANALYSIS {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
@@ -305,7 +331,7 @@ class PageMap3 {
     const Number i1 = k >> (kLeafBits + kMidBits);
     const Number i2 = (k >> kLeafBits) & (kMidLength - 1);
     const Number i3 = k & (kLeafLength - 1);
-    TC_ASSERT_EQ((k >> BITS), 0);
+    TC_ASSERT_EQ(k >> BITS, 0);
     TC_ASSERT_NE(root_[i1], nullptr);
     TC_ASSERT_NE(root_[i1]->leafs[i2], nullptr);
     return root_[i1]->leafs[i2]->sizeclass[i3];
@@ -435,6 +461,17 @@ class PageMap {
   [[nodiscard]] inline Span* GetDescriptor(PageId p) const
       ABSL_NO_THREAD_SAFETY_ANALYSIS {
     return reinterpret_cast<Span*>(map_.get(p.index()));
+  }
+
+  // Return the descriptor and sizeclass for the specified page.
+  // PageId must have been previously allocated.
+  // No locks required.  See SYNCHRONIZATION explanation at top of tcmalloc.cc.
+  [[nodiscard]] inline std::pair<Span*, CompactSizeClass>
+  GetExistingDescriptorAndSizeClass(PageId p) const
+      ABSL_NO_THREAD_SAFETY_ANALYSIS {
+    auto [span, sizeclass] = map_.get_existing_with_sizeclass(p.index());
+    TC_ASSERT_NE(span, nullptr, "Possible double free detected");
+    return {span, sizeclass};
   }
 
   // Return the descriptor for the specified page.

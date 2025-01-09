@@ -29,13 +29,23 @@ Address Sanitizer's checks apply to all deallocations. Its errors look like:
   size of the deallocated type: 24 bytes.
 ```
 
+For small objects, it's too expensive to validate the size argument at the time
+of deallocation. Instead, tcmalloc validates the sizes only at some later point
+when objects are being transferred back to tcmalloc's central freelist. In these
+cases, the errors look like:
+
+```
+Mismatched-size-class (https://github.com/google/tcmalloc/tree/master/docs/mismatched-sized-delete.md) discovered for pointer 0x4e9f7fa89440: this pointer was recently freed with a size argument in the range [1, 8], but the associated span of allocated memory is for allocations with sizes [9, 16].
+```
+
 ## TCMalloc is buggy?
 
 It is not a bug in TCMalloc. It is detecting an erroneous argument provided to
 `::operator delete`.
 
-The typical failure modes are caused by a memory safety bug (a buffer overrun,
-etc.) or a bitflip corrupting the size.
+The typical failure modes are caused by a memory safety bug (a buffer overrun, a
+double-free, etc.) or a bitflip corrupting the size stored with a
+variable-length structure like a `std::vector` or `std::string`.
 
 Less common failure modes since they are typically detected by presubmits and
 fixed before check-in include:
@@ -137,6 +147,11 @@ TCMalloc detects:
     than the span. It cannot be any smaller than the size less a
     [TCMalloc page](design.md#pagesize) (typically 8KB), since we would have
     otherwise allocated a smaller span.
+
+*   Other object sizes, but only at the point when the object is returned to the
+    central freelist. In these cases, the stack trace of the crash is likely
+    unrelated to the root cause of the bug but prevents further downstream
+    corruption from accumulating after an earlier corruption of state.
 
 ## Is aborting the right behavior?
 

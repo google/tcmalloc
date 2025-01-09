@@ -116,7 +116,7 @@ TEST_P(StaticForwarderTest, Simple) {
   // objects to confirm we can map back to the Span pointer from the PageMap.
   for (void* ptr : batch) {
     Span* got;
-    StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got);
+    StaticForwarder::MapObjectsToSpans({&ptr, 1}, &got, size_class_);
     EXPECT_EQ(span, got);
   }
 
@@ -184,7 +184,8 @@ class StaticForwarderEnvironment {
                 tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
       Span* got;
-      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got);
+      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
+                                         size_class_);
       EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);
@@ -212,7 +213,7 @@ class StaticForwarderEnvironment {
     EXPECT_EQ(size_class_, tc_globals.pagemap().sizeclass(span->last_page()));
     // Confirm we can map at least one object back.
     Span* got;
-    StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got);
+    StaticForwarder::MapObjectsToSpans({&d->batch[0], 1}, &got, size_class_);
     EXPECT_EQ(span, got);
 
     absl::MutexLock l(&mu_);
@@ -248,7 +249,8 @@ class StaticForwarderEnvironment {
                 tc_globals.pagemap().sizeclass(data->span->last_page()));
       // Confirm we can map at least one object back.
       Span* got;
-      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got);
+      StaticForwarder::MapObjectsToSpans({&data->batch[0], 1}, &got,
+                                         size_class_);
       EXPECT_EQ(data->span, got);
 
       free_spans.push_back(data->span);

@@ -139,7 +139,7 @@ static void ReportMismatchedDelete(Static& state,
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
   state.mismatched_delete_state().Record(
-      size, requested_size, maximum_size,
+      size, size, requested_size, maximum_size,
       absl::MakeSpan(alloc.sampled_stack.stack, alloc.sampled_stack.depth),
       absl::MakeSpan(stack, depth));
   abort();
@@ -154,15 +154,9 @@ static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
   if (size_class != 0) {
     maximum_size = state.sizemap().class_to_size(size_class);
     if (maximum_size < minimum_size) {
-      // Our size class refinement may have made the bounds inconsistent.  Use
-      // the prior size class to set the lower bound.
-      minimum_size = state.sizemap().class_to_size(size_class - 1) + 1;
-      if (maximum_size < minimum_size) {
-        // TCMalloc places the NUMA and cold size classes after the hot ones.
-        // The "prior" size class by index might be larger in bytes.  If this
-        // happens, give up and use 0 as the lower bound.
-        minimum_size = 0;
-      }
+      // Our size class refinement may have made the bounds inconsistent.
+      // Consult the size map to find the correct bounds.
+      minimum_size = state.sizemap().class_to_size_range(size_class).first;
     }
   }
 
@@ -179,8 +173,9 @@ static void ReportMismatchedDelete(Static& state, void* ptr, size_t size,
   PrintStackTrace(stack, depth);
 
   RecordCrash("GWP-ASan", "mismatched-size-delete");
-  state.mismatched_delete_state().Record(size, minimum_size, maximum_size,
-                                         std::nullopt,
+  state.mismatched_delete_state().Record(/*provided_min=*/size,
+                                         /*provided_max=*/size, minimum_size,
+                                         maximum_size, std::nullopt,
                                          absl::MakeSpan(stack, depth));
   abort();
 }

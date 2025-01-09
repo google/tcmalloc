@@ -60,7 +60,8 @@ class FakeStaticForwarder {
     return use_large_spans_ ? Span::kLargeCacheArraySize : Span::kCacheSize;
   }
 
-  void MapObjectsToSpans(absl::Span<void*> batch, Span** spans) {
+  void MapObjectsToSpans(absl::Span<void*> batch, Span** spans,
+                         int expected_size_class) {
     for (size_t i = 0; i < batch.size(); ++i) {
       spans[i] = MapObjectToSpan(batch[i]);
     }
@@ -163,8 +164,10 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
         });
 
     ON_CALL(*this, MapObjectsToSpans)
-        .WillByDefault([this](absl::Span<void*> batch, Span** spans) {
-          return FakeStaticForwarder::MapObjectsToSpans(batch, spans);
+        .WillByDefault([this](absl::Span<void*> batch, Span** spans,
+                              int expected_size_class) {
+          return FakeStaticForwarder::MapObjectsToSpans(batch, spans,
+                                                        expected_size_class);
         });
     ON_CALL(*this, AllocateSpan)
         .WillByDefault([this](int size_class, size_t objects_per_span,
@@ -185,7 +188,8 @@ class RawMockStaticForwarder : public FakeStaticForwarder {
   MOCK_METHOD(void, Init,
               (size_t class_size, size_t pages, size_t num_objects_to_move,
                bool use_large_spans));
-  MOCK_METHOD(void, MapObjectsToSpans, (absl::Span<void*> batch, Span** spans));
+  MOCK_METHOD(void, MapObjectsToSpans,
+              (absl::Span<void*> batch, Span** spans, int expected_size_class));
   MOCK_METHOD(Span*, AllocateSpan,
               (int size_class, size_t objects_per_span, Length pages_per_span));
   MOCK_METHOD(void, DeallocateSpans,

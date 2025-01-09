@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "benchmark/benchmark.h"
 #include "gtest/gtest.h"
@@ -634,6 +635,32 @@ TEST_F(TcMallocTest, MismatchedDeleteTooSmall) {
               "|CorrectSize)"));
     }
   }
+}
+
+TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
+#ifdef ABSL_HAVE_ADDRESS_SANITIZER
+  GTEST_SKIP() << "ASan will trap ahead of us";
+#endif
+  // Ensure GWP-ASAN doesn't catch the issue before we do, so that we validate
+  // the checks during freelist insertion.
+  ScopedNeverSample never_sample;
+
+  std::vector<void*> ptrs;
+  // Allocate enough enough to fill the CPU cache.
+  for (int i = 0; i < 10000; ++i) {
+    ptrs.push_back(::operator new(16));
+  }
+  EXPECT_DEATH(
+      {
+        // Delete the objects with the wrong size.
+        for (void* ptr : ptrs) {
+          ::operator delete(ptr, 5);
+        }
+      },
+      "Mismatched-size-class.*size argument in the range \\[1, "
+      "8\\].*allocations with sizes \\[9, 16\\]"
+      "|size check failed"
+      "|alloc-dealloc-mismatch");
 }
 
 }  // namespace

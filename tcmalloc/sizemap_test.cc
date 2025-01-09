@@ -29,6 +29,7 @@
 namespace tcmalloc::tcmalloc_internal {
 
 using ::testing::ElementsAreArray;
+using ::testing::Pair;
 
 TEST(ColdSizeClassTest, ColdFeatureActivation) {
   if (kPageShift > 12) {
@@ -114,6 +115,27 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
                          ? kExpandedClassesStart
                          : kNumBaseClasses))
           << request_size;
+  }
+}
+
+TEST(SizeMapTest, ClassToSizeRange) {
+  SizeMap size_map;
+  const auto& classes = kSizeClasses.classes;
+  size_map.Init(classes);
+
+  // A few simple ones to spot check.
+  EXPECT_THAT(size_map.class_to_size_range(0), Pair(0, 0));
+  EXPECT_THAT(size_map.class_to_size_range(1), Pair(1, 8));
+  EXPECT_THAT(size_map.class_to_size_range(2), Pair(9, 16));
+  if (kPageShift > 12) {
+    // Check that the size ranges of the cold classes mirror the
+    // base classes.
+    EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart),
+                Pair(0, 0));
+    EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart + 1),
+                Pair(1, 8));
+    EXPECT_THAT(size_map.class_to_size_range(kExpandedClassesStart + 2),
+                Pair(9, 16));
   }
 }
 
