@@ -186,8 +186,9 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
 
   if (buffer_length > required) {
     PageHeapSpinLockHolder l;
-    required += GetRegionFactory()->GetStatsInPbtxt(
-        absl::Span<char>(buffer + required, buffer_length - required));
+    required +=
+        tc_globals.system_allocator().GetRegionFactory()->GetStatsInPbtxt(
+            absl::Span<char>(buffer + required, buffer_length - required));
   }
 
   return required;
@@ -232,13 +233,15 @@ extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
   }
 
   printer.printf("\nLow-level allocator stats:\n");
-  printer.printf("Memory Release Failures: %d\n", SystemReleaseErrors());
+  auto& system_allocator = tc_globals.system_allocator();
+  printer.printf("Memory Release Failures: %d\n",
+                 system_allocator.release_errors());
 
   size_t n = printer.SpaceRequired();
 
   size_t bytes_remaining = buffer_length > n ? buffer_length - n : 0;
   if (bytes_remaining > 0) {
-    n += GetRegionFactory()->GetStats(
+    n += system_allocator.GetRegionFactory()->GetStats(
         absl::Span<char>(buffer + n, bytes_remaining));
   }
 
@@ -309,13 +312,13 @@ extern "C" void MallocExtension_Internal_MarkThreadIdle() {
 
 extern "C" AddressRegionFactory* MallocExtension_Internal_GetRegionFactory() {
   PageHeapSpinLockHolder l;
-  return GetRegionFactory();
+  return tc_globals.system_allocator().GetRegionFactory();
 }
 
 extern "C" void MallocExtension_Internal_SetRegionFactory(
     AddressRegionFactory* factory) {
   PageHeapSpinLockHolder l;
-  SetRegionFactory(factory);
+  tc_globals.system_allocator().SetRegionFactory(factory);
 }
 
 // ReleaseMemoryToSystem drops the page heap lock while actually calling to

@@ -765,6 +765,7 @@ cc_test(
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",
+        "//tcmalloc/internal:numa",
         "//tcmalloc/internal:proc_maps",
         "@com_github_google_benchmark//:benchmark",
         "@com_google_absl//absl/base:core_headers",

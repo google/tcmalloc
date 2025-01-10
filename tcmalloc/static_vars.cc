@@ -54,6 +54,7 @@
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
+#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/thread_cache.h"
 #include "tcmalloc/transfer_cache.h"
 
@@ -128,6 +129,9 @@ ABSL_CONST_INIT GuardedPageAllocator Static::guardedpage_allocator_;
 ABSL_CONST_INIT NumaTopology<kNumaPartitions, kNumBaseClasses>
     Static::numa_topology_;
 ABSL_CONST_INIT MismatchedDeleteState Static::mismatched_delete_state_;
+TCMALLOC_ATTRIBUTE_NO_DESTROY ABSL_CONST_INIT
+    SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>
+        Static::system_allocator_{numa_topology_};
 
 // LINT.ThenChange(:static_vars_size)
 
@@ -154,7 +158,8 @@ size_t Static::metadata_bytes() {
       sizeof(allocation_samples) + sizeof(deallocation_samples) +
       sizeof(sampled_alloc_handle_generator) + sizeof(peak_heap_tracker_) +
       sizeof(guardedpage_allocator_) + sizeof(numa_topology_) +
-      sizeof(CacheTopology::Instance()) + sizeof(mismatched_delete_state_);
+      sizeof(CacheTopology::Instance()) + sizeof(mismatched_delete_state_) +
+      sizeof(system_allocator_);
   // LINT.ThenChange(:static_vars)
 
   const size_t allocated = arena().stats().bytes_allocated +

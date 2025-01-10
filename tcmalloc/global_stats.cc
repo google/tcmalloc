@@ -751,7 +751,8 @@ void DumpStatsInPbtxt(Printer* out, int level) {
   }
   selsan::PrintPbtxtStats(&region);
 
-  region.PrintI64("memory_release_failures", SystemReleaseErrors());
+  region.PrintI64("memory_release_failures",
+                  tc_globals.system_allocator().release_errors());
 
   region.PrintBool("tcmalloc_per_cpu_caches", Parameters::per_cpu_caches());
   region.PrintI64("tcmalloc_max_per_cpu_cache_size",

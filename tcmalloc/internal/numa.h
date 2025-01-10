@@ -80,6 +80,8 @@ class NumaTopology {
       std::max<size_t>(2, NumPartitions);
 
  public:
+  static constexpr size_t kNumPartitions = NumPartitions;
+
   // Trivially zero initialize data members.
   constexpr NumaTopology() = default;
 

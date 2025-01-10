@@ -120,12 +120,10 @@ class StaticForwarder {
           ABSL_ATTRIBUTE_NONNULL();
 
   // SystemAlloc state.
-  static AddressRange AllocatePages(size_t bytes, size_t align, MemoryTag tag) {
-    return SystemAlloc(bytes, align, tag);
-  }
-  static bool ReleasePages(Range r) {
-    return SystemRelease(r.start_addr(), r.in_bytes());
-  }
+  [[nodiscard]] static AddressRange AllocatePages(size_t bytes, size_t align,
+                                                  MemoryTag tag);
+  static void Back(Range r);
+  [[nodiscard]] static bool ReleasePages(Range r);
 };
 
 struct HugePageAwareAllocatorOptions {
@@ -636,10 +634,6 @@ HugePageAwareAllocator<Forwarder>::AllocRawHugepages(
 #endif
 }
 
-inline static void BackSpan(Span* span) {
-  SystemBack(span->start_address(), span->bytes_in_span());
-}
-
 // public
 template <class Forwarder>
 inline Span* HugePageAwareAllocator<Forwarder>::New(
@@ -650,7 +644,9 @@ inline Span* HugePageAwareAllocator<Forwarder>::New(
   if (s) {
     // Prefetch for writing, as we anticipate using the memory soon.
     PrefetchW(s->start_address());
-    if (from_released) BackSpan(s);
+    if (from_released) {
+      forwarder_.Back(Range(s->first_page(), s->num_pages()));
+    }
   }
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
@@ -697,7 +693,10 @@ inline Span* HugePageAwareAllocator<Forwarder>::NewAligned(
     f = AllocRawHugepages(n, span_alloc_info, &from_released);
   }
   Span* s = Spanify(f);
-  if (s && from_released) BackSpan(s);
+  if (s && from_released) {
+    forwarder_.Back(Range(s->first_page(), s->num_pages()));
+  }
+
   TC_ASSERT(!s || GetMemoryTag(s->start_address()) == tag_);
   return s;
 }

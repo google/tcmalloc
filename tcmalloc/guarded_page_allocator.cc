@@ -36,6 +36,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/pagemap.h"
@@ -363,8 +364,9 @@ void GuardedPageAllocator::MapPages() {
   TC_ASSERT(!first_page_addr_);
   TC_ASSERT_EQ(page_size_ % GetPageSize(), 0);
   size_t len = (2 * total_pages_ + 1) * page_size_;
-  auto base_addr = reinterpret_cast<uintptr_t>(
-      MmapAligned(len, page_size_, MemoryTag::kSampled));
+  auto base_addr =
+      reinterpret_cast<uintptr_t>(tc_globals.system_allocator().MmapAligned(
+          len, page_size_, MemoryTag::kSampled));
   TC_ASSERT(base_addr);
   if (!base_addr) return;
 

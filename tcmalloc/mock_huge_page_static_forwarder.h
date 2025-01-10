@@ -163,6 +163,7 @@ class FakeStaticForwarder {
     fake_allocation_ += bytes;
     return ret;
   }
+  void Back(Range r) {}
   [[nodiscard]] bool ReleasePages(Range r) {
     const uintptr_t start =
         reinterpret_cast<uintptr_t>(r.p.start_addr()) & ~kTagMask;

@@ -49,6 +49,7 @@
 #include "tcmalloc/span.h"
 #include "tcmalloc/stack_trace_table.h"
 #include "tcmalloc/stats.h"
+#include "tcmalloc/system-alloc.h"
 #include "tcmalloc/transfer_cache.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -102,6 +103,11 @@ class Static final {
 
   static NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() {
     return numa_topology_;
+  }
+
+  static SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>>&
+  system_allocator() {
+    return system_allocator_;
   }
 
   static Arena& arena() { return arena_; }
@@ -226,6 +232,10 @@ class Static final {
 
   static PageAllocatorStorage page_allocator_;
   static PageMap pagemap_;
+
+  ABSL_CONST_INIT static SystemAllocator<
+      NumaTopology<kNumaPartitions, kNumBaseClasses>>
+      system_allocator_;
 
   // Manages sampled allocations and allows iteration over samples free from the
   // global pageheap_lock.

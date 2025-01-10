@@ -14,18 +14,21 @@
 
 #include "tcmalloc/huge_page_aware_allocator.h"
 
+#include <cstddef>
+
 #include "absl/base/attributes.h"
 #include "tcmalloc/arena.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/huge_pages.h"
 #include "tcmalloc/huge_region.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/environment.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/pagemap.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/static_vars.h"
+#include "tcmalloc/system-alloc.h"
 
 GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
@@ -129,6 +132,19 @@ Span* StaticForwarder::NewSpan(Range r) {
 }
 
 void StaticForwarder::DeleteSpan(Span* span) { Span::Delete(span); }
+
+AddressRange StaticForwarder::AllocatePages(size_t bytes, size_t align,
+                                            MemoryTag tag) {
+  return tc_globals.system_allocator().Allocate(bytes, align, tag);
+}
+
+void StaticForwarder::Back(Range r) {
+  tc_globals.system_allocator().Back(r.start_addr(), r.in_bytes());
+}
+
+bool StaticForwarder::ReleasePages(Range r) {
+  return tc_globals.system_allocator().Release(r.start_addr(), r.in_bytes());
+}
 
 }  // namespace huge_page_allocator_internal
 

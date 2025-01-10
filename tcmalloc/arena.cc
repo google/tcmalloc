@@ -23,6 +23,7 @@
 #include "tcmalloc/internal/allocation_guard.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/system-alloc.h"
 
@@ -44,9 +45,11 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
     bytes_allocated_ += alignment_bytes;
   }
   char* result;
+  auto& system_allocator = tc_globals.system_allocator();
   if (free_avail_ < bytes) {
     size_t ask = bytes > kAllocIncrement ? bytes : kAllocIncrement;
-    auto [ptr, actual_size] = SystemAlloc(ask, kPageSize, MemoryTag::kMetadata);
+    auto [ptr, actual_size] =
+        system_allocator.Allocate(ask, kPageSize, MemoryTag::kMetadata);
     free_area_ = reinterpret_cast<char*>(ptr);
     if (ABSL_PREDICT_FALSE(free_area_ == nullptr)) {
       TC_BUG(
@@ -55,7 +58,7 @@ void* Arena::Alloc(size_t bytes, std::align_val_t alignment) {
           "succeeding (sandbox, VSS limitations)?",
           kAllocIncrement, bytes);
     }
-    SystemBack(free_area_, actual_size);
+    system_allocator.Back(free_area_, actual_size);
 
     // We've discarded the previous free_area_, so any bytes that were
     // unallocated are effectively inaccessible to future allocations.

@@ -33,6 +33,7 @@
 #include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/proc_maps.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -80,7 +81,7 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
          {MemoryTag::kNormal, MemoryTag::kSampled, MemoryTag::kCold}) {
       SCOPED_TRACE(static_cast<unsigned int>(tag));
 
-      void* p = MmapAligned(size, alignment, tag);
+      void* p = allocator_.MmapAligned(size, alignment, tag);
       EXPECT_NE(p, nullptr);
       EXPECT_EQ(reinterpret_cast<uintptr_t>(p) % alignment, 0);
       EXPECT_EQ(IsNormalMemory(p), tag == MemoryTag::kNormal);
@@ -110,6 +111,10 @@ class MmapAlignedTest : public testing::TestWithParam<size_t> {
     }();
     return pr_set_vma_works;
   }
+
+  NumaTopology<kNumaPartitions, kNumBaseClasses> topology_;
+  SystemAllocator<NumaTopology<kNumaPartitions, kNumBaseClasses>> allocator_{
+      topology_};
 };
 INSTANTIATE_TEST_SUITE_P(VariedAlignment, MmapAlignedTest,
                          testing::Values(kPageSize, kHugePageSize,
