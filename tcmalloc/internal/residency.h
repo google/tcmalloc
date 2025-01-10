@@ -57,12 +57,12 @@ class Residency {
   };
   std::optional<Info> Get(const void* addr, size_t size);
 
-  static constexpr int kNativePagesInHugePage = 512;
+  static constexpr int kMaxResidencyBits = 512;
 
   // Struct is ordered with bitmaps first to optimize cacheline usage.
   struct SinglePageBitmaps {
-    Bitmap<kNativePagesInHugePage> holes;
-    Bitmap<kNativePagesInHugePage> swapped;
+    Bitmap<kMaxResidencyBits> holes;
+    Bitmap<kMaxResidencyBits> swapped;
     absl::StatusCode status;
   };
 
@@ -98,11 +98,12 @@ class Residency {
   const size_t kPageSize = GetPageSize();
 
   static constexpr uintptr_t kHugePageMask = ~(kHugePageSize - 1);
-  const size_t kPagesInHugePage = kHugePageSize / kPageSize;
+  const size_t kNativePagesInHugePage = kHugePageSize / kPageSize;
 
   uint64_t buf_[kEntriesInBuf];
   const int fd_;
-  const size_t kSizeOfHugepageInPagemap = kPagemapEntrySize * kPagesInHugePage;
+  const size_t kSizeOfHugepageInPagemap =
+      kPagemapEntrySize * kNativePagesInHugePage;
 };
 
 inline std::ostream& operator<<(std::ostream& stream,

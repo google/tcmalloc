@@ -65,20 +65,18 @@ void Update(const uint64_t input, const size_t size, Residency::Info& info) {
 Residency::Residency() : fd_(signal_safe_open("/proc/self/pagemap", O_RDONLY)) {
   TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
               "Buffer size is not large enough to hold the pagemap entries");
-  TC_CHECK_EQ(kPagesInHugePage, kNativePagesInHugePage,
-              "Actual number of pages in a hugepage not equal to the expected "
-              "number: %d vs %d",
-              kPagesInHugePage, kNativePagesInHugePage);
+  TC_CHECK_LE(kNativePagesInHugePage, kMaxResidencyBits,
+              "Actual number of native pages in a hugepage is larger than the "
+              "total capacity of residency bitmaps");
 }
 
 Residency::Residency(const char* const alternate_filename)
     : fd_(signal_safe_open(alternate_filename, O_RDONLY)) {
   TC_CHECK_GE(sizeof(buf_), kSizeOfHugepageInPagemap,
               "Buffer size is not large enough to hold the pagemap entries");
-  TC_CHECK_EQ(kPagesInHugePage, kNativePagesInHugePage,
-              "Actual Number of pages in a hugepage not equal to the expected "
-              "number: %d vs %d",
-              kPagesInHugePage, kNativePagesInHugePage);
+  TC_CHECK_LE(kNativePagesInHugePage, kMaxResidencyBits,
+              "Actual number of native pages in a hugepage is larger than the "
+              "total capacity of residency bitmaps");
 }
 
 Residency::~Residency() {
@@ -188,8 +186,8 @@ std::optional<Residency::Info> Residency::Get(const void* const addr,
 
 Residency::SinglePageBitmaps Residency::GetHolesAndSwappedBitmaps(
     const void* const addr) {
-  Bitmap<kNativePagesInHugePage> page_holes;
-  Bitmap<kNativePagesInHugePage> page_swapped;
+  Bitmap<kMaxResidencyBits> page_holes;
+  Bitmap<kMaxResidencyBits> page_swapped;
   uintptr_t currPage = reinterpret_cast<uintptr_t>(addr);
   if ((currPage & kHugePageMask) != currPage) {
     TC_LOG("Address is not hugepage aligned");
@@ -212,7 +210,7 @@ Residency::SinglePageBitmaps Residency::GetHolesAndSwappedBitmaps(
                              absl::StatusCode::kUnavailable};
   }
 
-  for (int native_page_idx = 0; native_page_idx < kPagesInHugePage;
+  for (int native_page_idx = 0; native_page_idx < kNativePagesInHugePage;
        ++native_page_idx) {
     uint64_t page_map = buf_[native_page_idx];
     // Case for page hole
