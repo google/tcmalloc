@@ -461,8 +461,6 @@ class SubreleaseStatsTracker {
   enum StatsType {
     kStatsAtMinDemand,
     kStatsAtMaxDemand,
-    kStatsAtMinHugePages,
-    kStatsAtMaxHugePages,
     kNumStatsTypes
   };
 
@@ -492,16 +490,6 @@ class SubreleaseStatsTracker {
 
       if (e.num_pages > stats[kStatsAtMaxDemand].num_pages) {
         stats[kStatsAtMaxDemand] = e;
-      }
-
-      if (e.total_huge_pages() <
-          stats[kStatsAtMinHugePages].total_huge_pages()) {
-        stats[kStatsAtMinHugePages] = e;
-      }
-
-      if (e.total_huge_pages() >
-          stats[kStatsAtMaxHugePages].total_huge_pages()) {
-        stats[kStatsAtMaxHugePages] = e;
       }
 
       min_free_pages =
@@ -621,7 +609,6 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
               free_pages.free.raw_num(), free_pages.free_backed.raw_num());
 
   SubreleaseStatsEntry at_peak_demand;
-  SubreleaseStatsEntry at_peak_hps;
 
   tracker_.IterBackwards(
       [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
@@ -630,12 +617,6 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
               at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
                   e.stats[kStatsAtMaxDemand].num_pages) {
             at_peak_demand = e;
-          }
-
-          if (at_peak_hps.empty() ||
-              at_peak_hps.stats[kStatsAtMaxHugePages].total_huge_pages() <
-                  e.stats[kStatsAtMaxHugePages].total_huge_pages()) {
-            at_peak_hps = e;
           }
         }
       },
@@ -655,21 +636,6 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
           .huge_pages[kPartialReleased]
           .raw_num(),
       at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
-
-  out->printf(
-      "%s: at peak hps: %zu pages (and %zu free, %zu unmapped)\n"
-      "%s: at peak hps: %zu hps (%zu regular, %zu donated, "
-      "%zu partial, %zu released)\n",
-      field, at_peak_hps.stats[kStatsAtMaxDemand].num_pages.raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand].free_pages.raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand].unmapped_pages.raw_num(), field,
-      at_peak_hps.stats[kStatsAtMaxDemand].total_huge_pages().raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kRegular].raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kDonated].raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand]
-          .huge_pages[kPartialReleased]
-          .raw_num(),
-      at_peak_hps.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
 
   out->printf(
       "\n%s: Since the start of the execution, %zu subreleases (%zu"
@@ -756,9 +722,8 @@ void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
   region.PrintI64("min_free_pages", free_pages.free.raw_num());
   region.PrintI64("min_free_backed_pages", free_pages.free_backed.raw_num());
 
-  static const char* labels[kNumStatsTypes] = {
-      "at_minimum_demand", "at_maximum_demand", "at_minimum_huge_pages",
-      "at_maximum_huge_pages"};
+  static const char* labels[kNumStatsTypes] = {"at_minimum_demand",
+                                               "at_maximum_demand"};
 
   tracker_.Iter(
       [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {

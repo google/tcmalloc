@@ -4113,8 +4113,6 @@ HugePageFiller: realized fragmentation: 0.0 MiB
 HugePageFiller: minimum free pages: 0 (0 backed)
 HugePageFiller: at peak demand: 3547 pages (and 267 free, 26 unmapped)
 HugePageFiller: at peak demand: 15 hps (10 regular, 1 donated, 0 partial, 4 released)
-HugePageFiller: at peak hps: 3547 pages (and 267 free, 26 unmapped)
-HugePageFiller: at peak hps: 15 hps (10 regular, 1 donated, 0 partial, 4 released)
 
 HugePageFiller: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.

@@ -167,8 +167,6 @@ StatsTracker: realized fragmentation: 0.8 MiB
 StatsTracker: minimum free pages: 110 (100 backed)
 StatsTracker: at peak demand: 208 pages (and 111 free, 10 unmapped)
 StatsTracker: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
-StatsTracker: at peak hps: 208 pages (and 111 free, 10 unmapped)
-StatsTracker: at peak hps: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
 StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
 StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
