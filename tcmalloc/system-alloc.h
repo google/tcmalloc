@@ -37,6 +37,7 @@
 #include "tcmalloc/internal/numa.h"
 #include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
+#include "tcmalloc/internal/util.h"
 #include "tcmalloc/malloc_extension.h"
 
 #ifndef MADV_FREE

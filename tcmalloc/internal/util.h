@@ -125,6 +125,22 @@ inline void ScopedSigmask::Setmask(int how, sigset_t *set, sigset_t *old) {
   TC_CHECK_EQ(result, 0);
 }
 
+// RAII class that will restore errno to the value it has when created.
+class ErrnoRestorer {
+ public:
+  ErrnoRestorer() : saved_errno_(errno) {}
+  ~ErrnoRestorer() { errno = saved_errno_; }
+
+  ErrnoRestorer(const ErrnoRestorer&) = delete;
+  ErrnoRestorer& operator=(const ErrnoRestorer&) = delete;
+
+  // Updates the errno value to restore to the current value.
+  void Override() { saved_errno_ = errno; }
+
+ private:
+  int saved_errno_;
+};
+
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
 GOOGLE_MALLOC_SECTION_END
