@@ -243,8 +243,6 @@ ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_enabled_(
 );
 ABSL_CONST_INIT std::atomic<bool> Parameters::per_cpu_caches_dynamic_slab_(
     true);
-ABSL_CONST_INIT std::atomic<MadvisePreference> Parameters::madvise_(
-    MadvisePreference::kDontNeed);
 ABSL_CONST_INIT std::atomic<tcmalloc::hot_cold_t>
     Parameters::min_hot_access_hint_(kDefaultMinHotAccessHint);
 ABSL_CONST_INIT std::atomic<double>
@@ -662,15 +660,6 @@ double TCMalloc_Internal_GetPerCpuCachesDynamicSlabShrinkThreshold() {
 void TCMalloc_Internal_SetPerCpuCachesDynamicSlabShrinkThreshold(double v) {
   Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_.store(
       v, std::memory_order_relaxed);
-}
-
-tcmalloc::tcmalloc_internal::MadvisePreference TCMalloc_Internal_GetMadvise() {
-  return Parameters::madvise();
-}
-
-void TCMalloc_Internal_SetMadvise(
-    tcmalloc::tcmalloc_internal::MadvisePreference v) {
-  Parameters::madvise_.store(v, std::memory_order_relaxed);
 }
 
 uint8_t TCMalloc_Internal_GetMinHotAccessHint() {

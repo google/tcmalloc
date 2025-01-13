@@ -35,7 +35,6 @@
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
-#include "tcmalloc/parameters.h"
 
 // On systems (like freebsd) that don't define MAP_ANONYMOUS, use the old
 // form of the name instead.
@@ -43,19 +42,8 @@
 #define MAP_ANONYMOUS MAP_ANON
 #endif
 
-#ifndef MADV_FREE
-#define MADV_FREE 8
-#endif
-
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
-#endif
-
-// Solaris has a bug where it doesn't declare madvise() for C++.
-//    http://www.opensolaris.org/jive/thread.jspa?threadID=21035&tstart=0
-#if defined(__sun) && defined(__SVR4)
-#include <sys/types.h>
-extern "C" int madvise(caddr_t, size_t, int);
 #endif
 
 GOOGLE_MALLOC_SECTION_BEGIN
@@ -111,74 +99,6 @@ int MapFixedNoReplaceFlagAvailable() {
   });
 
   return noreplace_flag;
-}
-
-bool ReleasePages(void* start, size_t length) {
-  ErrnoRestorer errno_restorer;
-
-  int ret;
-  // Note -- ignoring most return codes, because if this fails it
-  // doesn't matter...
-  // Moreover, MADV_REMOVE *will* fail (with EINVAL) on private memory,
-  // but that's harmless.
-#ifdef MADV_REMOVE
-  // MADV_REMOVE deletes any backing storage for tmpfs or anonymous shared
-  // memory.
-  do {
-    ret = madvise(start, length, MADV_REMOVE);
-  } while (ret == -1 && errno == EAGAIN);
-
-  if (ret == 0) {
-    return true;
-  }
-#endif
-
-#ifdef MADV_FREE
-  const bool do_madvfree = []() {
-    switch (Parameters::madvise()) {
-      case MadvisePreference::kFreeAndDontNeed:
-      case MadvisePreference::kFreeOnly:
-        return true;
-      case MadvisePreference::kDontNeed:
-      case MadvisePreference::kNever:
-        return false;
-    }
-
-    ABSL_UNREACHABLE();
-  }();
-
-  if (do_madvfree) {
-    do {
-      ret = madvise(start, length, MADV_FREE);
-    } while (ret == -1 && errno == EAGAIN);
-  }
-#endif
-#ifdef MADV_DONTNEED
-  const bool do_madvdontneed = []() {
-    switch (Parameters::madvise()) {
-      case MadvisePreference::kDontNeed:
-      case MadvisePreference::kFreeAndDontNeed:
-        return true;
-      case MadvisePreference::kFreeOnly:
-      case MadvisePreference::kNever:
-        return false;
-    }
-
-    ABSL_UNREACHABLE();
-  }();
-
-  // MADV_DONTNEED drops page table info and any anonymous pages.
-  if (do_madvdontneed) {
-    do {
-      ret = madvise(start, length, MADV_DONTNEED);
-    } while (ret == -1 && errno == EAGAIN);
-  }
-#endif
-  if (ret == 0) {
-    return true;
-  }
-
-  return false;
 }
 
 }  // namespace tcmalloc::tcmalloc_internal::system_allocator_internal

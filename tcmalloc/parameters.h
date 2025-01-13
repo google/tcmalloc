@@ -70,14 +70,6 @@ class Parameters {
     return max_total_thread_cache_bytes_.load(std::memory_order_relaxed);
   }
 
-  static MadvisePreference madvise() {
-    return madvise_.load(std::memory_order_relaxed);
-  }
-
-  static void set_madvise_free(MadvisePreference value) {
-    TCMalloc_Internal_SetMadvise(value);
-  }
-
   static tcmalloc::hot_cold_t min_hot_access_hint() {
     return min_hot_access_hint_.load(std::memory_order_relaxed);
   }
@@ -273,7 +265,6 @@ class Parameters {
   static std::atomic<bool> resize_size_class_max_capacity_;
   static std::atomic<int64_t> profile_sampling_interval_;
   static std::atomic<bool> per_cpu_caches_dynamic_slab_;
-  static std::atomic<MadvisePreference> madvise_;
   static std::atomic<tcmalloc::hot_cold_t> min_hot_access_hint_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_grow_threshold_;
   static std::atomic<double> per_cpu_caches_dynamic_slab_shrink_threshold_;

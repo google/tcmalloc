@@ -59,7 +59,7 @@ namespace tcmalloc_internal {
 using subtle::percpu::RseqVcpuMode;
 
 static absl::string_view MadviseString() {
-  MadvisePreference pref = Parameters::madvise();
+  MadvisePreference pref = tc_globals.system_allocator().madvise_preference();
 
   switch (pref) {
     case MadvisePreference::kNever:

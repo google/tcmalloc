@@ -1075,6 +1075,15 @@ MallocTracingExtension_Internal_GetAllocatedAddressRanges() {
       "output vector.");
 }
 
+tcmalloc::tcmalloc_internal::MadvisePreference TCMalloc_Internal_GetMadvise() {
+  return tc_globals.system_allocator().madvise_preference();
+}
+
+void TCMalloc_Internal_SetMadvise(
+    tcmalloc::tcmalloc_internal::MadvisePreference v) {
+  tc_globals.system_allocator().set_madvise_preference(v);
+}
+
 //-------------------------------------------------------------------
 // Exported routines
 //-------------------------------------------------------------------

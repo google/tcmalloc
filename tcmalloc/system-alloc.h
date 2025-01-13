@@ -39,6 +39,10 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 
+#ifndef MADV_FREE
+#define MADV_FREE 8
+#endif
+
 // The <sys/prctl.h> on some systems may not define these macros yet even though
 // the kernel may have support for the new PR_SET_VMA syscall, so we explicitly
 // define them here.
@@ -87,6 +91,14 @@ class SystemAllocator {
   // call to Release.
   int release_errors() const {
     return release_errors_.load(std::memory_order_relaxed);
+  }
+
+  void set_madvise_preference(MadvisePreference v) {
+    madvise_.store(v, std::memory_order_relaxed);
+  }
+
+  MadvisePreference madvise_preference() const {
+    return madvise_.load(std::memory_order_relaxed);
   }
 
   // This call is a hint to the operating system that the pages
@@ -148,6 +160,7 @@ class SystemAllocator {
   uintptr_t next_metadata_addr_ ABSL_GUARDED_BY(spinlock_) = 0;
 
   std::atomic<int> release_errors_{0};
+  std::atomic<MadvisePreference> madvise_{MadvisePreference::kDontNeed};
 
   void DiscardMappedRegions() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
 
@@ -204,6 +217,7 @@ class SystemAllocator {
   [[nodiscard]] void* MmapAlignedLocked(size_t size, size_t alignment,
                                         MemoryTag tag)
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_);
+  [[nodiscard]] bool ReleasePages(void* start, size_t length) const;
 };
 
 namespace system_allocator_internal {
@@ -235,7 +249,6 @@ inline size_t RoundUp(const size_t size, const size_t alignment) {
 }
 
 int MapFixedNoReplaceFlagAvailable();
-[[nodiscard]] bool ReleasePages(void* start, size_t length);
 
 }  // namespace system_allocator_internal
 
@@ -557,7 +570,6 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
 
 template <typename Topology>
 bool SystemAllocator<Topology>::Release(void* start, size_t length) {
-  using system_allocator_internal::ReleasePages;
   bool result = false;
 
 #if defined(MADV_DONTNEED) || defined(MADV_REMOVE)
@@ -713,6 +725,76 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
   addr |= static_cast<uintptr_t>(tag) << kTagShift;
   TC_ASSERT_EQ(GetMemoryTag(reinterpret_cast<const void*>(addr)), tag);
   return addr;
+}
+
+template <typename Topology>
+inline bool SystemAllocator<Topology>::ReleasePages(void* start,
+                                                    size_t length) const {
+  ErrnoRestorer errno_restorer;
+
+  int ret;
+  // Note -- ignoring most return codes, because if this fails it
+  // doesn't matter...
+  // Moreover, MADV_REMOVE *will* fail (with EINVAL) on private memory,
+  // but that's harmless.
+#ifdef MADV_REMOVE
+  // MADV_REMOVE deletes any backing storage for tmpfs or anonymous shared
+  // memory.
+  do {
+    ret = madvise(start, length, MADV_REMOVE);
+  } while (ret == -1 && errno == EAGAIN);
+
+  if (ret == 0) {
+    return true;
+  }
+#endif
+
+#ifdef MADV_FREE
+  const bool do_madvfree = [&]() {
+    switch (madvise_preference()) {
+      case MadvisePreference::kFreeAndDontNeed:
+      case MadvisePreference::kFreeOnly:
+        return true;
+      case MadvisePreference::kDontNeed:
+      case MadvisePreference::kNever:
+        return false;
+    }
+
+    ABSL_UNREACHABLE();
+  }();
+
+  if (do_madvfree) {
+    do {
+      ret = madvise(start, length, MADV_FREE);
+    } while (ret == -1 && errno == EAGAIN);
+  }
+#endif
+#ifdef MADV_DONTNEED
+  const bool do_madvdontneed = [&]() {
+    switch (madvise_preference()) {
+      case MadvisePreference::kDontNeed:
+      case MadvisePreference::kFreeAndDontNeed:
+        return true;
+      case MadvisePreference::kFreeOnly:
+      case MadvisePreference::kNever:
+        return false;
+    }
+
+    ABSL_UNREACHABLE();
+  }();
+
+  // MADV_DONTNEED drops page table info and any anonymous pages.
+  if (do_madvdontneed) {
+    do {
+      ret = madvise(start, length, MADV_DONTNEED);
+    } while (ret == -1 && errno == EAGAIN);
+  }
+#endif
+  if (ret == 0) {
+    return true;
+  }
+
+  return false;
 }
 
 }  // namespace tcmalloc_internal
