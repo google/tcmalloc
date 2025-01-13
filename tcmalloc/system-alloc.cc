@@ -31,9 +31,9 @@
 #include "absl/base/optimization.h"
 #include "absl/numeric/bits.h"
 #include "absl/types/span.h"
-#include "tcmalloc/common.h"
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
+#include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
 
@@ -76,8 +76,9 @@ int MapFixedNoReplaceFlagAvailable() {
   ABSL_CONST_INIT static absl::once_flag flag;
 
   absl::base_internal::LowLevelCallOnce(&flag, [&]() {
+    const size_t page_size = GetPageSize();
     void* ptr =
-        mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     TC_CHECK_NE(ptr, MAP_FAILED);
 
     // Try to map over ptr.  If we get a different address, we don't have
@@ -88,23 +89,23 @@ int MapFixedNoReplaceFlagAvailable() {
     // (https://github.com/torvalds/linux/commit/7aa867dd89526e9cfd9714d8b9b587c016eaea34)
     // is present.
     uintptr_t uptr = reinterpret_cast<uintptr_t>(ptr);
-    TC_CHECK_GT(uptr, kPageSize);
-    void* target = reinterpret_cast<void*>(uptr - kPageSize);
+    TC_CHECK_GT(uptr, page_size);
+    void* target = reinterpret_cast<void*>(uptr - page_size);
 
-    void* ptr2 = mmap(target, 2 * kPageSize, PROT_NONE,
+    void* ptr2 = mmap(target, 2 * page_size, PROT_NONE,
                       MAP_FIXED_NOREPLACE | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     const bool rejected = ptr2 == MAP_FAILED;
     if (!rejected) {
       if (ptr2 == target) {
-        // [ptr2, 2 * kPageSize] overlaps with [ptr, kPageSize], so we only need
-        // to unmap [ptr2, kPageSize].  The second call to munmap below will
+        // [ptr2, 2 * page_size] overlaps with [ptr, page_size], so we only need
+        // to unmap [ptr2, page_size].  The second call to munmap below will
         // unmap the rest.
-        munmap(ptr2, kPageSize);
+        munmap(ptr2, page_size);
       } else {
-        munmap(ptr2, 2 * kPageSize);
+        munmap(ptr2, 2 * page_size);
       }
     }
-    munmap(ptr, kPageSize);
+    munmap(ptr, page_size);
 
     noreplace_flag = rejected ? MAP_FIXED_NOREPLACE : 0;
   });

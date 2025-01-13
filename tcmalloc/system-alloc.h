@@ -35,6 +35,7 @@
 #include "tcmalloc/internal/exponential_biased.h"
 #include "tcmalloc/internal/memory_tag.h"
 #include "tcmalloc/internal/numa.h"
+#include "tcmalloc/internal/optimization.h"
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -674,13 +675,14 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
                                                     const MemoryTag tag) {
   // Rely on kernel's mmap randomization to seed our RNG.
   absl::base_internal::LowLevelCallOnce(&rnd_flag_, [&]() {
+    const size_t page_size = GetPageSize();
     void* seed =
-        mmap(nullptr, kPageSize, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (seed == MAP_FAILED) {
       TC_BUG("Initial mmap() reservation failed (errno=%v, size=%v)", errno,
-             kPageSize);
+             page_size);
     }
-    munmap(seed, kPageSize);
+    munmap(seed, page_size);
     spinlock_.AssertHeld();
     rnd_ = reinterpret_cast<uintptr_t>(seed);
   });
