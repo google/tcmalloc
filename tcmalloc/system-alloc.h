@@ -496,7 +496,9 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
   }
   const int map_fixed_noreplace_flag = MapFixedNoReplaceFlagAvailable();
   void* hint;
-  // Restore errno if an address is found.
+  // Avoid clobbering errno, especially if an initial mmap fails but a
+  // subsequent one succeeds.  If we fail to allocate memory, MallocOomPolicy
+  // will set errno for us.
   ErrnoRestorer errno_restorer;
   for (int i = 0; i < 1000; ++i) {
     hint = reinterpret_cast<void*>(next_addr);
@@ -536,9 +538,6 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
       TC_CHECK_EQ(result, MAP_FAILED);
     } else {
       if (result == MAP_FAILED) {
-        // Override errno with the current value to ensure it is set by the
-        // failing mmap.
-        errno_restorer.Override();
         TC_LOG("mmap(%p, %v) reservation failed (%s)", hint, size,
                strerror(errno));
         return nullptr;
@@ -551,9 +550,6 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
     next_addr = RandomMmapHint(size, alignment, tag);
   }
 
-  // Override errno with the current value to ensure it is set by the
-  // failing mmap.
-  errno_restorer.Override();
   TC_LOG(
       "MmapAligned() failed - unable to allocate with tag (hint=%p, size=%v, "
       "alignment=%v) - is something limiting address placement?",
@@ -731,8 +727,6 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
 template <typename Topology>
 inline bool SystemAllocator<Topology>::ReleasePages(void* start,
                                                     size_t length) const {
-  ErrnoRestorer errno_restorer;
-
   int ret;
   // Note -- ignoring most return codes, because if this fails it
   // doesn't matter...
