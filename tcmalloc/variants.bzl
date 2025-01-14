@@ -204,6 +204,12 @@ test_variants = [
         "tags": ["noubsan"],
     },
     {
+        "name": "8k_hint_ablation",
+        "malloc": "//tcmalloc",
+        "deps": ["//tcmalloc:common_8k_pages"],
+        "env": {"BORG_EXPERIMENTS": "TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION"},
+    },
+    {
         "name": "flat_cpu_caches",
         "malloc": "//tcmalloc",
         "deps": [

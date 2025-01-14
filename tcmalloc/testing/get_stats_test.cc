@@ -32,6 +32,8 @@
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
 #include "tcmalloc/common.h"
+#include "tcmalloc/experiment.h"
+#include "tcmalloc/experiment_config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/parameters.h"
@@ -128,7 +130,11 @@ TEST_F(GetStatsTest, Pbtxt) {
   EXPECT_THAT(buf,
               HasSubstr("tcmalloc_huge_cache_demand_based_release: false"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_release_pages_from_huge_region: true"));
-  EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
+  if (!IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
+    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 2"));
+  } else {
+    EXPECT_THAT(buf, HasSubstr("min_hot_access_hint: 1"));
+  }
 
   sized_delete(alloc, kSize);
 }
@@ -216,7 +222,12 @@ TEST_F(GetStatsTest, Parameters) {
         pbtxt,
         HasSubstr(
             R"(tcmalloc_cache_demand_release_long_interval_ns: 5000000000)"));
-    EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
+    if (!IsExperimentActive(
+            Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
+      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 2)"));
+    } else {
+      EXPECT_THAT(pbtxt, HasSubstr(R"(min_hot_access_hint: 1)"));
+    }
   }
 
   Parameters::set_hpaa_subrelease(true);

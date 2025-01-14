@@ -534,6 +534,7 @@ create_tcmalloc_testsuite(
     ],
     deps = [
         ":testutil",
+        "//tcmalloc:experiment",
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
         "@com_google_absl//absl/base:config",

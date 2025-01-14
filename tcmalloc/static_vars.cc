@@ -223,6 +223,10 @@ ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {
     Parameters::set_max_span_cache_array_size(
         large_span_experiment ? Span::kLargeCacheArraySize : Span::kCacheSize);
 
+    if (IsExperimentActive(Experiment::TCMALLOC_MIN_HOT_ACCESS_HINT_ABLATION)) {
+      TCMalloc_Internal_SetMinHotAccessHint(1);
+    }
+
     // Do a bit of sanitizing: make sure central_cache is aligned properly
     TC_CHECK_EQ((sizeof(transfer_cache_) % ABSL_CACHELINE_SIZE), 0);
     transfer_cache_.Init();
