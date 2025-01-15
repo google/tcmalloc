@@ -141,12 +141,13 @@ class Profile final {
 
     size_t requested_size;
     size_t requested_alignment;
+    size_t allocated_size;
+
     // Return whether the allocation was returned with
     // tcmalloc_size_returning_operator_new or its variants.
     bool requested_size_returning;
-    size_t allocated_size;
 
-    enum class Access {
+    enum class Access : uint8_t {
       Hot,
       Cold,
 
@@ -157,37 +158,13 @@ class Profile final {
     hot_cold_t access_hint;
     Access access_allocated;
 
-    int depth;
-    void* stack[kMaxStackDepth];
-
-    // Timestamp of allocation.
-    absl::Time allocation_time;
-
-    // The following vars are used by the lifetime (deallocation) profiler.
-    uint64_t profile_id;
-
     // Whether this sample captures allocations where the deallocation event
     // was not observed. Thus the measurements are censored in the statistical
     // sense, see https://en.wikipedia.org/wiki/Censoring_(statistics)#Types.
     bool is_censored = false;
 
-    // Aggregated lifetime statistics per callstack.
-    absl::Duration avg_lifetime;
-    absl::Duration stddev_lifetime;
-    absl::Duration min_lifetime;
-    absl::Duration max_lifetime;
-
-    // For the *_matched vars below we use true = "same", false = "different".
-    // When the value is unavailable the profile contains "none". For
-    // right-censored observations, CPU and thread matched values are "none".
-    std::optional<bool> allocator_deallocator_physical_cpu_matched;
-    std::optional<bool> allocator_deallocator_virtual_cpu_matched;
-    std::optional<bool> allocator_deallocator_l3_matched;
-    std::optional<bool> allocator_deallocator_numa_matched;
-    std::optional<bool> allocator_deallocator_thread_matched;
-
     // Provide the status of GWP-ASAN guarding for a given sample.
-    enum class GuardedStatus {
+    enum class GuardedStatus : int8_t {
       // Conditions which represent why a sample was not guarded:
       //
       // The requested_size of the allocation sample is larger than the
@@ -225,18 +202,42 @@ class Profile final {
     };
     GuardedStatus guarded_status = GuardedStatus::Unknown;
 
-    // The start address of the sampled allocation, used to calculate the
-    // residency info for the objects represented by this sampled allocation.
-    void* span_start_address;
-
     // How the memory was allocated (new/malloc/etc.).
-    enum class AllocationType {
+    enum class AllocationType : uint8_t {
       New,
       Malloc,
       AlignedMalloc,
     };
 
     AllocationType type;
+
+    int depth;
+    void* stack[kMaxStackDepth];
+
+    // The following vars are used by the lifetime (deallocation) profiler.
+    uint64_t profile_id;
+
+    // Timestamp of allocation.
+    absl::Time allocation_time;
+
+    // Aggregated lifetime statistics per callstack.
+    absl::Duration avg_lifetime;
+    absl::Duration stddev_lifetime;
+    absl::Duration min_lifetime;
+    absl::Duration max_lifetime;
+
+    // For the *_matched vars below we use true = "same", false = "different".
+    // When the value is unavailable the profile contains "none". For
+    // right-censored observations, CPU and thread matched values are "none".
+    std::optional<bool> allocator_deallocator_physical_cpu_matched;
+    std::optional<bool> allocator_deallocator_virtual_cpu_matched;
+    std::optional<bool> allocator_deallocator_l3_matched;
+    std::optional<bool> allocator_deallocator_numa_matched;
+    std::optional<bool> allocator_deallocator_thread_matched;
+
+    // The start address of the sampled allocation, used to calculate the
+    // residency info for the objects represented by this sampled allocation.
+    void* span_start_address;
   };
 
   void Iterate(absl::FunctionRef<void(const Sample&)> f) const;
