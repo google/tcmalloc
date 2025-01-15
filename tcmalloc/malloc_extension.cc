@@ -472,6 +472,20 @@ absl::Duration MallocExtension::GetSkipSubreleaseInterval() {
 #endif
 }
 
+static std::atomic<MallocExtension::SoftMemoryLimitCallback*> SoftMemoryLimitHandler_;
+
+void MallocExtension::SetSoftMemoryLimitHandler(SoftMemoryLimitCallback* handler) {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  SoftMemoryLimitHandler_.store(handler);
+#endif
+}
+
+MallocExtension::SoftMemoryLimitCallback* MallocExtension::GetSoftMemoryLimitHandler() {
+#if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
+  return SoftMemoryLimitHandler_.load();
+#endif
+}
+
 void MallocExtension::SetSkipSubreleaseInterval(absl::Duration value) {
 #if ABSL_INTERNAL_HAVE_WEAK_MALLOCEXTENSION_STUBS
   if (MallocExtension_Internal_SetSkipSubreleaseInterval == nullptr) {
