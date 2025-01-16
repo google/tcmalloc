@@ -87,17 +87,15 @@ struct StackTrace {
   // Timestamp of allocation.
   absl::Time allocation_time;
 
+  Profile::Sample::GuardedStatus guarded_status;
+
+  // How the memory was allocated (new/malloc/etc.)
+  Profile::Sample::AllocationType allocation_type;
+
   // If not nullptr, this is the start address of the span corresponding to this
   // sampled allocation. This may be nullptr for cases where it is not useful
   // for residency analysis such as for peakheapz.
   void* span_start_address = nullptr;
-
-  // An integer representing the guarded status of the allocation.
-  // The values are from the enum GuardedStatus in ../malloc_extension.h.
-  int guarded_status;
-
-  // How the memory was allocated (new/malloc/etc.)
-  Profile::Sample::AllocationType allocation_type;
 
   uintptr_t depth;  // Number of PC values stored in array below
   // Place stack as last member because it might not all be accessed.

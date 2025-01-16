@@ -191,7 +191,7 @@ SampleifyAllocation(Static& state, Policy policy, size_t requested_size,
       1;
   stack_trace.span_start_address = span->start_address();
   stack_trace.allocation_time = absl::Now();
-  stack_trace.guarded_status = static_cast<int>(alloc_with_status.status);
+  stack_trace.guarded_status = alloc_with_status.status;
   stack_trace.allocation_type = policy.allocation_type();
 
   // How many allocations does this sample represent, given the sampling
