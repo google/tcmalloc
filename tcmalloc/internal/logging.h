@@ -74,14 +74,11 @@ struct StackTrace {
 
   uintptr_t requested_size;
   uintptr_t requested_alignment;
-  bool requested_size_returning;
   uintptr_t allocated_size;  // size after sizeclass/page rounding
+  bool requested_size_returning;
 
   uint8_t access_hint;
   bool cold_allocated;
-
-  uintptr_t depth;  // Number of PC values stored in array below
-  void* stack[kMaxStackDepth];
 
   // weight is the expected number of *bytes* that were requested
   // between the previous sample and this one
@@ -101,6 +98,10 @@ struct StackTrace {
 
   // How the memory was allocated (new/malloc/etc.)
   Profile::Sample::AllocationType allocation_type;
+
+  uintptr_t depth;  // Number of PC values stored in array below
+  // Place stack as last member because it might not all be accessed.
+  void* stack[kMaxStackDepth];
 };
 
 #define TC_LOG(msg, ...)                                                \
