@@ -40,6 +40,11 @@ Mismatched-size-class (https://github.com/google/tcmalloc/tree/master/docs/misma
 
 ## TCMalloc is buggy?
 
+TIP: Memory safety bugs can have a delayed effect. The checks described above,
+and other related crashes, often occur in a different call stack than the one
+that caused the bug. Before scrutinizing the call stack attached to this crash,
+start by looking for related crashes of the same process.
+
 It is not a bug in TCMalloc. It is detecting an erroneous argument provided to
 `::operator delete`.
 
