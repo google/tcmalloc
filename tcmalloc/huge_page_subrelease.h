@@ -107,7 +107,7 @@ class SkippedSubreleaseCorrectnessTracker {
     Length largest_peak_already_confirmed = last_confirmed_peak_;
 
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SkippedSubreleaseEntry& e) {
+        [&](size_t offset, const SkippedSubreleaseEntry& e) {
           // Do not clear any decisions in the current epoch.
           if (offset == 0) {
             return;
@@ -421,7 +421,7 @@ class SubreleaseStatsTracker {
                                     static_cast<int64_t>(kEpochs));
 
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             mins.free = std::min(mins.free, e.min_free_pages);
             mins.free_backed =
@@ -442,7 +442,7 @@ class SubreleaseStatsTracker {
     int64_t num_epochs =
         std::min<int64_t>(summary_interval_ / epoch_length_, kEpochs);
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             min_free_backed =
                 std::min(min_free_backed, e.min_free_backed_pages);
@@ -513,7 +513,7 @@ class SubreleaseStatsTracker {
     int64_t num_epochs =
         std::min<int64_t>(peak_interval / epoch_length_, kEpochs);
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             // Identify the maximum number of demand pages we have seen within
             // the time interval.
@@ -543,7 +543,7 @@ class SubreleaseStatsTracker {
     int long_epochs = std::min<int>(long_interval / epoch_length_, kEpochs);
 
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             Length demand_difference = e.stats[kStatsAtMaxDemand].num_pages -
                                        e.stats[kStatsAtMinDemand].num_pages;
@@ -557,7 +557,7 @@ class SubreleaseStatsTracker {
         },
         short_epochs);
     tracker_.IterBackwards(
-        [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+        [&](size_t offset, const SubreleaseStatsEntry& e) {
           if (!e.empty()) {
             // Identifies the long-term demand peak (i.e., largest minimum
             // demand) that we have seen within the time interval.
@@ -611,7 +611,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
   SubreleaseStatsEntry at_peak_demand;
 
   tracker_.IterBackwards(
-      [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+      [&](size_t offset, const SubreleaseStatsEntry& e) {
         if (!e.empty()) {
           if (at_peak_demand.empty() ||
               at_peak_demand.stats[kStatsAtMaxDemand].num_pages <
@@ -667,7 +667,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
   Length total_partial_alloc_pages_subreleased;
   HugeLength total_broken = NHugePages(0);
   tracker_.Iter(
-      [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+      [&](size_t offset, const SubreleaseStatsEntry& e) {
         total_subreleased += e.num_pages_subreleased;
         total_partial_alloc_pages_subreleased +=
             e.num_partial_alloc_pages_subreleased;
@@ -726,11 +726,9 @@ void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
                                                "at_maximum_demand"};
 
   tracker_.Iter(
-      [&](size_t offset, int64_t ts, const SubreleaseStatsEntry& e) {
+      [&](size_t offset, const SubreleaseStatsEntry& e) {
         auto subregion = region.CreateSubRegion("measurements");
         subregion.PrintI64("epoch", offset);
-        subregion.PrintI64("timestamp_ms",
-                           absl::ToInt64Milliseconds(absl::Nanoseconds(ts)));
         subregion.PrintI64("min_free_pages", e.min_free_pages.raw_num());
         subregion.PrintI64("min_free_backed_pages",
                            e.min_free_backed_pages.raw_num());

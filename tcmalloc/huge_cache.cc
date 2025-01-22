@@ -43,9 +43,9 @@ template <size_t kEpochs>
 HugeLength MinMaxTracker<kEpochs>::MaxOverTime(absl::Duration t) const {
   HugeLength m = NHugePages(0);
   size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  timeseries_.IterBackwards([&](size_t offset, int64_t ts,
-                                const Extrema& e) { m = std::max(m, e.max); },
-                            num_epochs);
+  timeseries_.IterBackwards(
+      [&](size_t offset, const Extrema& e) { m = std::max(m, e.max); },
+      num_epochs);
   return m;
 }
 
@@ -53,9 +53,9 @@ template <size_t kEpochs>
 HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
   HugeLength m = kMaxVal;
   size_t num_epochs = ceil(absl::FDivDuration(t, kEpochLength));
-  timeseries_.IterBackwards([&](size_t offset, int64_t ts,
-                                const Extrema& e) { m = std::min(m, e.min); },
-                            num_epochs);
+  timeseries_.IterBackwards(
+      [&](size_t offset, const Extrema& e) { m = std::min(m, e.min); },
+      num_epochs);
   return m;
 }
 
@@ -67,7 +67,7 @@ void MinMaxTracker<kEpochs>::Print(Printer* out) const {
   out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
   int written = 0;
   timeseries_.Iter(
-      [&](size_t offset, int64_t ts, const Extrema& e) {
+      [&](size_t offset, const Extrema& e) {
         if ((written++) % 100 == 0)
           out->printf("\nHugeCache: Usage timeseries ");
         out->printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
@@ -85,7 +85,7 @@ void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   huge_cache_history.PrintI64("epochs", kEpochs);
 
   timeseries_.Iter(
-      [&](size_t offset, int64_t ts, const Extrema& e) {
+      [&](size_t offset, const Extrema& e) {
         auto m = huge_cache_history.CreateSubRegion("measurements");
         m.PrintI64("epoch", offset);
         m.PrintI64("min_bytes", e.min.in_bytes());
