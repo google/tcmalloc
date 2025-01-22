@@ -16,7 +16,6 @@
 
 #include <stddef.h>
 
-#include <new>
 #include <thread>  // NOLINT(build/c++11)
 #include <vector>
 
