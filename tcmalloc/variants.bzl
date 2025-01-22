@@ -226,6 +226,14 @@ test_variants = [
         "env": {"PERCPU_VCPU_MODE": "none"},
     },
     {
+        "name": "no_glibc_rseq",
+        "malloc": "//tcmalloc",
+        "deps": [
+            "//tcmalloc:common_8k_pages",
+        ],
+        "env": {"GLIBC_TUNABLES": "glibc.pthread.rseq=0"},
+    },
+    {
         "name": "legacy_locking",
         "malloc": "//tcmalloc:tcmalloc_legacy_locking",
         "deps": ["//tcmalloc:common_legacy_locking"],

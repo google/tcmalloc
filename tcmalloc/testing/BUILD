@@ -925,7 +925,7 @@ create_tcmalloc_testsuite(
     deps = [
         "//tcmalloc:experiment",
         "//tcmalloc/internal:environment",
-        "@com_google_absl//absl/container:flat_hash_set",
+        "//tcmalloc/internal:percpu",
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest_main",
     ],

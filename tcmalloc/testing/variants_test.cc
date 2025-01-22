@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cerrno>
+
 #include "gtest/gtest.h"
 #include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
 #include "tcmalloc/experiment.h"
 #include "tcmalloc/internal/environment.h"
+#include "tcmalloc/internal/percpu.h"
 
 namespace tcmalloc {
 namespace {
@@ -34,6 +37,28 @@ TEST(TCMallocVariant, KnownExperimentVariants) {
     auto exp = FindExperimentByName(name);
     EXPECT_TRUE(exp && IsExperimentActive(exp.value()));
   }
+}
+
+TEST(TCMallocVariant, GlibcRseq) {
+#if !TCMALLOC_INTERNAL_PERCPU_USE_RSEQ
+  GTEST_SKIP() << "RSEQ not supported";
+#endif
+
+  const char* env = tcmalloc_internal::thread_safe_getenv("GLIBC_TUNABLES");
+  if (!env) {
+    GTEST_SKIP() << "Not turning off glibc RSEQ";
+  }
+
+  if (tcmalloc_internal::subtle::percpu::IsFast()) {
+    GTEST_SUCCEED() << "RSEQ working.";
+    return;
+  }
+
+  // This should fail with ENOSYS, not another error.
+  int ret = syscall(__NR_rseq, nullptr, nullptr, 0, 0);
+  int err = errno;
+  ASSERT_EQ(ret, -1);
+  EXPECT_EQ(err, ENOSYS) << "Unexpected errno";
 }
 
 }  // namespace
