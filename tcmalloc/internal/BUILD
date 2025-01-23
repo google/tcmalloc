@@ -982,6 +982,7 @@ cc_library(
         "//tcmalloc:__subpackages__",
     ],
     deps = [
+        ":config",
         "@com_google_absl//absl/hash",
         "@com_google_absl//absl/types:span",
     ],

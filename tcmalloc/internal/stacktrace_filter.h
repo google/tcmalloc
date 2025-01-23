@@ -22,7 +22,9 @@
 
 #include "absl/hash/hash.h"
 #include "absl/types/span.h"
+#include "tcmalloc/internal/config.h"
 
+GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
@@ -153,5 +155,6 @@ class DecayingStackTraceFilter : public StackTraceFilter<kSize, kHashNum> {
 
 }  // namespace tcmalloc_internal
 }  // namespace tcmalloc
+GOOGLE_MALLOC_SECTION_END
 
 #endif  // TCMALLOC_INTERNAL_STACKTRACE_FILTER_H_

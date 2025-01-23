@@ -63,9 +63,12 @@
 #define GOOGLE_MALLOC_SECTION_BEGIN \
   _Pragma("clang section text = \"google_malloc\"")
 #define GOOGLE_MALLOC_SECTION_END _Pragma("clang section text = \"\"")
+// For inline lambdas, which aren't covered
+#define GOOGLE_MALLOC_SECTION __attribute__((section("google_malloc")))
 #else
 #define GOOGLE_MALLOC_SECTION_BEGIN
 #define GOOGLE_MALLOC_SECTION_END
+#define GOOGLE_MALLOC_SECTION
 #endif
 
 // TCMALLOC_ATTRIBUTE_NO_DESTROY is defined when clang::no_destroy attribute is

@@ -409,25 +409,26 @@ std::pair<void*, size_t> SystemAllocator<Topology>::AllocateFromRegion(
     return result;
   }
 
-  AddressRegion*& region = *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) {
-    switch (tag) {
-      case MemoryTag::kNormal:
-        return &normal_region_[0];
-      case MemoryTag::kNormalP1:
-        return &normal_region_[1];
-      case MemoryTag::kSampled:
-        return &sampled_region_;
-      case MemoryTag::kSelSan:
-        return &selsan_region_;
-      case MemoryTag::kCold:
-        return &cold_region_;
-      case MemoryTag::kMetadata:
-        return &metadata_region_;
-    }
+  AddressRegion*& region =
+      *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) GOOGLE_MALLOC_SECTION {
+        switch (tag) {
+          case MemoryTag::kNormal:
+            return &normal_region_[0];
+          case MemoryTag::kNormalP1:
+            return &normal_region_[1];
+          case MemoryTag::kSampled:
+            return &sampled_region_;
+          case MemoryTag::kSelSan:
+            return &selsan_region_;
+          case MemoryTag::kCold:
+            return &cold_region_;
+          case MemoryTag::kMetadata:
+            return &metadata_region_;
+        }
 
-    ASSUME(false);
-    __builtin_unreachable();
-  }();
+        ASSUME(false);
+        __builtin_unreachable();
+      }();
   // For sizes that fit in our reserved range first of all check if we can
   // satisfy the request from what we have available.
   if (region) {
@@ -466,27 +467,28 @@ void* SystemAllocator<Topology>::MmapAlignedLocked(size_t size,
   TC_ASSERT_LE(alignment, kTagMask);
 
   std::optional<int> numa_partition;
-  uintptr_t& next_addr = *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) {
-    switch (tag) {
-      case MemoryTag::kSampled:
-        return &next_sampled_addr_;
-      case MemoryTag::kSelSan:
-        return &next_selsan_addr_;
-      case MemoryTag::kNormalP0:
-        numa_partition = 0;
-        return &next_normal_addr_[0];
-      case MemoryTag::kNormalP1:
-        numa_partition = 1;
-        return &next_normal_addr_[1];
-      case MemoryTag::kCold:
-        return &next_cold_addr_;
-      case MemoryTag::kMetadata:
-        return &next_metadata_addr_;
-    }
+  uintptr_t& next_addr =
+      *[&]() ABSL_EXCLUSIVE_LOCKS_REQUIRED(spinlock_) GOOGLE_MALLOC_SECTION {
+        switch (tag) {
+          case MemoryTag::kSampled:
+            return &next_sampled_addr_;
+          case MemoryTag::kSelSan:
+            return &next_selsan_addr_;
+          case MemoryTag::kNormalP0:
+            numa_partition = 0;
+            return &next_normal_addr_[0];
+          case MemoryTag::kNormalP1:
+            numa_partition = 1;
+            return &next_normal_addr_[1];
+          case MemoryTag::kCold:
+            return &next_cold_addr_;
+          case MemoryTag::kMetadata:
+            return &next_metadata_addr_;
+        }
 
-    ASSUME(false);
-    __builtin_unreachable();
-  }();
+        ASSUME(false);
+        __builtin_unreachable();
+      }();
 
   bool first = !next_addr;
   if (!next_addr || next_addr & (alignment - 1) ||
@@ -683,18 +685,19 @@ uintptr_t SystemAllocator<Topology>::RandomMmapHint(size_t size,
                                                     size_t alignment,
                                                     const MemoryTag tag) {
   // Rely on kernel's mmap randomization to seed our RNG.
-  absl::base_internal::LowLevelCallOnce(&rnd_flag_, [&]() {
-    const size_t page_size = GetPageSize();
-    void* seed =
-        mmap(nullptr, page_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (seed == MAP_FAILED) {
-      TC_BUG("Initial mmap() reservation failed (errno=%v, size=%v)", errno,
-             page_size);
-    }
-    munmap(seed, page_size);
-    spinlock_.AssertHeld();
-    rnd_ = reinterpret_cast<uintptr_t>(seed);
-  });
+  absl::base_internal::LowLevelCallOnce(
+      &rnd_flag_, [&]() GOOGLE_MALLOC_SECTION {
+        const size_t page_size = GetPageSize();
+        void* seed = mmap(nullptr, page_size, PROT_NONE,
+                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (seed == MAP_FAILED) {
+          TC_BUG("Initial mmap() reservation failed (errno=%v, size=%v)", errno,
+                 page_size);
+        }
+        munmap(seed, page_size);
+        spinlock_.AssertHeld();
+        rnd_ = reinterpret_cast<uintptr_t>(seed);
+      });
 
 #if !defined(MEMORY_SANITIZER) && !defined(THREAD_SANITIZER)
   // We don't use the following bits:

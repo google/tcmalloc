@@ -726,7 +726,7 @@ void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
                                                "at_maximum_demand"};
 
   tracker_.Iter(
-      [&](size_t offset, const SubreleaseStatsEntry& e) {
+      [&](size_t offset, const SubreleaseStatsEntry& e) GOOGLE_MALLOC_SECTION {
         auto subregion = region.CreateSubRegion("measurements");
         subregion.PrintI64("epoch", offset);
         subregion.PrintI64("min_free_pages", e.min_free_pages.raw_num());

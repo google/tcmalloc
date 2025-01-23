@@ -680,7 +680,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer* out) {
   {
     AllocationGuardSpinLockHolder h(&lock_);
     nonempty_.Iter(
-        [&](const Span* s) {
+        [&](const Span* s) GOOGLE_MALLOC_SECTION {
           const double elapsed = std::max<double>(
               now - s->AllocTime(size_class_, forwarder_.max_span_cache_size()),
               0);
@@ -733,7 +733,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
   {
     AllocationGuardSpinLockHolder h(&lock_);
     nonempty_.Iter(
-        [&](const Span* s) {
+        [&](const Span* s) GOOGLE_MALLOC_SECTION {
           const double elapsed = std::max<double>(
               now - s->AllocTime(size_class_, forwarder_.max_span_cache_size()),
               0);
