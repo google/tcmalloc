@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 
 #include <algorithm>
 #include <array>
@@ -57,6 +58,7 @@
 #include "tcmalloc/internal/page_size.h"
 #include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
+#include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/pages.h"
 #include "tcmalloc/parameters.h"
@@ -78,20 +80,66 @@ using testing::HasSubstr;
 
 class HugePageAwareAllocatorTest
     : public ::testing::TestWithParam<HugeRegionUsageOption> {
+  class FakeStaticForwarderWithReleaseCheck
+      : public huge_page_allocator_internal::FakeStaticForwarder {
+   public:
+    [[nodiscard]] bool ReleasePages(Range r) {
+      const uintptr_t start = reinterpret_cast<uintptr_t>(r.p.start_addr());
+      bool ret =
+          huge_page_allocator_internal::FakeStaticForwarder::ReleasePages(r);
+      // Try to acquire the lock. It is possible that we are holding
+      // pageheap_lock while calling ReleasePages, so it might result in a
+      // deadlock as RecordAllocation/RecordDeallocation may allocate.
+      // This makes the release check a best effort.
+      if (!lock_.TryLock()) return ret;
+
+      // Remove from the list of allocations, if the address was previously
+      // allocated.
+      auto it = std::find(allocations_.begin(), allocations_.end(), start);
+      if (it != allocations_.end()) {
+        *it = allocations_.back();
+        allocations_.pop_back();
+      }
+      lock_.Unlock();
+      return ret;
+    }
+
+    void RecordAllocation(uintptr_t start_addr) {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      allocations_.push_back(start_addr);
+    }
+    void RecordDeallocation(uintptr_t start_addr) {
+      absl::base_internal::SpinLockHolder h(&lock_);
+      // Make sure the address was previously allocated and wasn't removed from
+      // the list when it was released.
+      auto it = std::find(allocations_.begin(), allocations_.end(), start_addr);
+      TC_CHECK(it != allocations_.end());
+      *it = allocations_.back();
+      allocations_.pop_back();
+    }
+
+   private:
+    std::vector<uintptr_t> allocations_;
+    absl::base_internal::SpinLock lock_;
+  };
+  using MockedHugePageAwareAllocator =
+      huge_page_allocator_internal::HugePageAwareAllocator<
+          FakeStaticForwarderWithReleaseCheck>;
+
  protected:
   HugePageAwareAllocatorTest() {
     before_ = MallocExtension::GetRegionFactory();
     extra_ = new ExtraRegionFactory(before_);
     MallocExtension::SetRegionFactory(extra_);
 
-    // HugePageAwareAllocator can't be destroyed cleanly, so we store a pointer
-    // to one and construct in place.
-    void* p = malloc(sizeof(HugePageAwareAllocator));
+    // HugePageAwareAllocator can't be destroyed cleanly, so we store a
+    // pointer to one and construct in place.
+    void* p = malloc(sizeof(MockedHugePageAwareAllocator));
     HugePageAwareAllocatorOptions options;
     options.tag = MemoryTag::kNormal;
     // TODO(b/242550501): Parameterize other parts of the options.
     options.use_huge_region_more_often = GetParam();
-    allocator_ = new (p) HugePageAwareAllocator(options);
+    allocator_ = new (p) MockedHugePageAwareAllocator(options);
   }
 
   ~HugePageAwareAllocatorTest() override {
@@ -137,7 +185,11 @@ class HugePageAwareAllocatorTest
   }
 
   Span* AllocatorNew(Length n, SpanAllocInfo span_alloc_info) {
-    return allocator_->New(n, span_alloc_info);
+    Span* s = allocator_->New(n, span_alloc_info);
+    uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
+    allocator_->forwarder().RecordAllocation(
+        reinterpret_cast<uintptr_t>(start));
+    return s;
   }
 
   void AllocatorDelete(Span* s, size_t objects_per_span) {
@@ -145,6 +197,8 @@ class HugePageAwareAllocatorTest
     PageHeapSpinLockHolder l;
     allocator_->Delete(s);
 #else
+    uintptr_t start = reinterpret_cast<uintptr_t>(s->start_address());
+    allocator_->forwarder().RecordDeallocation(start);
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
         s->donated(),
@@ -246,7 +300,7 @@ class HugePageAwareAllocatorTest
 
   // TODO(b/242550501):  Replace this with one templated with a different
   // forwarder, as to facilitate mocks.
-  HugePageAwareAllocator* allocator_;
+  MockedHugePageAwareAllocator* allocator_;
   ExtraRegionFactory* extra_;
   AddressRegionFactory* before_;
   absl::base_internal::SpinLock lock_;
@@ -354,7 +408,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForUserRequestedRelease) {
   // Tests that we can release when requested by the user, irrespective of
   // whether the demand-based release is enabled or not. We do this by
   // alternating the state of the demand-based release flag.
-  bool enabled = Parameters::huge_cache_demand_based_release();
+  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
   constexpr int kNumIterations = 100;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   for (int i = 0; i < kNumIterations; ++i) {
@@ -365,7 +419,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForUserRequestedRelease) {
                      /*reason=*/PageReleaseReason::kReleaseMemoryToSystem),
         kPagesPerHugePage);
     enabled = !enabled;
-    Parameters::set_huge_cache_demand_based_release(enabled);
+    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
   }
 }
 
@@ -373,7 +427,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
   // Tests that the background release will be impacted by the demand-based
   // release: when enabled, it will not release any pages due to the recent
   // demand.
-  bool enabled = Parameters::huge_cache_demand_based_release();
+  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
   constexpr int kNumIterations = 100;
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   for (int i = 0; i < kNumIterations; ++i) {
@@ -390,7 +444,7 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
                 kPagesPerHugePage);
     }
     enabled = !enabled;
-    Parameters::set_huge_cache_demand_based_release(enabled);
+    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
   }
 }
 
@@ -398,14 +452,17 @@ TEST_P(HugePageAwareAllocatorTest,
        ReleasingLargeForBackgroundActionsWithZeroIntervals) {
   // Tests that the configured intervals can be passed to HugeCache: release is
   // not being impacted by demand-based release when the intervals are zero.
-  const bool old_enabled = Parameters::huge_cache_demand_based_release();
-  Parameters::set_huge_cache_demand_based_release(true);
+  const bool old_enabled =
+      allocator_->forwarder().huge_cache_demand_based_release();
+  allocator_->forwarder().set_huge_cache_demand_based_release(/*value=*/true);
   const absl::Duration old_cache_short_interval =
-      Parameters::cache_demand_release_short_interval();
-  Parameters::set_cache_demand_release_short_interval(absl::ZeroDuration());
+      allocator_->forwarder().cache_demand_release_short_interval();
   const absl::Duration old_cache_long_interval =
-      Parameters::cache_demand_release_long_interval();
-  Parameters::set_cache_demand_release_long_interval(absl::ZeroDuration());
+      allocator_->forwarder().cache_demand_release_long_interval();
+  allocator_->forwarder().set_cache_demand_release_short_interval(
+      absl::ZeroDuration());
+  allocator_->forwarder().set_cache_demand_release_long_interval(
+      absl::ZeroDuration());
   const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
   Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
   // There is no history to reference so release all.
@@ -413,9 +470,11 @@ TEST_P(HugePageAwareAllocatorTest,
       ReleasePages(kPagesPerHugePage,
                    /*reason=*/PageReleaseReason::kProcessBackgroundActions),
       kPagesPerHugePage);
-  Parameters::set_huge_cache_demand_based_release(old_enabled);
-  Parameters::set_cache_demand_release_short_interval(old_cache_short_interval);
-  Parameters::set_cache_demand_release_long_interval(old_cache_long_interval);
+  allocator_->forwarder().set_huge_cache_demand_based_release(old_enabled);
+  allocator_->forwarder().set_cache_demand_release_short_interval(
+      old_cache_short_interval);
+  allocator_->forwarder().set_cache_demand_release_long_interval(
+      old_cache_long_interval);
 }
 
 TEST_P(HugePageAwareAllocatorTest, SettingDemandBasedReleaseFlags) {
@@ -425,20 +484,23 @@ TEST_P(HugePageAwareAllocatorTest, SettingDemandBasedReleaseFlags) {
 }
 
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
-  const bool old_subrelease = Parameters::hpaa_subrelease();
-  Parameters::set_hpaa_subrelease(true);
+  const bool old_subrelease = allocator_->forwarder().hpaa_subrelease();
+  allocator_->forwarder().set_hpaa_subrelease(/*value=*/true);
 
   const absl::Duration old_skip_subrelease_interval =
-      Parameters::filler_skip_subrelease_interval();
-  Parameters::set_filler_skip_subrelease_interval(absl::ZeroDuration());
+      allocator_->forwarder().filler_skip_subrelease_interval();
+  allocator_->forwarder().set_filler_skip_subrelease_interval(
+      absl::ZeroDuration());
 
-  const absl::Duration old_skip_subrelease_short_interval =
-      Parameters::filler_skip_subrelease_short_interval();
-  Parameters::set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
+  absl::Duration old_skip_subrelease_short_interval =
+      allocator_->forwarder().filler_skip_subrelease_short_interval();
+  allocator_->forwarder().set_filler_skip_subrelease_short_interval(
+      absl::ZeroDuration());
 
-  const absl::Duration old_skip_subrelease_long_interval =
-      Parameters::filler_skip_subrelease_long_interval();
-  Parameters::set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
+  absl::Duration old_skip_subrelease_long_interval =
+      allocator_->forwarder().filler_skip_subrelease_long_interval();
+  allocator_->forwarder().set_filler_skip_subrelease_long_interval(
+      absl::ZeroDuration());
 
   std::vector<Span*> live, dead;
   static const size_t N = kPagesPerHugePage.raw_num() * 128;
@@ -460,11 +522,12 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
     Delete(l, kSpanInfo.objects_per_span);
   }
 
-  Parameters::set_hpaa_subrelease(old_subrelease);
-  Parameters::set_filler_skip_subrelease_interval(old_skip_subrelease_interval);
-  Parameters::set_filler_skip_subrelease_short_interval(
+  allocator_->forwarder().set_hpaa_subrelease(old_subrelease);
+  allocator_->forwarder().set_filler_skip_subrelease_interval(
+      old_skip_subrelease_interval);
+  allocator_->forwarder().set_filler_skip_subrelease_short_interval(
       old_skip_subrelease_short_interval);
-  Parameters::set_filler_skip_subrelease_long_interval(
+  allocator_->forwarder().set_filler_skip_subrelease_long_interval(
       old_skip_subrelease_long_interval);
 }
 
@@ -1526,13 +1589,6 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
       Span* s =
           AllocatorNew(Length(absl::LogUniform(m.rng, 1, 1 << 10)), kSpanInfo);
       TC_CHECK_NE(s, nullptr);
-
-      // Touch the contents of the buffer.  We later use it to verify we are the
-      // only thread manipulating the Span, for example, if another thread
-      // madvise DONTNEED'd the contents and zero'd them.
-      const uintptr_t key = reinterpret_cast<uintptr_t>(s) ^ thread_id;
-      *reinterpret_cast<uintptr_t*>(s->start_address()) = key;
-
       m.spans.push_back(s);
     } else {
       size_t index = absl::Uniform<size_t>(m.rng, 0, m.spans.size());
@@ -1541,9 +1597,6 @@ TEST_P(HugePageAwareAllocatorTest, ParallelRelease) {
       Span* s = m.spans[index];
       m.spans[index] = back;
       m.spans.pop_back();
-
-      const uintptr_t key = reinterpret_cast<uintptr_t>(s) ^ thread_id;
-      EXPECT_EQ(*reinterpret_cast<uintptr_t*>(s->start_address()), key);
 
       AllocatorDelete(s, kSpanInfo.objects_per_span);
     }
@@ -1569,14 +1622,17 @@ INSTANTIATE_TEST_SUITE_P(
 inline constexpr Length kMaxLength =
     Length(std::numeric_limits<int32_t>::max());
 
+using FakeHugePageAwareAllocator =
+    huge_page_allocator_internal::HugePageAwareAllocator<
+        huge_page_allocator_internal::FakeStaticForwarder>;
 struct SpanDeleter {
-  explicit SpanDeleter(absl::Nonnull<HugePageAwareAllocator*> allocator)
+  explicit SpanDeleter(absl::Nonnull<FakeHugePageAwareAllocator*> allocator)
       : allocator(*allocator) {}
 
   void operator()(Span* s) ABSL_LOCKS_EXCLUDED(pageheap_lock) {
 #ifdef TCMALLOC_INTERNAL_LEGACY_LOCKING
     PageHeapSpinLockHolder l;
-    allocator_->Delete(s);
+    allocator.Delete(s);
 #else
     PageAllocatorInterface::AllocationState a{
         Range(s->first_page(), s->num_pages()),
@@ -1588,7 +1644,7 @@ struct SpanDeleter {
 #endif  // TCMALLOC_INTERNAL_LEGACY_LOCKING
   }
 
-  HugePageAwareAllocator& allocator;
+  FakeHugePageAwareAllocator& allocator;
 };
 
 using SpanUniquePtr = std::unique_ptr<Span, SpanDeleter>;
@@ -1597,19 +1653,22 @@ class GetReleaseStatsTest : public testing::Test {
  public:
   void SetUp() override {
     // Use SetUp instead of a constructor so that we can make assertions.
-
-    // TODO(b/242550501): Mock these parameters.
-    Parameters::set_background_release_rate(MallocExtension::BytesPerSecond{0});
-    TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(false);
-    Parameters::set_hpaa_subrelease(false);
-    Parameters::set_filler_skip_subrelease_interval(absl::ZeroDuration());
-    Parameters::set_filler_skip_subrelease_short_interval(absl::ZeroDuration());
-    Parameters::set_filler_skip_subrelease_long_interval(absl::ZeroDuration());
-
     MallocExtension::SetRegionFactory(&factory_);
 
     allocator_ = new (allocator_storage_.data())
-        HugePageAwareAllocator({.tag = MemoryTag::kNormal});
+        FakeHugePageAwareAllocator({.tag = MemoryTag::kNormal});
+
+    allocator_->forwarder().set_hpaa_subrelease(/*value=*/false);
+    allocator_->forwarder().set_huge_cache_demand_based_release(
+        /*value=*/false);
+    allocator_->forwarder().set_huge_region_demand_based_release(
+        /*value=*/false);
+    allocator_->forwarder().set_filler_skip_subrelease_interval(
+        absl::ZeroDuration());
+    allocator_->forwarder().set_filler_skip_subrelease_short_interval(
+        absl::ZeroDuration());
+    allocator_->forwarder().set_filler_skip_subrelease_long_interval(
+        absl::ZeroDuration());
 
     ASSERT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
                   kMaxLength,
@@ -1625,20 +1684,9 @@ class GetReleaseStatsTest : public testing::Test {
         /*reason=*/PageReleaseReason::kReleaseMemoryToSystem);
 
     MallocExtension::SetRegionFactory(previous_factory_);
-
-    Parameters::set_background_release_rate(previous_background_release_rate_);
-    TCMalloc_Internal_SetReleasePagesFromHugeRegionEnabled(
-        previous_release_pages_from_huge_region_);
-    Parameters::set_hpaa_subrelease(previous_hpaa_subrelease_);
-    Parameters::set_filler_skip_subrelease_interval(
-        previous_filler_skip_subrelease_interval_);
-    Parameters::set_filler_skip_subrelease_short_interval(
-        previous_filler_skip_subrelease_short_interval_);
-    Parameters::set_filler_skip_subrelease_long_interval(
-        previous_filler_skip_subrelease_long_interval_);
   };
 
-  HugePageAwareAllocator& allocator() { return *allocator_; }
+  FakeHugePageAwareAllocator& allocator() { return *allocator_; }
 
   PageReleaseStats GetReleaseStats() ABSL_LOCKS_EXCLUDED(pageheap_lock) {
     const PageHeapSpinLockHolder l;
@@ -1669,23 +1717,11 @@ class GetReleaseStatsTest : public testing::Test {
   AddressRegionFactory* const previous_factory_ =
       MallocExtension::GetRegionFactory();
 
-  const MallocExtension::BytesPerSecond previous_background_release_rate_ =
-      Parameters::background_release_rate();
-  const bool previous_release_pages_from_huge_region_ =
-      Parameters::release_pages_from_huge_region();
-  const bool previous_hpaa_subrelease_ = Parameters::hpaa_subrelease();
-  const absl::Duration previous_filler_skip_subrelease_interval_ =
-      Parameters::filler_skip_subrelease_interval();
-  const absl::Duration previous_filler_skip_subrelease_short_interval_ =
-      Parameters::filler_skip_subrelease_short_interval();
-  const absl::Duration previous_filler_skip_subrelease_long_interval_ =
-      Parameters::filler_skip_subrelease_long_interval();
-
   ExtraRegionFactory factory_{previous_factory_};
 
-  alignas(HugePageAwareAllocator) std::array<
-      unsigned char, sizeof(HugePageAwareAllocator)> allocator_storage_;
-  HugePageAwareAllocator* allocator_;
+  alignas(FakeHugePageAwareAllocator) std::array<
+      unsigned char, sizeof(FakeHugePageAwareAllocator)> allocator_storage_;
+  FakeHugePageAwareAllocator* allocator_;
 };
 
 TEST_F(GetReleaseStatsTest, GetReleaseStats) {

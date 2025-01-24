@@ -906,6 +906,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":malloc_extension",
+        ":mock_huge_page_static_forwarder",
         ":page_allocator_test_util",
         "//tcmalloc/internal:config",
         "//tcmalloc/internal:logging",

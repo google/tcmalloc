@@ -63,40 +63,40 @@ class FakeStaticForwarder {
   bool release_partial_alloc_pages() { return release_partial_alloc_pages_; }
   bool hpaa_subrelease() const { return hpaa_subrelease_; }
 
-  void set_filler_skip_subrelease_interval(absl::Duration v) {
-    subrelease_interval_ = v;
+  void set_filler_skip_subrelease_interval(absl::Duration value) {
+    subrelease_interval_ = value;
   }
-  void set_filler_skip_subrelease_short_interval(absl::Duration v) {
-    short_interval_ = v;
+  void set_filler_skip_subrelease_short_interval(absl::Duration value) {
+    short_interval_ = value;
   }
-  void set_filler_skip_subrelease_long_interval(absl::Duration v) {
-    long_interval_ = v;
+  void set_filler_skip_subrelease_long_interval(absl::Duration value) {
+    long_interval_ = value;
   }
-  void set_cache_demand_release_short_interval(absl::Duration v) {
-    cache_demand_release_short_interval_ = v;
+  void set_cache_demand_release_short_interval(absl::Duration value) {
+    cache_demand_release_short_interval_ = value;
   }
-  void set_cache_demand_release_long_interval(absl::Duration v) {
-    cache_demand_release_long_interval_ = v;
+  void set_cache_demand_release_long_interval(absl::Duration value) {
+    cache_demand_release_long_interval_ = value;
   }
-  void set_release_partial_alloc_pages(bool v) {
-    release_partial_alloc_pages_ = v;
+  void set_release_partial_alloc_pages(bool value) {
+    release_partial_alloc_pages_ = value;
   }
-  void set_hpaa_subrelease(bool v) { hpaa_subrelease_ = v; }
+  void set_hpaa_subrelease(bool value) { hpaa_subrelease_ = value; }
   bool release_succeeds() const { return release_succeeds_; }
-  void set_release_succeeds(bool v) { release_succeeds_ = v; }
+  void set_release_succeeds(bool value) { release_succeeds_ = value; }
 
   bool huge_region_demand_based_release() const {
     return huge_region_demand_based_release_;
   }
-  void set_huge_region_demand_based_release(bool v) {
-    huge_region_demand_based_release_ = v;
+  void set_huge_region_demand_based_release(bool value) {
+    huge_region_demand_based_release_ = value;
   }
 
   bool huge_cache_demand_based_release() const {
     return huge_cache_demand_based_release_;
   }
-  void set_huge_cache_demand_based_release(bool v) {
-    huge_cache_demand_based_release_ = v;
+  void set_huge_cache_demand_based_release(bool value) {
+    huge_cache_demand_based_release_ = value;
   }
 
   // Arena state.
@@ -183,10 +183,11 @@ class FakeStaticForwarder {
     });
     return a;
   }
-
-  absl::Duration subrelease_interval_, short_interval_, long_interval_;
-  absl::Duration cache_demand_release_short_interval_;
-  absl::Duration cache_demand_release_long_interval_;
+  absl::Duration subrelease_interval_;
+  absl::Duration short_interval_ = absl::Seconds(60);
+  absl::Duration long_interval_ = absl::Seconds(300);
+  absl::Duration cache_demand_release_short_interval_ = absl::Seconds(10);
+  absl::Duration cache_demand_release_long_interval_ = absl::Seconds(30);
   bool release_partial_alloc_pages_ = false;
   bool hpaa_subrelease_ = true;
   bool release_succeeds_ = true;
