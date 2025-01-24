@@ -98,14 +98,14 @@ class ScopedSigmask {
   ScopedSigmask() noexcept;
 
   // No copy, move or assign
-  ScopedSigmask(const ScopedSigmask &) = delete;
-  ScopedSigmask &operator=(const ScopedSigmask &) = delete;
+  ScopedSigmask(const ScopedSigmask&) = delete;
+  ScopedSigmask& operator=(const ScopedSigmask&) = delete;
 
   // Restores the masked signal handlers to its former state.
   ~ScopedSigmask() noexcept;
 
  private:
-  void Setmask(int how, sigset_t *set, sigset_t *old);
+  void Setmask(int how, sigset_t* set, sigset_t* old);
 
   sigset_t old_set_;
 };
@@ -120,7 +120,7 @@ inline ScopedSigmask::~ScopedSigmask() noexcept {
   Setmask(SIG_SETMASK, &old_set_, nullptr);
 }
 
-inline void ScopedSigmask::Setmask(int how, sigset_t *set, sigset_t *old) {
+inline void ScopedSigmask::Setmask(int how, sigset_t* set, sigset_t* old) {
   const int result = pthread_sigmask(how, set, old);
   TC_CHECK_EQ(result, 0);
 }

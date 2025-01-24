@@ -1017,8 +1017,9 @@ inline void* TcmallocSlab<NumClasses>::CpuMemoryStart(void* slabs, Shift shift,
 }
 
 template <size_t NumClasses>
-inline auto TcmallocSlab<NumClasses>::GetHeader(
-    void* slabs, Shift shift, int cpu, size_t size_class) -> AtomicHeader* {
+inline auto TcmallocSlab<NumClasses>::GetHeader(void* slabs, Shift shift,
+                                                int cpu, size_t size_class)
+    -> AtomicHeader* {
   TC_ASSERT_NE(size_class, 0);
   return &static_cast<AtomicHeader*>(
       CpuMemoryStart(slabs, shift, cpu))[size_class];
@@ -1285,8 +1286,8 @@ template <size_t NumClasses>
 auto TcmallocSlab<NumClasses>::ResizeSlabs(
     Shift new_shift, void* new_slabs,
     absl::FunctionRef<size_t(size_t)> capacity,
-    absl::FunctionRef<bool(size_t)> populated,
-    DrainHandler drain_handler) -> ResizeSlabsInfo {
+    absl::FunctionRef<bool(size_t)> populated, DrainHandler drain_handler)
+    -> ResizeSlabsInfo {
   // Phase 1: Collect begins, stop all CPUs and initialize any CPUs in the new
   // slab that have already been populated in the old slab.
   const auto [old_slabs, old_shift] =

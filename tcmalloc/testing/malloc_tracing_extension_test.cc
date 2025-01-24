@@ -21,7 +21,6 @@
 
 #include <stddef.h>
 
-
 #include "gtest/gtest.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"

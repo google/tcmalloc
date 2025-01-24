@@ -309,8 +309,7 @@ inline void CentralFreeList<Forwarder>::Init(size_t size_class)
   objects_per_span_ =
       pages_per_span_.in_bytes() / (object_size_ ? object_size_ : 1);
   size_reciprocal_ = Span::CalcReciprocal(object_size_);
-  use_all_buckets_for_few_object_spans_ =
-      objects_per_span_ <= 2 * kNumLists;
+  use_all_buckets_for_few_object_spans_ = objects_per_span_ <= 2 * kNumLists;
 
   // Records nonempty_ list index associated with the span with
   // objects_per_span_ number of allocated objects. Refer to the comment in

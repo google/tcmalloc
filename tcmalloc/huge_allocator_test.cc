@@ -54,9 +54,7 @@ class HugeAllocatorTest : public testing::TestWithParam<bool> {
     vm_allocator_.backing_.resize(1024);
   }
 
-  ~HugeAllocatorTest() override {
-    vm_allocator_.backing_.clear();
-  }
+  ~HugeAllocatorTest() override { vm_allocator_.backing_.clear(); }
 
   size_t* GetActual(HugePage p) { return &vm_allocator_.backing_[p.index()]; }
 

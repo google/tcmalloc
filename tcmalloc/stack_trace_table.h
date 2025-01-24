@@ -17,8 +17,6 @@
 #ifndef TCMALLOC_STACK_TRACE_TABLE_H_
 #define TCMALLOC_STACK_TRACE_TABLE_H_
 
-
-
 #include "absl/base/thread_annotations.h"
 #include "absl/time/time.h"
 #include "tcmalloc/common.h"

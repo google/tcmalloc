@@ -105,9 +105,8 @@ TEST_F(GuardedPageAllocatorProfileTest, Guarded) {
   AllocateUntilGuarded();
   auto token = MallocExtension::StartAllocationProfiling();
 
-  AllocateGuardableUntil(1051, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  AllocateGuardableUntil(
+      1051, [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Guarded);
@@ -118,9 +117,8 @@ TEST_F(GuardedPageAllocatorProfileTest, NotAttempted) {
   auto token = MallocExtension::StartAllocationProfiling();
 
   constexpr size_t alloc_size = 2 * 1024 * 1024;
-  AllocateUntil(alloc_size, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  AllocateUntil(alloc_size,
+                [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::NotAttempted,
@@ -141,9 +139,8 @@ TEST_F(GuardedPageAllocatorProfileTest, LargerThanOnePage) {
   auto token = MallocExtension::StartAllocationProfiling();
 
   constexpr size_t alloc_size = kPageSize + 1;
-  AllocateUntil(alloc_size, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  AllocateUntil(alloc_size,
+                [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::LargerThanOnePage,
@@ -163,9 +160,8 @@ TEST_F(GuardedPageAllocatorProfileTest, Disabled) {
   ScopedProfileSamplingInterval profile_sampling_interval(1);
   auto token = MallocExtension::StartAllocationProfiling();
 
-  AllocateGuardableUntil(1024, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  AllocateGuardableUntil(
+      1024, [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::Disabled);
@@ -250,9 +246,8 @@ TEST_F(GuardedPageAllocatorProfileTest, TooSmall) {
 
   // Next sampled allocation should be too small
   constexpr size_t alloc_size = 0;
-  AllocateGuardableUntil(alloc_size, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  AllocateGuardableUntil(
+      alloc_size, [&](void* alloc) -> NextSteps { return {true, true}; });
 
   auto profile = std::move(token).Stop();
   ExamineSamples(profile, Profile::Sample::GuardedStatus::TooSmall,
@@ -301,9 +296,8 @@ TEST_F(GuardedPageAllocatorProfileTest, NeverSample) {
   auto token = MallocExtension::StartAllocationProfiling();
 
   // This will not succeed in guarding anything.
-  int alloc_count = AllocateGuardableUntil(1025, [&](void* alloc) -> NextSteps {
-    return {true, true};
-  });
+  int alloc_count = AllocateGuardableUntil(
+      1025, [&](void* alloc) -> NextSteps { return {true, true}; });
   ASSERT_EQ(alloc_count, 1);
 
   auto profile = std::move(token).Stop();

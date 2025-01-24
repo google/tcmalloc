@@ -32,8 +32,8 @@ TEST(AllocationGuard, Noncooperative) {
 TEST(AllocationGuard, CooperativeDeathTest) {
   absl::base_internal::SpinLock lock;
 
-  EXPECT_DEBUG_DEATH({ AllocationGuardSpinLockHolder h(&lock); },
-                     "SIGABRT received");
+  EXPECT_DEBUG_DEATH(
+      { AllocationGuardSpinLockHolder h(&lock); }, "SIGABRT received");
 }
 
 }  // namespace

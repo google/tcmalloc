@@ -40,7 +40,8 @@ TEST(MallocExtension, SnapshotCurrentIsEmpty) {
   // All of the profiles should be empty.
   ProfileType types[] = {
       ProfileType::kHeap,
-      ProfileType::kFragmentation, ProfileType::kPeakHeap,
+      ProfileType::kFragmentation,
+      ProfileType::kPeakHeap,
       ProfileType::kAllocations,
   };
 

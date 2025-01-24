@@ -224,7 +224,7 @@ struct SkipSubreleaseIntervals {
 };
 
 struct SubreleaseStats {
-  Length total_pages_subreleased;  // cumulative since startup
+  Length total_pages_subreleased;                // cumulative since startup
   Length total_partial_alloc_pages_subreleased;  // cumulative since startup
   Length num_pages_subreleased;
   Length num_partial_alloc_pages_subreleased;
@@ -458,11 +458,7 @@ class SubreleaseStatsTracker {
   // We collect subrelease statistics at four "interesting points" within each
   // time step: at min/max demand of pages and at min/max use of hugepages. This
   // allows us to approximate the envelope of the different metrics.
-  enum StatsType {
-    kStatsAtMinDemand,
-    kStatsAtMaxDemand,
-    kNumStatsTypes
-  };
+  enum StatsType { kStatsAtMinDemand, kStatsAtMaxDemand, kNumStatsTypes };
 
   struct SubreleaseStatsEntry {
     // Collect stats at "interesting points" (minimum/maximum page demand

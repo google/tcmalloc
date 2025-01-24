@@ -77,9 +77,8 @@ class ShardedStaticForwarder : public StaticForwarder {
     // To make sure that we do not change the behavior of the traditional
     // sharded cache configuration, we use generic version of the cache only
     // when the traditional version is not enabled.
-    use_generic_cache_ =
-        !IsExperimentActive(
-            Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
+    use_generic_cache_ = !IsExperimentActive(
+        Experiment::TEST_ONLY_TCMALLOC_SHARDED_TRANSFER_CACHE);
     // Traditionally, we enable sharded transfer cache for large size
     // classes alone.
     enable_cache_for_large_classes_only_ = IsExperimentActive(

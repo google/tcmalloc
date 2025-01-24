@@ -17,7 +17,6 @@
 #include <stdint.h>
 #include <unistd.h>
 
-
 #include "gtest/gtest.h"
 
 namespace tcmalloc {

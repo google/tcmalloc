@@ -1688,24 +1688,23 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
     Printer printer(&*buffer.begin(), buffer.size());
     filler_.Print(&printer, true);
   }
-    buffer.resize(strlen(buffer.c_str()));
-    EXPECT_THAT(buffer, testing::HasSubstr(
-                            "HugePageFiller: 0 hugepages became full after "
-                            "being previously released, "
-                            "out of which 0 pages are hugepage backed."));
+  buffer.resize(strlen(buffer.c_str()));
+  EXPECT_THAT(buffer, testing::HasSubstr(
+                          "HugePageFiller: 0 hugepages became full after "
+                          "being previously released, "
+                          "out of which 0 pages are hugepage backed."));
 
-    // Repopulate.
-    ASSERT_TRUE(!tiny1.empty());
-    half =
-        AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
-    EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
-    EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
-    buffer.resize(1024 * 1024);
-    {
-      PageHeapSpinLockHolder l;
-      Printer printer(&*buffer.begin(), buffer.size());
-      filler_.Print(&printer, true);
-    }
+  // Repopulate.
+  ASSERT_TRUE(!tiny1.empty());
+  half = AllocateVectorWithSpanAllocInfo(N / 2, tiny1.front().span_alloc_info);
+  EXPECT_EQ(ReleasePages(kMaxValidPages), Length(0));
+  EXPECT_EQ(filler_.previously_released_huge_pages(), NHugePages(1));
+  buffer.resize(1024 * 1024);
+  {
+    PageHeapSpinLockHolder l;
+    Printer printer(&*buffer.begin(), buffer.size());
+    filler_.Print(&printer, true);
+  }
 
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer,
@@ -2084,76 +2083,76 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   // in demand and tries to subrelease. Finally, it waits for time interval c to
   // generate the highest peak for evaluating subrelease correctness. Skip
   // subrelease selects those demand points using provided time intervals.
-  const auto demand_pattern =
-      [&](absl::Duration a, absl::Duration b, absl::Duration c,
-          SkipSubreleaseIntervals intervals, bool expected_subrelease) {
-        const Length N = kPagesPerHugePage;
-        // First peak: min_demand 3/4N, max_demand 1N.
-        std::vector<PAlloc> peak1a =
-            AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-        ASSERT_TRUE(!peak1a.empty());
-        std::vector<PAlloc> peak1b = AllocateVectorWithSpanAllocInfo(
-            N / 4, peak1a.front().span_alloc_info);
-        Advance(a);
-        // Second peak: min_demand 0, max_demand 2N.
-        DeleteVector(peak1a);
-        DeleteVector(peak1b);
+  const auto demand_pattern = [&](absl::Duration a, absl::Duration b,
+                                  absl::Duration c,
+                                  SkipSubreleaseIntervals intervals,
+                                  bool expected_subrelease) {
+    const Length N = kPagesPerHugePage;
+    // First peak: min_demand 3/4N, max_demand 1N.
+    std::vector<PAlloc> peak1a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak1a.empty());
+    std::vector<PAlloc> peak1b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak1a.front().span_alloc_info);
+    Advance(a);
+    // Second peak: min_demand 0, max_demand 2N.
+    DeleteVector(peak1a);
+    DeleteVector(peak1b);
 
-        std::vector<PAlloc> half = AllocateVectorWithSpanAllocInfo(N / 2, info);
-        ASSERT_TRUE(!half.empty());
-        std::vector<PAlloc> tiny1 = AllocateVectorWithSpanAllocInfo(
-            N / 4, half.front().span_alloc_info);
-        std::vector<PAlloc> tiny2 = AllocateVectorWithSpanAllocInfo(
-            N / 4, half.front().span_alloc_info);
+    std::vector<PAlloc> half = AllocateVectorWithSpanAllocInfo(N / 2, info);
+    ASSERT_TRUE(!half.empty());
+    std::vector<PAlloc> tiny1 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
+    std::vector<PAlloc> tiny2 =
+        AllocateVectorWithSpanAllocInfo(N / 4, half.front().span_alloc_info);
 
-        // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
-        // necessary after we delete `half` below, as a half huge page for the
-        // peak would fill into the gap previously occupied by it.
-        std::vector<PAlloc> peak2a =
-            AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-        ASSERT_TRUE(!peak2a.empty());
-        std::vector<PAlloc> peak2b = AllocateVectorWithSpanAllocInfo(
-            N / 4, peak2a.front().span_alloc_info);
-        EXPECT_EQ(filler_.used_pages(), 2 * N);
-        DeleteVector(peak2a);
-        DeleteVector(peak2b);
-        Advance(b);
-        DeleteVector(half);
-        EXPECT_EQ(filler_.free_pages(), Length(N / 2));
-        // The number of released pages is limited to the number of free pages.
-        EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
-                  ReleasePartialPages(10 * N, intervals));
+    // To force a peak, we allocate 3/4 and 1/4 of a huge page.  This is
+    // necessary after we delete `half` below, as a half huge page for the
+    // peak would fill into the gap previously occupied by it.
+    std::vector<PAlloc> peak2a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak2a.empty());
+    std::vector<PAlloc> peak2b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak2a.front().span_alloc_info);
+    EXPECT_EQ(filler_.used_pages(), 2 * N);
+    DeleteVector(peak2a);
+    DeleteVector(peak2b);
+    Advance(b);
+    DeleteVector(half);
+    EXPECT_EQ(filler_.free_pages(), Length(N / 2));
+    // The number of released pages is limited to the number of free pages.
+    EXPECT_EQ(expected_subrelease ? N / 2 : Length(0),
+              ReleasePartialPages(10 * N, intervals));
 
-        Advance(c);
-        half = AllocateVectorWithSpanAllocInfo(N / 2,
-                                               half.front().span_alloc_info);
-        // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
-        std::vector<PAlloc> peak3a =
-            AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-        ASSERT_TRUE(!peak3a.empty());
-        std::vector<PAlloc> peak3b = AllocateVectorWithSpanAllocInfo(
-            N / 4, peak3a.front().span_alloc_info);
+    Advance(c);
+    half = AllocateVectorWithSpanAllocInfo(N / 2, half.front().span_alloc_info);
+    // Third peak: min_demand 1/2N, max_demand (2+1/2)N.
+    std::vector<PAlloc> peak3a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak3a.empty());
+    std::vector<PAlloc> peak3b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak3a.front().span_alloc_info);
 
-        std::vector<PAlloc> peak4a =
-            AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
-        ASSERT_TRUE(!peak4a.empty());
-        std::vector<PAlloc> peak4b = AllocateVectorWithSpanAllocInfo(
-            N / 4, peak4a.front().span_alloc_info);
+    std::vector<PAlloc> peak4a =
+        AllocateVectorWithSpanAllocInfo(3 * N / 4, info);
+    ASSERT_TRUE(!peak4a.empty());
+    std::vector<PAlloc> peak4b =
+        AllocateVectorWithSpanAllocInfo(N / 4, peak4a.front().span_alloc_info);
 
-        DeleteVector(half);
-        DeleteVector(tiny1);
-        DeleteVector(tiny2);
-        DeleteVector(peak3a);
-        DeleteVector(peak3b);
-        DeleteVector(peak4a);
-        DeleteVector(peak4b);
+    DeleteVector(half);
+    DeleteVector(tiny1);
+    DeleteVector(tiny2);
+    DeleteVector(peak3a);
+    DeleteVector(peak3b);
+    DeleteVector(peak4a);
+    DeleteVector(peak4b);
 
-        EXPECT_EQ(filler_.used_pages(), Length(0));
-        EXPECT_EQ(filler_.unmapped_pages(), Length(0));
-        EXPECT_EQ(filler_.free_pages(), Length(0));
+    EXPECT_EQ(filler_.used_pages(), Length(0));
+    EXPECT_EQ(filler_.unmapped_pages(), Length(0));
+    EXPECT_EQ(filler_.free_pages(), Length(0));
 
-        EXPECT_EQ(Length(0), ReleasePartialPages(10 * N));
-      };
+    EXPECT_EQ(Length(0), ReleasePartialPages(10 * N));
+  };
 
   {
     // Uses peak interval for skipping subrelease. We should correctly skip

@@ -63,7 +63,9 @@ TEST(AllocationSampleTest, TokenAbuse) {
   EXPECT_EQ(count2, 0);
 
   // Delete (on the scope ending) without Claim should also be OK.
-  { MallocExtension::StartAllocationProfiling(); }
+  {
+    MallocExtension::StartAllocationProfiling();
+  }
 }
 
 // Verify that profiling sessions concurrent with allocations do not crash due

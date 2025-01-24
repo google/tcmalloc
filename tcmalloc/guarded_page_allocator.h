@@ -302,12 +302,12 @@ class GuardedPageAllocator {
   // is detected.
   SlotMetadata* data_;
 
-  uintptr_t pages_base_addr_;  // Points to start of mapped region.
-  uintptr_t pages_end_addr_;   // Points to the end of mapped region.
-  uintptr_t first_page_addr_;  // Points to first page returnable by Allocate.
+  uintptr_t pages_base_addr_;   // Points to start of mapped region.
+  uintptr_t pages_end_addr_;    // Points to the end of mapped region.
+  uintptr_t first_page_addr_;   // Points to first page returnable by Allocate.
   size_t max_allocated_pages_;  // Max number of pages to allocate at once.
-  size_t total_pages_;         // Size of the page pool to allocate from.
-  size_t page_size_;           // Size of pages we allocate.
+  size_t total_pages_;          // Size of the page pool to allocate from.
+  size_t page_size_;            // Size of pages we allocate.
   Random rand_;
 
   // True if this object has been fully initialized.

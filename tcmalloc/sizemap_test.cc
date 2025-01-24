@@ -109,12 +109,12 @@ TEST(ColdSizeClassTest, VerifyAllocationFullRange) {
   size_t max_size = classes[classes.size() - 1].size;
   for (int request_size = size_before_min_alloc_for_cold + 1;
        request_size <= max_size; ++request_size) {
-      EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
-                size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
-                    (tc_globals.numa_topology().GetCurrentPartition() == 0
-                         ? kExpandedClassesStart
-                         : kNumBaseClasses))
-          << request_size;
+    EXPECT_EQ(size_map.SizeClass(CppPolicy().AccessAsCold(), request_size),
+              size_map.SizeClass(CppPolicy().AccessAsHot(), request_size) +
+                  (tc_globals.numa_topology().GetCurrentPartition() == 0
+                       ? kExpandedClassesStart
+                       : kNumBaseClasses))
+        << request_size;
   }
 }
 

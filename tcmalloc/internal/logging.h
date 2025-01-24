@@ -250,8 +250,8 @@ const T& FormatConvert(const T& v) {
 // Print into buffer
 class Printer {
  private:
-  char* buf_;     // Where should we write next
-  size_t left_;   // Space left in buffer (including space for \0)
+  char* buf_;        // Where should we write next
+  size_t left_;      // Space left in buffer (including space for \0)
   size_t required_;  // Space we needed to complete all printf calls up to this
                      // point
 

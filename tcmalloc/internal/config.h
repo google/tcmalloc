@@ -30,7 +30,7 @@
 
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
 #define TCMALLOC_GLIBC_PREREQ(major, minor) \
-  ((__GLIBC__ * 100 + __GLIBC_MINOR__) >= ((major)*100 + (minor)))
+  ((__GLIBC__ * 100 + __GLIBC_MINOR__) >= ((major) * 100 + (minor)))
 #else
 #define TCMALLOC_GLIBC_PREREQ(major, minor) 0
 #endif

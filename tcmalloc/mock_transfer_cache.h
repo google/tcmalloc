@@ -209,7 +209,7 @@ class FakeTransferCacheEnvironment {
   FreeList& central_freelist() { return cache_.freelist(); }
 
  private:
-  void Init(){};
+  void Init() {};
 
   Manager manager_;
   TransferCache cache_;

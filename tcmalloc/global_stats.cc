@@ -182,7 +182,6 @@ void ExtractStats(TCMallocStats* r, uint64_t* class_count,
   } else {
     r->pagemap_root_bytes_res = 0;
   }
-
 }
 
 void ExtractTCMallocStats(TCMallocStats* r, bool report_residence) {
