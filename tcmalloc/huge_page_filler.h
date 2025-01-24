@@ -879,7 +879,7 @@ template <size_t N>
 inline int HugePageFiller<TrackerType>::SelectCandidates(
     absl::Span<TrackerType*> candidates, int current_candidates,
     const PageTrackerLists<N>& tracker_list, size_t tracker_start) {
-  auto PushCandidate = [&](TrackerType* pt) {
+  auto PushCandidate = [&](TrackerType* pt) GOOGLE_MALLOC_SECTION {
     TC_ASSERT_GT(pt->free_pages(), Length(0));
     TC_ASSERT_GT(pt->free_pages(), pt->released_pages());
 
