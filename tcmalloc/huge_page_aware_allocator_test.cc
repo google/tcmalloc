@@ -39,7 +39,6 @@
 #include "absl/base/optimization.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/container/flat_hash_map.h"
-#include "absl/flags/flag.h"
 #include "absl/meta/type_traits.h"
 #include "absl/random/bit_gen_ref.h"
 #include "absl/random/distributions.h"
@@ -56,20 +55,14 @@
 #include "tcmalloc/internal/config.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/internal/page_size.h"
-#include "tcmalloc/internal/parameter_accessors.h"
 #include "tcmalloc/malloc_extension.h"
 #include "tcmalloc/mock_huge_page_static_forwarder.h"
 #include "tcmalloc/page_allocator_test_util.h"
 #include "tcmalloc/pages.h"
-#include "tcmalloc/parameters.h"
 #include "tcmalloc/span.h"
 #include "tcmalloc/stats.h"
 #include "tcmalloc/system-alloc.h"
 #include "tcmalloc/testing/thread_manager.h"
-
-ABSL_FLAG(std::string, tracefile, "", "file to pull trace from");
-ABSL_FLAG(uint64_t, limit, 0, "");
-ABSL_FLAG(bool, always_check_usage, false, "enable expensive memory checks");
 
 namespace tcmalloc {
 namespace tcmalloc_internal {
@@ -475,12 +468,6 @@ TEST_P(HugePageAwareAllocatorTest,
       old_cache_short_interval);
   allocator_->forwarder().set_cache_demand_release_long_interval(
       old_cache_long_interval);
-}
-
-TEST_P(HugePageAwareAllocatorTest, SettingDemandBasedReleaseFlags) {
-  // Checks if we can set the demand-based release flags.
-  Parameters::set_huge_cache_demand_based_release(false);
-  EXPECT_EQ(Parameters::huge_cache_demand_based_release(), false);
 }
 
 TEST_P(HugePageAwareAllocatorTest, ReleasingSmall) {
@@ -1507,8 +1494,6 @@ TEST_F(StatTest, Basic) {
   absl::BitGen rng;
   Span* allocs[kNumAllocs];
 
-  const bool always_check_usage = absl::GetFlag(FLAGS_always_check_usage);
-
   PrepTest();
   // DO NOT MALLOC ANYTHING BELOW THIS LINE!  WE'RE TRYING TO CAREFULLY COUNT
   // ALLOCATIONS.
@@ -1518,7 +1503,7 @@ TEST_F(StatTest, Basic) {
     Length k = RandomAllocSize(rng);
     allocs[i] = Alloc(k, kSpanInfo);
     // stats are expensive, don't always check
-    if (i % 10 != 0 && !always_check_usage) continue;
+    if (i % 10 != 0) continue;
     CheckStats();
   }
 
@@ -1538,13 +1523,13 @@ TEST_F(StatTest, Basic) {
     }
 
     // stats are expensive, don't always check
-    if (i % 10 != 0 && !always_check_usage) continue;
+    if (i % 10 != 0) continue;
     CheckStats();
   }
 
   for (int i = 0; i < kNumAllocs; ++i) {
     Free(allocs[i], kSpanInfo);
-    if (i % 10 != 0 && !always_check_usage) continue;
+    if (i % 10 != 0) continue;
     CheckStats();
   }
 
