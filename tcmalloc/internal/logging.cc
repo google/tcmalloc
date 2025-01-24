@@ -197,8 +197,8 @@ void PrintStackTraceFromSignalHandler(void* context) {
   PrintStackTrace(stack_frames, depth);
 }
 
-PbtxtRegion::PbtxtRegion(Printer* out, PbtxtRegionType type)
-    : out_(out), type_(type) {
+PbtxtRegion::PbtxtRegion(Printer& out, PbtxtRegionType type)
+    : out_(&out), type_(type) {
   switch (type_) {
     case kTop:
       break;
@@ -271,7 +271,7 @@ void PbtxtRegion::InjectValues(int64_t* i64, double* d, bool* b) {
 
 PbtxtRegion PbtxtRegion::CreateSubRegion(absl::string_view key) {
   out_->Append(" ", key, " ");
-  PbtxtRegion sub(out_, kNested);
+  PbtxtRegion sub(*out_, kNested);
   return sub;
 }
 

@@ -177,9 +177,9 @@ extern "C" ABSL_ATTRIBUTE_UNUSED int MallocExtension_Internal_GetStatsInPbtxt(
 
   // Print level one stats unless lots of space is available
   if (buffer_length < 10000) {
-    DumpStatsInPbtxt(&printer, 1);
+    DumpStatsInPbtxt(printer, 1);
   } else {
-    DumpStatsInPbtxt(&printer, 2);
+    DumpStatsInPbtxt(printer, 2);
   }
 
   size_t required = printer.SpaceRequired();
@@ -198,7 +198,7 @@ static void PrintStats(int level) {
   const int kBufferSize = 64 << 10;
   char* buffer = new char[kBufferSize];
   Printer printer(buffer, kBufferSize);
-  DumpStats(&printer, level);
+  DumpStats(printer, level);
   (void)write(STDERR_FILENO, buffer, strlen(buffer));
   delete[] buffer;
 }
@@ -227,9 +227,9 @@ extern "C" size_t TCMalloc_Internal_GetStats(char* buffer,
                                              size_t buffer_length) {
   Printer printer(buffer, buffer_length);
   if (buffer_length < 10000) {
-    DumpStats(&printer, 1);
+    DumpStats(printer, 1);
   } else {
-    DumpStats(&printer, 2);
+    DumpStats(printer, 2);
   }
 
   printer.printf("\nLow-level allocator stats:\n");

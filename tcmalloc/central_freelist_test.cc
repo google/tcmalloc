@@ -726,7 +726,7 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   {
     std::string buffer(1024 * 1024, '\0');
     Printer printer(&*buffer.begin(), buffer.size());
-    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    e.central_freelist().PrintSpanLifetimeStats(printer);
     buffer.resize(strlen(buffer.c_str()));
 
     EXPECT_THAT(
@@ -739,7 +739,7 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   {
     std::string buffer(1024 * 1024, '\0');
     Printer printer(&*buffer.begin(), buffer.size());
-    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    e.central_freelist().PrintSpanLifetimeStats(printer);
     buffer.resize(strlen(buffer.c_str()));
 
     EXPECT_THAT(
@@ -752,7 +752,7 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   {
     std::string buffer(1024 * 1024, '\0');
     Printer printer(&*buffer.begin(), buffer.size());
-    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    e.central_freelist().PrintSpanLifetimeStats(printer);
     buffer.resize(strlen(buffer.c_str()));
 
     EXPECT_THAT(
@@ -765,7 +765,7 @@ TEST_P(CentralFreeListTest, SpanLifetime) {
   {
     std::string buffer(1024 * 1024, '\0');
     Printer printer(&*buffer.begin(), buffer.size());
-    e.central_freelist().PrintSpanLifetimeStats(&printer);
+    e.central_freelist().PrintSpanLifetimeStats(printer);
     buffer.resize(strlen(buffer.c_str()));
 
     EXPECT_THAT(

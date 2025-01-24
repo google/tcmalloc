@@ -323,10 +323,10 @@ class SubreleaseStatsTracker {
     }
   }
 
-  void Print(Printer* out, absl::string_view field) const;
-  void PrintSubreleaseStatsInPbtxt(PbtxtRegion* hpaa,
+  void Print(Printer& out, absl::string_view field) const;
+  void PrintSubreleaseStatsInPbtxt(PbtxtRegion& hpaa,
                                    absl::string_view field) const;
-  void PrintTimeseriesStatsInPbtxt(PbtxtRegion* hpaa,
+  void PrintTimeseriesStatsInPbtxt(PbtxtRegion& hpaa,
                                    absl::string_view field) const;
 
   // Calculates recent peaks for skipping subrelease decisions. If our allocated
@@ -591,18 +591,18 @@ inline double safe_div(Length a, Length b) {
 }
 
 template <size_t kEpochs>
-void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
+void SubreleaseStatsTracker<kEpochs>::Print(Printer& out,
                                             absl::string_view field) const {
   NumberOfFreePages free_pages = min_free_pages(summary_interval_);
-  out->printf("%s: time series over %d min interval\n\n", field,
-              absl::ToInt64Minutes(summary_interval_));
+  out.printf("%s: time series over %d min interval\n\n", field,
+             absl::ToInt64Minutes(summary_interval_));
 
   // Realized fragmentation is equivalent to backed minimum free pages over a
   // 5-min interval. It is printed for convenience but not included in pbtxt.
-  out->printf("%s: realized fragmentation: %.1f MiB\n", field,
-              free_pages.free_backed.in_mib());
-  out->printf("%s: minimum free pages: %zu (%zu backed)\n", field,
-              free_pages.free.raw_num(), free_pages.free_backed.raw_num());
+  out.printf("%s: realized fragmentation: %.1f MiB\n", field,
+             free_pages.free_backed.in_mib());
+  out.printf("%s: minimum free pages: %zu (%zu backed)\n", field,
+             free_pages.free.raw_num(), free_pages.free_backed.raw_num());
 
   SubreleaseStatsEntry at_peak_demand;
 
@@ -618,7 +618,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
       },
       summary_interval_ / epoch_length_);
 
-  out->printf(
+  out.printf(
       "%s: at peak demand: %zu pages (and %zu free, %zu unmapped)\n"
       "%s: at peak demand: %zu hps (%zu regular, %zu donated, "
       "%zu partial, %zu released)\n",
@@ -633,7 +633,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
           .raw_num(),
       at_peak_demand.stats[kStatsAtMaxDemand].huge_pages[kReleased].raw_num());
 
-  out->printf(
+  out.printf(
       "\n%s: Since the start of the execution, %zu subreleases (%zu"
       " pages) were skipped due to either recent (%ds) peaks, or the sum of"
       " short-term (%ds) fluctuations and long-term (%ds) trends.\n",
@@ -650,7 +650,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
   double correctly_skipped_count_percentage =
       safe_div(100.0 * correctly_skipped().count, skipped_count);
 
-  out->printf(
+  out.printf(
       "%s: %.4f%% of decisions confirmed correct, %zu "
       "pending (%.4f%% of pages, %zu pending), as per anticipated %ds realized "
       "fragmentation.\n",
@@ -670,7 +670,7 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
         total_broken += e.num_hugepages_broken;
       },
       tracker_.kSkipEmptyEntries);
-  out->printf(
+  out.printf(
       "%s: Subrelease stats last %d min: total "
       "%zu pages subreleased (%zu pages from partial allocs), "
       "%zu hugepages broken\n",
@@ -681,8 +681,8 @@ void SubreleaseStatsTracker<kEpochs>::Print(Printer* out,
 
 template <size_t kEpochs>
 void SubreleaseStatsTracker<kEpochs>::PrintSubreleaseStatsInPbtxt(
-    PbtxtRegion* hpaa, absl::string_view field) const {
-  PbtxtRegion region = hpaa->CreateSubRegion(field);
+    PbtxtRegion& hpaa, absl::string_view field) const {
+  PbtxtRegion region = hpaa.CreateSubRegion(field);
   region.PrintI64(
       "skipped_subrelease_interval_ms",
       absl::ToInt64Milliseconds(last_skip_subrelease_intervals_.peak_interval));
@@ -707,8 +707,8 @@ void SubreleaseStatsTracker<kEpochs>::PrintSubreleaseStatsInPbtxt(
 
 template <size_t kEpochs>
 void SubreleaseStatsTracker<kEpochs>::PrintTimeseriesStatsInPbtxt(
-    PbtxtRegion* hpaa, absl::string_view field) const {
-  PbtxtRegion region = hpaa->CreateSubRegion(field);
+    PbtxtRegion& hpaa, absl::string_view field) const {
+  PbtxtRegion region = hpaa.CreateSubRegion(field);
   region.PrintI64("window_ms", absl::ToInt64Milliseconds(epoch_length_));
   region.PrintI64("epochs", kEpochs);
 

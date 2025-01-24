@@ -74,8 +74,8 @@ size_t LocalBytes(const TCMallocStats& stats);
 size_t SlackBytes(const BackingStats& stats);
 
 // WRITE stats to "out"
-void DumpStats(Printer* out, int level);
-void DumpStatsInPbtxt(Printer* out, int level);
+void DumpStats(Printer& out, int level);
+void DumpStatsInPbtxt(Printer& out, int level);
 
 bool GetNumericProperty(const char* name_data, size_t name_size, size_t* value);
 

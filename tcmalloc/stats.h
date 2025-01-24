@@ -85,11 +85,11 @@ inline LargeSpanStats operator+(LargeSpanStats lhs, LargeSpanStats rhs) {
   return lhs += rhs;
 }
 
-void PrintStats(const char* label, Printer* out, const BackingStats& backing,
+void PrintStats(const char* label, Printer& out, const BackingStats& backing,
                 const SmallSpanStats& small, const LargeSpanStats& large,
                 bool everything);
 
-void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
+void PrintStatsInPbtxt(PbtxtRegion& region, const SmallSpanStats& small,
                        const LargeSpanStats& large);
 
 enum class PageReleaseReason {
@@ -185,8 +185,8 @@ class PageAllocInfo {
   PageReleaseStats GetRecordedReleases() const;
 
   // And invoking this in their Print() implementation.
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* region, absl::string_view stat_name) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& region, absl::string_view stat_name) const;
 
   // Total size of allocations < 1 MiB
   Length small() const { return total_small_; }

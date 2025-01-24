@@ -26,19 +26,18 @@ GOOGLE_MALLOC_SECTION_BEGIN
 namespace tcmalloc {
 namespace tcmalloc_internal {
 
-void HugeAllocator::Print(Printer* out) {
-  out->printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
+void HugeAllocator::Print(Printer& out) {
+  out.printf("HugeAllocator: contiguous, unbacked hugepage(s)\n");
   free_.Print(out);
-  out->printf(
-      "HugeAllocator: %zu requested - %zu in use = %zu hugepages free\n",
-      from_system_.raw_num(), in_use_.raw_num(),
-      (from_system_ - in_use_).raw_num());
+  out.printf("HugeAllocator: %zu requested - %zu in use = %zu hugepages free\n",
+             from_system_.raw_num(), in_use_.raw_num(),
+             (from_system_ - in_use_).raw_num());
 }
 
-void HugeAllocator::PrintInPbtxt(PbtxtRegion* hpaa) const {
+void HugeAllocator::PrintInPbtxt(PbtxtRegion& hpaa) const {
   free_.PrintInPbtxt(hpaa);
-  hpaa->PrintI64("num_total_requested_huge_pages", from_system_.raw_num());
-  hpaa->PrintI64("num_in_use_huge_pages", in_use_.raw_num());
+  hpaa.PrintI64("num_total_requested_huge_pages", from_system_.raw_num());
+  hpaa.PrintI64("num_in_use_huge_pages", in_use_.raw_num());
 }
 
 HugeAddressMap::Node* HugeAllocator::Find(HugeLength n) {

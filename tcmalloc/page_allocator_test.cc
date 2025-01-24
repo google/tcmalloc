@@ -88,7 +88,7 @@ class PageAllocatorTest : public testing::Test {
   std::string Print() {
     std::vector<char> buf(1024 * 1024);
     Printer out(&buf[0], buf.size());
-    allocator_->Print(&out, MemoryTag::kNormal);
+    allocator_->Print(out, MemoryTag::kNormal);
 
     return std::string(&buf[0]);
   }

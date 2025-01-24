@@ -92,10 +92,10 @@ class PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) = 0;
 
   // Prints stats about the page heap to *out.
-  virtual void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
+  virtual void Print(Printer& out) ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   // Prints stats about the page heap in pbtxt format.
-  virtual void PrintInPbtxt(PbtxtRegion* region)
+  virtual void PrintInPbtxt(PbtxtRegion& region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) = 0;
 
   const PageAllocInfo& info() const

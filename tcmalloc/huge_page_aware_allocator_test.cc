@@ -273,7 +273,7 @@ class HugePageAwareAllocatorTest
     const size_t kSize = 1 << 20;
     ret.resize(kSize);
     Printer p(&ret[0], kSize);
-    allocator_->Print(&p);
+    allocator_->Print(p);
     ret.erase(p.SpaceRequired());
     return ret;
   }
@@ -284,8 +284,8 @@ class HugePageAwareAllocatorTest
     ret.resize(kSize);
     Printer p(&ret[0], kSize);
     {
-      PbtxtRegion region(&p, kNested);
-      allocator_->PrintInPbtxt(&region);
+      PbtxtRegion region(p, kNested);
+      allocator_->PrintInPbtxt(region);
     }
     ret.erase(p.SpaceRequired());
     return ret;
@@ -1154,7 +1154,7 @@ TEST_P(HugePageAwareAllocatorTest, LargeSmall) {
   constexpr size_t kBufferSize = 1024 * 1024;
   char buffer[kBufferSize];
   Printer printer(buffer, kBufferSize);
-  allocator_->Print(&printer);
+  allocator_->Print(printer);
   // Verify that we have less free memory than we allocated in total. We have
   // to account for bytes tied up in the cache.
   EXPECT_LE(stats.free_bytes - allocator_->cache()->size().in_bytes(),

@@ -94,8 +94,8 @@ class PageAllocator {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock);
 
   // Prints stats about the page heap to *out.
-  void Print(Printer* out, MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
-  void PrintInPbtxt(PbtxtRegion* region, MemoryTag tag)
+  void Print(Printer& out, MemoryTag tag) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void PrintInPbtxt(PbtxtRegion& region, MemoryTag tag)
       ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
   enum LimitKind { kSoft, kHard, kNumLimits };
@@ -324,7 +324,7 @@ inline PageReleaseStats PageAllocator::GetReleaseStats() const {
   return stats;
 }
 
-inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
+inline void PageAllocator::Print(Printer& out, MemoryTag tag) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
     return;
   }
@@ -334,15 +334,15 @@ inline void PageAllocator::Print(Printer* out, MemoryTag tag) {
 
   const absl::string_view label = MemoryTagToLabel(tag);
   if (tag != MemoryTag::kNormal) {
-    out->printf("\n>>>>>>> Begin %s page allocator <<<<<<<\n", label);
+    out.printf("\n>>>>>>> Begin %s page allocator <<<<<<<\n", label);
   }
   impl(tag)->Print(out);
   if (tag != MemoryTag::kNormal) {
-    out->printf(">>>>>>> End %s page allocator <<<<<<<\n", label);
+    out.printf(">>>>>>> End %s page allocator <<<<<<<\n", label);
   }
 }
 
-inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
+inline void PageAllocator::PrintInPbtxt(PbtxtRegion& region, MemoryTag tag) {
   if (tag == MemoryTag::kCold && !has_cold_impl_) {
     return;
   }
@@ -350,9 +350,9 @@ inline void PageAllocator::PrintInPbtxt(PbtxtRegion* region, MemoryTag tag) {
     return;
   }
 
-  PbtxtRegion pa = region->CreateSubRegion("page_allocator");
+  PbtxtRegion pa = region.CreateSubRegion("page_allocator");
   pa.PrintRaw("tag", MemoryTagToLabel(tag));
-  impl(tag)->PrintInPbtxt(&pa);
+  impl(tag)->PrintInPbtxt(pa);
 }
 
 inline void PageAllocator::set_limit(size_t limit, LimitKind limit_kind) {

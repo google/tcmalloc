@@ -1763,9 +1763,9 @@ class CpuCacheEnvironment {
         out.resize(128 << 10);
         ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
         Printer p(out.data(), out.size());
-        PbtxtRegion r(&p, kTop);
+        PbtxtRegion r(p, kTop);
 
-        cache_.PrintInPbtxt(&r);
+        cache_.PrintInPbtxt(r);
 
         benchmark::DoNotOptimize(out.data());
         break;
@@ -1776,7 +1776,7 @@ class CpuCacheEnvironment {
         ANNOTATE_MEMORY_IS_UNINITIALIZED(out.data(), out.size());
         Printer p(out.data(), out.size());
 
-        cache_.Print(&p);
+        cache_.Print(p);
 
         benchmark::DoNotOptimize(out.data());
         break;
@@ -1845,7 +1845,7 @@ TEST(CpuCacheTest, Fuzz) {
   std::string mallocz;
   mallocz.resize(128 << 10);
   Printer p(mallocz.data(), mallocz.size());
-  env.cache().Print(&p);
+  env.cache().Print(p);
   std::cout << mallocz;
 }
 

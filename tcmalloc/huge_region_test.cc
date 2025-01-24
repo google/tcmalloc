@@ -1034,7 +1034,7 @@ TEST_P(HugeRegionSetTest, SkipSubrelease) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    set_.Print(&printer);
+    set_.Print(printer);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -1174,7 +1174,7 @@ TEST_P(HugeRegionSetTest, Set) {
   // Print out the stats for inspection of formats.
   std::vector<char> buf(64 * 1024);
   Printer out(&buf[0], buf.size());
-  set_.Print(&out);
+  set_.Print(out);
   printf("%s\n", &buf[0]);
 }
 

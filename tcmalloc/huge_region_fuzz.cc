@@ -192,8 +192,8 @@ void FuzzRegion(const std::string& s) {
           // value is unused.
           Printer p(&output[0], output.size());
           {
-            PbtxtRegion r(&p, kTop);
-            region.PrintInPbtxt(&r);
+            PbtxtRegion r(p, kTop);
+            region.PrintInPbtxt(r);
           }
           CHECK_LE(p.SpaceRequired(), output.size());
           break;
@@ -203,7 +203,7 @@ void FuzzRegion(const std::string& s) {
           //
           // value is unused.
           Printer p(&output[0], output.size());
-          region.Print(&p);
+          region.Print(p);
           break;
         }
       }

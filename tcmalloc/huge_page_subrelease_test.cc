@@ -157,7 +157,7 @@ TEST_F(StatsTrackerTest, Works) {
     std::string buffer(1024 * 1024, '\0');
     Printer printer(&*buffer.begin(), buffer.size());
     {
-      tracker_.Print(&printer, "StatsTracker");
+      tracker_.Print(printer, "StatsTracker");
       buffer.erase(printer.SpaceRequired());
     }
 

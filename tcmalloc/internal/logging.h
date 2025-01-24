@@ -262,6 +262,9 @@ class Printer {
     buf[0] = '\0';
   }
 
+  Printer(const Printer&) = delete;
+  Printer(Printer&&) = default;
+
   template <typename... Args>
   void printf(const absl::FormatSpec<Args...>& format, const Args&... args) {
     AllocationGuard enforce_no_alloc;
@@ -320,7 +323,7 @@ enum PbtxtRegionType { kTop, kNested };
 // brackets).
 class PbtxtRegion {
  public:
-  PbtxtRegion(Printer* out, PbtxtRegionType type);
+  PbtxtRegion(Printer& out ABSL_ATTRIBUTE_LIFETIME_BOUND, PbtxtRegionType type);
   ~PbtxtRegion();
 
   PbtxtRegion(const PbtxtRegion&) = delete;
@@ -334,7 +337,8 @@ class PbtxtRegion {
   void PrintRaw(absl::string_view key, absl::string_view value);
 
   // Prints 'key subregion'. Return the created subregion.
-  PbtxtRegion CreateSubRegion(absl::string_view key);
+  PbtxtRegion CreateSubRegion(absl::string_view key)
+      ABSL_ATTRIBUTE_LIFETIME_BOUND;
 
 #ifndef NDEBUG
   static void InjectValues(int64_t* i64, double* d, bool* b);

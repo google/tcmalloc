@@ -299,8 +299,8 @@ static int GetChainedInterval() {
   }
 }
 
-void GuardedPageAllocator::Print(Printer* out) {
-  out->printf(
+void GuardedPageAllocator::Print(Printer& out) {
+  out.printf(
       "\n"
       "------------------------------------------------\n"
       "GWP-ASan Status\n"
@@ -338,23 +338,23 @@ void GuardedPageAllocator::Print(Printer* out) {
       GetChainedInterval());
 }
 
-void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion* gwp_asan) {
-  gwp_asan->PrintI64("successful_allocations", successful_allocations_.value());
-  gwp_asan->PrintI64("failed_allocations", failed_allocations_.value());
-  gwp_asan->PrintI64("skipped_allocations_noslots",
-                     skipped_allocations_noslots_.value());
-  gwp_asan->PrintI64("skipped_allocations_filtered",
-                     skipped_allocations_filtered_.value());
-  gwp_asan->PrintI64("skipped_allocations_toolarge",
-                     skipped_allocations_toolarge_.value());
-  gwp_asan->PrintI64("allocated_pages", allocated_pages());
-  gwp_asan->PrintI64("quarantine_pages", total_pages_ - allocated_pages());
-  gwp_asan->PrintI64("high_allocated_pages",
-                     high_allocated_pages_.load(std::memory_order_relaxed));
-  gwp_asan->PrintI64("max_allocated_pages", max_allocated_pages_);
-  gwp_asan->PrintI64("pages_touched", pages_touched_.value());
-  gwp_asan->PrintI64("total_pages", total_pages_);
-  gwp_asan->PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
+void GuardedPageAllocator::PrintInPbtxt(PbtxtRegion& gwp_asan) {
+  gwp_asan.PrintI64("successful_allocations", successful_allocations_.value());
+  gwp_asan.PrintI64("failed_allocations", failed_allocations_.value());
+  gwp_asan.PrintI64("skipped_allocations_noslots",
+                    skipped_allocations_noslots_.value());
+  gwp_asan.PrintI64("skipped_allocations_filtered",
+                    skipped_allocations_filtered_.value());
+  gwp_asan.PrintI64("skipped_allocations_toolarge",
+                    skipped_allocations_toolarge_.value());
+  gwp_asan.PrintI64("allocated_pages", allocated_pages());
+  gwp_asan.PrintI64("quarantine_pages", total_pages_ - allocated_pages());
+  gwp_asan.PrintI64("high_allocated_pages",
+                    high_allocated_pages_.load(std::memory_order_relaxed));
+  gwp_asan.PrintI64("max_allocated_pages", max_allocated_pages_);
+  gwp_asan.PrintI64("pages_touched", pages_touched_.value());
+  gwp_asan.PrintI64("total_pages", total_pages_);
+  gwp_asan.PrintI64("tcmalloc_guarded_sample_parameter", GetChainedInterval());
 }
 
 // Maps 2 * total_pages_ + 1 pages so that there are total_pages_ unique pages

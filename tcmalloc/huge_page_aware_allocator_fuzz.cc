@@ -360,8 +360,8 @@ void FuzzHPAA(const std::string& s) {
           // value is unused.
           Printer p(&output[0], output.size());
           {
-            PbtxtRegion region(&p, kTop);
-            allocator->PrintInPbtxt(&region);
+            PbtxtRegion region(p, kTop);
+            allocator->PrintInPbtxt(region);
           }
           CHECK_LE(p.SpaceRequired(), output.size());
           break;
@@ -373,7 +373,7 @@ void FuzzHPAA(const std::string& s) {
           // value[63:1]: Reserved.
           Printer p(&output[0], output.size());
           bool everything = (value % 2 == 0);
-          allocator->Print(&p, everything);
+          allocator->Print(p, everything);
           break;
         }
         case 6: {

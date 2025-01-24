@@ -184,8 +184,8 @@ inline ABSL_ATTRIBUTE_ALWAYS_INLINE void* UpdateTag(void* ptr, size_t size) {
   return reinterpret_cast<void*>(p);
 }
 
-void PrintTextStats(Printer* out);
-void PrintPbtxtStats(PbtxtRegion* out);
+void PrintTextStats(Printer& out);
+void PrintPbtxtStats(PbtxtRegion& out);
 
 #else  // #ifdef TCMALLOC_INTERNAL_SELSAN
 
@@ -197,8 +197,8 @@ inline bool IsEnabled() { return false; }
 inline bool ShouldSample() { return false; }
 inline int SamplingPercent() { return 0; }
 inline void SetSamplingPercent(int v) {}
-inline void PrintTextStats(Printer* out) {}
-inline void PrintPbtxtStats(PbtxtRegion* out) {}
+inline void PrintTextStats(Printer& out) {}
+inline void PrintPbtxtStats(PbtxtRegion& out) {}
 
 #endif  // #ifdef TCMALLOC_INTERNAL_SELSAN
 

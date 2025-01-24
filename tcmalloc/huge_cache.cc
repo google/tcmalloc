@@ -60,26 +60,27 @@ HugeLength MinMaxTracker<kEpochs>::MinOverTime(absl::Duration t) const {
 }
 
 template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::Print(Printer* out) const {
+void MinMaxTracker<kEpochs>::Print(Printer& out) const {
   // Prints timestamp:min_pages:max_pages for each window with records.
   // Timestamp == kEpochs - 1 is the most recent measurement.
   const int64_t millis = absl::ToInt64Milliseconds(kEpochLength);
-  out->printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
+  out.printf("\nHugeCache: window %lldms * %zu", millis, kEpochs);
   int written = 0;
   timeseries_.Iter(
       [&](size_t offset, const Extrema& e) {
-        if ((written++) % 100 == 0)
-          out->printf("\nHugeCache: Usage timeseries ");
-        out->printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
+        if ((written++) % 100 == 0) {
+          out.printf("\nHugeCache: Usage timeseries ");
+        }
+        out.printf("%zu:%zu:%zd,", offset, e.min.raw_num(), e.max.raw_num());
       },
       timeseries_.kSkipEmptyEntries);
-  out->printf("\n");
+  out.printf("\n");
 }
 
 template <size_t kEpochs>
-void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion* hpaa) const {
+void MinMaxTracker<kEpochs>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   // Prints content of each non-empty epoch, from oldest to most recent data
-  auto huge_cache_history = hpaa->CreateSubRegion("huge_cache_history");
+  auto huge_cache_history = hpaa.CreateSubRegion("huge_cache_history");
   huge_cache_history.PrintI64("window_ms",
                               absl::ToInt64Milliseconds(kEpochLength));
   huge_cache_history.PrintI64("epochs", kEpochs);
@@ -454,9 +455,9 @@ HugeAddressMap::Node* HugeCache::Find(HugeLength n) {
   return best;
 }
 
-void HugeCache::Print(Printer* out) {
+void HugeCache::Print(Printer& out) {
   const int64_t millis = absl::ToInt64Milliseconds(cache_time_);
-  out->printf(
+  out.printf(
       "HugeCache: contains unused, backed hugepage(s) "
       "(cache_time = %lldms)\n",
       millis);
@@ -470,19 +471,19 @@ void HugeCache::Print(Printer* out) {
   const double hit_rate = safe_ratio(hits_, misses_);
   const double overflow_rate = safe_ratio(overflows_, fills_);
 
-  out->printf(
+  out.printf(
       "HugeCache: %zu / %zu hugepages cached / cache limit "
       "(%.3f hit rate, %.3f overflow rate)\n",
       size_.raw_num(), limit().raw_num(), hit_rate, overflow_rate);
-  out->printf("HugeCache: %zu MiB fast unbacked, %zu MiB periodic\n",
-              total_fast_unbacked_.in_bytes() / 1024 / 1024,
-              total_periodic_unbacked_.in_bytes() / 1024 / 1024);
+  out.printf("HugeCache: %zu MiB fast unbacked, %zu MiB periodic\n",
+             total_fast_unbacked_.in_bytes() / 1024 / 1024,
+             total_periodic_unbacked_.in_bytes() / 1024 / 1024);
   UpdateSize(size());
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(cache_time_);
   const HugeLength usage_max = usage_tracker_.MaxOverTime(cache_time_);
-  out->printf(
+  out.printf(
       "HugeCache: recent usage range: %zu min - %zu curr -  %zu max MiB\n",
       usage_min.in_mib(), usage_.in_mib(), usage_max.in_mib());
 
@@ -490,21 +491,21 @@ void HugeCache::Print(Printer* out) {
   off_peak_tracker_.Report(off_peak);
   const HugeLength off_peak_min = off_peak_tracker_.MinOverTime(cache_time_);
   const HugeLength off_peak_max = off_peak_tracker_.MaxOverTime(cache_time_);
-  out->printf(
+  out.printf(
       "HugeCache: recent offpeak range: %zu min - %zu curr - %zu max MiB\n",
       off_peak_min.in_mib(), off_peak.in_mib(), off_peak_max.in_mib());
 
   const HugeLength cache_min = size_tracker_.MinOverTime(cache_time_);
   const HugeLength cache_max = size_tracker_.MaxOverTime(cache_time_);
-  out->printf(
+  out.printf(
       "HugeCache: recent cache range: %zu min - %zu curr - %zu max MiB\n",
       cache_min.in_mib(), size_.in_mib(), cache_max.in_mib());
 
   detailed_tracker_.Print(out);
 
   // Release stats tracked by the demand-based release mechanism.
-  out->printf("\n");
-  out->printf(
+  out.printf("\n");
+  out.printf(
       "HugeCache: Since startup, %zu hugepages released, "
       "(%zu hugepages due to reaching tcmalloc limit)\n",
       HLFromPages(hugepage_release_stats_.total_pages_subreleased).raw_num(),
@@ -514,9 +515,9 @@ void HugeCache::Print(Printer* out) {
   cachestats_tracker_.Print(out, "HugeCache");
 }
 
-void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
-  hpaa->PrintI64("huge_cache_time_const",
-                 absl::ToInt64Milliseconds(cache_time_));
+void HugeCache::PrintInPbtxt(PbtxtRegion& hpaa) {
+  hpaa.PrintI64("huge_cache_time_const",
+                absl::ToInt64Milliseconds(cache_time_));
 
   // a / (a + b), avoiding division by zero
   auto safe_ratio = [](double a, double b) {
@@ -529,25 +530,24 @@ void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
   const double overflow_rate = safe_ratio(overflows_, fills_);
 
   // number of bytes in HugeCache
-  hpaa->PrintI64("cached_huge_page_bytes", size_.in_bytes());
+  hpaa.PrintI64("cached_huge_page_bytes", size_.in_bytes());
   // max allowed bytes in HugeCache
-  hpaa->PrintI64("max_cached_huge_page_bytes", limit().in_bytes());
+  hpaa.PrintI64("max_cached_huge_page_bytes", limit().in_bytes());
   // lifetime cache hit rate
-  hpaa->PrintDouble("huge_cache_hit_rate", hit_rate);
+  hpaa.PrintDouble("huge_cache_hit_rate", hit_rate);
   // lifetime cache overflow rate
-  hpaa->PrintDouble("huge_cache_overflow_rate", overflow_rate);
+  hpaa.PrintDouble("huge_cache_overflow_rate", overflow_rate);
   // bytes eagerly unbacked by HugeCache
-  hpaa->PrintI64("fast_unbacked_bytes", total_fast_unbacked_.in_bytes());
+  hpaa.PrintI64("fast_unbacked_bytes", total_fast_unbacked_.in_bytes());
   // bytes unbacked by periodic releaser thread
-  hpaa->PrintI64("periodic_unbacked_bytes",
-                 total_periodic_unbacked_.in_bytes());
+  hpaa.PrintI64("periodic_unbacked_bytes", total_periodic_unbacked_.in_bytes());
   UpdateSize(size());
 
   usage_tracker_.Report(usage_);
   const HugeLength usage_min = usage_tracker_.MinOverTime(cache_time_);
   const HugeLength usage_max = usage_tracker_.MaxOverTime(cache_time_);
   {
-    auto usage_stats = hpaa->CreateSubRegion("huge_cache_usage_stats");
+    auto usage_stats = hpaa.CreateSubRegion("huge_cache_usage_stats");
     usage_stats.PrintI64("min_bytes", usage_min.in_bytes());
     usage_stats.PrintI64("current_bytes", usage_.in_bytes());
     usage_stats.PrintI64("max_bytes", usage_max.in_bytes());
@@ -558,7 +558,7 @@ void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
   const HugeLength off_peak_min = off_peak_tracker_.MinOverTime(cache_time_);
   const HugeLength off_peak_max = off_peak_tracker_.MaxOverTime(cache_time_);
   {
-    auto usage_stats = hpaa->CreateSubRegion("huge_cache_offpeak_stats");
+    auto usage_stats = hpaa.CreateSubRegion("huge_cache_offpeak_stats");
     usage_stats.PrintI64("min_bytes", off_peak_min.in_bytes());
     usage_stats.PrintI64("current_bytes", off_peak.in_bytes());
     usage_stats.PrintI64("max_bytes", off_peak_max.in_bytes());
@@ -567,15 +567,15 @@ void HugeCache::PrintInPbtxt(PbtxtRegion* hpaa) {
   const HugeLength cache_min = size_tracker_.MinOverTime(cache_time_);
   const HugeLength cache_max = size_tracker_.MaxOverTime(cache_time_);
   {
-    auto usage_stats = hpaa->CreateSubRegion("huge_cache_cache_stats");
+    auto usage_stats = hpaa.CreateSubRegion("huge_cache_cache_stats");
     usage_stats.PrintI64("min_bytes", cache_min.in_bytes());
     usage_stats.PrintI64("current_bytes", size_.in_bytes());
     usage_stats.PrintI64("max_bytes", cache_max.in_bytes());
   }
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "cache_num_hugepages_released",
       HLFromPages(hugepage_release_stats_.total_pages_subreleased).raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "cache_num_hugepages_released_due_to_limit",
       HLFromPages(hugepage_release_stats_.total_pages_subreleased_due_to_limit)
           .raw_num());

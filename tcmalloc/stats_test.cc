@@ -40,7 +40,7 @@ class PrintTest : public ::testing::Test {
   void ExpectStats(const BackingStats& back, const SmallSpanStats& small,
                    const LargeSpanStats& large, const std::string& expected) {
     Printer out(&buf_[0], kBufferSize);
-    PrintStats("PrintTest", &out, back, small, large, true);
+    PrintStats("PrintTest", out, back, small, large, true);
     EXPECT_EQ(expected, buf_);
   }
 

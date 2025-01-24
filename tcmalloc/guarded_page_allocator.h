@@ -165,8 +165,8 @@ class GuardedPageAllocator {
 
   // Writes a human-readable summary of GuardedPageAllocator's internal state to
   // *out.
-  void Print(Printer* out) ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
-  void PrintInPbtxt(PbtxtRegion* gwp_asan)
+  void Print(Printer& out) ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
+  void PrintInPbtxt(PbtxtRegion& gwp_asan)
       ABSL_LOCKS_EXCLUDED(guarded_page_lock_);
 
   // Returns true if ptr points to memory managed by this class.

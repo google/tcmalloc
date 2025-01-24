@@ -389,8 +389,8 @@ class HugePageFiller {
   SubreleaseStats subrelease_stats() const { return subrelease_stats_; }
 
   HugePageFillerStats GetStats() const;
-  void Print(Printer* out, bool everything);
-  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void Print(Printer& out, bool everything);
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
   template <typename F>
   void ForEachHugePage(const F& func)
@@ -457,7 +457,7 @@ class HugePageFiller {
   // multi-hugepage allocation.
   void DonateToFillerList(TrackerType* pt);
 
-  void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion* hpaa,
+  void PrintAllocStatsInPbtxt(absl::string_view field, PbtxtRegion& hpaa,
                               const HugePageFillerStats& stats,
                               AccessDensityPrediction count) const;
   // CompareForSubrelease identifies the worse candidate for subrelease, between
@@ -1312,7 +1312,7 @@ class UsageInfo {
     ++total_pages_[which];
   }
 
-  void Print(Printer* out) {
+  void Print(Printer& out) {
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
       PrintHisto(out, free_page_histo_[type], type,
@@ -1338,11 +1338,11 @@ class UsageInfo {
     for (int j = 0; j < buckets_size_; ++j) {
       if (nalloc_histo_[kSparseRegular][j] == 0) continue;
       if (j == 0) {
-        out->printf(
+        out.printf(
             "\nHugePageFiller: # of %s hps with allocated spans (%3zu, %6zu]",
             TypeToStr(kSparseRegular), 0, bucket_bounds_[j] + 1);
       } else {
-        out->printf(
+        out.printf(
             "\nHugePageFiller: # of %s hps with allocated spans (%3zu, %6zu]",
             TypeToStr(kSparseRegular), bucket_bounds_[j - 1] + 1,
             bucket_bounds_[j] + 1);
@@ -1357,7 +1357,7 @@ class UsageInfo {
                          "hps with lifetime a <= # hps < b");
     }
 
-    out->printf(
+    out.printf(
         "\nHugePageFiller: # of hps with >= %3zu free pages, with different "
         "lifetimes.",
         kLowOccupancyNumFreePages.raw_num());
@@ -1367,8 +1367,8 @@ class UsageInfo {
                          "hps with lifetime a <= # hps < b");
     }
 
-    out->printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
-                absl::ToInt64Milliseconds(kLongLivedLifetime));
+    out.printf("\nHugePageFiller: # of hps with lifetime >= %3zu ms.",
+               absl::ToInt64Milliseconds(kLongLivedLifetime));
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
       PrintHisto(out, long_lived_hps_histo_[type], type,
@@ -1377,39 +1377,39 @@ class UsageInfo {
 
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
-      out->printf(
+      out.printf(
           "\nHugePageFiller: %zu of %s pages hugepage backed out of %zu.",
           hugepage_backed_[type], TypeToStr(type), total_pages_[type]);
     }
-    out->printf("\n");
+    out.printf("\n");
   }
 
-  void Print(PbtxtRegion* hpaa) {
+  void Print(PbtxtRegion& hpaa) {
     for (int i = 0; i < kNumTypes; ++i) {
       const Type type = static_cast<Type>(i);
-      PbtxtRegion scoped = hpaa->CreateSubRegion("filler_tracker");
+      PbtxtRegion scoped = hpaa.CreateSubRegion("filler_tracker");
       scoped.PrintRaw("type", AllocType(type));
       scoped.PrintRaw("objects", ObjectType(type));
-      PrintHisto(&scoped, free_page_histo_[i], "free_pages_histogram", 0);
-      PrintHisto(&scoped, longest_free_histo_[i],
-                 "longest_free_range_histogram", 0);
-      PrintHisto(&scoped, nalloc_histo_[i], "allocations_histogram", 1);
-      PrintLifetimeHisto(&scoped, lifetime_histo_[i], "lifetime_histogram");
-      PrintLifetimeHisto(&scoped, low_occupancy_lifetime_histo_[i],
+      PrintHisto(scoped, free_page_histo_[i], "free_pages_histogram", 0);
+      PrintHisto(scoped, longest_free_histo_[i], "longest_free_range_histogram",
+                 0);
+      PrintHisto(scoped, nalloc_histo_[i], "allocations_histogram", 1);
+      PrintLifetimeHisto(scoped, lifetime_histo_[i], "lifetime_histogram");
+      PrintLifetimeHisto(scoped, low_occupancy_lifetime_histo_[i],
                          "low_occupancy_lifetime_histogram");
-      PrintHisto(&scoped, long_lived_hps_histo_[i],
+      PrintHisto(scoped, long_lived_hps_histo_[i],
                  "long_lived_hugepages_histogram", 0);
       if (type == kSparseRegular) {
         for (int j = 0; j < buckets_size_; ++j) {
           if (nalloc_histo_[i][j] == 0) continue;
           PbtxtRegion twodhist =
-              hpaa->CreateSubRegion("allocations_free_pages_histogram");
+              hpaa.CreateSubRegion("allocations_free_pages_histogram");
           twodhist.PrintI64("lower_bound", bucket_bounds_[j] + 1);
           twodhist.PrintI64("upper_bound", (j == buckets_size_ - 1
                                                 ? bucket_bounds_[j]
                                                 : bucket_bounds_[j + 1] - 1) +
                                                1);
-          PrintHisto(&twodhist, nalloc_free_page_histo_[j], "entry", 0);
+          PrintHisto(twodhist, nalloc_free_page_histo_[j], "entry", 0);
         }
       }
       scoped.PrintI64("total_pages", total_pages_[type]);
@@ -1451,34 +1451,34 @@ class UsageInfo {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
-  void PrintHisto(Printer* out, Histo h, Type type, const char blurb[],
+  void PrintHisto(Printer& out, Histo h, Type type, const char blurb[],
                   size_t offset) {
-    out->printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (i % 6 == 0) {
-        out->printf("\nHugePageFiller:");
+        out.printf("\nHugePageFiller:");
       }
-      out->printf(" <%3zu<=%6zu", bucket_bounds_[i] + offset, h[i]);
+      out.printf(" <%3zu<=%6zu", bucket_bounds_[i] + offset, h[i]);
     }
-    out->printf("\n");
+    out.printf("\n");
   }
 
-  void PrintLifetimeHisto(Printer* out, Histo h, Type type,
+  void PrintLifetimeHisto(Printer& out, Histo h, Type type,
                           const char blurb[]) {
-    out->printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
+    out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (i % 6 == 0) {
-        out->printf("\nHugePageFiller:");
+        out.printf("\nHugePageFiller:");
       }
-      out->printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
+      out.printf(" < %3zu ms <= %6zu", lifetime_bucket_bounds_[i], h[i]);
     }
-    out->printf("\n");
+    out.printf("\n");
   }
 
-  void PrintHisto(PbtxtRegion* hpaa, Histo h, const char key[], size_t offset) {
+  void PrintHisto(PbtxtRegion& hpaa, Histo h, const char key[], size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (h[i] == 0) continue;
-      auto hist = hpaa->CreateSubRegion(key);
+      auto hist = hpaa.CreateSubRegion(key);
       hist.PrintI64("lower_bound", bucket_bounds_[i] + offset);
       hist.PrintI64("upper_bound",
                     (i == buckets_size_ - 1 ? bucket_bounds_[i]
@@ -1488,10 +1488,10 @@ class UsageInfo {
     }
   }
 
-  void PrintLifetimeHisto(PbtxtRegion* hpaa, Histo h, const char key[]) {
+  void PrintLifetimeHisto(PbtxtRegion& hpaa, Histo h, const char key[]) {
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (h[i] == 0) continue;
-      auto hist = hpaa->CreateSubRegion(key);
+      auto hist = hpaa.CreateSubRegion(key);
       hist.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
       hist.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
                                         ? lifetime_bucket_bounds_[i]
@@ -1638,8 +1638,8 @@ inline HugePageFillerStats HugePageFiller<TrackerType>::GetStats() const {
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
-  out->printf("HugePageFiller: densely pack small requests into hugepages\n");
+inline void HugePageFiller<TrackerType>::Print(Printer& out, bool everything) {
+  out.printf("HugePageFiller: densely pack small requests into hugepages\n");
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -1651,7 +1651,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
                           : static_cast<double>(a.raw_num()) /
                                 static_cast<double>(b.raw_num());
   };
-  out->printf(
+  out.printf(
       "HugePageFiller: Overall, %zu total, %zu full, %zu partial, %zu released "
       "(%zu partially), 0 quarantined\n",
       size().raw_num(),
@@ -1661,7 +1661,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
       stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
           .raw_num());
 
-  out->printf(
+  out.printf(
       "HugePageFiller: those with sparsely-accessed spans, %zu total, "
       "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
       stats.n_total[AccessDensityPrediction::kSparse].raw_num(),
@@ -1670,7 +1670,7 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
       stats.n_released[AccessDensityPrediction::kSparse].raw_num(),
       stats.n_partial_released[AccessDensityPrediction::kSparse].raw_num());
 
-  out->printf(
+  out.printf(
       "HugePageFiller: those with densely-accessed spans, %zu total, "
       "%zu full, %zu partial, %zu released (%zu partially), 0 quarantined\n",
       stats.n_total[AccessDensityPrediction::kDense].raw_num(),
@@ -1679,34 +1679,34 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
       stats.n_released[AccessDensityPrediction::kDense].raw_num(),
       stats.n_partial_released[AccessDensityPrediction::kDense].raw_num());
 
-  out->printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
-              free_pages().raw_num(), size().raw_num(),
-              safe_div(free_pages(), size().in_pages()));
+  out.printf("HugePageFiller: %zu pages free in %zu hugepages, %.4f free\n",
+             free_pages().raw_num(), size().raw_num(),
+             safe_div(free_pages(), size().in_pages()));
 
   const HugeLength n_nonfull =
       stats.n_partial[AccessDensityPrediction::kPredictionCounts] +
       stats.n_partial_released[AccessDensityPrediction::kPredictionCounts];
   TC_ASSERT_LE(free_pages(), n_nonfull.in_pages());
-  out->printf("HugePageFiller: among non-fulls, %.4f free\n",
-              safe_div(free_pages(), n_nonfull.in_pages()));
+  out.printf("HugePageFiller: among non-fulls, %.4f free\n",
+             safe_div(free_pages(), n_nonfull.in_pages()));
 
-  out->printf(
+  out.printf(
       "HugePageFiller: %zu used pages in subreleased hugepages (%zu of them in "
       "partially released)\n",
       used_pages_in_any_subreleased().raw_num(),
       used_pages_in_partial_released().raw_num());
 
-  out->printf(
+  out.printf(
       "HugePageFiller: %zu hugepages partially released, %.4f released\n",
       stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num(),
       safe_div(unmapped_pages(),
                stats.n_released[AccessDensityPrediction::kPredictionCounts]
                    .in_pages()));
-  out->printf("HugePageFiller: %.4f of used pages hugepageable\n",
-              hugepage_frac());
+  out.printf("HugePageFiller: %.4f of used pages hugepageable\n",
+             hugepage_frac());
 
   // Subrelease
-  out->printf(
+  out.printf(
       "HugePageFiller: Since startup, %zu pages subreleased, %zu hugepages "
       "broken, (%zu pages, %zu hugepages due to reaching tcmalloc limit)\n",
       subrelease_stats_.total_pages_subreleased.raw_num(),
@@ -1760,27 +1760,27 @@ inline void HugePageFiller<TrackerType>::Print(Printer* out, bool everything) {
       },
       0);
 
-  out->printf(
+  out.printf(
       "HugePageFiller: %zu hugepages became full after being previously "
       "released, "
       "out of which %zu pages are hugepage backed.\n",
       previously_released_huge_pages().raw_num(),
       usage.HugepageBackedPreviouslyReleased());
 
-  out->printf("\n");
-  out->printf("HugePageFiller: fullness histograms\n");
+  out.printf("\n");
+  out.printf("HugePageFiller: fullness histograms\n");
   usage.Print(out);
 
-  out->printf("\n");
+  out.printf("\n");
   fillerstats_tracker_.Print(out, "HugePageFiller");
 }
 
 template <class TrackerType>
 inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
-    absl::string_view field, PbtxtRegion* hpaa,
+    absl::string_view field, PbtxtRegion& hpaa,
     const HugePageFillerStats& stats, AccessDensityPrediction count) const {
   TC_ASSERT_LT(count, AccessDensityPrediction::kPredictionCounts);
-  PbtxtRegion alloc_region = hpaa->CreateSubRegion(field);
+  PbtxtRegion alloc_region = hpaa.CreateSubRegion(field);
   alloc_region.PrintI64("full_huge_pages", stats.n_full[count].raw_num());
   alloc_region.PrintI64("partial_huge_pages", stats.n_partial[count].raw_num());
   alloc_region.PrintI64("released_huge_pages",
@@ -1790,7 +1790,7 @@ inline void HugePageFiller<TrackerType>::PrintAllocStatsInPbtxt(
 }
 
 template <class TrackerType>
-inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
+inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion& hpaa) const {
   const HugePageFillerStats stats = GetStats();
 
   // A donated alloc full list is impossible because it would have never been
@@ -1803,16 +1803,16 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
                                 static_cast<double>(b.raw_num());
   };
 
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_full_huge_pages",
       stats.n_full[AccessDensityPrediction::kPredictionCounts].raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_partial_huge_pages",
       stats.n_partial[AccessDensityPrediction::kPredictionCounts].raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_released_huge_pages",
       stats.n_released[AccessDensityPrediction::kPredictionCounts].raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_partially_released_huge_pages",
       stats.n_partial_released[AccessDensityPrediction::kPredictionCounts]
           .raw_num());
@@ -1822,12 +1822,12 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
   PrintAllocStatsInPbtxt("filler_densely_accessed_alloc_stats", hpaa, stats,
                          AccessDensityPrediction::kDense);
 
-  hpaa->PrintI64("filler_free_pages", free_pages().raw_num());
-  hpaa->PrintI64("filler_used_pages_in_subreleased",
-                 used_pages_in_any_subreleased().raw_num());
-  hpaa->PrintI64("filler_used_pages_in_partial_released",
-                 used_pages_in_partial_released().raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64("filler_free_pages", free_pages().raw_num());
+  hpaa.PrintI64("filler_used_pages_in_subreleased",
+                used_pages_in_any_subreleased().raw_num());
+  hpaa.PrintI64("filler_used_pages_in_partial_released",
+                used_pages_in_partial_released().raw_num());
+  hpaa.PrintI64(
       "filler_unmapped_bytes",
       static_cast<uint64_t>(
           stats.n_released[AccessDensityPrediction::kPredictionCounts]
@@ -1835,23 +1835,23 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
           safe_div(unmapped_pages(),
                    stats.n_released[AccessDensityPrediction::kPredictionCounts]
                        .in_pages())));
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_hugepageable_used_bytes",
       static_cast<uint64_t>(
           hugepage_frac() *
           static_cast<double>(
               pages_allocated_[AccessDensityPrediction::kSparse].in_bytes() +
               pages_allocated_[AccessDensityPrediction::kDense].in_bytes())));
-  hpaa->PrintI64("filler_previously_released_huge_pages",
-                 previously_released_huge_pages().raw_num());
-  hpaa->PrintI64("filler_num_pages_subreleased",
-                 subrelease_stats_.total_pages_subreleased.raw_num());
-  hpaa->PrintI64("filler_num_hugepages_broken",
-                 subrelease_stats_.total_hugepages_broken.raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64("filler_previously_released_huge_pages",
+                previously_released_huge_pages().raw_num());
+  hpaa.PrintI64("filler_num_pages_subreleased",
+                subrelease_stats_.total_pages_subreleased.raw_num());
+  hpaa.PrintI64("filler_num_hugepages_broken",
+                subrelease_stats_.total_hugepages_broken.raw_num());
+  hpaa.PrintI64(
       "filler_num_pages_subreleased_due_to_limit",
       subrelease_stats_.total_pages_subreleased_due_to_limit.raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64(
       "filler_num_hugepages_broken_due_to_limit",
       subrelease_stats_.total_hugepages_broken_due_to_limit.raw_num());
   // Compute some histograms of fullness.
@@ -1898,8 +1898,8 @@ inline void HugePageFiller<TrackerType>::PrintInPbtxt(PbtxtRegion* hpaa) const {
       },
       0);
 
-  hpaa->PrintI64("filler_previously_released_backed_huge_pages",
-                 usage.HugepageBackedPreviouslyReleased());
+  hpaa.PrintI64("filler_previously_released_backed_huge_pages",
+                usage.HugepageBackedPreviouslyReleased());
   usage.Print(hpaa);
   fillerstats_tracker_.PrintSubreleaseStatsInPbtxt(hpaa,
                                                    "filler_skipped_subrelease");

@@ -1349,7 +1349,7 @@ TEST_P(FillerTest, PrintFreeRatio) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
+    filler_.Print(printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
 
@@ -1686,7 +1686,7 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer, testing::HasSubstr(
@@ -1703,7 +1703,7 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
 
   buffer.resize(strlen(buffer.c_str()));
@@ -1721,7 +1721,7 @@ TEST_P(FillerTest, CheckPreviouslyReleasedStats) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer,
@@ -1746,7 +1746,7 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer,
@@ -1763,7 +1763,7 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
 
   buffer.resize(strlen(buffer.c_str()));
@@ -1781,7 +1781,7 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer,
@@ -1797,7 +1797,7 @@ TEST_P(FillerTest, CheckFullReleasedFullReleasedState) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer,
@@ -2051,7 +2051,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -2276,7 +2276,7 @@ TEST_P(FillerTest, SkipPartialAllocSubrelease_SpansAllocated) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -2480,7 +2480,7 @@ TEST_P(FillerTest, SkipSubrelease) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -2700,7 +2700,7 @@ TEST_P(FillerTest, SkipSubrelease_SpansAllocated) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -2727,7 +2727,7 @@ TEST_P(FillerTest, LifetimeTelemetryTest) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -2850,7 +2850,7 @@ HugePageFiller: <254<=     0 <255<=     0
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
 
   EXPECT_THAT(buffer, testing::HasSubstr(R"(
@@ -3022,7 +3022,7 @@ TEST_P(FillerTest, ReportSkipSubreleases) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -3130,7 +3130,7 @@ TEST_P(FillerTest, ReportSkipSubreleases_SpansAllocated) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, true);
+    filler_.Print(printer, true);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -3271,7 +3271,7 @@ TEST_P(FillerTest, CheckSubreleaseStats) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
+    filler_.Print(printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
 
@@ -3379,7 +3379,7 @@ TEST_P(FillerTest, CheckSubreleaseStats_SpansAllocated) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
+    filler_.Print(printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
 
@@ -3437,7 +3437,7 @@ TEST_P(FillerTest, ConstantBrokenHugePages) {
     {
       PageHeapSpinLockHolder l;
       Printer printer(&*buffer.begin(), buffer.size());
-      filler_.Print(&printer, /*everything=*/false);
+      filler_.Print(printer, /*everything=*/false);
       buffer.erase(printer.SpaceRequired());
     }
 
@@ -3486,8 +3486,8 @@ TEST_P(FillerTest, CheckBufferSize) {
   Printer printer(&*buffer.begin(), buffer.size());
   {
     PageHeapSpinLockHolder l;
-    PbtxtRegion region(&printer, kTop);
-    filler_.PrintInPbtxt(&region);
+    PbtxtRegion region(printer, kTop);
+    filler_.PrintInPbtxt(region);
   }
 
   // We assume a maximum buffer size of 1 MiB. When increasing this size, ensure
@@ -3776,7 +3776,7 @@ TEST_P(FillerTest, Print) {
   {
     PageHeapSpinLockHolder l;
     Printer printer(&*buffer.begin(), buffer.size());
-    filler_.Print(&printer, /*everything=*/true);
+    filler_.Print(printer, /*everything=*/true);
     buffer.erase(printer.SpaceRequired());
   }
 

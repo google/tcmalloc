@@ -205,20 +205,19 @@ class ShardedTransferCacheManagerBase {
     get_cache(size_class).InsertRange(size_class, absl::MakeSpan(&ptr, 1));
   }
 
-  void Print(Printer *out) const {
-    out->printf("------------------------------------------------\n");
-    out->printf("Cumulative sharded transfer cache stats.\n");
-    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
-    out->printf("of the sharded transfer cache freelists.\n");
-    out->printf("It also reports insert/remove hits/misses by size class.\n");
-    out->printf("------------------------------------------------\n");
-    out->printf("Sharded transfer cache state: %s\n",
-                UseCacheForLargeClassesOnly() || UseGenericCache()
-                    ? "ACTIVE"
-                    : "INACTIVE");
-    out->printf("Number of active sharded transfer caches: %3d\n",
-                NumActiveShards());
-    out->printf("------------------------------------------------\n");
+  void Print(Printer &out) const {
+    out.printf("------------------------------------------------\n");
+    out.printf("Cumulative sharded transfer cache stats.\n");
+    out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out.printf("of the sharded transfer cache freelists.\n");
+    out.printf("It also reports insert/remove hits/misses by size class.\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Sharded transfer cache state: %s\n",
+               UseCacheForLargeClassesOnly() || UseGenericCache() ? "ACTIVE"
+                                                                  : "INACTIVE");
+    out.printf("Number of active sharded transfer caches: %3d\n",
+               NumActiveShards());
+    out.printf("------------------------------------------------\n");
     uint64_t sharded_cumulative_bytes = 0;
     static constexpr double MiB = 1048576.0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
@@ -226,7 +225,7 @@ class ShardedTransferCacheManagerBase {
       const uint64_t class_bytes =
           stats.used * Manager::class_to_size(size_class);
       sharded_cumulative_bytes += class_bytes;
-      out->printf(
+      out.printf(
           "class %3d [ %8zu bytes ] : %8u"
           " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %8u"
           " max_capacity; %8u insert hits; %8u"
@@ -239,10 +238,10 @@ class ShardedTransferCacheManagerBase {
     }
   }
 
-  void PrintInPbtxt(PbtxtRegion *region) const {
+  void PrintInPbtxt(PbtxtRegion &region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       const TransferCacheStats stats = GetStats(size_class);
-      PbtxtRegion entry = region->CreateSubRegion("sharded_transfer_cache");
+      PbtxtRegion entry = region.CreateSubRegion("sharded_transfer_cache");
       entry.PrintI64("sizeclass", Manager::class_to_size(size_class));
       entry.PrintI64("insert_hits", stats.insert_hits);
       entry.PrintI64("insert_misses", stats.insert_misses);
@@ -252,7 +251,7 @@ class ShardedTransferCacheManagerBase {
       entry.PrintI64("capacity", stats.capacity);
       entry.PrintI64("max_capacity", stats.max_capacity);
     }
-    region->PrintI64("active_sharded_transfer_caches", NumActiveShards());
+    region.PrintI64("active_sharded_transfer_caches", NumActiveShards());
   }
 
   // Returns cumulative stats over all the shards of the sharded transfer cache.
@@ -481,19 +480,19 @@ class TransferCacheManager : public StaticForwarder {
     return cache_[size_class].tc.FetchCommitIntervalMisses();
   }
 
-  void Print(Printer *out) const {
-    out->printf("------------------------------------------------\n");
-    out->printf("Used bytes, current capacity, and maximum allowed capacity\n");
-    out->printf("of the transfer cache freelists.\n");
-    out->printf("It also reports insert/remove hits/misses by size class.\n");
-    out->printf("------------------------------------------------\n");
+  void Print(Printer &out) const {
+    out.printf("------------------------------------------------\n");
+    out.printf("Used bytes, current capacity, and maximum allowed capacity\n");
+    out.printf("of the transfer cache freelists.\n");
+    out.printf("It also reports insert/remove hits/misses by size class.\n");
+    out.printf("------------------------------------------------\n");
     uint64_t cumulative_bytes = 0;
     static constexpr double MiB = 1048576.0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       const TransferCacheStats tc_stats = GetStats(size_class);
       const uint64_t class_bytes = tc_stats.used * class_to_size(size_class);
       cumulative_bytes += class_bytes;
-      out->printf(
+      out.printf(
           "class %3d [ %8zu bytes ] : %8u"
           " objs; %5.1f MiB; %6.1f cum MiB; %5u capacity; %5u"
           " max_capacity; %8u insert hits; %8u"
@@ -507,9 +506,9 @@ class TransferCacheManager : public StaticForwarder {
     }
   }
 
-  void PrintInPbtxt(PbtxtRegion *region) const {
+  void PrintInPbtxt(PbtxtRegion &region) const {
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
-      PbtxtRegion entry = region->CreateSubRegion("transfer_cache");
+      PbtxtRegion entry = region.CreateSubRegion("transfer_cache");
       const TransferCacheStats tc_stats = GetStats(size_class);
       entry.PrintI64("sizeclass", class_to_size(size_class));
       entry.PrintI64("insert_hits", tc_stats.insert_hits);
@@ -570,8 +569,8 @@ class TransferCacheManager {
     return freelist_[size_class];
   }
 
-  void Print(Printer* out) const {}
-  void PrintInPbtxt(PbtxtRegion* region) const {}
+  void Print(Printer& out) const {}
+  void PrintInPbtxt(PbtxtRegion& region) const {}
 
  private:
   CentralFreeList freelist_[kNumClasses];
@@ -597,8 +596,8 @@ struct ShardedTransferCacheManager {
   bool UseGenericCache() const { return false; }
   bool UseCacheForLargeClassesOnly() const { return false; }
   int NumActiveShards() const { return 0; }
-  void Print(Printer* out) const {}
-  void PrintInPbtxt(PbtxtRegion* region) const {}
+  void Print(Printer& out) const {}
+  void PrintInPbtxt(PbtxtRegion& region) const {}
 };
 
 #endif  // !TCMALLOC_INTERNAL_SMALL_BUT_SLOW

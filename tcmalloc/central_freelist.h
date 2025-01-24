@@ -132,10 +132,10 @@ class CentralFreeList {
   SpanStats GetSpanStats() const;
 
   // Reports span utilization and lifetime histogram stats.
-  void PrintSpanUtilStats(Printer* out);
-  void PrintSpanLifetimeStats(Printer* out);
-  void PrintSpanUtilStatsInPbtxt(PbtxtRegion* region);
-  void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion* region);
+  void PrintSpanUtilStats(Printer& out);
+  void PrintSpanLifetimeStats(Printer& out);
+  void PrintSpanUtilStatsInPbtxt(PbtxtRegion& region);
+  void PrintSpanLifetimeStatsInPbtxt(PbtxtRegion& region);
 
   // Get number of spans in the histogram bucket. We record spans in the
   // histogram indexed by absl::bit_width(allocated). So, instead of using the
@@ -648,27 +648,27 @@ inline size_t CentralFreeList<Forwarder>::NumSpansWith(
 }
 
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer* out) {
-  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+inline void CentralFreeList<Forwarder>::PrintSpanUtilStats(Printer& out) {
+  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
-    out->printf("%6zu < %zu", NumSpansWith(i), 1 << i);
+    out.printf("%6zu < %zu", NumSpansWith(i), 1 << i);
     if (i < kSpanUtilBucketCapacity) {
-      out->printf(",");
+      out.printf(",");
     }
   }
-  out->printf("\n");
-  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  out.printf("\n");
+  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
   for (size_t i = 0; i < kNumLists; ++i) {
-    out->printf("%6zu: %zu", i, NumSpansInList(i));
+    out.printf("%6zu: %zu", i, NumSpansInList(i));
     if (i < kNumLists - 1) {
-      out->printf(",");
+      out.printf(",");
     }
   }
-  out->printf("\n");
+  out.printf("\n");
 }
 
 template <class Forwarder>
-inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer* out) {
+inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer& out) {
   // We do not log allocation time when bitmap is used for spans.
   if (Span::UseBitmapForSize(object_size_)) return;
 
@@ -690,22 +690,21 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStats(Printer* out) {
         0);
   }
 
-  out->printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
+  out.printf("class %3d [ %8zu bytes ] : ", size_class_, object_size_);
   for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    out->printf("%3zu ms < %6zu", lifetime_bucket_bounds_[i],
-                lifetime_histo[i]);
+    out.printf("%3zu ms < %6zu", lifetime_bucket_bounds_[i], lifetime_histo[i]);
     if (i < kLifetimeBuckets - 1) {
-      out->printf(",");
+      out.printf(",");
     }
   }
-  out->printf("\n");
+  out.printf("\n");
 }
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
-    PbtxtRegion* region) {
+    PbtxtRegion& region) {
   for (size_t i = 1; i <= kSpanUtilBucketCapacity; ++i) {
-    PbtxtRegion histogram = region->CreateSubRegion("span_util_histogram");
+    PbtxtRegion histogram = region.CreateSubRegion("span_util_histogram");
     histogram.PrintI64("lower_bound", 1 << (i - 1));
     histogram.PrintI64("upper_bound", 1 << i);
     histogram.PrintI64("value", NumSpansWith(i));
@@ -713,7 +712,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
 
   for (size_t i = 0; i < kNumLists; ++i) {
     PbtxtRegion occupancy =
-        region->CreateSubRegion("prioritization_list_occupancy");
+        region.CreateSubRegion("prioritization_list_occupancy");
     occupancy.PrintI64("list_index", i);
     occupancy.PrintI64("value", NumSpansInList(i));
   }
@@ -721,7 +720,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanUtilStatsInPbtxt(
 
 template <class Forwarder>
 inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
-    PbtxtRegion* region) {
+    PbtxtRegion& region) {
   // We do not log allocation time when bitmap is used for spans.
   if (Span::UseBitmapForSize(object_size_)) return;
 
@@ -744,7 +743,7 @@ inline void CentralFreeList<Forwarder>::PrintSpanLifetimeStatsInPbtxt(
   }
 
   for (size_t i = 0; i < kLifetimeBuckets; ++i) {
-    PbtxtRegion histogram = region->CreateSubRegion("span_lifetime_histogram");
+    PbtxtRegion histogram = region.CreateSubRegion("span_lifetime_histogram");
     histogram.PrintI64("lower_bound", lifetime_bucket_bounds_[i]);
     histogram.PrintI64("upper_bound", (i == kLifetimeBuckets - 1
                                            ? lifetime_bucket_bounds_[i]

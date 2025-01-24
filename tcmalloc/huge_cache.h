@@ -59,8 +59,8 @@ class MinMaxTracker {
       : kEpochLength(w / kEpochs), timeseries_(clock, w) {}
 
   void Report(HugeLength val);
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
   // If t < kEpochLength, these functions return statistics for last epoch. The
   // granularity is kEpochLength (rounded up).
@@ -202,8 +202,8 @@ class HugeCache {
     return s;
   }
 
-  void Print(Printer* out);
-  void PrintInPbtxt(PbtxtRegion* hpaa);
+  void Print(Printer& out);
+  void PrintInPbtxt(PbtxtRegion& hpaa);
 
  private:
   HugeAllocator* allocator_;

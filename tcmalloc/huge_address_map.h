@@ -95,8 +95,8 @@ class HugeAddressMap {
   // Statistics
   size_t nranges() const;
   HugeLength total_mapped() const;
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
   // Add <r> to the map, merging with adjacent ranges as needed.
   void Insert(HugeRange r);

@@ -109,8 +109,8 @@ class HugeRegion : public TList<HugeRegion>::Elem {
   // huge-regions-more-often feature is enabled.
   HugeLength free_backed() const;
 
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* detail) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& detail) const;
 
   BackingStats stats() const;
 
@@ -196,8 +196,8 @@ class HugeRegionSet {
   // 1 if a fraction outside those bounds is specified.
   Length ReleasePages(double release_fraction);
 
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
   void AddSpanStats(SmallSpanStats* small, LargeSpanStats* large) const;
   BackingStats stats() const;
   HugeLength free_backed() const;
@@ -452,13 +452,13 @@ inline HugeLength HugeRegion::backed() const {
   return b;
 }
 
-inline void HugeRegion::Print(Printer* out) const {
+inline void HugeRegion::Print(Printer& out) const {
   const size_t kib_used = used_pages().in_bytes() / 1024;
   const size_t kib_free = free_pages().in_bytes() / 1024;
   const size_t kib_longest_free = longest_free().in_bytes() / 1024;
   const HugeLength unbacked = size() - backed();
   const size_t mib_unbacked = unbacked.in_mib();
-  out->printf(
+  out.printf(
       "HugeRegion: %zu KiB used, %zu KiB free, "
       "%zu KiB contiguous space, %zu MiB unbacked, "
       "%zu MiB unbacked lifetime\n",
@@ -466,14 +466,14 @@ inline void HugeRegion::Print(Printer* out) const {
       total_unbacked_.in_bytes() / 1024 / 1024);
 }
 
-inline void HugeRegion::PrintInPbtxt(PbtxtRegion* detail) const {
-  detail->PrintI64("used_bytes", used_pages().in_bytes());
-  detail->PrintI64("free_bytes", free_pages().in_bytes());
-  detail->PrintI64("longest_free_range_bytes", longest_free().in_bytes());
+inline void HugeRegion::PrintInPbtxt(PbtxtRegion& detail) const {
+  detail.PrintI64("used_bytes", used_pages().in_bytes());
+  detail.PrintI64("free_bytes", free_pages().in_bytes());
+  detail.PrintI64("longest_free_range_bytes", longest_free().in_bytes());
   const HugeLength unbacked = size() - backed();
-  detail->PrintI64("unbacked_bytes", unbacked.in_bytes());
-  detail->PrintI64("total_unbacked_bytes", total_unbacked_.in_bytes());
-  detail->PrintI64("backed_fully_free_bytes", free_backed().in_bytes());
+  detail.PrintI64("unbacked_bytes", unbacked.in_bytes());
+  detail.PrintI64("total_unbacked_bytes", total_unbacked_.in_bytes());
+  detail.PrintI64("backed_fully_free_bytes", free_backed().in_bytes());
 }
 
 inline BackingStats HugeRegion::stats() const {
@@ -732,10 +732,10 @@ inline Length HugeRegionSet<Region>::ReleasePages(double release_fraction) {
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::Print(Printer* out) const {
-  out->printf("HugeRegionSet: 1 MiB+ allocations best-fit into %zu MiB slabs\n",
-              Region::size().in_bytes() / 1024 / 1024);
-  out->printf("HugeRegionSet: %zu total regions\n", n_);
+inline void HugeRegionSet<Region>::Print(Printer& out) const {
+  out.printf("HugeRegionSet: 1 MiB+ allocations best-fit into %zu MiB slabs\n",
+             Region::size().in_bytes() / 1024 / 1024);
+  out.printf("HugeRegionSet: %zu total regions\n", n_);
   Length total_free;
   HugeLength total_backed = NHugePages(0);
   HugeLength total_free_backed = NHugePages(0);
@@ -747,21 +747,21 @@ inline void HugeRegionSet<Region>::Print(Printer* out) const {
     total_free_backed += region->free_backed();
   }
 
-  out->printf(
+  out.printf(
       "HugeRegionSet: %zu hugepages backed, %zu backed and free, "
       "out of %zu total\n",
       total_backed.raw_num(), total_free_backed.raw_num(),
       Region::size().raw_num() * n_);
 
   const Length in_pages = total_backed.in_pages();
-  out->printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
-              total_free.raw_num(),
-              in_pages > Length(0) ? static_cast<double>(total_free.raw_num()) /
-                                         static_cast<double>(in_pages.raw_num())
-                                   : 0.0);
+  out.printf("HugeRegionSet: %zu pages free in backed region, %.4f free\n",
+             total_free.raw_num(),
+             in_pages > Length(0) ? static_cast<double>(total_free.raw_num()) /
+                                        static_cast<double>(in_pages.raw_num())
+                                  : 0.0);
 
   // Subrelease telemetry.
-  out->printf(
+  out.printf(
       "HugeRegion: Since startup, %zu pages subreleased, %zu hugepages "
       "broken, (%zu pages, %zu hugepages due to reaching tcmalloc limit)\n",
       subrelease_stats_.total_pages_subreleased.raw_num(),
@@ -773,17 +773,17 @@ inline void HugeRegionSet<Region>::Print(Printer* out) const {
 }
 
 template <typename Region>
-inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion* hpaa) const {
-  hpaa->PrintI64("min_huge_region_alloc_size", 1024 * 1024);
-  hpaa->PrintI64("huge_region_size", Region::size().in_bytes());
+inline void HugeRegionSet<Region>::PrintInPbtxt(PbtxtRegion& hpaa) const {
+  hpaa.PrintI64("min_huge_region_alloc_size", 1024 * 1024);
+  hpaa.PrintI64("huge_region_size", Region::size().in_bytes());
   for (Region* region : list_) {
-    auto detail = hpaa->CreateSubRegion("huge_region_details");
-    region->PrintInPbtxt(&detail);
+    auto detail = hpaa.CreateSubRegion("huge_region_details");
+    region->PrintInPbtxt(detail);
   }
 
-  hpaa->PrintI64("region_num_pages_subreleased",
-                 subrelease_stats_.total_pages_subreleased.raw_num());
-  hpaa->PrintI64(
+  hpaa.PrintI64("region_num_pages_subreleased",
+                subrelease_stats_.total_pages_subreleased.raw_num());
+  hpaa.PrintI64(
       "region_num_pages_subreleased_due_to_limit",
       subrelease_stats_.total_pages_subreleased_due_to_limit.raw_num());
 

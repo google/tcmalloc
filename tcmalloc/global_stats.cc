@@ -281,7 +281,7 @@ static absl::string_view PerCpuTypeString(RseqVcpuMode mode) {
   return "NONE";
 }
 
-void DumpStats(Printer* out, int level) {
+void DumpStats(Printer& out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
@@ -293,7 +293,7 @@ void DumpStats(Printer* out, int level) {
 
   static const double MiB = 1048576.0;
 
-  out->printf(
+  out.printf(
       "See https://github.com/google/tcmalloc/tree/master/docs/stats.md for an explanation of "
       "this page\n");
 
@@ -303,11 +303,11 @@ void DumpStats(Printer* out, int level) {
   const uint64_t bytes_in_use_by_app = InUseByApp(stats);
 
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-  out->printf("NOTE:  SMALL MEMORY MODEL IS IN USE, PERFORMANCE MAY SUFFER.\n");
+  out.printf("NOTE:  SMALL MEMORY MODEL IS IN USE, PERFORMANCE MAY SUFFER.\n");
 #endif
   // clang-format off
   // Avoid clang-format complaining about the way that this text is laid out.
-  out->printf(
+  out.printf(
       "------------------------------------------------\n"
       "MALLOC:   %12u (%7.1f MiB) Bytes in use by application\n"
       "MALLOC: + %12u (%7.1f MiB) Bytes in page heap freelist\n"
@@ -390,14 +390,14 @@ void DumpStats(Printer* out, int level) {
   );
   // clang-format on
 
-  out->printf("MALLOC EXPERIMENTS:");
+  out.printf("MALLOC EXPERIMENTS:");
   WalkExperiments([&](absl::string_view name, bool active) {
     const char* value = active ? "1" : "0";
-    out->printf(" %s=%s", name, value);
+    out.printf(" %s=%s", name, value);
   });
-  out->printf("\n");
+  out.printf("\n");
 
-  out->printf(
+  out.printf(
       "MALLOC SAMPLED PROFILES: %zu bytes (current), %zu bytes (internal "
       "fragmentation), %zu bytes (peak), %zu count (total)\n",
       static_cast<size_t>(tc_globals.sampled_objects_size_.value()),
@@ -410,7 +410,7 @@ void DumpStats(Printer* out, int level) {
     uint64_t rss = memstats.rss;
     uint64_t vss = memstats.vss;
     // clang-format off
-    out->printf(
+    out.printf(
         "\n"
         "Total process stats (inclusive of non-malloc sources):\n"
         "TOTAL: %12u (%7.1f MiB) Bytes resident (physical memory used)\n"
@@ -419,18 +419,18 @@ void DumpStats(Printer* out, int level) {
     // clang-format on
   }
 
-  out->printf(
+  out.printf(
       "------------------------------------------------\n"
       "Call ReleaseMemoryToSystem() to release freelist memory to the OS"
       " (via madvise()).\n"
       "Bytes released to the OS take up virtual address space"
       " but no physical memory.\n");
   if (level >= 2) {
-    out->printf("------------------------------------------------\n");
-    out->printf("Total size of freelists for per-thread and per-CPU caches,\n");
-    out->printf("transfer cache, and central cache, as well as number of\n");
-    out->printf("live pages, returned/requested spans by size class\n");
-    out->printf("------------------------------------------------\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Total size of freelists for per-thread and per-CPU caches,\n");
+    out.printf("transfer cache, and central cache, as well as number of\n");
+    out.printf("live pages, returned/requested spans by size class\n");
+    out.printf("------------------------------------------------\n");
 
     uint64_t cumulative = 0;
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
@@ -438,7 +438,7 @@ void DumpStats(Printer* out, int level) {
                              tc_globals.sizemap().class_to_size(size_class);
 
       cumulative += class_bytes;
-      out->printf(
+      out.printf(
           // clang-format off
           "class %3d [ %8zu bytes ] : %8u objs; %5.1f MiB; %6.1f cum MiB; "
           "%8u live pages; spans: %10zu ret / %10zu req = %5.4f;\n",
@@ -453,19 +453,19 @@ void DumpStats(Printer* out, int level) {
     }
 
 #ifndef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
-    out->printf("------------------------------------------------\n");
-    out->printf("Central cache freelist: Span utilization histogram\n");
-    out->printf("Non-cumulative number of spans with allocated objects < N\n");
-    out->printf("------------------------------------------------\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Span utilization histogram\n");
+    out.printf("Non-cumulative number of spans with allocated objects < N\n");
+    out.printf("------------------------------------------------\n");
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       tc_globals.central_freelist(size_class).PrintSpanUtilStats(out);
     }
 
-    out->printf("\n");
-    out->printf("------------------------------------------------\n");
-    out->printf("Central cache freelist: Span lifetime histogram\n");
-    out->printf("Non-cumulative number of spans lifetime a < N\n");
-    out->printf("------------------------------------------------\n");
+    out.printf("\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Central cache freelist: Span lifetime histogram\n");
+    out.printf("Non-cumulative number of spans lifetime a < N\n");
+    out.printf("------------------------------------------------\n");
     for (int size_class = 1; size_class < kNumClasses; ++size_class) {
       tc_globals.central_freelist(size_class).PrintSpanLifetimeStats(out);
     }
@@ -490,111 +490,111 @@ void DumpStats(Printer* out, int level) {
     tc_globals.guardedpage_allocator().Print(out);
     selsan::PrintTextStats(out);
 
-    out->printf("------------------------------------------------\n");
-    out->printf("Configured limits and related statistics\n");
-    out->printf("------------------------------------------------\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("Configured limits and related statistics\n");
+    out.printf("------------------------------------------------\n");
     uint64_t soft_limit_bytes =
         tc_globals.page_allocator().limit(PageAllocator::kSoft);
     uint64_t hard_limit_bytes =
         tc_globals.page_allocator().limit(PageAllocator::kHard);
 
-    out->printf("PARAMETER desired_usage_limit_bytes %u\n", soft_limit_bytes);
-    out->printf("PARAMETER hard_usage_limit_bytes %u\n", hard_limit_bytes);
-    out->printf("Number of times soft limit was hit: %lld\n",
-                tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
-    out->printf("Number of times hard limit was hit: %lld\n",
-                tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
-    out->printf("Number of times memory shrank below soft limit: %lld\n",
-                tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                    PageAllocator::kSoft));
-    out->printf("Number of times memory shrank below hard limit: %lld\n",
-                tc_globals.page_allocator().successful_shrinks_after_limit_hit(
-                    PageAllocator::kHard));
+    out.printf("PARAMETER desired_usage_limit_bytes %u\n", soft_limit_bytes);
+    out.printf("PARAMETER hard_usage_limit_bytes %u\n", hard_limit_bytes);
+    out.printf("Number of times soft limit was hit: %lld\n",
+               tc_globals.page_allocator().limit_hits(PageAllocator::kSoft));
+    out.printf("Number of times hard limit was hit: %lld\n",
+               tc_globals.page_allocator().limit_hits(PageAllocator::kHard));
+    out.printf("Number of times memory shrank below soft limit: %lld\n",
+               tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                   PageAllocator::kSoft));
+    out.printf("Number of times memory shrank below hard limit: %lld\n",
+               tc_globals.page_allocator().successful_shrinks_after_limit_hit(
+                   PageAllocator::kHard));
 
-    out->printf("Total number of pages released: %llu (%7.1f MiB)\n",
-                stats.num_released_total.in_pages().raw_num(),
-                stats.num_released_total.in_mib());
-    out->printf(
+    out.printf("Total number of pages released: %llu (%7.1f MiB)\n",
+               stats.num_released_total.in_pages().raw_num(),
+               stats.num_released_total.in_mib());
+    out.printf(
         "Number of pages released by ReleaseMemoryToSystem: %llu (%7.1f "
         "MiB)\n",
         stats.num_released_release_memory_to_system.in_pages().raw_num(),
         stats.num_released_release_memory_to_system.in_mib());
-    out->printf(
+    out.printf(
         "Number of pages released by ProcessBackgroundActions: %llu "
         "(%7.1f MiB)\n",
         stats.num_released_process_background_actions.in_pages().raw_num(),
         stats.num_released_process_background_actions.in_mib());
-    out->printf(
+    out.printf(
         "Number of pages released after soft limit hits: %llu (%7.1f "
         "MiB)\n",
         stats.num_released_soft_limit_exceeded.in_pages().raw_num(),
         stats.num_released_soft_limit_exceeded.in_mib());
-    out->printf(
+    out.printf(
         "Number of pages released after hard limit hits: %llu (%7.1f "
         "MiB)\n",
         stats.num_released_hard_limit_exceeded.in_pages().raw_num(),
         stats.num_released_hard_limit_exceeded.in_mib());
 
-    out->printf("------------------------------------------------\n");
-    out->printf("Parameters\n");
-    out->printf("------------------------------------------------\n");
-    out->printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
-                Parameters::per_cpu_caches() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
-                Parameters::max_per_cpu_cache_size());
-    out->printf("PARAMETER tcmalloc_max_total_thread_cache_bytes %lld\n",
-                Parameters::max_total_thread_cache_bytes());
-    out->printf("PARAMETER malloc_release_bytes_per_sec %llu\n",
-                Parameters::background_release_rate());
-    out->printf(
+    out.printf("------------------------------------------------\n");
+    out.printf("Parameters\n");
+    out.printf("------------------------------------------------\n");
+    out.printf("PARAMETER tcmalloc_per_cpu_caches %d\n",
+               Parameters::per_cpu_caches() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_max_per_cpu_cache_size %d\n",
+               Parameters::max_per_cpu_cache_size());
+    out.printf("PARAMETER tcmalloc_max_total_thread_cache_bytes %lld\n",
+               Parameters::max_total_thread_cache_bytes());
+    out.printf("PARAMETER malloc_release_bytes_per_sec %llu\n",
+               Parameters::background_release_rate());
+    out.printf(
         "PARAMETER tcmalloc_skip_subrelease_interval %s\n",
         absl::FormatDuration(Parameters::filler_skip_subrelease_interval()));
-    out->printf("PARAMETER tcmalloc_skip_subrelease_short_interval %s\n",
-                absl::FormatDuration(
-                    Parameters::filler_skip_subrelease_short_interval()));
-    out->printf("PARAMETER tcmalloc_skip_subrelease_long_interval %s\n",
-                absl::FormatDuration(
-                    Parameters::filler_skip_subrelease_long_interval()));
-    out->printf("PARAMETER tcmalloc_cache_demand_release_short_interval %s\n",
-                absl::FormatDuration(
-                    Parameters::cache_demand_release_short_interval()));
-    out->printf(
+    out.printf("PARAMETER tcmalloc_skip_subrelease_short_interval %s\n",
+               absl::FormatDuration(
+                   Parameters::filler_skip_subrelease_short_interval()));
+    out.printf("PARAMETER tcmalloc_skip_subrelease_long_interval %s\n",
+               absl::FormatDuration(
+                   Parameters::filler_skip_subrelease_long_interval()));
+    out.printf("PARAMETER tcmalloc_cache_demand_release_short_interval %s\n",
+               absl::FormatDuration(
+                   Parameters::cache_demand_release_short_interval()));
+    out.printf(
         "PARAMETER tcmalloc_cache_demand_release_long_interval %s\n",
         absl::FormatDuration(Parameters::cache_demand_release_long_interval()));
-    out->printf("PARAMETER tcmalloc_release_partial_alloc_pages %d\n",
-                Parameters::release_partial_alloc_pages() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_huge_cache_demand_based_release %d\n",
-                Parameters::huge_cache_demand_based_release() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_huge_region_demand_based_release %d\n",
-                Parameters::huge_region_demand_based_release() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_release_pages_from_huge_region %d\n",
-                Parameters::release_pages_from_huge_region() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
-                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
-    out->printf("PARAMETER tcmalloc_configure_size_class_max_capacity %d\n",
-                tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_release_partial_alloc_pages %d\n",
+               Parameters::release_partial_alloc_pages() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_huge_cache_demand_based_release %d\n",
+               Parameters::huge_cache_demand_based_release() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_huge_region_demand_based_release %d\n",
+               Parameters::huge_region_demand_based_release() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_release_pages_from_huge_region %d\n",
+               Parameters::release_pages_from_huge_region() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
+               tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
+    out.printf("PARAMETER tcmalloc_configure_size_class_max_capacity %d\n",
+               tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity() ? 1 : 0);
 
-    out->printf(
+    out.printf(
         "PARAMETER size_class_config %s\n",
         SizeClassConfigurationString(tc_globals.size_class_configuration()));
-    out->printf("PARAMETER percpu_vcpu_type %s\n",
-                PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
-    out->printf("PARAMETER max_span_cache_size %d\n",
-                Parameters::max_span_cache_size());
-    out->printf("PARAMETER max_span_cache_array_size %d\n",
-                Parameters::max_span_cache_array_size());
-    out->printf("PARAMETER madvise %s\n", MadviseString());
-    out->printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
-                Parameters::resize_size_class_max_capacity() ? 1 : 0);
-    out->printf(
+    out.printf("PARAMETER percpu_vcpu_type %s\n",
+               PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
+    out.printf("PARAMETER max_span_cache_size %d\n",
+               Parameters::max_span_cache_size());
+    out.printf("PARAMETER max_span_cache_array_size %d\n",
+               Parameters::max_span_cache_array_size());
+    out.printf("PARAMETER madvise %s\n", MadviseString());
+    out.printf("PARAMETER tcmalloc_resize_size_class_max_capacity %d\n",
+               Parameters::resize_size_class_max_capacity() ? 1 : 0);
+    out.printf(
         "PARAMETER tcmalloc_dense_trackers_sorted_on_spans_allocated %d\n",
         Parameters::dense_trackers_sorted_on_spans_allocated() ? 1 : 0);
-    out->printf("PARAMETER min_hot_access_hint %d\n",
-                static_cast<int>(Parameters::min_hot_access_hint()));
+    out.printf("PARAMETER min_hot_access_hint %d\n",
+               static_cast<int>(Parameters::min_hot_access_hint()));
   }
 }
 
-void DumpStatsInPbtxt(Printer* out, int level) {
+void DumpStatsInPbtxt(Printer& out, int level) {
   TCMallocStats stats;
   uint64_t class_count[kNumClasses];
   SpanStats span_stats[kNumClasses];
@@ -686,28 +686,28 @@ void DumpStatsInPbtxt(Printer* out, int level) {
                        span_stats[size_class].num_spans_returned);
         entry.PrintI64("obj_capacity", span_stats[size_class].obj_capacity);
         tc_globals.central_freelist(size_class)
-            .PrintSpanUtilStatsInPbtxt(&entry);
+            .PrintSpanUtilStatsInPbtxt(entry);
         tc_globals.central_freelist(size_class)
-            .PrintSpanLifetimeStatsInPbtxt(&entry);
+            .PrintSpanLifetimeStatsInPbtxt(entry);
       }
 #endif
     }
 
-    tc_globals.transfer_cache().PrintInPbtxt(&region);
-    tc_globals.sharded_transfer_cache().PrintInPbtxt(&region);
+    tc_globals.transfer_cache().PrintInPbtxt(region);
+    tc_globals.sharded_transfer_cache().PrintInPbtxt(region);
 
     if (UsePerCpuCache(tc_globals)) {
-      tc_globals.cpu_cache().PrintInPbtxt(&region);
+      tc_globals.cpu_cache().PrintInPbtxt(region);
     }
   }
-  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kNormal);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormal);
   if (tc_globals.numa_topology().active_partitions() > 1) {
-    tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kNormalP1);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kNormalP1);
   }
-  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kSampled);
-  tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kCold);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSampled);
+  tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kCold);
   if (selsan::IsEnabled()) {
-    tc_globals.page_allocator().PrintInPbtxt(&region, MemoryTag::kSelSan);
+    tc_globals.page_allocator().PrintInPbtxt(region, MemoryTag::kSelSan);
   }
   // We do not collect tracking information in pbtxt.
 
@@ -746,9 +746,9 @@ void DumpStatsInPbtxt(Printer* out, int level) {
 
   {
     auto gwp_asan = region.CreateSubRegion("gwp_asan");
-    tc_globals.guardedpage_allocator().PrintInPbtxt(&gwp_asan);
+    tc_globals.guardedpage_allocator().PrintInPbtxt(gwp_asan);
   }
-  selsan::PrintPbtxtStats(&region);
+  selsan::PrintPbtxtStats(region);
 
   region.PrintI64("memory_release_failures",
                   tc_globals.system_allocator().release_errors());

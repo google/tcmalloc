@@ -201,13 +201,13 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) override;
 
   // Prints stats about the page heap to *out.
-  void Print(Printer* out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
+  void Print(Printer& out) ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   // Print stats to *out, excluding long/likely uninteresting things
   // unless <everything> is true.
-  void Print(Printer* out, bool everything) ABSL_LOCKS_EXCLUDED(pageheap_lock);
+  void Print(Printer& out, bool everything) ABSL_LOCKS_EXCLUDED(pageheap_lock);
 
-  void PrintInPbtxt(PbtxtRegion* region)
+  void PrintInPbtxt(PbtxtRegion& region)
       ABSL_LOCKS_EXCLUDED(pageheap_lock) override;
 
   BackingStats FillerStats() const
@@ -990,17 +990,17 @@ inline static double BytesToMiB(size_t bytes) {
   return bytes / MiB;
 }
 
-inline static void BreakdownStats(Printer* out, const BackingStats& s,
+inline static void BreakdownStats(Printer& out, const BackingStats& s,
                                   const char* label) {
-  out->printf("%s %6.1f MiB used, %6.1f MiB free, %6.1f MiB unmapped\n", label,
-              BytesToMiB(s.system_bytes - s.free_bytes - s.unmapped_bytes),
-              BytesToMiB(s.free_bytes), BytesToMiB(s.unmapped_bytes));
+  out.printf("%s %6.1f MiB used, %6.1f MiB free, %6.1f MiB unmapped\n", label,
+             BytesToMiB(s.system_bytes - s.free_bytes - s.unmapped_bytes),
+             BytesToMiB(s.free_bytes), BytesToMiB(s.unmapped_bytes));
 }
 
-inline static void BreakdownStatsInPbtxt(PbtxtRegion* hpaa,
+inline static void BreakdownStatsInPbtxt(PbtxtRegion& hpaa,
                                          const BackingStats& s,
                                          const char* key) {
-  auto usage = hpaa->CreateSubRegion(key);
+  auto usage = hpaa.CreateSubRegion(key);
   usage.PrintI64("used", s.system_bytes - s.free_bytes - s.unmapped_bytes);
   usage.PrintI64("free", s.free_bytes);
   usage.PrintI64("unmapped", s.unmapped_bytes);
@@ -1008,12 +1008,12 @@ inline static void BreakdownStatsInPbtxt(PbtxtRegion* hpaa,
 
 // public
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out) {
+inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out) {
   Print(out, true);
 }
 
 template <class Forwarder>
-inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
+inline void HugePageAwareAllocator<Forwarder>::Print(Printer& out,
                                                      bool everything) {
   SmallSpanStats small;
   LargeSpanStats large;
@@ -1022,10 +1022,10 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   bstats = stats();
   GetSpanStats(&small, &large);
   PrintStats("HugePageAware", out, bstats, small, large, everything);
-  out->printf(
+  out.printf(
       "\nHuge page aware allocator components:\n"
       "------------------------------------------------\n");
-  out->printf("HugePageAware: breakdown of used / free / unmapped space:\n");
+  out.printf("HugePageAware: breakdown of used / free / unmapped space:\n");
 
   auto fstats = filler_.stats();
   BreakdownStats(out, fstats, "HugePageAware: filler  ");
@@ -1044,9 +1044,9 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   // so again adjust the totals.
   astats.system_bytes -= (fstats + rstats + cstats).system_bytes;
   BreakdownStats(out, astats, "HugePageAware: alloc   ");
-  out->printf("\n");
+  out.printf("\n");
 
-  out->printf(
+  out.printf(
       "HugePageAware: filler donations %zu (%zu pages from abandoned "
       "donations)\n",
       donated_huge_pages_.raw_num(), abandoned_pages_.raw_num());
@@ -1055,33 +1055,33 @@ inline void HugePageAwareAllocator<Forwarder>::Print(Printer* out,
   // Filler is by far the most important; print (some) of it
   // unconditionally.
   filler_.Print(out, everything);
-  out->printf("\n");
+  out.printf("\n");
   if (everything) {
     regions_.Print(out);
-    out->printf("\n");
+    out.printf("\n");
     cache_.Print(out);
     alloc_.Print(out);
-    out->printf("\n");
+    out.printf("\n");
 
     // Use statistics
     info_.Print(out);
   }
 
-  out->printf("PARAMETER use_huge_region_more_often %d\n",
-              regions_.UseHugeRegionMoreOften() ? 1 : 0);
-  out->printf("PARAMETER hpaa_subrelease %d\n", hpaa_subrelease() ? 1 : 0);
+  out.printf("PARAMETER use_huge_region_more_often %d\n",
+             regions_.UseHugeRegionMoreOften() ? 1 : 0);
+  out.printf("PARAMETER hpaa_subrelease %d\n", hpaa_subrelease() ? 1 : 0);
 }
 
 template <class Forwarder>
 inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
-    PbtxtRegion* region) {
+    PbtxtRegion& region) {
   SmallSpanStats small;
   LargeSpanStats large;
   PageHeapSpinLockHolder l;
   GetSpanStats(&small, &large);
   PrintStatsInPbtxt(region, small, large);
   {
-    auto hpaa = region->CreateSubRegion("huge_page_allocator");
+    auto hpaa = region.CreateSubRegion("huge_page_allocator");
     hpaa.PrintBool("using_hpaa", true);
     hpaa.PrintBool("using_hpaa_subrelease", hpaa_subrelease());
     hpaa.PrintBool("use_huge_region_more_often",
@@ -1089,31 +1089,31 @@ inline void HugePageAwareAllocator<Forwarder>::PrintInPbtxt(
 
     // Fill HPAA Usage
     auto fstats = filler_.stats();
-    BreakdownStatsInPbtxt(&hpaa, fstats, "filler_usage");
+    BreakdownStatsInPbtxt(hpaa, fstats, "filler_usage");
 
     auto rstats = regions_.stats();
-    BreakdownStatsInPbtxt(&hpaa, rstats, "region_usage");
+    BreakdownStatsInPbtxt(hpaa, rstats, "region_usage");
 
     auto cstats = cache_.stats();
     // Everything in the filler came from the cache -
     // adjust the totals so we see the amount used by the mutator.
     cstats.system_bytes -= fstats.system_bytes;
-    BreakdownStatsInPbtxt(&hpaa, cstats, "cache_usage");
+    BreakdownStatsInPbtxt(hpaa, cstats, "cache_usage");
 
     auto astats = alloc_.stats();
     // Everything in *all* components came from here -
     // so again adjust the totals.
     astats.system_bytes -= (fstats + rstats + cstats).system_bytes;
 
-    BreakdownStatsInPbtxt(&hpaa, astats, "alloc_usage");
+    BreakdownStatsInPbtxt(hpaa, astats, "alloc_usage");
 
-    filler_.PrintInPbtxt(&hpaa);
-    regions_.PrintInPbtxt(&hpaa);
-    cache_.PrintInPbtxt(&hpaa);
-    alloc_.PrintInPbtxt(&hpaa);
+    filler_.PrintInPbtxt(hpaa);
+    regions_.PrintInPbtxt(hpaa);
+    cache_.PrintInPbtxt(hpaa);
+    alloc_.PrintInPbtxt(hpaa);
 
     // Use statistics
-    info_.PrintInPbtxt(&hpaa, "hpaa_stat");
+    info_.PrintInPbtxt(hpaa, "hpaa_stat");
 
     hpaa.PrintI64("filler_donated_huge_pages", donated_huge_pages_.raw_num());
     hpaa.PrintI64("filler_abandoned_pages", abandoned_pages_.raw_num());

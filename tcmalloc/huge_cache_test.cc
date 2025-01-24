@@ -559,7 +559,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandHardRelease) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    cache_.Print(&printer);
+    cache_.Print(printer);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -875,7 +875,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipRelease) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    cache_.Print(&printer);
+    cache_.Print(printer);
   }
   buffer.resize(strlen(buffer.c_str()));
 
@@ -956,7 +956,7 @@ TEST_P(HugeCacheTest, ReleaseByDemandSkipReleaseReport) {
   std::string buffer(1024 * 1024, '\0');
   {
     Printer printer(&*buffer.begin(), buffer.size());
-    cache_.Print(&printer);
+    cache_.Print(printer);
   }
   buffer.resize(strlen(buffer.c_str()));
 

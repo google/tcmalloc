@@ -194,7 +194,7 @@ TEST_F(GuardedPageAllocatorTest, PointerIsMine) {
 TEST_F(GuardedPageAllocatorTest, Print) {
   char buf[1024] = {};
   Printer out(buf, sizeof(buf));
-  gpa_.Print(&out);
+  gpa_.Print(out);
   EXPECT_THAT(buf, testing::ContainsRegex("GWP-ASan Status"));
 }
 

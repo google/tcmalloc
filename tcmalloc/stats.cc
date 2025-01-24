@@ -40,20 +40,20 @@ static double BytesToMiB(size_t bytes) {
 }
 
 // For example, PrintRightAdjustedWithPrefix(out, ">=", 42, 6) prints "  >=42".
-static void PrintRightAdjustedWithPrefix(Printer* out, const char* prefix,
+static void PrintRightAdjustedWithPrefix(Printer& out, const char* prefix,
                                          Length num, int width) {
   width -= strlen(prefix);
   int num_tmp = num.raw_num();
   for (int i = 0; i < width - 1; i++) {
     num_tmp /= 10;
     if (num_tmp == 0) {
-      out->printf(" ");
+      out.printf(" ");
     }
   }
-  out->printf("%s%zu", prefix, num.raw_num());
+  out.printf("%s%zu", prefix, num.raw_num());
 }
 
-void PrintStats(const char* label, Printer* out, const BackingStats& backing,
+void PrintStats(const char* label, Printer& out, const BackingStats& backing,
                 const SmallSpanStats& small, const LargeSpanStats& large,
                 bool everything) {
   size_t nonempty_sizes = 0;
@@ -63,11 +63,11 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
     if (norm + ret > 0) nonempty_sizes++;
   }
 
-  out->printf("------------------------------------------------\n");
-  out->printf("%s: %zu sizes; %6.1f MiB free; %6.1f MiB unmapped\n", label,
-              nonempty_sizes, BytesToMiB(backing.free_bytes),
-              BytesToMiB(backing.unmapped_bytes));
-  out->printf("------------------------------------------------\n");
+  out.printf("------------------------------------------------\n");
+  out.printf("%s: %zu sizes; %6.1f MiB free; %6.1f MiB unmapped\n", label,
+             nonempty_sizes, BytesToMiB(backing.free_bytes),
+             BytesToMiB(backing.unmapped_bytes));
+  out.printf("------------------------------------------------\n");
 
   Length cum_normal_pages, cum_returned_pages, cum_total_pages;
   if (!everything) return;
@@ -83,7 +83,7 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
     cum_normal_pages += norm_pages;
     cum_returned_pages += ret_pages;
     cum_total_pages += total_pages;
-    out->printf(
+    out.printf(
         "%6zu pages * %6zu spans ~ %6.1f MiB; %6.1f MiB cum"
         "; unmapped: %6.1f MiB; %6.1f MiB cum\n",
         i, total, total_pages.in_mib(), cum_total_pages.in_mib(),
@@ -95,7 +95,7 @@ void PrintStats(const char* label, Printer* out, const BackingStats& backing,
   const Length large_total_pages = large.normal_pages + large.returned_pages;
   cum_total_pages += large_total_pages;
   PrintRightAdjustedWithPrefix(out, ">=", kMaxPages, 6);
-  out->printf(
+  out.printf(
       " large * %6zu spans ~ %6.1f MiB; %6.1f MiB cum"
       "; unmapped: %6.1f MiB; %6.1f MiB cum\n",
       static_cast<size_t>(large.spans), large_total_pages.in_mib(),
@@ -109,20 +109,20 @@ struct PageHeapEntry {
   int64_t released;   // bytes
   int64_t num_spans;
 
-  void PrintInPbtxt(PbtxtRegion* parent,
+  void PrintInPbtxt(PbtxtRegion& parent,
                     absl::string_view sub_region_name) const;
 };
 
-void PageHeapEntry::PrintInPbtxt(PbtxtRegion* parent,
+void PageHeapEntry::PrintInPbtxt(PbtxtRegion& parent,
                                  absl::string_view sub_region_name) const {
-  auto page_heap = parent->CreateSubRegion(sub_region_name);
+  auto page_heap = parent.CreateSubRegion(sub_region_name);
   page_heap.PrintI64("span_size", span_size);
   page_heap.PrintI64("present", present);
   page_heap.PrintI64("released", released);
   page_heap.PrintI64("num_spans", num_spans);
 }
 
-void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
+void PrintStatsInPbtxt(PbtxtRegion& region, const SmallSpanStats& small,
                        const LargeSpanStats& large) {
   // Print for small pages.
   for (auto i = Length(0); i < kMaxPages; ++i) {
@@ -151,23 +151,23 @@ void PrintStatsInPbtxt(PbtxtRegion* region, const SmallSpanStats& small,
     entry.PrintInPbtxt(region, "page_heap");
   }
 
-  region->PrintI64("min_large_span_size", kMaxPages.raw_num());
+  region.PrintI64("min_large_span_size", kMaxPages.raw_num());
 }
 
-void PageAllocInfo::Print(Printer* out) const {
+void PageAllocInfo::Print(Printer& out) const {
   int64_t ticks = TimeTicks();
   double hz = freq_ / ticks;
-  out->printf("%s: stats on allocation sizes\n", label_);
-  out->printf("%s: %zu pages live small allocation\n", label_,
-              total_small_.raw_num());
-  out->printf("%s: %zu pages of slack on large allocations\n", label_,
-              total_slack_.raw_num());
-  out->printf("%s: largest seen allocation %zu pages\n", label_,
-              largest_seen_.raw_num());
-  out->printf("%s: per-size information:\n", label_);
+  out.printf("%s: stats on allocation sizes\n", label_);
+  out.printf("%s: %zu pages live small allocation\n", label_,
+             total_small_.raw_num());
+  out.printf("%s: %zu pages of slack on large allocations\n", label_,
+             total_slack_.raw_num());
+  out.printf("%s: largest seen allocation %zu pages\n", label_,
+             largest_seen_.raw_num());
+  out.printf("%s: per-size information:\n", label_);
 
-  auto print_counts = [this, hz, out](const Counts& c, Length nmin,
-                                      Length nmax) {
+  auto print_counts = [this, hz, &out](const Counts& c, Length nmin,
+                                       Length nmax) {
     const size_t a = c.nalloc;
     const size_t f = c.nfree;
     const Length a_pages = c.alloc_size;
@@ -178,12 +178,12 @@ void PageAllocInfo::Print(Printer* out) const {
     const double rate_hz = a * hz;
     const double mib_hz = a_pages.in_mib() * hz;
     if (nmin == nmax) {
-      out->printf("%s: %21zu page info: ", label_, nmin.raw_num());
+      out.printf("%s: %21zu page info: ", label_, nmin.raw_num());
     } else {
-      out->printf("%s: [ %7zu , %7zu ] page info: ", label_, nmin.raw_num(),
-                  nmax.raw_num());
+      out.printf("%s: [ %7zu , %7zu ] page info: ", label_, nmin.raw_num(),
+                 nmax.raw_num());
     }
-    out->printf(
+    out.printf(
         "%10zu / %10zu a/f, %8zu (%6.1f MiB) live, "
         "%8.3f allocs/s (%6.1f MiB/s)\n",
         a, f, live, live_mib, rate_hz, mib_hz);
@@ -200,35 +200,35 @@ void PageAllocInfo::Print(Printer* out) const {
     print_counts(large_[i], nmin, nmax);
   }
 
-  out->printf("%s: %zu pages (%6.1f MiB) released in total\n", label_,
-              released_.total.raw_num(), released_.total.in_mib());
-  out->printf("%s: %zu pages (%6.1f MiB) released from ReleaseMemoryToSystem\n",
-              label_, released_.release_memory_to_system.raw_num(),
-              released_.release_memory_to_system.in_mib());
-  out->printf(
+  out.printf("%s: %zu pages (%6.1f MiB) released in total\n", label_,
+             released_.total.raw_num(), released_.total.in_mib());
+  out.printf("%s: %zu pages (%6.1f MiB) released from ReleaseMemoryToSystem\n",
+             label_, released_.release_memory_to_system.raw_num(),
+             released_.release_memory_to_system.in_mib());
+  out.printf(
       "%s: %zu pages (%6.1f MiB) MiB released from ProcessBackgroundActions\n",
       label_, released_.process_background_actions.raw_num(),
       released_.process_background_actions.in_mib());
-  out->printf(
+  out.printf(
       "%s: %zu pages (%6.1f MiB) MiB released from soft malloc limit hits\n",
       label_, released_.soft_limit_exceeded.raw_num(),
       released_.soft_limit_exceeded.in_mib());
-  out->printf(
+  out.printf(
       "%s: %zu pages (%6.1f MiB) MiB released from hard malloc limit hits\n",
       label_, released_.hard_limit_exceeded.raw_num(),
       released_.hard_limit_exceeded.in_mib());
 }
 
-void PageAllocInfo::PrintInPbtxt(PbtxtRegion* region,
+void PageAllocInfo::PrintInPbtxt(PbtxtRegion& region,
                                  absl::string_view stat_name) const {
   int64_t ticks = TimeTicks();
   double hz = freq_ / ticks;
-  region->PrintI64("num_small_allocation_pages", total_small_.raw_num());
-  region->PrintI64("num_slack_pages", total_slack_.raw_num());
-  region->PrintI64("largest_allocation_pages", largest_seen_.raw_num());
+  region.PrintI64("num_small_allocation_pages", total_small_.raw_num());
+  region.PrintI64("num_slack_pages", total_slack_.raw_num());
+  region.PrintI64("largest_allocation_pages", largest_seen_.raw_num());
 
-  auto print_counts = [hz, region, &stat_name](const Counts& c, Length nmin,
-                                               Length nmax) {
+  auto print_counts = [hz, &region, &stat_name](const Counts& c, Length nmin,
+                                                Length nmax) {
     const size_t a = c.nalloc;
     const size_t f = c.nfree;
     const Length a_pages = c.alloc_size;
@@ -237,7 +237,7 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion* region,
     const int64_t live_bytes = (a_pages - f_pages).in_bytes();
     const double rate_hz = a * hz;
     const double bytes_hz = static_cast<double>(a_pages.in_bytes()) * hz;
-    auto stat = region->CreateSubRegion(stat_name);
+    auto stat = region.CreateSubRegion(stat_name);
     stat.PrintI64("min_span_pages", nmin.raw_num());
     stat.PrintI64("max_span_pages", nmax.raw_num());
     stat.PrintI64("num_spans_allocated", a);
@@ -258,15 +258,15 @@ void PageAllocInfo::PrintInPbtxt(PbtxtRegion* region,
     print_counts(large_[i], nmin, nmax);
   }
 
-  region->PrintI64("num_released_total_pages", released_.total.raw_num());
-  region->PrintI64("num_released_release_memory_to_system_pages",
-                   released_.release_memory_to_system.raw_num());
-  region->PrintI64("num_released_process_background_actions_pages",
-                   released_.process_background_actions.raw_num());
-  region->PrintI64("num_released_soft_limit_exceeded_pages",
-                   released_.soft_limit_exceeded.raw_num());
-  region->PrintI64("num_released_hard_limit_exceeded_pages",
-                   released_.hard_limit_exceeded.raw_num());
+  region.PrintI64("num_released_total_pages", released_.total.raw_num());
+  region.PrintI64("num_released_release_memory_to_system_pages",
+                  released_.release_memory_to_system.raw_num());
+  region.PrintI64("num_released_process_background_actions_pages",
+                  released_.process_background_actions.raw_num());
+  region.PrintI64("num_released_soft_limit_exceeded_pages",
+                  released_.soft_limit_exceeded.raw_num());
+  region.PrintI64("num_released_hard_limit_exceeded_pages",
+                  released_.hard_limit_exceeded.raw_num());
 }
 
 static Length RoundUp(Length value, Length alignment) {

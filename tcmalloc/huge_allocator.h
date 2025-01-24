@@ -82,8 +82,8 @@ class HugeAllocator {
     return s;
   }
 
-  void Print(Printer* out);
-  void PrintInPbtxt(PbtxtRegion* hpaa) const;
+  void Print(Printer& out);
+  void PrintInPbtxt(PbtxtRegion& hpaa) const;
 
  private:
   // We're constrained in several ways by existing code.  Hard requirements:

@@ -488,8 +488,8 @@ class CpuCache {
   size_t GetDynamicSlabFailedBytes() const;
 
   // Report statistics
-  void Print(Printer* out) const;
-  void PrintInPbtxt(PbtxtRegion* region) const;
+  void Print(Printer& out) const;
+  void PrintInPbtxt(PbtxtRegion& region) const;
 
   const Forwarder& forwarder() const { return forwarder_; }
 
@@ -2495,11 +2495,11 @@ CpuCache<Forwarder>::GetSizeClassCapacityStats(size_t size_class) const {
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::Print(Printer* out) const {
-  out->printf("------------------------------------------------\n");
-  out->printf("Bytes in per-CPU caches (per cpu limit: %u bytes)\n",
-              CacheLimit());
-  out->printf("------------------------------------------------\n");
+inline void CpuCache<Forwarder>::Print(Printer& out) const {
+  out.printf("------------------------------------------------\n");
+  out.printf("Bytes in per-CPU caches (per cpu limit: %u bytes)\n",
+             CacheLimit());
+  out.printf("------------------------------------------------\n");
 
   const CpuSet allowed_cpus = FillActiveCpuMask();
   const int num_cpus = NumCPUs();
@@ -2510,7 +2510,7 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
-    out->printf(
+    out.printf(
         "cpu %3d: %12u"
         " bytes (%7.1f MiB) with"
         "%12u bytes unallocated %s%s\n",
@@ -2519,13 +2519,13 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
         populated ? " populated" : "");
   }
 
-  out->printf("------------------------------------------------\n");
-  out->printf("Size class capacity statistics in per-cpu caches\n");
-  out->printf("------------------------------------------------\n");
+  out.printf("------------------------------------------------\n");
+  out.printf("Size class capacity statistics in per-cpu caches\n");
+  out.printf("------------------------------------------------\n");
 
   for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
-    out->printf(
+    out.printf(
         "class %3d [ %8zu bytes ] : "
         "%6zu (minimum), %7.1f (average), %6zu (maximum), %6zu maximum "
         "allowed capacity, "
@@ -2546,12 +2546,12 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
         stats.max_last_overflow_cpu_id);
   }
 
-  out->printf("------------------------------------------------\n");
-  out->printf("Number of per-CPU cache underflows, overflows, and reclaims\n");
-  out->printf("------------------------------------------------\n");
-  const auto print_miss_stats = [out](CpuCacheMissStats miss_stats,
-                                      uint64_t reclaims, uint64_t resizes) {
-    out->printf(
+  out.printf("------------------------------------------------\n");
+  out.printf("Number of per-CPU cache underflows, overflows, and reclaims\n");
+  out.printf("------------------------------------------------\n");
+  const auto print_miss_stats = [&out](CpuCacheMissStats miss_stats,
+                                       uint64_t reclaims, uint64_t resizes) {
+    out.printf(
         "%12u underflows,"
         "%12u overflows, overflows / underflows: %5.2f, "
         "%12u reclaims,"
@@ -2560,38 +2560,38 @@ inline void CpuCache<Forwarder>::Print(Printer* out) const {
         safe_div(miss_stats.overflows, miss_stats.underflows), reclaims,
         resizes);
   };
-  out->printf("Total  :");
+  out.printf("Total  :");
   print_miss_stats(GetTotalCacheMissStats(), GetNumReclaims(), GetNumResizes());
   for (int cpu = 0; cpu < num_cpus; ++cpu) {
-    out->printf("cpu %3d:", cpu);
+    out.printf("cpu %3d:", cpu);
     print_miss_stats(GetTotalCacheMissStats(cpu), GetNumReclaims(cpu),
                      GetNumResizes(cpu));
   }
 
-  out->printf("------------------------------------------------\n");
-  out->printf("Per-CPU cache slab resizing info:\n");
-  out->printf("------------------------------------------------\n");
+  out.printf("------------------------------------------------\n");
+  out.printf("Per-CPU cache slab resizing info:\n");
+  out.printf("------------------------------------------------\n");
   uint8_t current_shift = freelist_.GetShift();
-  out->printf("Current shift: %3d (slab size: %4d KiB)\n", current_shift,
-              (1 << current_shift) / 1024);
+  out.printf("Current shift: %3d (slab size: %4d KiB)\n", current_shift,
+             (1 << current_shift) / 1024);
   for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
-    out->printf("shift %3d:", shift + shift_bounds_.initial_shift);
-    out->printf(
+    out.printf("shift %3d:", shift + shift_bounds_.initial_shift);
+    out.printf(
         "%12u growths, %12u shrinkages\n",
         dynamic_slab_info_.grow_count[shift].load(std::memory_order_relaxed),
         dynamic_slab_info_.shrink_count[shift].load(std::memory_order_relaxed));
   }
-  out->printf(
+  out.printf(
       "%12u bytes for which MADVISE_DONTNEED failed\n",
       dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 }
 
 template <class Forwarder>
-inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
+inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion& region) const {
   const CpuSet allowed_cpus = FillActiveCpuMask();
 
   for (int cpu = 0, num_cpus = NumCPUs(); cpu < num_cpus; ++cpu) {
-    PbtxtRegion entry = region->CreateSubRegion("cpu_cache");
+    PbtxtRegion entry = region.CreateSubRegion("cpu_cache");
     uint64_t rbytes = UsedBytes(cpu);
     bool populated = HasPopulated(cpu);
     uint64_t unallocated = Unallocated(cpu);
@@ -2612,7 +2612,7 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   // Record size class capacity statistics.
   for (int size_class = 1; size_class < kNumClasses; ++size_class) {
     SizeClassCapacityStats stats = GetSizeClassCapacityStats(size_class);
-    PbtxtRegion entry = region->CreateSubRegion("size_class_capacity");
+    PbtxtRegion entry = region.CreateSubRegion("size_class_capacity");
     entry.PrintI64("sizeclass", forwarder_.class_to_size(size_class));
     entry.PrintI64("min_capacity", stats.min_capacity);
     entry.PrintDouble("avg_capacity", stats.avg_capacity);
@@ -2632,16 +2632,16 @@ inline void CpuCache<Forwarder>::PrintInPbtxt(PbtxtRegion* region) const {
   }
 
   // Record dynamic slab statistics.
-  region->PrintI64("dynamic_per_cpu_slab_size", 1 << freelist_.GetShift());
+  region.PrintI64("dynamic_per_cpu_slab_size", 1 << freelist_.GetShift());
   for (int shift = 0; shift < kNumPossiblePerCpuShifts; ++shift) {
-    PbtxtRegion entry = region->CreateSubRegion("dynamic_slab");
+    PbtxtRegion entry = region.CreateSubRegion("dynamic_slab");
     entry.PrintI64("shift", shift + shift_bounds_.initial_shift);
     entry.PrintI64("grow_count", dynamic_slab_info_.grow_count[shift].load(
                                      std::memory_order_relaxed));
     entry.PrintI64("shrink_count", dynamic_slab_info_.shrink_count[shift].load(
                                        std::memory_order_relaxed));
   }
-  region->PrintI64(
+  region.PrintI64(
       "dynamic_slab_madvise_failed_bytes",
       dynamic_slab_info_.madvise_failed_bytes.load(std::memory_order_relaxed));
 }
