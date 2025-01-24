@@ -110,7 +110,7 @@ class HintedTrackerLists {
       auto& list = lists_[i];
       TC_ASSERT(!list.empty());
       for (TrackerType* pt : list) {
-        func(pt);
+        func(*pt);
       }
       i++;
       if (i < N) i = nonempty_.FindSet(i);

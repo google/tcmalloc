@@ -4118,7 +4118,7 @@ HugePageFiller: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pa
 HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pages from partial allocs), 5 hugepages broken
 )"));
 
-  absl::flat_hash_set<PageTracker*> expected_pts, actual_pts;
+  absl::flat_hash_set<const PageTracker*> expected_pts, actual_pts;
   for (const auto& alloc : allocs) {
     expected_pts.insert(alloc.pt);
   }
@@ -4127,16 +4127,16 @@ HugePageFiller: Subrelease stats last 10 min: total 282 pages subreleased (0 pag
   bool dupe_seen = false;
   {
     PageHeapSpinLockHolder l;
-    filler_.ForEachHugePage([&](PageTracker* pt) {
+    filler_.ForEachHugePage([&](const PageTracker& pt) {
       // We are holding the page heap lock, so refrain from allocating
       // (including using Google Test helpers).
-      dupe_seen = dupe_seen || actual_pts.contains(pt);
+      dupe_seen = dupe_seen || actual_pts.contains(&pt);
 
       if (actual_pts.size() == actual_pts.capacity()) {
         return;
       }
 
-      TC_CHECK(actual_pts.insert(pt).second);
+      TC_CHECK(actual_pts.insert(&pt).second);
     });
   }
   EXPECT_FALSE(dupe_seen);
