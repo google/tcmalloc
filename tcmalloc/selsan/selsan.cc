@@ -158,8 +158,8 @@ bool ShouldSample() {
   return (rand.Next() % 100) < percent;
 }
 
-void PrintTextStats(Printer* out) {
-  out->printf(R"(
+void PrintTextStats(Printer& out) {
+  out.printf(R"(
 ------------------------------------------------
 SelSan Status
 ------------------------------------------------
@@ -167,11 +167,11 @@ Enabled: %d
 Sampling percent: %d%%
 
 )",
-              enabled, SamplingPercent());
+             enabled, SamplingPercent());
 }
 
-void PrintPbtxtStats(PbtxtRegion* out) {
-  auto selsan = out->CreateSubRegion("selsan");
+void PrintPbtxtStats(PbtxtRegion& out) {
+  auto selsan = out.CreateSubRegion("selsan");
   selsan.PrintRaw("status", enabled ? "SELSAN_ENABLED" : "SELSAN_DISABLED");
 }
 
