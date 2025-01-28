@@ -174,11 +174,6 @@ class StaticForwarder {
   }
 
   static bool HaveHooks() { return tc_globals.HaveHooks(); }
-
-  // We use size class maximum capacities as configured in sizemap.
-  //
-  // TODO(b/311398687): re-enable this experiment.
-  static bool ConfigureSizeClassMaxCapacity() { return false; }
 };
 
 template <typename NumaTopology>
@@ -477,10 +472,6 @@ class CpuCache {
 
   // Reports if we should use a wider 512KiB slab.
   bool UseWiderSlabs() const;
-
-  // Reports if per-size-class maximum capacities configured in sizemap are
-  // used.
-  bool ConfigureSizeClassMaxCapacity() const;
 
   // Reports allowed slab shift initial and maximum bounds.
   SlabShiftBounds GetPerCpuSlabShiftBounds() const;
@@ -834,14 +825,8 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   //   89 * 8 + 8 * ((2048 + 1) * 10 + (152 + 1) * 78) = 254 KiB
   // For 512KiB slab, with a multiplier of 2, maximum footprint is:
   //   89 * 8 + 8 * ((4096 + 1) * 10 + (304 + 1) * 78) = 506 KiB
-  const uint16_t kSmallObjectDepth =
-      (ConfigureSizeClassMaxCapacity()
-           ? tc_globals.sizemap().max_capacity(size_class)
-           : 2048 * kWiderSlabMultiplier);
-  const uint16_t kLargeObjectDepth =
-      (ConfigureSizeClassMaxCapacity()
-           ? tc_globals.sizemap().max_capacity(size_class)
-           : 152 * kWiderSlabMultiplier);
+  const uint16_t kSmallObjectDepth = 2048 * kWiderSlabMultiplier;
+  const uint16_t kLargeObjectDepth = 152 * kWiderSlabMultiplier;
 #endif
   if (size_class == 0 || size_class >= kNumClasses) {
     return 0;
@@ -866,10 +851,7 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   if (ColdFeatureActive()) {
     // We reduce the number of cached objects for some sizes to fit into the
     // slab.
-    const uint16_t kLargeUninterestingObjectDepth =
-        (ConfigureSizeClassMaxCapacity()
-             ? tc_globals.sizemap().max_capacity(size_class)
-             : 133 * kWiderSlabMultiplier);
+    const uint16_t kLargeUninterestingObjectDepth = 133 * kWiderSlabMultiplier;
     const uint16_t kLargeInterestingObjectDepth = 28 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
@@ -936,11 +918,6 @@ inline bool CpuCache<Forwarder>::UseWiderSlabs() const {
   // We use wider 512KiB slab only when NUMA partitioning is not enabled. NUMA
   // increases shift by 1 by itself, so we can not increase it further.
   return !forwarder_.numa_topology().numa_aware();
-}
-
-template <class Forwarder>
-inline bool CpuCache<Forwarder>::ConfigureSizeClassMaxCapacity() const {
-  return forwarder_.ConfigureSizeClassMaxCapacity();
 }
 
 template <class Forwarder>

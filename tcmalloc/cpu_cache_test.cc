@@ -197,10 +197,6 @@ class TestStaticForwarder {
     return numa_topology_;
   }
 
-  bool ConfigureSizeClassMaxCapacity() const {
-    return configure_size_class_max_capacity_;
-  }
-
   using ShardedManager =
       ShardedTransferCacheManagerBase<FakeShardedTransferCacheManager,
                                       FakeCpuLayout,
@@ -238,7 +234,6 @@ class TestStaticForwarder {
   bool dynamic_slab_enabled_ = false;
   double dynamic_slab_grow_threshold_ = -1;
   double dynamic_slab_shrink_threshold_ = -1;
-  bool configure_size_class_max_capacity_ = false;
   DynamicSlab dynamic_slab_ = DynamicSlab::kNoop;
   std::optional<SizeMap> size_map_;
 

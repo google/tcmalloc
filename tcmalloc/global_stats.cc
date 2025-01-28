@@ -571,8 +571,6 @@ void DumpStats(Printer& out, int level) {
                Parameters::release_pages_from_huge_region() ? 1 : 0);
     out.printf("PARAMETER tcmalloc_use_wider_slabs %d\n",
                tc_globals.cpu_cache().UseWiderSlabs() ? 1 : 0);
-    out.printf("PARAMETER tcmalloc_configure_size_class_max_capacity %d\n",
-               tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity() ? 1 : 0);
 
     out.printf(
         "PARAMETER size_class_config %s\n",
@@ -789,8 +787,6 @@ void DumpStatsInPbtxt(Printer& out, int level) {
                   PerCpuTypeString(subtle::percpu::GetRseqVcpuMode()));
   region.PrintBool("tcmalloc_use_wider_slabs",
                    tc_globals.cpu_cache().UseWiderSlabs());
-  region.PrintBool("tcmalloc_configure_size_class_max_capacity",
-                   tc_globals.cpu_cache().ConfigureSizeClassMaxCapacity());
   region.PrintI64("span_max_cache_size", Parameters::max_span_cache_size());
   region.PrintI64("span_max_cache_array_size",
                   Parameters::max_span_cache_array_size());
