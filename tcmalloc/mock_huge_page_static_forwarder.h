@@ -15,6 +15,7 @@
 #ifndef TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 #define TCMALLOC_MOCK_HUGE_PAGE_STATIC_FORWARDER_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -154,13 +155,18 @@ class FakeStaticForwarder {
   [[nodiscard]] AddressRange AllocatePages(size_t bytes, size_t align,
                                            MemoryTag tag) {
     TC_CHECK(absl::has_single_bit(align), "align=%v", align);
-    fake_allocation_ = (fake_allocation_ + align - 1u) & ~(align - 1u);
+    uintptr_t allocation, aligned_allocation, new_allocation;
+    do {
+      allocation = fake_allocation_.load(std::memory_order_relaxed);
+      aligned_allocation = (allocation + align - 1u) & ~(align - 1u);
+      new_allocation = aligned_allocation + bytes;
+    } while (!fake_allocation_.compare_exchange_weak(
+        allocation, new_allocation, std::memory_order_relaxed));
 
     AddressRange ret{
-        reinterpret_cast<void*>(fake_allocation_ |
+        reinterpret_cast<void*>(aligned_allocation |
                                 (static_cast<uintptr_t>(tag) << kTagShift)),
         bytes};
-    fake_allocation_ += bytes;
     return ret;
   }
   void Back(Range r) {}
@@ -195,7 +201,7 @@ class FakeStaticForwarder {
   bool huge_cache_demand_based_release_ = false;
   Arena arena_;
 
-  uintptr_t fake_allocation_ = 0x1000;
+  std::atomic<uintptr_t> fake_allocation_ = 0x1000;
 
   template <typename T>
   class AllocAdaptor final {
