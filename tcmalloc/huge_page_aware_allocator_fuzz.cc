@@ -326,7 +326,8 @@ void FuzzHPAA(const std::string& s) {
           {
             PageHeapSpinLockHolder l;
             releasable_bytes = allocator->FillerStats().free_bytes +
-                               allocator->RegionsFreeBacked().in_bytes();
+                               allocator->RegionsFreeBacked().in_bytes() +
+                               allocator->CacheStats().free_bytes;
             released = allocator->ReleaseAtLeastNPagesBreakingHugepages(desired,
                                                                         reason);
             actual_stats = allocator->GetReleaseStats();

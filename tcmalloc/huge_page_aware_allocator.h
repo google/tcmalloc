@@ -220,6 +220,10 @@ class HugePageAwareAllocator final : public PageAllocatorInterface {
     return regions_.stats();
   }
 
+  BackingStats CacheStats() const ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
+    return cache_.stats();
+  }
+
   HugeLength DonatedHugePages() const
       ABSL_EXCLUSIVE_LOCKS_REQUIRED(pageheap_lock) {
     return donated_huge_pages_;
@@ -1141,6 +1145,17 @@ HugePageAwareAllocator<Forwarder>::ReleaseAtLeastNPagesBreakingHugepages(
   // filler.
 
   Length released;
+
+  if (forwarder_.huge_cache_demand_based_release()) {
+    released += cache_
+                    .ReleaseCachedPagesByDemand(HLFromPages(n),
+                                                SkipSubreleaseIntervals{},
+                                                /*hit_limit=*/true)
+                    .in_pages();
+  } else {
+    released += cache_.ReleaseCachedPages(HLFromPages(n)).in_pages();
+  }
+
   // We try to release as many free hugepages from HugeRegion as possible.
   if (forwarder_.huge_region_demand_based_release()) {
     released += regions_.ReleasePagesByPeakDemand(

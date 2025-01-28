@@ -441,6 +441,24 @@ TEST_P(HugePageAwareAllocatorTest, ReleasingLargeForBackgroundActions) {
   }
 }
 
+TEST_P(HugePageAwareAllocatorTest, ReleasingMemoryLimitHit) {
+  // Tests that we can release when the memory limit is hit, irrespective of
+  // whether the demand-based release is enabled or not. We test this by
+  // alternating the state of the demand-based release flag.
+  bool enabled = allocator_->forwarder().huge_cache_demand_based_release();
+  constexpr int kNumIterations = 100;
+  const SpanAllocInfo kSpanInfo = {1, AccessDensityPrediction::kSparse};
+  for (int i = 0; i < kNumIterations; ++i) {
+    Delete(New(kPagesPerHugePage, kSpanInfo), kSpanInfo.objects_per_span);
+    EXPECT_EQ(ReleaseAtLeastNPagesBreakingHugepages(
+                  kPagesPerHugePage,
+                  /*reason=*/PageReleaseReason::kSoftLimitExceeded),
+              kPagesPerHugePage);
+    enabled = !enabled;
+    allocator_->forwarder().set_huge_cache_demand_based_release(enabled);
+  }
+}
+
 TEST_P(HugePageAwareAllocatorTest,
        ReleasingLargeForBackgroundActionsWithZeroIntervals) {
   // Tests that the configured intervals can be passed to HugeCache: release is
