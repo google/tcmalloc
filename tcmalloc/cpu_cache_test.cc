@@ -185,14 +185,6 @@ class TestStaticForwarder {
     }
   }
 
-  size_t max_capacity(int size_class) const {
-    if (size_map_.has_value()) {
-      return size_map_->max_capacity(size_class);
-    } else {
-      return 2048;
-    }
-  }
-
   const NumaTopology<kNumaPartitions, kNumBaseClasses>& numa_topology() const {
     return numa_topology_;
   }
@@ -1044,7 +1036,7 @@ TEST(CpuCacheTest, ResizeSizeClassesTest) {
 
   constexpr int kSmallClass = 1;
   constexpr int kLargeClass = 2;
-  const int kMaxCapacity = cache.forwarder().max_capacity(kLargeClass);
+  constexpr int kMaxCapacity = 2048;
 
   const size_t large_class_size = cache.forwarder().class_to_size(kLargeClass);
   ASSERT_GT(large_class_size * kMaxCapacity, max_cpu_cache_size);

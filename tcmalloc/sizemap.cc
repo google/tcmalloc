@@ -157,7 +157,6 @@ bool SizeMap::SetSizeClasses(absl::Span<const SizeClassInfo> size_classes) {
     class_to_size_[curr] = size_classes[c].size;
     class_to_pages_[curr] = size_classes[c].pages;
     num_objects_to_move_[curr] = size_classes[c].num_to_move;
-    max_capacity_[curr] = size_classes[c].max_capacity;
     ++curr;
   }
 

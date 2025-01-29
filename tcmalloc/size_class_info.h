@@ -40,10 +40,6 @@ struct SizeClassInfo {
   // cause unnecessary memory wastage in the per-thread free list until the
   // scavenger cleans up the list.
   uint8_t num_to_move;
-
-  // Max per-CPU slab capacity for the default 256KB slab size.
-  // Scaled up/down for larger/smaller slab sizes.
-  uint32_t max_capacity;
 };
 
 struct SizeClassAssumptions {
