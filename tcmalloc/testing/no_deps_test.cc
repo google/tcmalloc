@@ -29,6 +29,8 @@
 #include <string>
 
 #include "absl/base/macros.h"
+#include "absl/strings/str_format.h"
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal_malloc_extension.h"
 #include "tcmalloc/malloc_extension.h"
 
@@ -73,7 +75,7 @@ int main() {
     step = std::max(step, size / 32);
   }
 
-  constexpr const char* kProperties[] = {
+  constexpr absl::string_view kProperties[] = {
       // TODO(b/329837900):  Source all properties from GetProperties, rather
       // than a hard-coded list.
       //
@@ -117,24 +119,24 @@ int main() {
   MallocExtension_Internal_GetProperties(&properties);
 
   for (int i = 0; i < ABSL_ARRAYSIZE(kProperties); ++i) {
-    const char* property = kProperties[i];
+    absl::string_view property = kProperties[i];
     size_t value;
     bool ret = MallocExtension_Internal_GetNumericProperty(
-        property, strlen(property), &value);
+        property.data(), property.size(), &value);
 
     scalar_values[i] = ret ? value : 0;
   }
 
   MallocExtension_Internal_GetProperties(&properties);
   for (int i = 0; i < ABSL_ARRAYSIZE(kProperties); ++i) {
-    const char* property = kProperties[i];
+    absl::string_view property = kProperties[i];
     const size_t scalar_value = scalar_values[i];
-    const size_t set_value = properties[property].value;
+    const size_t set_value = properties[std::string(property)].value;
 
     const size_t tolerance = set_value * 0.01;
 
-    fprintf(stderr, "property '%s': scalar %zu versus set %zu\n", property,
-            scalar_value, set_value);
+    absl::FPrintF(stderr, "property '%s': scalar %zu versus set %zu\n",
+                  property, scalar_value, set_value);
     if (scalar_value < set_value - tolerance &&
         scalar_value > set_value + tolerance) {
       abort();

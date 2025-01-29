@@ -224,6 +224,7 @@ create_tcmalloc_testsuite(
     deps = [
         "//tcmalloc:malloc_extension",
         "//tcmalloc/internal:logging",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -370,6 +371,8 @@ create_tcmalloc_testsuite(
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 
@@ -381,6 +384,8 @@ create_tcmalloc_testsuite(
     deps = [
         "//tcmalloc:malloc_extension",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 

@@ -27,11 +27,12 @@
 
 #include <algorithm>
 
+#include "absl/strings/string_view.h"
 #include "tcmalloc/internal/logging.h"
 #include "tcmalloc/malloc_extension.h"
 
 int main() {
-  const char kCurrent[] = "generic.current_allocated_bytes";
+  constexpr absl::string_view kCurrent = "generic.current_allocated_bytes";
   size_t before_bytes =
       *tcmalloc::MallocExtension::GetNumericProperty(kCurrent);
 

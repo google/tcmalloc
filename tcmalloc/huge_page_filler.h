@@ -1443,7 +1443,7 @@ class UsageInfo {
     return it - lifetime_bucket_bounds_ - 1;
   }
 
-  void PrintHisto(Printer& out, Histo h, Type type, const char blurb[],
+  void PrintHisto(Printer& out, Histo h, Type type, absl::string_view blurb,
                   size_t offset) {
     out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < buckets_size_; ++i) {
@@ -1456,7 +1456,7 @@ class UsageInfo {
   }
 
   void PrintLifetimeHisto(Printer& out, Histo h, Type type,
-                          const char blurb[]) {
+                          absl::string_view blurb) {
     out.printf("\nHugePageFiller: # of %s %s", TypeToStr(type), blurb);
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (i % 6 == 0) {
@@ -1467,7 +1467,8 @@ class UsageInfo {
     out.printf("\n");
   }
 
-  void PrintHisto(PbtxtRegion& hpaa, Histo h, const char key[], size_t offset) {
+  void PrintHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key,
+                  size_t offset) {
     for (size_t i = 0; i < buckets_size_; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
@@ -1480,7 +1481,7 @@ class UsageInfo {
     }
   }
 
-  void PrintLifetimeHisto(PbtxtRegion& hpaa, Histo h, const char key[]) {
+  void PrintLifetimeHisto(PbtxtRegion& hpaa, Histo h, absl::string_view key) {
     for (size_t i = 0; i < kLifetimeBuckets; ++i) {
       if (h[i] == 0) continue;
       auto hist = hpaa.CreateSubRegion(key);
