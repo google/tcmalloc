@@ -657,10 +657,10 @@ TEST_F(TcMallocTest, MismatchedSizeClassInFreelistInsertion) {
           ::operator delete(ptr, 5);
         }
       },
-      "Mismatched-size-class.*size argument in the range \\[1, "
-      "8\\].*allocations with sizes \\[9, 16\\]"
-      "|size check failed"
-      "|alloc-dealloc-mismatch");
+      absl::StrCat(
+          "(Mismatched-size-class.*size argument in the range \\[1, "
+          "8\\].*allocations with sizes \\[9, 16\\]"
+          ")|size check failed|alloc-dealloc-mismatch"));
 }
 
 }  // namespace
