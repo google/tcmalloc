@@ -168,8 +168,8 @@ StatsTracker: minimum free pages: 110 (100 backed)
 StatsTracker: at peak demand: 208 pages (and 111 free, 10 unmapped)
 StatsTracker: at peak demand: 26 hps (14 regular, 10 donated, 1 partial, 1 released)
 
-StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to either recent (0s) peaks, or the sum of short-term (0s) fluctuations and long-term (0s) trends.
-StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending), as per anticipated 0s realized fragmentation.
+StatsTracker: Since the start of the execution, 0 subreleases (0 pages) were skipped due to the sum of short-term (0s) fluctuations and long-term (0s) trends.
+StatsTracker: 0.0000% of decisions confirmed correct, 0 pending (0.0000% of pages, 0 pending).
 StatsTracker: Subrelease stats last 10 min: total 0 pages subreleased (0 pages from partial allocs), 0 hugepages broken
 )"));
   }
@@ -181,33 +181,6 @@ TEST_F(StatsTrackerTest, InvalidDurations) {
   tracker_.min_free_pages(kWindow + absl::Seconds(1));
   tracker_.min_free_pages(-(kWindow + absl::Seconds(1)));
   tracker_.min_free_pages(-absl::InfiniteDuration());
-}
-
-TEST_F(StatsTrackerTest, ComputeRecentPeaks) {
-  GenerateDemandPoint(Length(3000), Length(1000));
-  Advance(absl::Minutes(1.25));
-  GenerateDemandPoint(Length(1500), Length(0));
-  Advance(absl::Minutes(1));
-  GenerateDemandPoint(Length(100), Length(2000));
-  Advance(absl::Minutes(1));
-  GenerateDemandPoint(Length(500), Length(3000));
-
-  Length peak = tracker_.GetRecentPeak(absl::Minutes(3));
-  EXPECT_EQ(peak, Length(1500));
-  Length peak2 = tracker_.GetRecentPeak(absl::Minutes(5));
-  EXPECT_EQ(peak2, Length(3000));
-
-  Advance(absl::Minutes(4));
-  GenerateDemandPoint(Length(200), Length(3000));
-
-  Length peak3 = tracker_.GetRecentPeak(absl::Minutes(4));
-  EXPECT_EQ(peak3, Length(200));
-
-  Advance(absl::Minutes(5));
-  GenerateDemandPoint(Length(150), Length(3000));
-
-  Length peak4 = tracker_.GetRecentPeak(absl::Minutes(5));
-  EXPECT_EQ(peak4, Length(150));
 }
 
 TEST_F(StatsTrackerTest, ComputeRecentDemand) {

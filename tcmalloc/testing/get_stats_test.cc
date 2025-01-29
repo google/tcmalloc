@@ -99,7 +99,6 @@ TEST_F(GetStatsTest, Pbtxt) {
               HasSubstr(absl::StrCat("profile_sampling_interval: ",
                                      Parameters::profile_sampling_interval())));
   EXPECT_THAT(buf, HasSubstr("limit_hits: 0"));
-  EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_interval_ns: 0"));
 #ifdef TCMALLOC_INTERNAL_SMALL_BUT_SLOW
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_short_interval_ns: 0"));
   EXPECT_THAT(buf, HasSubstr("tcmalloc_skip_subrelease_long_interval_ns: 0"));
@@ -147,7 +146,6 @@ TEST_F(GetStatsTest, Parameters) {
 #endif  // TCMALLOC_DEPRECATED_PERTHREAD
   Parameters::set_max_per_cpu_cache_size(-1);
   Parameters::set_max_total_thread_cache_bytes(-1);
-  Parameters::set_filler_skip_subrelease_interval(absl::Seconds(1));
   Parameters::set_filler_skip_subrelease_short_interval(absl::Seconds(2));
   Parameters::set_filler_skip_subrelease_long_interval(absl::Seconds(3));
   Parameters::set_cache_demand_release_short_interval(absl::Seconds(4));
@@ -174,8 +172,6 @@ TEST_F(GetStatsTest, Parameters) {
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_max_total_thread_cache_bytes -1)"));
-    EXPECT_THAT(buf,
-                HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1s)"));
     EXPECT_THAT(
         buf,
         HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2s)"));
@@ -207,9 +203,6 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: -1)"));
     EXPECT_THAT(
         pbtxt,
-        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 1000000000)"));
-    EXPECT_THAT(
-        pbtxt,
         HasSubstr(R"(tcmalloc_skip_subrelease_short_interval_ns: 2000000000)"));
     EXPECT_THAT(
         pbtxt,
@@ -236,7 +229,6 @@ TEST_F(GetStatsTest, Parameters) {
   Parameters::set_per_cpu_caches(true);
   Parameters::set_max_per_cpu_cache_size(3 << 20);
   Parameters::set_max_total_thread_cache_bytes(4 << 20);
-  Parameters::set_filler_skip_subrelease_interval(absl::Milliseconds(60125));
   Parameters::set_filler_skip_subrelease_short_interval(
       absl::Milliseconds(120250));
   Parameters::set_filler_skip_subrelease_long_interval(
@@ -272,9 +264,6 @@ TEST_F(GetStatsTest, Parameters) {
                  R"(PARAMETER tcmalloc_max_total_thread_cache_bytes 4194304)"));
     EXPECT_THAT(
         buf,
-        HasSubstr(R"(PARAMETER tcmalloc_skip_subrelease_interval 1m0.125s)"));
-    EXPECT_THAT(
-        buf,
         HasSubstr(
             R"(PARAMETER tcmalloc_skip_subrelease_short_interval 2m0.25s)"));
     EXPECT_THAT(
@@ -300,9 +289,6 @@ TEST_F(GetStatsTest, Parameters) {
                 HasSubstr(R"(tcmalloc_max_per_cpu_cache_size: 3145728)"));
     EXPECT_THAT(pbtxt,
                 HasSubstr(R"(tcmalloc_max_total_thread_cache_bytes: 4194304)"));
-    EXPECT_THAT(
-        pbtxt,
-        HasSubstr(R"(tcmalloc_skip_subrelease_interval_ns: 60125000000)"));
     EXPECT_THAT(
         pbtxt,
         HasSubstr(

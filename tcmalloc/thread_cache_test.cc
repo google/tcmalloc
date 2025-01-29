@@ -116,8 +116,14 @@ TEST_F(ThreadCacheTest, NoLeakOnThreadDestruction) {
   }
 
   // Flush the page heap.  Our allocations may have been retained.
-  if (TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval != nullptr) {
-    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseInterval(
+  if (TCMalloc_Internal_GetHugePageFillerSkipSubreleaseShortInterval !=
+      nullptr) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseShortInterval(
+        absl::ZeroDuration());
+  }
+  if (TCMalloc_Internal_GetHugePageFillerSkipSubreleaseLongInterval !=
+      nullptr) {
+    TCMalloc_Internal_SetHugePageFillerSkipSubreleaseLongInterval(
         absl::ZeroDuration());
   }
   MallocExtension::ReleaseMemoryToSystem(std::numeric_limits<size_t>::max());
