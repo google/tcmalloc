@@ -188,18 +188,15 @@ SizeClassConfiguration Static::size_class_configuration() {
 
   const char* e = thread_safe_getenv("TCMALLOC_LEGACY_SIZE_CLASSES");
   if (e == nullptr) {
-    // TODO(b/358126781): Change this to use reuse size classes.
-    return SizeClassConfiguration::kPow2Below64;
+    return SizeClassConfiguration::kReuse;
   } else if (!strcmp(e, "pow2below64")) {
     return SizeClassConfiguration::kPow2Below64;
   } else if (!strcmp(e, "0")) {
-    // TODO(b/358126781): Change this to use reuse size classes.
-    return SizeClassConfiguration::kPow2Below64;
+    return SizeClassConfiguration::kReuse;
   } else {
     TC_BUG("bad TCMALLOC_LEGACY_SIZE_CLASSES env var '%s'", e);
   }
-  // TODO(b/358126781): Change this to use reuse size classes.
-  return SizeClassConfiguration::kPow2Below64;
+  return SizeClassConfiguration::kReuse;
 }
 
 ABSL_ATTRIBUTE_COLD ABSL_ATTRIBUTE_NOINLINE void Static::SlowInitIfNecessary() {

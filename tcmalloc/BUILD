@@ -1323,6 +1323,7 @@ cc_test(
     deps = [
         ":common_8k_pages",
         ":mock_transfer_cache",
+        ":size_class_info",
         "//tcmalloc/internal:affinity",
         "//tcmalloc/internal:logging",
         "//tcmalloc/internal:optimization",

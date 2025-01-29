@@ -141,6 +141,11 @@ class StaticForwarder {
     return Parameters::per_cpu_caches_dynamic_slab_shrink_threshold();
   }
 
+  static bool reuse_size_classes() {
+    return tc_globals.size_class_configuration() ==
+           SizeClassConfiguration::kReuse;
+  }
+
   static size_t class_to_size(int size_class) {
     return tc_globals.sizemap().class_to_size(size_class);
   }
@@ -851,8 +856,15 @@ inline size_t CpuCache<Forwarder>::MaxCapacity(size_t size_class) const {
   if (ColdFeatureActive()) {
     // We reduce the number of cached objects for some sizes to fit into the
     // slab.
-    const uint16_t kLargeUninterestingObjectDepth = 133 * kWiderSlabMultiplier;
-    const uint16_t kLargeInterestingObjectDepth = 28 * kWiderSlabMultiplier;
+    //
+    // We use fewer number of size classes when using reuse size classes. So,
+    // we may use larger capacity for some sizes.
+    const uint16_t kLargeUninterestingObjectDepth =
+        forwarder_.reuse_size_classes() ? 246 * kWiderSlabMultiplier
+                                        : 133 * kWiderSlabMultiplier;
+    const uint16_t kLargeInterestingObjectDepth =
+        forwarder_.reuse_size_classes() ? 46 * kWiderSlabMultiplier
+                                        : 28 * kWiderSlabMultiplier;
 
     absl::Span<const size_t> cold = forwarder_.cold_size_classes();
     if (absl::c_binary_search(cold, size_class)) {

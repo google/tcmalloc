@@ -46,6 +46,7 @@
 #include "tcmalloc/internal/sysinfo.h"
 #include "tcmalloc/mock_transfer_cache.h"
 #include "tcmalloc/parameters.h"
+#include "tcmalloc/size_class_info.h"
 #include "tcmalloc/sizemap.h"
 #include "tcmalloc/static_vars.h"
 #include "tcmalloc/tcmalloc_policy.h"
@@ -160,6 +161,8 @@ class TestStaticForwarder {
                ? std::numeric_limits<double>::max()
                : -1.0;
   }
+
+  bool reuse_size_classes() const { return true; }
 
   size_t class_to_size(int size_class) const {
     if (size_map_.has_value()) {
@@ -1167,7 +1170,7 @@ TEST(CpuCacheTest, DynamicSlabThreshold) {
   forwarder.dynamic_slab_enabled_ = true;
   forwarder.dynamic_slab_grow_threshold_ = kDynamicSlabGrowThreshold;
   SizeMap size_map;
-  size_map.Init(kSizeClasses.classes);
+  size_map.Init(size_map.CurrentClasses().classes);
   forwarder.size_map_ = size_map;
 
   cache.Activate();
@@ -1221,7 +1224,7 @@ TEST(CpuCacheTest, DynamicSlabParamsChange) {
 #endif
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses.classes);
+  size_map.Init(size_map.CurrentClasses().classes);
   for (bool initially_enabled : {false, true}) {
     for (DynamicSlab initial_dynamic_slab :
          {DynamicSlab::kGrow, DynamicSlab::kShrink, DynamicSlab::kNoop}) {
@@ -1281,7 +1284,7 @@ TEST(CpuCacheTest, MaxCapacityResizeFailedBytesMlocked) {
   cache.Activate();
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses.classes);
+  size_map.Init(size_map.CurrentClasses().classes);
   forwarder.size_map_ = size_map;
 
   std::vector<std::thread> threads;
@@ -1330,7 +1333,7 @@ TEST(CpuCacheTest, SlabResizeFailedBytesMlocked) {
   cache.Activate();
 
   SizeMap size_map;
-  size_map.Init(kSizeClasses.classes);
+  size_map.Init(size_map.CurrentClasses().classes);
   forwarder.size_map_ = size_map;
 
   std::vector<std::thread> threads;
