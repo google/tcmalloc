@@ -626,6 +626,12 @@ inline sized_ptr_t do_malloc_pages(size_t size, size_t weight, Policy policy) {
   return res;
 }
 
+ABSL_ATTRIBUTE_NORETURN
+ABSL_ATTRIBUTE_NOINLINE
+static void ReportDoubleFree(void* ptr) {
+  TC_BUG("Possible double free detected of %p", ptr);
+}
+
 // Handles freeing object that doesn't have size class, i.e. which
 // is either large or sampled. We explicitly prevent inlining it to
 // keep it out of fast-path. This helps avoid expensive
@@ -641,7 +647,9 @@ static void InvokeHooksAndFreePages(void* ptr, std::optional<size_t> size) {
   // We may also encounter this if we free a pointer that was never allocated
   // (it's corrupted, it's an interior pointer to another allocation separated
   // by more than kPageSize from the true pointer, etc.).
-  TC_CHECK_NE(span, nullptr, "Possible double free detected");
+  if (ABSL_PREDICT_FALSE(span == nullptr)) {
+    ReportDoubleFree(ptr);
+  }
 
   MaybeUnsampleAllocation(tc_globals, ptr, size, *span);
 

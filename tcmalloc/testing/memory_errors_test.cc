@@ -371,9 +371,8 @@ TEST_F(TcMallocTest, DoubleFree) {
     ::operator delete(buf);
   };
   EXPECT_DEATH(DoubleFree(),
-               "span != nullptr|Span::Unsample\\(\\)|Span::IN_USE|"
-               "InvokeHooksAndFreePages\\(\\)|"
-               "attempting double-free");
+               "Span::Unsample\\(\\)|Span::IN_USE|Possible double free "
+               "detected|attempting double-free");
 }
 
 TEST_F(TcMallocTest, LargeDoubleFree) {
@@ -386,9 +385,8 @@ TEST_F(TcMallocTest, LargeDoubleFree) {
     benchmark::DoNotOptimize(buf);
     ::operator delete(buf);
   };
-  EXPECT_DEATH(
-      DoubleFree(),
-      "span != nullptr.*Possible double free detected|attempting double-free");
+  EXPECT_DEATH(DoubleFree(),
+               "Possible double free detected|attempting double-free");
 }
 
 TEST_F(TcMallocTest, ReallocLarger) {
