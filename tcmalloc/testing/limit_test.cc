@@ -430,7 +430,9 @@ void LimitTest::LimitChangeTriggersReleaseLargeAllocs() {
   const size_t new_unmapped =
       *MallocExtension::GetNumericProperty("tcmalloc.pageheap_unmapped_bytes");
 
-  EXPECT_LT(new_free, kSize / 2);
+  // We use an upper bound of 0.6 * kSize, since background allocations can
+  // throw off our stats.
+  EXPECT_LT(new_free, 0.6 * kSize);
   EXPECT_GE(new_unmapped,
             old_unmapped + (old_free > new_free ? old_free - new_free : 0) / 2)
       << new_unmapped << " " << old_unmapped << " " << new_free << " "
