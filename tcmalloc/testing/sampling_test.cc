@@ -101,7 +101,7 @@ TEST_P(SamplingTest, ParamChange) {
         MallocExtension::SnapshotCurrent(ProfileType::kHeap));
     if (GetParam() > 0) {
       EXPECT_LE(500 * 1024 * 1024, bytes);
-      EXPECT_GE(1000 * 1024 * 1024, bytes);
+      EXPECT_GE(1100 * 1024 * 1024, bytes);
     } else {
       EXPECT_EQ(0, bytes);
     }
@@ -118,12 +118,12 @@ TEST_P(SamplingTest, ParamChange) {
   bytes = CountMatchingBytes<true>(
       "AllocateAllocate", MallocExtension::SnapshotCurrent(ProfileType::kHeap));
   if (GetParam() > 0) {
-    EXPECT_LE(1000 * 1024 * 1024, bytes);
-    EXPECT_GE(2000 * 1024 * 1024, bytes);
+    EXPECT_LE(1000ULL * 1024 * 1024, bytes);
+    EXPECT_GE(2100ULL * 1024 * 1024, bytes);
   } else {
     // samples that don't exist can't be reweighted properly
-    EXPECT_LE(500 * 1024 * 1024, bytes);
-    EXPECT_GE(1000 * 1024 * 1024, bytes);
+    EXPECT_LE(500ULL * 1024 * 1024, bytes);
+    EXPECT_GE(1100ULL * 1024 * 1024, bytes);
   }
 
   for (auto p : allocs) {
