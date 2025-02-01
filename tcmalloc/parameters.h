@@ -96,9 +96,7 @@ class Parameters {
     return huge_region_demand_based_release_.load(std::memory_order_relaxed);
   }
 
-  static bool huge_cache_demand_based_release() {
-    return huge_cache_demand_based_release_.load(std::memory_order_relaxed);
-  }
+  static bool huge_cache_demand_based_release();
 
   static void set_huge_cache_demand_based_release(bool value) {
     TCMalloc_Internal_SetHugeCacheDemandBasedRelease(value);

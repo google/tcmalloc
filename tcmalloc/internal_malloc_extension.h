@@ -93,6 +93,7 @@ ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_GetSkipSubreleaseShortInterval(absl::Duration* ret);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_GetSkipSubreleaseLongInterval(
     absl::Duration* ret);
+ABSL_ATTRIBUTE_WEAK bool MallocExtension_Internal_GetCacheDemandBasedRelease();
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_GetCacheDemandReleaseShortInterval(
     absl::Duration* ret);
@@ -116,6 +117,8 @@ ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetSkipSubreleaseShortInterval(absl::Duration value);
 ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetSkipSubreleaseLongInterval(
     absl::Duration value);
+ABSL_ATTRIBUTE_WEAK void MallocExtension_Internal_SetCacheDemandBasedRelease(
+    bool value);
 ABSL_ATTRIBUTE_WEAK void
 MallocExtension_Internal_SetCacheDemandReleaseShortInterval(
     absl::Duration value);

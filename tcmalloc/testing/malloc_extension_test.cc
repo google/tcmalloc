@@ -81,7 +81,7 @@ TEST(MallocExtension, SkipSubreleaseIntervals) {
             absl::ZeroDuration());
 }
 
-TEST(MallocExtension, CacheDemandReleaseIntervals) {
+TEST(MallocExtension, CacheDemandBasedReleaseConfigurations) {
 
   // Mutate via MallocExtension.
   MallocExtension::SetCacheDemandReleaseShortInterval(absl::Seconds(50));
@@ -90,6 +90,8 @@ TEST(MallocExtension, CacheDemandReleaseIntervals) {
   MallocExtension::SetCacheDemandReleaseLongInterval(absl::Seconds(60));
   EXPECT_EQ(MallocExtension::GetCacheDemandReleaseLongInterval(),
             absl::Seconds(60));
+  MallocExtension::SetCacheDemandBasedRelease(false);
+  EXPECT_EQ(MallocExtension::GetCacheDemandBasedRelease(), false);
 
   // Sets all intervals to zero, this means no history is considered for
   // demand-based release.
