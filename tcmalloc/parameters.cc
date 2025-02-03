@@ -262,6 +262,8 @@ ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_grow_threshold_(0.9);
 ABSL_CONST_INIT std::atomic<double>
     Parameters::per_cpu_caches_dynamic_slab_shrink_threshold_(0.4);
+ABSL_CONST_INIT std::atomic<bool>
+    Parameters::dense_trackers_sorted_on_spans_allocated_(false);
 
 ABSL_CONST_INIT std::atomic<int64_t> Parameters::profile_sampling_interval_(
     kDefaultProfileSamplingInterval);
@@ -303,19 +305,6 @@ absl::Duration Parameters::cache_demand_release_long_interval() {
 bool Parameters::huge_cache_demand_based_release() {
   return huge_cache_demand_based_release_enabled().load(
       std::memory_order_relaxed);
-}
-
-bool Parameters::dense_trackers_sorted_on_spans_allocated() {
-  ABSL_CONST_INIT static absl::once_flag flag;
-  ABSL_CONST_INIT static std::atomic<bool> v{false};
-  absl::base_internal::LowLevelCallOnce(&flag, [&]() {
-    v.store(
-        IsExperimentActive(
-            Experiment::
-                TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED),
-        std::memory_order_relaxed);
-  });
-  return v;
 }
 
 int32_t Parameters::max_per_cpu_cache_size() {

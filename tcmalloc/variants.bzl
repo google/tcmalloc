@@ -169,12 +169,6 @@ test_variants = [
         "copts": [],
     },
     {
-        "name": "dense_trackers_sorted_on_spans_allocated_test",
-        "malloc": "//tcmalloc",
-        "deps": ["//tcmalloc:common_8k_pages"],
-        "env": {"BORG_EXPERIMENTS": "TEST_ONLY_TCMALLOC_DENSE_TRACKERS_SORTED_ON_SPANS_ALLOCATED"},
-    },
-    {
         "name": "huge_cache_release_30s",
         "malloc": "//tcmalloc",
         "deps": ["//tcmalloc:common_8k_pages"],
