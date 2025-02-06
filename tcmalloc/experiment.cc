@@ -30,6 +30,7 @@
 #include "absl/functional/function_ref.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
@@ -122,7 +123,8 @@ void ParseExperiments(absl::string_view labels, F f) {
 
 const bool* SelectExperiments(bool* buffer, absl::string_view test_target,
                               absl::string_view active,
-                              absl::string_view disabled, bool unset) {
+                              absl::string_view disabled,
+                              bool unset) {
   memset(buffer, 0, sizeof(*buffer) * kNumExperiments);
 
   if (active == kEnableAll) {
