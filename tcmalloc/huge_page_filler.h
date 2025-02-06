@@ -1290,10 +1290,6 @@ class UsageInfo {
       ++low_occupancy_lifetime_histo_[which][LifetimeBucketNum(lifetime)];
     }
 
-    if (which == kSparseRegular) {
-      nalloc_free_page_histo_[BucketNum(nalloc - 1)]
-                             [BucketNum(free.raw_num())]++;
-    }
 
     if (IsHugepageBacked(pt, pageflags)) {
       ++hugepage_backed_[which];
@@ -1325,22 +1321,6 @@ class UsageInfo {
       if (type == kDonated) continue;
       PrintHisto(out, nalloc_histo_[type], type,
                  "hps with a<= # of allocations <b", 1);
-    }
-    // nalloc_free_page_histo_ has data for only kSparseRegular.
-    for (int j = 0; j < buckets_size_; ++j) {
-      if (nalloc_histo_[kSparseRegular][j] == 0) continue;
-      if (j == 0) {
-        out.printf(
-            "\nHugePageFiller: # of %s hps with allocated spans (%3zu, %6zu]",
-            TypeToStr(kSparseRegular), 0, bucket_bounds_[j] + 1);
-      } else {
-        out.printf(
-            "\nHugePageFiller: # of %s hps with allocated spans (%3zu, %6zu]",
-            TypeToStr(kSparseRegular), bucket_bounds_[j - 1] + 1,
-            bucket_bounds_[j] + 1);
-      }
-      PrintHisto(out, nalloc_free_page_histo_[j], kSparseRegular,
-                 "hps with a<= # of free pages <b", 0);
     }
 
     for (int i = 0; i < kNumTypes; ++i) {
@@ -1391,19 +1371,6 @@ class UsageInfo {
                          "low_occupancy_lifetime_histogram");
       PrintHisto(scoped, long_lived_hps_histo_[i],
                  "long_lived_hugepages_histogram", 0);
-      if (type == kSparseRegular) {
-        for (int j = 0; j < buckets_size_; ++j) {
-          if (nalloc_histo_[i][j] == 0) continue;
-          PbtxtRegion twodhist =
-              hpaa.CreateSubRegion("allocations_free_pages_histogram");
-          twodhist.PrintI64("lower_bound", bucket_bounds_[j] + 1);
-          twodhist.PrintI64("upper_bound", (j == buckets_size_ - 1
-                                                ? bucket_bounds_[j]
-                                                : bucket_bounds_[j + 1] - 1) +
-                                               1);
-          PrintHisto(twodhist, nalloc_free_page_histo_[j], "entry", 0);
-        }
-      }
       scoped.PrintI64("total_pages", total_pages_[type]);
       scoped.PrintI64("num_pages_hugepage_backed", hugepage_backed_[type]);
     }
@@ -1558,15 +1525,6 @@ class UsageInfo {
   LifetimeHisto lifetime_histo_[kNumTypes]{};
   Histo long_lived_hps_histo_[kNumTypes]{};
   LifetimeHisto low_occupancy_lifetime_histo_[kNumTypes]{};
-  // TODO(b/282993806): drop nalloc_free_page_histo_ after experiment is done.
-  // Two dimensional histogram.  The outer histogram is indexed using the number
-  // of allocations.  The nested histogram is indexed using the number of free
-  // pages.
-  //
-  // Unlike the histograms above, which have separate histograms for each type,
-  // the histogram below has data only for kSparseRegular hugepages.  This is
-  // being done to reduce the amount of space required.
-  Histo nalloc_free_page_histo_[kBucketCapacity]{};
   size_t bucket_bounds_[kBucketCapacity];
   size_t lifetime_bucket_bounds_[kBucketCapacity];
   size_t hugepage_backed_[kNumTypes] = {0};

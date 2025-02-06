@@ -3767,42 +3767,6 @@ HugePageFiller: <161<=     0 <177<=     0 <193<=     0 <209<=     0 <225<=     0
 HugePageFiller: <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0 <254<=     0
 HugePageFiller: <255<=     0 <256<=     0
 
-HugePageFiller: # of sparsely-accessed regular hps with allocated spans (  0,      1]
-HugePageFiller: # of sparsely-accessed regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     0 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     1
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
-
-HugePageFiller: # of sparsely-accessed regular hps with allocated spans (  1,      2]
-HugePageFiller: # of sparsely-accessed regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     1 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
-
-HugePageFiller: # of sparsely-accessed regular hps with allocated spans (  2,      3]
-HugePageFiller: # of sparsely-accessed regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     1 <  1<=     0 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
-
-HugePageFiller: # of sparsely-accessed regular hps with allocated spans (  3,      4]
-HugePageFiller: # of sparsely-accessed regular hps with a<= # of free pages <b
-HugePageFiller: <  0<=     1 <  1<=     1 <  2<=     0 <  3<=     0 <  4<=     0 <  5<=     0
-HugePageFiller: <  6<=     0 <  7<=     0 <  8<=     0 < 16<=     0 < 32<=     0 < 48<=     0
-HugePageFiller: < 64<=     0 < 80<=     0 < 96<=     0 <112<=     0 <128<=     0 <144<=     0
-HugePageFiller: <160<=     0 <176<=     0 <192<=     0 <208<=     0 <224<=     0 <240<=     0
-HugePageFiller: <248<=     0 <249<=     0 <250<=     0 <251<=     0 <252<=     0 <253<=     0
-HugePageFiller: <254<=     0 <255<=     0
-
 HugePageFiller: # of sparsely-accessed regular hps with lifetime a <= # hps < b
 HugePageFiller: <   0 ms <=      5 <   1 ms <=      0 <  10 ms <=      0 < 100 ms <=      0 < 1000 ms <=      0 < 10000 ms <=      0
 HugePageFiller: < 100000 ms <=      0 < 1000000 ms <=      0
